@@ -1,0 +1,23 @@
+[package]
+name = "sailry-host"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+sailry-node-runtime.workspace = true
+sailry-link.workspace = true
+sailry-protocol.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cua-driver-sdk.workspace = true
+cua-platform-macos.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+blake3.workspace = true
+tempfile.workspace = true
+sailry-client.workspace = true

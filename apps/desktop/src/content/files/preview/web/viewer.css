@@ -1,0 +1,4 @@
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+#preview { position: absolute; width: 100vw; height: 100vh; }
+#container { position: absolute; inset: 0; overflow: auto; background: var(--preview-background); }
+#pages.pdfViewer { padding: 16px 0; }

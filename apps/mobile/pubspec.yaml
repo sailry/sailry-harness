@@ -1,0 +1,76 @@
+name: sailry_mobile
+description: Sailry mobile controller
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.12.0 <4.0.0'
+  flutter: '>=3.44.7'
+
+dependencies:
+  # Flutter's native text-selection controls still need their platform font.
+  cupertino_icons: 1.0.9
+  device_info_plus: 13.2.0
+  fl_chart: 1.2.0
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  flutter_slidable: 4.0.3
+  flutter_svg: 2.3.0
+  flutter_markdown_plus: 1.0.12
+  markdown: 7.3.1
+  re_highlight: 0.0.3
+  html: 0.15.7
+  fluttertoast: 10.0.0
+  flutter_foreground_task: 11.0.3
+  flutter_rust_bridge: 2.13.0
+  path_provider: 2.1.6
+  pinput: 6.0.2
+  shared_preferences: 2.5.5
+  file_picker: 13.1.0
+  record: 7.1.1
+  url_launcher: 6.3.2
+  webview_flutter: 4.14.1
+  uuid: 4.6.0
+  sailry_bridge:
+    path: ../../crates/mobile-bridge/dart
+  share_plus: 13.3.0
+  open_filex: 4.7.0
+
+dev_dependencies:
+  webview_flutter_platform_interface: 2.15.1
+  integration_test:
+    sdk: flutter
+  shared_preferences_platform_interface: 2.4.2
+  flutter_test:
+    sdk: flutter
+  flutter_lints: 6.0.0
+  flutter_launcher_icons: 0.14.4
+  flutter_native_splash: 2.4.8
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/branding/mark.png
+  remove_alpha_ios: true
+  background_color_ios: '#17191c'
+  adaptive_icon_background: '#17191c'
+  adaptive_icon_foreground: assets/branding/mark.png
+
+flutter_native_splash:
+  color: '#17191c'
+  image: assets/branding/splash.png
+  web: false
+  android_12:
+    color: '#17191c'
+    image: assets/branding/mark.png
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/
+    - assets/icons/monsters/
+    - assets/icons/projects/
+    - third_party_licenses/kenney-monsters.md
+    - assets/backgrounds/technology.png

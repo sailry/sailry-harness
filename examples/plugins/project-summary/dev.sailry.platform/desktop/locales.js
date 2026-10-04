@@ -1,0 +1,51 @@
+const en = {
+  refresh: "Refresh",
+  save: "Save report",
+  retry: "Check result",
+  include: "Include untracked files",
+  ready: "Ready",
+  loading: "Reading changes",
+  saving: "Saving report",
+  saved: "Report saved",
+  failed: "Could not read changes",
+  settingsFailed: "Could not read settings",
+  saveFailed: "Could not save report",
+  unknown: "Result unconfirmed — check the original request",
+  conflict: "The report changed — refresh before saving",
+  tooLarge: "The existing report is too large to replace here",
+  changed: "Files changed — refresh to update the report",
+  offline: "File updates disconnected",
+  watching: "Watching file changes",
+  empty: "No changes",
+  partial: "Partial results",
+  directory: "This folder has no Git repository",
+  title: "Project changes",
+};
+
+const zh = {
+  refresh: "刷新",
+  save: "保存报告",
+  retry: "查询结果",
+  include: "包含未跟踪文件",
+  ready: "就绪",
+  loading: "正在读取变更",
+  saving: "正在保存报告",
+  saved: "报告已保存",
+  failed: "无法读取变更",
+  settingsFailed: "无法读取配置",
+  saveFailed: "无法保存报告",
+  unknown: "结果未确认，请查询原请求",
+  conflict: "报告已变化，请刷新后再保存",
+  tooLarge: "已有报告过大，无法在此替换",
+  changed: "文件已变化，请刷新报告",
+  offline: "文件更新已断开",
+  watching: "正在关注文件变化",
+  empty: "暂无变更",
+  partial: "部分结果",
+  directory: "此目录尚未建立 Git 仓库",
+  title: "项目变更",
+};
+
+export function messages(locale) {
+  return locale.startsWith("zh") ? zh : en;
+}

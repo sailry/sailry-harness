@@ -1,0 +1,22 @@
+[
+  {
+    "path": "report.docx",
+    "text": "中文内容",
+    "pages": 2
+  },
+  {
+    "path": "report.pdf",
+    "text": "PDF acceptance",
+    "pages": 2
+  },
+  {
+    "path": "book.xlsx",
+    "text": "20",
+    "pages": 2
+  },
+  {
+    "path": "deck.pptx",
+    "text": "中文幻灯片",
+    "pages": 2
+  }
+]

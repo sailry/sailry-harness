@@ -1,0 +1,86 @@
+--- a/src/terminal/stream_terminal.zig
++++ b/src/terminal/stream_terminal.zig
+@@ -60,6 +60,10 @@
+     /// the kitty graphics protocol.
+     apc_handler: apc.Handler = .{},
+ 
++    // Xterm title stack, including direct access to slots 1 through 10.
++    titles: [10]?[]u8 = @splat(null),
++    title_depth: usize = 0,
++
+     pub const Effects = struct {
+         /// Called when the terminal needs to write data back to the pty,
+         /// e.g. in response to a DECRQM query. The data is only valid
+@@ -145,6 +149,42 @@
+ 
+     pub fn deinit(self: *Handler) void {
+         self.apc_handler.deinit();
++        self.clearTitles();
++    }
++
++    fn clearTitles(self: *Handler) void {
++        for (&self.titles) |*title| {
++            if (title.*) |text| self.terminal.gpa().free(text);
++            title.* = null;
++        }
++        self.title_depth = 0;
++    }
++
++    fn pushTitle(self: *Handler, index: u16) !void {
++        if (index > self.titles.len) return;
++        const title = try self.terminal.gpa().dupe(u8, self.terminal.getTitle() orelse "");
++        if (index == 0 and self.title_depth == self.titles.len) {
++            if (self.titles[0]) |text| self.terminal.gpa().free(text);
++            std.mem.copyForwards(?[]u8, self.titles[0..9], self.titles[1..10]);
++            self.titles[9] = null;
++            self.title_depth -= 1;
++        }
++        const slot = if (index == 0) self.title_depth else index - 1;
++        if (self.titles[slot]) |text| self.terminal.gpa().free(text);
++        self.titles[slot] = title;
++        if (index == 0) self.title_depth += 1;
++    }
++
++    fn popTitle(self: *Handler, index: u16) !void {
++        if (index > self.titles.len or (index == 0 and self.title_depth == 0)) return;
++        const slot = if (index == 0) self.title_depth - 1 else index - 1;
++        const title = self.titles[slot] orelse return;
++        try self.windowTitle(title);
++        if (index == 0) {
++            self.terminal.gpa().free(title);
++            self.titles[slot] = null;
++            self.title_depth -= 1;
++        }
+     }
+ 
+     /// Resize the terminal and apply any side effects (if supported)
+@@ -288,7 +328,10 @@
+             },
+             .active_status_display => self.terminal.status_display = value,
+             .decaln => try self.terminal.decaln(),
+-            .full_reset => self.terminal.fullReset(),
++            .full_reset => {
++                self.terminal.fullReset();
++                self.clearTitles();
++            },
+             .start_hyperlink => try self.terminal.screens.active.startHyperlink(value.uri, value.id),
+             .end_hyperlink => self.terminal.screens.active.endHyperlink(),
+             .semantic_prompt => try self.terminal.semanticPrompt(value),
+@@ -317,6 +360,8 @@
+             .request_mode_unknown => self.requestModeUnknown(value.mode, value.ansi),
+             .size_report => self.reportSize(value),
+             .window_title => try self.windowTitle(value.title),
++            .title_push => try self.pushTitle(value),
++            .title_pop => try self.popTitle(value),
+             .report_pwd => try self.reportPwd(value.url),
+             .xtversion => self.reportXtversion(),
+             .clipboard_contents => self.clipboardContents(
+@@ -337,8 +382,6 @@
+             // Have no terminal-modifying effect
+             .show_desktop_notification,
+             .progress_report,
+-            .title_push,
+-            .title_pop,
+             => {},
+         }
+     }

@@ -1,0 +1,835 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "files",
+  "version": "0.1.0",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "actions": [
+        "files.read",
+        "files.write"
+      ],
+      "display": {
+        "label": "Files",
+        "locales": {
+          "zh-CN": "文件"
+        },
+        "icon": "reicon:folders/folder"
+      },
+      "description": {
+        "label": "Read, edit and manage files",
+        "locales": {
+          "zh-CN": "读取、编辑与管理文件"
+        }
+      },
+      "tools": [
+        {
+          "name": "list_directory",
+          "presentation": "summary",
+          "description": "List a directory in the session worktree. An empty path selects the root. Pass the returned cursor to read another page.",
+          "handler": {
+            "name": "list",
+            "operation": "files.list",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Relative to the session worktree, with forward slashes"
+                },
+                "cursor": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "revision": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "directory": {
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "revision",
+                    "directory",
+                    "name"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Use null for the first page; otherwise pass the exact cursor from the previous result"
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "display": {
+            "label": "Browse directory",
+            "locales": {
+              "zh-CN": "浏览目录"
+            },
+            "icon": {
+              "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2\" /></svg>"
+            },
+            "input": {
+              "summary": {
+                "path": "/path",
+                "code": true
+              }
+            },
+            "output": {
+              "preview": {
+                "parts": [
+                  {
+                    "rows": {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/entries"
+                      },
+                      "text": {
+                        "parts": [
+                          {
+                            "value": {
+                              "source": "item",
+                              "path": "/name"
+                            }
+                          },
+                          {
+                            "text": "/",
+                            "when": {
+                              "any": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/kind"
+                                  },
+                                  "equals": "directory"
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      },
+                      "separator": "\n"
+                    }
+                  }
+                ]
+              },
+              "notices": [
+                {
+                  "message": {
+                    "label": "Partial results",
+                    "locales": {
+                      "zh-CN": "仅显示部分结果"
+                    }
+                  },
+                  "when": {
+                    "any": [
+                      {
+                        "value": {
+                          "source": "result",
+                          "path": "/data/truncated"
+                        },
+                        "equals": true
+                      },
+                      {
+                        "value": {
+                          "source": "result",
+                          "path": "/data/unsupported_names"
+                        },
+                        "equals": 0,
+                        "negate": true
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "contexts": [
+            "plugin",
+            "workspace"
+          ]
+        },
+        {
+          "name": "read_file",
+          "presentation": "summary",
+          "description": "Read UTF-8 text from the session worktree. A large file returns a bounded preview with truncated=true; do not treat it as the whole file.",
+          "handler": {
+            "name": "read",
+            "operation": "files.read",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Relative to the session worktree, with forward slashes"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "display": {
+            "label": "Read file",
+            "locales": {
+              "zh-CN": "读取文件"
+            },
+            "icon": {
+              "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M12 7v14\" /><path d=\"M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z\" /></svg>"
+            },
+            "input": {
+              "summary": {
+                "path": "/path",
+                "code": true
+              }
+            },
+            "output": {
+              "preview": {
+                "parts": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/data/text"
+                    }
+                  }
+                ]
+              },
+              "notices": [
+                {
+                  "message": {
+                    "label": "Partial results",
+                    "locales": {
+                      "zh-CN": "仅显示部分结果"
+                    }
+                  },
+                  "when": {
+                    "any": [
+                      {
+                        "value": {
+                          "source": "result",
+                          "path": "/data/truncated"
+                        },
+                        "equals": true
+                      }
+                    ]
+                  }
+                }
+              ],
+              "paths": {
+                "value": {
+                  "source": "arguments",
+                  "path": "/path"
+                }
+              }
+            }
+          },
+          "contexts": [
+            "plugin",
+            "workspace"
+          ]
+        },
+        {
+          "name": "write_file",
+          "presentation": "details",
+          "description": "Write UTF-8 text in the session worktree under this turn's permission mode. Pass the revision from read_file to replace a file, or null to create a new file without replacing an existing entry. Missing parent directories are created for new files. A conflict requires reading the current file before another edit.",
+          "handler": {
+            "name": "write",
+            "operation": "files.write",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Relative to the session worktree, with forward slashes"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "expected_revision": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Revision from read_file, or null to create a new file"
+                }
+              },
+              "required": [
+                "path",
+                "text",
+                "expected_revision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "display": {
+            "label": "Write file",
+            "locales": {
+              "zh-CN": "写入文件"
+            },
+            "icon": {
+              "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\" /><path d=\"M14 2v4a2 2 0 0 0 2 2h4\" /><path d=\"M10 9H8\" /><path d=\"M16 13H8\" /><path d=\"M16 17H8\" /></svg>"
+            },
+            "input": {
+              "summary": {
+                "path": "/path",
+                "code": true
+              },
+              "target": {
+                "path": "/path"
+              }
+            },
+            "output": {
+              "notices": [
+                {
+                  "message": {
+                    "label": "Written",
+                    "locales": {
+                      "zh-CN": "已写入"
+                    }
+                  }
+                }
+              ],
+              "body": {
+                "text": {
+                  "source": "arguments",
+                  "path": "/text"
+                },
+                "path": {
+                  "source": "arguments",
+                  "path": "/path"
+                },
+                "diff": {
+                  "format": "added",
+                  "when": {
+                    "any": [
+                      {
+                        "value": {
+                          "source": "arguments",
+                          "path": "/expected_revision"
+                        },
+                        "equals": null
+                      }
+                    ]
+                  }
+                },
+                "empty": {
+                  "label": "No output",
+                  "locales": {
+                    "zh-CN": "无输出"
+                  }
+                }
+              }
+            },
+            "approval": [
+              {
+                "message": {
+                  "label": "Create %{path}",
+                  "locales": {
+                    "zh-CN": "创建 %{path}"
+                  }
+                },
+                "values": {
+                  "path": {
+                    "source": "arguments",
+                    "path": "/path"
+                  }
+                },
+                "when": {
+                  "any": [
+                    {
+                      "value": {
+                        "source": "arguments",
+                        "path": "/expected_revision"
+                      },
+                      "equals": null
+                    }
+                  ]
+                }
+              },
+              {
+                "message": {
+                  "label": "Replace %{path}",
+                  "locales": {
+                    "zh-CN": "覆盖 %{path}"
+                  }
+                },
+                "values": {
+                  "path": {
+                    "source": "arguments",
+                    "path": "/path"
+                  }
+                }
+              }
+            ]
+          },
+          "contexts": [
+            "plugin",
+            "workspace"
+          ]
+        },
+        {
+          "name": "search_files",
+          "presentation": "summary",
+          "description": "Search text in the session worktree, optionally with a regular expression and relative path globs. Results include line numbers and truncation.",
+          "handler": {
+            "name": "search",
+            "operation": "files.search",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Non-empty text or regular expression to search inside files; globs only filter which files are searched"
+                },
+                "regex": {
+                  "type": "boolean"
+                },
+                "case_sensitive": {
+                  "type": "boolean"
+                },
+                "globs": {
+                  "type": "array",
+                  "maxItems": 64,
+                  "items": {
+                    "type": "string",
+                    "maxLength": 4096
+                  }
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "display": {
+            "label": "Search files",
+            "locales": {
+              "zh-CN": "搜索文件"
+            },
+            "icon": {
+              "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"> <circle cx=\"11\" cy=\"11\" r=\"8\"/> <path d=\"m21 21-4.3-4.3\"/> </svg>"
+            },
+            "input": {
+              "summary": {
+                "path": "/query",
+                "code": true
+              }
+            },
+            "output": {
+              "preview": {
+                "parts": [
+                  {
+                    "rows": {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/matches"
+                      },
+                      "text": {
+                        "parts": [
+                          {
+                            "value": {
+                              "source": "item",
+                              "path": "/path"
+                            }
+                          },
+                          {
+                            "text": ":"
+                          },
+                          {
+                            "value": {
+                              "source": "item",
+                              "path": "/line_number"
+                            }
+                          },
+                          {
+                            "text": "  "
+                          },
+                          {
+                            "value": {
+                              "source": "item",
+                              "path": "/line"
+                            }
+                          }
+                        ]
+                      },
+                      "separator": "\n"
+                    }
+                  }
+                ]
+              },
+              "notices": [
+                {
+                  "message": {
+                    "label": "Partial results",
+                    "locales": {
+                      "zh-CN": "仅显示部分结果"
+                    }
+                  },
+                  "when": {
+                    "any": [
+                      {
+                        "value": {
+                          "source": "result",
+                          "path": "/data/truncated"
+                        },
+                        "equals": true
+                      },
+                      {
+                        "value": {
+                          "source": "result",
+                          "path": "/data/skipped"
+                        },
+                        "equals": 0,
+                        "negate": true
+                      }
+                    ]
+                  }
+                }
+              ],
+              "paths": {
+                "value": {
+                  "source": "result",
+                  "path": "/data/matches"
+                },
+                "item": "/path"
+              }
+            }
+          },
+          "contexts": [
+            "plugin",
+            "workspace"
+          ]
+        },
+        {
+          "name": "get_office_runtime",
+          "presentation": "summary",
+          "description": "Locate the bundled Python interpreter and full Office libraries on this execution Node. Use the returned executable with run_command; use an applicable document skill for authoring when available. No download or installation is performed.",
+          "handler": {
+            "name": "runtime",
+            "operation": "office.runtime",
+            "parameters": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "display": {
+            "label": "Office environment",
+            "locales": {
+              "zh-CN": "Office 环境"
+            },
+            "icon": {
+              "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\" /><path d=\"M14 2v4a2 2 0 0 0 2 2h4\" /><path d=\"M10 9H8\" /><path d=\"M16 13H8\" /><path d=\"M16 17H8\" /></svg>"
+            },
+            "output": {
+              "preview": {
+                "parts": [
+                  {
+                    "rows": {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/packages"
+                      },
+                      "text": {
+                        "parts": [
+                          {
+                            "value": {
+                              "source": "item",
+                              "path": ""
+                            }
+                          }
+                        ]
+                      },
+                      "separator": "\n"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "contexts": [
+            "plugin",
+            "workspace"
+          ]
+        },
+        {
+          "name": "read_office",
+          "presentation": "summary",
+          "description": "Read DOCX/PDF text, XLSX cell values and formulas, or PPTX slide text and notes. Returns the file revision for edits. Follow next offsets to read every section, including continuations of long parts.",
+          "handler": {
+            "name": "office",
+            "operation": "office.read",
+            "parameters": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "title": "Read",
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "offset": {
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0,
+                  "description": "Zero-based section offset. Long document parts continue in subsequent sections.",
+                  "default": 0
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "display": {
+            "label": "Read document",
+            "locales": {
+              "zh-CN": "读取文档"
+            },
+            "icon": {
+              "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M12 7v14\" /><path d=\"M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z\" /></svg>"
+            },
+            "input": {
+              "summary": {
+                "path": "/path",
+                "code": true
+              }
+            },
+            "output": {
+              "preview": {
+                "parts": [
+                  {
+                    "rows": {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/sections"
+                      },
+                      "text": {
+                        "parts": [
+                          {
+                            "value": {
+                              "source": "item",
+                              "path": "/text"
+                            }
+                          }
+                        ]
+                      },
+                      "separator": "\n\n"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "contexts": [
+            "plugin",
+            "workspace"
+          ]
+        },
+        {
+          "name": "export_pdf",
+          "presentation": "summary",
+          "description": "Convert DOCX, XLSX or PPTX to PDF using the native renderer. Retains the editable source; returns actual conversion warnings with the saved PDF. Missing destination directories are created automatically. Destination replacement requires its revision.",
+          "handler": {
+            "name": "pdf",
+            "operation": "office.export",
+            "parameters": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "title": "Export",
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "expected_revision": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "source",
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "display": {
+            "label": "Export PDF",
+            "locales": {
+              "zh-CN": "导出 PDF"
+            },
+            "icon": {
+              "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\" /><path d=\"M14 2v4a2 2 0 0 0 2 2h4\" /><path d=\"M10 9H8\" /><path d=\"M16 13H8\" /><path d=\"M16 17H8\" /></svg>"
+            },
+            "input": {
+              "summary": {
+                "path": "/path",
+                "code": true
+              },
+              "target": {
+                "path": "/path"
+              }
+            },
+            "output": {
+              "preview": {
+                "parts": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/data/file/path"
+                    }
+                  },
+                  {
+                    "rows": {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/warnings"
+                      },
+                      "text": {
+                        "parts": [
+                          {
+                            "value": {
+                              "source": "item",
+                              "path": ""
+                            }
+                          }
+                        ]
+                      },
+                      "separator": "\n"
+                    }
+                  }
+                ],
+                "separator": "\n"
+              }
+            },
+            "approval": [
+              {
+                "message": {
+                  "label": "Create %{path}",
+                  "locales": {
+                    "zh-CN": "创建 %{path}"
+                  }
+                },
+                "values": {
+                  "path": {
+                    "source": "arguments",
+                    "path": "/path"
+                  }
+                },
+                "when": {
+                  "any": [
+                    {
+                      "value": {
+                        "source": "arguments",
+                        "path": "/expected_revision"
+                      },
+                      "equals": null
+                    }
+                  ]
+                }
+              },
+              {
+                "message": {
+                  "label": "Replace %{path}",
+                  "locales": {
+                    "zh-CN": "覆盖 %{path}"
+                  }
+                },
+                "values": {
+                  "path": {
+                    "source": "arguments",
+                    "path": "/path"
+                  }
+                }
+              }
+            ]
+          },
+          "contexts": [
+            "plugin",
+            "workspace"
+          ]
+        }
+      ],
+      "host": {
+        "entry": "dev.sailry.platform/host/main.js",
+        "resources": [
+          "dev.sailry.platform/host/main.js",
+          "dev.sailry.platform/host/locales.js"
+        ],
+        "handlers": [
+          "list",
+          "read",
+          "write",
+          "search",
+          "runtime",
+          "office",
+          "pdf"
+        ]
+      },
+      "desktop": {
+        "entry": "dev.sailry.platform/desktop/main.js",
+        "resources": [
+          "dev.sailry.platform/desktop/actions.js",
+          "dev.sailry.platform/desktop/dialogs.js",
+          "dev.sailry.platform/desktop/document-view.js",
+          "dev.sailry.platform/desktop/documents.js",
+          "dev.sailry.platform/desktop/explorer-view.js",
+          "dev.sailry.platform/desktop/explorer.js",
+          "dev.sailry.platform/desktop/locales.js",
+          "dev.sailry.platform/desktop/main.js",
+          "dev.sailry.platform/desktop/mutations.js",
+          "dev.sailry.platform/desktop/search.js",
+          "dev.sailry.platform/desktop/transfers.js"
+        ],
+        "navigation": {
+          "label": "Files",
+          "locales": {
+            "zh-CN": "文件"
+          },
+          "icon": "reicon:folders/folder"
+        },
+        "navigation_options": {
+          "pinned": true,
+          "order": 400,
+          "target": "worktree",
+          "details": true
+        },
+        "panel": {
+          "label": "Files",
+          "locales": {
+            "zh-CN": "文件"
+          },
+          "icon": "reicon:folders/folder"
+        },
+        "renderers": [
+          {
+            "resource": "documents",
+            "shortcut": "secondary-p"
+          }
+        ],
+        "previews": [
+          "text/html",
+          "application/pdf",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        ]
+      }
+    }
+  }
+}

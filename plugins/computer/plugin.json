@@ -1,0 +1,45 @@
+{
+ "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+ "name": "computer",
+ "version": "0.1.0",
+ "extensions": {
+  "dev.sailry.platform": {
+   "api_version": "v1",
+   "actions": [
+    "computer.read",
+    "computer.control"
+   ],
+   "settings_page": {
+    "navigation": {
+     "label": "Computer Use",
+     "locales": {
+      "zh-CN": "电脑操作"
+     }
+    },
+    "entry": "dev.sailry.platform/desktop/settings.js",
+    "enabled_control": true
+   },
+   "display": {
+    "label": "Computer Use",
+    "locales": {
+     "zh-CN": "电脑操作"
+    },
+    "icon": "reicon:devices/monitor"
+   },
+   "description": {
+    "label": "Control desktop apps and capture the screen",
+    "locales": {
+     "zh-CN": "操作桌面应用与截取屏幕"
+    }
+   },
+   "scope": "host",
+   "desktop": {
+    "resources": [
+     "dev.sailry.platform/desktop/settings.js",
+     "dev.sailry.platform/desktop/view.js",
+     "dev.sailry.platform/desktop/locales.js"
+    ]
+   }
+  }
+ }
+}

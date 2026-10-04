@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "tool-content",
+  "version": "0.1.0",
+  "description": "Standard tool tables, diffs and images over MCP",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "description": {"label": "Standard tool tables, diffs and images over MCP", "locales": {"zh-CN": "通过 MCP 展示表格、差异与图片"}},
+      "actions": [],
+      "tools": [
+        { "name": "report", "server": "reports", "presentation": "content" }
+      ]
+    }
+  }
+}

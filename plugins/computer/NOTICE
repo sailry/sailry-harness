@@ -1,0 +1,14 @@
+Computer operation package
+
+Permission settings reuse the reviewed Sailry UI from ab5251de:
+plugins/builtin/computer/desktop.rs
+plugins/builtin/computer/desktop/view.rs
+plugins/builtin/computer/desktop/messages.rs
+locales/en.yml and locales/zh-CN.yml
+
+Native execution, tool metadata, descriptions, and input schemas use
+unmodified Cua Driver 0.32.0 from trycua/cua
+58aba84b5b83d77e7e2b0f006547699eb594e50d (MIT), with its default cursor.
+
+Sailry adapts Node admission, session ownership, transport, and ADK media.
+Settings reuse Kit controls and the shared Reicon permission assets.

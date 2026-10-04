@@ -1,0 +1,2537 @@
+app: Sailry
+updates: "更新"
+updates_version: "版本"
+updates_check: "检查更新"
+updates_download: "下载"
+updates_install: "安装并重启"
+updates_restart: "重启"
+updates_restart_description: "重启后将恢复草稿；本机任务和终端将停止"
+updates_checking: "正在检查"
+updates_verifying: "正在验证"
+updates_installing: "正在安装"
+updates_restart_needed: "需要重启"
+updates_current: "Sailry 已是最新版本"
+updates_completed: "Sailry 已更新"
+updates_source_unready: "更新源尚未配置"
+updates_preview_unavailable: "预览模式不可更新"
+updates_network_failed: "更新下载失败，请重试"
+updates_manifest_invalid: "更新信息无效"
+updates_signature_invalid: "更新签名无效"
+updates_digest_invalid: "更新包已损坏"
+updates_package_invalid: "更新包无效"
+updates_platform: "此平台暂无可用更新"
+updates_system_unavailable: "无法读取系统版本"
+updates_system_old: "此更新需要更高的系统版本"
+updates_version_old: "所选更新不比当前版本新"
+updates_bundle_required: "请先安装打包的 Sailry 应用"
+updates_io_failed: "无法保存更新"
+updates_receipt_unread: "请先检查上次更新结果"
+updates_install_failed: "更新未完成，请重启 Sailry"
+updates_restart_failed: "无法重启 Sailry，请重新打开"
+updates_shutdown_failed: "本机 Node 未能停止，请重启 Sailry"
+updates_drafts_failed: "无法保存草稿，更新已暂停"
+updates_save_first: "请先保存打开的文档"
+updates_pending_request: "请等待当前操作完成后再更新"
+updates_finish_edit: "请先完成当前编辑"
+updates_restarting: "正在重启"
+updates_install_uncertain: "安装结果尚未确认，原应用已保留"
+content_plain: 文本
+content_copy: 复制
+content_copied: 已复制
+content_caption: 图片说明
+content_add_image: 添加图片
+content_note: 备注
+content_tip: 提示
+content_important: 重要
+content_warning: 警告
+content_caution: 注意
+content_document: 文档
+content_source: 源码
+turn_work: 处理过程
+turn_work_steps: "处理过程 · %{count} 步"
+ssh_new: 新建连接
+ssh_edit: 编辑
+ssh_host: 地址
+ssh_port: 端口
+ssh_username: 用户名
+ssh_authentication: 认证方式
+ssh_password: 密码
+ssh_private_key: 私钥
+ssh_key_path: 私钥路径
+ssh_agent: 执行主机的 SSH Agent
+ssh_key_file: 私钥文件
+ssh_agent_short: SSH Agent
+ssh_passphrase: 私钥口令
+ssh_keep_credential: 留空保留已保存的凭据
+ssh_command_hint: 输入命令
+ssh_run: 运行
+ssh_connect: 测试连接
+ssh_open_terminal: 打开终端
+ssh_reveal_terminal: 查看终端
+ssh_terminal_label: "SSH · %{name}"
+ssh_connected: 已连接
+ssh_empty: 暂无连接
+ssh_connections: SSH 连接
+ssh_workspace_empty: 打开 SSH 连接
+ssh_key_unknown: 确认此主机的密钥
+ssh_key_changed: 主机密钥已变化，请核对指纹
+ssh_trust: 信任
+ssh_remove_confirm: "删除连接 %{name}"
+ssh_invalid: 请检查连接信息
+ssh_conflict: 连接配置已变化，请重新打开编辑
+ssh_auth_failed: 认证失败，请检查凭据
+ssh_unknown: 结果未确认，请检查远端后再重试
+ssh_unavailable: 连接或回执不可用
+ssh_cancelled: 已取消
+ssh_busy: 正在处理其他连接，请稍后重试
+ssh_failed: 操作失败
+ssh_running: 正在处理
+ssh_stopping: 正在停止
+ssh_stop: 停止
+ssh_transfer: 传输文件
+ssh_transferred: 已传输 %{size} 字节
+ssh_worktree: 项目目录
+ssh_no_project: 暂无项目
+ssh_project_path: 项目文件路径
+ssh_remote_path: SSH 文件路径
+ssh_upload: 上传
+ssh_download: 下载
+ssh_upload_confirm: 上传到 %{path}，已有文件可能被覆盖
+ssh_inspect: 查询结果
+db_new: 新建连接
+db_edit: 编辑连接
+db_check: 测试连接
+db_engine: 类型
+db_sqlite: SQLite
+db_mysql: MySQL
+db_postgres: PostgreSQL
+db_path: 数据库文件路径
+db_host: 地址
+db_port: 端口
+db_name: 数据库
+db_username: 用户名
+db_password: 密码
+db_tls: TLS
+db_tls_disable: 关闭
+db_tls_prefer: 优先使用
+db_tls_require: 必须使用
+db_read_only: 只读
+db_sql: 输入 SQL
+db_run: 执行
+db_empty: 暂无数据库连接
+db_connections: 数据库连接
+db_workspace_empty: 打开数据库连接
+db_open: 打开
+browser_address: 搜索或输入网址
+browser_new_tab: 新标签页
+browser_empty: 开始浏览
+browser_back: 后退
+browser_forward: 前进
+browser_reload: 刷新
+browser_go: 打开
+browser_invalid_address: 网址无效
+browser_unavailable: 浏览器无法启动
+browser_load_failed: 网页加载失败
+db_saved: 已保存
+db_connected: 连接成功
+db_failed: 查询失败
+db_invalid: 请检查连接配置
+db_unavailable: 数据库连接失败
+db_conflict: 连接配置已变更，请重新打开
+db_denied: 无权执行此操作
+db_unknown: 结果未确认，请检查数据库后再重试
+db_details: 详细信息
+db_running: 正在执行
+db_stopping: 正在停止
+db_stop: 停止
+db_inspect: 查询结果
+db_remove_confirm: 删除连接 %{name}？数据库文件不会被删除
+db_affected: 影响 %{count} 行
+db_rows: 共 %{count} 行
+db_results: 查询结果
+db_truncated: 结果已截断
+db_null: 'NULL'
+workspace_host: 主机信息
+approval_pending: 等待审批
+composer_priced_responses: 已计价响应
+tool_read_file: 读取文件
+tool_write_file: 写入文件
+tool_list_directory: 浏览目录
+tool_search_files: 搜索文件
+tool_git_status: Git 状态
+tool_git_diff: 查看差异
+tool_git_log: Git 日志
+tool_spawn_agent: 子代理
+tool_result: 结果
+command_result: 执行结果
+tool_copy: 复制
+diff_more_lines: "还有 %{count} 行"
+approval_live_count: "待审批 %{count} 项"
+approval_receipt: 审批回执
+approval_create_file: "创建 %{path}"
+approval_replace_file: "覆盖 %{path}"
+approval_interrupted: 审批已中断
+approval_closed: 该审批已结束
+tool_file_written: 已写入
+approval_command: 运行命令
+command_cwd: "工作目录：%{path}"
+command_timeout: "超时：%{milliseconds} 毫秒"
+command_exited: "退出码 %{code}"
+command_signal: "信号 %{signal} 终止"
+command_timed_out: 命令超时
+command_cancelled: 命令已取消
+command_unknown: 命令结果未知
+command_stdout: 标准输出
+command_stderr: 标准错误
+command_truncated: 输出已截断
+command_encoding: 部分字节无法显示为 UTF-8
+approval_approved: 已允许
+approval_rejected: 已拒绝
+approval_cancelled: 已取消
+approval_approve: 允许
+approval_reject: 拒绝
+approval_count: "待审批 %{count} 项 · 仅演示选择，不执行文件或命令操作"
+approval_summary: "%{state} · %{prompt}"
+approval_preview_menu: 审批交互示例
+approval_preview_result: 已记录本回合的示例审批选择。未修改文件、执行命令或调用模型。
+workspace_native_menu_unavailable: 此平台尚未接入系统原生菜单
+workspace_native_menu_platform: 当前平台暂不支持系统右键菜单
+workspace_project: 项目概览
+project_add: 添加项目
+project_host: 主机
+project_new: 新建项目
+project_edit: 编辑项目
+project_path_in_use: 路径已关联会话或 worktree，不能直接修改
+project_remove_retained: 从项目列表移除，文件和会话记录保留
+project_remove_busy: 请先停止任务并关闭终端
+project_name: 项目名称
+project_path: 项目路径
+project_required: 请填写项目名称和路径
+project_duplicate_path: 此主机已添加相同路径的项目
+project_missing: 项目或主机已不可用，请重新选择
+project_changed: 项目已变化，请重新打开编辑
+project_path_trusted: 更改项目路径前，请先撤销项目信任
+project_path_referenced: 此项目仍有关联会话或终端，不能更改路径。请将新目录添加为另一个项目。
+project_editor_preview: 项目示例，不修改文件
+project_local: 本地
+project_clone: 克隆
+project_repository: 仓库
+project_repository_placeholder: https://github.com/org/repository.git
+project_branch: 分支
+project_branch_placeholder: 默认分支
+project_destination: 保存位置
+project_clone_required: 请填写名称、仓库和保存位置
+project_clone_failed: 克隆未完成，请检查目标目录
+project_outcome_unknown: 结果未确认，请先检查目标目录，重试将查询原请求
+project_appearance: 项目外观
+project_name_placeholder: 输入名称
+project_path_placeholder: 选择目录
+project_icon_folder: 文件夹
+project_icon_code: 代码
+project_icon_terminal: 终端
+project_icon_globe: 网站
+project_icon_server: 服务器
+project_icon_database: 数据库
+project_icon_package: 包
+project_icon_game: 游戏
+project_icon_book: 书籍
+project_icon_finance: 财务
+project_icon_device: 设备
+project_icon_education: 教育
+project_icon_writing: 写作
+project_icon_tags: 标签
+project_icon_music: 音乐
+project_icon_media: 媒体
+project_icon_design: 设计
+project_icon_health: 健康
+project_icon_nature: 自然
+project_icon_business: 商务
+project_icon_analytics: 分析
+project_icon_profile: 个人
+project_icon_fitness: 运动
+project_icon_law: 法律
+project_icon_audio: 音频
+project_icon_travel: 旅行
+project_icon_tools: 工具
+project_icon_science: 科学
+project_icon_ai: AI
+project_icon_favorite: 收藏
+project_color_none: 无颜色
+project_color_blue: 蓝色
+project_color_indigo: 靛蓝
+project_color_violet: 紫色
+project_color_magenta: 洋红
+project_color_red: 红色
+project_color_orange: 橙色
+project_color_amber: 琥珀
+project_color_green: 绿色
+project_color_teal: 青绿
+project_color_cyan: 青色
+project_trust: 管理项目信任
+project_grant_title: 信任此项目
+project_revoke_title: 撤销项目信任
+project_grant: 信任并继续
+project_revoke: 撤销信任
+project_grant_description: 信任后，项目指令和工具可能执行代码，适用于所有 worktree
+project_revoke_description: 撤销后停止项目任务，保留历史和草稿
+project_trust_preview: 仅修改示例
+workspace_new_session: 创建会话
+workspace_new_terminal: 创建终端
+workspace_records: 会话记录
+workspace_rename: 重命名
+workspace_name: 名称
+workspace_rename_hint: 名称不能为空；仅修改当前预览，不会重命名磁盘文件
+workspace_pin: 置顶会话
+workspace_unpin: 取消置顶
+workspace_archive: 归档会话
+session_unarchive: 取消归档
+session_delete: 删除会话
+session_delete_confirm: 删除此会话及其子代理会话，无法恢复
+session_delete_busy: 请先停止会话，再删除
+session_changed: 会话已变化，请重新操作
+workspace_restore: 恢复并打开会话
+workspace_copy_path: 复制路径
+workspace_copy_title: 复制标题
+workspace_open_session: 打开会话
+workspace_open_terminal: 打开终端
+workspace_reset_terminal: 重置终端
+workspace_close_terminal: 关闭终端
+workspace_confirm: 确认
+workspace_memory_only: 仅修改示例
+workspace_collapse: 收起项目
+workspace_expand: 展开项目
+workspace_preview: UI 预览 · 示例数据，不创建真实会话或进程
+workspace_host_status: 未连接 · UI 预览
+workspace_host_type: 主机类型
+host_active_preview: 活动会话（示例）
+host_version: 主机版本
+host_system_version: 系统版本
+host_timezone: 时区
+host_uptime: 运行时长
+host_protocol: 协议版本
+host_unknown: 未获取
+host_uptime_days: "%{count} 天"
+host_uptime_hours: "%{count} 小时"
+host_uptime_minutes: "%{count} 分钟"
+host_runtime_loading: 正在读取运行环境（示例）
+host_runtime_error: "运行环境读取失败（示例）：%{error}"
+host_runtime_preview: 此处仅展示 UI 示例快照；读取中或失败时保留已有值。真实环境将在公共节点接入后读取。
+metrics_title: 主机指标
+metrics_preview: UI 示例数据，未采集真实主机指标或进程
+metrics_loading: 等待指标（示例）
+metrics_error: 指标暂不可用（示例）
+metrics_cpu: CPU
+metrics_memory: 内存
+metrics_network: 网络
+metrics_download: 下载
+metrics_upload: 上传
+metrics_disks: 磁盘
+metrics_no_disks: 暂无磁盘数据
+metrics_read: 累计读取
+metrics_written: 累计写入
+metrics_processes: 进程
+metrics_no_processes: 暂无进程数据
+metrics_worker: 示例工作进程
+metrics_indexer: 示例索引进程
+metrics_rate: "%{value}/s"
+tunnels_title: 端口隧道
+port_title: 端口转发
+port_remote: 主机端口
+port_local: 本地端口（0 为自动分配）
+port_create: 创建
+port_close: 关闭转发
+port_address: 打开地址
+port_invalid: 请输入有效端口
+port_exists: 此端口已添加
+port_failed: 无法转发，请检查端口和连接
+port_closed: 转发已关闭
+tunnels_preview: UI 示例映射，未监听端口或连接主机
+tunnel_ports_empty: 未设置允许端口
+tunnel_ports_value: "允许端口：%{ports}"
+tunnel_ports_label: 允许端口
+tunnel_ports_placeholder: "3000, 5173, 8080"
+tunnel_edit: 编辑允许端口
+tunnel_policy_hint: 仅修改当前主机的内存示例。用逗号或空格分隔端口，留空表示不允许任何端口。
+tunnel_invalid_ports: 请输入 1 到 65535 的整数端口，用逗号或空格分隔
+tunnel_policy_changed: 目标配置或编辑权限已改变，请关闭后重新打开
+tunnel_readonly: 远端端口策略只读，需要在目标主机本地修改
+tunnels_loading: 正在读取隧道（示例）
+tunnels_empty: 暂无隧道映射
+tunnel_load_error: 无法读取隧道（示例）
+tunnels_retry: 重试预览
+tunnel_route: "本地 %{local} → 主机 %{remote}"
+tunnel_open: 打开地址（预览）
+tunnel_open_hint: 此处仅展示映射地址，未启动浏览器或发起网络请求
+tunnel_close: 关闭示例隧道
+host_update: 更新主机
+update_preview: UI 状态预览，按钮仅切换示例快照；不会检查网络、下载、安装或重启主机
+update_idle: 尚未检查（示例）
+update_checking: 正在检查（示例）
+update_current: 已是最新版本（示例）
+update_available: 有可用更新（示例）
+update_downloading: 正在下载（示例）
+update_verifying: 正在校验（示例）
+update_staged: 安装包准备就绪（示例）
+update_applying: 正在应用（示例）
+update_restart: 等待主机重启（示例）
+update_failed: 更新失败（示例）
+update_loading: 正在读取更新状态（示例）
+update_unavailable: 当前不可更新（示例）
+update_unavailable_note: 此示例主机暂不支持自动更新
+update_error_preview: 示例请求失败，没有执行真实更新
+update_check: 预览检查
+update_download: 预览下载
+update_apply: 预览应用
+update_retry: 重试预览
+update_version: "当前版本：%{current}"
+update_versions: "%{current} → %{target}"
+update_target_changed: 目标主机已不可用，请关闭后重新打开
+host_activity_hint: 仅展示此主机的活动会话预览，不表示真实 Agent 或 CLI 进程已启动
+workspace_worktrees: worktree
+worktree_manage: 管理 worktree
+worktree_actions: 工作树操作
+workspace_open_worktree: 打开 worktree
+workspace_session_actions: 会话操作
+worktree_load_failed: 无法读取 worktree
+worktree_revision_failed: 无法解析起点，请检查引用和连接
+worktree_context_changed: 项目已切换，请重新打开
+worktree_outcome_unknown: 结果未确认，请先查看 worktree
+worktree_conflict: 分支、目录或项目归属冲突
+worktree_invalid: 请检查分支名和绝对路径
+worktree_not_found: 找不到项目、目录或起点提交
+worktree_request_failed: 操作失败，请检查权限和连接
+worktree_unavailable: 目录不可用
+worktree_prune_on_select: 不可用 · 点击清理记录
+worktree_pruned: 已清理失效工作树记录
+worktree_prune_failed: 未清理：目录仍存在、被锁定或无法确认状态
+worktree_listing_partial: 仅显示部分 worktree
+worktree_retry: 重试
+worktree_no_repository: 当前目录不是 Git 仓库
+worktree_locked: 已锁定
+worktree_remove_confirm: 删除此 worktree 目录，保留 Git 分支
+worktree_remove_unsaved: 请先保存或关闭此 worktree 的未保存文件
+worktree_remove_conflict: worktree 有改动、会话占用或引用已变化，请检查后重新打开
+worktree_create: 创建 worktree
+worktree_create_preview: 创建示例
+worktree_select_hint: 选择项目 worktree，不影响已有会话和终端
+worktree_preview_hint: 仅创建内存示例，不执行 Git 或创建目录。真实引用和路径校验将在主机接入后完成。
+worktree_base: 起点引用
+worktree_branch: 新分支名称
+worktree_path: 目标路径
+worktree_required: 请填写起点引用、分支名称和目标路径
+worktree_duplicate_branch: 此项目已有同名 worktree 分支
+worktree_duplicate_path: 此主机已有使用该路径的 worktree
+worktree_missing_project: 项目已不可用，请关闭表单后重新选择
+workspace_sessions: 会话
+project_sessions_empty: 暂无会话
+project_terminals_empty: 暂无终端
+workspace_runtime: 运行环境
+workspace_runtime_preview: 真实操作系统、运行时版本与主机指标将在公共节点接入后读取
+workspace_running: 运行中的 Agent
+workspace_no_running: 预览未启动 Agent 任务
+workspace_no_terminal: 当前 worktree 没有终端
+workspace_terminal_preview: 终端 UI 预览。已保留项目和 worktree 归属，未启动 PTY 或 shell；真实终端绘制与输入在终端阶段接入。
+cli_launch: 启动 AI CLI
+cli_preview: UI 示例：仅创建终端预览，不检测程序、不执行命令
+cli_empty: 此主机示例没有可用的 CLI
+cli_target_changed: 目标 worktree 已变化，请关闭后重新选择
+cli_unavailable: 此启动项已变化或不可用，请关闭后重新选择
+cli_untrusted: 项目信任已撤销，请关闭后重新确认
+cli_codex: Codex
+cli_claude: Claude Code
+cli_gemini: Gemini CLI
+cli_live_empty: 此主机未找到可用的 CLI
+cli_live_failed: 无法读取此主机的 CLI
+cli_live_unavailable: 此主机上的 CLI 已不可用
+cli_live_launch_failed: 终端启动失败
+cli_live_unknown: 尚未确认启动结果，请重试确认
+cli_live_starting: 正在启动
+cli_live_loading: 正在读取
+cli_live_retry: 重试
+cli_live_refresh: 刷新
+cli_agy: Agy
+cli_grok: Grok
+cli_opencode: OpenCode
+cli_kimi: Kimi Code CLI
+workspace_reset_count: "示例重置次数 %{count}"
+provider_catalog_never: 未更新
+provider_catalog_updated: 已更新
+provider_catalog_recent: 刚刚更新（示例）
+provider_oauth_code: PREVIEW-CODE
+provider_oauth_open: 打开验证页面
+provider_oauth_copy: 复制示例代码
+connections_pair: 添加配对设备
+connections_pair_description: 使用短码或邀请链接添加设备；当前 UI 阶段尚未连接配对服务
+connections_host: 主机详情
+connections_host_description: 查看目标主机的设备信息、连接状态与指标；当前为示例
+shortcuts_hints: 提示
+shortcut_inspector: 切换上下文面板
+shortcut_sync: 刷新主机状态
+shortcut_close_terminal: 关闭当前终端
+shortcut_scope: 生效范围
+shortcut_scope_description: 关闭终端仅在终端获得焦点时生效
+settings_license: 许可证
+settings_license_pending: 未指定
+settings_build_debug: 开发版
+settings_build_release: 发布版
+appearance_packages: 主题包
+appearance_selected: 已选用
+appearance_select: 选用
+appearance_mode: 主题模式
+appearance_system: 跟随系统
+appearance_light: 亮色
+appearance_dark: 暗色
+appearance_import: 导入主题
+appearance_preview: 预览主题
+appearance_import_invalid: 无法导入，请检查主题包格式和资源
+appearance_import_conflict: 主题已存在或资源空间不足
+appearance_picker_failed: 无法打开文件夹选择器，请重试
+appearance_load_failed: 部分主题无法加载
+appearance_restore_failed: 原主题不可用，已使用默认主题
+appearance_resource_missing: 部分图片不可用，已使用默认外观
+appearance_save_failed: 主题未保存，请重试
+appearance_remove_failed: 主题未完全移除，请重试
+appearance_remove: 移除“%{name}”？正在使用时将恢复默认主题
+role_skills_limit: 最多选择 3 个技能
+plugins_installed: 已安装插件
+plugins_installed_success: 插件已安装
+plugins_updated_success: 插件已更新
+plugins_enabled: 启用插件
+plugins_revision: "软件包修订 %{revision} · 配置 / 授权修订 1 · 示例"
+plugins_configure: 配置界面
+plugins_uninstall: 卸载插件
+plugins_install: 安装插件
+plugins_choose_package: 选择安装包或目录
+plugins_preparing_package: 正在准备安装包
+plugins_package_mismatch: 安装包名称与当前插件不符
+plugins_package_expired: 安装包已失效，请重新选择
+plugins_declared_capabilities: 声明的能力
+plugins_package_skills: 技能
+plugins_action_read_files: 读取文件
+plugins_action_write_files: 修改文件
+plugins_action_read_git: 读取 Git
+plugins_action_read_conversation: 读取会话
+plugins_update: 更新插件
+plugins_empty: 暂无插件
+plugins_package: 软件包路径
+plugins_directory: 示例插件工作目录
+plugins_capabilities: 授予能力
+plugins_cap_files: 文件访问
+plugins_cap_network: 网络访问
+plugins_install_preview: 软件包和配置表单均为示例。此处不读取软件包、不安装或启动插件，授权选择也不会授予真实权限。
+plugins_package_required: 请填写示例软件包路径
+plugins_details: 插件详情
+plugins_version_revision: "%{version} · 修订 %{revision}"
+plugins_none: 暂无插件
+plugins_disconnected: 主机连接已断开
+plugins_retry: 重试
+plugins_installing: 安装中
+plugins_name: 包名称
+plugins_name_required: 请输入包名称
+plugins_source: 来源 worktree
+plugins_select_source: 选择 worktree
+plugins_source_required: 请选择 worktree
+plugins_relative_path: 包目录（相对于 worktree ）
+plugins_no_source: 请先添加来源项目
+plugins_remove_effect: 卸载“%{name}”？插件数据会保留
+plugins_conflict: 插件已变化，请重新打开
+plugins_not_found: 未找到插件或来源目录
+plugins_invalid: 插件包或路径无效
+plugins_path_denied: 无法访问该目录
+plugins_unknown: 结果未确认，请重试查询原请求
+plugins_busy: 插件操作暂时不可用
+plugins_failed: 插件操作失败
+plugins_slots_invalid: 面板不可用
+plugins_no_skills: 暂无技能
+plugins_no_mcp: 暂无 MCP 服务
+plugins_stdio: 标准输入输出
+plugins_http: Streamable HTTP
+plugins_sse: SSE
+plugins_mcp_on_turn: 服务在会话执行时连接
+plugins_issues: 未加载的组件
+plugins_issue_field: 未使用的清单字段
+plugins_issue_extensions: 扩展声明无效
+plugins_issue_extension_pending: 产品扩展尚未接入
+plugins_issue_path: 资源路径不可用
+plugins_issue_skill: 技能格式无效
+plugins_issue_mcp: MCP 声明无效
+plugins_loading: 正在读取
+plugins_read_failed: 无法读取插件信息
+plugins_view_empty: 暂无桌面扩展
+plugins_view_offline: 主机连接已断开
+plugins_view_unavailable: 扩展已不可用，请返回重新选择
+plugins_view_read_failed: 无法读取扩展资源
+plugins_view_load_failed: 无法打开扩展
+plugins_conversation_unavailable: 会话不可用
+plugins_read_error: "%{name}：%{error}"
+plugins_settings_title: 插件配置
+plugins_settings_read_failed: 无法读取插件配置
+plugins_settings_model_unavailable: 所选模型不可用
+plugins_settings_none: 插件未提供有效配置项
+plugins_settings_conflict: 配置已变化，请重新读取
+plugins_settings_invalid: 配置无效，请检查字段
+plugins_settings_changed: 表单已更新，请检查后保存
+plugins_settings_incomplete: 配置尚未完成
+plugins_settings_reload: 重新读取
+plugins_settings_diagnostics: 详情
+plugins_settings_keep: 保留
+plugins_settings_replace: 替换
+plugins_settings_clear: 清除
+plugins_settings_clear_effect: 清除后，尚未执行的任务也无法使用此密钥
+plugins_settings_configured: 已设置
+plugins_settings_unset: 未设置
+plugins_settings_unset_action: 取消设置
+plugins_settings_choose: 选择
+plugins_settings_required: 请选择必填项
+plugins_settings_secret_required: 请输入替换密钥
+plugins_settings_secret_intent: 请选择密钥操作
+plugins_settings_number: 请输入有效数字
+plugins_settings_empty: 空字符串
+plugins_settings_yes: 是
+plugins_settings_no: 否
+plugins_disabled: 已禁用
+mcp_oauth_title: 授权
+mcp_oauth_client_id: 客户端 ID（可选）
+mcp_oauth_not_connected: 未授权
+mcp_oauth_callback_failed: 无法接收授权回调，请重试
+mcp_oauth_failed: 授权失败，请重试
+mcp_oauth_return: 返回 Sailry
+question_open_url: 打开页面
+question_url_accepted: 已同意打开
+mcp_oauth_remove: 移除授权
+mcp_oauth_remove_effect: 移除授权后，待执行任务将无法使用此服务
+mcp_servers: MCP 服务
+mcp_add: 添加 MCP
+mcp_edit: 配置 MCP
+mcp_none: 暂无 MCP 服务
+mcp_configuration: 配置
+mcp_configuration_invalid: MCP 配置无效
+mcp_configuration_saved: 已保存 MCP 配置
+mcp_bundled: 插件中的 MCP
+mcp_name_hint: 小写字母、数字、点或短横线
+mcp_transport: 连接方式
+mcp_command: 命令
+mcp_command_hint: npx、uvx 或可执行命令
+mcp_arguments: 参数
+mcp_argument: 参数值
+mcp_add_argument: 添加参数
+mcp_remove_argument: 移除参数
+mcp_url: 服务地址
+mcp_url_hint: https://example.com/mcp
+mcp_environment: 环境变量
+mcp_headers: 请求头
+mcp_add_environment: 添加环境变量
+mcp_add_header: 添加请求头
+mcp_slot_name: 名称
+mcp_slot_value: 值
+mcp_remove_slot: 移除此项
+mcp_secret_saved: 已保存凭据，留空保留
+mcp_secret_cleared: 保存时清除凭据
+mcp_clear_secret: 清除凭据
+mcp_keep_secret: 保留凭据
+mcp_invalid: 检查名称、连接信息和变量设置
+mcp_manage_plugins: 管理插件
+mcp_stopped: 已停止 · 示例
+mcp_ready: 就绪 · 2 个工具 · 示例
+mcp_restarted: 已演示重启状态 · 未启动任何进程
+mcp_tools: 查看工具
+mcp_hide_tools: 收起工具
+mcp_restart: 重启插件
+mcp_example_tools: "read_file — 读取文件内容（示例）\nlist_files — 列出目录内容（示例）"
+mcp_empty: 暂无 MCP 服务，请从插件页面管理服务来源
+settings_update: 更新
+skills_installed: 已安装技能
+skills_details: 技能详情
+skills_product_source: 产品内置 · 示例 · 只读
+skills_discover: 发现技能
+skills_discover_preview: 技能目录： https://skills.sh/
+skills_install: 安装技能
+skills_update: 更新技能
+skills_url: 公开 Git 仓库地址
+skills_ref: Git 引用（HEAD、refs/heads/... 或 refs/tags/...）
+skills_subdirectory: 子目录（可选）
+skills_namespace: 命名空间
+skills_invalid: 请填写 HTTPS 仓库地址、合法 Git 引用、命名空间和名称
+skills_duplicate: 此命名空间和名称的技能已存在
+skills_search: 搜索技能
+skills_no_matches: 没有匹配的技能
+skills_enabled: 已启用
+skills_manage_package: 管理插件
+skills_package_source: "来自插件 %{name}"
+skills_remove_effect: "卸载 %{name}，已开始的任务不受影响"
+skills_repository: Git 仓库
+skills_repository_hint: 仓库地址
+skills_revision: 分支或标签
+skills_revision_hint: 默认分支
+skills_path: 技能目录
+skills_license: 许可
+skills_compatibility: 兼容性
+skills_path_hint: 可选
+skills_find: 查找技能
+skills_no_candidates: 没有找到技能
+skills_selected: "已选择 %{count} 个技能"
+skills_capacity: "可再安装 %{count} 个技能"
+skills_already_installed: 已安装
+skills_source_invalid: 请检查仓库地址、分支和目录
+skills_not_found: 找不到仓库或技能
+skills_failed: 技能操作失败，请重试
+roles_profiles: 子代理
+role_example: 审查助手 · 示例
+role_example_description: 继承会话模型，协助审查变更
+role_editor: 编辑子代理
+role_id: 标识
+role_model_source: 模型来源
+role_fixed: 固定模型
+role_inherit: 继承会话模型
+role_max_turns: 默认最大轮数
+role_instructions: 提示词
+role_appearance: 图标和颜色
+role_presets: 预设
+role_preset_review: 代码审查
+role_preset_research: 调查分析
+role_preset_implement: 开发实现
+role_prompt_review: |-
+  审查指定范围内的代码和变更，重点检查正确性、边界条件、回归风险和现有规范。
+  先阅读相关实现与测试，再报告有证据支持的问题，注明位置、影响和建议。不要自行修改文件；没有发现问题时如实说明。
+role_prompt_research: |-
+  围绕交付的目标开展调查，优先阅读现有资料、代码和可靠的一手来源。
+  区分已确认事实、推断和待验证问题，给出简洁结论及依据。需要进一步信息时明确指出，不编造结果。
+role_prompt_implement: |-
+  完成交付范围内的实现，先理解现有架构、代码规范和验收要求。
+  复用已有能力，保持改动聚焦，验证受影响的行为。报告实际完成的内容、检查结果和仍存在的限制。
+role_invalid: 请检查标识、名称和轮数
+role_conflict: 子代理已变更，请重新打开
+role_duplicate: 标识已存在
+role_model_unavailable: 所选模型或供应商不可用
+role_effort_inherit: 自动
+role_effort_invalid: 模型不支持此推理强度
+role_skill_unavailable: 技能不可用
+role_remove_prompt: "移除示例子代理“%{name}”？仅修改当前预览"
+role_remove_live: "移除子代理“%{name}”？已发送任务不受影响"
+role_save: 保存
+role_retry: 重试
+role_disconnected: 未连接
+role_unknown: 结果未确认，请重试原请求
+role_failed: 操作失败，请重试
+role_capacity: 子代理数量已达上限
+settings_record_preview: 只保留当前窗口中的示例，不修改主机配置，不安装或执行任何内容
+terminal_environment: 全局环境变量
+terminal_environment_add: 添加环境变量
+terminal_environment_description: 暂无环境变量
+terminal_variable: 变量名
+terminal_value: 变量值
+terminal_variable_duplicate: 变量名已存在
+terminal_variable_invalid: 变量名无效，或属于应用保留项、代码加载变量
+terminal_shell_group: Shell
+terminal_shell: 默认 Shell
+terminal_shell_default: 跟随主机默认
+terminal_shells_failed: Shell 列表加载失败
+terminal_input: 输入
+terminal_connecting: 连接中
+terminal_exited: 终端已退出
+terminal_other_controller: 由另一设备控制
+terminal_take_control: 接管
+terminal_input_failed: 输入未送达
+terminal_input_unknown: 输入结果未知，请查看终端
+terminal_paste_too_large: 粘贴内容超过 64 KiB
+terminal_native_menu_unavailable: 系统菜单不可用
+terminal_copy: 复制
+terminal_paste: 粘贴
+terminal_select_all: 全选
+media_roles: 媒体模型用途
+media_unconfigured: 未配置
+media_unavailable: 暂未接入
+media_new_sessions: 应用于新会话
+media_model_unavailable: 模型不可用
+media_conflict: 配置已变更，请重新选择
+media_unknown: 保存结果未确认，请查看当前配置
+media_failed: 保存失败
+media_example_model: 示例媒体渠道 / preview-media-1
+media_image_understanding: 图片理解
+media_image_generation: 图片生成
+media_audio_transcription: 音频转写
+media_speech_synthesis: 语音合成
+media_video_understanding: 视频理解
+media_video_generation: 视频生成
+media_image_understanding_description: 为图片内容识别选择模型
+media_image_generation_description: 为图片生成选择模型
+media_audio_transcription_description: 为音频转文字选择模型
+media_speech_synthesis_description: 为文字转语音选择模型
+media_video_understanding_description: 为视频内容理解选择模型
+media_video_generation_description: 为视频生成选择模型
+settings_edit: 编辑
+settings_delete: 删除
+settings_cancel: 取消
+settings_clear: 清除
+settings_save_preview: 保存示例
+settings_remove_preview: 确认删除此示例
+provider_openai: OpenAI
+provider_other: Other
+provider_anthropic: Anthropic
+provider_gemini: Gemini
+provider_azure: Azure
+provider_azure_openai: Azure OpenAI
+provider_azure_ai: Azure AI Inference
+provider_bedrock: Amazon Bedrock
+provider_vertex: Vertex AI
+provider_api_version: API 版本
+provider_region: 区域
+provider_cloud_project: 项目 ID
+provider_cloud_endpoint: 地址（可选）
+provider_cloud_endpoint_hint: 默认区域地址
+provider_azure_openai_hint: https://resource.openai.azure.com
+provider_azure_ai_hint: https://resource.services.ai.azure.com/models
+provider_authentication: 认证方式
+provider_aws_identity: 主机 IAM
+provider_google_identity: 主机 ADC
+provider_host_identity_note: 使用执行主机的云身份
+provider_cloud_required: 请填写云渠道配置
+provider_metadata_fill: 补全信息
+provider_deployment_id: 部署名
+provider_xai: xAI
+provider_deepseek: DeepSeek
+provider_groq: Groq
+provider_opencode: OpenCode
+provider_opencode_go: OpenCode Go
+provider_opencode_zen: OpenCode Zen
+provider_openrouter: OpenRouter
+provider_fireworks: Fireworks AI
+provider_together: Together AI
+provider_mistral: Mistral
+provider_perplexity: Perplexity
+provider_cerebras: Cerebras
+provider_sambanova: SambaNova
+provider_minimax: MiniMax
+provider_doubao: Doubao
+provider_zhipu: Zhipu
+provider_baidu: Baidu
+provider_group_other: 其他
+provider_cohere: Cohere
+preset_openai: OpenAI
+preset_compatible: OpenAI Compatible
+preset_chatgpt: ChatGPT OAuth
+preset_copilot: GitHub Copilot OAuth
+preset_anthropic: Anthropic
+preset_anthropic_compatible: Anthropic Compatible
+preset_gemini: Gemini
+preset_gemini_compatible: Gemini Compatible
+provider_catalog: 模型数据
+provider_catalog_status: 模型元数据
+provider_catalog_last_update: 上次更新
+provider_catalog_update: 更新
+provider_empty_live: 暂无渠道
+provider_catalog_failed: 目录更新失败，请重试
+provider_catalog_busy: 目录正在更新，请稍后重试
+provider_catalog_read_failed: 模型已更新，参考目录读取失败
+provider_discovered_reference: 模型已更新，参考信息请核对后保存
+provider_discovered_reference_incomplete: 请核对参考信息，并填写缺失的容量
+provider_channels: 渠道
+provider_model_count: "%{count} 个模型"
+provider_enabled: 启用渠道
+provider_empty: 此分类还没有渠道，点击添加创建示例配置
+provider_connect: 连接账号
+provider_reconnect: 重新登录
+provider_login_copy: 复制验证码
+provider_login_authorize: 授权
+provider_login_refresh: 刷新
+provider_login_code_expired: 已失效
+provider_login_starting: 正在连接
+provider_login_waiting: 等待授权
+provider_login_connected: 已连接
+provider_login_cancelled: 已取消
+provider_login_expired: 登录已过期，请重试
+provider_login_failed: 登录失败，请重试
+provider_login_unknown: 登录结果未确认，请重试
+provider_login_cancelling: 正在取消
+provider_login_cancel_unknown: 尚未确认取消，请重试
+provider_login_cancel: 取消登录
+provider_login_retry: 重试
+provider_login_required: 请先连接账号
+provider_account_unavailable: 账号不可用，请重新登录
+provider_account_uncertain: 授权状态未确认，请重新登录
+provider_login_changed: 配置已变更，请重新打开
+provider_login_busy: 已有登录任务，请稍后重试
+provider_logout_effect: 使用此账号的会话将需要重新登录
+provider_logout_unknown: 尚未确认断开，请重试
+provider_logout_failed: 断开失败，请重试
+provider_logout_done: 已断开
+provider_disconnect: 断开账号
+provider_oauth_preview: 仅演示账号连接状态
+provider_oauth_simulate: 切换示例连接状态
+provider_oauth_note: 保存后可连接账号
+provider_delete_title: 删除渠道
+provider_edit_title: 编辑渠道
+provider_add_title: 添加渠道
+provider_type: 渠道类型
+provider_api: 接口协议
+provider_api_responses: Responses
+provider_api_chat: Chat
+provider_endpoint: 接口地址
+provider_endpoint_hint: https://api.example.com/v1
+provider_endpoint_anthropic_hint: https://api.example.com
+provider_endpoint_gemini_hint: https://api.example.com/v1beta
+provider_api_key: API Key
+provider_editor_preview: 仅编辑当前窗口的示例。密钥不保存，模型发现与验证不发起网络请求。
+provider_save: 保存
+chat_action_unknown: 结果未确认，可重试原请求
+chat_action_failed: 操作失败，请重试
+chat_response_invalid: 无法解析模型响应
+chat_model_failed: 模型请求失败
+chat_config_changed: 配置已变化，请重新发送
+chat_config_unavailable: 会话配置不可用，请检查供应商
+chat_retry: 重试
+chat_new: 新建会话
+session_tab_close: 关闭标签
+navigation_tabs: 打开的标签
+chat_select_project: 选择项目
+chat_session: "会话 %{id}"
+chat_stop: 停止
+chat_enqueue: 加入队列
+chat_effort_max: max
+chat_running: 正在处理
+chat_stopping: 正在停止
+chat_interrupted: 已中断
+chat_resource_pending: 暂不支持此内容
+chat_search_result: 搜索结果
+chat_search_unavailable: 无法显示搜索建议
+chat_capability_pending: 尚未接入
+chat_config_desktop: 桌面配置
+chat_provider_source: "%{name} · %{source}"
+chat_selection_effect: 保存采用所选版本，不改变已发送或排队的任务
+chat_selection_empty: 暂无可选项
+chat_selection_missing: 不可用
+chat_selection_updated: 将更新至此版本
+chat_selection_unavailable: 请取消选择不可用项
+chat_selection_changed: 所选项已变化，请重新加载
+chat_selection_conflict: 配置已变化，请重新加载
+chat_selection_disconnected: 未连接，暂时无法重新加载
+chat_selection_reload: 重新加载
+settings_save: 保存
+chat_provider_session: "%{name} · 会话"
+chat_provider_node: "%{name} · 主机"
+tool_waiting: 正在执行
+tool_interrupted: 结果未确认
+tool_condition_unmet: 条件未满足
+tool_unavailable: 工具暂不可用
+tool_browser_empty: 标签页为空，请先打开网页
+tool_browser_unavailable: 网页不可用
+tool_browser_load_failed: 网页加载失败
+tool_not_executed: 审批已中断，未执行
+chat_execution_unknown: 部分执行结果未确认
+tool_partial: 仅显示部分结果
+tool_binary: 二进制文件
+tool_empty: 无输出
+tool_not_found: 未找到目标
+tool_invalid: 参数无效
+tool_git_cursor_invalid: Git 分页游标无效，请使用工具返回的完整游标
+tool_denied: 无法访问目标
+tool_failed: 工具执行失败
+provider_key_failed: 无法读取密钥
+provider_capability_pending: 尚未接入
+provider_remove_effect: 移除后，会话需重新选择供应商
+provider_save_failed: 保存失败，请重试
+provider_save_unknown: 结果未确认，请保持内容不变后重试
+provider_revision_changed: 配置已变化，请重新打开编辑
+provider_credential_unavailable: 密钥不可用，请重新填写
+provider_configuration_invalid: 请检查模型和接口配置
+provider_models: 模型
+provider_model_id: 模型 ID
+provider_context: 上下文容量（Tokens）
+provider_advanced: 高级设置
+provider_new_model: 新模型
+provider_default: 默认模型
+provider_set_default: 设为默认
+provider_models_empty: 尚未配置模型
+provider_discover: 更新模型
+provider_discovered_preview: 已合并示例模型，保留手动添加的模型和默认选择
+provider_cap_text: 文本
+provider_cap_vision: 识图
+provider_cap_tools: 工具
+provider_cap_reasoning: 推理
+provider_cap_web: 联网
+provider_cap_image: 生图
+provider_cap_video: 生视频
+provider_effort_invalid: 推理强度无效，请检查名称、重复项和接口支持
+provider_efforts: 推理强度
+provider_effort_default: 默认强度
+provider_effort_placeholder: 强度或 Token budget
+provider_default_effort: 默认推理
+provider_name_hint: 输入渠道名称
+provider_name_required: 请填写渠道名称
+provider_endpoint_required: 请输入有效的接口地址
+provider_key_required: 请填写密钥
+provider_preview_key_required: 请填写示例凭据，或保留已配置状态；请勿输入真实密钥
+provider_query_changed: 连接配置已变化，请重新更新模型
+provider_query_busy: 查询繁忙，请稍后重试
+provider_querying: 查询中
+provider_query_failed: 查询失败，请重试
+provider_discovered: 模型已更新
+provider_discovered_incomplete: 模型已更新，缺失的容量需手动填写
+provider_model_required: 请添加模型并填写模型 ID
+provider_model_duplicate: 模型 ID 不能重复
+provider_limits_invalid: 上下文容量需为正整数，且不小于模型输出上限
+settings_empty: 暂无内容
+preview: UI 预览
+preview_notice: 所有内容均为示例，仅在当前窗口内交互
+conversation: 新会话
+activity: 活动看板
+activity_board_waiting: 待审批
+activity_board_running: 运行中
+activity_board_empty: 暂无活动
+activity_all_projects: 全部项目
+activity_no_project: 未归类
+sessions_unassigned: 未归类
+activity_idle: 空闲
+activity_running: 进行中
+activity_waiting: 待处理
+activity_completed: 已完成
+activity_failed: 失败
+activity_approval: 待批准
+activity_input: 待回复
+notifications: 通知
+notification_open: 打开
+notifications_empty: 暂无通知
+notifications_read_all: 全部已读
+notifications_clear: 清空通知
+notifications_unavailable: 资源已不可用
+preferences_read_failed: 无法读取本地设置，请检查配置后重启
+preferences_save_failed: 设置未保存，请重试
+preferences_retry: 重试保存
+terminal_settings_conflict: 终端设置已更新，当前修改已保留
+terminal_settings_invalid: 请检查 Shell 路径和环境变量
+terminal_settings_unknown: 无法确认保存结果，请重新加载核对
+terminal_settings_failed: 无法读取或保存终端设置
+terminal_settings_reload: 重新加载
+terminal_settings_discard_reload: 放弃修改并重新加载
+terminal_paste_confirm: 粘贴多行内容
+terminal_paste_warning: 多行内容可能立即执行命令
+files: 文件
+git: Git
+terminal: 终端
+ssh: SSH
+database: 数据库
+usage: 用量
+usage_description: 查看 Sailry 会话用量
+usage_range: 时间范围
+usage_filters: 筛选
+usage_range_days: '近 %{days} 天'
+usage_all_projects: 全部项目
+usage_all_worktrees: 全部 worktree
+usage_all_providers: 全部供应商
+usage_all_models: 全部模型
+usage_refresh: 刷新
+usage_all_hosts: 全部主机
+usage_partial: 部分主机数据未更新
+usage_loading: 正在读取用量
+usage_query_failed: 无法读取用量，请缩小时间范围或筛选条件
+usage_read_failed: 无法读取用量，请重试
+usage_empty: 暂无用量记录
+usage_responses: 响应数
+usage_speed: 生成速度
+usage_speed_help: 按模型响应总耗时计算，包含等待首字，不含排队和工具执行
+usage_speed_partial: 部分响应
+usage_cost: 估算费用（USD）
+usage_cost_help: 参考估算，不代表实际账单
+usage_cost_incomplete: 部分费用
+usage_activity: Token 活动
+usage_trend: Token 用量
+usage_model_ranking: 模型排名
+usage_daily: 每日
+usage_weekly: 每周
+usage_utc_time: UTC
+usage_uncached_input: 未缓存输入
+usage_month: '%{month}月'
+usage_local_time: 本地时间
+usage_requests: 调用记录
+usage_column_time: 时间
+usage_column_duration: 总耗时
+usage_duration: 模型调用耗时
+usage_duration_ms: "%{value} ms"
+usage_duration_value: "%{value} s"
+usage_page: "第 %{page} 页"
+usage_column_model: 模型
+usage_column_input: 输入
+usage_column_output: 输出
+usage_column_cached: 缓存
+usage_column_reasoning: 推理
+usage_column_cost: 费用
+usage_other_models: 其他模型
+cpu_preview: CPU 55% · 示例数据
+memory_preview: 内存 41% · 示例数据
+settings: 设置
+navigation: 导航
+hosts: 主机
+local_host: 本机 · 示例
+remote_host: 设计主机 · 示例
+local_host_name: sailry-mac.local
+local_host_detail: macOS · aarch64 · 示例
+remote_host_name: design-node.local
+remote_host_detail: Linux · x86_64 · 示例
+projects: 项目
+project: sailry
+remote_project: studio
+session: 桌面界面重构
+session_long: 梳理跨主机的会话、文件与开发工具交互细节
+remote_session: 设计工作记录
+preview_branch_main: main
+preview_branch_feature: feature/ui
+search: 搜索
+search_hint: 输入名称，使用方向键选择，Enter 打开
+search_empty: 没有匹配的示例
+sidebar_toggle: 展开或折叠导航
+details: 上下文详情
+resource_review: 审查
+resource_browser: 浏览器
+resource_terminal_preview: 终端 UI 预览，未启动 Shell 或执行命令
+resource_browser_preview: 浏览器 UI 预览，未加载网页或访问网络
+close: 关闭
+more: 更多操作
+light: 浅色
+dark: 深色
+appearance: 外观
+appearance_description: 选择主题与深浅模式
+theme_label: 深色模式
+connection: 主机管理
+connection_description: 主机配对与连接将在后续阶段接入
+add_host: 添加主机
+host_name: 主机名称
+host_dialog: 主机表单预览
+host_dialog_description: 可检查输入与弹窗交互；此阶段不会创建连接或保存配置
+done: 完成预览
+resource_context: 示例项目
+user: 你
+assistant: Sailry
+turn_preview: 示例回合
+turn_preview_time: "10:09"
+turn_queued: 等待处理
+turn_running: 已处理
+turn_waiting: 等待确认
+turn_completed: 已完成
+turn_cancelled: 已停止
+turn_cancelled_by_user: 用户已取消
+turn_failed: 处理失败
+turn_thinking: 正在思考
+turn_awaiting_response: 正在思考
+chat_reconnecting: 正在重连
+chat_error_details: 查看原因
+chat_model_reconnecting: 正在重试模型请求 %{attempt}/%{limit}
+chat_model_retried: 模型请求已重试 %{attempt}/%{limit}
+chat_status_unsynced: 状态未同步
+chat_history_loading: 正在加载会话…
+chat_sync_failed: 会话同步失败
+chat_sync_retry: 重新连接
+turn_tools_running: 正在执行
+turn_generating: 正在回复
+turn_reasoning: 思考过程
+chat_context_summary: 上下文摘要
+chat_compact: 压缩上下文
+chat_compact_queued: 等待压缩
+chat_compacting: 正在压缩上下文
+chat_compacted: 上下文已压缩
+chat_compact_unneeded: 无需压缩
+chat_compact_cancelled: 压缩已取消
+chat_compact_interrupted: 压缩已中断
+chat_compact_failed: 压缩失败
+chat_compact_timeout: 摘要请求超时
+chat_compact_no_reduction: 摘要未缩短上下文
+chat_compact_too_large: 摘要超出长度限制
+chat_compact_incomplete: 摘要未完整返回
+turn_tools_count: "%{count} 个工具调用"
+turn_copy: 复制回复
+message_copy: 复制
+message_edit: 编辑
+message_regenerate: 重新生成
+message_edit_notice: 重新生成将替换这条消息及后续对话
+turn_stop: 停止预览回复
+turn_latest: 回到最新回复
+turn_preview_failure: 示例错误：回复流中断，已保留部分回复
+composer: 描述你想完成的任务…
+welcome_hi: Hi，
+welcome_name: Sailry
+welcome_title: 今天，想一起做点什么
+welcome_explore: 探索项目
+welcome_explore_detail: 了解结构与关键入口
+welcome_explore_prompt: 请帮我梳理这个项目的结构，说明关键模块和入口
+welcome_build: 实现想法
+welcome_build_detail: 把想法做出来
+welcome_build_prompt: 我想为这个项目新增一个功能，请先和我确认需求并制定实现方案
+welcome_review: 审查变更
+welcome_review_detail: 检查改动与潜在问题
+welcome_review_prompt: 请审查当前项目的改动，重点检查潜在问题和缺失的测试
+welcome_plan: 制定计划
+welcome_plan_detail: 理清目标与步骤
+welcome_plan_prompt: 请帮我为接下来的开发工作制定分步骤的计划
+composer_connection_preview: 未连接 · UI 预览
+composer_attachment: 添加附件
+composer_attach_example: 添加示例附件
+composer_example_file: README.md · 示例附件
+composer_select_model: 选择模型
+composer_model_hint: 选择设置中已启用渠道的模型，仅用于 UI 预览
+composer_model_all: 全部供应商
+composer_model_empty: 没有匹配的可用模型
+composer_effort: 推理强度
+composer_model_settings: 模型与强度
+composer_effort_reset: 恢复默认强度
+composer_effort_unavailable: 默认
+composer_effort_default: default
+composer_effort_dynamic: dynamic
+composer_effort_budget: "%{tokens} Token"
+composer_effort_none: none
+composer_effort_minimal: minimal
+composer_effort_low: low
+composer_effort_medium: medium
+composer_effort_high: high
+composer_effort_xhigh: xhigh
+composer_compression_hint: 上下文压缩进度：暂无运行数据（UI 预览）
+composer_context_usage: "%{used} / %{limit}"
+composer_context_thousand: "%{value}K"
+composer_context_million: "%{value}M"
+composer_context_unknown: 上下文用量待更新
+composer_mode_code: 代码
+composer_mode_plan: 规划
+composer_mode_code_description: 编写代码、修改文件并验证结果
+composer_mode_plan_description: 分析需求、制定方案，不修改文件
+composer_branch_main: main
+composer_branch_preview: preview/ui
+composer_context: 上下文 —
+composer_no_project: 无项目
+composer_branch_none: 无 worktree
+composer_host_local: 本机
+composer_host_remote: 远程
+composer_host_hint: "%{name} · 未连接 · UI 预览"
+composer_project_preview: 选择当前主机的示例项目，不读取磁盘
+composer_branch_preview_hint: 选择示例分支，不执行 Git 操作
+composer_permission_ask: 每次询问
+composer_permission_project: 项目权限
+composer_permission_full: 完全权限
+composer_permission_ask_description: 修改文件和执行命令前询问
+composer_permission_project_description: 自动修改项目文件，执行命令前询问
+composer_permission_full_description: 自动修改文件和执行命令，可影响项目外文件
+composer_permission_preview: 仅预览，不授予权限
+composer_metric_unknown: —
+composer_tokens: Token
+composer_token_usage: Token
+composer_cache_hit: 命中率
+composer_uncached_input: 未缓存
+composer_cached_input: 缓存
+composer_token_output: 输出
+composer_metric_speed: "%{value}/s"
+composer_metric_cost: "%{value} USD"
+composer_speed: 速度
+composer_cost: 估算费用
+composer_cost_input: 输入
+composer_cost_output: 输出
+composer_cost_cache_read: 缓存读取
+composer_cost_cache_write: 缓存写入
+chat_response_timeout: 响应超时
+composer_cache: 缓存率
+composer_turns: 轮次
+composer_input_tokens: 输入 Token
+composer_output_tokens: 输出 Token
+composer_reasoning_tokens: 推理 Token
+composer_cached_tokens: 缓存 Token
+composer_responses: 响应
+composer_metric_percent: "%{value}%"
+composer_metric_thousand: "%{value}k"
+composer_metric_million: "%{value}M"
+composer_metric_billion: "%{value}B"
+composer_todo_title: 待办
+composer_todo_count: "%{completed}/%{total} 项任务"
+composer_subagent_count: "%{count} 个子代理"
+composer_todo_remaining: "剩余 %{count} 步"
+composer_todo_collapse: 收起待办
+composer_todo_empty: 暂无待办
+composer_task_done: 确定布局方案
+composer_task_active: 调整消息框与状态栏布局
+composer_task_theme: 统一组件主题样式
+composer_task_pending: 验证深浅主题与窗口布局
+composer_task_verify: 完成测试与构建检查
+composer_task_status_done: 已完成
+composer_task_status_active: 进行中
+composer_task_status_pending: 未开始
+composer_changes_hint: "%{count} 个文件变更，新增 %{added} 行，删除 %{removed} 行（示例）"
+model: 示例模型
+role: 默认分工
+send: 发送
+sent: 已保留在当前示例会话中，未调用模型
+new_session: 空白示例会话
+empty_conversation: 从一个想法开始
+empty_description: 在下方输入草稿，或从左侧打开已有示例会话
+context_description: 示例会话的文件变更与任务信息
+task: 界面重构
+task_status: 布局方案已确定
+changes: 文件变更
+file_tree: 项目文件
+file_empty: 打开文件
+resource_project_empty: 选择项目
+file_search: 搜索文件
+file_search_query: 搜索内容
+file_search_filter: 文件范围，如 **/*.rs
+file_search_case: 区分大小写
+file_search_regex: 正则表达式
+file_search_running: 搜索中
+file_search_partial: 部分内容未搜索或显示不完整
+file_search_empty: 无匹配结果
+file_search_invalid: 检查搜索表达式或文件范围
+file_search_failed: 搜索失败，请重试
+files_watch_unavailable: 文件同步暂不可用
+files_create: 新建
+files_new_file: 新建文件
+files_new_directory: 新建文件夹
+files_entry_name: 名称
+files_name_required: 输入文件或文件夹名称
+files_name_invalid: 检查名称是否有效
+files_entry_exists: 名称已被使用
+files_create_denied: 当前目录没有写入权限
+files_create_failed: 未能新建，请检查目录和连接
+files_create_unknown: 结果尚未确认，请先检查目录
+files_actions: 文件操作
+files_rename: 重命名
+files_context_changed: 文件上下文已变化，请重新打开
+files_operation_busy: 文件操作尚未完成
+files_trash: 删除
+files_trash_confirm: 确认删除“%{name}”
+files_trash_confirm_many: 确认删除这 %{count} 项
+files_trash_unsaved: 请先保存或关闭未保存的文件
+files_trash_conflict: 文件正在使用或已变更，请刷新后重试
+files_trash_denied: 无法移入回收站，请检查权限
+files_trash_failed: 未能移入回收站
+files_trash_unknown: 结果未确认，请先检查原路径和所属主机的回收站
+files_trash_draft: 文件已移入回收站，草稿已保留
+files_check_result: 检查结果
+files_download: 另存为
+files_download_preparing: 正在准备下载
+files_download_receiving: 正在下载已保存的内容
+files_download_publishing: 正在保存下载
+files_download_done: 下载完成
+files_download_cancelled: 下载已取消
+files_download_failed: 下载失败，请检查文件和连接后重试
+files_download_changed: 来源已变更，请重新下载
+files_download_destination: 无法保存下载，请检查目标路径和权限
+files_download_conflict: 目标文件已变更，请重新选择保存位置
+files_download_picker: 无法打开保存窗口
+files_download_close: 关闭
+files_upload: 上传
+files_upload_preparing: 正在准备上传
+files_upload_sending: 正在上传
+files_upload_publishing: 正在保存文件
+files_upload_done: 上传完成
+files_upload_cancelled: 上传已取消
+files_upload_failed: 上传失败，请检查文件和连接后重试
+files_upload_changed: 来源已变更，请重新选择文件
+files_upload_source: 无法读取所选文件
+files_upload_conflict: 目标已变更，请重新上传
+files_upload_exists: 同名文件已存在，替换会覆盖其内容
+files_upload_replace: 替换
+files_upload_unknown: 上传结果不明，请检查结果
+files_upload_unsaved: 请先保存或关闭该文件的未保存更改
+files_upload_denied: 无法写入目标文件
+files_upload_name: 文件名无效
+files_upload_picker: 无法打开文件选择窗口
+files_upload_retry: 重试
+files_upload_close: 关闭
+files_copy: 复制
+files_cut: 剪切
+files_paste: 粘贴
+files_paste_source: 来源 worktree
+files_paste_directory: 目标文件夹
+files_worktree_root: worktree 根目录
+files_load_more: 加载更多
+chat_history_failed: 历史加载失败
+chat_search: 搜索对话
+chat_fork: 派生会话
+chat_rewind: 回退到此回合
+chat_rewind_action: 回退
+chat_rewind_confirm: 保留此回合，后续对话存入备份分支，文件不变
+chat_rewound: 历史已回退
+chat_rewind_backup: 打开备份
+chat_history_changed: 历史已变化，请重新选择
+chat_rewind_busy: 请先停止任务并处理待发消息
+turn_changes_count: "已编辑 %{count} 个文件"
+turn_changes_more: "再显示 %{count} 个文件"
+turn_changes_less: 收起文件
+turn_changes_review: 审核
+turn_changes_failed: 变更加载失败
+checkpoint_list_failed: 检查点加载失败
+checkpoint_unsaved: 请先保存或关闭未保存的文件
+checkpoint_conflict: 文件已有后续修改，未恢复
+checkpoint_busy: 暂时无法恢复，请稍后重试
+checkpoint_missing: 检查点或文件已不可用
+checkpoint_unknown: 恢复结果未确认，请检查文件或回收站
+checkpoint_failed: 未能恢复文件
+chat_search_query: 搜索内容
+chat_search_assistant: 助手
+chat_search_failed: 搜索失败
+chat_search_limit: 搜索内容过长
+files_directory_changed: 目录已变化，请重新加载
+files_directory_refreshed: 目录已更新
+files_directory_failed: 无法加载目录，请重试
+files_paste_conflict: 目标已存在或路径不可用，请检查后重试
+files_paste_denied: 无法粘贴，请检查权限
+files_paste_failed: 无法粘贴，请检查文件和路径
+files_paste_unknown: 粘贴结果不明，请检查结果
+files_paste_unsaved: 请先保存或关闭目标文件的未保存更改
+files_move_unsaved: 请先保存或关闭来源和目标文件的未保存更改
+files_move_draft: 文件已移动，未保存更改仍保留
+files_paste_unavailable: 请重新复制或剪切文件
+files_paste_cross_node_unavailable: 暂不支持跨主机目录传输
+files_move_recycle: 复制完成后，将来源文件移入回收站
+files_move_recycling: 正在处理来源文件
+files_move_partial: 目标副本已保存，尚未确认来源已移入回收站
+files_move_unknown: 移动结果尚未确认，请检查原结果
+files_paste_preparing: 正在准备
+files_paste_copying: 正在复制
+files_paste_publishing: 正在保存
+files_paste_cancelled: 已取消粘贴
+files_paste_changed: 来源或目标已变化，请检查后重试
+files_rename_open_target: 请先完成保存或关闭目标路径的已打开文件
+files_rename_conflict: 名称已被使用或目录包含受保护资源
+files_rename_denied: 无法重命名，请检查权限和路径
+files_rename_failed: 重命名失败，请检查目录和连接
+files_rename_unknown: 重命名结果未确认，请先检查原路径和新路径
+files_changed_unavailable: 文件已移除或无法读取
+readonly: 只读示例
+resource_link_preview: 当前仅展示链接入口预览；未访问外部网址或读取真实文件
+resource_link_title: 链接预览
+git_commit_message: 提交说明
+git_commit: 提交
+git_amend: 修改上次提交
+git_commit_staged: 提交已暂存更改
+git_amend_hint: 修改上次提交会重写历史，请确认该提交尚未共享
+git_committing: 正在执行主机上提交…
+git_identity_missing: 请先在执行主机配置 Git user.name 和 user.email，提交说明已保留
+git_commit_unavailable: 提交未完成，请查看 Git 输出；提交说明已保留
+git_commit_failed: 提交失败，请检查冲突、暂存内容与 Git 锁；提交说明已保留
+git_commit_unknown: 提交结果未确认，可能已经完成。请核对提交历史后再操作，不会自动重试。
+git_stage_all: 暂存全部
+git_actions_preview: UI 预览，未接入真实 Git 操作
+git_preview_only: 仅预览，不执行 Git 操作
+git_diff_empty: 选择变更
+file_intro: "# Sailry\n\n一个原生的桌面 Agent 工作台。\n\n## 界面结构\n\n- 导航、主内容、上下文三栏\n- GPUI Kit 组件与语义主题\n- 会话、文件与开发工具共用资源标题区\n\n此文件是内置示例，不读取真实项目。"
+file_design: "# 桌面布局\n\n左栏保留主机与项目树；中间展示资源；右栏按需展开。\n\n缩窄窗口时优先收起右栏，恢复宽度后保留手动选择。"
+diff_intro: "```diff\n- workspace: nested cards\n+ workspace: three flat panels\n\n- toolbar: global resource actions\n+ toolbar: current resource header\n```"
+diff_design: "```diff\n- search: permanent search row\n+ search: command palette\n\n- theme: page-specific colors\n+ theme: GPUI Kit semantic theme\n```"
+branch: main · 示例变更
+unavailable: 此页面将在下一轮 UI 预览中补齐
+unavailable_description: 当前先确认三栏 Shell。此入口保留原有功能位置。
+settings_back: 返回工作区
+settings_general: 通用
+settings_appearance: 外观
+settings_conversation: 会话
+settings_conversation_description: 调整会话消息的显示方式
+settings_messages: 消息
+settings_message_display: 消息显示
+settings_message_display_description: 简洁模式隐藏思考过程并合并相邻工具
+message_display_detailed: 详细
+message_display_compact: 简洁
+settings_terminal: 终端
+settings_security: 安全
+settings_plugins: 插件
+settings_mcp: MCP
+settings_providers: AI 供应商
+settings_media: 媒体模型
+settings_agents: 子代理
+settings_skills: 技能
+settings_connections: 远程连接
+settings_shortcuts: 快捷键
+settings_about: 关于
+plugins_settings_description: 管理插件选项
+settings_general_description: 管理通知偏好和设备配对服务
+settings_appearance_description: 调整界面主题与窗口外观
+settings_terminal_description: 终端环境与显示偏好
+settings_security_description: 管理执行节点的命令与隔离权限
+settings_plugins_description: 管理已安装插件
+settings_mcp_description: 查看与配置可供会话使用的 MCP 工具服务
+settings_providers_description: 管理会话使用的供应商、认证和模型
+settings_media_description: 管理图像、音频和视频任务使用的模型
+settings_agents_description: 配置子代理的模型和提示词
+settings_skills_description: 管理可供会话使用的技能
+settings_connections_description: 管理配对设备和远程节点连接
+settings_shortcuts_description: 查看应用全局命令与键盘快捷键
+settings_about_description: 应用版本与构建信息
+settings_notifications: 通知
+settings_notify_system: 系统通知
+settings_notify_approval: 审批请求通知
+settings_notify_completed: 任务完成通知
+settings_notify_failed: 任务失败通知
+settings_toast_duration: 提示显示时长
+settings_pairing: 设备配对
+settings_relay: 配对服务地址
+settings_relay_hint: 输入配对服务地址
+settings_relay_description: 用于设备配对，保存后生效
+settings_interface: 界面主题
+settings_theme_description: 同步调整界面与系统窗口材质的明暗
+settings_theme_source: 当前主题
+settings_theme_builtin: 默认
+settings_terminal_display: 显示与输入
+settings_paste_protection: 多行粘贴保护
+settings_font_family: 字体
+settings_font_size: 字号
+settings_execution_permissions: 执行权限
+settings_shell_commands: Shell 命令执行
+settings_isolated_execution: 隔离执行
+settings_requires_node: 执行节点尚未接入，当前不可更改
+settings_global_commands: 全局命令
+settings_quit: 退出应用
+settings_version: 版本
+settings_build: 构建类型
+settings_framework: 界面框架
+settings_configured: 配置列表 · 示例
+settings_add: 添加
+settings_name: 名称
+settings_editor_notice: 表单预览 · 不会保存配置、安装插件、获取凭据或连接远程服务
+settings_sample_plugin: 项目工具包
+settings_plugin_detail: 示例插件 · 文件与项目工具 · 未加载
+settings_sample_mcp: 项目上下文服务
+settings_mcp_detail: 示例 MCP 服务 · 未启动
+settings_sample_provider: 示例供应商
+settings_provider_detail: 对话模型配置 · 未设置凭据
+settings_sample_media: 示例图像模型
+settings_media_detail: 图像生成 · 未连接供应商
+settings_sample_agent: 默认开发分工
+settings_agent_detail: 主代理、代码审查与测试 · 示例配置
+settings_sample_skill: 项目规范检查
+settings_skill_detail: 项目级技能 · 未安装
+settings_device_detail: 示例远程节点 · 未配对
+settings_notify_system_description: 接收应用的系统通知
+settings_notify_approval_description: 任务需要确认或授权时提醒你
+settings_notify_completed_description: 会话任务完成后发送提醒
+settings_notify_failed_description: 任务失败或意外中断时发送提醒
+settings_toast_description: 应用内提示消息保持显示的时间
+settings_paste_description: 粘贴多行内容前确认
+settings_seconds: "%{count} 秒"
+interaction_preview_notice: 交互示例 · 仅记录选择，不执行任务
+interaction_preview_prompt: 展示提问与计划确认交互
+interaction_preview_result: 已记录本次示例选择，未连接执行节点或运行任务
+interaction_menu_single: 单选问题示例
+interaction_menu_multiple: 多选问题示例
+interaction_menu_text: 文本问题示例
+interaction_menu_secret: 秘密输入边界示例
+interaction_menu_plan: 计划确认示例
+interaction_question_scope: 这次需要检查哪些内容
+interaction_option_files: 文件与目录结构
+interaction_option_tests: 测试与验证步骤
+interaction_question_details: 有哪些需要补充的要求
+interaction_question_secret: 此步骤需要安全凭据
+interaction_plan_details: 先检查项目结构，再补齐测试，最后复核修改。是否按此计划开始编码？
+interaction_input: 输入回答或补充说明…
+interaction_byte_limit: "%{used} / %{limit} 字节"
+interaction_secret_unavailable: 普通问答不接收密码或密钥。安全输入通道尚未接入，请取消此问题；不要将秘密填入消息框。
+interaction_pending: 等待确认
+interaction_answered: 已回答 · 示例
+interaction_continue_recorded: 已选择继续规划 · 示例
+interaction_start_recorded: 已选择开始编码 · 示例，未执行
+interaction_cancelled: 已取消
+interaction_continue: 继续规划
+interaction_start: 开始编码
+question_reply: 等待回答
+interaction_submit: 提交回答
+interaction_cancel: 取消问题
+question_other: 其他
+question_yes: 是
+question_no: 否
+question_optional: "%{field}（可选）"
+question_decline: 拒绝回答
+question_declined: 已拒绝回答
+question_invalid_answer: 请检查回答内容
+question_pending: 等待回答
+question_answered: 已回答
+question_accepted: 回答已提交
+question_closed: 问题已结束，草稿已保留
+question_interrupted: 任务已中断
+question_unconsumed: 回答已保存，任务已中断
+plan_pending: 等待确认
+plan_execute_confirm: 是否按此规划开始编码
+plan_accepted: 已安排编码
+plan_continued: 已继续规划
+plan_config_changed: 配置已变化，请重新确认
+plan_coding_message: 按确认的计划开始编码
+task_progress: 任务进度
+task_pending: 待办
+task_in_progress: 进行中
+task_completed: 已完成
+task_skipped: 已跳过
+turn_subagents: 正在等待子代理…
+subagent_preview_menu: 子代理过程示例
+subagent_preview_prompt: 展示子代理状态与只读过程
+subagent_count: "%{completed}/%{total} 子代理"
+chat_child: 子代理
+chat_child_generic: 通用任务
+chat_child_summary: "%{complete} 已完成 · %{failed} 失败"
+chat_child_readonly: "%{role} · 只读"
+chat_child_unavailable: 子会话尚不可用，请重试
+subagent_running: 运行中
+queue_add: 加入示例队列
+queue_count: "%{count} 条待发送"
+queue_preview: 仅内存队列示例，不执行模型或工具
+queue_drag: 拖动调整顺序
+queue_edit: 编辑待发送内容
+queue_delete: 从队列移除
+queue_send: 立即演示此消息（停止当前示例回合）
+queue_save: 保存
+queue_title: 待发送
+queue_paused: 队列已暂停
+queue_pause: 暂停队列
+queue_resume: 继续发送
+queue_send_now: 立即发送并停止当前回合
+queue_changed: 队列已改变，请重试
+queue_draft_changed: 队列已改变，编辑草稿已保留
+queue_reload: 重新载入
+queue_reload_draft: 用当前内容替换编辑草稿
+queue_blocked: 项目信任或资源归属已改变，请先核对
+subagent_summary: "%{complete} 已完成 · %{failed} 失败 · 仅示例"
+subagent_show: 查看子代理活动
+subagent_open: 查看过程
+subagent_unavailable: 此子代理的示例过程已不可用
+subagent_stop_unavailable: 只读预览，单独停止子代理尚未接入
+subagent_readonly: "%{role} · 只读示例，未执行子代理"
+subagent_sample_review: 检查项目结构
+subagent_sample_test: 制定验证方案
+subagent_sample_waiting: 等待边界确认
+subagent_sample_failed: 检查错误处理
+subagent_role_review: 代码审查
+subagent_role_test: 测试分工
+reference_title: 添加引用
+composer_commands: 指令
+composer_command_review: 审查变更
+composer_command_test: 运行测试
+composer_command_plan: 制定计划
+composer_command_explain: 解释代码
+composer_prompt_review: 审查当前变更，找出问题和遗漏
+composer_prompt_test: 运行相关测试，分析并修复失败
+composer_prompt_plan: 为接下来的任务制定计划
+composer_prompt_explain: 解释相关代码的工作方式
+reference_files: 文件
+reference_files_description: 当前 worktree 的示例文件
+reference_agents: 子代理
+reference_agents_description: 引用已配置的子代理
+reference_sessions: 会话
+reference_sessions_description: 当前 worktree 中的会话
+reference_context: 工作区上下文
+reference_context_description: 主机、项目和 worktree
+reference_directory: 引用此目录
+reference_file: 示例文件
+reference_host: 主机
+reference_project: 项目
+reference_worktree: worktree
+reference_empty: 没有匹配的引用
+reference_back: 返回上一级
+reference_remove: 移除引用
+reference_preview: 仅引用预览 · 输入筛选，↑↓ 选择，Enter 确认
+reference_stale: 引用的归属或配置已改变，请移除后重新选择
+reference_unavailable: 无法打开引用
+reference_one_agent: 一条消息只能引用一个子代理，请先移除已选子代理
+worktree_remove: 删除 worktree
+worktree_remove_preview: 移除示例记录
+worktree_remove_description: 移除后切回主 worktree
+worktree_remove_preview_hint: 仅移除示例记录
+worktree_remove_missing: worktree 或所属项目已不存在，请重新打开管理列表
+worktree_remove_changed: worktree 或项目路径已改变，请取消后重新确认
+worktree_remove_main: 主 worktree 不能移除
+worktree_remove_locked: worktree 已锁定，请先在主机解锁
+worktree_remove_untrusted: 项目尚未受信任，不能移除 worktree
+worktree_remove_dirty: worktree 包含未提交改动，不能移除
+worktree_remove_busy: worktree 正在使用，请稍后重新打开
+worktree_remove_detached: 请先将 worktree 切回分支
+worktree_remove_sessions: worktree 仍被会话引用（包括已归档会话），不能移除
+worktree_remove_terminals: 请先关闭此 worktree 下的终端
+project_remove: 移除项目
+project_remove_preview: 移除示例记录
+project_remove_description: 磁盘文件会保留
+project_remove_preview_hint: 仅移除示例记录
+project_remove_sessions: 项目仍被会话引用（包括已归档会话），不能移除
+project_remove_terminals: 请先关闭此项目下的所有终端
+project_empty: 此主机还没有项目。添加项目后即可创建会话或终端。
+live_connected: 已连接
+live_metrics_pending: 节点资源指标尚未接入
+live_host_name: 主机名称
+live_host_platform: 系统与架构
+live_host_cpus: 逻辑核心
+live_host_memory: 可用 / 总内存
+live_host_sample_scope: 连接时采样
+host_offline: 未连接
+host_memory_available: 可用内存
+host_memory_total: 共 %{value}
+metrics_gpu: GPU
+host_process_search: 搜索进程
+host_process_name: 进程
+host_pid: PID
+host_cpu_history: CPU 趋势
+host_cpu_total: 总体利用率
+host_process_limited: 仅显示占用最高的 2048 个进程
+host_process_empty: 暂无进程
+host_process_no_matches: 无匹配进程
+host_metric_unavailable: 暂无数据
+host_sampling: 等待采样
+host_sampling_failed: 主机数据未更新
+host_percent: 利用率 (%)
+host_gib: 已用内存 (GiB)
+host_disk_read: 读取 (MiB/s)
+host_disk_write: 写入 (MiB/s)
+host_disk_space: 可用 %{available} / %{total}
+live_host_overview: 概览
+live_host_active: 活动会话
+live_host_empty: 暂无活动会话
+live_disconnected: 连接中或离线 · 等待节点更新
+live_sync_failed: 主机同步失败
+live_project_editor: 在当前执行节点注册项目，请填写该节点可访问的绝对目录
+live_project_register: 注册项目
+live_request_failed: 请求未完成，请检查节点连接和目录；重试会保留原请求标识
+live_request_pending: 请求处理中…
+live_preview_scope: 当前功能仍为界面预览，不会执行所选节点上的操作
+live_revoke: 移除配对
+live_revoke_confirm: 确认断开“%{name}”并取消配对？再次连接需重新配对
+git_directory: 普通目录
+git_directory_title: 尚未初始化 Git
+git_directory_hint: 此目录示例还不是 Git 仓库，可先预览初始化流程
+git_initialize: 初始化 Git
+git_initialize_preview: 初始化示例仓库
+git_initialize_description: 仅初始化示例
+git_unborn_title: 仓库尚无提交
+git_unborn_changes: 尚无提交或变更数据
+git_initialize_changed: 项目路径已变更，请关闭后重新初始化
+git_worktree_requires_commit: 仓库尚无提交，无法从起点引用创建 worktree
+git_detached: 分离头指针
+directory_title: 选择目录
+directory_scope: "%{host} · 示例目录，不读取文件系统"
+directory_root: 根目录
+directory_home: 主目录
+directory_back: 后退
+directory_forward: 前进
+directory_up: 上级目录
+directory_address: 输入路径
+directory_empty: 没有可显示的子目录
+directory_missing: 此路径不在该主机的示例目录中，可返回示例位置
+directory_denied: 此目录为无访问权限示例，可选择其他目录
+directory_stale: 原表单路径已变更，请关闭后重新选择
+directory_preview: 示例文件
+directory_desktop: 桌面
+directory_documents: 文档
+directory_downloads: 下载
+directory_volume: 磁盘
+directory_refresh: 刷新
+directory_open: 打开
+directory_create: 新建文件夹
+directory_name: 名称
+directory_invalid_name: 请输入有效名称
+directory_stop: 遇到同名时停止
+directory_keep_both: 保留两者
+directory_action_failed: 操作失败，请检查路径和权限
+directory_outcome_unknown: 结果未确认，请先检查原路径和目标路径
+pairing_pin_hint: "输入 6 位配对码"
+pairing_idle: "未配对"
+pairing_preview_disabled: "UI 预览不连接真实设备。使用 --data-dir 启动服务模式后可配对。"
+pairing_invalid_endpoint: "请输入有效的 HTTPS 配对服务地址"
+pairing_preparing: "正在准备连接…"
+pairing_refresh_hint: "60 秒内有效，到期自动更新"
+pairing_retrying: "配对服务暂不可用，正在重试…"
+pairing_success: "设备配对成功"
+pairing_failed: "配对失败，请检查配对码或网络后重试"
+pairing_service: "短码兑换服务"
+pairing_status: "连接状态"
+pairing_local_code: "本机配对码"
+pairing_share: "分享本机"
+pairing_connect: "连接设备"
+pairing_live_scope: "此页已连接真实 Node；其他尚未接入的功能仍为预览，不会执行真实任务"
+files_loading: 正在读取…
+git_loading: 正在读取 Git…
+git_read_failed: Git 读取失败，请重新进入面板重试
+git_branches: 分支
+git_manage_branches: 管理分支
+git_new_branch: 新建分支
+git_create_branch: 创建
+git_rename_branch: 重命名分支
+git_branch_source: 原分支
+git_branch_rename_failed: 重命名失败，请检查仓库、权限和连接
+git_branch_rename_unknown: 重命名结果未确认，请先检查分支及跟踪配置
+git_branch_rename_conflict: 分支名已存在或 Git 操作尚未结束
+git_delete_branch: 删除分支
+git_merge_branch: 合并分支
+git_merge_branch_confirm: 合并到当前分支
+git_merging_branch: 正在合并
+git_merge_failed: 合并失败，请查看状态
+git_merge_unknown: 合并结果未确认，请查看 worktree 和历史
+git_merge_conflict: 无法合并，请检查冲突和未提交改动
+git_delete_branch_confirm: 确认删除已合并的本地分支
+git_deleting_branch: 正在删除分支
+git_branch_delete_failed: 删除失败，请检查分支和连接
+git_branch_delete_unknown: 删除结果未确认，请先检查分支及跟踪配置
+git_branch_delete_conflict: 分支尚未合并或正在使用
+git_branch_base: 起点
+git_branch_name: 分支名称
+git_branch_name_required: 输入分支名称
+git_branch_name_invalid: 分支名称无效
+git_branch_exists: 分支已存在，换个名称
+git_branch_create_denied: 没有创建分支的权限
+git_branch_create_failed: 创建失败，请检查仓库和连接
+git_branch_create_unknown: 创建结果未确认，请先检查分支列表
+git_branch_context_changed: 原面板已关闭，请重新打开
+git_local_branches: 本地分支
+git_remote_branches: 远程引用
+git_no_branches: 暂无分支
+git_branches_partial: 仅显示部分分支
+git_branches_failed: 分支读取失败，重新打开面板可重试
+git_switching_branch: 正在切换分支
+git_branch_failed: 分支切换失败，请检查当前状态
+git_branch_unknown: 切换结果未确认，请先核对分支和文件
+git_branch_conflict: 无法切换，工作区有冲突或分支被占用
+git_branch_busy: Git 正忙，稍后重试
+git_branch_revision: Git 状态已变化，请核对后重新选择分支
+git_diff_partial: 差异较大，仅显示部分内容
+git_diff_binary: 二进制无法显示差异
+git_no_changes: 没有文件变更
+git_staged: 已暂存
+git_unstaged: 未暂存
+git_history: 提交历史
+git_history_empty: 暂无提交记录
+git_history_partial: 部分提交内容或引用过长，已截断显示
+git_stage_file: 暂存此文件
+git_unstage_file: 取消暂存此文件
+git_updating_index: 正在更新暂存区…
+git_index_conflict: 分支、HEAD 或暂存区已被其他操作更新，请核对当前状态后重新操作
+git_index_failed: 暂存区更新失败，请重试
+git_index_changed: Git 状态已变化，请重新选择
+git_index_busy: Git 正忙或操作超时，稍后重试
+git_index_denied: 无法访问文件或暂存区，请检查权限
+git_index_missing: 文件或仓库已不存在，请重新选择
+git_index_unknown: 暂存结果未确认，请刷新后检查
+files_save: 保存
+terminal_number: 终端 %{number}
+terminal_unavailable: 终端不可用，请检查主机连接
+terminal_action_failed: 终端操作失败，请检查主机连接
+terminal_action_unknown: 操作结果未确认，请核对终端列表
+files_saving: 正在保存…
+files_unsaved: 有未保存的修改
+files_exit_description: 退出并丢弃未保存修改？正在保存的内容仍可能写入
+files_exit: 放弃修改并退出
+files_saved: 已保存
+files_save_conflict: 文件已在外部修改，草稿仍保留。请检查磁盘内容后重新打开，勿直接覆盖。
+files_save_failed: 保存失败，草稿仍保留。请检查文件权限和主机连接。
+files_edit_limit: 文本编辑上限为 2 MiB
+files_outcome_unknown: 保存结果不确定，草稿仍保留。请检查文件内容后重新打开，不会自动重复写入。
+files_discard_title: 放弃未保存的草稿
+files_discard_description: 丢弃未保存修改？正在保存的内容仍可能写入
+files_discard: 放弃草稿
+files_directory_empty: 空文件夹
+files_listing_partial: 目录较大或包含不支持的名称，仅显示部分条目
+files_content_partial: 文件较大，仅显示前 128 KiB 的文本内容
+files_read_failed: 无法读取，请检查文件类型、权限或主机连接
+files_upload_too_large: 文件超过 64 MiB
+chat_attachment_limit: 每条消息最多 8 个附件
+chat_attachment_count: "%{count} 个附件"
+chat_attachment_file: 文件
+chat_attachment_metadata: "%{kind} · %{size}"
+chat_attachment_bytes: "%{value} B"
+chat_attachment_kibibytes: "%{value} KiB"
+chat_attachment_mebibytes: "%{value} MiB"
+chat_attachment_remove: 移除附件
+chat_attachment_remove_failed: 移除失败
+chat_attachment_removing: 正在移除
+chat_attachment_unknown: 结果未确认，请重试
+chat_attachment_rejected: 当前模型无法使用这些附件，请检查格式和大小
+chat_clipboard_image: "图片 %{count}"
+chat_image_preview: 图片预览
+chat_image_previous: 上一张
+chat_image_next: 下一张
+chat_image_rotate: 旋转
+chat_image_zoom_in: 放大
+chat_image_zoom_out: 缩小
+chat_image_fit: 适应窗口
+chat_image_flip_horizontal: 水平翻转
+chat_image_flip_vertical: 垂直翻转
+chat_image_loading: 正在加载图片
+chat_image_unavailable: 无法预览图片，可重试或下载
+chat_image_too_large: 图片过大，请下载查看
+
+tool_group_count: "%{count} 项"
+
+git_layout_list: 扁平列表
+git_layout_tree: 树形列表
+
+git_all_changes: 全部
+
+git_select_all: 全选
+
+git_stage_selected: 暂存所选文件
+
+git_unstage_selected: 取消暂存所选文件
+
+git_unstage_all: 取消全部暂存
+
+git_refresh: 刷新
+
+git_view_changes: 变更
+
+git_create_from_branch: 基于此分支创建
+
+git_copy_branch: 复制分支名
+
+git_branch_actions: 分支操作
+
+git_switch_branch: 切换分支
+
+git_open_source: 打开文件
+
+git_copy_path: 复制路径
+git_discard_changes: 丢弃更改
+git_ignore: 忽略（加入 .gitignore）
+
+git_view_history: 历史
+
+git_prepare_commit: 提交更改
+git_view_options: 视图与排序
+git_view: 视图
+git_sort: 排序
+git_sort_path: 路径
+git_sort_name: 名称
+git_group: 分组
+git_group_none: 不分组
+git_group_tracked: 已跟踪与未跟踪
+git_group_staged: 已暂存与未暂存
+git_tracked: 已跟踪
+git_untracked: 未跟踪
+git_view_diff: 查看差异
+git_diff: 差异
+git_stage: 暂存
+git_unstage: 取消暂存
+git_search_branches: 搜索分支…
+git_discard_tracked: 丢弃已跟踪文件的修改
+git_discard_confirm: 丢弃全部修改（含暂存），无法撤销
+git_fetch: 获取
+git_fetch_from: 从远程获取
+git_pull: 拉取
+git_pull_rebase: 拉取并变基
+git_push: 推送
+git_push_to: 推送到
+git_publish: 发布分支
+git_force_push: 强制推送
+git_force_push_confirm: 用本地分支覆盖远程历史
+git_no_remotes: 未配置远程仓库
+git_continue: 继续操作
+git_abort: 中止操作
+git_rebase: 变基到
+git_cherry_pick: 拣选提交
+git_track: 设置上游分支
+git_working: 正在执行 Git 操作
+git_action_failed: Git 操作失败，请检查仓库状态和远程配置
+git_action_unknown: Git 操作结果未确认，请刷新检查后再继续
+git_commit_tracked: 提交已跟踪文件
+git_signoff: 添加签署声明
+git_skip_hooks: 跳过 Hooks
+git_expand_commit: 展开提交说明
+git_undo_commit: 撤销上次提交
+git_undo_confirm: 撤销上次提交，保留文件修改
+git_stash_all: 储藏全部更改
+git_stash_tracked: 储藏已跟踪文件
+git_stash_staged: 储藏已暂存更改
+git_view_stash: 查看储藏
+git_no_stash: 暂无储藏
+git_stash_apply: 应用储藏
+git_stash_pop: 应用并移除储藏
+git_stash_drop: 删除储藏
+git_stash_drop_confirm: 删除此储藏，此操作无法撤销
+git_action_conflict: 操作存在冲突，请刷新并解决冲突后继续
+git_auth_failed: 远程认证失败，请检查执行主机的 Git 凭据
+
+git_trash_untracked: 将未跟踪文件移到废纸篓
+git_trash_confirm: 将所有未跟踪文件移到废纸篓
+
+git_add_remote: 添加远程仓库
+git_remote_name: 名称
+git_remote_url: 地址
+git_actions: Git 操作
+git_checkout: 切换到…
+git_clone: 克隆…
+git_changes_menu: 更改
+git_pull_push: 拉取与推送
+git_remotes: 远程仓库
+git_stash_menu: 储藏
+git_tags: 标签
+git_worktrees: worktree
+git_output: Git 输出
+git_sort_status: 按状态排序
+git_commit_all: 提交全部
+git_commit_amend: 提交（修改上次提交）
+git_commit_staged_amend: 提交已暂存更改（修改上次提交）
+git_commit_all_amend: 提交全部（修改上次提交）
+git_commit_signoff: 提交（签署声明）
+git_commit_staged_signoff: 提交已暂存更改（签署声明）
+git_commit_all_signoff: 提交全部（签署声明）
+git_commit_push: 提交并推送
+git_commit_sync: 提交并同步
+git_commit_scope: 尚未暂存更改
+git_commit_sync_failed: 提交成功，同步未完成。请查看 Git 输出后重试同步
+git_discard_all: 放弃全部更改
+git_sync: 同步
+git_sync_rebase: 同步并变基
+git_pull_from: 从指定远程拉取…
+git_fetch_prune: 获取并清理失效引用
+git_fetch_all: 从所有远程获取
+git_branch_from: 从其他分支创建…
+git_delete_remote_branch: 删除远程分支…
+git_remove_remote: 移除远程仓库…
+git_remove_remote_confirm: 移除远程配置和跟踪引用，保留本地分支
+git_stash_apply_latest: 应用最新储藏
+git_stash_pop_latest: 弹出最新储藏
+git_stash_drop_all: 删除全部储藏…
+git_stash_view: 查看储藏…
+git_tag_create: 创建标签…
+git_tag_message: 标签说明（可选）
+git_tag_delete: 删除标签…
+git_tag_delete_remote: 删除远程标签…
+git_tag_push: 推送标签…
+git_worktree_open: 打开 worktree…
+git_tracking_name: 本地分支名称
+git_no_matches: 无匹配项
+git_load_failed: 读取失败，请重试
+git_unborn: 尚无提交
+git_delete_confirm: 确认删除？无法撤销
+git_stash_switch: 储藏更改并切换
+git_discard_all_confirm: 还原全部修改（含暂存），新增文件移入回收站
+worktree_commit_first: 新建 worktree（需先提交）
+turn_changes_undo: 撤销
+turn_changes_undo_all: 撤销修改
+turn_changes_undone: 已撤销
+turn_changes_retry: 重试撤销
+
+pane_restore_failed: 工作区恢复失败
+pane_drag: 拖动分屏
+pane_session_missing: 会话已不存在
+
+chat_navigation: 消息导航
+
+files_line_count: "{count} 行"
+files_cursor_position: "行 {line}, 列 {column}"
+files_undo: 撤销
+files_find: 搜索
+files_redo: 重做
+
+pane_close_confirm: 关闭此面板
+pane_close_description: 会话记录会保留
+
+files_copy_path: 复制路径
+files_insert_conversation: 插入会话
+
+files_open: 打开文件
+
+files_extend_up: 向上扩展选择
+files_extend_down: 向下扩展选择
+settings_browser: 浏览器
+browser_data: 本机网站数据
+browser_data_local: 保留网站数据
+browser_data_description: 开启后保留网站数据；关闭后仅在本次使用期间保留
+browser_clear_site: 清除网站数据
+browser_clear_confirm: 清除 %{site} 的网站数据
+browser_clear_description: 将退出该网站的登录状态
+browser_data_failed: 无法读取或清除网站数据
+browser_chrome_import: 从 Chrome 导入
+browser_chrome_folder: 选择 Chrome 文件夹
+browser_chrome: Chrome 登录状态
+browser_chrome_description: 选择档案，导入全部网站的 Cookie；部分网站可能需要重新登录
+browser_choose_profile: 选择档案
+browser_import: 导入
+browser_import_selected: 导入所选网站
+browser_imported: 已导入 %{count} 个 Cookie，跳过 %{skipped} 个
+browser_import_failed: Cookie 导入失败
+browser_chrome_missing: 未找到 Chrome 档案
+browser_chrome_failed: 无法读取 Chrome 数据，请关闭 Chrome 后重试
+browser_chrome_schema: 暂不支持此 Chrome 数据格式
+browser_chrome_empty: 此档案没有网站 Cookie
+browser_chrome_key_denied: 无法读取 Chrome 密钥，请检查钥匙串授权
+browser_chrome_cipher: 无法解密此 Cookie
+browser_select_all: 全选
+browser_import_unavailable: 当前系统暂不支持 Chrome 导入
+browser_store_unavailable: 保留登录状态和导入需要 macOS 14 或更新版本
+settings_browser_description: 管理登录状态和网站数据
+
+browser_inspect: 网页调试器
+plugins_action_models: 调用 AI 模型
+
+plugins_settings_follow_model: 跟随模型
+
+tool_browser_tabs: 浏览器标签页
+tool_browser_read: 读取页面
+tool_browser_navigate: 打开页面
+tool_browser_click: 点击元素
+tool_browser_input: 输入文字
+tool_browser_scroll: 滚动页面
+tool_browser_back: 返回上一页
+provider_tokens_k: "%{count}K"
+provider_tokens_m: "%{count}M"
+
+files_move: 移动
+session_delete_named: 确认删除会话“%{name}”及其子代理？无法恢复
+project_remove_named: 确认移除项目“%{name}”？文件和会话会保留
+project_remove_sample: 确认移除示例项目“%{name}”
+worktree_remove_named: 确认删除 worktree“%{name}”？Git 分支会保留
+worktree_remove_sample: 确认移除示例 worktree“%{name}”
+git_initialize_sample: 确认初始化示例“%{name}”
+
+port_mappings: 端口映射
+port_add: 新建转发
+
+location_search: 选择工作位置
+location_project: 选择项目
+location_create: 新建工作树并继续
+location_fork: 在独立工作树中派生会话
+location_copy_changes: 带入未提交修改
+location_created_changed: 工作树已创建，会话状态已变化，请重新选择工作位置
+location_busy: 会话仍有运行或排队任务
+location_changed: 会话状态已变化，请重新选择工作位置
+
+form_name_hint: 输入名称
+form_host_hint: 主机名或 IP 地址
+form_port_hint: 1–65535
+form_username_hint: 登录用户名
+form_password_hint: 输入密码
+form_private_key_hint: 粘贴私钥
+form_passphrase_hint: 私钥口令（可选）
+form_database_path_hint: 数据库文件路径
+form_database_hint: 数据库名称（可选）
+form_source_path_hint: 源文件路径
+form_destination_path_hint: 目标文件路径
+form_local_port_hint: 0 表示自动分配
+form_api_version_hint: 如 2024-10-21
+form_region_hint: 如 us-east-1
+form_cloud_project_hint: 云项目 ID
+form_location_hint: 如 global 或 us-central1
+form_model_hint: 模型 ID
+form_tokens_hint: Token 数量
+form_package_hint: 插件包名称或路径
+form_directory_hint: 工作目录路径（可选）
+form_remote_hint: 如 origin
+form_filename_hint: 文件或目录名称
+form_branch_hint: 如 feature/task
+form_worktree_path_hint: 留空自动选择目录
+form_revision_hint: 分支、标签或提交
+form_role_id_hint: 如 code-reviewer
+form_turns_hint: 留空不限制
+form_role_instructions_hint: 填写提示词
+form_variable_hint: 如 LANG
+form_value_hint: 输入值
+form_subdirectory_hint: 仓库内目录（可选）
+form_namespace_hint: 如 user
+form_secret_hint: 输入凭据
+provider_key_hint: 输入 API Key
+form_date_hint: 选择日期
+form_time_hint: "HH:mm:ss"
+
+ssh_trust_title: 信任主机密钥
+
+form_key_path_hint: ~/.ssh/id_ed25519
+
+connection_connecting: 正在连接
+
+form_target_directory_hint: 工作树目录路径
+host_process_details: 查看详情
+host_process_copy_pid: 复制 PID
+host_process_copy_name: 复制名称
+host_process_stop: 结束进程
+host_process_force_stop: 强制结束
+host_process_stop_confirm: 向此进程发送结束请求，可能中断正在进行的任务
+host_process_force_confirm: 立即结束此进程，未保存的数据可能丢失
+host_process_stop_sent: 已发送结束请求
+host_process_gone: 此进程已退出
+host_process_changed: 进程已变化，请刷新后重试
+host_process_protected: 无法结束系统进程或当前主机服务
+host_process_uncertain: 结束结果未知，请检查进程状态
+host_process_stop_failed: 无法结束进程，可能已退出、权限不足或主机不支持此操作
+host_partition: 分区
+host_partitions: 磁盘分区
+host_disk_available: 可用
+host_disk_total: 总容量
+host_network_received: 下载 (MiB/s)
+host_network_transmitted: 上传 (MiB/s)
+usage_column_provider: 供应商
+usage_column_project: 归属
+usage_column_first_token: 首字
+connections_hosts: 主机
+connections_mobile: 移动端
+connections_online: 在线
+connections_offline: 离线
+connections_device: '设备 %{id}'
+connections_revoke_confirm: 解除配对后需要重新连接
+
+db_catalog: 数据库
+db_catalog_loading: 加载中
+db_log: SQL 日志
+host_add: 添加主机
+host_install: 安装并连接
+host_install_detecting: 检查主机
+host_install_uploading: 上传主机程序
+host_install_starting: 启动主机服务
+host_install_pairing: 正在配对
+host_install_failed: 添加失败
+host_added: 主机已添加
+host_install_unknown: 安装结果未确认，请检查主机后重试
+
+pairing_share_hint: 在另一台设备的「远程连接」中输入配对码
+db_catalog_failed: 加载失败，收起后重试
+db_data: 数据
+db_sql_tab: SQL
+
+connection_scope: 使用范围
+connection_private: 私有使用
+connection_global: 全局共享
+connection_projects: 项目共享
+connection_no_projects: 暂无项目
+connection_assistant: 数据库助手
+reference_databases: 数据库
+reference_ssh: SSH 连接
+
+ssh_assistant: SSH 助手
+
+db_toggle_assistant: 数据库助手
+db_history: 执行记录
+connection_action_open: 打开
+connection_action_edit: 编辑
+connection_action_check: 测试连接
+connection_search: 搜索
+connection_search_empty: 无匹配结果
+ssh_files_parent: 上级目录
+ssh_files_denied: 无权访问远程文件
+ssh_files_missing: 远程路径不存在
+ssh_files_failed: 无法读取远程目录，点击刷新重试
+ssh_files_count: '%{count} 项'
+ssh_files_exists: 同名文件已存在，是否替换
+ssh_files_replace: 替换
+ssh_files_uncertain: 操作结果未确认，请检查远程文件
+ssh_files_delete_confirm: 永久删除所选文件和目录
+ssh_files_merge: 合并并替换
+ssh_files_action_failed: 文件操作失败
+chat_sidebar_empty: 开始会话
+
+composer_permission_readonly: 只读权限
+reference_select_current: 选择当前
+chat_connection_history: 历史会话
+chat_connection_history_empty: 暂无历史会话
+
+ssh_files_selected: 已选择 %{count} 项
+ssh_files_uploading: 上传 %{count} 项
+ssh_files_downloading: 下载 %{count} 项
+ssh_files_transferring: 上传 %{uploads} 项 · 下载 %{downloads} 项
+
+db_copy_cell: 复制单元格
+db_copy_row: 复制整行
+db_copy_query: 复制查询 SQL
+db_copy_insert: 复制 INSERT SQL
+db_copy_update: 复制 UPDATE SQL
+db_copy_delete: 复制 DELETE SQL
+db_edit_row_sql: 编辑行 SQL
+db_open_sql: 在 SQL 编辑器中打开
+db_delete_row: 删除行
+db_delete_row_confirm: "删除 %{table} 中选中的 %{count} 行？\n\n%{sql}"
+
+db_tables_empty: 暂无表
+db_data_empty: 暂无数据
+
+db_table_open: 打开数据
+db_table_structure: 查看结构
+db_table_copy_name: 复制表名
+db_table_copy_select: 复制 SELECT SQL
+db_table_copy_definition: 复制 DDL
+db_table_clear: 清空表
+db_table_drop: 删除表
+db_table_clear_confirm: 清空 %{table} 的全部数据？表结构会保留
+db_table_drop_confirm: 删除 %{table} 及其全部数据？此操作不可撤销
+db_ready: 就绪
+db_transport_tcp: TCP/IP
+db_transport_socket: Socket
+db_transport_ssh: SSH
+db_socket: Socket 路径
+db_socket_directory: Socket 目录
+db_ssh_connection: SSH 连接
+db_ssh_select: 选择 SSH 连接
+db_ssh_verify: 请先在 SSH 连接中验证主机密钥
+db_path_hint: 输入路径
+ssh_key_choose: 选择私钥文件
+ssh_key_read_failed: 无法读取私钥文件
+ssh_key_invalid_file: 请选择有效的私钥文件
+background_count: 后台终端 %{count}
+background_stop: 停止命令
+background_end: 结束
+background_recent_output: 仅显示近期输出
+background_unavailable: 暂时无法读取后台终端
+background_stop_failed: 停止失败，请重试
+background_stop_unknown: 停止结果未确认，请查看命令状态
+background_started: 已在后台运行
+background_read: 查看后台命令
+
+terminal_match_previous: 上一个匹配
+terminal_match_next: 下一个匹配
+
+terminal_search_placeholder: 搜索终端
+
+provider_qwen: Qwen
+provider_moonshot: Kimi
+settings_group_app: 应用
+settings_group_ai: AI
+settings_group_tools: 工具与连接
+settings_group_system: 系统
+
+appearance_transparency: 背景透明度
+appearance_main_transparency: 容器
+appearance_sidebar_transparency: 窗口
+
+shortcut_edit: 编辑快捷键
+shortcut_binding: 快捷键
+shortcut_binding_hint: cmd-k 或 ctrl-g ctrl-g，留空停用
+shortcut_disabled: 未设置
+shortcut_reset: 恢复默认
+shortcut_invalid: 快捷键格式不正确
+shortcut_conflict: 快捷键与现有操作冲突
+shortcut_unavailable: 快捷键不可用
+
+
+settings_memory: 记忆
+memory_search: 搜索记忆
+memory_global: 全局
+memory_create: 新建记忆
+memory_editor: 编辑记忆
+memory_user: 用户偏好
+memory_feedback: 反馈
+memory_project: 项目
+memory_reference: 参考资料
+memory_title: 标题
+memory_body: 内容
+memory_kind: 类型
+memory_empty: 暂无记忆
+memory_catalog_preview: 连接主机后管理记忆
+memory_disconnected: 主机未连接
+memory_delete_confirm: 删除这条记忆后，模型将无法再检索它
+memory_retry: 重试
+memory_failed: 记忆操作失败，请重试
+memory_conflict: 记忆已更改或删除，请返回后重新打开
+memory_unknown: 结果尚未确认，请重试查询原请求
+memory_invalid: 请填写标题和内容，标题最多 160 字节，内容最多 8 KB
+memory_capacity: 记忆已满，请删除不再需要的条目
+settings_memory_description: 管理模型可检索的长期偏好、反馈和项目知识
+tool_search_memory: 检索记忆
+tool_save_memory: 保存记忆
+tool_forget_memory: 删除记忆
+memory_all: 全部记忆
+memory_scope: 筛选项目
+memory_project_unavailable: 已移除项目
+
+memory_configuration: 记忆设置
+memory_enabled: 启用记忆
+memory_auto_write: 自动写入
+memory_auto_write_description: 允许模型自主保存和整理记忆，关闭后模型只读
+memory_context_budget: 每轮记忆预算
+memory_budget_description: 限制记忆索引与检索内容的总字节数，新轮次生效
+memory_review_age: 复查间隔（天）
+memory_settings_conflict: 设置已被其他客户端更改，请重新载入后修改
+memory_settings_reload: 重新载入
+memory_active: 使用中
+memory_archived: 已归档
+memory_review: 待整理
+memory_possible_duplicate: 可能重复
+memory_needs_review: 待复查
+memory_merge_source: 选择合并的记忆
+memory_merge: 合并并保存
+memory_merge_description: 编辑合并后的内容，保存后原条目将归档
+memory_duplicate: 已有相同内容的记忆，请更新或合并现有条目
+memory_search_too_long: 搜索内容过长，请缩短后重试
+
+shortcut_record: 按下快捷键
+shortcut_clear: 清除快捷键
+
+tool_browser_forward: 前进一页
+tool_browser_refresh: 刷新页面
+tool_browser_open: 新建标签页
+tool_browser_close: 关闭标签页
+tool_browser_focus: 切换标签页
+tool_browser_select: 选择选项
+tool_browser_hover: 悬停元素
+tool_browser_key: 按键
+tool_browser_frame: 切换框架
+tool_browser_wait: 等待页面
+tool_browser_screenshot: 截取页面
+
+plugins_builtin: 内置工具
+plugins_builtin_browser: 浏览器控制
+plugins_builtin_external_browser: 外部浏览器
+plugins_builtin_computer: 电脑操作
+computer_execution_device: "执行电脑：%{name}"
+computer_screen_capture: 屏幕录制
+computer_accessibility: 辅助功能
+computer_permission_granted: 已授权
+computer_permission_missing: 未授权
+computer_permission_unknown: 无法检测
+computer_permissions_checking: 检测中
+computer_permissions_failed: 检测失败
+computer_permissions_open_failed: 未能打开系统设置
+computer_permissions_refresh: 重新检测
+permission_request: 请求授权
+computer_permissions_remote: 请在执行电脑上打开 Sailry 设置并授权
+computer_permissions_unsupported: 此系统暂不支持权限检测与授权引导
+tool_computer_desktop: 查看桌面
+tool_computer_observe: 观察屏幕
+tool_computer_input: 操作电脑
+tool_computer_focus: 切换应用
+tool_external_browser_action: 外部浏览器 · %{action}
+tool_browser_window: 调整窗口
+tool_browser_close_window: 关闭窗口
+tool_browser_close_session: 关闭浏览器
+tool_browser_pdf: 导出 PDF
+tool_browser_upload: 上传文件
+tool_browser_downloads: 查看下载
+tool_browser_save_download: 保存下载文件
+tool_browser_script: 执行页面脚本
+tool_browser_read_cookies: 读取 Cookie
+tool_browser_edit_cookies: 修改 Cookie
+tool_browser_drag: 拖动元素
+tool_browser_focus_element: 聚焦元素
+tool_browser_alert: 处理页面提示
+
+tool_computer_open: 打开应用
+
+plugins_builtin_label: 内置
+computer_device: 执行电脑
+computer_permissions: 系统权限
+
+dictation_start: 语音输入
+dictation_finish: 结束录音
+dictation_preparing: 正在准备本地语音模型
+dictation_transcribing: 正在识别
+dictation_unavailable: 本地语音输入不可用
+dictation_busy: 语音输入正在使用中，请稍后重试
+dictation_microphone: 无法使用麦克风，请检查系统权限
+dictation_storage: 无法保存语音模型
+dictation_download: 语音模型下载失败，请重试
+dictation_model_invalid: 语音模型无效，请重试
+dictation_failed: 语音识别失败，请重试
+dictation_cancelled: 已取消
+dictation_empty: 未识别到语音
+settings_dictation: 语音输入
+settings_dictation_description: 在本机识别语音，结果填入消息草稿
+dictation_input: 输入
+dictation_microphone_label: 麦克风
+dictation_microphone_default: 系统默认
+dictation_device_missing: 所选麦克风不可用
+dictation_device_loading: 正在检测麦克风
+dictation_permission: 请在系统设置中允许麦克风访问
+dictation_access: 麦克风权限
+dictation_download_speed: "%{value} MB/s"
+dictation_model_missing: 请先下载语音模型
+dictation_access_granted: 已授权
+dictation_access_hint: 为当前应用允许访问，返回后自动检测
+dictation_language: 识别语言
+dictation_language_auto: 自动识别
+dictation_language_chinese: 中文
+dictation_language_english: 英文
+dictation_local_model: 本地模型
+dictation_model_name: SenseVoice INT8
+dictation_model_size: 约 240 MB，下载后可离线使用
+dictation_download_model: 下载模型
+dictation_retry: 重试
+dictation_ready: 已就绪
+dictation_checking: 正在检查
+
+composer_goal: 目标
+dictation_no_audio: 未收到麦克风音频，请检查设备和权限
+dictation_silent: 未检测到声音，请检查麦克风
+
+dictation_draft_changed: 草稿已修改，已停止语音输入
+
+composer_settings: 会话设置
+composer_context_details: 上下文
+composer_statistics: 统计
+composer_timed_responses: 测速响应
+composer_timed_output: 测速输出
+composer_back: 返回
+
+app_exit: 退出
+app_exit_confirm: 退出 Sailry
+app_exit_description: 本机正在运行的任务和终端将停止
+tool_session_title: 设置会话标题
+
+files_open_failed: 无法打开文件
+
+files_remote_directory: 远程目录无法在本机打开
+
+files_remote_path: 此路径不在远程工作区内
+files_open_system: 打开
+
+tool_inspect_image: 识别图片
+tool_generate_image: 生成图片
+tool_generate_video: 生成视频
+tool_list_worktrees: 列出工作树
+tool_create_worktree: 新建工作树
+tool_register_worktree: 添加工作树
+tool_remove_worktree: 移除工作树
+tool_ssh_run: 运行 SSH 命令
+tool_ssh_transfer: 传输 SSH 文件
+tool_load_skill: 加载技能
+tool_read_skill_resource: 读取技能资源
+tool_update_plan: 更新计划
+tool_database_catalog: 浏览数据库
+tool_database_query: 查询数据库
+tool_database_execute: 执行数据库操作
+tool_review_memories: 整理记忆
+tool_consolidate_memories: 合并记忆
+
+plugins_settings_input_hint: 请输入%{field}
+
+session_title_required: 请输入名称
+session_copy_id: 复制会话 ID
+session_fork_here: 创建聊天分支
+session_fork_worktree: 在新工作树中创建聊天分支
+session_fork: 分叉
+session_mark_read: 标记为已读
+session_mark_unread: 标记为未读
+session_new_window: 在新窗口中打开
+session_window_failed: 无法打开新窗口
+session_fork_busy: 会话运行中，请稍后分叉
+
+plugins_official: 官方
+plugins_third_party: 三方
+project_records_search: 搜索
+project_records_no_results: 没有匹配的结果
+
+port_search: 搜索端口
+port_copy: 复制地址
+
+port_open_service: 打开服务
+
+shell_sessions: 会话
+features_all: 全部功能
+feature_pin: 固定到侧栏
+feature_unpin: 取消固定
+
+recent_sessions: 最近
+
+active_sessions: 活动
+
+active_sessions_empty: 暂无活动
+
+artifact_open: 打开
+artifact_open_with: 打开方式
+artifact_preview: 预览
+artifact_preview_unavailable: 此文件暂不支持预览
+artifact_preview_failed: 预览加载失败
+artifact_preview_changed: 文件已修改
+artifact_preview_warnings: 预览详情
+artifact_preview_loading: 正在加载预览
+artifact_preview_large: 文件过大，无法预览
+artifact_preview_password: 请用其他应用打开加密文件
+artifact_previous_page: 上一页
+artifact_next_page: 下一页
+artifact_zoom_out: 缩小
+artifact_zoom_in: 放大
+artifact_fit_width: 适应宽度
+artifact_reload: 刷新预览
+
+tool_office_runtime: Office 环境
+tool_office_read: 读取文档
+tool_office_export: 导出 PDF
+
+artifact_request_edit: "请求修改"
+artifact_selection_context: "预览第 %{page} 页选中内容"
+artifact_edit_prompt: "修改要求："
+
+reference_group_context: "添加"
+updates_receipt_failed: "更新已安装，但无法保存恢复信息"
+updates_details: "详情"
+updates_recovery_failed: "草稿恢复未完成"
+updates_profile_inside: "数据目录位于 Sailry 应用内，请移出后再更新"

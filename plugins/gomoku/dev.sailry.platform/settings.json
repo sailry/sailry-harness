@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "ai_name": {
+      "type": "string",
+      "title": "Name",
+      "default": "",
+      "maxLength": 24
+    },
+    "ai_model": {
+      "type": "string",
+      "title": "Model",
+      "x-sailry-model": true,
+      "minLength": 1
+    },
+    "ai_model_effort": {
+      "type": "string",
+      "title": "Reasoning",
+      "x-sailry-model-effort": "ai_model",
+      "default": "none"
+    },
+    "player_name": {
+      "type": "string",
+      "title": "Name",
+      "default": "",
+      "maxLength": 24
+    },
+    "ai_enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "default": true
+    }
+  },
+  "x-sailry-locales": {
+    "zh-CN": {
+      "ai_name": "名称",
+      "ai_model": "模型",
+      "ai_model_effort": "思考强度",
+      "player_name": "名称",
+      "player-tab-1": "玩家 1",
+      "ai_enabled": "启用",
+      "player-tab-2": "玩家 2"
+    }
+  },
+  "required": [
+    "ai_enabled"
+  ],
+  "x-sailry-tabs": [
+    {
+      "id": "player-tab-1",
+      "title": "Player 1",
+      "fields": [
+        "player_name"
+      ]
+    },
+    {
+      "id": "player-tab-2",
+      "title": "Player 2",
+      "fields": [
+        "ai_enabled",
+        "ai_name",
+        "ai_model",
+        "ai_model_effort"
+      ],
+      "enabled": "ai_enabled"
+    }
+  ]
+}

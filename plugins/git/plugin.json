@@ -1,0 +1,942 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "git",
+  "version": "0.1.0",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "actions": [
+        "git.read",
+        "git.write",
+        "worktrees.read",
+        "files.read",
+        "conversation.control"
+      ],
+      "display": {
+        "label": "Git",
+        "locales": {
+          "zh-CN": "Git"
+        },
+        "icon": "reicon:newicons/hierarchy2"
+      },
+      "description": {
+        "label": "Review changes and manage repositories",
+        "locales": {
+          "zh-CN": "审查变更与管理代码仓库"
+        }
+      },
+      "host": {
+        "entry": "dev.sailry.platform/host/main.js",
+        "resources": [
+          "dev.sailry.platform/host/main.js"
+        ],
+        "handlers": [
+          "status",
+          "diff",
+          "log"
+        ]
+      },
+      "tools": [
+        {
+          "name": "git_status",
+          "presentation": "details",
+          "description": "Read Git status without modifying the index or checkout. Omit worktree for this turn's directory, or select a registered worktree ID from list_worktrees in the same project.",
+          "contexts": [
+            "workspace"
+          ],
+          "handler": {
+            "name": "status",
+            "operation": "git.status",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "worktree": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Registered worktree ID in this turn's project; omit for the current worktree"
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "display": {
+            "label": "Git status",
+            "locales": {
+              "zh-CN": "Git 状态"
+            },
+            "icon": {
+              "svg": "<svg\n    xmlns=\"http://www.w3.org/2000/svg\"\n    width=\"24\"\n    height=\"24\"\n    viewBox=\"0 0 24 24\"\n    fill=\"none\"\n    stroke=\"currentColor\"\n    stroke-width=\"2\"\n    stroke-linecap=\"round\"\n    stroke-linejoin=\"round\"\n><rect x=\"16\" y=\"16\" width=\"6\" height=\"6\" rx=\"1\" /><rect\n        x=\"2\"\n        y=\"16\"\n        width=\"6\"\n        height=\"6\"\n        rx=\"1\"\n    /><rect x=\"9\" y=\"2\" width=\"6\" height=\"6\" rx=\"1\" /><path\n        d=\"M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3\"\n    /><path d=\"M12 12V8\" /></svg>"
+            },
+            "output": {
+              "preview": {
+                "parts": [
+                  {
+                    "rows": {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/entries"
+                      },
+                      "text": {
+                        "parts": [
+                          {
+                            "text": "U",
+                            "when": {
+                              "all": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/conflicted"
+                                  },
+                                  "equals": true
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "text": "?",
+                            "when": {
+                              "all": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/conflicted"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/untracked"
+                                  },
+                                  "equals": true
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "text": "A",
+                            "when": {
+                              "all": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/conflicted"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/untracked"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/staged"
+                                  },
+                                  "equals": "added"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "text": "M",
+                            "when": {
+                              "all": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/conflicted"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/untracked"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/staged"
+                                  },
+                                  "equals": "modified"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "text": "D",
+                            "when": {
+                              "all": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/conflicted"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/untracked"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/staged"
+                                  },
+                                  "equals": "deleted"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "text": "R",
+                            "when": {
+                              "all": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/conflicted"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/untracked"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/staged"
+                                  },
+                                  "equals": "renamed"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "text": "T",
+                            "when": {
+                              "all": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/conflicted"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/untracked"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/staged"
+                                  },
+                                  "equals": "type_changed"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "text": " ",
+                            "when": {
+                              "all": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/conflicted"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/untracked"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/staged"
+                                  },
+                                  "equals": null
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "text": "U",
+                            "when": {
+                              "all": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/conflicted"
+                                  },
+                                  "equals": true
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "text": "?",
+                            "when": {
+                              "all": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/conflicted"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/untracked"
+                                  },
+                                  "equals": true
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "text": "A",
+                            "when": {
+                              "all": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/conflicted"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/untracked"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/unstaged"
+                                  },
+                                  "equals": "added"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "text": "M",
+                            "when": {
+                              "all": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/conflicted"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/untracked"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/unstaged"
+                                  },
+                                  "equals": "modified"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "text": "D",
+                            "when": {
+                              "all": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/conflicted"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/untracked"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/unstaged"
+                                  },
+                                  "equals": "deleted"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "text": "R",
+                            "when": {
+                              "all": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/conflicted"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/untracked"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/unstaged"
+                                  },
+                                  "equals": "renamed"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "text": "T",
+                            "when": {
+                              "all": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/conflicted"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/untracked"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/unstaged"
+                                  },
+                                  "equals": "type_changed"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "text": " ",
+                            "when": {
+                              "all": [
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/conflicted"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/untracked"
+                                  },
+                                  "equals": false
+                                },
+                                {
+                                  "value": {
+                                    "source": "item",
+                                    "path": "/unstaged"
+                                  },
+                                  "equals": null
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "text": "  "
+                          },
+                          {
+                            "value": {
+                              "source": "item",
+                              "path": "/path"
+                            }
+                          }
+                        ]
+                      },
+                      "separator": "\n"
+                    }
+                  }
+                ]
+              },
+              "notices": [
+                {
+                  "message": {
+                    "label": "Directory",
+                    "locales": {
+                      "zh-CN": "普通目录"
+                    }
+                  },
+                  "when": {
+                    "any": [
+                      {
+                        "value": {
+                          "source": "result",
+                          "path": "/data/kind"
+                        },
+                        "equals": "directory"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "message": {
+                    "label": "Partial results",
+                    "locales": {
+                      "zh-CN": "仅显示部分结果"
+                    }
+                  },
+                  "when": {
+                    "any": [
+                      {
+                        "value": {
+                          "source": "result",
+                          "path": "/data/truncated"
+                        },
+                        "equals": true
+                      },
+                      {
+                        "value": {
+                          "source": "result",
+                          "path": "/data/omitted_paths"
+                        },
+                        "equals": 0,
+                        "negate": true
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "git_diff",
+          "presentation": "details",
+          "description": "Read the bounded Git diff of one relative file path. Select staged, unstaged or all changes. Omit worktree for this turn's directory, or select a registered worktree ID from list_worktrees in the same project.",
+          "contexts": [
+            "workspace"
+          ],
+          "handler": {
+            "name": "diff",
+            "operation": "git.diff",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Relative to the selected worktree"
+                },
+                "scope": {
+                  "type": "string",
+                  "enum": [
+                    "all",
+                    "staged",
+                    "unstaged"
+                  ]
+                },
+                "worktree": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Registered worktree ID in this turn's project; omit for the current worktree"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "display": {
+            "label": "View diff",
+            "locales": {
+              "zh-CN": "查看差异"
+            },
+            "icon": {
+              "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z\"/>\n  <path d=\"M14 2v6h6M8 12h6M11 9v6M8 18h6\"/>\n</svg>"
+            },
+            "input": {
+              "summary": {
+                "path": "/path",
+                "code": true
+              }
+            },
+            "output": {
+              "preview": {
+                "parts": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/data/text"
+                    }
+                  }
+                ]
+              },
+              "body": {
+                "text": {
+                  "source": "result",
+                  "path": "/data/text"
+                },
+                "path": {
+                  "source": "arguments",
+                  "path": "/path"
+                },
+                "diff": {
+                  "format": "unified",
+                  "when": {
+                    "any": [
+                      {
+                        "value": {
+                          "source": "result",
+                          "path": "/data/binary"
+                        },
+                        "equals": false
+                      }
+                    ]
+                  }
+                }
+              },
+              "notices": [
+                {
+                  "message": {
+                    "label": "Binary file",
+                    "locales": {
+                      "zh-CN": "二进制文件"
+                    }
+                  },
+                  "when": {
+                    "any": [
+                      {
+                        "value": {
+                          "source": "result",
+                          "path": "/data/binary"
+                        },
+                        "equals": true
+                      }
+                    ]
+                  }
+                },
+                {
+                  "message": {
+                    "label": "Partial results",
+                    "locales": {
+                      "zh-CN": "仅显示部分结果"
+                    }
+                  },
+                  "when": {
+                    "any": [
+                      {
+                        "value": {
+                          "source": "result",
+                          "path": "/data/truncated"
+                        },
+                        "equals": true
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "git_log",
+          "presentation": "details",
+          "description": "Read a page of Git commit history. For the first page omit cursor or pass null, for example {\"limit\":5,\"cursor\":null}. For subsequent pages pass the exact next cursor returned by this tool. Never construct a cursor from a short commit hash, HEAD or a branch name. An empty repository returns an empty history. Omit worktree for this turn's directory, or select a registered worktree ID from list_worktrees in the same project.",
+          "contexts": [
+            "workspace"
+          ],
+          "handler": {
+            "name": "log",
+            "operation": "git.log",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "cursor": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "head": {
+                      "type": "string",
+                      "pattern": "^[0-9a-fA-F]{40}$"
+                    },
+                    "offset": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "head",
+                    "offset"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Omit or use null for the first page; otherwise pass the exact returned cursor"
+                },
+                "worktree": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Registered worktree ID in this turn's project; omit for the current worktree"
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "display": {
+            "label": "Git history",
+            "locales": {
+              "zh-CN": "Git 日志"
+            },
+            "icon": {
+              "svg": "<svg\n    xmlns=\"http://www.w3.org/2000/svg\"\n    width=\"24\"\n    height=\"24\"\n    viewBox=\"0 0 24 24\"\n    fill=\"none\"\n    stroke=\"currentColor\"\n    stroke-width=\"2\"\n    stroke-linecap=\"round\"\n    stroke-linejoin=\"round\"\n><rect x=\"16\" y=\"16\" width=\"6\" height=\"6\" rx=\"1\" /><rect\n        x=\"2\"\n        y=\"16\"\n        width=\"6\"\n        height=\"6\"\n        rx=\"1\"\n    /><rect x=\"9\" y=\"2\" width=\"6\" height=\"6\" rx=\"1\" /><path\n        d=\"M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3\"\n    /><path d=\"M12 12V8\" /></svg>"
+            },
+            "output": {
+              "preview": {
+                "parts": [
+                  {
+                    "rows": {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/entries"
+                      },
+                      "text": {
+                        "parts": [
+                          {
+                            "value": {
+                              "source": "item",
+                              "path": "/id"
+                            },
+                            "take": 12
+                          },
+                          {
+                            "text": "  "
+                          },
+                          {
+                            "value": {
+                              "source": "item",
+                              "path": "/author"
+                            }
+                          },
+                          {
+                            "text": "\n"
+                          },
+                          {
+                            "value": {
+                              "source": "item",
+                              "path": "/message"
+                            }
+                          }
+                        ]
+                      },
+                      "separator": "\n\n"
+                    }
+                  }
+                ]
+              },
+              "notices": [
+                {
+                  "message": {
+                    "label": "Invalid Git history cursor; use the full cursor returned by the tool",
+                    "locales": {
+                      "zh-CN": "Git 分页游标无效，请使用工具返回的完整游标"
+                    }
+                  },
+                  "when": {
+                    "any": [
+                      {
+                        "value": {
+                          "source": "result",
+                          "path": "/message"
+                        },
+                        "equals": "expected a full Git commit object ID"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "message": {
+                    "label": "Partial results",
+                    "locales": {
+                      "zh-CN": "仅显示部分结果"
+                    }
+                  },
+                  "when": {
+                    "any": [
+                      {
+                        "value": {
+                          "source": "result",
+                          "path": "/data/truncated"
+                        },
+                        "equals": true
+                      },
+                      {
+                        "value": {
+                          "source": "result",
+                          "path": "/data/references_truncated"
+                        },
+                        "equals": true
+                      },
+                      {
+                        "value": {
+                          "source": "result",
+                          "path": "/data/entries"
+                        },
+                        "equals": true,
+                        "item": "/truncated"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "scope": "host",
+      "desktop": {
+        "entry": "dev.sailry.platform/desktop/main.js",
+        "ui_entry": "dev.sailry.platform/desktop/context.js",
+        "ui_overlay": true,
+        "resources": [
+          "dev.sailry.platform/desktop/main.js",
+          "dev.sailry.platform/desktop/context.js",
+          "dev.sailry.platform/desktop/view.js",
+          "dev.sailry.platform/desktop/menus.js",
+          "dev.sailry.platform/desktop/actions.js",
+          "dev.sailry.platform/desktop/changes.js",
+          "dev.sailry.platform/desktop/repository.js",
+          "dev.sailry.platform/desktop/locales.js"
+        ],
+        "navigation": {
+          "label": "Git",
+          "locales": {
+            "zh-CN": "Git"
+          },
+          "icon": "reicon:newicons/hierarchy2"
+        },
+        "navigation_options": {
+          "pinned": true,
+          "order": 500,
+          "target": "worktree",
+          "details": true
+        },
+        "panel": {
+          "label": "Git",
+          "locales": {
+            "zh-CN": "Git"
+          },
+          "icon": {
+            "svg": "<svg\n    xmlns=\"http://www.w3.org/2000/svg\"\n    width=\"24\"\n    height=\"24\"\n    viewBox=\"0 0 24 24\"\n    fill=\"none\"\n    stroke=\"currentColor\"\n    stroke-width=\"2\"\n    stroke-linecap=\"round\"\n    stroke-linejoin=\"round\"\n><rect x=\"16\" y=\"16\" width=\"6\" height=\"6\" rx=\"1\" /><rect\n        x=\"2\"\n        y=\"16\"\n        width=\"6\"\n        height=\"6\"\n        rx=\"1\"\n    /><rect x=\"9\" y=\"2\" width=\"6\" height=\"6\" rx=\"1\" /><path\n        d=\"M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3\"\n    /><path d=\"M12 12V8\" /></svg>"
+          }
+        },
+        "renderers": [
+          {
+            "resource": "git",
+            "shortcut": "ctrl-shift-g",
+            "create": null
+          }
+        ]
+      },
+      "ui": [
+        {
+          "id": "branch",
+          "slot": "context",
+          "kind": "button",
+          "label": {
+            "label": "Branch",
+            "locales": {
+              "zh-CN": "分支"
+            }
+          },
+          "icon": "network",
+          "handler": "branches",
+          "intent": "git_branches",
+          "order": 0
+        },
+        {
+          "id": "manage",
+          "slot": "project_menu",
+          "kind": "button",
+          "label": {
+            "label": "Manage branches",
+            "locales": {
+              "zh-CN": "管理分支"
+            }
+          },
+          "icon": "network",
+          "handler": "branches",
+          "intent": "git_branches",
+          "order": 20
+        },
+        {
+          "id": "changes",
+          "slot": "status",
+          "kind": "button",
+          "label": {
+            "label": "Git",
+            "locales": {
+              "zh-CN": "Git"
+            }
+          },
+          "handler": "changes",
+          "order": 0
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+type Fault = { code: string; message: string };
+export type Clipboard = { id: string; cut: boolean; source_label: string; paths: { path: string; kind: string }[]; cross_node: boolean; available: boolean };
+export type Transfer = { id: string; kind: "copy" | "move" | "upload" | "download"; stage: "ready" | "preparing" | "transferring" | "publishing" | "recycling" | "done" | "failed" | "uncertain" | "cancelled" | "exists"; path: string; source_label: string; source_path: string; error: Fault | null; progress: { copied: number; size: number } | null; published: boolean; can_cancel: boolean; can_start: boolean; can_replace: boolean; can_check: boolean };
+export type Transfers = { cursor: string; transfers: Transfer[] };
+export function captureClipboard(paths: string[], cut: boolean): Promise<Clipboard>;
+export function readClipboard(): Clipboard | null;
+export function preparePaste(clipboard: string, source: string, path: string): Promise<Transfer>;
+export function prepareMove(source: string, path: string): Promise<Transfer>;
+export function selectUpload(directory: string): Promise<Transfer | null>;
+export function startDownload(path: string): Promise<Transfer | null>;
+export function openSystem(path: string): Promise<void>;
+export function transferAction(id: string, action: { kind: "start" | "replace" | "check" | "cancel" | "dismiss"; path?: string }): Promise<Transfer | null>;
+export function readTransfers(): Transfers;
+export function nextTransferChange(cursor: string): Promise<Transfers>;

@@ -1,0 +1,430 @@
+// Adapted from Bezel 4a7505ab, crates/markdown (MIT). See third_party_licenses/bezel.md.
+//! The document model.
+//!
+//! Blocks stay in document order for hit testing, while each block retains
+//! its outer-to-inner container path. Source and undo remain owned by the Kit
+//! editor. This model supplies editable block transformations; the source
+//! bridge applies them to selected source ranges.
+
+use super::select::{Cursor, Selection};
+use std::ops::Range;
+
+/// A markdown document: blocks in document order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Doc {
+    pub blocks: Vec<Block>,
+}
+
+impl Doc {
+    /// The visible text covered by a selection, without inserting decoration bytes.
+    pub fn spans(&self, selection: Selection) -> Vec<(Cursor, Range<usize>)> {
+        if self.blocks.is_empty() || selection.is_collapsed() {
+            return Vec::new();
+        }
+        let (start, end) = selection.clamp(self).ordered();
+        let first = Cursor::new(start.block, start.part, 0);
+        let last = Cursor::new(end.block, end.part, 0);
+        let mut spans = Vec::new();
+        for block in start.block..=end.block {
+            for part in self.blocks[block].parts() {
+                let here = Cursor::new(block, part, 0);
+                if here < first || here > last {
+                    continue;
+                }
+                let len = here.len_in(self).unwrap_or(0);
+                let from = if here == first { start.offset } else { 0 };
+                let to = if here == last {
+                    end.offset.min(len)
+                } else {
+                    len
+                };
+                if from <= to {
+                    spans.push((here, from..to));
+                }
+            }
+        }
+        spans
+    }
+}
+
+/// One block, and how deeply it is nested.
+///
+/// `indent` obeys one invariant, established by the parser and relied on by
+/// the serializer: the first block is at 0, and no block is more than one
+/// level deeper than the block before it. A document that satisfies it always
+/// serializes to markdown that parses back to the same indents.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Block {
+    pub kind: BlockKind,
+    pub indent: u8,
+    /// Outer-to-inner CommonMark containers; unlike an indent this retains mixed nesting.
+    pub containers: Vec<Container>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Container {
+    List,
+    Quote(Option<QuoteKind>),
+}
+
+impl From<BlockKind> for Block {
+    fn from(kind: BlockKind) -> Self {
+        Self::new(kind)
+    }
+}
+
+impl Block {
+    pub fn new(kind: BlockKind) -> Self {
+        Self {
+            kind,
+            indent: 0,
+            containers: Vec::new(),
+        }
+    }
+
+    pub fn at(kind: BlockKind, indent: u8) -> Self {
+        let marker = matches!(
+            kind,
+            BlockKind::Bullet(_) | BlockKind::Ordered { .. } | BlockKind::Task { .. }
+        );
+        Self {
+            kind,
+            indent,
+            containers: vec![Container::List; usize::from(indent) + usize::from(marker)],
+        }
+    }
+
+    /// One of the block's editable texts. `None` when the block has no such
+    /// part — every block is atomic to some [`Part`], and bookmarks and rules
+    /// are atomic to all of them.
+    pub fn text_at(&self, part: Part) -> Option<&Text> {
+        match (&self.kind, part) {
+            (
+                BlockKind::Paragraph(text)
+                | BlockKind::Heading { text, .. }
+                | BlockKind::Bullet(text)
+                | BlockKind::Ordered { text, .. }
+                | BlockKind::Task { text, .. }
+                | BlockKind::Quote { text, .. },
+                Part::Body,
+            ) => Some(text),
+            (BlockKind::Code { code, .. }, Part::Code) => Some(code),
+            (BlockKind::Image { alt, .. }, Part::Caption) => Some(alt),
+            (BlockKind::Table { header, .. }, Part::Cell { row: 0, column }) => header.get(column),
+            (BlockKind::Table { rows, .. }, Part::Cell { row, column }) => {
+                rows.get(row - 1)?.get(column)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn text_at_mut(&mut self, part: Part) -> Option<&mut Text> {
+        match (&mut self.kind, part) {
+            (
+                BlockKind::Paragraph(text)
+                | BlockKind::Heading { text, .. }
+                | BlockKind::Bullet(text)
+                | BlockKind::Ordered { text, .. }
+                | BlockKind::Task { text, .. }
+                | BlockKind::Quote { text, .. },
+                Part::Body,
+            ) => Some(text),
+            (BlockKind::Code { code, .. }, Part::Code) => Some(code),
+            (BlockKind::Image { alt, .. }, Part::Caption) => Some(alt),
+            (BlockKind::Table { header, .. }, Part::Cell { row: 0, column }) => {
+                header.get_mut(column)
+            }
+            (BlockKind::Table { rows, .. }, Part::Cell { row, column }) => {
+                rows.get_mut(row - 1)?.get_mut(column)
+            }
+            _ => None,
+        }
+    }
+
+    /// Every part a caret can sit in, in document order.
+    pub fn parts(&self) -> Vec<Part> {
+        match &self.kind {
+            BlockKind::Paragraph(_)
+            | BlockKind::Heading { .. }
+            | BlockKind::Bullet(_)
+            | BlockKind::Ordered { .. }
+            | BlockKind::Task { .. }
+            | BlockKind::Quote { .. } => vec![Part::Body],
+            BlockKind::Code { .. } => vec![Part::Code],
+            BlockKind::Image { .. } => vec![Part::Caption],
+            BlockKind::Table { header, rows, .. } => {
+                let mut parts = Vec::new();
+                if !header.is_empty() {
+                    parts.extend((0..header.len()).map(|column| Part::Cell { row: 0, column }));
+                }
+                for (ix, row) in rows.iter().enumerate() {
+                    parts.extend((0..row.len()).map(|column| Part::Cell {
+                        row: ix + 1,
+                        column,
+                    }));
+                }
+                parts
+            }
+            BlockKind::Bookmark { .. } | BlockKind::Rule => Vec::new(),
+        }
+    }
+
+    /// Whether what the block paints past its parts holds no caret — a picture,
+    /// a card, a line. What a selection has to wash for itself, since there is
+    /// no text under it to carry the highlight.
+    pub fn opaque(&self) -> bool {
+        matches!(
+            self.kind,
+            BlockKind::Image { .. } | BlockKind::Bookmark { .. } | BlockKind::Rule
+        )
+    }
+}
+
+/// Which of a block's texts a caret sits in.
+///
+/// A block has one kind of part and never a mix — prose blocks have a body, a
+/// code block has its code, a table has cells — so this is a coordinate rather
+/// than a path, and the model stays flat. The ordering is document order, which
+/// is what makes a [`crate::content::markdown::Cursor`] comparable and therefore what makes a
+/// selection a range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum Part {
+    #[default]
+    Body,
+    Code,
+    /// An image's caption, which is also its alt text.
+    Caption,
+    /// Row 0 is the header row; row `n` is `rows[n - 1]`.
+    Cell {
+        row: usize,
+        column: usize,
+    },
+}
+
+/// The block vocabulary. Closed by design — a consumer that needs a block of
+/// its own is a reason to widen this enum rather than to grow an extension
+/// system.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BlockKind {
+    Paragraph(Text),
+    Heading {
+        /// 1–6.
+        level: u8,
+        text: Text,
+    },
+    Bullet(Text),
+    Ordered {
+        /// The rendered number. Stored rather than derived so a list starting
+        /// at 3 survives the round trip.
+        number: u64,
+        text: Text,
+    },
+    Task {
+        checked: bool,
+        text: Text,
+    },
+    /// A blockquote. `kind` is the GFM alert it opens with — see [`QuoteKind`].
+    Quote {
+        kind: Option<QuoteKind>,
+        text: Text,
+    },
+    /// The code carries a [`Text`] like every other editable region, so one
+    /// accessor and one edit path cover the whole document. Its marks are
+    /// unreachable rather than forbidden: nothing that writes here creates one.
+    Code {
+        language: Option<String>,
+        code: Text,
+    },
+    /// The caption is the alt text — markdown has one slot, and a reader that
+    /// cannot see the picture reads the same words. Like [`BlockKind::Code`]'s,
+    /// its marks are unreachable rather than forbidden.
+    Image {
+        url: String,
+        alt: Text,
+        /// A drag off the handle in `bezel-editor`, in whole pixels — `None` is
+        /// the natural width. `u32` rather than a float: this derives `Eq`, and
+        /// a `f32` cannot because of NaN. Spelled `![alt|480](url)`, which
+        /// leaves the title slot to say what a title says.
+        width: Option<u32>,
+    },
+    /// A link with a block to itself, painted richly. Atomic on purpose:
+    /// everything it shows past the URL comes from [`crate::content::markdown::preview`], so there
+    /// is nothing here for a caret to edit.
+    ///
+    /// [`Form`] picks which of the three — a chip, a card, or a card with its
+    /// picture across the width. Off a line of its own the same link is a
+    /// [`Mark::Mention`], which is the same three minus what shaped text cannot
+    /// hold.
+    Bookmark {
+        url: String,
+        form: Form,
+    },
+    Table {
+        align: Vec<Align>,
+        header: Vec<Text>,
+        rows: Vec<Vec<Text>>,
+    },
+    Rule,
+}
+
+/// A GFM alert's kind — the `[!NOTE]` marker a blockquote opens with.
+///
+/// Only recognised when the marker is alone on the quote's first line and
+/// names one of these five; anything else stays the text it was written as.
+/// A blockquote holding two paragraphs becomes two [`BlockKind::Quote`] blocks
+/// and each carries the kind, so writing the document back gives two alerts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuoteKind {
+    Note,
+    Tip,
+    Important,
+    Warning,
+    Caution,
+}
+
+impl QuoteKind {
+    pub fn marker(self) -> &'static str {
+        match self {
+            Self::Note => "[!NOTE]",
+            Self::Tip => "[!TIP]",
+            Self::Important => "[!IMPORTANT]",
+            Self::Warning => "[!WARNING]",
+            Self::Caution => "[!CAUTION]",
+        }
+    }
+}
+
+/// GFM column alignment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Align {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+/// Inline content: a string, plus marks over byte ranges of it.
+///
+/// Marks are a separate list rather than flags on a run because an editor has
+/// to *map* them through insertions and deletions, and because run flags lose
+/// nesting order — under flags `**_x_**` and `_**x**_` are the same value.
+/// Here they differ by the order of the two spans, and both survive a round
+/// trip.
+///
+/// A newline in `text` is a line break within the block (markdown's soft or
+/// hard break, which this model does not distinguish — neither does Notion).
+/// Whether it paints as a break or a space is a rendering decision.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Text {
+    pub text: String,
+    /// Outermost first. Ranges may overlap and may be identical.
+    pub marks: Vec<MarkSpan>,
+}
+
+impl From<&str> for Text {
+    fn from(text: &str) -> Self {
+        Self::plain(text)
+    }
+}
+
+impl From<String> for Text {
+    fn from(text: String) -> Self {
+        Self::plain(text)
+    }
+}
+
+impl Text {
+    /// Unmarked text.
+    pub fn plain(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            marks: Vec::new(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.text.is_empty()
+    }
+
+    pub fn link(url: &str) -> Self {
+        Self {
+            text: url.to_owned(),
+            marks: vec![MarkSpan {
+                range: 0..url.len(),
+                mark: Mark::Link(url.to_owned()),
+            }],
+        }
+    }
+
+    pub(crate) fn alone(&self, ix: usize) -> bool {
+        let span = &self.marks[ix].range;
+        self.marks.iter().enumerate().all(|(other, mark)| {
+            other == ix || mark.range.end <= span.start || mark.range.start >= span.end
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkSpan {
+    pub range: Range<usize>,
+    pub mark: Mark,
+}
+
+/// How a [`Mark::Mention`] was written down, which is also how it paints.
+///
+/// `Auto` is the shorthand `<https://x>`: a chip in a sentence, a card on a
+/// line of its own. It is a variant rather than a resolved form because the
+/// spelling is what has to survive the round trip — resolve it at parse and
+/// every `<url>` grows brackets the first time the file is saved.
+///
+/// The other two are CommonMark's title slot, `[url](url "chip")`, which is
+/// core, ignored by every other renderer, and the only place left to say what
+/// the shorthand cannot: a chip alone on a line, and the bigger card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Form {
+    Auto,
+    Chip,
+    Embed,
+}
+
+impl Form {
+    pub(crate) fn title(self) -> Option<&'static str> {
+        match self {
+            Self::Auto => None,
+            Self::Chip => Some("chip"),
+            Self::Embed => Some("embed"),
+        }
+    }
+
+    pub(crate) fn from_title(title: &str) -> Option<Self> {
+        match title {
+            "chip" => Some(Self::Chip),
+            "embed" => Some(Self::Embed),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Mark {
+    Bold,
+    Italic,
+    Strike,
+    Code,
+    Link(String),
+    /// A link painted richly rather than as underlined text — a chip inline, a
+    /// [`BlockKind::Bookmark`] with a block to itself.
+    ///
+    /// The chip shows the URL, because a [`Text`] is one string and every caret
+    /// offset is a byte into it: an inline atom painted wider or narrower than
+    /// the text under it has nowhere to put the offsets in between.
+    Mention {
+        url: String,
+        form: Form,
+    },
+    /// An image among text. [`BlockKind::Image`] is the shape an editor offers;
+    /// this is what keeps `see ![x](u) here` from silently becoming a link when
+    /// the document is saved. No width: one among text has no box of its own to
+    /// resize, and the `|480` that would say so stays the ordinary text it is.
+    Image(String),
+}

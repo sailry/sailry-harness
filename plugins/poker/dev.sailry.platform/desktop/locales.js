@@ -1,0 +1,43 @@
+const en = {
+  history: "Recent actions", confirm: "Confirm", cancel: "Cancel", viewTable: "View table", community: "Community cards",
+  dealer: "Dealer", pondering: "Thinking", table: "Table",
+  title: "Texas Hold'em", subtitle: "Heads-up · No limit", you: "You", opponent: "Opponent",
+  names: ["Milo", "Robin", "Quinn", "Sage", "Remy"], start: "Deal cards", next: "Next hand",
+  newMatch: "New match", hand: "Hand", chips: "chips", pot: "Pot", bet: "This street", blinds: "Blinds 5 / 10",
+  preflop: "Preflop", flop: "Flop", turn: "Turn", river: "River", showdown: "Showdown", handComplete: "Hand complete",
+  check: "Check", call: "Call", fold: "Fold", raise: "Raise", allIn: "All in", max: "Max",
+  raiseTo: "Raise to", min: "Min",
+  raiseBase: amount => `Multiples of current bet ${amount}`, blindBase: amount => `Multiples of big blind ${amount}`,
+  yourTurn: "Your turn", thinking: "is thinking", waiting: "Waiting for opponent",
+  won: "You win", lost: "You lose", split: "Split pot",
+  pair: "One pair", twoPair: "Two pair", trips: "Three of a kind",
+  straight: "Straight", flush: "Flush", fullHouse: "Full house", quads: "Four of a kind",
+  straightFlush: "Straight flush", highCard: "High card", matchOver: "Match over",
+  loading: "Loading", loadFailed: "Could not load game settings", configure: "Configure players in game settings",
+  retry: "Retry", failed: "Model request failed", timedOut: "Model response timed out",
+  invalidResponse: "Model returned an invalid move", unconfirmed: "AI result unconfirmed · Retry to check",
+  invalid: "Choose a valid amount", score: "Stack", seconds: "s", resetScore: "New match",
+};
+
+const zh = {
+  history: "最近动态", confirm: "确认", cancel: "取消", viewTable: "查看牌桌", community: "公共牌",
+  dealer: "庄家", pondering: "正在思考", table: "牌局",
+  title: "德州扑克", subtitle: "双人对战 · 无限注", you: "你", opponent: "对手",
+  names: ["小满", "阿禾", "小川", "七喜", "木木"], start: "发牌", next: "下一手",
+  newMatch: "新对局", hand: "手数", chips: "筹码", pot: "底池", bet: "本轮投入", blinds: "盲注 5 / 10",
+  preflop: "翻牌前", flop: "翻牌圈", turn: "转牌圈", river: "河牌圈", showdown: "摊牌", handComplete: "本手结束",
+  check: "过牌", call: "跟注", fold: "弃牌", raise: "加注", allIn: "全下", max: "最大",
+  raiseTo: "加注至", min: "最小",
+  raiseBase: amount => `按本轮最高下注 ${amount} 计算倍数`, blindBase: amount => `按大盲注 ${amount} 计算倍数`,
+  yourTurn: "轮到你", thinking: "正在思考", waiting: "等待对手",
+  won: "你赢了", lost: "你输了", split: "平分底池",
+  pair: "一对", twoPair: "两对", trips: "三条",
+  straight: "顺子", flush: "同花", fullHouse: "葫芦", quads: "四条",
+  straightFlush: "同花顺", highCard: "高牌", matchOver: "对局结束",
+  loading: "正在加载", loadFailed: "游戏配置加载失败", configure: "请先设置玩家",
+  retry: "重试", failed: "模型请求失败", timedOut: "模型响应超时",
+  invalidResponse: "模型返回了无效操作", unconfirmed: "AI 结果未确认，重试以查询",
+  invalid: "请输入有效金额", score: "筹码", seconds: "秒", resetScore: "新对局",
+};
+
+export const messages = locale => locale.startsWith("zh") ? zh : en;

@@ -1,0 +1,10 @@
+name: sailry_bridge
+description: Shared Sailry Client and Link bindings
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: '>=3.12.0 <4.0.0'
+dependencies:
+  code_assets: 1.2.1
+  flutter_rust_bridge: 2.13.0
+  flutter_rust_bridge_hooks: 2.13.0

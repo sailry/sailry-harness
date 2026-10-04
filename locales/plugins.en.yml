@@ -1,0 +1,31 @@
+plugins_market: Market
+plugins_market_description: Discover plugins
+plugins_public: Public
+plugins_actions: Plugin actions
+plugins_information: Information
+plugins_identifier: Identifier
+plugins_version: Version
+plugins_tools: Tools
+plugins_manage: Manage
+plugins_download: Download plugin
+plugins_check_updates: Check updates
+plugins_already_installed: Installed
+plugins_update_all: Update all
+plugins_update_available: Update
+plugins_update_version: "Update to %{version}"
+plugins_updates_found: "%{count} plugin updates available"
+plugins_up_to_date: Plugins are up to date
+plugins_check_failed: Could not check plugin updates
+plugins_check_partial: "%{count} updates available; %{failed} checks failed"
+plugins_check_manual: "%{count} updates available; %{manual} packages need a source selection"
+plugins_updates_applied: "%{count} plugins updated"
+plugins_update_partial: "%{count} plugins updated; %{failed} failed"
+plugins_update_error: "%{name}: %{error}"
+plugins_search: Search plugins
+plugins_market_failed: Could not load the plugin catalog
+plugins_sailry_catalog: Sailry
+plugins_previous: Previous page
+plugins_next: Next page
+plugins_path: Plugin directory
+plugins_path_hint: Repository root by default
+settings_plugins_description: Manage installed plugins

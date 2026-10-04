@@ -1,0 +1,7 @@
+#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
+#include "Generated.xcconfig"
+// Xcode 27 lipo rejects multiple verify_arch arguments (flutter/flutter#188461).
+SAILRY_SIM_ARCH_arm64 = arm64
+SAILRY_SIM_ARCH_arm64e = arm64
+SAILRY_SIM_ARCH_x86_64 = x86_64
+ARCHS[sdk=iphonesimulator*] = $(SAILRY_SIM_ARCH_$(NATIVE_ARCH_ACTUAL))

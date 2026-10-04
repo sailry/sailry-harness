@@ -1,0 +1,3 @@
+Sailry statistics package
+Derived from Sailry statistics UI in commit ef5e82ea.
+Canonical session usage, report calculation and aggregation remain in Sailry core and shared Client.

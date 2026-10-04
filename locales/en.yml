@@ -1,0 +1,230 @@
+welcome_hi: Hi,
+search: Search
+host_added: Host added
+notification_open: Open
+tool_condition_unmet: Condition not met
+git_discard_changes: Discard Changes
+git_ignore: Ignore (add to .gitignore)
+git_index_failed: Could not update staging, try again
+git_index_changed: Git state changed, select again
+git_index_busy: Git is busy or the operation timed out, try again shortly
+git_index_denied: Cannot access the file or index, check permissions
+git_index_missing: The file or repository no longer exists, select again
+git_index_unknown: Staging outcome is unconfirmed, refresh and review
+welcome_name: " Sailry"
+tool_read_file: Read file
+skills_license: License
+skills_compatibility: Compatibility
+skills_repository: Git repository
+skills_repository_hint: Repository URL
+settings_conversation: Conversation
+settings_conversation_description: Adjust how conversation messages are displayed
+settings_messages: Messages
+settings_message_display: Message display
+settings_message_display_description: Compact mode hides reasoning and groups adjacent tools
+message_display_detailed: Detailed
+message_display_compact: Compact
+tool_write_file: Write file
+tool_list_directory: Browse directory
+tool_search_files: Search files
+tool_git_status: Git status
+tool_git_diff: View diff
+tool_git_log: Git history
+tool_spawn_agent: Subagent
+approval_command: Run command
+background_read: Read command output
+background_stop: Stop command
+background_end: Stop
+tool_browser_tabs: Browser tabs
+tool_browser_read: Read page
+tool_browser_navigate: Open page
+tool_browser_click: Click element
+tool_browser_input: Enter text
+tool_browser_scroll: Scroll page
+tool_browser_back: Go back
+tool_browser_forward: Go forward
+tool_browser_refresh: Refresh page
+tool_browser_open: Open tab
+tool_browser_close: Close tab
+tool_browser_focus: Switch tab
+tool_browser_select: Select option
+tool_browser_hover: Hover element
+tool_browser_key: Press key
+tool_browser_frame: Switch frame
+tool_browser_wait: Wait for page
+tool_browser_screenshot: Capture page
+tool_browser_window: Resize window
+tool_browser_close_window: Close window
+tool_browser_close_session: Close browser
+tool_browser_pdf: Export PDF
+tool_browser_upload: Upload file
+tool_browser_downloads: View downloads
+tool_browser_save_download: Save download
+tool_browser_script: Run page script
+tool_browser_read_cookies: Read cookies
+tool_browser_edit_cookies: Edit cookies
+tool_browser_drag: Drag element
+tool_browser_focus_element: Focus element
+tool_browser_alert: Handle page dialog
+tool_external_browser_action: "External browser · %{action}"
+tool_computer_desktop: View desktop
+tool_computer_observe: Observe screen
+tool_computer_input: Control computer
+tool_computer_focus: Switch app
+tool_computer_open: Open app
+tool_search_memory: Search memory
+tool_save_memory: Save memory
+tool_forget_memory: Delete memory
+tool_review_memories: Review memories
+tool_consolidate_memories: Consolidate memories
+tool_session_title: Set session title
+chat_compact: Compact context
+tool_inspect_image: Inspect image
+tool_generate_image: Generate image
+tool_generate_video: Generate video
+tool_list_worktrees: List worktrees
+tool_create_worktree: Create worktree
+tool_register_worktree: Add worktree
+tool_remove_worktree: Remove worktree
+tool_ssh_run: Run SSH command
+tool_ssh_transfer: Transfer SSH file
+tool_load_skill: Load skill
+tool_read_skill_resource: Read skill resource
+tool_update_plan: Update plan
+tool_database_catalog: Browse database
+tool_database_query: Query database
+tool_database_execute: Execute database operation
+
+plugins_settings_input_hint: Enter %{field}
+
+session_title_required: Enter a name
+session_copy_id: Copy session ID
+session_fork_here: Fork conversation
+session_fork_worktree: Fork in new worktree
+session_fork: Fork
+session_mark_read: Mark as read
+session_mark_unread: Mark as unread
+session_new_window: Open in new window
+session_window_failed: Could not open window
+session_fork_busy: Session is running; fork when it finishes
+
+plugins_official: Official
+plugins_third_party: Third-party
+
+turn_tools_count: "%{count} tool calls"
+project_records_search: Search
+project_records_no_results: No matching results
+
+port_create: Create
+port_add: New forward
+port_search: Search ports
+port_copy: Copy address
+
+port_open_service: Open service
+
+command_exited: "Exit code %{code}"
+command_signal: "Terminated by signal %{signal}"
+command_timed_out: Command timed out
+command_cancelled: Command cancelled
+command_unknown: Command outcome unknown
+
+turn_changes_review: Review
+turn_changes_undo: Undo
+turn_changes_count: "Edited %{count} files"
+turn_changes_more: "Show %{count} more files"
+turn_changes_less: Show fewer files
+
+provider_opencode: OpenCode
+
+shell_sessions: Chats
+
+appearance_main_transparency: Container
+appearance_sidebar_transparency: Window
+features_all: All features
+feature_pin: Pin to sidebar
+feature_unpin: Unpin from sidebar
+
+recent_sessions: Recent
+
+active_sessions: Active
+activity_running: Running
+activity_board_waiting: Awaiting approval
+worktree_prune_on_select: Unavailable · click to clean up
+worktree_pruned: Stale worktree registration removed
+worktree_prune_failed: "Not cleaned up: the directory exists, is locked, or could not be verified"
+activity_board_running: Running
+activity_board_empty: No activity
+activity_all_projects: All projects
+activity_no_project: Unassigned
+sessions_unassigned: Unassigned
+composer_no_project: No project
+activity_idle: Idle
+activity_waiting: Needs attention
+activity_completed: Completed
+activity_failed: Failed
+
+active_sessions_empty: No activity
+
+project_icon_folder: Folder
+project_icon_code: Code
+project_icon_terminal: Terminal
+project_icon_globe: Globe
+project_icon_server: Server
+project_icon_database: Database
+project_icon_package: Package
+project_icon_game: Game
+project_icon_book: Book
+project_icon_finance: Finance
+project_icon_device: Device
+project_icon_education: Education
+project_icon_writing: Writing
+project_icon_tags: Tags
+project_icon_music: Music
+project_icon_media: Media
+project_icon_design: Design
+project_icon_health: Health
+project_icon_nature: Nature
+project_icon_business: Business
+project_icon_analytics: Analytics
+project_icon_profile: Profile
+project_icon_fitness: Fitness
+project_icon_law: Law
+project_icon_audio: Audio
+project_icon_travel: Travel
+project_icon_tools: Tools
+project_icon_science: Science
+project_icon_ai: AI
+project_icon_favorite: Favorite
+
+artifact_open: Open
+artifact_open_with: Open with
+artifact_preview: Preview
+artifact_preview_unavailable: Preview unavailable for this file
+artifact_preview_failed: Could not load preview
+artifact_preview_changed: File has changed
+artifact_preview_warnings: Preview details
+artifact_preview_loading: Loading preview
+artifact_preview_large: File too large to preview
+artifact_preview_password: Open this password-protected file in another app
+artifact_previous_page: Previous page
+artifact_next_page: Next page
+artifact_zoom_out: Zoom out
+artifact_zoom_in: Zoom in
+artifact_fit_width: Fit width
+artifact_reload: Reload preview
+
+send: Send
+more: More actions
+
+tool_office_runtime: Office environment
+tool_office_read: Read document
+tool_office_export: Export PDF
+
+artifact_request_edit: "Request edit"
+artifact_selection_context: "Selected text on preview page %{page}"
+artifact_edit_prompt: "Requested changes: "
+
+reference_group_context: "Add"
+provider_key_hint: Enter API Key
+form_date_hint: Choose date
+form_time_hint: "HH:mm:ss"

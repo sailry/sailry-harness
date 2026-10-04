@@ -1,0 +1,6 @@
+Reicon
+https://github.com/dqev/reicon/tree/109d994d810342a998e79ab65572c68176bc2e0a
+
+Selected Outline paths from data/icon-data.json are unchanged and wrapped in 24 by 24 SVG elements. Application filenames map to the upstream icons listed in sources.json.
+
+Reicon base icons include elements from Solar Icons by 480 Design (CC BY 4.0, https://creativecommons.org/licenses/by/4.0/, https://solar-icons.vercel.app/) and Zappicon (https://zappicon.com/).

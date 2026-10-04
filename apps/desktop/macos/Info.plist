@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
+    <key>CFBundleExecutable</key><string>sailry-desktop</string>
+    <key>CFBundleIdentifier</key><string>ai.sailry.desktop</string>
+    <key>CFBundleName</key><string>Sailry</string>
+    <key>CFBundleDisplayName</key><string>Sailry</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundleShortVersionString</key><string>0.1.0</string>
+    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleIconFile</key><string>Sailry.icns</string>
+    <key>LSMinimumSystemVersion</key><string>13.0</string>
+    <key>NSMicrophoneUsageDescription</key><string>Use the microphone for voice input</string>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>NSPrincipalClass</key><string>NSApplication</string>
+</dict>
+</plist>

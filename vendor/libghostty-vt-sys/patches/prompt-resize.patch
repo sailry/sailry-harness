@@ -1,0 +1,72 @@
+--- a/src/terminal/Screen.zig
++++ b/src/terminal/Screen.zig
+@@ -1978,6 +1978,18 @@
+     };
+     defer if (saved_cursor_pin) |p| self.pages.untrackPin(p);
+
++    // Track the prompt boundary before reflow. A soft-wrapped prompt can
++    // otherwise spill into a preceding output row and evade promptIterator.
++    const prompt_pin: ?*Pin = prompt: {
++        if (opts.prompt_redraw != .true or
++            self.cursor.semantic_content == .output) break :prompt null;
++        var it = self.cursor.page_pin.promptIterator(.left_up, null);
++        var start = it.next() orelse break :prompt null;
++        start.x = 0;
++        break :prompt try self.pages.trackPin(start);
++    };
++    defer if (prompt_pin) |p| self.pages.untrackPin(p);
++
+     // A cursor style and hyperlink are partly stored in the page containing
+     // the cursor. Their IDs only have meaning within that page, and the page
+     // keeps reference counts for them. Resizing can replace or destroy the
+@@ -2065,7 +2077,7 @@
+     // Clear any redrawable prompt after the fallible resize but before
+     // restoring the cursor style and hyperlink, so cleared cells retain the
+     // same default styling they had with the previous ordering.
+-    self.clearPromptForRedraw(opts.prompt_redraw);
++    self.clearPromptForRedraw(opts.prompt_redraw, if (prompt_pin) |p| p.* else null);
+
+     // Restore the cursor style.
+     self.cursor.style = cursor_style;
+@@ -2161,6 +2173,7 @@
+ fn clearPromptForRedraw(
+     self: *Screen,
+     redraw: osc.semantic_prompt.Redraw,
++    prompt_start: ?Pin,
+ ) void {
+     // If our cursor is on a prompt or input line, clear it so the shell can
+     // redraw it. This works with OSC 133 semantic prompts. We do this after
+@@ -2189,29 +2202,19 @@
+             },
+
+             .true => {
+-                const start = start: {
+-                    var it = self.cursor.page_pin.promptIterator(
+-                        .left_up,
+-                        null,
+-                    );
+-                    break :start it.next() orelse {
+-                        // This should never happen because promptIterator should always
+-                        // find a prompt if we already verified our row is some kind of
+-                        // prompt.
+-                        log.warn("cursor on prompt line but promptIterator found no prompt", .{});
+-                        break :prompt;
+-                    };
+-                };
++                const start = prompt_start orelse break :prompt;
+
+                 // Clear cells from our start down. We replace it with spaces,
+                 // and do not physically erase the rows (eraseRows) because the
+                 // shell is going to expect this space to be available.
+                 var it = start.rowIterator(.right_down, null);
++                var first = true;
+                 while (it.next()) |pin| {
+                     const page = pin.node.page();
+                     const row = pin.rowAndCell().row;
+                     const cells = page.getCells(row);
+-                    self.clearCells(page, row, cells);
++                    self.clearCells(page, row, cells[(if (first) start.x else 0)..]);
++                    first = false;
+                 }
+             },
+         }

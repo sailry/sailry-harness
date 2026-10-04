@@ -1,0 +1,14 @@
+Context7 integration reference
+
+Upstream: https://github.com/upstash/context7
+Reviewed revision: bfa02ea67b5707fe0e0a673faa49d0f50b28c80b
+Reviewed files: packages/mcp/README.md, packages/mcp/src/index.ts, LICENSE
+Upstream license: MIT, Copyright (c) 2021 Upstash, Inc.
+
+The MCP endpoint, API-key header and documentation workflow are
+adapted from these references. Sailry owns the package composition and skill
+adaptation. The upstream license is retained in LICENSE.upstream.
+
+This package connects to the official hosted service. No upstream server
+executable or JavaScript runtime is bundled. The reviewed revision records
+the integration source; it does not pin the hosted service's implementation.

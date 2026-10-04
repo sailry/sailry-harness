@@ -1,0 +1,1760 @@
+{
+  "$defs": {
+    "Action": {
+      "anyOf": [
+        {
+          "enum": [
+            "activity.read",
+            "usage.read",
+            "databases.read",
+            "databases.control",
+            "databases.manage",
+            "ssh.read",
+            "ssh.control",
+            "ssh.manage",
+            "agents.delegate",
+            "roles.read",
+            "roles.write",
+            "models.read",
+            "media.inspect",
+            "media.image",
+            "media.video",
+            "media.settings.read",
+            "media.settings.write",
+            "computer.read",
+            "computer.control",
+            "browser.read",
+            "browser.control",
+            "external_browser.read",
+            "external_browser.control",
+            "notifications.publish",
+            "dispatch.manage",
+            "files.read",
+            "files.write",
+            "git.read",
+            "git.write",
+            "worktrees.read",
+            "worktrees.write",
+            "process.read",
+            "process.control",
+            "terminals.read",
+            "terminals.control",
+            "conversation.read",
+            "conversation.control",
+            "projects.read",
+            "http.request",
+            "models.generate",
+            "storage.read",
+            "storage.write"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "sessions.start",
+          "description": "Host-wide creation; does not grant access to existing conversations.",
+          "type": "string"
+        }
+      ]
+    },
+    "Align": {
+      "enum": [
+        "start",
+        "end"
+      ],
+      "type": "string"
+    },
+    "Body": {
+      "additionalProperties": false,
+      "properties": {
+        "diff": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Diff"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "empty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Navigation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "path": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reference"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text": {
+          "$ref": "#/$defs/Reference"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "Bytes": {
+      "enum": [
+        "hex"
+      ],
+      "type": "string"
+    },
+    "Capability": {
+      "enum": [
+        "web_search"
+      ],
+      "type": "string"
+    },
+    "Cell": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Bytes"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "missing": {
+          "default": "",
+          "type": "string"
+        },
+        "value": {
+          "default": "",
+          "description": "JSON Pointer within each cell, or the empty pointer for scalar cells.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Choice": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Navigation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "enabled": {
+          "default": true,
+          "type": "boolean"
+        },
+        "group": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Navigation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "icon": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "$ref": "#/$defs/Navigation"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "type": "object"
+    },
+    "Command": {
+      "additionalProperties": false,
+      "properties": {
+        "handler": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "handler"
+      ],
+      "type": "object"
+    },
+    "Command2": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/CommandKind"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "CommandKind": {
+      "enum": [
+        "invoke",
+        "message"
+      ],
+      "type": "string"
+    },
+    "Comparison": {
+      "additionalProperties": false,
+      "properties": {
+        "equals": {
+          "description": "Missing references compare as null, matching optional JSON fields."
+        },
+        "item": {
+          "description": "Compare any array item at this relative pointer.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "negate": {
+          "default": false,
+          "type": "boolean"
+        },
+        "value": {
+          "$ref": "#/$defs/Reference"
+        }
+      },
+      "required": [
+        "value",
+        "equals"
+      ],
+      "type": "object"
+    },
+    "Condition": {
+      "additionalProperties": false,
+      "properties": {
+        "all": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Comparison"
+          },
+          "type": "array"
+        },
+        "any": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Comparison"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "Contribution": {
+      "additionalProperties": false,
+      "properties": {
+        "align": {
+          "$ref": "#/$defs/Align",
+          "default": "start"
+        },
+        "choices": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Choice"
+          },
+          "type": "array"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Command2"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A command and its ordinary control share one captured state and handler."
+        },
+        "handler": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "icon": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "intent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/Kind"
+        },
+        "label": {
+          "$ref": "#/$defs/Navigation"
+        },
+        "order": {
+          "default": 0,
+          "format": "int16",
+          "maximum": 32767,
+          "minimum": -32768,
+          "type": "integer"
+        },
+        "overflow": {
+          "$ref": "#/$defs/Overflow",
+          "default": "auto"
+        },
+        "slot": {
+          "$ref": "#/$defs/Slot"
+        }
+      },
+      "required": [
+        "id",
+        "slot",
+        "kind",
+        "label"
+      ],
+      "type": "object"
+    },
+    "Declaration": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "description": "Static package-owned context; controllers cannot replace it at mount time.",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "resource": {
+          "$ref": "#/$defs/Resource"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/Tool"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "resource",
+        "tools",
+        "context"
+      ],
+      "type": "object"
+    },
+    "Declaration2": {
+      "additionalProperties": false,
+      "description": "A plugin can configure only its own named tool; native tools omit the MCP server.",
+      "properties": {
+        "contexts": {
+          "description": "Empty means all session contexts; restrictions follow the captured resource.",
+          "items": {
+            "$ref": "#/$defs/Resource"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Display"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Captured with tool calls so history does not depend on an active plugin view."
+        },
+        "grouping": {
+          "$ref": "#/$defs/Grouping",
+          "default": "sequence"
+        },
+        "handler": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Handler"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A named export from the package's bounded headless entry."
+        },
+        "name": {
+          "type": "string"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Operation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional native host operation; MCP remains an independent provider."
+        },
+        "platform_descriptions": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "platforms": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "presentation": {
+          "$ref": "#/$defs/Presentation",
+          "default": "details"
+        },
+        "server": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "Declaration3": {
+      "additionalProperties": false,
+      "properties": {
+        "capability": {
+          "$ref": "#/$defs/Capability"
+        },
+        "display": {
+          "$ref": "#/$defs/Navigation"
+        }
+      },
+      "required": [
+        "capability",
+        "display"
+      ],
+      "type": "object"
+    },
+    "Diff": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "$ref": "#/$defs/Format"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Condition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "format"
+      ],
+      "type": "object"
+    },
+    "Display": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "items": {
+            "$ref": "#/$defs/Prompt"
+          },
+          "type": "array"
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Icon"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "input": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Input"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "locales": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "output": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Output"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "type": "object"
+    },
+    "Field": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "default": false,
+          "type": "boolean"
+        },
+        "omit": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "path": {
+          "description": "JSON Pointer into the original, authoritative arguments.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "Flow": {
+      "additionalProperties": false,
+      "properties": {
+        "message_chars": {
+          "description": "Maximum Unicode scalar values requested from the frozen user message.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "operations": {
+          "items": {
+            "$ref": "#/$defs/Operation"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "operations"
+      ],
+      "type": "object"
+    },
+    "Format": {
+      "enum": [
+        "added",
+        "unified"
+      ],
+      "type": "string"
+    },
+    "Grouping": {
+      "description": "Whether a tool joins consecutive activity or occupies its own transcript row.",
+      "enum": [
+        "sequence",
+        "standalone"
+      ],
+      "type": "string"
+    },
+    "Handler": {
+      "additionalProperties": false,
+      "properties": {
+        "flow": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Flow"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A bounded sequence of explicit operations, resumed outside each fresh VM."
+        },
+        "name": {
+          "type": "string"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Operation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The export prepares arguments; the Node executes and waits outside the VM."
+        },
+        "parameters": true,
+        "read_only": {
+          "default": false,
+          "description": "Plain-script read-only declaration; the Node still enforces frozen Plan write restrictions.",
+          "type": "boolean"
+        },
+        "result": {
+          "description": "Optional export receiving the original arguments and completed Node output.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "parameters"
+      ],
+      "type": "object"
+    },
+    "Icon": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "svg": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "svg"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Input": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Field"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Field"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Field"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Field"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Kind": {
+      "enum": [
+        "button",
+        "popover",
+        "toggle",
+        "select",
+        "menu",
+        "picker",
+        "metric",
+        "indicator"
+      ],
+      "type": "string"
+    },
+    "Manifest": {
+      "additionalProperties": false,
+      "properties": {
+        "conversations": {
+          "default": [],
+          "description": "Named assistants reuse the host's ordinary session execution and controls.",
+          "items": {
+            "$ref": "#/$defs/Declaration"
+          },
+          "type": "array"
+        },
+        "entry": {
+          "description": "A bundled JavaScript module; native registrations have no script entry.",
+          "pattern": "^(\\./)?dev\\.sailry\\.platform/",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "navigation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Navigation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional main-workspace entry contributed to the application sidebar."
+        },
+        "navigation_options": {
+          "$ref": "#/$defs/NavigationOptions",
+          "default": {
+            "details": false,
+            "order": 10000,
+            "pinned": false,
+            "surface": "workspace",
+            "target": "node"
+          },
+          "description": "Initial rail placement; explicit controller preferences take precedence."
+        },
+        "panel": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Navigation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional entry contributed to the conversation resource launcher."
+        },
+        "previews": {
+          "default": [],
+          "description": "MIME types whose captured files can be mounted by the package entry.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "renderers": {
+          "default": [],
+          "description": "Resource pages and their declared creation action.",
+          "items": {
+            "$ref": "#/$defs/Renderer"
+          },
+          "type": "array"
+        },
+        "resources": {
+          "default": [],
+          "description": "Includes the entry, imported modules and localization resources.",
+          "items": {
+            "pattern": "^(\\./)?dev\\.sailry\\.platform/",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ui_entry": {
+          "description": "Optional module implementing declarative controller contributions.",
+          "pattern": "^(\\./)?dev\\.sailry\\.platform/",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ui_overlay": {
+          "default": false,
+          "description": "Render the captured contribution controller as an overlay layer.",
+          "type": "boolean"
+        },
+        "ui_shared": {
+          "default": false,
+          "description": "Also contribute controls to assistants owned by other packages.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "Manifest2": {
+      "additionalProperties": false,
+      "properties": {
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/Command"
+          },
+          "type": "array"
+        },
+        "entry": {
+          "pattern": "^(\\./)?dev\\.sailry\\.platform/",
+          "type": "string"
+        },
+        "handlers": {
+          "description": "Named module exports callable through ordinary durable admission.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "resources": {
+          "items": {
+            "pattern": "^(\\./)?dev\\.sailry\\.platform/",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "turn": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Turn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional bounded policy for one admitted Agent turn."
+        }
+      },
+      "required": [
+        "entry",
+        "resources",
+        "handlers"
+      ],
+      "type": "object"
+    },
+    "Navigation": {
+      "additionalProperties": false,
+      "properties": {
+        "icon": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Icon"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Required for workspace navigation; optional for localized text and settings."
+        },
+        "label": {
+          "type": "string"
+        },
+        "locales": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "type": "object"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "type": "object"
+    },
+    "NavigationOptions": {
+      "additionalProperties": false,
+      "properties": {
+        "details": {
+          "default": false,
+          "type": "boolean"
+        },
+        "order": {
+          "default": 10000,
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pinned": {
+          "default": false,
+          "type": "boolean"
+        },
+        "surface": {
+          "$ref": "#/$defs/Surface",
+          "default": "workspace"
+        },
+        "target": {
+          "$ref": "#/$defs/NavigationTarget",
+          "default": "node"
+        }
+      },
+      "type": "object"
+    },
+    "NavigationTarget": {
+      "enum": [
+        "node",
+        "worktree"
+      ],
+      "type": "string"
+    },
+    "Notice": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/Navigation"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Condition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
+    },
+    "Operation": {
+      "oneOf": [
+        {
+          "enum": [
+            "git.status",
+            "git.diff",
+            "git.log",
+            "worktrees.list",
+            "worktrees.create",
+            "worktrees.register",
+            "worktrees.remove",
+            "databases.catalog",
+            "databases.query",
+            "databases.execute",
+            "ssh.run",
+            "ssh.transfer",
+            "agents.delegate",
+            "files.list",
+            "files.read",
+            "files.write",
+            "files.search",
+            "office.runtime",
+            "office.read",
+            "office.export",
+            "media.inspect",
+            "media.image",
+            "media.video",
+            "computer.read",
+            "computer.control",
+            "browser.read",
+            "browser.control",
+            "external_browser.read",
+            "external_browser.control",
+            "http.request",
+            "progress.update",
+            "storage.get",
+            "storage.list",
+            "storage.set",
+            "storage.delete",
+            "storage.transaction",
+            "settings.read",
+            "process.run",
+            "process.read",
+            "process.stop"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "Output": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Body"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "notices": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Notice"
+          },
+          "type": "array"
+        },
+        "paths": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Paths"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "preview": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Text"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "table": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Table"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Overflow": {
+      "enum": [
+        "auto",
+        "menu"
+      ],
+      "type": "string"
+    },
+    "Part": {
+      "additionalProperties": false,
+      "description": "Exactly one of text, value or rows supplies a part. Rows cannot nest.",
+      "properties": {
+        "rows": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rows"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "take": {
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reference"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Condition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Paths": {
+      "additionalProperties": false,
+      "description": "A string or an array of items containing paths; the call supplies ownership.",
+      "properties": {
+        "item": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "$ref": "#/$defs/Reference"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "type": "object"
+    },
+    "Presentation": {
+      "description": "Controls availability of successful result details, not automatic expansion state.\nFailures remain inspectable regardless of the declared presentation.",
+      "oneOf": [
+        {
+          "enum": [
+            "summary"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "progress",
+          "description": "A validated progress result, with raw details retained as a fallback.",
+          "type": "string"
+        },
+        {
+          "const": "content",
+          "description": "Bounded standard content, with the original result retained for inspection.",
+          "type": "string"
+        },
+        {
+          "const": "details",
+          "description": "Unknown presentation modes keep the original result inspectable.",
+          "type": "string"
+        }
+      ]
+    },
+    "Prompt": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/Navigation"
+        },
+        "values": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Reference"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Condition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
+    },
+    "Reference": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        }
+      },
+      "required": [
+        "source",
+        "path"
+      ],
+      "type": "object"
+    },
+    "Renderer": {
+      "additionalProperties": false,
+      "properties": {
+        "create": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resource": {
+          "$ref": "#/$defs/ResourceKind"
+        },
+        "shortcut": {
+          "description": "Optional desktop shortcut for opening this declared resource.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "resource"
+      ],
+      "type": "object"
+    },
+    "Resource": {
+      "enum": [
+        "plugin",
+        "workspace",
+        "database",
+        "ssh"
+      ],
+      "type": "string"
+    },
+    "ResourceKind": {
+      "enum": [
+        "terminal",
+        "browser",
+        "documents",
+        "git"
+      ],
+      "type": "string"
+    },
+    "Rows": {
+      "additionalProperties": false,
+      "properties": {
+        "separator": {
+          "type": "string"
+        },
+        "text": {
+          "$ref": "#/$defs/Text"
+        },
+        "value": {
+          "$ref": "#/$defs/Reference"
+        }
+      },
+      "required": [
+        "value",
+        "text",
+        "separator"
+      ],
+      "type": "object"
+    },
+    "Scope": {
+      "description": "Desktop contributions stay bound to the controller's local Node.",
+      "enum": [
+        "host",
+        "desktop"
+      ],
+      "type": "string"
+    },
+    "Settings": {
+      "additionalProperties": false,
+      "description": "Shared contribution for native and packaged settings pages.",
+      "properties": {
+        "enabled_control": {
+          "default": false,
+          "type": "boolean"
+        },
+        "entry": {
+          "description": "Absent for native renderers or a schema-generated configuration page.",
+          "pattern": "^(\\./)?dev\\.sailry\\.platform/",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "full_width": {
+          "default": false,
+          "type": "boolean"
+        },
+        "navigation": {
+          "$ref": "#/$defs/Navigation"
+        },
+        "placement": {
+          "$ref": "#/$defs/SettingsPlacement",
+          "default": {
+            "group": "tools",
+            "order": 10000
+          }
+        }
+      },
+      "required": [
+        "navigation"
+      ],
+      "type": "object"
+    },
+    "SettingsGroup": {
+      "enum": [
+        "app",
+        "ai",
+        "tools",
+        "system"
+      ],
+      "type": "string"
+    },
+    "SettingsPlacement": {
+      "additionalProperties": false,
+      "properties": {
+        "group": {
+          "$ref": "#/$defs/SettingsGroup",
+          "default": "tools"
+        },
+        "order": {
+          "default": 10000,
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "Slot": {
+      "enum": [
+        "composer",
+        "context",
+        "statistics",
+        "status",
+        "project",
+        "project_menu",
+        "commands"
+      ],
+      "type": "string"
+    },
+    "Source": {
+      "enum": [
+        "arguments",
+        "result",
+        "item"
+      ],
+      "type": "string"
+    },
+    "StorageCollection": {
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "prefix"
+            ]
+          },
+          "required": [
+            "key"
+          ]
+        },
+        {
+          "not": {
+            "required": [
+              "key"
+            ]
+          },
+          "required": [
+            "prefix"
+          ]
+        }
+      ],
+      "properties": {
+        "key": {
+          "description": "Select one exact key or one nonempty prefix, never both.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "prefix": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "schema": {
+          "type": [
+            "object",
+            "boolean"
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/StorageScope"
+        }
+      },
+      "required": [
+        "scope",
+        "schema"
+      ],
+      "type": "object"
+    },
+    "StorageDeclaration": {
+      "additionalProperties": false,
+      "description": "Schemas remain package declarations, not SQL tables or migration versions.",
+      "properties": {
+        "collections": {
+          "items": {
+            "$ref": "#/$defs/StorageCollection"
+          },
+          "maxItems": 32,
+          "type": "array"
+        }
+      },
+      "required": [
+        "collections"
+      ],
+      "type": "object"
+    },
+    "StorageScope": {
+      "description": "Private data either belongs to the Node or follows the captured conversation history.",
+      "enum": [
+        "node",
+        "conversation"
+      ],
+      "type": "string"
+    },
+    "Surface": {
+      "enum": [
+        "workspace",
+        "settings",
+        "composer",
+        "project"
+      ],
+      "type": "string"
+    },
+    "Table": {
+      "additionalProperties": false,
+      "properties": {
+        "cell": {
+          "$ref": "#/$defs/Cell"
+        },
+        "columns": {
+          "$ref": "#/$defs/Reference"
+        },
+        "rows": {
+          "$ref": "#/$defs/Reference"
+        },
+        "truncated": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reference"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "columns",
+        "rows",
+        "cell"
+      ],
+      "type": "object"
+    },
+    "Text": {
+      "additionalProperties": false,
+      "properties": {
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/Part"
+          },
+          "type": "array"
+        },
+        "separator": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "parts"
+      ],
+      "type": "object"
+    },
+    "Tool": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "capability": {
+              "$ref": "#/$defs/Capability"
+            },
+            "kind": {
+              "const": "model",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "capability"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "builtin",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A tool from this declaring package; an MCP tool also identifies its server.",
+          "properties": {
+            "kind": {
+              "const": "plugin",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "server": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One declared operation or script tool from another installed package.",
+          "properties": {
+            "kind": {
+              "const": "package",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "package": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "package",
+            "name"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Turn": {
+      "additionalProperties": false,
+      "properties": {
+        "after_turn": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "before_model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "initialize": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "initialize"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:sailry:schema:extension:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "actions": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Action"
+      },
+      "type": "array"
+    },
+    "api_version": {
+      "const": "v1",
+      "type": "string"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Navigation"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "desktop": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Manifest"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "display": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Navigation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Localized catalog name, independent of optional UI entry points."
+    },
+    "host": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Manifest2"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "icon": {
+      "description": "Package-relative PNG used by controller catalogs.",
+      "pattern": "^(\\./)?dev\\.sailry\\.platform/",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "instructions": {
+      "description": "Package-owned instructions supplied once with its available tools.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "model_tools": {
+      "default": [],
+      "description": "Provider-executed capabilities; these are not local function handlers.",
+      "items": {
+        "$ref": "#/$defs/Declaration3"
+      },
+      "type": "array"
+    },
+    "scope": {
+      "$ref": "#/$defs/Scope",
+      "default": "host"
+    },
+    "settings_page": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Settings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Settings navigation and an optional custom desktop entry."
+    },
+    "settings_schema": {
+      "pattern": "^(\\./)?dev\\.sailry\\.platform/",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "storage": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StorageDeclaration"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Inline schemas for package-owned Node and conversation values."
+    },
+    "tools": {
+      "default": [],
+      "description": "Output presentation for tools provided by this package.",
+      "items": {
+        "$ref": "#/$defs/Declaration2"
+      },
+      "type": "array"
+    },
+    "ui": {
+      "default": [],
+      "description": "Controller-rendered entries with state and named action handlers.",
+      "items": {
+        "$ref": "#/$defs/Contribution"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "api_version"
+  ],
+  "title": "Sailry Extension",
+  "type": "object"
+}

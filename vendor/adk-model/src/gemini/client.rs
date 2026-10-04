@@ -1,0 +1,2700 @@
+use crate::attachment;
+use crate::retry::{RetryConfig, execute_with_retry, is_retryable_model_error};
+use adk_core::{
+    CacheCapable, CitationMetadata, CitationSource, Content, ErrorCategory, ErrorComponent,
+    FinishReason, Llm, LlmRequest, LlmResponse, LlmResponseStream, Part, Result, SchemaAdapter,
+    SchemaCache, UsageMetadata,
+};
+use adk_gemini::Gemini;
+use adk_gemini::schema_adapter::GeminiSchemaAdapter;
+use async_trait::async_trait;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
+use futures::TryStreamExt;
+
+#[cfg(feature = "gemini-interactions")]
+use super::interactions_target::InteractionTarget;
+
+/// Which Gemini wire API a [`GeminiModel`] uses.
+///
+/// Defaults to [`GeminiTransport::GenerateContent`], the classic
+/// `models/{model}:generateContent` endpoint. Selecting
+/// [`GeminiTransport::Interactions`] (via [`GeminiModel::use_interactions_api`])
+/// routes requests through the Interactions API (Beta): a stateful, step-based
+/// transport that drives the same [`adk_core::Llm`] contract.
+///
+/// Only compiled when the `gemini-interactions` feature is enabled.
+#[cfg(feature = "gemini-interactions")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GeminiTransport {
+    /// The classic `models/{model}:generateContent` API (default).
+    #[default]
+    GenerateContent,
+    /// The Interactions API (Beta): stateful, step-based.
+    Interactions,
+}
+
+/// Background-execution policy for the Interactions transport.
+///
+/// Controls whether interactions run with `background=true`. The default,
+/// [`BackgroundMode::AgentTargetsOnly`], keeps low-latency chat turns
+/// foreground while letting long-running agent targets (e.g. Deep Research)
+/// run in the background.
+///
+/// Only compiled when the `gemini-interactions` feature is enabled.
+#[cfg(feature = "gemini-interactions")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BackgroundMode {
+    /// `background=true` for agent targets, `false` for model targets
+    /// (default). Keeps chat turns low-latency while letting Deep Research and
+    /// other long-running agents run in the background.
+    #[default]
+    AgentTargetsOnly,
+    /// Always run interactions with `background=true`.
+    Always,
+    /// Never run interactions in the background.
+    Never,
+}
+
+/// Faithful-to-API options for the Interactions transport.
+///
+/// The defaults mirror the Interactions API's intended posture: interactions
+/// are stored (`store = true`), stateful continuation via
+/// `previous_interaction_id` is enabled (`stateful = true`), background
+/// execution applies to agent targets only
+/// ([`BackgroundMode::AgentTargetsOnly`]), and background interactions are
+/// polled once per second.
+///
+/// Only compiled when the `gemini-interactions` feature is enabled.
+#[cfg(feature = "gemini-interactions")]
+#[derive(Debug, Clone)]
+pub struct InteractionOptions {
+    /// Whether interactions are stored server-side. Default: `true`.
+    pub store: bool,
+    /// Whether to continue conversations statefully via
+    /// `previous_interaction_id`. Default: `true`.
+    pub stateful: bool,
+    /// Background-execution policy. Default: [`BackgroundMode::AgentTargetsOnly`].
+    pub background: BackgroundMode,
+    /// Poll interval for background interactions. Default: 1 second.
+    pub poll_interval: std::time::Duration,
+}
+
+#[cfg(feature = "gemini-interactions")]
+impl Default for InteractionOptions {
+    fn default() -> Self {
+        Self {
+            store: true,
+            stateful: true,
+            background: BackgroundMode::AgentTargetsOnly,
+            poll_interval: std::time::Duration::from_secs(1),
+        }
+    }
+}
+
+/// Gemini model client wrapping the `adk-gemini` crate for the `Llm` trait.
+pub struct GeminiModel {
+    client: Gemini,
+    model_name: String,
+    retry_config: RetryConfig,
+    /// Default thinking configuration applied to every request.
+    ///
+    /// Controls the model's reasoning effort. For Gemini 3 series, use
+    /// `ThinkingLevel` (Low/Medium/High). For Gemini 2.5 series, use
+    /// `thinking_budget` (token count).
+    thinking_config: Option<adk_gemini::ThinkingConfig>,
+    /// Selected wire transport. Defaults to
+    /// [`GeminiTransport::GenerateContent`]; set to
+    /// [`GeminiTransport::Interactions`] via [`GeminiModel::use_interactions_api`].
+    #[cfg(feature = "gemini-interactions")]
+    transport: GeminiTransport,
+    /// The validated Interactions destination, populated when the Interactions
+    /// transport is enabled. `None` for the generateContent transport.
+    #[cfg(feature = "gemini-interactions")]
+    interaction_target: Option<InteractionTarget>,
+    /// Faithful-to-API options for the Interactions transport.
+    #[cfg(feature = "gemini-interactions")]
+    interaction_options: InteractionOptions,
+    /// Server-side RAG grounding declaration attached to every request.
+    /// Vertex AI backend only; see [`GeminiModel::with_vertex_rag_store`].
+    #[cfg(feature = "gemini-vertex")]
+    vertex_rag_store: Option<adk_gemini::VertexRagStore>,
+    /// Whether the wrapped client targets the Vertex AI backend (as opposed
+    /// to AI Studio). Set by the `new_google_cloud*` constructors.
+    #[cfg(feature = "gemini-vertex")]
+    vertex_backend: bool,
+}
+
+/// Convert a Gemini client error to a structured `AdkError` with proper category and retry hints.
+fn gemini_error_to_adk(e: &adk_gemini::ClientError) -> adk_core::AdkError {
+    fn format_error_chain(e: &dyn std::error::Error) -> String {
+        let mut msg = e.to_string();
+        let mut source = e.source();
+        while let Some(s) = source {
+            msg.push_str(": ");
+            msg.push_str(&s.to_string());
+            source = s.source();
+        }
+        msg
+    }
+
+    let message = format_error_chain(e);
+
+    // Extract status code from BadResponse variant via Display output
+    // BadResponse format: "bad response from server; code {code}; description: ..."
+    let (category, code, status_code) = if message.contains("code 429")
+        || message.contains("RESOURCE_EXHAUSTED")
+        || message.contains("rate limit")
+    {
+        (ErrorCategory::RateLimited, "model.gemini.rate_limited", Some(429u16))
+    } else if message.contains("code 503") || message.contains("UNAVAILABLE") {
+        (ErrorCategory::Unavailable, "model.gemini.unavailable", Some(503))
+    } else if message.contains("code 529") || message.contains("OVERLOADED") {
+        (ErrorCategory::Unavailable, "model.gemini.overloaded", Some(529))
+    } else if message.contains("code 408")
+        || message.contains("DEADLINE_EXCEEDED")
+        || message.contains("TIMEOUT")
+    {
+        (ErrorCategory::Timeout, "model.gemini.timeout", Some(408))
+    } else if message.contains("code 401") || message.contains("Invalid API key") {
+        (ErrorCategory::Unauthorized, "model.gemini.unauthorized", Some(401))
+    } else if message.contains("code 400") {
+        (ErrorCategory::InvalidInput, "model.gemini.bad_request", Some(400))
+    } else if message.contains("code 404") {
+        (ErrorCategory::NotFound, "model.gemini.not_found", Some(404))
+    } else if message.contains("invalid generation config") {
+        (ErrorCategory::InvalidInput, "model.gemini.invalid_config", None)
+    } else {
+        (ErrorCategory::Internal, "model.gemini.internal", None)
+    };
+
+    let mut err = adk_core::AdkError::new(ErrorComponent::Model, category, code, message)
+        .with_provider("gemini");
+    if let Some(sc) = status_code {
+        err = err.with_upstream_status(sc);
+    }
+    err
+}
+
+/// Maps a terminal [`InteractionStatus`](adk_gemini::interactions::InteractionStatus)
+/// to a `Result`, surfacing the API's failure states as errors.
+///
+/// The Interactions API can terminate an interaction in `failed` or
+/// `budget_exceeded` (Requirements 7.7 / 9.2). This helper converts those two
+/// states into an [`adk_core::AdkError`] (provider `"gemini"`, category
+/// [`ErrorCategory::Internal`]) and treats every other status as success — the
+/// caller has already decided to read the interaction's content for non-failure
+/// states. Factored out as a free function so the terminal-status mapping is
+/// unit-testable without a network round-trip.
+#[cfg(feature = "gemini-interactions")]
+fn interaction_status_to_result(status: adk_gemini::interactions::InteractionStatus) -> Result<()> {
+    use adk_gemini::interactions::InteractionStatus;
+    match status {
+        InteractionStatus::Failed => Err(interaction_terminal_error(
+            "model.gemini.interactions.failed",
+            "the Gemini interaction terminated with status `failed`",
+        )),
+        InteractionStatus::BudgetExceeded => Err(interaction_terminal_error(
+            "model.gemini.interactions.budget_exceeded",
+            "the Gemini interaction terminated with status `budget_exceeded`",
+        )),
+        InteractionStatus::InProgress
+        | InteractionStatus::RequiresAction
+        | InteractionStatus::Completed
+        | InteractionStatus::Cancelled
+        | InteractionStatus::Incomplete => Ok(()),
+    }
+}
+
+/// Builds the [`adk_core::AdkError`] for a terminal Interactions failure status.
+#[cfg(feature = "gemini-interactions")]
+fn interaction_terminal_error(code: &'static str, message: &str) -> adk_core::AdkError {
+    adk_core::AdkError::new(
+        ErrorComponent::Model,
+        ErrorCategory::Internal,
+        code,
+        message.to_string(),
+    )
+    .with_provider("gemini")
+}
+
+/// Returns the value of the environment variable `name` when it is set and
+/// non-empty (after trimming whitespace).
+fn env_non_empty(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|v| !v.trim().is_empty())
+}
+
+/// Returns `true` when an opt-in flag value selects the Vertex AI backend:
+/// `1` or a case-insensitive `true`.
+fn env_flag_truthy(value: &str) -> bool {
+    let v = value.trim();
+    v == "1" || v.eq_ignore_ascii_case("true")
+}
+
+/// Reports whether the environment opts in to the Vertex AI backend.
+///
+/// Consults `GOOGLE_GENAI_USE_ENTERPRISE` first and, when that variable is
+/// unset or empty, the deprecated `GOOGLE_GENAI_USE_VERTEXAI`. A flag is
+/// truthy when its value is `1` or a case-insensitive `true`.
+/// `GOOGLE_GENAI_USE_ENTERPRISE` takes precedence when both are set.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// if adk_model::gemini::vertex_env_requested() {
+///     // route Gemini traffic through Vertex AI
+/// }
+/// ```
+pub fn vertex_env_requested() -> bool {
+    // `GOOGLE_GENAI_USE_VERTEXAI` is the deprecated name adk-python still
+    // honors. Deliberately no deprecation warning for it —
+    // google/adk-python#6168 documents the churn such a warning caused.
+    if let Some(v) = env_non_empty("GOOGLE_GENAI_USE_ENTERPRISE") {
+        return env_flag_truthy(&v);
+    }
+    env_non_empty("GOOGLE_GENAI_USE_VERTEXAI").is_some_and(|v| env_flag_truthy(&v))
+}
+
+/// Reads `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION`, erroring with a
+/// message that names whichever variable is missing.
+#[cfg(feature = "gemini-vertex")]
+fn vertex_target_from_env() -> Result<(String, String)> {
+    let project = env_non_empty("GOOGLE_CLOUD_PROJECT");
+    let location = env_non_empty("GOOGLE_CLOUD_LOCATION");
+    if let (Some(project), Some(location)) = (&project, &location) {
+        return Ok((project.clone(), location.clone()));
+    }
+    let mut missing = Vec::new();
+    if project.is_none() {
+        missing.push("GOOGLE_CLOUD_PROJECT");
+    }
+    if location.is_none() {
+        missing.push("GOOGLE_CLOUD_LOCATION");
+    }
+    Err(adk_core::AdkError::new(
+        ErrorComponent::Model,
+        ErrorCategory::InvalidInput,
+        "model.gemini.vertex_env_incomplete",
+        format!(
+            "Vertex AI backend selected via GOOGLE_GENAI_USE_ENTERPRISE/GOOGLE_GENAI_USE_VERTEXAI, but {} not set. Set the missing variable(s) to your Google Cloud project ID and region (e.g. us-central1).",
+            missing.join(" and ")
+        ),
+    )
+    .with_provider("gemini"))
+}
+
+impl GeminiModel {
+    fn gemini_part_thought_signature(value: &serde_json::Value) -> Option<String> {
+        value.get("thoughtSignature").and_then(serde_json::Value::as_str).map(str::to_string)
+    }
+
+    fn validate_request_contract(&self, req: &LlmRequest) -> Result<()> {
+        // Server-side RAG grounding is a Vertex AI capability; reject it on
+        // the AI Studio backend before any network IO (mirrors the request-
+        // time gating the Vertex backend applies to Studio-only fields).
+        #[cfg(feature = "gemini-vertex")]
+        if self.vertex_rag_store.is_some() && !self.vertex_backend {
+            return Err(adk_core::AdkError::new(
+                ErrorComponent::Model,
+                ErrorCategory::Unsupported,
+                "model.gemini.rag_store_requires_vertex",
+                "Vertex RAG store grounding requires the Vertex AI backend. Construct the model with new_google_cloud/new_google_cloud_adc (or set GOOGLE_GENAI_USE_VERTEXAI with GOOGLE_CLOUD_PROJECT/GOOGLE_CLOUD_LOCATION) instead of an AI Studio API key.",
+            )
+            .with_provider("gemini"));
+        }
+
+        let model = self.model_name.strip_prefix("models/").unwrap_or(&self.model_name);
+        if !matches!(model, "gemini-3.6-flash" | "gemini-3.7-flash") {
+            return Ok(());
+        }
+
+        if let Some(config) = &req.config
+            && (config.temperature.is_some() || config.top_p.is_some() || config.top_k.is_some())
+        {
+            return Err(adk_core::AdkError::new(
+                ErrorComponent::Model,
+                ErrorCategory::InvalidInput,
+                "model.gemini.sampling_unsupported",
+                format!(
+                    "{model} does not accept temperature, top_p, or top_k; remove explicit sampling parameters"
+                ),
+            )
+            .with_provider("gemini"));
+        }
+        if self.thinking_config.as_ref().is_some_and(|config| config.thinking_budget.is_some()) {
+            return Err(adk_core::AdkError::new(
+                ErrorComponent::Model,
+                ErrorCategory::InvalidInput,
+                "model.gemini.thinking_budget_unsupported",
+                format!(
+                    "{model} uses thinking levels instead of token budgets; set thinking_level and clear thinking_budget"
+                ),
+            )
+            .with_provider("gemini"));
+        }
+        Ok(())
+    }
+
+    /// Builds a `GeminiModel` from a constructed client and model name with all
+    /// configurable fields defaulted.
+    ///
+    /// Centralizing struct construction here keeps the cfg-gated Interactions
+    /// fields out of every public constructor's `Self { .. }` literal.
+    pub(crate) fn from_client(client: Gemini, model_name: String) -> Self {
+        Self {
+            client,
+            model_name,
+            retry_config: RetryConfig::default(),
+            thinking_config: None,
+            #[cfg(feature = "gemini-interactions")]
+            transport: GeminiTransport::GenerateContent,
+            #[cfg(feature = "gemini-interactions")]
+            interaction_target: None,
+            #[cfg(feature = "gemini-interactions")]
+            interaction_options: InteractionOptions::default(),
+            #[cfg(feature = "gemini-vertex")]
+            vertex_rag_store: None,
+            #[cfg(feature = "gemini-vertex")]
+            vertex_backend: false,
+        }
+    }
+
+    /// Create a new Gemini model client with an API key and model name.
+    pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Result<Self> {
+        let model_name = model.into();
+        crate::catalog::warn_if_obsolete("gemini", &model_name);
+        let client = Gemini::with_model(api_key.into(), model_name.clone())
+            .map_err(|e| adk_core::AdkError::model(e.to_string()))?;
+
+        Ok(Self::from_client(client, model_name))
+    }
+
+    /// Create an API-key model using an explicit REST base URL.
+    /// The base URL includes the API version and ends with a slash.
+    pub fn new_with_base_url(
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+        base_url: impl AsRef<str>,
+    ) -> Result<Self> {
+        let model_name = model.into();
+        let base_url = base_url
+            .as_ref()
+            .parse()
+            .map_err(|_| adk_core::AdkError::model("Invalid Gemini base URL"))?;
+        let client = Gemini::with_model_and_base_url(api_key.into(), model_name.clone(), base_url)
+            .map_err(|e| adk_core::AdkError::model(e.to_string()))?;
+        Ok(Self::from_client(client, model_name))
+    }
+
+    /// Create a Gemini model via Vertex AI with API key auth.
+    ///
+    /// Requires `gemini-vertex` feature.
+    #[cfg(feature = "gemini-vertex")]
+    pub fn new_google_cloud(
+        api_key: impl Into<String>,
+        project_id: impl AsRef<str>,
+        location: impl AsRef<str>,
+        model: impl Into<String>,
+    ) -> Result<Self> {
+        let model_name = model.into();
+        let client = Gemini::with_google_cloud_model(
+            api_key.into(),
+            project_id,
+            location,
+            model_name.clone(),
+        )
+        .map_err(|e| adk_core::AdkError::model(e.to_string()))?;
+
+        let mut model = Self::from_client(client, model_name);
+        model.vertex_backend = true;
+        Ok(model)
+    }
+
+    /// Use an explicit Vertex endpoint and either a supplied key or execution-host ADC.
+    #[cfg(feature = "gemini-vertex")]
+    pub fn new_google_cloud_endpoint(
+        api_key: Option<&str>,
+        project: &str,
+        location: &str,
+        model_name: &str,
+        endpoint: &str,
+    ) -> Result<Self> {
+        let mut builder = adk_gemini::GeminiBuilder::new(api_key.unwrap_or_default())
+            .with_model(model_name.to_owned())
+            .with_google_cloud(project, location)
+            .with_google_cloud_endpoint(endpoint);
+        if api_key.is_none() {
+            builder = builder.with_google_cloud_adc().map_err(|e| gemini_error_to_adk(&e))?;
+        }
+        let client = builder.build().map_err(|e| gemini_error_to_adk(&e))?;
+        let mut model = Self::from_client(client, model_name.to_owned());
+        model.vertex_backend = true;
+        Ok(model)
+    }
+
+    /// Create a Gemini model via Vertex AI with service account JSON.
+    ///
+    /// Requires `gemini-vertex` feature.
+    #[cfg(feature = "gemini-vertex")]
+    pub fn new_google_cloud_service_account(
+        service_account_json: &str,
+        project_id: impl AsRef<str>,
+        location: impl AsRef<str>,
+        model: impl Into<String>,
+    ) -> Result<Self> {
+        let model_name = model.into();
+        let client = Gemini::with_google_cloud_service_account_json(
+            service_account_json,
+            project_id.as_ref(),
+            location.as_ref(),
+            model_name.clone(),
+        )
+        .map_err(|e| adk_core::AdkError::model(e.to_string()))?;
+
+        let mut model = Self::from_client(client, model_name);
+        model.vertex_backend = true;
+        Ok(model)
+    }
+
+    /// Create a Gemini model via Vertex AI with Application Default Credentials.
+    ///
+    /// Requires `gemini-vertex` feature.
+    #[cfg(feature = "gemini-vertex")]
+    pub fn new_google_cloud_adc(
+        project_id: impl AsRef<str>,
+        location: impl AsRef<str>,
+        model: impl Into<String>,
+    ) -> Result<Self> {
+        let model_name = model.into();
+        let client = Gemini::with_google_cloud_adc_model(
+            project_id.as_ref(),
+            location.as_ref(),
+            model_name.clone(),
+        )
+        .map_err(|e| adk_core::AdkError::model(e.to_string()))?;
+
+        let mut model = Self::from_client(client, model_name);
+        model.vertex_backend = true;
+        Ok(model)
+    }
+
+    /// Create a Gemini model via Vertex AI with Workload Identity Federation.
+    ///
+    /// Requires `gemini-vertex` feature.
+    #[cfg(feature = "gemini-vertex")]
+    pub fn new_google_cloud_wif(
+        wif_json: &str,
+        project_id: impl AsRef<str>,
+        location: impl AsRef<str>,
+        model: impl Into<String>,
+    ) -> Result<Self> {
+        let model_name = model.into();
+        let client = Gemini::with_google_cloud_wif_json(
+            wif_json,
+            project_id.as_ref(),
+            location.as_ref(),
+            model_name.clone(),
+        )
+        .map_err(|e| adk_core::AdkError::model(e.to_string()))?;
+
+        let mut model = Self::from_client(client, model_name);
+        model.vertex_backend = true;
+        Ok(model)
+    }
+
+    /// Create a Gemini model from environment variables.
+    ///
+    /// When `GOOGLE_GENAI_USE_ENTERPRISE` or `GOOGLE_GENAI_USE_VERTEXAI` is
+    /// truthy (`1` or a case-insensitive `true`), builds a Vertex AI client
+    /// with Application Default Credentials from `GOOGLE_CLOUD_PROJECT` and
+    /// `GOOGLE_CLOUD_LOCATION` — this path requires the `gemini-vertex`
+    /// feature. Otherwise builds a Gemini API (AI Studio) client from
+    /// `GOOGLE_API_KEY` or `GEMINI_API_KEY`.
+    ///
+    /// `GOOGLE_GENAI_USE_ENTERPRISE` takes precedence when both flags are set.
+    ///
+    /// The Vertex path builds Application Default Credentials, which requires
+    /// a Tokio runtime to be current — call from async code or under
+    /// `#[tokio::main]`.
+    ///
+    /// # Errors
+    ///
+    /// - A Vertex flag is truthy but `GOOGLE_CLOUD_PROJECT` or
+    ///   `GOOGLE_CLOUD_LOCATION` is not set.
+    /// - A Vertex flag is truthy but the `gemini-vertex` feature is not
+    ///   compiled.
+    /// - No Vertex flag is truthy and neither `GOOGLE_API_KEY` nor
+    ///   `GEMINI_API_KEY` is set.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use adk_model::gemini::GeminiModel;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> adk_core::Result<()> {
+    /// let model = GeminiModel::from_env("gemini-2.5-flash")?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn from_env(model: &str) -> Result<Self> {
+        if vertex_env_requested() {
+            #[cfg(feature = "gemini-vertex")]
+            {
+                let (project, location) = vertex_target_from_env()?;
+                return Self::new_google_cloud_adc(project, location, model);
+            }
+            #[cfg(not(feature = "gemini-vertex"))]
+            {
+                return Err(adk_core::AdkError::new(
+                    ErrorComponent::Model,
+                    ErrorCategory::Unsupported,
+                    "model.gemini.vertex_feature_missing",
+                    "Vertex AI backend selected via GOOGLE_GENAI_USE_ENTERPRISE/GOOGLE_GENAI_USE_VERTEXAI, but the `gemini-vertex` feature is not compiled. Enable the `gemini-vertex` feature (or `gemini-agent-platform` on the adk-rust umbrella crate) to route Gemini traffic through Vertex AI.",
+                )
+                .with_provider("gemini"));
+            }
+        }
+
+        let Some(api_key) =
+            env_non_empty("GOOGLE_API_KEY").or_else(|| env_non_empty("GEMINI_API_KEY"))
+        else {
+            return Err(adk_core::AdkError::new(
+                ErrorComponent::Model,
+                ErrorCategory::InvalidInput,
+                "model.gemini.api_key_missing",
+                "No Gemini API key found. Set GOOGLE_API_KEY or GEMINI_API_KEY, or set GOOGLE_GENAI_USE_ENTERPRISE=true with GOOGLE_CLOUD_PROJECT/GOOGLE_CLOUD_LOCATION for Vertex AI.",
+            )
+            .with_provider("gemini"));
+        };
+        Self::new(api_key, model)
+    }
+
+    /// Set the retry configuration (builder pattern).
+    #[must_use]
+    pub fn with_retry_config(mut self, retry_config: RetryConfig) -> Self {
+        self.retry_config = retry_config;
+        self
+    }
+
+    /// Set the retry configuration (mutable reference).
+    pub fn set_retry_config(&mut self, retry_config: RetryConfig) {
+        self.retry_config = retry_config;
+    }
+
+    /// Returns the current retry configuration.
+    pub fn retry_config(&self) -> &RetryConfig {
+        &self.retry_config
+    }
+
+    /// Set the default thinking configuration applied to every request.
+    ///
+    /// Controls the model's reasoning effort. For Gemini 3 series models,
+    /// use `ThinkingLevel` (Low/Medium/High). For Gemini 2.5 series, use
+    /// `thinking_budget` (token count).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use adk_gemini::{ThinkingConfig, ThinkingLevel};
+    ///
+    /// // Gemini 3 — level-based thinking
+    /// let model = GeminiModel::new(api_key, "gemini-3.1-pro-preview")?
+    ///     .with_thinking_config(
+    ///         ThinkingConfig::new().with_thinking_level(ThinkingLevel::Low)
+    ///     );
+    ///
+    /// // Gemini 2.5 — budget-based thinking
+    /// let model = GeminiModel::new(api_key, "gemini-2.5-flash")?
+    ///     .with_thinking_config(
+    ///         ThinkingConfig::new().with_thinking_budget(2048)
+    ///     );
+    /// ```
+    #[must_use]
+    pub fn with_thinking_config(mut self, thinking_config: adk_gemini::ThinkingConfig) -> Self {
+        self.thinking_config = Some(thinking_config);
+        self
+    }
+
+    /// Set the thinking configuration (mutable reference variant).
+    pub fn set_thinking_config(&mut self, thinking_config: adk_gemini::ThinkingConfig) {
+        self.thinking_config = Some(thinking_config);
+    }
+
+    /// Returns the current thinking configuration, if set.
+    pub fn thinking_config(&self) -> Option<&adk_gemini::ThinkingConfig> {
+        self.thinking_config.as_ref()
+    }
+
+    /// Ground every request in a Vertex AI RAG store (server-side retrieval).
+    ///
+    /// Declares a `retrieval` tool on each outgoing `generateContent` request
+    /// so Vertex AI retrieves grounding context from the referenced RAG
+    /// corpora before generating. Requires a Vertex AI backend — requests on
+    /// an AI Studio model fail with the structured error
+    /// `model.gemini.rag_store_requires_vertex` before any network IO.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use adk_gemini::VertexRagStore;
+    /// use adk_model::gemini::GeminiModel;
+    ///
+    /// # fn main() -> adk_core::Result<()> {
+    /// let store = VertexRagStore::corpus("projects/p/locations/us-central1/ragCorpora/123")
+    ///     .with_top_k(5);
+    /// let model =
+    ///     GeminiModel::new_google_cloud("api-key", "p", "us-central1", "gemini-3.7-flash")?
+    ///         .with_vertex_rag_store(store);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "gemini-vertex")]
+    #[must_use]
+    pub fn with_vertex_rag_store(mut self, store: adk_gemini::VertexRagStore) -> Self {
+        self.vertex_rag_store = Some(store);
+        self
+    }
+
+    /// Returns the configured Vertex RAG store, if set.
+    #[cfg(feature = "gemini-vertex")]
+    pub fn vertex_rag_store(&self) -> Option<&adk_gemini::VertexRagStore> {
+        self.vertex_rag_store.as_ref()
+    }
+
+    /// Enable (or disable) the Interactions API transport.
+    ///
+    /// When enabling, the model's configured model id is validated against the
+    /// Interactions allowlist via [`InteractionTarget::parse`]. On success the
+    /// transport switches to [`GeminiTransport::Interactions`] and the
+    /// validated target is stored. Disabling reverts to
+    /// [`GeminiTransport::GenerateContent`] and clears the stored target.
+    ///
+    /// Requires the `gemini-interactions` feature.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`adk_core::AdkError`] with category `InvalidInput` when
+    /// enabling the transport for a model id outside the Interactions
+    /// allowlist (Requirement 2.4). The error message names the supported
+    /// model and agent targets.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let model = GeminiModel::new(api_key, "gemini-2.5-flash")?
+    ///     .use_interactions_api(true)?;
+    /// ```
+    #[cfg(feature = "gemini-interactions")]
+    pub fn use_interactions_api(mut self, enabled: bool) -> Result<Self> {
+        if enabled {
+            let target = InteractionTarget::parse(&self.model_name)?;
+            self.transport = GeminiTransport::Interactions;
+            self.interaction_target = Some(target);
+        } else {
+            self.transport = GeminiTransport::GenerateContent;
+            self.interaction_target = None;
+        }
+        Ok(self)
+    }
+
+    /// Override the Interactions transport options (store, stateful, background
+    /// mode, poll interval).
+    ///
+    /// Requires the `gemini-interactions` feature. The defaults (see
+    /// [`InteractionOptions::default`]) mirror the Interactions API's intended
+    /// posture; override only when a different behavior is required.
+    #[cfg(feature = "gemini-interactions")]
+    #[must_use]
+    pub fn interaction_options(mut self, opts: InteractionOptions) -> Self {
+        self.interaction_options = opts;
+        self
+    }
+
+    /// Returns the currently selected wire transport.
+    ///
+    /// Requires the `gemini-interactions` feature.
+    #[cfg(feature = "gemini-interactions")]
+    pub fn transport(&self) -> GeminiTransport {
+        self.transport
+    }
+
+    /// Returns the configured Interactions options.
+    ///
+    /// Requires the `gemini-interactions` feature.
+    #[cfg(feature = "gemini-interactions")]
+    pub fn interaction_options_ref(&self) -> &InteractionOptions {
+        &self.interaction_options
+    }
+
+    /// Resolves whether background execution should be used for the configured
+    /// Interactions target, honoring [`BackgroundMode`].
+    ///
+    /// Returns `true` when the mode is [`BackgroundMode::Always`], `false` when
+    /// [`BackgroundMode::Never`], and (for [`BackgroundMode::AgentTargetsOnly`])
+    /// `true` only when the configured target is an agent target. When no
+    /// Interactions target is configured, agent-targets-only resolves to
+    /// `false`.
+    ///
+    /// Used by the non-streaming/background Interactions path (task 7.3); kept
+    /// here so the transport state and its policy resolution live together.
+    #[cfg(feature = "gemini-interactions")]
+    fn resolve_background(&self) -> bool {
+        match self.interaction_options.background {
+            BackgroundMode::Always => true,
+            BackgroundMode::Never => false,
+            BackgroundMode::AgentTargetsOnly => {
+                self.interaction_target.as_ref().is_some_and(InteractionTarget::is_agent)
+            }
+        }
+    }
+
+    fn convert_response(resp: &adk_gemini::GenerationResponse) -> Result<LlmResponse> {
+        let mut converted_parts: Vec<Part> = Vec::new();
+
+        // Convert content parts
+        if let Some(parts) = resp.candidates.first().and_then(|c| c.content.parts.as_ref()) {
+            for p in parts {
+                match p {
+                    adk_gemini::Part::Text { text, thought, thought_signature } => {
+                        if thought == &Some(true) {
+                            converted_parts.push(Part::Thinking {
+                                thinking: text.clone(),
+                                signature: thought_signature.clone(),
+                            });
+                        } else {
+                            converted_parts.push(Part::Text { text: text.clone() });
+                        }
+                    }
+                    adk_gemini::Part::InlineData { inline_data } => {
+                        let decoded =
+                            BASE64_STANDARD.decode(&inline_data.data).map_err(|error| {
+                                adk_core::AdkError::model(format!(
+                                    "failed to decode inline data from gemini response: {error}"
+                                ))
+                            })?;
+                        converted_parts.push(Part::InlineData {
+                            mime_type: inline_data.mime_type.clone(),
+                            data: decoded,
+                            uri: None,
+                            annotations: None,
+                        });
+                    }
+                    adk_gemini::Part::FunctionCall { function_call, thought_signature } => {
+                        converted_parts.push(Part::FunctionCall {
+                            name: function_call.name.clone(),
+                            args: function_call.args.clone(),
+                            id: function_call.id.clone(),
+                            thought_signature: thought_signature.clone(),
+                        });
+                    }
+                    adk_gemini::Part::FunctionResponse { function_response, .. } => {
+                        converted_parts.push(Part::FunctionResponse {
+                            function_response: adk_core::FunctionResponseData::new(
+                                function_response.name.clone(),
+                                function_response
+                                    .response
+                                    .clone()
+                                    .unwrap_or(serde_json::Value::Null),
+                            ),
+                            id: None,
+                            annotations: None,
+                        });
+                    }
+                    adk_gemini::Part::ToolCall { .. } | adk_gemini::Part::ExecutableCode { .. } => {
+                        if let Ok(value) = serde_json::to_value(p) {
+                            converted_parts.push(Part::ServerToolCall { server_tool_call: value });
+                        }
+                    }
+                    adk_gemini::Part::ToolResponse { .. }
+                    | adk_gemini::Part::CodeExecutionResult { .. } => {
+                        let value = serde_json::to_value(p).unwrap_or(serde_json::Value::Null);
+                        converted_parts
+                            .push(Part::ServerToolResponse { server_tool_response: value });
+                    }
+                    adk_gemini::Part::FileData { file_data } => {
+                        converted_parts.push(Part::FileData {
+                            mime_type: file_data.mime_type.clone(),
+                            file_uri: file_data.file_uri.clone(),
+                            annotations: None,
+                        });
+                    }
+                }
+            }
+        }
+
+        let content = if converted_parts.is_empty() {
+            None
+        } else {
+            Some(Content { role: "model".to_string(), parts: converted_parts })
+        };
+        let tool_call_turn = content.as_ref().is_some_and(Content::has_function_calls);
+
+        let usage_metadata = resp.usage_metadata.as_ref().map(|u| UsageMetadata {
+            prompt_token_count: u.prompt_token_count.unwrap_or(0),
+            // Gemini's candidate count excludes the separately reported thoughts.
+            candidates_token_count: u
+                .candidates_token_count
+                .unwrap_or(0)
+                .saturating_add(u.thoughts_token_count.unwrap_or(0)),
+            total_token_count: u.total_token_count.unwrap_or(0),
+            thinking_token_count: u.thoughts_token_count,
+            cache_read_input_token_count: u.cached_content_token_count,
+            provider_usage: serde_json::to_value(u).ok(),
+            ..Default::default()
+        });
+
+        let finish_reason =
+            resp.candidates.first().and_then(|c| c.finish_reason.as_ref()).map(|fr| match fr {
+                adk_gemini::FinishReason::Stop => FinishReason::Stop,
+                adk_gemini::FinishReason::MaxTokens => FinishReason::MaxTokens,
+                adk_gemini::FinishReason::Safety => FinishReason::Safety,
+                adk_gemini::FinishReason::Recitation => FinishReason::Recitation,
+                _ => FinishReason::Other,
+            });
+
+        let citation_metadata =
+            resp.candidates.first().and_then(|c| c.citation_metadata.as_ref()).map(|meta| {
+                CitationMetadata {
+                    citation_sources: meta
+                        .citation_sources
+                        .iter()
+                        .map(|source| CitationSource {
+                            uri: source.uri.clone(),
+                            title: source.title.clone(),
+                            start_index: source.start_index,
+                            end_index: source.end_index,
+                            license: source.license.clone(),
+                            publication_date: source.publication_date.map(|d| d.to_string()),
+                        })
+                        .collect(),
+                }
+            });
+
+        // Serialize grounding metadata into provider_metadata so consumers
+        // can display search queries and sources without changing the answer.
+        let provider_metadata = resp
+            .candidates
+            .first()
+            .and_then(|c| c.grounding_metadata.as_ref())
+            .and_then(|g| serde_json::to_value(g).ok());
+
+        Ok(LlmResponse {
+            content,
+            usage_metadata,
+            finish_reason,
+            citation_metadata,
+            partial: false,
+            turn_complete: !tool_call_turn,
+            interrupted: false,
+            error_code: None,
+            error_message: None,
+            provider_metadata,
+            interaction_id: None,
+        })
+    }
+
+    fn gemini_function_response_payload(response: serde_json::Value) -> serde_json::Value {
+        match response {
+            // Gemini functionResponse.response must be a JSON object.
+            serde_json::Value::Object(_) => response,
+            other => serde_json::json!({ "result": other }),
+        }
+    }
+
+    fn merge_object_value(
+        target: &mut serde_json::Map<String, serde_json::Value>,
+        value: serde_json::Value,
+    ) {
+        if let serde_json::Value::Object(object) = value {
+            for (key, value) in object {
+                target.insert(key, value);
+            }
+        }
+    }
+
+    fn build_gemini_tools(
+        tools: &std::collections::HashMap<String, serde_json::Value>,
+        adapter: &dyn SchemaAdapter,
+        cache: &SchemaCache,
+    ) -> Result<(Vec<adk_gemini::Tool>, adk_gemini::ToolConfig)> {
+        let mut gemini_tools = Vec::new();
+        let mut function_declarations = Vec::new();
+        let mut has_provider_native_tools = false;
+        let mut tool_config_json = serde_json::Map::new();
+
+        for (name, tool_decl) in tools {
+            if let Some(provider_tool) = tool_decl.get("x-adk-gemini-tool") {
+                let tool = serde_json::from_value::<adk_gemini::Tool>(provider_tool.clone())
+                    .map_err(|error| {
+                        adk_core::AdkError::model(format!(
+                            "failed to deserialize Gemini native tool '{name}': {error}"
+                        ))
+                    })?;
+                has_provider_native_tools = true;
+                gemini_tools.push(tool);
+            } else {
+                // Normalize tool name via the schema adapter
+                let normalized_name = adapter.normalize_tool_name(name);
+
+                // Get the parameters schema from the declaration, or use the
+                // adapter's empty_schema fallback when none is provided.
+                let schema =
+                    tool_decl.get("parameters").cloned().unwrap_or_else(|| adapter.empty_schema());
+                let normalized_schema = cache.normalize(&schema);
+
+                // Build the FunctionDeclaration with normalized values
+                let description =
+                    tool_decl.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+                let mut func_decl_json = serde_json::json!({
+                    "name": normalized_name.as_ref(),
+                    "description": description,
+                    "parameters": normalized_schema,
+                });
+
+                // Preserve response schema if present (normalized like parameters)
+                if let Some(response) = tool_decl.get("response") {
+                    func_decl_json["response"] = cache.normalize(response);
+                }
+
+                // Preserve behavior if present
+                if let Some(behavior) = tool_decl.get("behavior") {
+                    func_decl_json["behavior"] = behavior.clone();
+                }
+
+                let func_decl =
+                    serde_json::from_value::<adk_gemini::FunctionDeclaration>(func_decl_json)
+                        .map_err(|error| {
+                            adk_core::AdkError::model(format!(
+                                "failed to build Gemini function declaration for '{name}': {error}"
+                            ))
+                        })?;
+                function_declarations.push(func_decl);
+            }
+
+            if let Some(tool_config) = tool_decl.get("x-adk-gemini-tool-config") {
+                Self::merge_object_value(&mut tool_config_json, tool_config.clone());
+            }
+        }
+
+        let has_function_declarations = !function_declarations.is_empty();
+        if has_function_declarations {
+            gemini_tools.push(adk_gemini::Tool::with_functions(function_declarations));
+        }
+
+        if has_provider_native_tools {
+            tool_config_json.insert(
+                "includeServerSideToolInvocations".to_string(),
+                serde_json::Value::Bool(true),
+            );
+        }
+
+        let tool_config = if tool_config_json.is_empty() {
+            adk_gemini::ToolConfig::default()
+        } else {
+            serde_json::from_value::<adk_gemini::ToolConfig>(serde_json::Value::Object(
+                tool_config_json,
+            ))
+            .map_err(|error| {
+                adk_core::AdkError::model(format!(
+                    "failed to deserialize Gemini tool configuration: {error}"
+                ))
+            })?
+        };
+
+        Ok((gemini_tools, tool_config))
+    }
+
+    fn stream_chunks_from_response(
+        mut response: LlmResponse,
+        saw_partial_chunk: bool,
+    ) -> (Vec<LlmResponse>, bool) {
+        let is_final = response.finish_reason.is_some();
+
+        if !is_final {
+            response.partial = true;
+            response.turn_complete = false;
+            return (vec![response], true);
+        }
+
+        response.partial = false;
+        response.turn_complete =
+            response.content.as_ref().is_none_or(|content| !content.has_function_calls());
+
+        if saw_partial_chunk {
+            return (vec![response], true);
+        }
+
+        let synthetic_partial = LlmResponse {
+            content: None,
+            usage_metadata: None,
+            finish_reason: None,
+            citation_metadata: None,
+            partial: true,
+            turn_complete: false,
+            interrupted: false,
+            error_code: None,
+            error_message: None,
+            provider_metadata: None,
+            interaction_id: None,
+        };
+
+        (vec![synthetic_partial, response], true)
+    }
+
+    async fn generate_content_internal(
+        &self,
+        req: LlmRequest,
+        stream: bool,
+    ) -> Result<LlmResponseStream> {
+        let mut builder = self.client.generate_content();
+
+        // Build a map of function_name → thought_signature from FunctionCall parts
+        // in model content. Gemini 3.x requires thought_signature on FunctionResponse
+        // parts when thinking is active, but adk_core::Part::FunctionResponse doesn't
+        // carry it (it's Gemini-specific). We recover it here at the provider boundary.
+        let mut fn_call_signatures: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for content in &req.contents {
+            if content.role == "model" {
+                for part in &content.parts {
+                    if let Part::FunctionCall { name, thought_signature: Some(sig), .. } = part {
+                        fn_call_signatures.insert(name.clone(), sig.clone());
+                    }
+                }
+            }
+        }
+
+        // Add contents using proper builder methods
+        for content in &req.contents {
+            match content.role.as_str() {
+                "user" => {
+                    // For user messages, build gemini Content with potentially multiple parts
+                    let mut gemini_parts = Vec::new();
+                    for part in &content.parts {
+                        match part {
+                            Part::Text { text } => {
+                                gemini_parts.push(adk_gemini::Part::Text {
+                                    text: text.clone(),
+                                    thought: None,
+                                    thought_signature: None,
+                                });
+                            }
+                            Part::Thinking { thinking, signature } => {
+                                gemini_parts.push(adk_gemini::Part::Text {
+                                    text: thinking.clone(),
+                                    thought: Some(true),
+                                    thought_signature: signature.clone(),
+                                });
+                            }
+                            Part::InlineData { data, mime_type, .. } => {
+                                let encoded = attachment::encode_base64(data);
+                                gemini_parts.push(adk_gemini::Part::InlineData {
+                                    inline_data: adk_gemini::Blob {
+                                        mime_type: mime_type.clone(),
+                                        data: encoded,
+                                    },
+                                });
+                            }
+                            Part::FileData { mime_type, file_uri, .. } => {
+                                gemini_parts.push(adk_gemini::Part::Text {
+                                    text: attachment::file_attachment_to_text(mime_type, file_uri),
+                                    thought: None,
+                                    thought_signature: None,
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+                    if !gemini_parts.is_empty() {
+                        let user_content = adk_gemini::Content {
+                            role: Some(adk_gemini::Role::User),
+                            parts: Some(gemini_parts),
+                        };
+                        builder = builder.with_message(adk_gemini::Message {
+                            content: user_content,
+                            role: adk_gemini::Role::User,
+                        });
+                    }
+                }
+                "model" => {
+                    // For model messages, build gemini Content
+                    let mut gemini_parts = Vec::new();
+                    for part in &content.parts {
+                        match part {
+                            Part::Text { text } => {
+                                gemini_parts.push(adk_gemini::Part::Text {
+                                    text: text.clone(),
+                                    thought: None,
+                                    thought_signature: None,
+                                });
+                            }
+                            Part::Thinking { thinking, signature } => {
+                                gemini_parts.push(adk_gemini::Part::Text {
+                                    text: thinking.clone(),
+                                    thought: Some(true),
+                                    thought_signature: signature.clone(),
+                                });
+                            }
+                            Part::FunctionCall { name, args, thought_signature, id } => {
+                                gemini_parts.push(adk_gemini::Part::FunctionCall {
+                                    function_call: adk_gemini::FunctionCall {
+                                        name: name.clone(),
+                                        args: args.clone(),
+                                        id: id.clone(),
+                                        thought_signature: None,
+                                    },
+                                    thought_signature: thought_signature.clone(),
+                                });
+                            }
+                            Part::ServerToolCall { server_tool_call } => {
+                                if let Ok(native_part) = serde_json::from_value::<adk_gemini::Part>(
+                                    server_tool_call.clone(),
+                                ) {
+                                    match native_part {
+                                        adk_gemini::Part::ToolCall { .. }
+                                        | adk_gemini::Part::ExecutableCode { .. } => {
+                                            gemini_parts.push(native_part);
+                                            continue;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
+                                gemini_parts.push(adk_gemini::Part::ToolCall {
+                                    tool_call: server_tool_call.clone(),
+                                    thought_signature: Self::gemini_part_thought_signature(
+                                        server_tool_call,
+                                    ),
+                                });
+                            }
+                            Part::ServerToolResponse { server_tool_response } => {
+                                if let Ok(native_part) = serde_json::from_value::<adk_gemini::Part>(
+                                    server_tool_response.clone(),
+                                ) {
+                                    match native_part {
+                                        adk_gemini::Part::ToolResponse { .. }
+                                        | adk_gemini::Part::CodeExecutionResult { .. } => {
+                                            gemini_parts.push(native_part);
+                                            continue;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
+                                gemini_parts.push(adk_gemini::Part::ToolResponse {
+                                    tool_response: server_tool_response.clone(),
+                                    thought_signature: Self::gemini_part_thought_signature(
+                                        server_tool_response,
+                                    ),
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+                    if !gemini_parts.is_empty() {
+                        let model_content = adk_gemini::Content {
+                            role: Some(adk_gemini::Role::Model),
+                            parts: Some(gemini_parts),
+                        };
+                        builder = builder.with_message(adk_gemini::Message {
+                            content: model_content,
+                            role: adk_gemini::Role::Model,
+                        });
+                    }
+                }
+                "function" => {
+                    // For function responses, build content directly to attach thought_signature
+                    // recovered from the preceding FunctionCall (Gemini 3.x requirement)
+                    let mut gemini_parts = Vec::new();
+                    for part in &content.parts {
+                        if let Part::FunctionResponse { function_response, id, .. } = part {
+                            let sig = fn_call_signatures.get(&function_response.name).cloned();
+
+                            // Build nested FunctionResponsePart entries for multimodal data
+                            let mut fr_parts = Vec::new();
+                            for inline in &function_response.inline_data {
+                                let encoded = attachment::encode_base64(&inline.data);
+                                fr_parts.push(adk_gemini::FunctionResponsePart::InlineData {
+                                    inline_data: adk_gemini::Blob {
+                                        mime_type: inline.mime_type.clone(),
+                                        data: encoded,
+                                    },
+                                });
+                            }
+                            for file in &function_response.file_data {
+                                fr_parts.push(adk_gemini::FunctionResponsePart::FileData {
+                                    file_data: adk_gemini::FileDataRef {
+                                        mime_type: file.mime_type.clone(),
+                                        file_uri: file.file_uri.clone(),
+                                    },
+                                });
+                            }
+
+                            let mut gemini_fr = adk_gemini::tools::FunctionResponse::new(
+                                &function_response.name,
+                                Self::gemini_function_response_payload(
+                                    function_response.response.clone(),
+                                ),
+                            );
+                            gemini_fr.parts = fr_parts;
+                            // Echo the call id so Gemini 3.x strict response matching
+                            // (id + name + count) can correlate this response.
+                            gemini_fr.id = id.clone();
+
+                            gemini_parts.push(adk_gemini::Part::FunctionResponse {
+                                function_response: gemini_fr,
+                                thought_signature: sig,
+                            });
+                        }
+                    }
+                    if !gemini_parts.is_empty() {
+                        let fn_content = adk_gemini::Content {
+                            role: Some(adk_gemini::Role::User),
+                            parts: Some(gemini_parts),
+                        };
+                        builder = builder.with_message(adk_gemini::Message {
+                            content: fn_content,
+                            role: adk_gemini::Role::User,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Add generation config
+        if let Some(config) = req.config {
+            let has_schema = config.response_schema.is_some();
+            let gen_config = adk_gemini::GenerationConfig {
+                temperature: config.temperature,
+                top_p: config.top_p,
+                top_k: config.top_k,
+                max_output_tokens: config.max_output_tokens,
+                response_schema: config.response_schema,
+                response_mime_type: if has_schema {
+                    Some("application/json".to_string())
+                } else {
+                    None
+                },
+                thinking_config: self.thinking_config.clone(),
+                ..Default::default()
+            };
+            builder = builder.with_generation_config(gen_config);
+
+            // Attach cached content reference if provided
+            if let Some(ref name) = config.cached_content {
+                let handle = self.client.get_cached_content(name);
+                builder = builder.with_cached_content(&handle);
+            }
+        } else if self.thinking_config.is_some() {
+            // No generation config from the request, but we have a default
+            // thinking config — apply it in an otherwise-default gen config.
+            let gen_config = adk_gemini::GenerationConfig {
+                thinking_config: self.thinking_config.clone(),
+                ..Default::default()
+            };
+            builder = builder.with_generation_config(gen_config);
+        }
+
+        // Add tools
+        if !req.tools.is_empty() {
+            let adapter = self.schema_adapter();
+            use std::sync::LazyLock;
+            static SCHEMA_CACHE: LazyLock<SchemaCache> = LazyLock::new(|| {
+                SchemaCache::for_adapter(std::sync::Arc::new(GeminiSchemaAdapter::new()))
+            });
+            let (gemini_tools, tool_config) =
+                Self::build_gemini_tools(&req.tools, adapter, &SCHEMA_CACHE)?;
+            for tool in gemini_tools {
+                builder = builder.with_tool(tool);
+            }
+            if tool_config != adk_gemini::ToolConfig::default() {
+                builder = builder.with_tool_config(tool_config);
+            }
+        }
+
+        // Declare server-side RAG grounding; the Vertex backend injects it
+        // as a `retrieval` tool at send time (validate_request_contract has
+        // already rejected the Studio backend at this point).
+        #[cfg(feature = "gemini-vertex")]
+        if let Some(store) = &self.vertex_rag_store {
+            builder = builder.with_vertex_rag_store(store.clone());
+        }
+
+        if stream {
+            adk_telemetry::debug!("Executing streaming request");
+            let response_stream = builder.execute_stream().await.map_err(|e| {
+                adk_telemetry::error!(error = %e, "Model request failed");
+                gemini_error_to_adk(&e)
+            })?;
+
+            let mapped_stream = async_stream::stream! {
+                let mut stream = response_stream;
+                let mut saw_partial_chunk = false;
+                while let Some(result) = stream.try_next().await.transpose() {
+                    match result {
+                        Ok(resp) => {
+                            match Self::convert_response(&resp) {
+                                Ok(llm_resp) => {
+                                    let (chunks, next_saw_partial) =
+                                        Self::stream_chunks_from_response(llm_resp, saw_partial_chunk);
+                                    saw_partial_chunk = next_saw_partial;
+                                    for chunk in chunks {
+                                        yield Ok(chunk);
+                                    }
+                                }
+                                Err(e) => {
+                                    adk_telemetry::error!(error = %e, "Failed to convert response");
+                                    yield Err(e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            adk_telemetry::error!(error = %e, "Stream error");
+                            yield Err(gemini_error_to_adk(&e));
+                        }
+                    }
+                }
+            };
+
+            Ok(Box::pin(mapped_stream))
+        } else {
+            adk_telemetry::debug!("Executing blocking request");
+            let response = builder.execute().await.map_err(|e| {
+                adk_telemetry::error!(error = %e, "Model request failed");
+                gemini_error_to_adk(&e)
+            })?;
+
+            let llm_response = Self::convert_response(&response)?;
+
+            let stream = async_stream::stream! {
+                yield Ok(llm_response);
+            };
+
+            Ok(Box::pin(stream))
+        }
+    }
+
+    /// Create a cached content resource with the given system instruction, tools, and TTL.
+    ///
+    /// Returns the cache name (e.g., "cachedContents/abc123") on success.
+    /// The cache is created using the model configured on this `GeminiModel` instance.
+    pub async fn create_cached_content(
+        &self,
+        system_instruction: &str,
+        tools: &std::collections::HashMap<String, serde_json::Value>,
+        ttl_seconds: u32,
+    ) -> Result<String> {
+        let mut cache_builder = self
+            .client
+            .create_cache()
+            .with_system_instruction(system_instruction)
+            .with_ttl(std::time::Duration::from_secs(u64::from(ttl_seconds)));
+
+        let adapter = self.schema_adapter();
+        use std::sync::LazyLock;
+        static SCHEMA_CACHE: LazyLock<SchemaCache> = LazyLock::new(|| {
+            SchemaCache::for_adapter(std::sync::Arc::new(GeminiSchemaAdapter::new()))
+        });
+        let (gemini_tools, tool_config) = Self::build_gemini_tools(tools, adapter, &SCHEMA_CACHE)?;
+        if !gemini_tools.is_empty() {
+            cache_builder = cache_builder.with_tools(gemini_tools);
+        }
+        if tool_config != adk_gemini::ToolConfig::default() {
+            cache_builder = cache_builder.with_tool_config(tool_config);
+        }
+
+        let handle = cache_builder
+            .execute()
+            .await
+            .map_err(|e| adk_core::AdkError::model(format!("cache creation failed: {e}")))?;
+
+        Ok(handle.name().to_string())
+    }
+
+    /// Delete a cached content resource by name.
+    pub async fn delete_cached_content(&self, name: &str) -> Result<()> {
+        let handle = self.client.get_cached_content(name);
+        handle
+            .delete()
+            .await
+            .map_err(|(_, e)| adk_core::AdkError::model(format!("cache deletion failed: {e}")))?;
+        Ok(())
+    }
+
+    /// Drives a single turn through the Interactions API (Beta), non-streaming.
+    ///
+    /// This is the Interactions counterpart to
+    /// [`generate_content_internal`](Self::generate_content_internal). It builds
+    /// a [`CreateInteractionRequest`](adk_gemini::interactions::CreateInteractionRequest)
+    /// from `req` via [`interactions_convert::build_request`], sends it, polls to
+    /// completion when running in the background, maps terminal failure statuses
+    /// to errors, and converts the final interaction into a single
+    /// [`LlmResponse`].
+    ///
+    /// Behavior of note:
+    ///
+    /// - **Background completion (Requirement 7.5).** When `background` is set
+    ///   and the first response is neither terminal nor awaiting a tool result,
+    ///   the interaction is polled via
+    ///   [`get_interaction`](adk_gemini::Gemini::get_interaction) every
+    ///   `poll_interval` until it reaches a terminal or `requires_action` state.
+    /// - **Stale continuation fallback (Requirement 4.4).** If the initial send
+    ///   fails with a `NotFound` error *and* the request carried a
+    ///   `previous_response_id`, the request is transparently rebuilt without
+    ///   stateful continuation (full transcript, no `previous_interaction_id`)
+    ///   and re-sent once. The original `NotFound` is not surfaced.
+    /// - **Terminal failure (Requirements 7.7 / 9.2).** A final `failed` /
+    ///   `budget_exceeded` status becomes an [`adk_core::AdkError`].
+    ///
+    /// The streaming counterpart is
+    /// [`generate_interactions_stream`](Self::generate_interactions_stream).
+    #[cfg(feature = "gemini-interactions")]
+    async fn generate_interactions_once(&self, req: LlmRequest) -> Result<LlmResponse> {
+        use super::interactions_convert;
+
+        // The Interactions target is always populated when the transport is
+        // active (set by `use_interactions_api`); guard defensively.
+        let target = self.interaction_target.as_ref().ok_or_else(|| {
+            adk_core::AdkError::new(
+                ErrorComponent::Model,
+                ErrorCategory::InvalidInput,
+                "model.gemini.interactions.missing_target",
+                "the Interactions transport is active but no validated target is configured",
+            )
+            .with_provider("gemini")
+        })?;
+
+        // Resolve the thinking level (Gemini 3 level-based reasoning). Budget-only
+        // configs (Gemini 2.5) carry no level, so this stays `None` for them.
+        let thinking_level = self.thinking_config.as_ref().and_then(|c| c.thinking_level);
+
+        let stateful = self.interaction_options.stateful;
+        let store = self.interaction_options.store;
+        let background = self.resolve_background();
+
+        // Build the request and stamp the background flag.
+        let mut request =
+            interactions_convert::build_request(&req, target, thinking_level, stateful, store)?;
+        request.background = Some(background);
+
+        // Send, with a transparent transcript fallback for a stale continuation id.
+        let interaction = match self.client.send_interaction(request.clone()).await {
+            Ok(interaction) => interaction,
+            Err(error) => {
+                let mapped = gemini_error_to_adk(&error);
+                // Requirement 4.4: a rejected `previous_interaction_id` (retention
+                // expiry) maps to NotFound. Rebuild statelessly (full transcript,
+                // no continuation id) and retry once, without surfacing the error.
+                if mapped.category == ErrorCategory::NotFound && req.previous_response_id.is_some()
+                {
+                    let mut fallback = interactions_convert::build_request(
+                        &req,
+                        target,
+                        thinking_level,
+                        /* stateful */ false,
+                        store,
+                    )?;
+                    fallback.background = Some(background);
+                    self.client
+                        .send_interaction(fallback)
+                        .await
+                        .map_err(|e| gemini_error_to_adk(&e))?
+                } else {
+                    return Err(mapped);
+                }
+            }
+        };
+
+        // Background completion: poll until terminal or awaiting a tool result.
+        let final_interaction = if background {
+            self.poll_interaction_to_completion(interaction).await?
+        } else {
+            interaction
+        };
+
+        // Requirements 7.7 / 9.2: surface terminal failure statuses as errors.
+        interaction_status_to_result(final_interaction.status)?;
+
+        Ok(interactions_convert::to_llm_response(&final_interaction))
+    }
+
+    /// Polls a background interaction until it reaches a terminal or
+    /// `requires_action` state, honoring the configured `poll_interval`
+    /// (Requirement 7.5).
+    ///
+    /// Returns immediately when the interaction is already terminal or awaiting
+    /// a tool result. Otherwise it sleeps for `poll_interval` and re-fetches via
+    /// [`get_interaction`](adk_gemini::Gemini::get_interaction) (with
+    /// `include_input = false`) until one of those states is reached, or until a
+    /// bounded safeguard (`MAX_POLL_ATTEMPTS`) trips.
+    ///
+    /// ## Cancellation (Requirement 7.6)
+    ///
+    /// True invocation-driven cancellation (calling
+    /// [`cancel_interaction`](adk_gemini::Gemini::cancel_interaction) when the
+    /// caller cancels) is **not reachable from this layer**: the [`Llm`] trait's
+    /// [`generate_content`](Llm::generate_content) signature receives only an
+    /// [`LlmRequest`] and a `stream` flag — it has no `InvocationContext` or
+    /// cancellation token. Cancellation is handled by the runner at the
+    /// event-stream boundary: when a run is cancelled the runner stops consuming
+    /// the agent's event stream, which drops this future and cancels its
+    /// `await` points (the in-flight `sleep` / `get_interaction`) cooperatively.
+    /// The polled interaction is left running server-side; reviving it to issue
+    /// an explicit `cancel_interaction` would require threading the cancellation
+    /// token through the trait, which is intentionally out of scope here (the
+    /// trait is transport-only and shared by every provider).
+    ///
+    /// The `MAX_POLL_ATTEMPTS` bound is a safeguard against an interaction that
+    /// never reaches a terminal/`requires_action` state (e.g. a server-side
+    /// stall): rather than looping forever it returns a [`ErrorCategory::Timeout`]
+    /// error so the call fails fast instead of hanging.
+    #[cfg(feature = "gemini-interactions")]
+    async fn poll_interaction_to_completion(
+        &self,
+        interaction: adk_gemini::interactions::Interaction,
+    ) -> Result<adk_gemini::interactions::Interaction> {
+        /// Upper bound on poll iterations before giving up, guarding against an
+        /// interaction that never settles. With the default 1s `poll_interval`
+        /// this is ~10 minutes; shorter intervals trade latency for a tighter
+        /// wall-clock cap. Deep Research agents complete well within this.
+        const MAX_POLL_ATTEMPTS: u32 = 600;
+
+        let mut current = interaction;
+        let mut attempts: u32 = 0;
+        while !current.status.is_terminal() && !current.status.requires_action() {
+            if attempts >= MAX_POLL_ATTEMPTS {
+                return Err(adk_core::AdkError::new(
+                    ErrorComponent::Model,
+                    ErrorCategory::Timeout,
+                    "model.gemini.interactions.poll_timeout",
+                    format!(
+                        "the Gemini interaction did not reach a terminal or requires_action \
+                         state after {MAX_POLL_ATTEMPTS} poll attempts"
+                    ),
+                )
+                .with_provider("gemini"));
+            }
+            attempts += 1;
+            tokio::time::sleep(self.interaction_options.poll_interval).await;
+            current = self
+                .client
+                .get_interaction(&current.id, false)
+                .await
+                .map_err(|e| gemini_error_to_adk(&e))?;
+        }
+        Ok(current)
+    }
+
+    /// Drives a single turn through the Interactions API (Beta) as an SSE
+    /// stream, yielding partial→final [`LlmResponse`] chunks (Requirement 7.4).
+    ///
+    /// This is the streaming counterpart to
+    /// [`generate_interactions_once`](Self::generate_interactions_once). It
+    /// builds the request the same way, forces non-background completion
+    /// (streaming and background polling are mutually exclusive completion
+    /// modes — SSE delivers the turn incrementally, so `background` is set to
+    /// `false`), opens the SSE stream via
+    /// [`send_interaction_stream`](adk_gemini::Gemini::send_interaction_stream),
+    /// and folds each [`InteractionSseEvent`](adk_gemini::interactions::InteractionSseEvent)
+    /// into chunks via [`interactions_convert::sse_event_to_chunk`].
+    ///
+    /// Stream setup (target resolution, request building, opening the SSE
+    /// connection) is fallible and returns `Err` synchronously, so
+    /// `execute_with_retry` (which wraps this in `generate_content`) can retry
+    /// transient setup failures. Errors that occur *after* the stream starts
+    /// are yielded into the stream and not retried, mirroring the
+    /// generateContent streaming path.
+    ///
+    /// The stale-continuation fallback used by the non-streaming path is not
+    /// applied here: a `NotFound` on stream setup surfaces as a normal error
+    /// (the streaming path is opt-in and lower-level; callers that need
+    /// transparent retention fallback use the default non-streaming path).
+    #[cfg(feature = "gemini-interactions")]
+    async fn generate_interactions_stream(&self, req: LlmRequest) -> Result<LlmResponseStream> {
+        use super::interactions_convert::{self, SseAccumulator, sse_event_to_chunk};
+
+        let target = self.interaction_target.as_ref().ok_or_else(|| {
+            adk_core::AdkError::new(
+                ErrorComponent::Model,
+                ErrorCategory::InvalidInput,
+                "model.gemini.interactions.missing_target",
+                "the Interactions transport is active but no validated target is configured",
+            )
+            .with_provider("gemini")
+        })?;
+
+        let thinking_level = self.thinking_config.as_ref().and_then(|c| c.thinking_level);
+        let stateful = self.interaction_options.stateful;
+        let store = self.interaction_options.store;
+
+        let mut request =
+            interactions_convert::build_request(&req, target, thinking_level, stateful, store)?;
+        // Streaming uses SSE for incremental completion, not background polling;
+        // the two are distinct completion modes (Requirement 7.4 vs 7.5). Force
+        // foreground so the server streams the turn rather than returning a
+        // background handle.
+        request.background = Some(false);
+
+        let sse_stream = self
+            .client
+            .send_interaction_stream(request)
+            .await
+            .map_err(|e| gemini_error_to_adk(&e))?;
+
+        let mapped = async_stream::stream! {
+            let mut sse_stream = sse_stream;
+            let mut acc = SseAccumulator::new();
+            while let Some(result) = sse_stream.try_next().await.transpose() {
+                match result {
+                    Ok(event) => {
+                        if let Some(chunk) = sse_event_to_chunk(event, &mut acc) {
+                            yield chunk;
+                        }
+                    }
+                    Err(e) => {
+                        adk_telemetry::error!(error = %e, "Interaction stream error");
+                        yield Err(gemini_error_to_adk(&e));
+                    }
+                }
+            }
+        };
+
+        Ok(Box::pin(mapped))
+    }
+}
+
+#[async_trait]
+impl Llm for GeminiModel {
+    fn name(&self) -> &str {
+        &self.model_name
+    }
+
+    fn schema_adapter(&self) -> &dyn SchemaAdapter {
+        use std::sync::LazyLock;
+        static ADAPTER: LazyLock<GeminiSchemaAdapter> = LazyLock::new(GeminiSchemaAdapter::new);
+        &*ADAPTER
+    }
+
+    #[cfg(feature = "gemini-interactions")]
+    fn uses_interactions_api(&self) -> bool {
+        self.transport == GeminiTransport::Interactions
+    }
+
+    // Named distinctly from the agent layer's `call_llm` span (which carries
+    // the gcp.vertex.agent.* attributes and is what trace exporters capture):
+    // this is the model-transport layer, so traces show one `call_llm` per
+    // LLM call instead of an identical nested pair.
+    #[adk_telemetry::instrument(
+        name = "model.generate_content",
+        skip(self, req),
+        fields(
+            model.name = %self.model_name,
+            stream = %stream,
+            request.contents_count = %req.contents.len(),
+            request.tools_count = %req.tools.len()
+        )
+    )]
+    async fn generate_content(&self, req: LlmRequest, stream: bool) -> Result<LlmResponseStream> {
+        adk_telemetry::info!("Generating content");
+        self.validate_request_contract(&req)?;
+        let usage_span = adk_telemetry::llm_generate_span("gemini", &self.model_name, stream);
+
+        // Dispatch on the configured transport. The default `GenerateContent`
+        // path is unchanged; the Interactions path (task 7.3/7.4) is only
+        // reachable when `use_interactions_api` switched the transport.
+        //
+        // Retries only cover request setup/execution. Stream failures after the
+        // stream starts are yielded to the caller and are not replayed
+        // automatically.
+        #[cfg(feature = "gemini-interactions")]
+        if self.transport == GeminiTransport::Interactions {
+            // Streaming and non-streaming are distinct completion modes. The
+            // streaming path consumes the Interactions SSE stream and yields
+            // partial→final chunks; the non-streaming path sends a single
+            // request and (optionally) polls a background interaction to
+            // completion. `execute_with_retry` wraps only request *setup* in
+            // both cases — once a stream starts, its mid-flight errors are
+            // surfaced to the caller rather than replayed (mirroring the
+            // generateContent streaming path).
+            if stream {
+                let mapped =
+                    execute_with_retry(&self.retry_config, is_retryable_model_error, || {
+                        self.generate_interactions_stream(req.clone())
+                    })
+                    .await?;
+                return Ok(crate::usage_tracking::with_usage_tracking(mapped, usage_span));
+            }
+            let response = execute_with_retry(&self.retry_config, is_retryable_model_error, || {
+                self.generate_interactions_once(req.clone())
+            })
+            .await?;
+            let single = async_stream::stream! {
+                yield Ok(response);
+            };
+            return Ok(crate::usage_tracking::with_usage_tracking(Box::pin(single), usage_span));
+        }
+
+        let result = execute_with_retry(&self.retry_config, is_retryable_model_error, || {
+            self.generate_content_internal(req.clone(), stream)
+        })
+        .await?;
+        Ok(crate::usage_tracking::with_usage_tracking(result, usage_span))
+    }
+}
+
+#[cfg(test)]
+mod native_tool_tests {
+    use super::*;
+
+    fn test_adapter() -> GeminiSchemaAdapter {
+        GeminiSchemaAdapter::new()
+    }
+
+    fn test_cache() -> SchemaCache {
+        SchemaCache::for_adapter(std::sync::Arc::new(GeminiSchemaAdapter::new()))
+    }
+
+    #[test]
+    fn test_build_gemini_tools_supports_native_tool_metadata() {
+        let mut tools = std::collections::HashMap::new();
+        tools.insert(
+            "google_search".to_string(),
+            serde_json::json!({
+                "x-adk-gemini-tool": {
+                    "google_search": {}
+                }
+            }),
+        );
+        tools.insert(
+            "lookup_weather".to_string(),
+            serde_json::json!({
+                "name": "lookup_weather",
+                "description": "lookup weather",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "city": { "type": "string" }
+                    }
+                }
+            }),
+        );
+
+        let adapter = test_adapter();
+        let cache = test_cache();
+        let (gemini_tools, tool_config) = GeminiModel::build_gemini_tools(&tools, &adapter, &cache)
+            .expect("tool conversion should succeed");
+
+        assert_eq!(gemini_tools.len(), 2);
+        assert_eq!(tool_config.include_server_side_tool_invocations, Some(true));
+    }
+
+    #[test]
+    fn test_build_gemini_tools_sets_flag_for_builtin_only() {
+        let mut tools = std::collections::HashMap::new();
+        tools.insert(
+            "google_search".to_string(),
+            serde_json::json!({
+                "x-adk-gemini-tool": {
+                    "google_search": {}
+                }
+            }),
+        );
+
+        let adapter = test_adapter();
+        let cache = test_cache();
+        let (_gemini_tools, tool_config) =
+            GeminiModel::build_gemini_tools(&tools, &adapter, &cache)
+                .expect("tool conversion should succeed");
+
+        assert_eq!(
+            tool_config.include_server_side_tool_invocations,
+            Some(true),
+            "includeServerSideToolInvocations should be set even with only built-in tools"
+        );
+    }
+
+    #[test]
+    fn test_build_gemini_tools_no_flag_for_function_only() {
+        let mut tools = std::collections::HashMap::new();
+        tools.insert(
+            "lookup_weather".to_string(),
+            serde_json::json!({
+                "name": "lookup_weather",
+                "description": "lookup weather",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "city": { "type": "string" }
+                    }
+                }
+            }),
+        );
+
+        let adapter = test_adapter();
+        let cache = test_cache();
+        let (_gemini_tools, tool_config) =
+            GeminiModel::build_gemini_tools(&tools, &adapter, &cache)
+                .expect("tool conversion should succeed");
+
+        assert_eq!(
+            tool_config.include_server_side_tool_invocations, None,
+            "includeServerSideToolInvocations should NOT be set for function-only tools"
+        );
+    }
+
+    #[test]
+    fn test_build_gemini_tools_merges_native_tool_config() {
+        let mut tools = std::collections::HashMap::new();
+        tools.insert(
+            "google_maps".to_string(),
+            serde_json::json!({
+                "x-adk-gemini-tool": {
+                    "google_maps": {
+                        "enable_widget": true
+                    }
+                },
+                "x-adk-gemini-tool-config": {
+                    "retrievalConfig": {
+                        "latLng": {
+                            "latitude": 1.23,
+                            "longitude": 4.56
+                        }
+                    }
+                }
+            }),
+        );
+
+        let adapter = test_adapter();
+        let cache = test_cache();
+        let (_gemini_tools, tool_config) =
+            GeminiModel::build_gemini_tools(&tools, &adapter, &cache)
+                .expect("tool conversion should succeed");
+
+        assert_eq!(
+            tool_config.retrieval_config,
+            Some(serde_json::json!({
+                "latLng": {
+                    "latitude": 1.23,
+                    "longitude": 4.56
+                }
+            }))
+        );
+    }
+
+    #[test]
+    fn test_response_schema_is_normalized_like_parameters() {
+        // Regression test: MCP tools provide an output_schema that becomes the
+        // `response` field in the tool declaration. Gemini rejects JSON-Schema
+        // dialect fields ($schema, additionalProperties) in the response schema.
+        // This test verifies that the response schema is normalized the same way
+        // parameters are — stripping unsupported keywords.
+        let mut tools = std::collections::HashMap::new();
+        tools.insert(
+            "read_file".to_string(),
+            serde_json::json!({
+                "name": "read_file",
+                "description": "Read a file from the filesystem",
+                "parameters": {
+                    "$schema": "http://json-schema.org/draft-07/schema#",
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "File path" }
+                    },
+                    "required": ["path"],
+                    "additionalProperties": false
+                },
+                "response": {
+                    "$schema": "http://json-schema.org/draft-07/schema#",
+                    "type": "object",
+                    "properties": {
+                        "content": { "type": "string", "description": "File contents" }
+                    },
+                    "required": ["content"],
+                    "additionalProperties": false
+                }
+            }),
+        );
+
+        let adapter = test_adapter();
+        let cache = test_cache();
+        let (gemini_tools, _) = GeminiModel::build_gemini_tools(&tools, &adapter, &cache)
+            .expect("tool conversion should succeed");
+
+        // Find the function declaration
+        let func_tool = gemini_tools
+            .iter()
+            .find(|t| matches!(t, adk_gemini::Tool::Function { .. }))
+            .expect("should have function declarations");
+
+        let decls = match func_tool {
+            adk_gemini::Tool::Function { function_declarations } => function_declarations,
+            _ => panic!("expected Function tool"),
+        };
+
+        let decl = &decls[0];
+        let decl_json = serde_json::to_value(decl).unwrap();
+
+        // Parameters should be normalized (no $schema, no additionalProperties)
+        let params = &decl_json["parameters"];
+        assert!(params.get("$schema").is_none(), "parameters.$schema should be stripped");
+        assert!(
+            params.get("additionalProperties").is_none(),
+            "parameters.additionalProperties should be stripped"
+        );
+
+        // Response should ALSO be normalized (this was the bug)
+        let response = &decl_json["response"];
+        assert!(
+            response.get("$schema").is_none(),
+            "response.$schema should be stripped (was the bug: copied raw)"
+        );
+        assert!(
+            response.get("additionalProperties").is_none(),
+            "response.additionalProperties should be stripped (was the bug: copied raw)"
+        );
+    }
+}
+
+#[async_trait]
+impl CacheCapable for GeminiModel {
+    async fn create_cache(
+        &self,
+        system_instruction: &str,
+        tools: &std::collections::HashMap<String, serde_json::Value>,
+        ttl_seconds: u32,
+    ) -> Result<String> {
+        self.create_cached_content(system_instruction, tools, ttl_seconds).await
+    }
+
+    async fn delete_cache(&self, name: &str) -> Result<()> {
+        self.delete_cached_content(name).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adk_core::AdkError;
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicU32, Ordering},
+        },
+        time::Duration,
+    };
+
+    #[test]
+    fn env_flag_truthy_accepts_one_and_case_insensitive_true() {
+        for truthy in ["1", "true", "TRUE", "True", " true ", "tRuE"] {
+            assert!(env_flag_truthy(truthy), "expected {truthy:?} to be truthy");
+        }
+        for falsy in ["0", "false", "FALSE", "yes", "on", "", "2", "vertex"] {
+            assert!(!env_flag_truthy(falsy), "expected {falsy:?} to be falsy");
+        }
+    }
+
+    #[test]
+    fn constructor_is_backward_compatible_and_sync() {
+        fn accepts_sync_constructor<F>(_f: F)
+        where
+            F: Fn(&str, &str) -> Result<GeminiModel>,
+        {
+        }
+
+        accepts_sync_constructor(|api_key, model| GeminiModel::new(api_key, model));
+    }
+
+    #[test]
+    fn stream_chunks_from_response_injects_partial_before_lone_final_chunk() {
+        let response = LlmResponse {
+            content: Some(Content::new("model").with_text("hello")),
+            usage_metadata: None,
+            finish_reason: Some(FinishReason::Stop),
+            citation_metadata: None,
+            partial: false,
+            turn_complete: true,
+            interrupted: false,
+            error_code: None,
+            error_message: None,
+            provider_metadata: None,
+            interaction_id: None,
+        };
+
+        let (chunks, saw_partial) = GeminiModel::stream_chunks_from_response(response, false);
+        assert!(saw_partial);
+        assert_eq!(chunks.len(), 2);
+        assert!(chunks[0].partial);
+        assert!(!chunks[0].turn_complete);
+        assert!(chunks[0].content.is_none());
+        assert!(!chunks[1].partial);
+        assert!(chunks[1].turn_complete);
+    }
+
+    #[test]
+    fn stream_chunks_from_response_keeps_final_only_when_partial_already_seen() {
+        let response = LlmResponse {
+            content: Some(Content::new("model").with_text("done")),
+            usage_metadata: None,
+            finish_reason: Some(FinishReason::Stop),
+            citation_metadata: None,
+            partial: false,
+            turn_complete: true,
+            interrupted: false,
+            error_code: None,
+            error_message: None,
+            provider_metadata: None,
+            interaction_id: None,
+        };
+
+        let (chunks, saw_partial) = GeminiModel::stream_chunks_from_response(response, true);
+        assert!(saw_partial);
+        assert_eq!(chunks.len(), 1);
+        assert!(!chunks[0].partial);
+        assert!(chunks[0].turn_complete);
+    }
+
+    #[test]
+    fn stream_chunks_from_response_keeps_tool_call_turn_open() {
+        let response = LlmResponse {
+            content: Some(Content {
+                role: "model".to_string(),
+                parts: vec![Part::FunctionCall {
+                    name: "get_weather".to_string(),
+                    args: serde_json::json!({"city": "Boston"}),
+                    id: Some("call-1".to_string()),
+                    thought_signature: None,
+                }],
+            }),
+            finish_reason: Some(FinishReason::Stop),
+            turn_complete: true,
+            ..Default::default()
+        };
+
+        let (chunks, _) = GeminiModel::stream_chunks_from_response(response, true);
+
+        assert_eq!(chunks.len(), 1);
+        assert!(!chunks[0].partial);
+        assert!(!chunks[0].turn_complete);
+    }
+
+    #[tokio::test]
+    async fn execute_with_retry_retries_retryable_errors() {
+        let retry_config = RetryConfig::default()
+            .with_max_retries(2)
+            .with_initial_delay(Duration::from_millis(0))
+            .with_max_delay(Duration::from_millis(0));
+        let attempts = Arc::new(AtomicU32::new(0));
+
+        let result = execute_with_retry(&retry_config, is_retryable_model_error, || {
+            let attempts = Arc::clone(&attempts);
+            async move {
+                let attempt = attempts.fetch_add(1, Ordering::SeqCst);
+                if attempt < 2 {
+                    return Err(AdkError::model("code 429 RESOURCE_EXHAUSTED"));
+                }
+                Ok("ok")
+            }
+        })
+        .await
+        .expect("retry should eventually succeed");
+
+        assert_eq!(result, "ok");
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn execute_with_retry_does_not_retry_non_retryable_errors() {
+        let retry_config = RetryConfig::default()
+            .with_max_retries(3)
+            .with_initial_delay(Duration::from_millis(0))
+            .with_max_delay(Duration::from_millis(0));
+        let attempts = Arc::new(AtomicU32::new(0));
+
+        let error = execute_with_retry(&retry_config, is_retryable_model_error, || {
+            let attempts = Arc::clone(&attempts);
+            async move {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                Err::<(), _>(AdkError::model("code 400 invalid request"))
+            }
+        })
+        .await
+        .expect_err("non-retryable error should return immediately");
+
+        assert!(error.is_model());
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn execute_with_retry_respects_disabled_config() {
+        let retry_config = RetryConfig::disabled().with_max_retries(10);
+        let attempts = Arc::new(AtomicU32::new(0));
+
+        let error = execute_with_retry(&retry_config, is_retryable_model_error, || {
+            let attempts = Arc::clone(&attempts);
+            async move {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                Err::<(), _>(AdkError::model("code 429 RESOURCE_EXHAUSTED"))
+            }
+        })
+        .await
+        .expect_err("disabled retries should return first error");
+
+        assert!(error.is_model());
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn convert_response_preserves_citation_metadata() {
+        let response = adk_gemini::GenerationResponse {
+            candidates: vec![adk_gemini::Candidate {
+                content: adk_gemini::Content {
+                    role: Some(adk_gemini::Role::Model),
+                    parts: Some(vec![adk_gemini::Part::Text {
+                        text: "hello world".to_string(),
+                        thought: None,
+                        thought_signature: None,
+                    }]),
+                },
+                safety_ratings: None,
+                citation_metadata: Some(adk_gemini::CitationMetadata {
+                    citation_sources: vec![adk_gemini::CitationSource {
+                        uri: Some("https://example.com".to_string()),
+                        title: Some("Example".to_string()),
+                        start_index: Some(0),
+                        end_index: Some(5),
+                        license: Some("CC-BY".to_string()),
+                        publication_date: None,
+                    }],
+                }),
+                grounding_metadata: None,
+                finish_reason: Some(adk_gemini::FinishReason::Stop),
+                index: Some(0),
+            }],
+            prompt_feedback: None,
+            usage_metadata: None,
+            model_version: None,
+            response_id: None,
+        };
+
+        let converted =
+            GeminiModel::convert_response(&response).expect("conversion should succeed");
+        let metadata = converted.citation_metadata.expect("citation metadata should be mapped");
+        assert_eq!(metadata.citation_sources.len(), 1);
+        assert_eq!(metadata.citation_sources[0].uri.as_deref(), Some("https://example.com"));
+        assert_eq!(metadata.citation_sources[0].start_index, Some(0));
+        assert_eq!(metadata.citation_sources[0].end_index, Some(5));
+    }
+
+    #[test]
+    fn convert_response_keeps_function_call_turn_open() {
+        let response = adk_gemini::GenerationResponse {
+            candidates: vec![adk_gemini::Candidate {
+                content: adk_gemini::Content {
+                    role: Some(adk_gemini::Role::Model),
+                    parts: Some(vec![adk_gemini::Part::FunctionCall {
+                        function_call: adk_gemini::FunctionCall {
+                            name: "get_weather".to_string(),
+                            args: serde_json::json!({"city": "Boston"}),
+                            id: Some("call-1".to_string()),
+                            thought_signature: None,
+                        },
+                        thought_signature: None,
+                    }]),
+                },
+                safety_ratings: None,
+                citation_metadata: None,
+                grounding_metadata: None,
+                finish_reason: Some(adk_gemini::FinishReason::Stop),
+                index: Some(0),
+            }],
+            prompt_feedback: None,
+            usage_metadata: None,
+            model_version: None,
+            response_id: None,
+        };
+
+        let converted =
+            GeminiModel::convert_response(&response).expect("conversion should succeed");
+
+        assert!(!converted.turn_complete);
+        assert!(converted.content.is_some_and(|content| content.has_function_calls()));
+    }
+
+    #[test]
+    fn convert_response_handles_inline_data_from_model() {
+        let image_bytes = vec![0x89, 0x50, 0x4E, 0x47];
+        let encoded = crate::attachment::encode_base64(&image_bytes);
+
+        let response = adk_gemini::GenerationResponse {
+            candidates: vec![adk_gemini::Candidate {
+                content: adk_gemini::Content {
+                    role: Some(adk_gemini::Role::Model),
+                    parts: Some(vec![
+                        adk_gemini::Part::Text {
+                            text: "Here is the image".to_string(),
+                            thought: None,
+                            thought_signature: None,
+                        },
+                        adk_gemini::Part::InlineData {
+                            inline_data: adk_gemini::Blob {
+                                mime_type: "image/png".to_string(),
+                                data: encoded,
+                            },
+                        },
+                    ]),
+                },
+                safety_ratings: None,
+                citation_metadata: None,
+                grounding_metadata: None,
+                finish_reason: Some(adk_gemini::FinishReason::Stop),
+                index: Some(0),
+            }],
+            prompt_feedback: None,
+            usage_metadata: None,
+            model_version: None,
+            response_id: None,
+        };
+
+        let converted =
+            GeminiModel::convert_response(&response).expect("conversion should succeed");
+        let content = converted.content.expect("should have content");
+        assert!(
+            content
+                .parts
+                .iter()
+                .any(|part| matches!(part, Part::Text { text } if text == "Here is the image"))
+        );
+        assert!(content.parts.iter().any(|part| {
+            matches!(
+                part,
+                Part::InlineData { mime_type, data, .. }
+                    if mime_type == "image/png" && data.as_slice() == image_bytes.as_slice()
+            )
+        }));
+    }
+
+    #[test]
+    fn gemini_function_response_payload_preserves_objects() {
+        let value = serde_json::json!({
+            "documents": [
+                { "id": "pricing", "score": 0.91 }
+            ]
+        });
+
+        let payload = GeminiModel::gemini_function_response_payload(value.clone());
+
+        assert_eq!(payload, value);
+    }
+
+    #[test]
+    fn gemini_function_response_payload_wraps_arrays() {
+        let payload =
+            GeminiModel::gemini_function_response_payload(serde_json::json!([{ "id": "pricing" }]));
+
+        assert_eq!(payload, serde_json::json!({ "result": [{ "id": "pricing" }] }));
+    }
+
+    // ===== Multimodal function response conversion tests =====
+
+    /// Helper to build a FunctionResponse with nested multimodal parts
+    /// simulating the conversion logic from generate_content_internal.
+    fn convert_function_response_to_gemini_fr(
+        frd: &adk_core::FunctionResponseData,
+    ) -> adk_gemini::tools::FunctionResponse {
+        let mut fr_parts = Vec::new();
+
+        for inline in &frd.inline_data {
+            let encoded = crate::attachment::encode_base64(&inline.data);
+            fr_parts.push(adk_gemini::FunctionResponsePart::InlineData {
+                inline_data: adk_gemini::Blob {
+                    mime_type: inline.mime_type.clone(),
+                    data: encoded,
+                },
+            });
+        }
+
+        for file in &frd.file_data {
+            fr_parts.push(adk_gemini::FunctionResponsePart::FileData {
+                file_data: adk_gemini::FileDataRef {
+                    mime_type: file.mime_type.clone(),
+                    file_uri: file.file_uri.clone(),
+                },
+            });
+        }
+
+        let mut gemini_fr = adk_gemini::tools::FunctionResponse::new(
+            &frd.name,
+            GeminiModel::gemini_function_response_payload(frd.response.clone()),
+        );
+        gemini_fr.parts = fr_parts;
+        gemini_fr
+    }
+
+    #[test]
+    fn json_only_function_response_has_no_nested_parts() {
+        let frd = adk_core::FunctionResponseData::new("tool", serde_json::json!({"ok": true}));
+        let gemini_fr = convert_function_response_to_gemini_fr(&frd);
+        assert!(gemini_fr.parts.is_empty());
+        // Serialized JSON should have name and response but no parts key
+        let json = serde_json::to_string(&gemini_fr).unwrap();
+        assert!(!json.contains("\"parts\""));
+    }
+
+    #[test]
+    fn function_response_with_inline_data_has_nested_parts() {
+        let frd = adk_core::FunctionResponseData::with_inline_data(
+            "chart",
+            serde_json::json!({"status": "ok"}),
+            vec![adk_core::InlineDataPart {
+                mime_type: "image/png".to_string(),
+                data: vec![0x89, 0x50, 0x4E, 0x47],
+                uri: None,
+                annotations: None,
+            }],
+        );
+        let gemini_fr = convert_function_response_to_gemini_fr(&frd);
+        assert_eq!(gemini_fr.parts.len(), 1);
+        match &gemini_fr.parts[0] {
+            adk_gemini::FunctionResponsePart::InlineData { inline_data } => {
+                assert_eq!(inline_data.mime_type, "image/png");
+                let decoded = BASE64_STANDARD.decode(&inline_data.data).unwrap();
+                assert_eq!(decoded, vec![0x89, 0x50, 0x4E, 0x47]);
+            }
+            other => panic!("expected InlineData, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn function_response_with_file_data_has_nested_parts() {
+        let frd = adk_core::FunctionResponseData::with_file_data(
+            "doc",
+            serde_json::json!({"ok": true}),
+            vec![adk_core::FileDataPart {
+                mime_type: "application/pdf".to_string(),
+                file_uri: "gs://bucket/report.pdf".to_string(),
+                annotations: None,
+            }],
+        );
+        let gemini_fr = convert_function_response_to_gemini_fr(&frd);
+        assert_eq!(gemini_fr.parts.len(), 1);
+        match &gemini_fr.parts[0] {
+            adk_gemini::FunctionResponsePart::FileData { file_data } => {
+                assert_eq!(file_data.mime_type, "application/pdf");
+                assert_eq!(file_data.file_uri, "gs://bucket/report.pdf");
+            }
+            other => panic!("expected FileData, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn function_response_with_both_inline_and_file_data_ordering() {
+        let frd = adk_core::FunctionResponseData::with_multimodal(
+            "multi",
+            serde_json::json!({}),
+            vec![
+                adk_core::InlineDataPart {
+                    mime_type: "image/png".to_string(),
+                    data: vec![1, 2],
+                    uri: None,
+                    annotations: None,
+                },
+                adk_core::InlineDataPart {
+                    mime_type: "image/jpeg".to_string(),
+                    data: vec![3, 4],
+                    uri: None,
+                    annotations: None,
+                },
+            ],
+            vec![adk_core::FileDataPart {
+                mime_type: "application/pdf".to_string(),
+                file_uri: "gs://b/f.pdf".to_string(),
+                annotations: None,
+            }],
+        );
+        let gemini_fr = convert_function_response_to_gemini_fr(&frd);
+        // 2 inline + 1 file = 3 nested parts
+        assert_eq!(gemini_fr.parts.len(), 3);
+        assert!(matches!(&gemini_fr.parts[0], adk_gemini::FunctionResponsePart::InlineData { .. }));
+        assert!(matches!(&gemini_fr.parts[1], adk_gemini::FunctionResponsePart::InlineData { .. }));
+        assert!(matches!(&gemini_fr.parts[2], adk_gemini::FunctionResponsePart::FileData { .. }));
+    }
+}
+
+#[cfg(all(test, feature = "gemini-interactions"))]
+mod interactions_transport_tests {
+    use super::*;
+    use adk_core::GenerateContentConfig;
+
+    /// **Feature: gemini-interactions-runtime, Property 2: Default options match the API**
+    /// *For any* default `InteractionOptions`, `store == true`, `stateful == true`,
+    /// `background` is `AgentTargetsOnly`, and `poll_interval` is 1 second.
+    /// **Validates: Requirements 3.1, 3.2, 3.3**
+    #[test]
+    fn default_interaction_options_match_api_posture() {
+        let opts = InteractionOptions::default();
+        assert!(opts.store, "store should default to true");
+        assert!(opts.stateful, "stateful should default to true");
+        assert_eq!(opts.background, BackgroundMode::AgentTargetsOnly);
+        assert_eq!(opts.poll_interval, std::time::Duration::from_secs(1));
+    }
+
+    #[test]
+    fn new_model_defaults_to_generate_content_transport() {
+        let model = GeminiModel::new("test-key", "gemini-2.5-flash")
+            .expect("constructing a Gemini model should not require network");
+        assert_eq!(model.transport(), GeminiTransport::GenerateContent);
+    }
+
+    #[test]
+    fn use_interactions_api_enables_transport_for_allowlisted_model() {
+        let model = GeminiModel::new("test-key", "gemini-2.5-flash")
+            .expect("construct model")
+            .use_interactions_api(true)
+            .expect("allowlisted model should enable the Interactions transport");
+
+        assert_eq!(model.transport(), GeminiTransport::Interactions);
+        assert_eq!(
+            model.interaction_target,
+            Some(InteractionTarget::Model("gemini-2.5-flash".to_string()))
+        );
+    }
+
+    #[test]
+    fn use_interactions_api_rejects_unsupported_model_with_invalid_input() {
+        let result = GeminiModel::new("test-key", "gemini-2.0-flash")
+            .expect("construct model")
+            .use_interactions_api(true);
+
+        let err = match result {
+            Ok(_) => panic!("unsupported model should be rejected"),
+            Err(err) => err,
+        };
+        assert_eq!(err.category, adk_core::ErrorCategory::InvalidInput);
+        assert_eq!(err.details.provider.as_deref(), Some("gemini"));
+    }
+
+    #[test]
+    fn use_interactions_api_false_reverts_to_generate_content() {
+        let model = GeminiModel::new("test-key", "gemini-2.5-flash")
+            .expect("construct model")
+            .use_interactions_api(true)
+            .expect("enable interactions")
+            .use_interactions_api(false)
+            .expect("disabling should always succeed");
+
+        assert_eq!(model.transport(), GeminiTransport::GenerateContent);
+        assert_eq!(model.interaction_target, None);
+    }
+
+    #[test]
+    fn interaction_options_override_is_stored() {
+        let opts = InteractionOptions {
+            store: false,
+            stateful: false,
+            background: BackgroundMode::Always,
+            poll_interval: std::time::Duration::from_millis(250),
+        };
+        let model = GeminiModel::new("test-key", "gemini-2.5-flash")
+            .expect("construct model")
+            .interaction_options(opts.clone());
+
+        let stored = model.interaction_options_ref();
+        assert_eq!(stored.store, opts.store);
+        assert_eq!(stored.stateful, opts.stateful);
+        assert_eq!(stored.background, opts.background);
+        assert_eq!(stored.poll_interval, opts.poll_interval);
+    }
+
+    #[test]
+    fn resolve_background_honors_background_mode() {
+        // Always → true regardless of target.
+        let always = GeminiModel::new("test-key", "gemini-2.5-flash")
+            .expect("construct model")
+            .use_interactions_api(true)
+            .expect("enable")
+            .interaction_options(InteractionOptions {
+                background: BackgroundMode::Always,
+                ..InteractionOptions::default()
+            });
+        assert!(always.resolve_background());
+
+        // Never → false regardless of target.
+        let never = GeminiModel::new("test-key", "gemini-2.5-flash")
+            .expect("construct model")
+            .use_interactions_api(true)
+            .expect("enable")
+            .interaction_options(InteractionOptions {
+                background: BackgroundMode::Never,
+                ..InteractionOptions::default()
+            });
+        assert!(!never.resolve_background());
+
+        // AgentTargetsOnly → false for a model target.
+        let model_target = GeminiModel::new("test-key", "gemini-2.5-flash")
+            .expect("construct model")
+            .use_interactions_api(true)
+            .expect("enable");
+        assert!(!model_target.resolve_background());
+
+        // AgentTargetsOnly → true for an agent target.
+        let agent_target = GeminiModel::new("test-key", "deep-research-preview-04-2026")
+            .expect("construct model")
+            .use_interactions_api(true)
+            .expect("enable");
+        assert!(agent_target.resolve_background());
+    }
+
+    /// Requirements 7.7 / 9.2: a terminal `failed` status maps to an
+    /// `Internal` `AdkError` (provider `"gemini"`).
+    #[test]
+    fn terminal_failed_status_maps_to_error() {
+        use adk_gemini::interactions::InteractionStatus;
+
+        let err = interaction_status_to_result(InteractionStatus::Failed)
+            .expect_err("a failed interaction must surface an error");
+        assert_eq!(err.category, adk_core::ErrorCategory::Internal);
+        assert_eq!(err.details.provider.as_deref(), Some("gemini"));
+        assert_eq!(err.code, "model.gemini.interactions.failed");
+    }
+
+    /// Requirements 7.7 / 9.2: a terminal `budget_exceeded` status maps to an
+    /// `Internal` `AdkError` (provider `"gemini"`).
+    #[test]
+    fn terminal_budget_exceeded_status_maps_to_error() {
+        use adk_gemini::interactions::InteractionStatus;
+
+        let err = interaction_status_to_result(InteractionStatus::BudgetExceeded)
+            .expect_err("a budget_exceeded interaction must surface an error");
+        assert_eq!(err.category, adk_core::ErrorCategory::Internal);
+        assert_eq!(err.details.provider.as_deref(), Some("gemini"));
+        assert_eq!(err.code, "model.gemini.interactions.budget_exceeded");
+    }
+
+    /// Non-failure statuses (including `requires_action` and the other terminal
+    /// states the transport reads content from) do not produce an error.
+    #[test]
+    fn non_failure_statuses_are_ok() {
+        use adk_gemini::interactions::InteractionStatus;
+
+        for status in [
+            InteractionStatus::InProgress,
+            InteractionStatus::RequiresAction,
+            InteractionStatus::Completed,
+            InteractionStatus::Cancelled,
+            InteractionStatus::Incomplete,
+        ] {
+            assert!(
+                interaction_status_to_result(status).is_ok(),
+                "status {status:?} should not map to an error"
+            );
+        }
+    }
+
+    /// A constructed `failed` `Interaction` flows through the same status check
+    /// the transport uses, surfacing an error after conversion.
+    #[test]
+    fn failed_interaction_resource_surfaces_error() {
+        use adk_gemini::interactions::{Interaction, InteractionStatus};
+
+        let interaction = Interaction {
+            id: "v1_failed".to_string(),
+            model: Some("gemini-2.5-flash".to_string()),
+            agent: None,
+            status: InteractionStatus::Failed,
+            steps: Vec::new(),
+            usage: None,
+            created: None,
+            updated: None,
+            environment_id: None,
+        };
+
+        let err = interaction_status_to_result(interaction.status)
+            .expect_err("failed interaction must surface an error");
+        assert_eq!(err.category, adk_core::ErrorCategory::Internal);
+        assert_eq!(err.details.provider.as_deref(), Some("gemini"));
+    }
+    #[test]
+    fn gemini_37_rejects_sampling_before_network_io() {
+        let model = GeminiModel::new("test-key", "gemini-3.7-flash").expect("construct model");
+        let mut request = LlmRequest::new("gemini-3.7-flash", Vec::new());
+        request.config =
+            Some(GenerateContentConfig { temperature: Some(0.2), ..Default::default() });
+
+        let error = model
+            .validate_request_contract(&request)
+            .expect_err("sampling must be rejected locally");
+        assert_eq!(error.code, "model.gemini.sampling_unsupported");
+    }
+
+    #[test]
+    fn gemini_37_rejects_token_budget_thinking() {
+        let model = GeminiModel::new("test-key", "gemini-3.7-flash")
+            .expect("construct model")
+            .with_thinking_config(adk_gemini::ThinkingConfig {
+                thinking_budget: Some(1024),
+                include_thoughts: None,
+                thinking_level: None,
+            });
+
+        let error = model
+            .validate_request_contract(&LlmRequest::new("gemini-3.7-flash", Vec::new()))
+            .expect_err("token budgets must be rejected locally");
+        assert_eq!(error.code, "model.gemini.thinking_budget_unsupported");
+    }
+}
+
+#[cfg(all(test, feature = "gemini-vertex"))]
+mod vertex_rag_tests {
+    use super::*;
+    use adk_gemini::VertexRagStore;
+
+    fn test_store() -> VertexRagStore {
+        VertexRagStore::corpus("projects/p/locations/us-central1/ragCorpora/123").with_top_k(5)
+    }
+
+    fn vertex_model() -> GeminiModel {
+        GeminiModel::new_google_cloud("test-key", "p", "us-central1", "gemini-3.7-flash")
+            .expect("construct vertex model")
+    }
+
+    // The Vertex constructor builds credential plumbing that requires a
+    // current Tokio runtime, so this test is async.
+    #[tokio::test]
+    async fn vertex_backend_accepts_and_stores_the_rag_store() {
+        let model = vertex_model().with_vertex_rag_store(test_store());
+
+        model
+            .validate_request_contract(&LlmRequest::new("gemini-3.7-flash", Vec::new()))
+            .expect("vertex backend must accept the rag store");
+
+        // The stored store is handed to adk-gemini's ContentBuilder per
+        // request; the exact wire-shape injection is asserted in adk-gemini's
+        // backend tests.
+        assert_eq!(model.vertex_rag_store(), Some(&test_store()));
+    }
+
+    #[test]
+    fn studio_backend_rejects_rag_store_before_network_io() {
+        let model = GeminiModel::new("test-key", "gemini-3.7-flash")
+            .expect("construct studio model")
+            .with_vertex_rag_store(test_store());
+
+        let error = model
+            .validate_request_contract(&LlmRequest::new("gemini-3.7-flash", Vec::new()))
+            .expect_err("studio backend must reject the rag store locally");
+        assert_eq!(error.code, "model.gemini.rag_store_requires_vertex");
+        assert_eq!(error.category, adk_core::ErrorCategory::Unsupported);
+        assert_eq!(error.details.provider.as_deref(), Some("gemini"));
+    }
+
+    #[test]
+    fn no_rag_store_means_no_gate() {
+        let model = GeminiModel::new("test-key", "gemini-3.7-flash").expect("construct model");
+        assert_eq!(model.vertex_rag_store(), None);
+        model
+            .validate_request_contract(&LlmRequest::new("gemini-3.7-flash", Vec::new()))
+            .expect("no store configured, nothing to reject");
+    }
+}

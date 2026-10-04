@@ -1,0 +1,4 @@
+# Match the desktop bundle's minimum macOS version for native dependencies.
+# An explicit caller deployment target still takes precedence.
+[env]
+MACOSX_DEPLOYMENT_TARGET = { value = "13.0", force = false }

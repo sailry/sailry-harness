@@ -1,0 +1,91 @@
+[package]
+name = "sailry-desktop"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[features]
+workload-tests = ["sailry-node-runtime/test-support"]
+
+[build-dependencies]
+embed-resource.workspace = true
+
+[dependencies]
+cpal.workspace = true
+sailry-speech.workspace = true
+sha2.workspace = true
+self_update.workspace = true
+ed25519-dalek.workspace = true
+semver.workspace = true
+reqwest.workspace = true
+roxmltree.workspace = true
+base64.workspace = true
+gpui-kit.workspace = true
+gpui-shell.workspace = true
+gpui-component-shell.workspace = true
+rust-i18n.workspace = true
+sys-locale.workspace = true
+sailry-node-runtime.workspace = true
+sailry-link.workspace = true
+sailry-client.workspace = true
+sailry-protocol.workspace = true
+tokio = { workspace = true, features = ["fs"] }
+tempfile.workspace = true
+blake3.workspace = true
+zip.workspace = true
+cap-std.workspace = true
+cap-fs-ext.workspace = true
+mime_guess.workspace = true
+image = { workspace = true, features = ["tiff", "bmp"] }
+rusqlite.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+serde.workspace = true
+chrono.workspace = true
+futures.workspace = true
+url.workspace = true
+rfd.workspace = true
+pulldown-cmark.workspace = true
+unicode-segmentation.workspace = true
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+gpui-wry.workspace = true
+wry.workspace = true
+raw-window-handle.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cua-driver-sdk.workspace = true
+cua-platform-macos.workspace = true
+uuid.workspace = true
+aes.workspace = true
+cbc.workspace = true
+pbkdf2.workspace = true
+sha1.workspace = true
+security-framework.workspace = true
+block2.workspace = true
+zeroize.workspace = true
+dirs.workspace = true
+objc2.workspace = true
+objc2-av-foundation.workspace = true
+objc2-app-kit = { workspace = true, features = ["NSApplication", "NSRunningApplication", "NSWorkspace", "block2", "NSEvent", "NSTrackingArea", "NSGraphicsContext", "NSMenu", "NSMenuItem"] }
+objc2-web-kit.workspace = true
+objc2-foundation.workspace = true
+objc2-core-foundation.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_System_Threading", "Win32_System_SystemInformation", "Wdk_System_SystemServices", "Win32_Security", "Win32_Security_Authorization"] }
+
+[dev-dependencies]
+zipsign-api = { workspace = true, features = ["sign-zip"] }
+russh.workspace = true
+portable-pty.workspace = true
+rusqlite.workspace = true
+sailry-node-runtime = { workspace = true, features = ["test-support"] }
+git2.workspace = true
+gpui-kit = { workspace = true, features = ["test-support"] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-app-kit = { workspace = true, features = ["NSRunningApplication", "libc"] }

@@ -1,0 +1,105 @@
+[package]
+description = "Behavior, interaction, and infrastructure foundations for GPUI applications."
+keywords = ["desktop", "gpui", "ui", "foundation"]
+license = "Apache-2.0"
+name = "gpui-base"
+# The examples are development tools that read fixtures from `crates/story`;
+# they stay out of the published package.
+exclude = ["examples/"]
+repository = "https://github.com/longbridge/gpui-kit"
+homepage = "https://gpui-kit.com"
+documentation = "https://docs.rs/gpui-base"
+version = "0.7.0"
+publish = true
+edition = "2024"
+
+[workspace]
+
+[lib]
+doctest = false
+
+[[bench]]
+name = "motion"
+harness = false
+
+[[bench]]
+name = "text_view_scroll"
+harness = false
+
+[features]
+decimal = ["dep:rust_decimal"]
+test-support = ["gpui/test-support"]
+inspector = ["gpui_macros/inspector", "gpui/inspector"]
+
+[dependencies]
+anyhow = "1"
+aho-corasick = "1.1.3"
+chrono = "0.4.38"
+data-url = "0.3"
+futures = "0.3"
+gpui = { package = "gpui-pre", version = "=0.3.7" }
+gpui_macros = { package = "gpui-pre-macros", version = "=0.3.7" }
+instant = { version = "0.1", features = ["wasm-bindgen"] }
+itertools = "0.13.0"
+lsp-types = { version = "0.97.0", features = ["proposed"] }
+markdown = { version = "1.0.0", features = ["serde"] }
+html5ever = "0.27"
+markup5ever_rcdom = "0.3.0"
+num-traits = "0.2"
+ropey = { version = "=2.0.0-beta.1", features = ["metric_chars", "metric_lines_lf", "metric_utf16"] }
+regex = "1"
+rust_decimal = { version = "1.37.0", optional = true }
+schemars = "1"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1"
+smallvec = "1"
+sum-tree = { package = "gpui-pre-sum-tree", version = "=0.3.7" }
+tracing = "0.1.41"
+unicode-segmentation = "1.12.0"
+web-time = "1"
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+smol = "2"
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+async-channel = "2.3.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+raw-window-handle = "0.6.2"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSAccessibility", "NSView", "NSWindow", "NSWorkspace"] }
+objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSString"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# The reduced-motion preference (SystemParametersInfoW).
+windows = { version = "0.58.0", features = ["Wdk", "Wdk_System", "Wdk_System_SystemServices", "Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The reduced-motion preference, through the XDG desktop portal's Settings
+# interface. The same version and features `gpui-pre-linux` already pulls in.
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings"] }
+
+[dev-dependencies]
+criterion = "0.5"
+gpui = { package = "gpui-pre", version = "=0.3.7", features = ["test-support", "bench-support"] }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.7", features = ["font-kit", "x11", "wayland", "runtime_shaders", "bench-support"] }
+indoc = "2"
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.7" }
+
+
+[lints.clippy]
+almost_complete_range = "allow"
+arc_with_non_send_sync = "allow"
+borrowed_box = "allow"
+dbg_macro = "deny"
+let_underscore_future = "allow"
+manual_is_multiple_of = "allow"
+map_entry = "allow"
+module_inception = "allow"
+non_canonical_partial_ord_impl = "allow"
+reversed_empty_ranges = "allow"
+single_range_in_vec_init = "allow"
+style = { level = "allow", priority = -1 }
+todo = "deny"
+type_complexity = "allow"
+useless_conversion = "allow"

@@ -1,0 +1,123 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "progress",
+  "version": "0.1.0",
+  "description": "Track task progress",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "actions": [
+        "activity.read"
+      ],
+      "display": {
+        "label": "Plan",
+        "locales": {
+          "zh-CN": "计划"
+        },
+        "icon": "reicon:ui/grid"
+      },
+      "description": {
+        "label": "Track task progress",
+        "locales": {
+          "zh-CN": "跟踪任务进度"
+        }
+      },
+      "desktop": {
+        "entry": "dev.sailry.platform/desktop/main.js",
+        "resources": [
+          "dev.sailry.platform/desktop/main.js",
+          "dev.sailry.platform/desktop/state.js",
+          "dev.sailry.platform/desktop/view.js",
+          "dev.sailry.platform/desktop/locales.js"
+        ],
+        "navigation": {
+          "label": "Activity",
+          "locales": {"zh-CN": "活动看板"},
+          "icon": "reicon:ui/grid"
+        },
+        "navigation_options": {
+          "pinned": true,
+          "order": 100,
+          "target": "node"
+        }
+      },
+      "host": {
+        "entry": "dev.sailry.platform/host/main.js",
+        "resources": [
+          "dev.sailry.platform/host/main.js"
+        ],
+        "handlers": [
+          "update"
+        ]
+      },
+      "tools": [
+        {
+          "name": "update_plan",
+          "description": "Record the complete current task plan and each step's progress. Include every step on each update. Use pending, in_progress, completed, or skipped; mark completed only after the described work is verified. Multiple steps may be in progress for parallel work. This reports progress; it does not request plan approval, change work mode, or execute the steps.",
+          "contexts": [
+            "plugin",
+            "workspace"
+          ],
+          "presentation": "progress",
+          "grouping": "standalone",
+          "handler": {
+            "name": "update",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "title",
+                "steps"
+              ],
+              "properties": {
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 512
+                },
+                "steps": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 256,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "description",
+                      "state"
+                    ],
+                    "properties": {
+                      "description": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 8192
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "pending",
+                          "in_progress",
+                          "completed",
+                          "skipped"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "display": {
+            "label": "Update plan",
+            "locales": {
+              "zh-CN": "更新计划"
+            },
+            "icon": "reicon:ui/grid"
+          }
+        }
+      ]
+    }
+  }
+}

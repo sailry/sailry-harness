@@ -1,0 +1,50 @@
+[package]
+name = "gpui-pre-apple"
+version = "0.3.7"
+edition = { workspace = true }
+publish = true
+license = "Apache-2.0"
+description = "Zed's `gpui_apple` crate (gpui-pre snapshot of zed@1a28cff)"
+repository = "https://github.com/zed-industries/zed"
+
+[package.metadata.gpui-pre]
+zed-crate = "gpui_apple"
+zed-version = "0.1.0"
+zed-rev = "1a28cff4b409169bac058bca40dfbfeb7621d19b"
+
+[lib]
+path = "src/gpui_apple.rs"
+doctest = false
+name = "gpui_apple"
+
+[features]
+default = []
+bench-support = ["gpui/bench-support"]
+test-support = ["gpui/test-support"]
+runtime_shaders = []
+
+[dependencies]
+gpui = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+anyhow = { workspace = true }
+block2 = { workspace = true }
+cocoa = { workspace = true }
+core-foundation = { workspace = true }
+core-video = { workspace = true }
+derive_more = { workspace = true }
+etagere = { workspace = true }
+foreign-types = { workspace = true }
+image = { workspace = true }
+log = { workspace = true }
+metal = { workspace = true }
+objc = { workspace = true }
+objc2 = { workspace = true }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSGeometry", "objc2-core-foundation"] }
+parking_lot = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.build-dependencies]
+cbindgen = { workspace = true }
+
+[lints]
+workspace = true

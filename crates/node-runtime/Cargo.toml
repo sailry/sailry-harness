@@ -1,0 +1,107 @@
+[package]
+name = "sailry-node-runtime"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[features]
+test-support = []
+
+[dependencies]
+cua-driver-sdk.workspace = true
+cua-driver-contract.workspace = true
+russh.workspace = true
+russh-sftp.workspace = true
+mysql_async.workspace = true
+tokio-postgres.workspace = true
+tokio-postgres-rustls.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
+webpki-roots.workspace = true
+tokio = { workspace = true, features = ["fs", "process"] }
+thiserror.workspace = true
+dirs.workspace = true
+sailry-protocol.workspace = true
+sailry-link.workspace = true
+rusqlite = { workspace = true, features = ["hooks", "backup"] }
+serde.workspace = true
+schemars.workspace = true
+serde_json.workspace = true
+rquickjs.workspace = true
+base64.workspace = true
+uuid.workspace = true
+jsonschema.workspace = true
+serde-saphyr.workspace = true
+zeroize.workspace = true
+blake3.workspace = true
+sha2.workspace = true
+file-format.workspace = true
+tempfile.workspace = true
+zip.workspace = true
+roxmltree.workspace = true
+umya-spreadsheet.workspace = true
+lopdf.workspace = true
+office2pdf.workspace = true
+sysinfo.workspace = true
+cap-std.workspace = true
+cap-fs-ext.workspace = true
+cap-tempfile.workspace = true
+git2.workspace = true
+regex.workspace = true
+pulldown-cmark.workspace = true
+notify.workspace = true
+globset.workspace = true
+portable-pty.workspace = true
+vte.workspace = true
+which.workspace = true
+process-wrap.workspace = true
+libghostty-vt.workspace = true
+image.workspace = true
+adk-browser.workspace = true
+adk-core.workspace = true
+tokio-util.workspace = true
+adk-session.workspace = true
+adk-runner.workspace = true
+adk-agent.workspace = true
+adk-model.workspace = true
+adk-tool.workspace = true
+rmcp.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+futures.workspace = true
+reqwest = { workspace = true, features = ["form"] }
+url.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+trash.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-app-kit = { workspace = true, features = ["NSRunningApplication", "NSWorkspace", "libc"] }
+objc2-core-graphics.workspace = true
+objc2-application-services.workspace = true
+objc2-foundation = { workspace = true, features = ["NSBundle", "NSURL", "NSValue"] }
+objc2-core-foundation.workspace = true
+objc2-io-kit.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Security", "Win32_Security_Authorization", "Win32_System_SystemServices", "Win32_System_Threading"] }
+windows.workspace = true
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-foundation = { workspace = true, features = ["NSFileManager", "NSPathUtilities", "NSURL"] }
+
+[dev-dependencies]
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+eventsource-stream.workspace = true
+adk-eval.workspace = true
+aws-smithy-eventstream.workspace = true
+aws-smithy-types.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+image.workspace = true
+iroh.workspace = true
+sailry-client.workspace = true

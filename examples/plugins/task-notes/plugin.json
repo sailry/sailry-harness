@@ -1,0 +1,224 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "task-notes",
+  "version": "0.1.0",
+  "description": "Task progress and persistent notes using Sailry host operations",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "description": {"label": "Task progress and persistent notes", "locales": {"zh-CN": "管理任务进度与笔记"}},
+      "actions": [
+        "storage.read",
+        "storage.write",
+        "conversation.read",
+        "conversation.control"
+      ],
+      "tools": [
+        {
+          "name": "progress",
+          "operation": "progress.update",
+          "presentation": "progress"
+        },
+        {
+          "name": "read_note",
+          "operation": "storage.get"
+        },
+        {
+          "name": "list_notes",
+          "operation": "storage.list"
+        },
+        {
+          "name": "save_note",
+          "operation": "storage.set"
+        },
+        {
+          "name": "delete_note",
+          "operation": "storage.delete"
+        }
+      ],
+      "desktop": {
+        "entry": "dev.sailry.platform/desktop/chat.js",
+        "ui_entry": "dev.sailry.platform/desktop/main.js",
+        "resources": [
+          "dev.sailry.platform/desktop/main.js",
+          "dev.sailry.platform/desktop/locales.js",
+          "dev.sailry.platform/desktop/chat.js"
+        ],
+        "panel": {
+          "label": "Task notes",
+          "locales": {
+            "zh-CN": "任务笔记"
+          }
+        },
+        "navigation": {
+          "icon": "reicon:files/file-text",
+          "label": "Task notes",
+          "locales": {
+            "zh-CN": "任务笔记"
+          }
+        },
+        "conversations": [
+          {
+            "id": "notes",
+            "resource": "plugin",
+            "context": "Help the user organize notes. Use the note tools to read and save notes when requested.",
+            "tools": [
+              {
+                "kind": "plugin",
+                "name": "read_note"
+              },
+              {
+                "kind": "plugin",
+                "name": "list_notes"
+              },
+              {
+                "kind": "plugin",
+                "name": "save_note"
+              },
+              {
+                "kind": "plugin",
+                "name": "delete_note"
+              }
+            ]
+          }
+        ]
+      },
+      "ui": [
+        {
+          "id": "focus",
+          "slot": "composer",
+          "kind": "toggle",
+          "label": {
+            "label": "Focus",
+            "locales": {
+              "zh-CN": "专注"
+            }
+          },
+          "icon": "eye",
+          "order": 50,
+          "handler": "focus"
+        },
+        {
+          "id": "level",
+          "slot": "composer",
+          "kind": "select",
+          "label": {
+            "label": "Detail",
+            "locales": {
+              "zh-CN": "详略"
+            }
+          },
+          "icon": "sliders-horizontal",
+          "order": 60,
+          "choices": [
+            {
+              "id": "brief",
+              "label": {
+                "label": "Brief",
+                "locales": {
+                  "zh-CN": "简洁"
+                }
+              }
+            },
+            {
+              "id": "normal",
+              "label": {
+                "label": "Normal",
+                "locales": {
+                  "zh-CN": "标准"
+                }
+              }
+            },
+            {
+              "id": "full",
+              "label": {
+                "label": "Full",
+                "locales": {
+                  "zh-CN": "详细"
+                }
+              }
+            }
+          ],
+          "handler": "level"
+        },
+        {
+          "id": "refresh",
+          "slot": "composer",
+          "kind": "button",
+          "label": {
+            "label": "Refresh",
+            "locales": {
+              "zh-CN": "刷新"
+            }
+          },
+          "icon": "rotate-cw",
+          "order": 70,
+          "overflow": "menu",
+          "handler": "refresh"
+        },
+        {
+          "id": "actions",
+          "slot": "composer",
+          "kind": "menu",
+          "label": {
+            "label": "Notes",
+            "locales": {
+              "zh-CN": "笔记"
+            }
+          },
+          "icon": "file-text",
+          "order": 80,
+          "overflow": "menu",
+          "choices": [
+            {
+              "id": "enable",
+              "label": {
+                "label": "Focus on",
+                "locales": {
+                  "zh-CN": "开启专注"
+                }
+              }
+            },
+            {
+              "id": "disable",
+              "label": {
+                "label": "Focus off",
+                "locales": {
+                  "zh-CN": "关闭专注"
+                }
+              }
+            }
+          ],
+          "handler": "actions"
+        },
+        {
+          "id": "note",
+          "slot": "context",
+          "kind": "picker",
+          "label": {
+            "label": "Note",
+            "locales": {
+              "zh-CN": "笔记"
+            }
+          },
+          "icon": "file-text",
+          "order": 100,
+          "handler": "note"
+        },
+        {
+          "id": "notes",
+          "slot": "statistics",
+          "kind": "metric",
+          "label": {
+            "label": "Notes",
+            "locales": {
+              "zh-CN": "笔记"
+            }
+          },
+          "icon": "file-text",
+          "order": 100
+        }
+      ]
+    }
+  }
+}

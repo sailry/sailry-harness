@@ -1,0 +1,17 @@
+name = "sailry-pairing-relay"
+main = "src/worker.ts"
+compatibility_date = "2025-01-01"
+workers_dev = false
+preview_urls = false
+
+[[routes]]
+pattern = "link.sailry.dev"
+custom_domain = true
+
+[[durable_objects.bindings]]
+name = "CODES"
+class_name = "PairingCodes"
+
+[[migrations]]
+tag = "short-codes-v1"
+new_sqlite_classes = ["PairingCodes"]

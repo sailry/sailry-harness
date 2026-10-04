@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "blocks": [
+    {
+      "kind": "table",
+      "columns": ["File", "State"],
+      "rows": [["hello.txt", "Updated"], ["notes.txt", "Unchanged"]]
+    },
+    {
+      "kind": "diff",
+      "path": "hello.txt",
+      "text": "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-Hello\n+Hello from a plugin\n"
+    },
+    { "kind": "image", "index": 0 }
+  ]
+}

@@ -1,0 +1,137 @@
+[
+  {
+    "name": "plugin_fixture_read",
+    "arguments": {"path": "src/资料.rs", "cwd": "."},
+    "display": {
+      "label": "Read", "locales": {"zh-CN": "读取"},
+      "input": {
+        "summary": {"path": "/path"}, "context": {"path": "/cwd", "omit": ["."]},
+        "target": {"path": "/path"}
+      },
+      "output": {"body": {
+        "text": {"source": "result", "path": "/payload/text"},
+        "path": {"source": "arguments", "path": "/path"},
+        "empty": {"label": "Empty", "locales": {"zh-CN": "空内容"}}
+      }}
+    },
+    "result": {"payload": {"text": "Original body 中文 🙂"}},
+    "resolved": {
+      "label": {"label": "Read", "locales": {"zh-CN": "读取"}},
+      "input": {
+        "summary": {"text": "src/资料.rs", "code": false}, "context": null,
+        "target": {"text": "src/资料.rs", "code": false}, "content": null
+      },
+      "output": {
+        "preview": "", "notices": [], "paths": [], "table": null,
+        "body": {
+          "text": "Original body 中文 🙂", "path": "src/资料.rs", "diff": null,
+          "empty": {"label": "Empty", "locales": {"zh-CN": "空内容"}}
+        }
+      },
+      "approval": [], "status": null, "diagnostics": []
+    }
+  },
+  {
+    "name": "plugin_fixture_run",
+    "arguments": {"command": "printf 'first\\nsecond'", "cwd": "."},
+    "display": {
+      "label": "Run", "locales": {"zh-CN": "执行"},
+      "input": {"summary": {"path": "/command", "code": true}, "context": {"path": "/cwd", "omit": ["."]}},
+      "output": {
+        "preview": {"parts": [{"value": {"source": "result", "path": "/data/stdout/text"}}]},
+        "notices": [{
+          "message": {"label": "Partial output", "locales": {"zh-CN": "部分输出"}},
+          "when": {"all": [{"value": {"source": "result", "path": "/data/stdout/truncated"}, "equals": true}]}
+        }]
+      }
+    },
+    "result": {
+      "data": {"stdout": {"text": "first\nsecond", "truncated": true}},
+      "sailry_result": {"version": 1, "diagnostics": [], "status": {"label": "Exit 7", "locales": {"zh-CN": "退出码 7"}}}
+    },
+    "resolved": {
+      "label": {"label": "Run", "locales": {"zh-CN": "执行"}},
+      "input": {
+        "summary": {"text": "printf 'first\\nsecond'", "code": true}, "context": null,
+        "target": null, "content": null
+      },
+      "output": {
+        "preview": "first\nsecond", "notices": [{"label": "Partial output", "locales": {"zh-CN": "部分输出"}}],
+        "paths": [], "body": null, "table": null
+      },
+      "approval": [], "status": {"label": "Exit 7", "locales": {"zh-CN": "退出码 7"}}, "diagnostics": []
+    }
+  },
+  {
+    "name": "plugin_fixture_query",
+    "arguments": {},
+    "display": {
+      "label": "Query",
+      "output": {"table": {
+        "columns": {"source": "result", "path": "/columns"},
+        "rows": {"source": "result", "path": "/rows"},
+        "truncated": {"source": "result", "path": "/truncated"},
+        "cell": {"value": "/value", "missing": "NULL", "bytes": "hex"}
+      }}
+    },
+    "result": {"columns": ["Integer", "Decimal", "Text", "Null", "Bytes"], "rows": [[
+      {"value": 9223372036854775807}, {"value": "1234567890.12345678901234567890"},
+      {"value": "资料 🙂"}, {}, {"value": [0, 127, 255]}
+    ]], "truncated": true},
+    "resolved": {
+      "label": {"label": "Query", "locales": {}},
+      "input": {"summary": null, "context": null, "target": null, "content": null},
+      "output": {
+        "preview": "", "notices": [], "paths": [], "body": null,
+        "table": {"columns": ["Integer", "Decimal", "Text", "Null", "Bytes"],
+          "rows": [["9223372036854775807", "1234567890.12345678901234567890", "资料 🙂", "NULL", "007fff"]],
+          "truncated": true}
+      },
+      "approval": [], "status": null, "diagnostics": []
+    }
+  },
+  {
+    "name": "plugin_fixture_write",
+    "arguments": {"path": "new.txt", "text": "New content 中文 🙂"},
+    "display": {
+      "label": "Write",
+      "input": {"summary": {"path": "/path"}, "content": {"path": "/text", "code": true}},
+      "approval": [{
+        "message": {"label": "Replace %{path}", "locales": {"zh-CN": "替换 %{path}"}},
+        "values": {"path": {"source": "arguments", "path": "/path"}}
+      }],
+      "output": {"body": {
+        "text": {"source": "arguments", "path": "/text"},
+        "path": {"source": "arguments", "path": "/path"},
+        "diff": {"format": "added", "when": {"all": [{"value": {"source": "result", "path": "/created"}, "equals": true}]}}
+      }}
+    },
+    "result": {"created": true},
+    "resolved": {
+      "label": {"label": "Write", "locales": {}},
+      "input": {
+        "summary": {"text": "new.txt", "code": false}, "context": null, "target": null,
+        "content": {"text": "New content 中文 🙂", "code": true}
+      },
+      "output": {"preview": "", "notices": [], "paths": [], "table": null,
+        "body": {"text": "New content 中文 🙂", "path": "new.txt", "diff": "added", "empty": null}},
+      "approval": [{"label": "Replace new.txt", "locales": {"zh-CN": "替换 new.txt"}}],
+      "status": null, "diagnostics": []
+    }
+  },
+  {
+    "name": "plugin_fixture_failure",
+    "arguments": {}, "display": null,
+    "result": {
+      "isError": true,
+      "sailry_result": {"version": 1, "diagnostics": [{"text": "Original diagnostic\nFull trace", "error": true}], "status": {"label": "Done"}}
+    },
+    "resolved": {
+      "label": null,
+      "input": {"summary": null, "context": null, "target": null, "content": null},
+      "output": null, "approval": [],
+      "status": {"label": "Done", "locales": {}},
+      "diagnostics": [{"text": "Original diagnostic\nFull trace", "error": true}]
+    }
+  }
+]

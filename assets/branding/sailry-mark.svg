@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 128 128" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Sailry</title>
+  <desc id="desc">A two-tone folded ribbon rebuilt with smooth curves and the diagonal fold of concept 16</desc>
+  <g transform="translate(10 1)">
+    <path id="upper-ribbon" fill="#79C9F1" d="
+      M79.5 13
+      C85.6 23 82.2 33.4 71.8 40.3
+      S49.8 51.8 43.2 57.5
+      L30 51.8
+      C23.3 48.9 24.7 41.5 34 34
+      S64.5 19.4 79.5 13
+      Z"/>
+    <path id="lower-ribbon" fill="#2874DA" d="
+      M24.2 51.5
+      C27.5 56.3 48.9 63.3 65.2 71.5
+      S84.9 83.6 84.9 92.5
+      C84.9 101.4 77.8 108 70 111.5
+      C71.2 104 62.1 98.5 50.7 92
+      S22.5 79.9 22.5 63.5
+      C22.5 58.9 23 54.8 24.2 51.5
+      Z"/>
+  </g>
+</svg>

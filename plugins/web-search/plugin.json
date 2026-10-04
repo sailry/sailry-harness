@@ -1,0 +1,29 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "web-search",
+  "version": "0.1.0",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "scope": "host",
+      "actions": [],
+      "model_tools": [{
+        "capability": "web_search",
+        "display": {
+          "label": "Search web",
+          "locales": {"zh-CN": "网页搜索"},
+          "icon": "reicon:ui/magnifier"
+        }
+      }],
+      "display": {
+        "label": "Web search",
+        "locales": {"zh-CN": "联网搜索"},
+        "icon": "reicon:ui/magnifier"
+      },
+      "description": {
+        "label": "Search the web",
+        "locales": {"zh-CN": "搜索网络内容"}
+      }
+    }
+  }
+}

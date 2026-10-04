@@ -1,0 +1,12 @@
+Code review package
+
+The skill instructions and package metadata are independently authored for Sailry.
+No Anthropic prompt, source file or Claude Code runtime is included.
+
+Workflow reference: Anthropic Claude Code's code-review plugin, reviewed at
+2bfb629dfaff0c8318047a4beb93cf1dc5b58b18 (2026-10-03):
+https://github.com/anthropics/claude-code/tree/2bfb629dfaff0c8318047a4beb93cf1dc5b58b18/plugins/code-review
+
+That repository's LICENSE.md reserves all rights to Anthropic PBC and points to
+its Commercial Terms of Service. The reference is not an open-source import and
+does not grant permissions or runtime dependencies to this package.

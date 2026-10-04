@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 450 500">
+  <defs>
+    <linearGradient id="paper" x2="1" y2="1">
+      <stop stop-color="#f0d8a8"/>
+      <stop offset="1" stop-color="#d9b77e"/>
+    </linearGradient>
+  </defs>
+  <rect width="450" height="500" rx="10" fill="url(#paper)"/>
+  <rect x="12" y="12" width="426" height="476" rx="4" fill="none" stroke="#a77949" stroke-width="2"/>
+  <g fill="none" stroke="#805a35" stroke-width="1.7" stroke-linecap="square">
+    <path d="M25 25H425 M25 75H425 M25 125H425 M25 175H425 M25 225H425 M25 275H425 M25 325H425 M25 375H425 M25 425H425 M25 475H425"/>
+    <path d="M25 25V475 M425 25V475 M75 25V225 M125 25V225 M175 25V225 M225 25V225 M275 25V225 M325 25V225 M375 25V225 M75 275V475 M125 275V475 M175 275V475 M225 275V475 M275 275V475 M325 275V475 M375 275V475"/>
+    <path d="M175 25L275 125 M275 25L175 125 M175 375L275 475 M275 375L175 475"/>
+  </g>
+  <g fill="#805a35">
+    <circle cx="75" cy="125" r="2.4"/><circle cx="375" cy="125" r="2.4"/>
+    <circle cx="75" cy="375" r="2.4"/><circle cx="375" cy="375" r="2.4"/>
+    <circle cx="25" cy="175" r="2.4"/><circle cx="125" cy="175" r="2.4"/>
+    <circle cx="225" cy="175" r="2.4"/><circle cx="325" cy="175" r="2.4"/>
+    <circle cx="425" cy="175" r="2.4"/><circle cx="25" cy="325" r="2.4"/>
+    <circle cx="125" cy="325" r="2.4"/><circle cx="225" cy="325" r="2.4"/>
+    <circle cx="325" cy="325" r="2.4"/><circle cx="425" cy="325" r="2.4"/>
+  </g>
+</svg>

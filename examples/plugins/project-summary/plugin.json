@@ -1,0 +1,50 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "project-summary",
+  "version": "0.1.0",
+  "description": "Inspect project changes and save a report",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "description": {"label": "Inspect project changes and save a report", "locales": {"zh-CN": "查看项目变更与保存报告"}},
+      "actions": [
+        "files.read",
+        "files.write",
+        "git.read"
+      ],
+      "settings_schema": "dev.sailry.platform/settings.json",
+      "host": {
+        "entry": "dev.sailry.platform/host/main.js",
+        "resources": ["dev.sailry.platform/host/main.js", "dev.sailry.platform/desktop/report.js", "dev.sailry.platform/desktop/locales.js"],
+        "handlers": ["summarize", "save"]
+      },
+      "desktop": {
+        "entry": "dev.sailry.platform/desktop/main.js",
+        "panel": {
+          "label": "Project summary",
+          "locales": {
+            "zh-CN": "项目摘要"
+          }
+        },
+        "resources": [
+          "dev.sailry.platform/desktop/main.js",
+          "dev.sailry.platform/desktop/report.js",
+          "dev.sailry.platform/desktop/locales.js"
+        ]
+      },
+      "settings_page": {
+        "navigation": {
+          "label": "Project summary",
+          "locales": {
+            "zh-CN": "项目摘要"
+          }
+        }
+      },
+      "display": {
+        "label": "Project summary",
+        "locales": {"zh-CN": "项目摘要"},
+        "icon": "reicon:files/file-text"
+      }
+    }
+  }
+}

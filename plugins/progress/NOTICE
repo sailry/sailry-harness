@@ -1,0 +1,10 @@
+Progress package
+
+Tool description, schema, validation and display metadata are adapted from
+Sailry ef5e82ea, plugins/builtin/progress/agent/mod.rs,
+plugins/builtin/progress/desktop/messages.rs and desktop/activity/{board,cards,projects}.rs.
+The desktop package preserves its workbench grouping and card layout through
+the public activity catalog, shared Client lanes and ordinary Kit controls.
+
+The core records authoritative tool history and reduces task progress.
+Session activity, navigation and notifications remain core capabilities.

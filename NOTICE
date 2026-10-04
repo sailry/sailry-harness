@@ -1,0 +1,12 @@
+Sailry
+Copyright 2026 Sailry contributors
+
+Sailry-owned code, including adaptations of the authors' earlier Sailry Code
+and Sailry Platform implementations, is licensed under Apache-2.0.
+
+Third-party materials retain their own licenses and attribution. See
+third_party_licenses/ and the notices alongside vendor/ and bundled assets.
+These include GPUI Kit/GPUI, ADK, Ghostty, fonts, icons and other dependencies.
+Imported Ghostty shell integration contains GPL-3.0-or-later material; the root
+Apache license does not relicense those scripts. Relevant notices and GPL text
+remain in third_party_licenses/.

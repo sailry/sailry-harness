@@ -1,0 +1,1458 @@
+//! Anthropic client implementation.
+
+use super::config::AnthropicConfig;
+use super::convert;
+use super::error::AnthropicApiError;
+use super::rate_limit::RateLimitInfo;
+use super::schema_adapter::AnthropicSchemaAdapter;
+use crate::retry::{RetryConfig, ServerRetryHint, execute_with_retry, is_retryable_model_error};
+use adk_anthropic::{Anthropic, ContentBlock};
+#[cfg(test)]
+use adk_anthropic::{ContentBlockDelta, ContentBlockDeltaEvent, MessageStreamEvent, TextDelta};
+use adk_core::{
+    AdkError, ErrorCategory, ErrorComponent, Llm, LlmRequest, Part, SchemaAdapter, SchemaCache,
+};
+use async_stream::try_stream;
+use async_trait::async_trait;
+use futures::StreamExt;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::Span;
+use tracing::field;
+
+/// Anthropic client for Claude models.
+pub struct AnthropicClient {
+    pub(super) client: Anthropic,
+    pub(super) config: AnthropicConfig,
+    pub(super) model: String,
+    pub(super) max_tokens: u32,
+    retry_config: RetryConfig,
+    /// Latest rate-limit information from the most recent API response.
+    latest_rate_limit: Arc<RwLock<RateLimitInfo>>,
+}
+
+impl AnthropicClient {
+    fn rejects_sampling(model: &str) -> bool {
+        [
+            "claude-fable-5",
+            "claude-mythos-5",
+            "claude-mythos-preview",
+            "claude-opus-5",
+            "claude-opus-4-8",
+            "claude-opus-4-7",
+            "claude-sonnet-5",
+        ]
+        .iter()
+        .any(|prefix| model.starts_with(prefix))
+    }
+
+    fn supports_fast_mode(model: &str) -> bool {
+        model.starts_with("claude-opus-5") || model.starts_with("claude-opus-4-8")
+    }
+
+    /// Create a new Anthropic client.
+    pub fn new(config: AnthropicConfig) -> Result<Self, AdkError> {
+        crate::catalog::warn_if_obsolete("anthropic", &config.model);
+        let mut client = match &config.base_url {
+            Some(base_url) => {
+                Anthropic::new_with_base_url(config.api_key.clone(), base_url.clone())
+            }
+            None => Anthropic::new(Some(config.api_key.clone())),
+        }
+        .map_err(|e| AdkError::model(format!("Failed to create Anthropic client: {e}")))?;
+        // This adapter owns retries; do not nest the SDK's independent retry loop.
+        client = client.with_max_retries(0);
+
+        Ok(Self {
+            client,
+            model: config.model.clone(),
+            max_tokens: config.max_tokens,
+            config,
+            retry_config: RetryConfig::default(),
+            latest_rate_limit: Arc::new(RwLock::new(RateLimitInfo::default())),
+        })
+    }
+
+    /// Create a client with just an API key (uses default model).
+    pub fn from_api_key(api_key: impl Into<String>) -> Result<Self, AdkError> {
+        Self::new(AnthropicConfig::new(api_key, crate::catalog::ANTHROPIC_DEFAULT))
+    }
+
+    /// Access the underlying `adk_anthropic::Anthropic` HTTP client.
+    ///
+    /// Use this for direct API access to endpoints not covered by the `Llm` trait:
+    /// batches, files, skills, models, token counting, and pricing.
+    ///
+    /// ```rust,ignore
+    /// let inner = anthropic_client.inner();
+    /// let models = inner.list_models(None).await?;
+    /// let batch = inner.create_batch(requests).await?;
+    /// ```
+    pub fn inner(&self) -> &adk_anthropic::Anthropic {
+        &self.client
+    }
+
+    /// Adds default HTTP headers while preserving authentication and automatic beta headers.
+    ///
+    /// Headers with the same name replace the existing default value.
+    #[must_use]
+    pub fn with_default_headers(mut self, headers: http::HeaderMap) -> Self {
+        self.client = self.client.with_default_headers(headers);
+        self
+    }
+
+    /// Access the current Anthropic configuration.
+    pub fn anthropic_config(&self) -> &AnthropicConfig {
+        &self.config
+    }
+
+    /// Set the retry configuration (builder pattern).
+    #[must_use]
+    pub fn with_retry_config(mut self, retry_config: RetryConfig) -> Self {
+        self.retry_config = retry_config;
+        self
+    }
+
+    /// Set the retry configuration (mutable reference).
+    pub fn set_retry_config(&mut self, retry_config: RetryConfig) {
+        self.retry_config = retry_config;
+    }
+
+    /// Returns the current retry configuration.
+    pub fn retry_config(&self) -> &RetryConfig {
+        &self.retry_config
+    }
+
+    /// Returns the latest rate-limit information from the most recent API response.
+    ///
+    /// Updated after each API call when the server provides rate-limit headers
+    /// via `adk_anthropic::Error::RateLimit` or `adk_anthropic::Error::ServiceUnavailable`.
+    /// Returns the default (all `None`) if no rate-limit info has been received.
+    pub async fn latest_rate_limit_info(&self) -> RateLimitInfo {
+        self.latest_rate_limit.read().await.clone()
+    }
+
+    pub(super) fn build_message_params(
+        model: &str,
+        max_tokens: u32,
+        request: &LlmRequest,
+        anthropic_config: &super::config::AnthropicConfig,
+    ) -> Result<adk_anthropic::MessageCreateParams, AdkError> {
+        if Self::rejects_sampling(model) {
+            let sampling = request.config.as_ref().is_some_and(|config| {
+                config.temperature.is_some() || config.top_p.is_some() || config.top_k.is_some()
+            });
+            if sampling {
+                return Err(AdkError::new(
+                    ErrorComponent::Model,
+                    ErrorCategory::InvalidInput,
+                    "model.anthropic.claude5_sampling_unsupported",
+                    format!(
+                        "model '{model}' rejects explicit temperature, top_p, and top_k values; remove sampling parameters and use adaptive thinking effort instead"
+                    ),
+                )
+                .with_provider("anthropic"));
+            }
+            if matches!(
+                anthropic_config.thinking,
+                Some(super::config::ThinkingMode::Enabled { .. })
+            ) {
+                return Err(AdkError::new(
+                    ErrorComponent::Model,
+                    ErrorCategory::InvalidInput,
+                    "model.anthropic.claude5_manual_thinking_unsupported",
+                    format!(
+                        "model '{model}' rejects budget-based extended thinking; use ThinkingMode::Adaptive with an effort level"
+                    ),
+                )
+                .with_provider("anthropic"));
+            }
+        }
+        if anthropic_config.fast_mode && !Self::supports_fast_mode(model) {
+            return Err(AdkError::new(
+                ErrorComponent::Model,
+                ErrorCategory::InvalidInput,
+                "model.anthropic.fast_mode_unsupported",
+                format!(
+                    "model '{model}' does not support Anthropic fast mode; use claude-opus-5 or claude-opus-4-8, or disable fast_mode"
+                ),
+            )
+            .with_provider("anthropic"));
+        }
+
+        let mut system_parts: Vec<String> = Vec::new();
+        let mut messages = Vec::new();
+
+        for content in &request.contents {
+            if content.role == "system" {
+                // Requirement 1.1: Extract system-role content text parts
+                let text: String = content
+                    .parts
+                    .iter()
+                    .filter_map(|p| match p {
+                        Part::Text { text } => Some(text.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !text.is_empty() {
+                    system_parts.push(text);
+                }
+            } else {
+                messages
+                    .push(convert::content_to_message(content, anthropic_config.prompt_caching)?);
+            }
+        }
+
+        // Requirement 1.2: Heuristic — re-route leading user-role text-only messages
+        // to the system parameter when no explicit system-role content exists.
+        // The agent layer injects instructions as role="user" before session history.
+        // We detect consecutive user-only-text messages before the first assistant reply
+        // and move them to the system parameter.
+        if system_parts.is_empty() {
+            let instruction_boundary = messages
+                .iter()
+                .position(|m| m.role == adk_anthropic::MessageRole::Assistant)
+                .unwrap_or(0);
+
+            if instruction_boundary > 0 {
+                // Verify all leading messages are text-only user messages
+                let all_text_only = messages[..instruction_boundary]
+                    .iter()
+                    .all(|m| m.role == adk_anthropic::MessageRole::User && is_text_only_message(m));
+
+                if all_text_only {
+                    let instruction_messages: Vec<_> =
+                        messages.drain(..instruction_boundary).collect();
+                    for msg in &instruction_messages {
+                        if let Some(text) = extract_text_from_message(msg)
+                            && !text.is_empty()
+                        {
+                            system_parts.push(text);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Requirement 1.3: Concatenate multiple system entries with newline separators
+        // Requirement 1.4: Omit system parameter when no system content found
+        let system_prompt =
+            if system_parts.is_empty() { None } else { Some(system_parts.join("\n")) };
+
+        let mut tools = if request.tools.is_empty() {
+            Vec::new()
+        } else {
+            // Requirement 19.3: When ToolSearchConfig is set, filter tools by regex pattern.
+            // Requirement 19.4: When no ToolSearchConfig is set, load all tools.
+            let filtered_tools = if let Some(ref tool_search) = anthropic_config.tool_search {
+                request
+                    .tools
+                    .iter()
+                    .filter(|(name, _)| tool_search.matches(name).unwrap_or(false))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect::<std::collections::HashMap<_, _>>()
+            } else {
+                request.tools.clone()
+            };
+            if filtered_tools.is_empty() {
+                Vec::new()
+            } else {
+                use std::sync::LazyLock;
+                static ADAPTER: AnthropicSchemaAdapter = AnthropicSchemaAdapter;
+                static SCHEMA_CACHE: LazyLock<SchemaCache> =
+                    LazyLock::new(|| SchemaCache::for_adapter(Arc::new(AnthropicSchemaAdapter)));
+                convert::convert_tools(&filtered_tools, &ADAPTER, &SCHEMA_CACHE)?
+            }
+        };
+
+        // Read extensions["anthropic"]["built_in_tools"] → append to tools array
+        let config = request.config.as_ref();
+        let anthropic_ext =
+            config.and_then(|c| c.extensions.get("anthropic")).and_then(|v| v.as_object());
+        if let Some(built_in_tools) = anthropic_ext.and_then(|o| o.get("built_in_tools"))
+            && let Some(arr) = built_in_tools.as_array()
+        {
+            for (index, tool_value) in arr.iter().enumerate() {
+                let tool = serde_json::from_value::<adk_anthropic::ToolUnionParam>(
+                        tool_value.clone(),
+                    )
+                    .map_err(|error| {
+                        AdkError::new(
+                            ErrorComponent::Model,
+                            ErrorCategory::InvalidInput,
+                            "model.anthropic.invalid_tool",
+                            format!(
+                                "failed to deserialize Anthropic built-in tool at index {index}: {error}"
+                            ),
+                        )
+                        .with_provider("anthropic")
+                    })?;
+                tools.push(tool);
+            }
+        }
+
+        // Requirement 7.3: Force temperature to 1.0 when thinking is enabled
+        let temperature = if Self::rejects_sampling(model) {
+            None
+        } else if anthropic_config.thinking.is_some() {
+            Some(1.0)
+        } else {
+            request.config.as_ref().and_then(|c| c.temperature)
+        };
+        let top_p = request.config.as_ref().and_then(|c| c.top_p);
+        let top_k = request.config.as_ref().and_then(|c| c.top_k);
+        let effective_max_tokens = request
+            .config
+            .as_ref()
+            .and_then(|c| c.max_output_tokens)
+            .map(|t| t as u32)
+            .unwrap_or(max_tokens);
+
+        // Merge consecutive messages with the same role.
+        // This is critical for Anthropic parallel tool use — per the docs,
+        // all tool results must be in a single user message. Without this,
+        // Claude "learns to avoid parallel calls" from the conversation history.
+        merge_consecutive_messages(&mut messages);
+
+        Ok(convert::build_message_params(
+            model,
+            effective_max_tokens,
+            messages,
+            tools,
+            system_prompt,
+            temperature,
+            top_p,
+            top_k,
+            anthropic_config.prompt_caching,
+            anthropic_config.thinking.as_ref(),
+            anthropic_config.effort,
+            anthropic_config.fast_mode,
+            anthropic_config.inference_geo.as_deref(),
+            anthropic_config.service_tier.as_deref(),
+            anthropic_config.context_management.as_ref(),
+        ))
+    }
+}
+
+/// Check if a `MessageParam` contains only text content (no tool use, tool results, images, etc.).
+fn is_text_only_message(msg: &adk_anthropic::MessageParam) -> bool {
+    match &msg.content {
+        adk_anthropic::MessageParamContent::String(_) => true,
+        adk_anthropic::MessageParamContent::Array(blocks) => {
+            !blocks.is_empty() && blocks.iter().all(|block| matches!(block, ContentBlock::Text(_)))
+        }
+    }
+}
+
+/// Extract concatenated text from a `MessageParam`, returning `None` if empty.
+fn extract_text_from_message(msg: &adk_anthropic::MessageParam) -> Option<String> {
+    match &msg.content {
+        adk_anthropic::MessageParamContent::String(s) => {
+            if s.is_empty() {
+                None
+            } else {
+                Some(s.clone())
+            }
+        }
+        adk_anthropic::MessageParamContent::Array(blocks) => {
+            let parts: Vec<&str> = blocks
+                .iter()
+                .filter_map(|block| match block {
+                    ContentBlock::Text(tb) if !tb.text.is_empty() => Some(tb.text.as_str()),
+                    _ => None,
+                })
+                .collect();
+            if parts.is_empty() { None } else { Some(parts.join("\n")) }
+        }
+    }
+}
+
+/// Merge consecutive `MessageParam`s that share the same role into a single message.
+///
+/// This is required for Anthropic parallel tool use. Per the
+/// [Anthropic docs](https://docs.anthropic.com/en/docs/build-with-claude/tool-use/parallel-tool-use),
+/// all tool results must be in a single user message. Without merging, each tool
+/// result becomes a separate user message, which "teaches Claude to avoid parallel calls."
+///
+/// Zero-cost when messages already alternate roles correctly.
+fn merge_consecutive_messages(messages: &mut Vec<adk_anthropic::MessageParam>) {
+    if messages.len() < 2 {
+        return;
+    }
+
+    let mut merged = Vec::with_capacity(messages.len());
+    let mut drain = messages.drain(..);
+
+    if let Some(first) = drain.next() {
+        merged.push(first);
+    }
+
+    for msg in drain {
+        let last = merged.last_mut().unwrap();
+        if last.role == msg.role {
+            // Same role — merge content blocks into the existing message
+            let blocks = match std::mem::replace(
+                &mut last.content,
+                adk_anthropic::MessageParamContent::Array(Vec::new()),
+            ) {
+                adk_anthropic::MessageParamContent::String(s) => {
+                    if s.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![ContentBlock::Text(adk_anthropic::TextBlock::new(s))]
+                    }
+                }
+                adk_anthropic::MessageParamContent::Array(blocks) => blocks,
+            };
+
+            let new_blocks = match msg.content {
+                adk_anthropic::MessageParamContent::String(s) => {
+                    if s.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![ContentBlock::Text(adk_anthropic::TextBlock::new(s))]
+                    }
+                }
+                adk_anthropic::MessageParamContent::Array(blocks) => blocks,
+            };
+
+            let mut combined = blocks;
+            combined.extend(new_blocks);
+            last.content = adk_anthropic::MessageParamContent::Array(combined);
+        } else {
+            merged.push(msg);
+        }
+    }
+
+    *messages = merged;
+}
+
+/// Convert an `adk_anthropic::Error` into an [`AnthropicApiError`], preserving
+/// structured context (error type, message, status code, request ID).
+///
+/// The resulting `AnthropicApiError` is then converted to `AdkError` via its
+/// `From` impl. The request ID, when present, is also recorded on the current
+/// tracing span as `anthropic.request_id` (Requirement 4.2).
+pub(super) fn convert_anthropic_error(e: adk_anthropic::Error) -> AdkError {
+    let api_error = to_anthropic_api_error(&e);
+
+    // Requirement 4.2: record request-id on the active tracing span when present
+    if let Some(ref rid) = api_error.request_id {
+        Span::current().record("anthropic.request_id", rid.as_str());
+    }
+
+    // Requirement 11.4: Record error type and message as a span event on failure
+    tracing::error!(
+        error.type_ = %api_error.error_type,
+        error.message = %api_error.message,
+        error.status_code = api_error.status_code,
+        "anthropic api error"
+    );
+
+    api_error.into()
+}
+
+/// Build an [`AnthropicApiError`] from an `adk_anthropic::Error`, extracting the
+/// error type, message, HTTP status code, and request ID from whichever
+/// variant is present.
+///
+/// Requirements 4.1, 4.2, 4.4: Parse structured error body fields and
+/// capture the request-id header value.
+pub(super) fn to_anthropic_api_error(e: &adk_anthropic::Error) -> AnthropicApiError {
+    match e {
+        adk_anthropic::Error::Api { status_code, error_type, message, request_id } => {
+            AnthropicApiError {
+                error_type: error_type.clone().unwrap_or_else(|| "api_error".to_string()),
+                message: message.clone(),
+                status_code: *status_code,
+                request_id: request_id.clone(),
+            }
+        }
+        adk_anthropic::Error::RateLimit { message, retry_after } => {
+            let msg = match retry_after {
+                Some(secs) => format!("{message} (retry-after: {secs}s)"),
+                None => message.clone(),
+            };
+            AnthropicApiError {
+                error_type: "rate_limit_error".to_string(),
+                message: msg,
+                status_code: 429,
+                request_id: None,
+            }
+        }
+        adk_anthropic::Error::ServiceUnavailable { message, retry_after } => {
+            let msg = match retry_after {
+                Some(secs) => format!("{message} (retry-after: {secs}s)"),
+                None => message.clone(),
+            };
+            AnthropicApiError {
+                error_type: "overloaded_error".to_string(),
+                message: msg,
+                status_code: 529,
+                request_id: None,
+            }
+        }
+        adk_anthropic::Error::Authentication { message } => AnthropicApiError {
+            error_type: "authentication_error".to_string(),
+            message: message.clone(),
+            status_code: 401,
+            request_id: None,
+        },
+        adk_anthropic::Error::Permission { message } => AnthropicApiError {
+            error_type: "permission_error".to_string(),
+            message: message.clone(),
+            status_code: 403,
+            request_id: None,
+        },
+        adk_anthropic::Error::NotFound { message, .. } => AnthropicApiError {
+            error_type: "not_found_error".to_string(),
+            message: message.clone(),
+            status_code: 404,
+            request_id: None,
+        },
+        adk_anthropic::Error::BadRequest { message, .. } => AnthropicApiError {
+            error_type: "invalid_request_error".to_string(),
+            message: message.clone(),
+            status_code: 400,
+            request_id: None,
+        },
+        adk_anthropic::Error::InternalServer { message, request_id } => AnthropicApiError {
+            error_type: "api_error".to_string(),
+            message: message.clone(),
+            status_code: 500,
+            request_id: request_id.clone(),
+        },
+        // All other adk_anthropic error variants (Connection, Timeout, Serialization, etc.)
+        // are client-side errors without structured API error bodies.
+        other => AnthropicApiError {
+            error_type: "client_error".to_string(),
+            message: format!("{other}"),
+            status_code: 0,
+            request_id: None,
+        },
+    }
+}
+
+/// Extract a [`ServerRetryHint`] from an `adk_anthropic::Error`, if the error
+/// contains a server-provided `retry_after` value.
+#[allow(dead_code)]
+fn extract_retry_hint(e: &adk_anthropic::Error) -> Option<ServerRetryHint> {
+    match e {
+        adk_anthropic::Error::RateLimit { retry_after: Some(secs), .. }
+        | adk_anthropic::Error::ServiceUnavailable { retry_after: Some(secs), .. } => {
+            Some(ServerRetryHint { retry_after: Some(std::time::Duration::from_secs(*secs)) })
+        }
+        _ => None,
+    }
+}
+
+#[async_trait]
+impl Llm for AnthropicClient {
+    fn name(&self) -> &str {
+        &self.model
+    }
+
+    fn schema_adapter(&self) -> &dyn SchemaAdapter {
+        static ADAPTER: AnthropicSchemaAdapter = AnthropicSchemaAdapter;
+        &ADAPTER
+    }
+
+    #[tracing::instrument(
+        name = "model.generate_content",
+        skip_all,
+        fields(
+            anthropic.model = %self.model,
+            anthropic.request_type = if stream { "stream" } else { "unary" },
+            anthropic.request_id = field::Empty,
+        )
+    )]
+    async fn generate_content(
+        &self,
+        request: LlmRequest,
+        stream: bool,
+    ) -> Result<adk_core::LlmResponseStream, AdkError> {
+        let usage_span = adk_telemetry::llm_generate_span("anthropic", &self.model, stream);
+        let model = self.model.clone();
+        let max_tokens = self.max_tokens;
+        let client = self.client.clone();
+        let retry_config = self.retry_config.clone();
+        let request_for_retry = request.clone();
+        let anthropic_config = self.config.clone();
+
+        let response_stream = try_stream! {
+            if stream {
+                // Streaming mode
+                let client_ref = &client;
+                let model_ref = model.as_str();
+                let event_stream = execute_with_retry(&retry_config, is_retryable_model_error, || {
+                    let request = request_for_retry.clone();
+                    let cfg = &anthropic_config;
+                    async move {
+                        let mut params = Self::build_message_params(model_ref, max_tokens, &request, cfg)?;
+                        params.stream = true;
+                        client_ref
+                            .stream(&params)
+                            .await
+                            .map_err(convert_anthropic_error)
+                    }
+                })
+                .await?;
+
+                let mut responses = super::streaming::responses(event_stream);
+                while let Some(response) = responses.next().await {
+                    yield response?;
+                }
+            } else {
+                // Non-streaming mode
+                let client_ref = &client;
+                let model_ref = model.as_str();
+                let message = execute_with_retry(&retry_config, is_retryable_model_error, || {
+                    let request = request_for_retry.clone();
+                    let cfg = &anthropic_config;
+                    async move {
+                        let params = Self::build_message_params(model_ref, max_tokens, &request, cfg)?;
+                        client_ref
+                            .send(params)
+                            .await
+                            .map_err(convert_anthropic_error)
+                    }
+                })
+                .await?;
+
+                // Requirement 4.3: On success, propagate request-id to tracing span.
+                // The adk-anthropic crate does not expose the raw `request-id` response
+                // header on successful responses, but the message `id` field
+                // (e.g. "msg_...") serves as the primary correlation identifier.
+                // When adk-anthropic adds header access, this will be updated to use
+                // the actual `request-id` header value.
+                Span::current().record("anthropic.request_id", message.id.as_str());
+
+                // Requirement 6.3: Extract cache usage tokens into provider metadata
+                let (_response, _cache_metadata) = convert::from_anthropic_message(&message);
+
+                yield convert::from_anthropic_message(&message).0;
+            }
+        };
+
+        Ok(crate::usage_tracking::with_usage_tracking(Box::pin(response_stream), usage_span))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adk_anthropic::SystemPrompt;
+    use adk_core::{Content, GenerateContentConfig, LlmRequest, Part};
+
+    fn make_request(contents: Vec<Content>) -> LlmRequest {
+        LlmRequest {
+            model: "claude-sonnet-4-5-20250929".to_string(),
+            contents,
+            tools: std::collections::HashMap::new(),
+            config: None,
+            previous_response_id: None,
+        }
+    }
+
+    #[test]
+    fn custom_base_url_reaches_the_underlying_anthropic_client() {
+        let client = AnthropicClient::new(
+            AnthropicConfig::new("test-key", "claude-sonnet-4-6")
+                .with_base_url("https://gateway.example.test/anthropic"),
+        )
+        .unwrap();
+
+        assert_eq!(client.client.base_url(), "https://gateway.example.test/anthropic");
+    }
+
+    #[test]
+    fn claude_5_rejects_sampling_before_network_io() {
+        let mut request = make_request(vec![Content::new("user").with_text("hello")]);
+        request.config =
+            Some(GenerateContentConfig { temperature: Some(0.2), ..Default::default() });
+
+        let error = AnthropicClient::build_message_params(
+            "claude-sonnet-5",
+            4096,
+            &request,
+            &AnthropicConfig::default(),
+        )
+        .expect_err("Claude 5 sampling parameters should be rejected locally");
+
+        assert_eq!(error.code, "model.anthropic.claude5_sampling_unsupported");
+    }
+
+    #[test]
+    fn claude_5_rejects_budget_thinking_before_network_io() {
+        let request = make_request(vec![Content::new("user").with_text("hello")]);
+        let config = AnthropicConfig::new("test", "claude-sonnet-5").with_thinking_mode(
+            super::super::config::ThinkingMode::Enabled { budget_tokens: 2048 },
+        );
+
+        let error =
+            AnthropicClient::build_message_params("claude-sonnet-5", 4096, &request, &config)
+                .expect_err("Claude 5 budget thinking should be rejected locally");
+
+        assert_eq!(error.code, "model.anthropic.claude5_manual_thinking_unsupported");
+    }
+
+    #[test]
+    fn claude_5_adaptive_thinking_omits_sampling() {
+        let request = make_request(vec![Content::new("user").with_text("hello")]);
+        let config = AnthropicConfig::new("test", "claude-sonnet-5")
+            .with_thinking_mode(super::super::config::ThinkingMode::Adaptive);
+
+        let params =
+            AnthropicClient::build_message_params("claude-sonnet-5", 4096, &request, &config)
+                .expect("adaptive thinking should be supported");
+
+        assert!(params.temperature.is_none());
+        assert!(matches!(params.thinking, Some(adk_anthropic::ThinkingConfig::Adaptive { .. })));
+    }
+
+    #[test]
+    fn current_claude_models_enforce_sampling_contracts() {
+        let mut request = make_request(vec![Content::new("user").with_text("hello")]);
+        request.config = Some(GenerateContentConfig { top_p: Some(0.9), ..Default::default() });
+
+        for model in [
+            "claude-fable-5",
+            "claude-mythos-5",
+            "claude-opus-5",
+            "claude-opus-4-8",
+            "claude-opus-4-7",
+            "claude-sonnet-5",
+        ] {
+            let error = AnthropicClient::build_message_params(
+                model,
+                4096,
+                &request,
+                &AnthropicConfig::default(),
+            )
+            .expect_err("restricted sampling should be rejected locally");
+            assert_eq!(error.code, "model.anthropic.claude5_sampling_unsupported");
+        }
+    }
+
+    #[test]
+    fn fast_mode_is_limited_to_supported_opus_models() {
+        let request = make_request(vec![Content::new("user").with_text("hello")]);
+
+        for model in ["claude-sonnet-5", "claude-fable-5", "claude-mythos-5"] {
+            let config = AnthropicConfig::new("test", model).with_fast_mode(true);
+            let error = AnthropicClient::build_message_params(model, 4096, &request, &config)
+                .expect_err("unsupported fast mode should be rejected locally");
+            assert_eq!(error.code, "model.anthropic.fast_mode_unsupported");
+        }
+
+        for model in ["claude-opus-5", "claude-opus-4-8"] {
+            let config = AnthropicConfig::new("test", model).with_fast_mode(true);
+            let params = AnthropicClient::build_message_params(model, 4096, &request, &config)
+                .expect("supported Opus fast mode should be accepted");
+            assert_eq!(params.speed, Some(adk_anthropic::SpeedMode::Fast));
+        }
+    }
+
+    /// Requirement 1.1: System-role content extracted to system parameter.
+    #[test]
+    fn test_system_role_extracted_to_system_param() {
+        let request = make_request(vec![
+            Content {
+                role: "system".to_string(),
+                parts: vec![Part::Text { text: "You are a helpful assistant.".to_string() }],
+            },
+            Content {
+                role: "user".to_string(),
+                parts: vec![Part::Text { text: "Hello".to_string() }],
+            },
+        ]);
+
+        let params = AnthropicClient::build_message_params(
+            "claude-sonnet-4-5-20250929",
+            4096,
+            &request,
+            &AnthropicConfig::default(),
+        )
+        .unwrap();
+
+        assert!(params.system.is_some());
+        match &params.system.unwrap() {
+            SystemPrompt::String(s) => assert_eq!(s, "You are a helpful assistant."),
+            SystemPrompt::Blocks(blocks) => {
+                let text: String =
+                    blocks.iter().map(|b| b.block.text.as_str()).collect::<Vec<_>>().join("");
+                assert_eq!(text, "You are a helpful assistant.");
+            }
+        }
+        // The user message should remain in messages
+        assert_eq!(params.messages.len(), 1);
+    }
+
+    /// Requirement 1.2: Leading user-role text-only messages re-routed to system
+    /// when no explicit system content exists.
+    #[test]
+    fn test_instruction_rerouting_to_system() {
+        let request = make_request(vec![
+            Content {
+                role: "user".to_string(),
+                parts: vec![Part::Text { text: "You are a coding assistant.".to_string() }],
+            },
+            Content {
+                role: "user".to_string(),
+                parts: vec![Part::Text { text: "Always respond in Rust.".to_string() }],
+            },
+            Content {
+                role: "model".to_string(),
+                parts: vec![Part::Text { text: "Understood.".to_string() }],
+            },
+            Content {
+                role: "user".to_string(),
+                parts: vec![Part::Text { text: "Write a function.".to_string() }],
+            },
+        ]);
+
+        let params = AnthropicClient::build_message_params(
+            "claude-sonnet-4-5-20250929",
+            4096,
+            &request,
+            &AnthropicConfig::default(),
+        )
+        .unwrap();
+
+        // The two leading user messages should be in system
+        assert!(params.system.is_some());
+        match &params.system.unwrap() {
+            SystemPrompt::String(s) => {
+                assert!(s.contains("You are a coding assistant."));
+                assert!(s.contains("Always respond in Rust."));
+            }
+            SystemPrompt::Blocks(blocks) => {
+                let text: String =
+                    blocks.iter().map(|b| b.block.text.as_str()).collect::<Vec<_>>().join("\n");
+                assert!(text.contains("You are a coding assistant."));
+                assert!(text.contains("Always respond in Rust."));
+            }
+        }
+        // Messages should start with the assistant message
+        assert_eq!(params.messages.len(), 2);
+        assert_eq!(params.messages[0].role, adk_anthropic::MessageRole::Assistant);
+    }
+
+    /// Requirement 1.3: Multiple system entries concatenated with newline.
+    #[test]
+    fn test_multiple_system_entries_concatenated() {
+        let request = make_request(vec![
+            Content {
+                role: "system".to_string(),
+                parts: vec![Part::Text { text: "First system instruction.".to_string() }],
+            },
+            Content {
+                role: "system".to_string(),
+                parts: vec![Part::Text { text: "Second system instruction.".to_string() }],
+            },
+            Content {
+                role: "user".to_string(),
+                parts: vec![Part::Text { text: "Hello".to_string() }],
+            },
+        ]);
+
+        let params = AnthropicClient::build_message_params(
+            "claude-sonnet-4-5-20250929",
+            4096,
+            &request,
+            &AnthropicConfig::default(),
+        )
+        .unwrap();
+
+        assert!(params.system.is_some());
+        match &params.system.unwrap() {
+            SystemPrompt::String(s) => {
+                assert_eq!(s, "First system instruction.\nSecond system instruction.");
+            }
+            SystemPrompt::Blocks(blocks) => {
+                let text: String =
+                    blocks.iter().map(|b| b.block.text.as_str()).collect::<Vec<_>>().join("");
+                assert_eq!(text, "First system instruction.\nSecond system instruction.");
+            }
+        }
+    }
+
+    /// Requirement 1.4: No system content → system parameter omitted.
+    #[test]
+    fn test_no_system_content_omits_system_param() {
+        // No system role, no assistant message → no instruction boundary → no system
+        let request = make_request(vec![Content {
+            role: "user".to_string(),
+            parts: vec![Part::Text { text: "Hello".to_string() }],
+        }]);
+
+        let params = AnthropicClient::build_message_params(
+            "claude-sonnet-4-5-20250929",
+            4096,
+            &request,
+            &AnthropicConfig::default(),
+        )
+        .unwrap();
+
+        assert!(params.system.is_none());
+        assert_eq!(params.messages.len(), 1);
+    }
+
+    /// Heuristic should NOT re-route when explicit system content exists.
+    #[test]
+    fn test_heuristic_skipped_when_explicit_system_exists() {
+        let request = make_request(vec![
+            Content {
+                role: "system".to_string(),
+                parts: vec![Part::Text { text: "Explicit system.".to_string() }],
+            },
+            Content {
+                role: "user".to_string(),
+                parts: vec![Part::Text { text: "Instruction-like text.".to_string() }],
+            },
+            Content {
+                role: "model".to_string(),
+                parts: vec![Part::Text { text: "OK.".to_string() }],
+            },
+        ]);
+
+        let params = AnthropicClient::build_message_params(
+            "claude-sonnet-4-5-20250929",
+            4096,
+            &request,
+            &AnthropicConfig::default(),
+        )
+        .unwrap();
+
+        // System should only contain the explicit system content
+        match &params.system.unwrap() {
+            SystemPrompt::String(s) => assert_eq!(s, "Explicit system."),
+            SystemPrompt::Blocks(blocks) => {
+                let text: String =
+                    blocks.iter().map(|b| b.block.text.as_str()).collect::<Vec<_>>().join("");
+                assert_eq!(text, "Explicit system.");
+            }
+        }
+        // The user message should remain in messages (not re-routed)
+        assert_eq!(params.messages.len(), 2);
+        assert_eq!(params.messages[0].role, adk_anthropic::MessageRole::User);
+    }
+
+    /// Heuristic should NOT re-route user messages containing non-text parts.
+    #[test]
+    fn test_heuristic_skips_non_text_user_messages() {
+        let request = make_request(vec![
+            Content {
+                role: "user".to_string(),
+                parts: vec![Part::FunctionResponse {
+                    function_response: adk_core::FunctionResponseData::new(
+                        "tool",
+                        serde_json::json!({"result": "ok"}),
+                    ),
+                    id: Some("call_1".to_string()),
+                    annotations: None,
+                }],
+            },
+            Content {
+                role: "model".to_string(),
+                parts: vec![Part::Text { text: "Got it.".to_string() }],
+            },
+        ]);
+
+        let params = AnthropicClient::build_message_params(
+            "claude-sonnet-4-5-20250929",
+            4096,
+            &request,
+            &AnthropicConfig::default(),
+        )
+        .unwrap();
+
+        // Should NOT re-route because the leading user message has non-text content
+        assert!(params.system.is_none());
+        assert_eq!(params.messages.len(), 2);
+    }
+
+    /// Empty contents produces no system and no messages.
+    #[test]
+    fn test_empty_contents() {
+        let request = make_request(vec![]);
+        let params = AnthropicClient::build_message_params(
+            "claude-sonnet-4-5-20250929",
+            4096,
+            &request,
+            &AnthropicConfig::default(),
+        )
+        .unwrap();
+
+        assert!(params.system.is_none());
+        assert!(params.messages.is_empty());
+    }
+
+    #[test]
+    fn test_invalid_extension_builtin_tool_returns_error() {
+        let mut request = make_request(vec![]);
+        let mut extensions = serde_json::Map::new();
+        extensions.insert(
+            "anthropic".to_string(),
+            serde_json::json!({
+                "built_in_tools": [
+                    {
+                        "type": "unsupported_tool_00000000"
+                    }
+                ]
+            }),
+        );
+        request.config = Some(GenerateContentConfig { extensions, ..Default::default() });
+
+        let error = AnthropicClient::build_message_params(
+            "claude-sonnet-4-5-20250929",
+            4096,
+            &request,
+            &AnthropicConfig::default(),
+        )
+        .expect_err("invalid built-in tool should fail");
+
+        assert_eq!(error.code, "model.anthropic.invalid_tool");
+    }
+
+    /// Requirement 3.3: Ping events are treated as keep-alive no-ops and don't produce
+    /// LlmResponse emissions. Verifies that the Ping variant of MessageStreamEvent
+    /// is handled silently without yielding any content.
+    #[test]
+    fn test_ping_event_produces_no_response() {
+        // Construct a Ping event — the same type the streaming match arm receives
+        let event = MessageStreamEvent::Ping;
+
+        // Verify it matches the Ping variant (the match arm is `MessageStreamEvent::Ping => {}`)
+        // This test documents and enforces that Ping is a recognized no-op event.
+        let produces_response = !matches!(event, MessageStreamEvent::Ping);
+
+        assert!(!produces_response, "Ping events must not produce any LlmResponse");
+    }
+
+    /// Requirement 3.2: Signature delta events are accumulated silently without
+    /// emitting user-visible content. Verifies that SignatureDelta within a
+    /// ContentBlockDelta event doesn't produce any LlmResponse.
+    #[test]
+    fn test_signature_delta_produces_no_visible_content() {
+        use adk_anthropic::SignatureDelta;
+
+        // Construct a signature delta event — the same type the streaming match arm receives
+        let delta = ContentBlockDelta::SignatureDelta(SignatureDelta::new(
+            "EqQBCgIYAhIM1gasdXOgGf4Bh".to_string(),
+        ));
+
+        // Verify the match arm behavior: SignatureDelta should not produce output
+        let produces_response = match delta {
+            ContentBlockDelta::SignatureDelta(_) => false,
+            ContentBlockDelta::TextDelta(_) => true,
+            ContentBlockDelta::ThinkingDelta(_) => true,
+            ContentBlockDelta::InputJsonDelta(_) => true,
+            ContentBlockDelta::CitationsDelta(_) => false, // also a no-op
+        };
+
+        assert!(!produces_response, "SignatureDelta events must not produce user-visible content");
+    }
+
+    /// Requirement 3.2: Multiple signature deltas should all be silent.
+    /// Verifies that signature data of varying lengths is handled without output.
+    #[test]
+    fn test_multiple_signature_deltas_all_silent() {
+        use adk_anthropic::SignatureDelta;
+
+        let signatures = vec![
+            "".to_string(),
+            "abc".to_string(),
+            "EqQBCgIYAhIM1gasdXOgGf4BhLqPEhIwxSigma".to_string(),
+            "a".repeat(1000),
+        ];
+
+        for sig in signatures {
+            let delta = ContentBlockDelta::SignatureDelta(SignatureDelta::new(sig.clone()));
+
+            let produces_response = !matches!(delta, ContentBlockDelta::SignatureDelta(_));
+
+            assert!(
+                !produces_response,
+                "SignatureDelta with signature '{sig}' must not produce output"
+            );
+        }
+    }
+
+    /// Requirement 3.3: Ping events interspersed with text deltas should not
+    /// affect the text delta output. Only text deltas produce LlmResponse.
+    #[test]
+    fn test_ping_among_text_deltas_only_text_produces_output() {
+        let events: Vec<MessageStreamEvent> = vec![
+            MessageStreamEvent::Ping,
+            MessageStreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
+                index: 0,
+                delta: ContentBlockDelta::TextDelta(TextDelta { text: "Hello".to_string() }),
+            }),
+            MessageStreamEvent::Ping,
+            MessageStreamEvent::Ping,
+            MessageStreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
+                index: 0,
+                delta: ContentBlockDelta::TextDelta(TextDelta { text: " world".to_string() }),
+            }),
+            MessageStreamEvent::Ping,
+        ];
+
+        let mut responses = Vec::new();
+        for event in events {
+            match event {
+                MessageStreamEvent::Ping => {
+                    // No-op, same as production code
+                }
+                MessageStreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
+                    delta: ContentBlockDelta::TextDelta(TextDelta { ref text }),
+                    ..
+                }) if !text.is_empty() => responses.push(convert::from_text_delta(text)),
+                _ => {}
+            }
+        }
+
+        // Only the two text deltas should produce responses
+        assert_eq!(responses.len(), 2);
+        assert!(responses[0].partial);
+        assert!(!responses[0].turn_complete);
+        assert!(responses[1].partial);
+        assert!(!responses[1].turn_complete);
+    }
+
+    /// Requirements 3.2, 3.3: Signature deltas and pings interspersed with text
+    /// deltas should not affect output — only text deltas produce LlmResponse.
+    #[test]
+    fn test_signature_and_ping_among_text_deltas() {
+        use adk_anthropic::SignatureDelta;
+
+        let events: Vec<MessageStreamEvent> = vec![
+            MessageStreamEvent::Ping,
+            MessageStreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
+                index: 0,
+                delta: ContentBlockDelta::TextDelta(TextDelta {
+                    text: "Response text".to_string(),
+                }),
+            }),
+            MessageStreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
+                index: 0,
+                delta: ContentBlockDelta::SignatureDelta(SignatureDelta::new(
+                    "sig_part_1".to_string(),
+                )),
+            }),
+            MessageStreamEvent::Ping,
+            MessageStreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
+                index: 0,
+                delta: ContentBlockDelta::SignatureDelta(SignatureDelta::new(
+                    "sig_part_2".to_string(),
+                )),
+            }),
+        ];
+
+        let mut response_count = 0;
+        for event in events {
+            match event {
+                MessageStreamEvent::Ping => {}
+                MessageStreamEvent::ContentBlockDelta(ContentBlockDeltaEvent { delta, .. }) => {
+                    match delta {
+                        ContentBlockDelta::TextDelta(TextDelta { ref text })
+                            if !text.is_empty() =>
+                        {
+                            response_count += 1;
+                        }
+                        ContentBlockDelta::SignatureDelta(_) => {}
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        assert_eq!(
+            response_count, 1,
+            "Only the text delta should produce a response; ping and signature should be silent"
+        );
+    }
+
+    // ---- Tests for structured error parsing (Requirement 4.1, 4.2, 4.4) ----
+
+    /// Requirement 4.1, 4.4: Api variant preserves error_type, message, status_code, and request_id.
+    #[test]
+    fn test_to_anthropic_api_error_api_variant() {
+        let err = adk_anthropic::Error::Api {
+            status_code: 400,
+            error_type: Some("invalid_request_error".to_string()),
+            message: "Invalid model specified".to_string(),
+            request_id: Some("req_abc123".to_string()),
+        };
+        let api_err = to_anthropic_api_error(&err);
+        assert_eq!(api_err.error_type, "invalid_request_error");
+        assert_eq!(api_err.message, "Invalid model specified");
+        assert_eq!(api_err.status_code, 400);
+        assert_eq!(api_err.request_id.as_deref(), Some("req_abc123"));
+    }
+
+    /// Requirement 4.1: Api variant with missing error_type defaults to "api_error".
+    #[test]
+    fn test_to_anthropic_api_error_api_variant_no_error_type() {
+        let err = adk_anthropic::Error::Api {
+            status_code: 500,
+            error_type: None,
+            message: "Internal error".to_string(),
+            request_id: None,
+        };
+        let api_err = to_anthropic_api_error(&err);
+        assert_eq!(api_err.error_type, "api_error");
+        assert_eq!(api_err.status_code, 500);
+        assert!(api_err.request_id.is_none());
+    }
+
+    /// Requirement 4.4: RateLimit variant maps to status 429 with retry-after in message.
+    #[test]
+    fn test_to_anthropic_api_error_rate_limit() {
+        let err = adk_anthropic::Error::RateLimit {
+            message: "Too many requests".to_string(),
+            retry_after: Some(30),
+        };
+        let api_err = to_anthropic_api_error(&err);
+        assert_eq!(api_err.error_type, "rate_limit_error");
+        assert_eq!(api_err.status_code, 429);
+        assert!(api_err.message.contains("retry-after: 30s"));
+    }
+
+    /// Requirement 4.4: ServiceUnavailable variant maps to status 529.
+    #[test]
+    fn test_to_anthropic_api_error_service_unavailable() {
+        let err = adk_anthropic::Error::ServiceUnavailable {
+            message: "Overloaded".to_string(),
+            retry_after: None,
+        };
+        let api_err = to_anthropic_api_error(&err);
+        assert_eq!(api_err.error_type, "overloaded_error");
+        assert_eq!(api_err.status_code, 529);
+        assert_eq!(api_err.message, "Overloaded");
+    }
+
+    /// Requirement 4.4: InternalServer variant preserves request_id.
+    #[test]
+    fn test_to_anthropic_api_error_internal_server() {
+        let err = adk_anthropic::Error::InternalServer {
+            message: "Server error".to_string(),
+            request_id: Some("req_xyz789".to_string()),
+        };
+        let api_err = to_anthropic_api_error(&err);
+        assert_eq!(api_err.error_type, "api_error");
+        assert_eq!(api_err.status_code, 500);
+        assert_eq!(api_err.request_id.as_deref(), Some("req_xyz789"));
+    }
+
+    /// Requirement 4.4: Authentication variant maps to status 401.
+    #[test]
+    fn test_to_anthropic_api_error_authentication() {
+        let err = adk_anthropic::Error::Authentication { message: "Invalid API key".to_string() };
+        let api_err = to_anthropic_api_error(&err);
+        assert_eq!(api_err.error_type, "authentication_error");
+        assert_eq!(api_err.status_code, 401);
+    }
+
+    /// Requirement 4.1: convert_anthropic_error produces AdkError::Model with structured info.
+    #[test]
+    fn test_convert_anthropic_error_preserves_structure() {
+        let err = adk_anthropic::Error::Api {
+            status_code: 429,
+            error_type: Some("rate_limit_error".to_string()),
+            message: "Rate limited".to_string(),
+            request_id: Some("req_test".to_string()),
+        };
+        let adk_err = convert_anthropic_error(err);
+        let msg = adk_err.to_string();
+        assert!(msg.contains("429"), "Should contain status code");
+        assert!(msg.contains("rate_limit_error"), "Should contain error type");
+        assert!(msg.contains("Rate limited"), "Should contain message");
+        assert!(msg.contains("req_test"), "Should contain request_id");
+    }
+
+    // ---- Property-based tests for system prompt routing ----
+
+    use proptest::prelude::*;
+
+    /// Extract the system prompt string from a SystemPrompt, regardless of variant.
+    fn extract_system_text(sp: &SystemPrompt) -> String {
+        match sp {
+            SystemPrompt::String(s) => s.clone(),
+            SystemPrompt::Blocks(blocks) => {
+                blocks.iter().map(|b| b.block.text.as_str()).collect::<Vec<_>>().join("\n")
+            }
+        }
+    }
+
+    /// Generator for non-empty text strings suitable for system prompt content.
+    fn arb_system_text() -> impl Strategy<Value = String> {
+        "[A-Za-z0-9 .,!?]{1,80}".prop_map(String::from)
+    }
+
+    /// Generator for a Content with role "system" containing 1..3 text parts.
+    fn arb_system_content() -> impl Strategy<Value = Content> {
+        prop::collection::vec(arb_system_text(), 1..=3).prop_map(|texts| Content {
+            role: "system".to_string(),
+            parts: texts.into_iter().map(|t| Part::Text { text: t }).collect(),
+        })
+    }
+
+    /// Generator for a Content with role "user" containing a single text part.
+    fn arb_user_text_content() -> impl Strategy<Value = Content> {
+        arb_system_text()
+            .prop_map(|text| Content { role: "user".to_string(), parts: vec![Part::Text { text }] })
+    }
+
+    /// Generator for a Content with role "model" (assistant) containing a single text part.
+    fn arb_assistant_content() -> impl Strategy<Value = Content> {
+        arb_system_text().prop_map(|text| Content {
+            role: "model".to_string(),
+            parts: vec![Part::Text { text }],
+        })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        /// **Feature: anthropic-deep-integration, Property 1: System prompt extraction preserves all system text**
+        /// *For any* LlmRequest containing N >= 0 Content entries with role "system",
+        /// each containing arbitrary text parts, the resulting Anthropic `system`
+        /// parameter SHALL equal the newline-joined concatenation of all text parts
+        /// from all system-role entries (or be None when N = 0).
+        /// **Validates: Requirements 1.1, 1.3, 1.4**
+        #[test]
+        fn prop_system_prompt_extraction_preserves_all_text(
+            system_contents in prop::collection::vec(arb_system_content(), 0..=4),
+            trailing_user in arb_user_text_content(),
+        ) {
+            // Build the expected system text: join each Content's text parts with
+            // newline, then join all Contents' texts with newline.
+            let expected_parts: Vec<String> = system_contents
+                .iter()
+                .map(|c| {
+                    c.parts
+                        .iter()
+                        .filter_map(|p| match p {
+                            Part::Text { text } => Some(text.clone()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .filter(|s| !s.is_empty())
+                .collect();
+
+            let mut contents: Vec<Content> = system_contents;
+            // Always add a trailing user message so the request is valid
+            contents.push(trailing_user);
+
+            let request = make_request(contents);
+            let params = AnthropicClient::build_message_params(
+                "claude-sonnet-4-5-20250929",
+                4096,
+                &request,
+            &AnthropicConfig::default(),
+            ).unwrap();
+
+            if expected_parts.is_empty() {
+                // Requirement 1.4: no system content → system parameter omitted
+                // (heuristic may or may not fire depending on message structure,
+                // but with no assistant message the heuristic boundary is 0)
+                // We only assert None when there's truly no system text AND
+                // the heuristic doesn't apply (no assistant message to form boundary).
+                // Since we only have user messages and no assistant, boundary = 0,
+                // so heuristic won't fire.
+                prop_assert!(
+                    params.system.is_none(),
+                    "Expected no system param when no system-role content and no assistant boundary"
+                );
+            } else {
+                // Requirements 1.1, 1.3: system text preserved and concatenated
+                let expected = expected_parts.join("\n");
+                prop_assert!(params.system.is_some(), "Expected system param to be present");
+                let actual = extract_system_text(params.system.as_ref().unwrap());
+                prop_assert_eq!(
+                    actual,
+                    expected,
+                    "System prompt text mismatch"
+                );
+            }
+        }
+
+        /// **Feature: anthropic-deep-integration, Property 2: Instruction re-routing to system parameter**
+        /// *For any* LlmRequest where the conversation starts with K >= 1 consecutive
+        /// user-role text-only Content entries followed by an assistant-role entry,
+        /// and no explicit system-role entries exist, the resulting Anthropic `system`
+        /// parameter SHALL contain the text from those K leading user entries, and
+        /// the `messages` array SHALL start with the assistant-role entry.
+        /// **Validates: Requirements 1.2**
+        #[test]
+        fn prop_instruction_rerouting_to_system(
+            leading_user in prop::collection::vec(arb_user_text_content(), 1..=4),
+            assistant in arb_assistant_content(),
+            trailing_user in arb_user_text_content(),
+        ) {
+            let k = leading_user.len();
+
+            // Collect expected system text from the leading user messages
+            let expected_system_parts: Vec<String> = leading_user
+                .iter()
+                .filter_map(|c| {
+                    let text: String = c
+                        .parts
+                        .iter()
+                        .filter_map(|p| match p {
+                            Part::Text { text } => Some(text.clone()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    if text.is_empty() { None } else { Some(text) }
+                })
+                .collect();
+
+            // Build contents: leading user messages, then assistant, then trailing user
+            let mut contents: Vec<Content> = leading_user;
+            contents.push(assistant);
+            contents.push(trailing_user);
+
+            let request = make_request(contents);
+            let params = AnthropicClient::build_message_params(
+                "claude-sonnet-4-5-20250929",
+                4096,
+                &request,
+            &AnthropicConfig::default(),
+            ).unwrap();
+
+            // The leading user messages should be re-routed to system
+            prop_assert!(
+                params.system.is_some(),
+                "Expected system param from re-routed instructions"
+            );
+            let actual_system = extract_system_text(params.system.as_ref().unwrap());
+            let expected_system = expected_system_parts.join("\n");
+            prop_assert_eq!(
+                actual_system,
+                expected_system,
+                "Re-routed system text mismatch"
+            );
+
+            // Messages should start with the assistant message (K user messages removed)
+            // Total messages = original (K user + 1 assistant + 1 trailing user) - K re-routed = 2
+            let _ = k; // used for documentation clarity
+            prop_assert_eq!(
+                params.messages.len(),
+                2,
+                "Expected 2 messages after re-routing leading user messages"
+            );
+            prop_assert_eq!(
+                params.messages[0].role,
+                adk_anthropic::MessageRole::Assistant,
+                "First message should be assistant after re-routing"
+            );
+        }
+    }
+}

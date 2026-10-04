@@ -1,0 +1,133 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "statistics",
+  "version": "0.1.0",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "actions": [
+        "usage.read",
+        "conversation.read"
+      ],
+      "ui": [
+        {
+          "id": "composer_tokens",
+          "slot": "statistics",
+          "kind": "metric",
+          "label": {
+            "label": "Tokens",
+            "locales": {
+              "zh-CN": "用量"
+            }
+          },
+          "icon": "chart-pie",
+          "order": 0
+        },
+        {
+          "id": "composer_speed",
+          "slot": "statistics",
+          "kind": "metric",
+          "label": {
+            "label": "Speed",
+            "locales": {
+              "zh-CN": "速度"
+            }
+          },
+          "icon": "arrow-up",
+          "order": 10
+        },
+        {
+          "id": "composer_cost",
+          "slot": "statistics",
+          "kind": "metric",
+          "label": {
+            "label": "Cost",
+            "locales": {
+              "zh-CN": "费用"
+            }
+          },
+          "order": 20
+        },
+        {
+          "id": "composer_cache",
+          "slot": "statistics",
+          "kind": "metric",
+          "label": {
+            "label": "Cache",
+            "locales": {
+              "zh-CN": "缓存"
+            }
+          },
+          "icon": "memory-stick",
+          "order": 30
+        },
+        {
+          "id": "composer_turns",
+          "slot": "statistics",
+          "kind": "metric",
+          "label": {
+            "label": "Turns",
+            "locales": {
+              "zh-CN": "轮次"
+            }
+          },
+          "icon": "rotate-cw",
+          "order": 40
+        },
+        {
+          "id": "context",
+          "slot": "composer",
+          "kind": "indicator",
+          "label": {
+            "label": "Context",
+            "locales": {
+              "zh-CN": "上下文"
+            }
+          },
+          "align": "end",
+          "order": 90
+        }
+      ],
+      "display": {
+        "label": "Statistics",
+        "locales": {
+          "zh-CN": "统计"
+        },
+        "icon": "reicon:business/chart-bar"
+      },
+      "description": {
+        "label": "View session usage and activity",
+        "locales": {
+          "zh-CN": "查看会话用量与活动"
+        }
+      },
+      "desktop": {
+        "ui_shared": true,
+        "entry": "dev.sailry.platform/desktop/settings.js",
+        "ui_entry": "dev.sailry.platform/desktop/composer.js",
+        "resources": [
+          "dev.sailry.platform/desktop/charts.js",
+          "dev.sailry.platform/desktop/composer.js",
+          "dev.sailry.platform/desktop/format.js",
+          "dev.sailry.platform/desktop/locales.js",
+          "dev.sailry.platform/desktop/metrics.js",
+          "dev.sailry.platform/desktop/requests.js",
+          "dev.sailry.platform/desktop/settings.js",
+          "dev.sailry.platform/desktop/state.js",
+          "dev.sailry.platform/desktop/view.js"
+        ],
+        "navigation": {
+          "label": "Usage",
+          "locales": {
+            "zh-CN": "用量"
+          },
+          "icon": "reicon:business/chart-bar"
+        },
+        "navigation_options": {
+          "order": 900,
+          "surface": "workspace"
+        }
+      }
+    }
+  }
+}

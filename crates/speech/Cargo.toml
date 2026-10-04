@@ -1,0 +1,19 @@
+[package]
+name = "sailry-speech"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+reqwest.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util"] }
+tokio-util.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+sherpa-onnx.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -1,0 +1,31 @@
+menu_about: 关于 Sailry
+menu_settings: 设置
+menu_services: 服务
+menu_hide: 隐藏 Sailry
+menu_hide_others: 隐藏其他
+menu_show_all: 全部显示
+menu_quit: 退出 Sailry
+menu_file: 文件
+menu_new_conversation: 新建对话
+menu_new_project: 新建项目
+menu_open_folder: 打开文件夹
+menu_save: 保存
+menu_close_tab: 关闭标签页
+menu_close_window: 关闭窗口
+menu_edit: 编辑
+menu_undo: 撤销
+menu_redo: 重做
+menu_cut: 剪切
+menu_copy: 复制
+menu_paste: 粘贴
+menu_select_all: 全选
+menu_view: 显示
+menu_search: 搜索
+menu_find_conversation: 搜索对话
+menu_toggle_sidebar: 展开或折叠导航
+menu_toggle_details: 展开或折叠详情
+menu_full_screen: 切换全屏
+menu_window: 窗口
+menu_minimize: 最小化
+menu_zoom: 缩放
+menu_bring_all_to_front: 全部置于前台

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "office",
+  "version": "0.1.0",
+  "description": "Create and edit Word, Excel, PowerPoint and PDF files with the shared document runtime",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "scope": "host",
+      "actions": [],
+      "display": {
+        "label": "Office",
+        "locales": {"zh-CN": "办公文档"},
+        "icon": "reicon:files/files"
+      },
+      "description": {
+        "label": "Document skills, scripts and templates",
+        "locales": {
+          "zh-CN": "文档技能、脚本与模板"
+        }
+      }
+    }
+  }
+}

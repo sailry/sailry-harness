@@ -1,0 +1,26 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "code-review",
+  "version": "0.1.0",
+  "description": "Review code changes and pull requests with evidence-backed findings",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "scope": "host",
+      "actions": [],
+      "display": {
+        "label": "Code review",
+        "locales": {
+          "zh-CN": "代码审查"
+        },
+        "icon": "reicon:it/code"
+      },
+      "description": {
+        "label": "Review changes and pull requests",
+        "locales": {
+          "zh-CN": "审查代码变更与拉取请求"
+        }
+      }
+    }
+  }
+}

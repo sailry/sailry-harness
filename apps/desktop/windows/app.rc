@@ -1,0 +1,2 @@
+// GPUI loads the main executable's icon with resource ID 1.
+1 ICON "sailry.ico"

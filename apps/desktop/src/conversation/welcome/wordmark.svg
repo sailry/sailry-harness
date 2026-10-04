@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="328" height="112" viewBox="0 0 328 112">
+  <!-- Original angular Sailry lettering: 6-unit square particles on an 8-unit grid. -->
+  <!-- Tonal depth is alpha-only so Kit supplies the active semantic foreground. -->
+  <defs>
+    <linearGradient id="depth" x1="0" y1="0" x2="328" y2="112" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity=".96"/>
+      <stop offset=".38" stop-color="#fff" stop-opacity=".76"/>
+      <stop offset=".72" stop-color="#fff" stop-opacity=".46"/>
+      <stop offset="1" stop-color="#fff" stop-opacity=".78"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#depth)">
+  <path id="S" d="M1 9h6v6h-6zM9 9h6v6h-6zM17 9h6v6h-6zM25 9h6v6h-6zM33 9h6v6h-6zM41 9h6v6h-6zM49 9h6v6h-6zM57 9h6v6h-6zM1 17h6v6h-6zM9 17h6v6h-6zM17 17h6v6h-6zM25 17h6v6h-6zM33 17h6v6h-6zM41 17h6v6h-6zM49 17h6v6h-6zM57 17h6v6h-6zM1 25h6v6h-6zM9 25h6v6h-6zM49 25h6v6h-6zM57 25h6v6h-6zM1 33h6v6h-6zM9 33h6v6h-6zM1 41h6v6h-6zM9 41h6v6h-6zM17 41h6v6h-6zM25 41h6v6h-6zM33 41h6v6h-6zM41 41h6v6h-6zM49 41h6v6h-6zM57 41h6v6h-6zM1 49h6v6h-6zM9 49h6v6h-6zM17 49h6v6h-6zM25 49h6v6h-6zM33 49h6v6h-6zM41 49h6v6h-6zM49 49h6v6h-6zM57 49h6v6h-6zM49 57h6v6h-6zM57 57h6v6h-6zM49 65h6v6h-6zM57 65h6v6h-6zM1 73h6v6h-6zM9 73h6v6h-6zM49 73h6v6h-6zM57 73h6v6h-6zM1 81h6v6h-6zM9 81h6v6h-6zM17 81h6v6h-6zM25 81h6v6h-6zM33 81h6v6h-6zM41 81h6v6h-6zM49 81h6v6h-6zM57 81h6v6h-6zM1 89h6v6h-6zM9 89h6v6h-6zM17 89h6v6h-6zM25 89h6v6h-6zM33 89h6v6h-6zM41 89h6v6h-6zM49 89h6v6h-6zM57 89h6v6h-6z"/>
+  <path id="a" d="M81 33h6v6h-6zM89 33h6v6h-6zM97 33h6v6h-6zM105 33h6v6h-6zM113 33h6v6h-6zM121 33h6v6h-6zM129 33h6v6h-6zM81 41h6v6h-6zM89 41h6v6h-6zM121 41h6v6h-6zM129 41h6v6h-6zM121 49h6v6h-6zM129 49h6v6h-6zM81 57h6v6h-6zM89 57h6v6h-6zM97 57h6v6h-6zM105 57h6v6h-6zM113 57h6v6h-6zM121 57h6v6h-6zM129 57h6v6h-6zM81 65h6v6h-6zM89 65h6v6h-6zM121 65h6v6h-6zM129 65h6v6h-6zM81 73h6v6h-6zM89 73h6v6h-6zM121 73h6v6h-6zM129 73h6v6h-6zM81 81h6v6h-6zM89 81h6v6h-6zM97 81h6v6h-6zM105 81h6v6h-6zM113 81h6v6h-6zM121 81h6v6h-6zM129 81h6v6h-6zM81 89h6v6h-6zM89 89h6v6h-6zM97 89h6v6h-6zM105 89h6v6h-6zM113 89h6v6h-6zM121 89h6v6h-6zM129 89h6v6h-6z"/>
+  <path id="i" d="M153 9h6v6h-6zM161 9h6v6h-6zM153 17h6v6h-6zM161 17h6v6h-6zM153 33h6v6h-6zM161 33h6v6h-6zM153 41h6v6h-6zM161 41h6v6h-6zM153 49h6v6h-6zM161 49h6v6h-6zM153 57h6v6h-6zM161 57h6v6h-6zM153 65h6v6h-6zM161 65h6v6h-6zM153 73h6v6h-6zM161 73h6v6h-6zM153 81h6v6h-6zM161 81h6v6h-6zM153 89h6v6h-6zM161 89h6v6h-6z"/>
+  <path id="l" d="M185 9h6v6h-6zM193 9h6v6h-6zM185 17h6v6h-6zM193 17h6v6h-6zM185 25h6v6h-6zM193 25h6v6h-6zM185 33h6v6h-6zM193 33h6v6h-6zM185 41h6v6h-6zM193 41h6v6h-6zM185 49h6v6h-6zM193 49h6v6h-6zM185 57h6v6h-6zM193 57h6v6h-6zM185 65h6v6h-6zM193 65h6v6h-6zM185 73h6v6h-6zM193 73h6v6h-6zM185 81h6v6h-6zM193 81h6v6h-6zM185 89h6v6h-6zM193 89h6v6h-6z"/>
+  <path id="r" d="M217 33h6v6h-6zM225 33h6v6h-6zM233 33h6v6h-6zM241 33h6v6h-6zM249 33h6v6h-6zM217 41h6v6h-6zM225 41h6v6h-6zM233 41h6v6h-6zM241 41h6v6h-6zM249 41h6v6h-6zM217 49h6v6h-6zM225 49h6v6h-6zM217 57h6v6h-6zM225 57h6v6h-6zM217 65h6v6h-6zM225 65h6v6h-6zM217 73h6v6h-6zM225 73h6v6h-6zM217 81h6v6h-6zM225 81h6v6h-6zM217 89h6v6h-6zM225 89h6v6h-6z"/>
+  <path id="y" d="M273 33h6v6h-6zM281 33h6v6h-6zM313 33h6v6h-6zM321 33h6v6h-6zM273 41h6v6h-6zM281 41h6v6h-6zM313 41h6v6h-6zM321 41h6v6h-6zM273 49h6v6h-6zM281 49h6v6h-6zM313 49h6v6h-6zM321 49h6v6h-6zM273 57h6v6h-6zM281 57h6v6h-6zM289 57h6v6h-6zM297 57h6v6h-6zM305 57h6v6h-6zM313 57h6v6h-6zM321 57h6v6h-6zM273 65h6v6h-6zM281 65h6v6h-6zM289 65h6v6h-6zM297 65h6v6h-6zM305 65h6v6h-6zM313 65h6v6h-6zM321 65h6v6h-6zM313 73h6v6h-6zM321 73h6v6h-6zM313 81h6v6h-6zM321 81h6v6h-6zM313 89h6v6h-6zM321 89h6v6h-6zM273 97h6v6h-6zM281 97h6v6h-6zM289 97h6v6h-6zM297 97h6v6h-6zM305 97h6v6h-6zM313 97h6v6h-6zM321 97h6v6h-6zM273 105h6v6h-6zM281 105h6v6h-6zM289 105h6v6h-6zM297 105h6v6h-6zM305 105h6v6h-6zM313 105h6v6h-6zM321 105h6v6h-6z"/>
+  </g>
+</svg>
