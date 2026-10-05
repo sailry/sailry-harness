@@ -19,6 +19,7 @@ pub(crate) async fn server(mode: Arc<AtomicU8>) -> Server {
         match request.path.as_str() {
             path if path.starts_with("/models") && mode.load(Ordering::SeqCst) == 5 => Reply::Raw("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into()),
             path if path.starts_with("/models") && mode.load(Ordering::SeqCst) == 3 => Reply::Hold,
+            path if path.starts_with("/models") && mode.load(Ordering::SeqCst) == 6 => Reply::Json(if request.headers.contains_key("chatgpt-account-id") { json!({"models":[]}) } else { json!({"data":[]}) }),
             path if path.starts_with("/models") => Reply::Json(models(request.headers.contains_key("chatgpt-account-id"))),
             "/api/accounts/deviceauth/usercode" => Reply::Json(json!({"device_auth_id":"desktop-device-secret","user_code":"SAIL-1234","interval":1})),
             "/login/device/code" => Reply::Json(json!({"device_code":"desktop-device-secret","user_code":"SAIL-1234","verification_uri":"https://github.com/login/device","interval":1,"expires_in":900})),

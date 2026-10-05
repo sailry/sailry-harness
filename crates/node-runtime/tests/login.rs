@@ -103,7 +103,8 @@ fn access_token() -> String {
 
 fn standard(request: &discovery_support::Request) -> Reply {
     match request.path.as_str() {
-        path if path.starts_with("/models") => Reply::Json(catalog::models(
+        path if path.starts_with("/models") => Reply::Json(catalog::account_models(
+            request,
             if request.headers.contains_key("chatgpt-account-id") {
                 Authentication::ChatGpt
             } else {

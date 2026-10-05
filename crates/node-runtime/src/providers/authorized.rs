@@ -3,6 +3,9 @@ use super::*;
 use sailry_protocol::{Authentication, Effort};
 use serde_json::Value;
 
+// Reviewed Codex catalog compatibility baseline, independent of Sailry's version.
+const CHATGPT_CATALOG_VERSION: &str = "0.160.0";
+
 impl Discovery {
     pub(crate) async fn authorized(
         &self,
@@ -26,7 +29,7 @@ async fn fetch(
     match grant.authentication() {
         Authentication::ChatGpt => {
             url.query_pairs_mut()
-                .append_pair("client_version", env!("CARGO_PKG_VERSION"));
+                .append_pair("client_version", CHATGPT_CATALOG_VERSION);
         }
         Authentication::Copilot => {
             headers.insert(

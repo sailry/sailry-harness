@@ -8,6 +8,17 @@ fn command(provider: &Provider) -> Command {
     }))
 }
 
+pub(super) fn account_models(
+    request: &discovery_support::Request,
+    authentication: Authentication,
+) -> serde_json::Value {
+    if authentication == Authentication::ChatGpt && request.path != "/models?client_version=0.160.0"
+    {
+        return json!({"models": []});
+    }
+    models(authentication)
+}
+
 pub(super) fn models(authentication: Authentication) -> serde_json::Value {
     if authentication == Authentication::ChatGpt {
         json!({"models":[{
@@ -23,6 +34,64 @@ pub(super) fn models(authentication: Authentication) -> serde_json::Value {
         }, {"id":"unknown", "supported_endpoints":["/responses","/chat/completions"],"capabilities":{"type":"chat"}},
         {"id":"embedding", "capabilities":{"type":"embeddings"}},
         {"id":"messages-only", "supported_endpoints":["/v1/messages"],"capabilities":{"type":"chat"}}]})
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn uses_compatibility_version() {
+    for remote in [false, true] {
+        let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
+        let old: serde_json::Value = reqwest::Client::new()
+            .get(format!("{}/models?client_version=0.1.0", server.endpoint))
+            .header("chatgpt-account-id", "fixture-account")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(old["models"], json!([]));
+        let fixture = Fixture::new(remote, &server).await;
+        let provider = provider(&fixture.client, Authentication::ChatGpt).await;
+        let (_, attempt) = begin(&fixture.client, &provider).await;
+        let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
+        let update = terminal(&mut stream).await;
+        assert_eq!(update.state, login::State::Connected);
+        assert_eq!(update.model_error, None);
+        let Output::Snapshot(snapshot) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::Snapshot))
+            .await
+            .unwrap()
+        else {
+            panic!("snapshot expected")
+        };
+        let saved = snapshot
+            .providers
+            .iter()
+            .find(|saved| saved.id == provider.id)
+            .unwrap();
+        assert_eq!(saved.models.len(), 2);
+        let Output::DiscoveredModels(catalog) = fixture
+            .client
+            .execute(fixture.client.prepare(command(saved)))
+            .await
+            .unwrap()
+        else {
+            panic!("catalog expected")
+        };
+        assert_eq!(catalog.models.len(), 2);
+        assert_eq!(
+            server
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|request| request.path == "/models?client_version=0.160.0")
+                .count(),
+            2
+        );
+        fixture.close().await;
     }
 }
 
@@ -112,10 +181,7 @@ fn catalog(request: &discovery_support::Request, authentication: Authentication)
     assert!(request.body.is_empty());
     assert_eq!(request.headers["user-agent"], "Sailry/0.1");
     if authentication == Authentication::ChatGpt {
-        assert_eq!(
-            request.path,
-            concat!("/models?client_version=", env!("CARGO_PKG_VERSION"))
-        );
+        assert_eq!(request.path, "/models?client_version=0.160.0");
         assert!(request.headers["authorization"].starts_with("Bearer e30."));
         assert_eq!(request.headers["chatgpt-account-id"], "fixture-account");
         assert_eq!(request.headers["originator"], "sailry");
