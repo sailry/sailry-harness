@@ -359,7 +359,7 @@ fn navigation_requires_a_glyph() {
 }
 
 #[test]
-fn previews_require_a_script_and_distinct_mime_types() {
+fn previews_require_scripts_and_distinct_types() {
     let mut value = manifest(&["ui/main.js"]);
     value.previews = vec!["text/html".into(), "application/pdf".into()];
     assert!(value.valid());

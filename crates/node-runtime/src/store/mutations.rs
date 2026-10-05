@@ -317,7 +317,7 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
         Command::CreateGitBranch { name, commit, .. } => {
             crate::git::branches::create(root, name, commit).map(Output::GitBranchCreated)
         }
-        Command::CreateDirectory { path, .. } => crate::files::create_directory(root, path)
+        Command::CreateDirectory { path, .. } => crate::files::directory(root, path)
             .map(|()| Output::DirectoryCreated { path: path.clone() }),
         Command::RenameEntry { from, to, .. } => {
             crate::files::rename(root, from, to).map(|()| Output::EntryRenamed {
@@ -341,7 +341,7 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
             expected_revision,
             expected_stamp,
             ..
-        } => crate::files::trash_file(root, path, expected_revision, expected_stamp)
+        } => crate::files::remove_verified(root, path, expected_revision, expected_stamp)
             .map(|()| Output::EntryTrashed { path: path.clone() }),
         Command::CopyEntry { from, to, .. } => {
             crate::files::copy::entry(root, from, to).map(|()| Output::EntryCopied {

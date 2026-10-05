@@ -107,7 +107,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn native_tabs_share_width_and_respect_disabled_state(cx: &mut TestAppContext) {
+    fn native_tabs_preserve_width_and_disabled_state(cx: &mut TestAppContext) {
         init(cx);
         let (events, mut receiver) = tokio::sync::mpsc::channel(4);
         let mut owner = None;

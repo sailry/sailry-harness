@@ -1,5 +1,5 @@
 //! Adapted from sailry-code 67ae9fa0 sailry-git service.rs create_worktree (Apache-2.0).
-use super::super::{check_root, git_error, io_error, open, path};
+use super::super::{check_root, fault, io_error, open, path};
 use git2::{Branch, BranchType, Oid, WorktreeAddOptions};
 use sailry_protocol::{ErrorCode, Fault};
 use std::path::Path;
@@ -11,7 +11,7 @@ pub(crate) fn create(
     commit: &str,
     registration: &str,
 ) -> Result<String, Fault> {
-    if name.len() > 1024 || !Branch::name_is_valid(name).map_err(git_error)? {
+    if name.len() > 1024 || !Branch::name_is_valid(name).map_err(fault)? {
         return Err(invalid("invalid branch name"));
     }
     if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -53,12 +53,12 @@ pub(crate) fn create(
         ));
     }
     let base = repository
-        .find_commit(Oid::from_str(commit).map_err(git_error)?)
-        .map_err(git_error)?;
+        .find_commit(Oid::from_str(commit).map_err(fault)?)
+        .map_err(fault)?;
     match repository.find_branch(name, BranchType::Local) {
         Ok(_) => return Err(Fault::new(ErrorCode::Conflict, "branch already exists")),
         Err(error) if error.code() == git2::ErrorCode::NotFound => {}
-        Err(error) => return Err(git_error(error)),
+        Err(error) => return Err(fault(error)),
     }
     check_root(&retained, root)?;
     check_root(&retained_parent, &parent)?;
@@ -66,7 +66,7 @@ pub(crate) fn create(
         if error.code() == git2::ErrorCode::Exists {
             Fault::new(ErrorCode::Conflict, "branch already exists")
         } else {
-            git_error(error)
+            fault(error)
         }
     })?;
     // From this point, an error may leave a branch, Git metadata or checkout.

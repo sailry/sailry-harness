@@ -76,7 +76,7 @@ class AppIcons(unittest.TestCase):
         self.assertTrue({b"ic11", b"ic12", b"ic13", b"ic14", b"ic10"} <= types)
 
     @unittest.skipUnless(shutil.which("magick"), "requires ImageMagick")
-    def test_macos_tile_is_white_with_clear_outer_padding(self):
+    def test_macos_white_tile_with_clear_padding(self):
         data = (BRANDING / "Sailry.icns").read_bytes()
         offset = 8
         while offset < len(data):

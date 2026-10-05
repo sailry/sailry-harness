@@ -24,7 +24,7 @@ impl Transport<RoleClient> for Deferred {
         None
     }
     async fn close(&mut self) -> io::Result<()> {
-        (&mut self.released).await.map_err(|_| transport_error())
+        (&mut self.released).await.map_err(|_| failure())
     }
 }
 

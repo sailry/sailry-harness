@@ -20,7 +20,7 @@ impl Render for Harness {
 }
 
 #[gpui::test]
-fn viewport_fillers_keep_the_real_row_count_and_are_inert(cx: &mut TestAppContext) {
+fn viewport_fillers_preserve_counts_and_ignore_input(cx: &mut TestAppContext) {
     init(cx);
     for header in [false, true] {
         for values in [Vec::<Vec<String>>::new(), vec![vec!["First".into()]]] {
@@ -148,7 +148,7 @@ fn headers_and_cells_share_column_alignment(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn two_line_cells_preserve_height_selection_and_scrolling(cx: &mut TestAppContext) {
+fn multiline_cells_preserve_selection_and_scrolling(cx: &mut TestAppContext) {
     init(cx);
     for height in [None, Some(48.)] {
         let rows: Vec<_> = (0..50)

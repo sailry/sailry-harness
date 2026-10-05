@@ -1,7 +1,7 @@
 use super::{fixture::Fixture, *};
 
 #[tokio::test]
-async fn restores_captured_versions() {
+async fn captured_versions() {
     for remote in [false, true] {
         let original = "Before 中文 🙂\n".repeat(4000);
         let fixture = Fixture::start(

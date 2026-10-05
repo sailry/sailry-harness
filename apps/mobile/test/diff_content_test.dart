@@ -9,7 +9,7 @@ import 'package:sailry_mobile/l10n/strings.dart';
 
 void main() {
   test('diff positions preserve hunk ranges and metadata', () {
-    final rows = diffLines(
+    final rows = parseLines(
       '--- a/test.rs\n+++ b/test.rs\n@@ -4,2 +8,2 @@\n-old\n+new\n same\n\\ No newline at end of file',
     );
     expect(rows[1].kind, 'header');

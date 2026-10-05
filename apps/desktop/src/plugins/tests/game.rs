@@ -11,7 +11,7 @@ mod settings;
 mod xiangqi;
 
 #[gpui::test]
-fn sidebar_opens_the_installed_package_without_a_project(cx: &mut TestAppContext) {
+fn sidebar_opens_without_project(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);

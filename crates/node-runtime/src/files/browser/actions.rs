@@ -75,7 +75,7 @@ fn apply(action: &Action, path: &str) -> Result<Option<String>, Fault> {
     let (source, name) = split(Path::new(path))?;
     match action {
         Action::CreateDirectory { .. } => {
-            files::create_directory(&source, &name)?;
+            files::directory(&source, &name)?;
             Ok(Some(text(&source.join(name))?))
         }
         Action::Rename { to, .. } => {

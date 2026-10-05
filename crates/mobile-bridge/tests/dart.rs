@@ -90,7 +90,7 @@ mod web_search;
 
 #[test]
 #[ignore = "requires built bridge and dart pub get in tests/mobile-contract"]
-fn dart_controls_a_real_node() {
+fn controls_a_real_node() {
     let directory = tempfile::tempdir().unwrap();
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let node = runtime

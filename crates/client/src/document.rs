@@ -53,7 +53,7 @@ impl Client {
         path: &str,
         cancel: CancellationToken,
     ) -> Result<FileContent, Fault> {
-        let worktree = document_scope(context)?;
+        let worktree = scope(context)?;
         self.read_document_in(worktree, path, cancel, Some(context))
             .await
     }
@@ -68,7 +68,7 @@ impl Client {
         let result = tokio::select! {
             biased;
             _ = cancel.cancelled() => return Err(cancelled()),
-            result = self.execute(document_request(self, Command::ReadFile { worktree, path: path.into() }, context)) => result?,
+            result = self.execute(prepare(self, Command::ReadFile { worktree, path: path.into() }, context)) => result?,
         };
         let Output::FileContent(content) = result else {
             return Err(invalid_response());
@@ -95,7 +95,7 @@ impl Client {
         let result = tokio::select! {
             biased;
             _ = cancel.cancelled() => return Err(cancelled()),
-            result = self.execute(document_request(self, Command::DownloadFile { worktree, path: path.into() }, context)) => result?,
+            result = self.execute(prepare(self, Command::DownloadFile { worktree, path: path.into() }, context)) => result?,
         };
         let Output::FileDownload(download) = result else {
             return Err(invalid_response());
@@ -145,7 +145,7 @@ impl Client {
         expected_revision: &str,
         cancel: CancellationToken,
     ) -> Result<DocumentWrite, Fault> {
-        let worktree = document_scope(context)?;
+        let worktree = scope(context)?;
         self.stage_document_in(
             worktree,
             path,
@@ -180,7 +180,7 @@ impl Client {
         let result = tokio::select! {
             biased;
             _ = cancel.cancelled() => return Err(cancelled()),
-            result = self.execute(document_request(self, Command::UploadFile(spec.clone()), context)) => result?,
+            result = self.execute(prepare(self, Command::UploadFile(spec.clone()), context)) => result?,
         };
         let Output::FileUpload(upload) = result else {
             return Err(invalid_response());
@@ -192,7 +192,7 @@ impl Client {
         self.upload(&upload, &mut text.as_bytes(), cancel, |_| {})
             .await?;
         Ok(DocumentWrite {
-            request: document_request(
+            request: prepare(
                 self,
                 Command::FinishFileUpload {
                     worktree,
@@ -206,7 +206,7 @@ impl Client {
     }
 }
 
-fn document_scope(context: &sailry_protocol::plugin::Context) -> Result<WorktreeId, Fault> {
+fn scope(context: &sailry_protocol::plugin::Context) -> Result<WorktreeId, Fault> {
     context.worktree.ok_or_else(|| {
         Fault::new(
             ErrorCode::InvalidRequest,
@@ -215,7 +215,7 @@ fn document_scope(context: &sailry_protocol::plugin::Context) -> Result<Worktree
     })
 }
 
-fn document_request(
+fn prepare(
     client: &Client,
     command: Command,
     context: Option<&sailry_protocol::plugin::Context>,

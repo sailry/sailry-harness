@@ -1,5 +1,5 @@
 //! Adapted from sailry-code 67ae9fa0 sailry-git service.rs delete_branch (Apache-2.0).
-use super::super::{check_root, git_error, open, path, revision, worktrees};
+use super::super::{check_root, fault, open, path, revision, worktrees};
 use git2::{Branch, BranchType, Config, Oid, Reference};
 use sailry_protocol::{ErrorCode, Fault};
 use std::path::Path;
@@ -11,7 +11,7 @@ pub(crate) fn remove(
     expected_head: &str,
     expected_branch: Option<&str>,
 ) -> Result<(), Fault> {
-    if name.len() > 1024 || !Branch::name_is_valid(name).map_err(git_error)? {
+    if name.len() > 1024 || !Branch::name_is_valid(name).map_err(fault)? {
         return Err(Fault::new(ErrorCode::InvalidRequest, "invalid branch name"));
     }
     let tip = full_oid(commit)?;
@@ -30,20 +30,20 @@ pub(crate) fn remove(
     let repository = open(root)?;
     // Freeze the displayed checkout while checking reachability. The native
     // branch operation compares the target ref's old OID under its own lock.
-    let mut locks = repository.transaction().map_err(git_error)?;
-    locks.lock_ref("HEAD").map_err(git_error)?;
+    let mut locks = repository.transaction().map_err(fault)?;
+    locks.lock_ref("HEAD").map_err(fault)?;
     if let Some(source) = &source {
-        locks.lock_ref(source).map_err(git_error)?;
+        locks.lock_ref(source).map_err(fault)?;
     }
-    let current = repository.find_reference("HEAD").map_err(git_error)?;
-    if current.symbolic_target().map_err(git_error)? != source.as_deref()
-        || current.resolve().map_err(git_error)?.target() != Some(head)
+    let current = repository.find_reference("HEAD").map_err(fault)?;
+    if current.symbolic_target().map_err(fault)? != source.as_deref()
+        || current.resolve().map_err(fault)?.target() != Some(head)
     {
         return Err(revision::conflict());
     }
     let mut branch = repository
         .find_branch(name, BranchType::Local)
-        .map_err(git_error)?;
+        .map_err(fault)?;
     if branch.get().target() != Some(tip) {
         return Err(revision::conflict());
     }
@@ -55,11 +55,7 @@ pub(crate) fn remove(
         ));
     }
     worktrees::check_available(&repository, root, &target)?;
-    if head != tip
-        && !repository
-            .graph_descendant_of(head, tip)
-            .map_err(git_error)?
-    {
+    if head != tip && !repository.graph_descendant_of(head, tip).map_err(fault)? {
         return Err(Fault::new(
             ErrorCode::Conflict,
             "branch has unmerged commits",
@@ -70,8 +66,8 @@ pub(crate) fn remove(
     // checkout, deleting a ref does not invoke filters, hooks or transport helpers.
     // Do not make user/global configuration a writable branch metadata source.
     repository
-        .set_config(&Config::open(&repository.commondir().join("config")).map_err(git_error)?)
-        .map_err(git_error)?;
+        .set_config(&Config::open(&repository.commondir().join("config")).map_err(fault)?)
+        .map_err(fault)?;
     // libgit2 removes tracking configuration before publishing ref deletion.
     // A failure here may already have changed metadata, so never replay it.
     branch.delete().map_err(|_| unknown())?;
@@ -86,7 +82,7 @@ fn full_oid(value: &str) -> Result<Oid, Fault> {
             "expected a full commit identifier",
         ));
     }
-    Oid::from_str(value).map_err(git_error)
+    Oid::from_str(value).map_err(fault)
 }
 
 fn unknown() -> Fault {

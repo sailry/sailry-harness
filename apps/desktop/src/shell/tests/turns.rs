@@ -123,7 +123,7 @@ fn preview_stream_ownership(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn turn_geometry_and_groups(cx: &mut TestAppContext) {
+fn geometry_and_groups(cx: &mut TestAppContext) {
     let (shell, mut cx) = setup(cx);
     for mode in [ThemeMode::Light, ThemeMode::Dark] {
         for width in [760., 1280., 1920.] {

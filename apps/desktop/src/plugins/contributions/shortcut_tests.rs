@@ -3,7 +3,7 @@ use core::prelude::v1::test;
 use sailry_protocol::{Command, Output, plugin::desktop::ResourceKind};
 
 #[gpui::test]
-fn uses_the_selected_provider_even_without_a_shortcut(cx: &mut TestAppContext) {
+fn selected_provider_needs_no_shortcut(cx: &mut TestAppContext) {
     let fixture = crate::plugins::fixture::Fixture::new(false);
     let Output::Plugin(mut first) = fixture.execute(Command::ReadPlugin {
         name: "files".into(),

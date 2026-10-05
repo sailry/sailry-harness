@@ -317,7 +317,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn relay_choice_clears_old_codes_and_preserves_drafts(cx: &mut TestAppContext) {
+    fn relay_choice_clears_codes_and_preserves_drafts(cx: &mut TestAppContext) {
         cx.update(|cx| {
             gpui_kit::init(cx);
             crate::theme::init(cx);

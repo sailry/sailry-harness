@@ -111,7 +111,7 @@ impl RenderOnce for Orb {
                             foreground: cx.theme().foreground,
                             background: cx.theme().background,
                         };
-                        paint::paint_frame(
+                        paint::frame(
                             window,
                             bounds,
                             &geometry.frame,

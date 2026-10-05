@@ -4,7 +4,7 @@ use adk_browser::BrowserSession;
 use adk_core::Result;
 use serde_json::{Value, json};
 
-pub(super) async fn extract_text(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn text(browser: &BrowserSession, args: Value) -> Result<Value> {
     let selector = args
         .get("selector")
         .and_then(|v| v.as_str())
@@ -37,7 +37,7 @@ pub(super) async fn extract_text(browser: &BrowserSession, args: Value) -> Resul
     }
 }
 
-pub(super) async fn extract_attribute(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn attribute(browser: &BrowserSession, args: Value) -> Result<Value> {
     let selector = args
         .get("selector")
         .and_then(|v| v.as_str())
@@ -57,7 +57,7 @@ pub(super) async fn extract_attribute(browser: &BrowserSession, args: Value) -> 
     }))
 }
 
-pub(super) async fn extract_links(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn links(browser: &BrowserSession, args: Value) -> Result<Value> {
     let container = args.get("selector").and_then(|v| v.as_str());
     let include_text = args
         .get("include_text")

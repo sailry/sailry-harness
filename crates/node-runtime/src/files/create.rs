@@ -4,7 +4,7 @@ use super::{io_error, path};
 use sailry_protocol::{ErrorCode, Fault};
 use std::path::Path;
 
-pub(crate) fn create_directory(root: &Path, relative: &str) -> Result<(), Fault> {
+pub(crate) fn directory(root: &Path, relative: &str) -> Result<(), Fault> {
     let parts = path::components(relative, false)?;
     let (name, parents) = parts.split_last().unwrap();
     let parent = path::descend(path::root(root)?, parents)?;
@@ -26,10 +26,10 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().canonicalize().unwrap();
         std::fs::write(root.join("file"), "keep").unwrap();
-        create_directory(&root, "folder").unwrap();
+        directory(&root, "folder").unwrap();
         for path in ["file", "folder"] {
             assert_eq!(
-                create_directory(&root, path).unwrap_err().code,
+                directory(&root, path).unwrap_err().code,
                 ErrorCode::Conflict
             );
         }
@@ -41,16 +41,16 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().canonicalize().unwrap();
         assert_eq!(
-            create_directory(&root, "missing/child").unwrap_err().code,
+            directory(&root, "missing/child").unwrap_err().code,
             ErrorCode::NotFound
         );
         assert!(!root.join("missing").exists());
-        create_directory(&root, "资料").unwrap();
-        create_directory(&root, "资料/新目录").unwrap();
+        directory(&root, "资料").unwrap();
+        directory(&root, "资料/新目录").unwrap();
         assert!(root.join("资料/新目录").is_dir());
         for path in ["", "../outside", "/absolute", "folder/../other"] {
             assert_eq!(
-                create_directory(&root, path).unwrap_err().code,
+                directory(&root, path).unwrap_err().code,
                 ErrorCode::InvalidRequest
             );
         }
@@ -63,7 +63,7 @@ mod tests {
         let root = temp.path().canonicalize().unwrap();
         let outside = tempfile::tempdir().unwrap();
         std::os::unix::fs::symlink(outside.path(), root.join("linked")).unwrap();
-        assert!(create_directory(&root, "linked/child").is_err());
+        assert!(directory(&root, "linked/child").is_err());
         assert!(!outside.path().join("child").exists());
     }
 }

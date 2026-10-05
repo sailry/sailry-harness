@@ -23,7 +23,7 @@ fn packages(node: &Node) -> std::collections::BTreeSet<std::ffi::OsString> {
 }
 
 #[tokio::test]
-async fn checks_content_without_installing_and_rejects_stale_revisions() {
+async fn checks_reject_stale_revisions_without_installing() {
     for remote in [false, true] {
         let (directory, node, controller, client, worktree) = fixture(remote).await;
         let installed = info(execute(&client, install(worktree, 0)).await);
@@ -134,7 +134,7 @@ async fn unavailable_official_source() {
 }
 
 #[tokio::test]
-async fn repository_checks_pin_plugins_and_skills_without_installing() {
+async fn repository_checks_pin_without_installing() {
     for remote in [false, true] {
         let git = source::Git::new();
         let (_directory, node, controller, client, _) = fixture(remote).await;

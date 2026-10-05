@@ -66,7 +66,7 @@ fn reads_original_large_output_and_joined_rows() {
 }
 
 #[test]
-fn preserves_partial_notices_paths_and_literal_write_inputs() {
+fn preserves_partial_notices_and_literal_inputs() {
     let search = display("search_files").output.unwrap();
     let result = json!({"data":{"matches":[{"path":"one"},{"path":"one"},{"path":"two"}],"truncated":true,"skipped":1}});
     assert_eq!(
@@ -136,7 +136,7 @@ fn rejects_ambiguous_and_nested_projection_recipes() {
 }
 
 #[test]
-fn renders_git_status_columns_and_bounded_commit_ids() {
+fn renders_status_columns_and_bounded_commits() {
     let package: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../plugins/git/plugin.json"

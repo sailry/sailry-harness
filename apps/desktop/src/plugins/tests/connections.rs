@@ -282,12 +282,7 @@ fn input(visual: &mut VisualTestContext, id: &str, value: &str) {
     );
 }
 
-fn connection_action(
-    panel: &Entity<Panel>,
-    visual: &mut VisualTestContext,
-    prefix: &str,
-    action: &str,
-) {
+fn action(panel: &Entity<Panel>, visual: &mut VisualTestContext, prefix: &str, action: &str) {
     wait(visual, |cx| {
         !snapshot(panel, cx).lines().any(|line| {
             line.contains("module_component sailry/ui.Modal")

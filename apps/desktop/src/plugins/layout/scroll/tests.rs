@@ -107,7 +107,7 @@ impl Drop for DefaultPolicy {
 }
 
 #[gpui::test]
-fn script_region_chains_and_retains_position_on_refresh(cx: &mut TestAppContext) {
+fn script_region_preserves_chaining_and_position(cx: &mut TestAppContext) {
     crate::plugins::tests::init(cx);
     let directory = tempfile::tempdir().unwrap();
     std::fs::write(

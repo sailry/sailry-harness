@@ -89,10 +89,8 @@ mod tests {
     #[test]
     fn keeps_order_and_marks() {
         let doc = expand(
-            super::super::parse_ranges(
-                "**Before** ![First](one.png) then ![Second](two.jpg) after",
-            )
-            .doc,
+            super::super::with_ranges("**Before** ![First](one.png) then ![Second](two.jpg) after")
+                .doc,
         );
         assert_eq!(doc.blocks.len(), 5);
         let BlockKind::Paragraph(text) = &doc.blocks[0].kind else {
@@ -107,7 +105,7 @@ mod tests {
     #[test]
     fn shows_file_links() {
         let doc = expand(
-            super::super::parse_ranges(
+            super::super::with_ranges(
                 "Done: [Download](output.png) [Website](https://example.test/photo.png)",
             )
             .doc,

@@ -10,7 +10,7 @@ use serde_json::json;
 mod lifecycle;
 
 #[gpui::test]
-fn commands_share_mode_controls_and_keep_visible_markers(cx: &mut TestAppContext) {
+fn commands_preserve_shared_controls_and_markers(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::with_tools(remote, vec![]);

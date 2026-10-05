@@ -148,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn signs_archives_and_exact_metadata_without_overwriting_inputs() {
+    fn signs_metadata_without_overwriting_inputs() {
         let directory = tempfile::tempdir().unwrap();
         let input = directory.path().join("input");
         fs::create_dir(&input).unwrap();

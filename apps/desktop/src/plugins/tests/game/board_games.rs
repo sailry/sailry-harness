@@ -74,7 +74,7 @@ pub(super) fn layout(visual: &mut VisualTestContext, game: &str) {
 }
 
 #[gpui::test]
-fn results_preserve_the_board_and_start_another_game(cx: &mut TestAppContext) {
+fn results_preserve_boards_and_allow_new_games(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         for game in ["gomoku", "reversi"] {

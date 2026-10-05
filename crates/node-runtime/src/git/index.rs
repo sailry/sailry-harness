@@ -1,7 +1,7 @@
 //! Stage/unstage behavior references sailry-code 67ae9fa0
 //! sailry-git/src/service.rs (Apache-2.0). Publication uses an owned index lock
 //! and a separate candidate index, preserving unrelated external Git updates.
-use super::{git_error, io_error, path};
+use super::{fault, io_error, path};
 use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::fs::{Dir, OpenOptions};
 use git2::Repository;
@@ -24,7 +24,7 @@ pub(crate) fn revision(repository: &Repository) -> Result<String, Fault> {
 }
 
 pub(super) fn location(repository: &Repository) -> Result<PathBuf, Fault> {
-    let index = repository.index().map_err(git_error)?;
+    let index = repository.index().map_err(fault)?;
     let location = index.path().ok_or_else(|| {
         Fault::new(
             ErrorCode::InvalidRequest,

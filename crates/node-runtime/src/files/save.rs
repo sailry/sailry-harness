@@ -51,7 +51,7 @@ pub(crate) fn save(
 }
 
 /// Binary artifacts share the same create-only and revision-checked publication.
-pub(crate) fn save_bytes(
+pub(crate) fn write_binary(
     root: &Path,
     path: &str,
     bytes: &[u8],

@@ -152,7 +152,7 @@ fn empty_fences_keep_source_and_history(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn selection_formats_do_not_leave_hidden_typing_state(cx: &mut TestAppContext) {
+fn selection_formats_leave_no_hidden_state(cx: &mut TestAppContext) {
     let (state, input, visual) = setup(cx, "# Heading\n\nOther");
     visual.update(|_, cx| {
         state.update(cx, |state, cx| {

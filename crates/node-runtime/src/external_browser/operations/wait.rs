@@ -5,7 +5,7 @@ use adk_core::Result;
 use serde_json::{Value, json};
 use std::time::Duration;
 
-pub(super) async fn wait_for_element(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn element(browser: &BrowserSession, args: Value) -> Result<Value> {
     let selector = args
         .get("selector")
         .and_then(|v| v.as_str())
@@ -51,7 +51,7 @@ pub(super) async fn wait(_browser: &BrowserSession, args: Value) -> Result<Value
     }))
 }
 
-pub(super) async fn wait_for_page_load(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn page_load(browser: &BrowserSession, args: Value) -> Result<Value> {
     let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(30);
 
     let script = "return document.readyState";
@@ -84,7 +84,7 @@ pub(super) async fn wait_for_page_load(browser: &BrowserSession, args: Value) ->
     }))
 }
 
-pub(super) async fn wait_for_text(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn text(browser: &BrowserSession, args: Value) -> Result<Value> {
     let text = args
         .get("text")
         .and_then(|v| v.as_str())

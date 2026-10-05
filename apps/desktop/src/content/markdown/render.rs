@@ -480,13 +480,18 @@ impl<'a> Overlay<'a> {
 /// so nothing about layout depends on where the caret sits. An editor supplies
 /// the selection and owns the focus and the keys; painting a caret and a few
 /// quads is not worth a second renderer.
-pub fn render_with(doc: &Doc, editing: Editing, window: &mut Window, cx: &mut App) -> AnyElement {
-    render_with_block(doc, editing, None, window, cx)
+pub fn with_selection(
+    doc: &Doc,
+    editing: Editing,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    with_block(doc, editing, None, window, cx)
 }
 
 /// Replace only a focused leaf with a framework input while retaining the
 /// surrounding Bezel layout and CommonMark container path.
-pub fn render_with_block(
+pub fn with_block(
     doc: &Doc,
     editing: Editing,
     mut replacement: Option<(usize, AnyElement)>,

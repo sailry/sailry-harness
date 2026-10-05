@@ -43,7 +43,7 @@ fn position(
 }
 
 #[gpui::test]
-fn native_cursor_and_language_reach_the_status_bar(cx: &mut TestAppContext) {
+fn shows_native_cursor_and_language(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);

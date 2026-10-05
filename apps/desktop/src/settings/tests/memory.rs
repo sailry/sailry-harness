@@ -179,7 +179,7 @@ fn install(fixture: &Fixture, index: usize) {
 }
 
 #[gpui::test]
-fn manages_entries_and_retains_conflicts_on_each_host(cx: &mut TestAppContext) {
+fn entries_preserve_host_conflicts(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     rust_i18n::set_locale("en");
     let fixture = Fixture::new();

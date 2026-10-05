@@ -155,7 +155,7 @@ fn mcp_errors_preserve_text() {
 }
 
 #[test]
-fn mcp_error_fields_do_not_classify_user_data() {
+fn mcp_error_fields_preserve_user_data() {
     for result in [
         json!({"isError":false,"content":[{"type":"text","text":"Literal content"}],"structuredContent":{"error_code":"user-data"}}),
         json!({"content":[{"type":"text","text":"Literal content"}],"structuredContent":{"isError":true,"error":"user-data"}}),
@@ -172,7 +172,7 @@ fn mcp_error_fields_do_not_classify_user_data() {
 }
 
 #[test]
-fn mcp_errors_without_text_do_not_invent_diagnostics() {
+fn mcp_errors_preserve_missing_diagnostics() {
     for result in [
         json!({"isError":true,"content":[]}),
         json!({"isError":true,"content":[{"type":"image","text":"Not diagnostic text"}]}),
@@ -184,7 +184,7 @@ fn mcp_errors_without_text_do_not_invent_diagnostics() {
 }
 
 #[test]
-fn invalid_result_markers_do_not_classify_user_data() {
+fn invalid_markers_preserve_user_data() {
     for marker in [
         json!({"version":2,"diagnostics":[{"text":"user data","error":true}]}),
         json!({"version":1,"diagnostics":[{"text":"user data","error":"yes"}]}),
@@ -387,7 +387,7 @@ fn preserves_sql_diagnostics() {
 }
 
 #[test]
-fn undeclared_output_is_not_interpreted_by_tool_name() {
+fn undeclared_output_ignores_tool_names() {
     for name in [
         "computer_input",
         "external_input",

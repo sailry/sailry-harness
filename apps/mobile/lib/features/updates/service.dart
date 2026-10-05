@@ -44,7 +44,7 @@ class AppUpdates extends ChangeNotifier {
     notifyListeners();
     try {
       final info = _info ?? await _readInfo().timeout(timeout);
-      final current = releaseVersion(info.version);
+      final current = precedence(info.version);
       if (_closed) return null;
       _info = info;
       if (_target != 'android-arm64') return UpdateResult.unpublished;

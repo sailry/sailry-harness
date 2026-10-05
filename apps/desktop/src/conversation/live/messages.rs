@@ -488,7 +488,7 @@ impl View {
             .child(tr(status))
             .children(elapsed);
         let header = if answer_from > 0 {
-            crate::conversation::surface::work_trigger(
+            crate::conversation::surface::trigger(
                 format!("live-turn-work-{turn}"),
                 label,
                 status_row,

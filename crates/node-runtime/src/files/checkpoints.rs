@@ -1,5 +1,5 @@
 //! Explicit checkpoint recovery uses the ordinary save and native Trash kernels.
-use super::{io_error, open_regular, path, save, trash_file, version};
+use super::{io_error, open_regular, path, remove_verified, save, version};
 use sailry_protocol::{ErrorCode, Fault, conversation::checkpoint};
 use std::path::Path;
 
@@ -24,7 +24,7 @@ pub(crate) fn restore(
             ));
         }
         let stamp = version::retained(&retained, &parent, &current, &file.path)?;
-        trash_file(root, &file.path, &file.after.revision, &stamp)?;
+        remove_verified(root, &file.path, &file.after.revision, &stamp)?;
         None
     };
     Ok(checkpoint::Restored {

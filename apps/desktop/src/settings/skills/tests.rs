@@ -22,7 +22,7 @@ fn ready(owner: &Entity<Workspace>, visual: &mut VisualTestContext) {
 }
 
 #[gpui::test]
-fn discovery_keeps_progress_in_button_and_responsive_rows(cx: &mut TestAppContext) {
+fn discovery_preserves_progress_and_responsive_rows(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let source = source::Server::with_description(

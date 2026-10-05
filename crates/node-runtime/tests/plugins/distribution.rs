@@ -125,7 +125,7 @@ async fn incompatible_profile_is_not_initialized_or_converted() {
 }
 
 #[tokio::test]
-async fn defaults_are_ordinary_packages_and_do_not_resurrect() {
+async fn removed_defaults_stay_removed() {
     for remote in [false, true] {
         for (name, enabled) in [
             ("reminders", true),

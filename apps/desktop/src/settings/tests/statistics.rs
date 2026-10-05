@@ -71,7 +71,7 @@ fn populate(fixture: &Fixture, index: usize, endpoint: &str) {
 }
 
 #[gpui::test]
-fn observes_each_host_and_keeps_filters_in_the_header(cx: &mut TestAppContext) {
+fn host_observation_preserves_header_filters(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     rust_i18n::set_locale("en");
     let fixture = Fixture::new();

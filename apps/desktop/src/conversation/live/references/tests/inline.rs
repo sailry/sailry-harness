@@ -174,7 +174,7 @@ fn markers_keep_text_and_targets_without_icons() {
 }
 
 #[test]
-fn native_identity_does_not_admit_matching_plain_text() {
+fn native_identity_rejects_plain_text() {
     use gpui_kit::base::input::InputContent;
     let file = Reference {
         label: "Same".into(),
@@ -204,7 +204,7 @@ fn native_identity_does_not_admit_matching_plain_text() {
 }
 
 #[gpui::test]
-fn native_tokens_preserve_multiline_source_and_atomic_undo(cx: &mut TestAppContext) {
+fn native_tokens_preserve_multiline_undo(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::with_tools(remote, vec![]);

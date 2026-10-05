@@ -29,7 +29,7 @@ mod tests {
     #[test]
     fn only_standalone_links() {
         for markdown in ["[Report](report.docx)", "[报告](<a b.pdf>)"] {
-            let doc = super::super::parse_ranges(markdown).doc;
+            let doc = super::super::with_ranges(markdown).doc;
             assert!(reference(&doc.blocks[0]).is_some());
         }
         for markdown in [
@@ -39,7 +39,7 @@ mod tests {
             "[A](a.pdf) [B](b.pdf)",
             "```html\n<a>example</a>\n```",
         ] {
-            let doc = super::super::parse_ranges(markdown).doc;
+            let doc = super::super::with_ranges(markdown).doc;
             assert!(
                 doc.blocks.iter().all(|block| reference(block).is_none()),
                 "{markdown}"

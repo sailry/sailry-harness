@@ -27,7 +27,7 @@ impl<C: StreamableHttpClient> Connection<C> {
         url: &str,
         headers: HashMap<HeaderName, HeaderValue>,
     ) -> io::Result<Self> {
-        let origin = Url::parse(url).map_err(|_| transport_error())?;
+        let origin = Url::parse(url).map_err(|_| failure())?;
         let mut stream = client
             .get_stream_with_max_sse_event_size(
                 url.into(),
@@ -38,29 +38,29 @@ impl<C: StreamableHttpClient> Connection<C> {
                 limits::MAX_MESSAGE,
             )
             .await
-            .map_err(|_| transport_error())?;
+            .map_err(|_| failure())?;
         let endpoint = loop {
             let event = stream
                 .next()
                 .await
-                .ok_or_else(transport_error)?
-                .map_err(|_| transport_error())?;
+                .ok_or_else(failure)?
+                .map_err(|_| failure())?;
             match event.event.as_deref() {
                 Some("endpoint") => {
                     let endpoint = origin
-                        .join(event.data.as_deref().ok_or_else(transport_error)?)
-                        .map_err(|_| transport_error())?;
+                        .join(event.data.as_deref().ok_or_else(failure)?)
+                        .map_err(|_| failure())?;
                     // The server cannot redirect the execution Node's private headers.
                     if endpoint.origin() != origin.origin()
                         || !endpoint.username().is_empty()
                         || endpoint.password().is_some()
                         || endpoint.fragment().is_some()
                     {
-                        return Err(transport_error());
+                        return Err(failure());
                     }
                     break endpoint.as_str().into();
                 }
-                Some("message") => return Err(transport_error()),
+                Some("message") => return Err(failure()),
                 _ => {}
             }
         };
@@ -96,7 +96,7 @@ impl<C: StreamableHttpClient + Sync> Transport<RoleClient> for Connection<C> {
         async move {
             let response = tokio::select! {
                 biased;
-                _ = stop.cancelled() => return Err(transport_error()),
+                _ = stop.cancelled() => return Err(failure()),
                 result = client.post_message_with_max_sse_event_size(
                     endpoint, item, None, None, headers, limits::MAX_MESSAGE,
                 ) => result,
@@ -105,7 +105,7 @@ impl<C: StreamableHttpClient + Sync> Transport<RoleClient> for Connection<C> {
                 Ok(StreamableHttpPostResponse::Accepted) => Ok(()),
                 _ => {
                     stop.cancel();
-                    Err(transport_error())
+                    Err(failure())
                 }
             }
         }

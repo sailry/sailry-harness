@@ -10,7 +10,7 @@ class Release {
 }
 
 /// App updates follow SemVer precedence, not pub's build-number ordering.
-Version releaseVersion(String value) {
+Version precedence(String value) {
   final version = Version.parse(value);
   return Version(
     version.major,
@@ -41,7 +41,7 @@ Release? latestRelease(
     if (!tag.startsWith('v')) continue;
     Version version;
     try {
-      version = releaseVersion(tag.substring(1));
+      version = precedence(tag.substring(1));
     } on FormatException {
       continue;
     }

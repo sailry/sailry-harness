@@ -13,7 +13,7 @@ class DiffLine {
   final String kind;
 }
 
-List<DiffLine> diffLines(String patch, {bool added = false}) {
+List<DiffLine> parseLines(String patch, {bool added = false}) {
   if (added) {
     final lines = patch.split('\n');
     if (lines.last.isEmpty) lines.removeLast();
@@ -80,7 +80,7 @@ class DiffView extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    for (final line in diffLines(
+                    for (final line in parseLines(
                       patch,
                       added: diff['format'] == 'added',
                     ))

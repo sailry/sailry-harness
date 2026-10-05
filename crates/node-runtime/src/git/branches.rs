@@ -1,6 +1,6 @@
 //! Branch reads and creation adapted from sailry-code 67ae9fa0:
 //! sailry-git/src/service.rs branches/create_branch (Apache-2.0).
-use super::{Control, check_root, git_error, open, path};
+use super::{Control, check_root, fault, open, path};
 use git2::{Branch, BranchType, Oid};
 use sailry_protocol::*;
 use std::path::Path;
@@ -28,13 +28,13 @@ pub(super) fn list(root: &Path, control: &Control) -> Result<GitBranches, Fault>
     let unborn = match repository.head() {
         Ok(_) => false,
         Err(error) if error.code() == git2::ErrorCode::UnbornBranch => true,
-        Err(error) => return Err(git_error(error)),
+        Err(error) => return Err(fault(error)),
     };
     let current = repository
         .find_reference("HEAD")
-        .map_err(git_error)?
+        .map_err(fault)?
         .symbolic_target()
-        .map_err(git_error)?
+        .map_err(fault)?
         .and_then(|name| name.strip_prefix("refs/heads/"))
         .map(str::to_owned);
     let mut result = GitBranches {
@@ -50,17 +50,17 @@ pub(super) fn list(root: &Path, control: &Control) -> Result<GitBranches, Fault>
         omitted_names: 0,
     };
     // Bound inspection as well as output; symbolic remote HEAD aliases are not branches.
-    for (index, branch) in repository.branches(None).map_err(git_error)?.enumerate() {
+    for (index, branch) in repository.branches(None).map_err(fault)?.enumerate() {
         control.check()?;
         if index == MAX_GIT_ENTRIES {
             result.truncated = true;
             break;
         }
-        let (branch, kind) = branch.map_err(git_error)?;
+        let (branch, kind) = branch.map_err(fault)?;
         if branch.get().symbolic_target_bytes().is_some() {
             continue;
         }
-        let Some(name) = branch.name().map_err(git_error)? else {
+        let Some(name) = branch.name().map_err(fault)? else {
             result.omitted_names += 1;
             continue;
         };
@@ -87,7 +87,7 @@ pub(super) fn list(root: &Path, control: &Control) -> Result<GitBranches, Fault>
 }
 
 pub(crate) fn create(root: &Path, name: &str, commit: &str) -> Result<GitBranch, Fault> {
-    if name.len() > 1024 || !Branch::name_is_valid(name).map_err(git_error)? {
+    if name.len() > 1024 || !Branch::name_is_valid(name).map_err(fault)? {
         return Err(Fault::new(ErrorCode::InvalidRequest, "invalid branch name"));
     }
     // The caller selects an exact base commit, not a moving reference or revspec.
@@ -104,17 +104,17 @@ pub(crate) fn create(root: &Path, name: &str, commit: &str) -> Result<GitBranch,
     match repository.find_branch(name, BranchType::Local) {
         Ok(_) => return Err(Fault::new(ErrorCode::Conflict, "branch already exists")),
         Err(error) if error.code() == git2::ErrorCode::NotFound => {}
-        Err(error) => return Err(git_error(error)),
+        Err(error) => return Err(fault(error)),
     }
     let commit = repository
-        .find_commit(Oid::from_str(commit).map_err(git_error)?)
-        .map_err(git_error)?;
+        .find_commit(Oid::from_str(commit).map_err(fault)?)
+        .map_err(fault)?;
     check_root(&retained, root)?;
     let branch = repository.branch(name, &commit, false).map_err(|error| {
         if error.code() == git2::ErrorCode::Exists {
             Fault::new(ErrorCode::Conflict, "branch already exists")
         } else {
-            git_error(error)
+            fault(error)
         }
     })?;
     check_root(&retained, root).map_err(|_| {
@@ -132,7 +132,7 @@ pub(crate) fn create(root: &Path, name: &str, commit: &str) -> Result<GitBranch,
 }
 
 fn sync(root: &Path, branch: Option<&str>) -> Result<GitSync, Fault> {
-    let mut repository = git2::Repository::open(root).map_err(git_error)?;
+    let mut repository = git2::Repository::open(root).map_err(fault)?;
     let mut stashes = Vec::new();
     repository
         .stash_foreach(|_, message, id| {
@@ -142,10 +142,10 @@ fn sync(root: &Path, branch: Option<&str>) -> Result<GitSync, Fault> {
             });
             stashes.len() < MAX_GIT_ENTRIES
         })
-        .map_err(git_error)?;
+        .map_err(fault)?;
     let tags = repository
         .tag_names(None)
-        .map_err(git_error)?
+        .map_err(fault)?
         .iter()
         .flatten()
         .flatten()
@@ -162,7 +162,7 @@ fn sync(root: &Path, branch: Option<&str>) -> Result<GitSync, Fault> {
         .collect();
     let remote_urls = repository
         .remotes()
-        .map_err(git_error)?
+        .map_err(fault)?
         .iter()
         .flatten()
         .flatten()
@@ -177,7 +177,7 @@ fn sync(root: &Path, branch: Option<&str>) -> Result<GitSync, Fault> {
         .collect();
     let tracking = repository
         .branches(Some(BranchType::Local))
-        .map_err(git_error)?
+        .map_err(fault)?
         .take(MAX_GIT_ENTRIES)
         .filter_map(|branch| {
             let (branch, _) = branch.ok()?;
@@ -208,7 +208,7 @@ fn sync(root: &Path, branch: Option<&str>) -> Result<GitSync, Fault> {
             .and_then(|commit| commit.summary().ok().flatten().map(str::to_owned)),
         remotes: repository
             .remotes()
-            .map_err(git_error)?
+            .map_err(fault)?
             .iter()
             .flatten()
             .flatten()
@@ -231,9 +231,8 @@ fn sync(root: &Path, branch: Option<&str>) -> Result<GitSync, Fault> {
     {
         sync.upstream = upstream.name().ok().flatten().map(str::to_owned);
         if let (Some(head), Some(remote)) = (branch.get().target(), upstream.get().target()) {
-            (sync.ahead, sync.behind) = repository
-                .graph_ahead_behind(head, remote)
-                .map_err(git_error)?;
+            (sync.ahead, sync.behind) =
+                repository.graph_ahead_behind(head, remote).map_err(fault)?;
         }
     }
     Ok(sync)

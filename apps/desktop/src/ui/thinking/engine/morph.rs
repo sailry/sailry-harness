@@ -90,7 +90,7 @@ impl Shape {
     }
 }
 
-fn morph_n(d: f32) -> usize {
+fn sample_count(d: f32) -> usize {
     let n = (34.0 * d).round().max(6.0);
     (n as usize).clamp(6, MAX_MORPH_DOTS)
 }
@@ -141,7 +141,7 @@ pub fn draw_morph_into(size: f32, t: f32, o: &ModeOpts, out: &mut Frame) {
         total += l;
     }
 
-    let n = morph_n(o.icon_d.unwrap_or(1.0));
+    let n = sample_count(o.icon_d.unwrap_or(1.0));
     let re = o.r_dot.unwrap_or(0.021) * 1.35 * sprd;
     let pulse = 1.0 + 0.018 * (t * 2.35).sin();
 

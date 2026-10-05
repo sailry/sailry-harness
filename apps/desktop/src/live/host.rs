@@ -79,7 +79,7 @@ impl Shell {
                                                 .border_1()
                                                 .border_color(cx.theme().border)
                                                 .child(
-                                                    host_icon(
+                                                    platform_icon(
                                                         info.and_then(|info| info.os.as_deref()),
                                                     )
                                                     .size_5(),
@@ -192,7 +192,7 @@ impl Shell {
     }
 }
 
-pub(crate) fn host_icon(os: Option<&str>) -> Icon {
+pub(crate) fn platform_icon(os: Option<&str>) -> Icon {
     match os.unwrap_or_default().to_ascii_lowercase().as_str() {
         "darwin" | "macos" | "mac os" | "mac os x" => Icon::default().path("icons/os/apple.svg"),
         value if value.contains("windows") => Icon::default().path("icons/os/windows11.svg"),

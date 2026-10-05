@@ -7,7 +7,7 @@ use crate::content::markdown::{
     Block, BlockKind, Cursor, Doc, Part,
     doc::{Container, Text},
     parse::parse,
-    parse_ranges,
+    with_ranges,
 };
 use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
 use std::ops::Range;
@@ -213,7 +213,7 @@ pub(super) struct Patch {
 
 impl Map {
     pub fn new(source: &str, doc: &Doc) -> Self {
-        let partitions = parse_ranges(source).block_ranges;
+        let partitions = with_ranges(source).block_ranges;
         let mut leaves: Vec<_> = doc
             .blocks
             .iter()

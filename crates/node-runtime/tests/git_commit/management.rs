@@ -100,7 +100,7 @@ async fn tracking_checkout_preserves_edits() {
 }
 
 #[tokio::test]
-async fn management_local_and_remote() {
+async fn local_and_remote() {
     let fixture = Fixture::new().await;
     fixture.stage("base\n");
     let base = fixture.commit("Base", false).await;

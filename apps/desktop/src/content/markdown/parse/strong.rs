@@ -105,7 +105,7 @@ fn flush<'a>(
 mod tests {
     use crate::content::markdown::{
         doc::{BlockKind, Mark, Part},
-        parse::parse_ranges,
+        parse::with_ranges,
     };
 
     #[test]
@@ -115,7 +115,7 @@ mod tests {
             "**未测试项：**界面颜色",
             "before **label: **after",
         ] {
-            let parsed = parse_ranges(source);
+            let parsed = with_ranges(source);
             let text = parsed.doc.blocks[0]
                 .text_at(Part::Body)
                 .unwrap_or_else(|| panic!("paragraph expected: {source}"));
@@ -134,7 +134,7 @@ mod tests {
             "before ****",
             "before ** ** after",
         ] {
-            let parsed = parse_ranges(source);
+            let parsed = with_ranges(source);
             let text = parsed.doc.blocks[0]
                 .text_at(Part::Body)
                 .unwrap_or_else(|| panic!("paragraph expected: {source}"));
@@ -145,10 +145,10 @@ mod tests {
             assert!(text.text.contains('*'));
         }
         for source in ["****", "** **"] {
-            let parsed = parse_ranges(source);
+            let parsed = with_ranges(source);
             assert!(matches!(parsed.doc.blocks[0].kind, BlockKind::Rule));
         }
-        let parsed = parse_ranges("```text\n**label: **\n```\n");
+        let parsed = with_ranges("```text\n**label: **\n```\n");
         let BlockKind::Code { code, .. } = &parsed.doc.blocks[0].kind else {
             panic!("code block expected")
         };

@@ -265,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn keeps_full_catalog_labels_within_the_vm_envelope() {
+    fn full_catalog_labels_fit_envelope() {
         let mut selection: Selection = serde_json::from_value(json!({
             "tools":["query"],"instruction":"","parameters":{
                 "query":{"type":"object","description":"label ".repeat(4096)}

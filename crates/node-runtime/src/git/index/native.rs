@@ -55,12 +55,12 @@ pub(super) fn update(
             if head.target().map(|oid| oid.to_string()).as_deref() != expected_head {
                 return Err(conflict());
             }
-            Some(head.peel_to_tree().map_err(git_error)?)
+            Some(head.peel_to_tree().map_err(fault)?)
         }
         Err(error) if error.code() == git2::ErrorCode::UnbornBranch && expected_head.is_none() => {
             None
         }
-        Err(error) => return Err(git_error(error)),
+        Err(error) => return Err(fault(error)),
     };
     let candidate = parent.join(&publication.candidate);
     // Reserve a unique path before libgit2 creates its own candidate lock.
@@ -75,7 +75,7 @@ pub(super) fn update(
     }
     drop(file);
     let mut index = if original.is_some() {
-        Index::open(&candidate).map_err(git_error)?
+        Index::open(&candidate).map_err(fault)?
     } else {
         // libgit2 accepts a nonexistent index, not a zero-length index file.
         publication
@@ -83,9 +83,9 @@ pub(super) fn update(
             .dir
             .remove_file(&publication.candidate)
             .map_err(io_error)?;
-        Index::open(&candidate).map_err(git_error)?
+        Index::open(&candidate).map_err(fault)?
     };
-    repository.set_index(&mut index).map_err(git_error)?;
+    repository.set_index(&mut index).map_err(fault)?;
     for value in paths {
         if Instant::now() >= deadline {
             return Err(Fault::new(
@@ -110,16 +110,16 @@ pub(super) fn update(
                 match tree.as_ref().map(|tree| tree.get_path(Path::new(value))) {
                     Some(Ok(entry)) => index
                         .add(&entry_record(value, entry.filemode() as u32, entry.id()))
-                        .map_err(git_error)?,
+                        .map_err(fault)?,
                     Some(Err(error)) if error.code() != git2::ErrorCode::NotFound => {
-                        return Err(git_error(error));
+                        return Err(fault(error));
                     }
                     _ => remove(&mut index, value)?,
                 }
             }
         }
     }
-    index.write().map_err(git_error)?;
+    index.write().map_err(fault)?;
     let bytes = read(
         &publication.lock.dir,
         &publication.candidate,
@@ -205,7 +205,7 @@ fn stage(
     };
     if repository
         .status_should_ignore(Path::new(value))
-        .map_err(git_error)?
+        .map_err(fault)?
         && index.get_path(Path::new(value), 0).is_none()
     {
         return Err(Fault::new(
@@ -223,7 +223,7 @@ fn stage(
                         .as_os_str()
                         .as_bytes(),
                 )
-                .map_err(git_error)?,
+                .map_err(fault)?,
             0o120000,
         )
     } else {
@@ -246,10 +246,8 @@ fn stage(
                 "file size exceeds platform capacity",
             )
         })?;
-        let odb = repository.odb().map_err(git_error)?;
-        let mut writer = odb
-            .writer(length, git2::ObjectType::Blob)
-            .map_err(git_error)?;
+        let odb = repository.odb().map_err(fault)?;
+        let mut writer = odb.writer(length, git2::ObjectType::Blob).map_err(fault)?;
         let mut buffer = [0_u8; 64 * 1024];
         loop {
             if Instant::now() >= deadline {
@@ -265,7 +263,7 @@ fn stage(
             writer.write_all(&buffer[..count]).map_err(io_error)?;
         }
         (
-            writer.finalize().map_err(git_error)?,
+            writer.finalize().map_err(fault)?,
             if metadata.mode() & 0o111 != 0 {
                 0o100755
             } else {
@@ -273,9 +271,7 @@ fn stage(
             },
         )
     };
-    index
-        .add(&entry_record(value, mode, oid))
-        .map_err(git_error)?;
+    index.add(&entry_record(value, mode, oid)).map_err(fault)?;
     sync_blob(repository, oid)
 }
 
@@ -329,7 +325,7 @@ fn entry_record(value: &str, mode: u32, id: Oid) -> IndexEntry {
 fn remove(index: &mut Index, value: &str) -> Result<(), Fault> {
     match index.remove_path(Path::new(value)) {
         Err(error) if error.code() == git2::ErrorCode::NotFound => Ok(()),
-        result => result.map_err(git_error),
+        result => result.map_err(fault),
     }
 }
 

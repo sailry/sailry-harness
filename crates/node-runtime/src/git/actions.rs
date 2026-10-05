@@ -1,5 +1,5 @@
 //! Git panel operations use the existing durable worktree mutation boundary.
-use super::{cli, git_error, open, revision, valid_path};
+use super::{cli, fault, open, revision, valid_path};
 use sailry_protocol::{ErrorCode, Fault, GitAction};
 use std::path::Path;
 
@@ -16,9 +16,7 @@ pub(super) fn check(
     revision::check(
         &repository,
         &reference,
-        head.map(git2::Oid::from_str)
-            .transpose()
-            .map_err(git_error)?,
+        head.map(git2::Oid::from_str).transpose().map_err(fault)?,
         index,
     )
 }
@@ -48,11 +46,11 @@ pub(crate) fn execute(
                 .mkpath(false)
                 .external_template(false),
         )
-        .map_err(git_error)?;
+        .map_err(fault)?;
         return super::check_root(&directory, root);
     }
     check(root, index, head, branch)?;
-    let repository = git2::Repository::open(root).map_err(git_error)?;
+    let repository = git2::Repository::open(root).map_err(fault)?;
     let mut args: Vec<String> = Vec::new();
     match action {
         GitAction::Initialize => unreachable!("initialization is handled before revision checks"),
@@ -68,12 +66,12 @@ pub(crate) fn execute(
             }
             match repository.head() {
                 Err(error) if error.code() == git2::ErrorCode::UnbornBranch => {}
-                Err(error) => return Err(git_error(error)),
+                Err(error) => return Err(fault(error)),
                 Ok(_) => return Err(revision::conflict()),
             }
             if name.starts_with('-')
                 || name.len() > 1024
-                || !git2::Branch::name_is_valid(name).map_err(git_error)?
+                || !git2::Branch::name_is_valid(name).map_err(fault)?
             {
                 return Err(Fault::new(ErrorCode::InvalidRequest, "invalid branch name"));
             }
@@ -193,8 +191,8 @@ pub(crate) fn execute(
         GitAction::Merge { commit }
         | GitAction::Rebase { commit }
         | GitAction::CherryPick { commit } => {
-            let oid = git2::Oid::from_str(commit).map_err(git_error)?;
-            repository.find_commit(oid).map_err(git_error)?;
+            let oid = git2::Oid::from_str(commit).map_err(fault)?;
+            repository.find_commit(oid).map_err(fault)?;
             args.extend([
                 if matches!(action, GitAction::Merge { .. }) {
                     "merge"
@@ -211,11 +209,11 @@ pub(crate) fn execute(
             name(target)?;
             repository
                 .find_branch(target, git2::BranchType::Remote)
-                .map_err(git_error)?;
+                .map_err(fault)?;
             if matches!(action, GitAction::Track { .. }) {
                 args.extend(["branch".into(), format!("--set-upstream-to={target}")]);
             } else {
-                let remotes = repository.remotes().map_err(git_error)?;
+                let remotes = repository.remotes().map_err(fault)?;
                 let existing = remotes
                     .iter()
                     .flatten()
@@ -230,7 +228,7 @@ pub(crate) fn execute(
                 if let Some(local) = existing {
                     let local_branch = repository
                         .find_branch(local, git2::BranchType::Local)
-                        .map_err(git_error)?;
+                        .map_err(fault)?;
                     if local_branch
                         .upstream()
                         .ok()
@@ -295,13 +293,13 @@ pub(crate) fn execute(
         GitAction::UndoCommit => {
             let commit = repository
                 .head()
-                .map_err(git_error)?
+                .map_err(fault)?
                 .peel_to_commit()
-                .map_err(git_error)?;
+                .map_err(fault)?;
             if commit.parent_count() > 0 {
-                let parent = commit.parent_id(0).map_err(git_error)?;
+                let parent = commit.parent_id(0).map_err(fault)?;
                 args.extend(["reset".into(), "--soft".into(), parent.to_string()]);
-            } else if repository.head().map_err(git_error)?.is_branch() {
+            } else if repository.head().map_err(fault)?.is_branch() {
                 // Removing the first branch commit leaves its files staged in an unborn branch.
                 args.extend([
                     "update-ref".into(),
@@ -326,9 +324,9 @@ pub(crate) fn execute(
             // Discard tracked edits only. Untracked files use the existing trash action.
             let tree = repository
                 .head()
-                .map_err(git_error)?
+                .map_err(fault)?
                 .peel_to_tree()
-                .map_err(git_error)?;
+                .map_err(fault)?;
             for path in paths {
                 valid_path(path)?;
                 super::check_entry(root, path)?;
@@ -359,7 +357,7 @@ pub(crate) fn execute(
                 super::check_entry(root, path)?;
                 if !repository
                     .status_file(Path::new(path))
-                    .map_err(git_error)?
+                    .map_err(fault)?
                     .is_wt_new()
                 {
                     return Err(Fault::new(
@@ -424,13 +422,13 @@ pub(super) fn name(value: &str) -> Result<(), Fault> {
 }
 pub(super) fn remote_name(repository: &git2::Repository, value: &str) -> Result<(), Fault> {
     name(value)?;
-    repository.find_remote(value).map_err(git_error)?;
+    repository.find_remote(value).map_err(fault)?;
     Ok(())
 }
 
 pub(super) fn stash_position(root: &Path, commit: &str) -> Result<usize, Fault> {
-    let id = git2::Oid::from_str(commit).map_err(git_error)?;
-    let mut repository = git2::Repository::open(root).map_err(git_error)?;
+    let id = git2::Oid::from_str(commit).map_err(fault)?;
+    let mut repository = git2::Repository::open(root).map_err(fault)?;
     let mut found = None;
     repository
         .stash_foreach(|position, _, target| {
@@ -441,7 +439,7 @@ pub(super) fn stash_position(root: &Path, commit: &str) -> Result<usize, Fault> 
                 true
             }
         })
-        .map_err(git_error)?;
+        .map_err(fault)?;
     found.ok_or_else(|| {
         Fault::new(
             ErrorCode::RevisionConflict,

@@ -14,11 +14,11 @@ pub(crate) mod transfers;
 mod trash;
 mod version;
 pub(crate) mod watch;
-pub(crate) use create::create_directory;
+pub(crate) use create::directory;
 pub(crate) use rename::rename;
-pub(crate) use save::{save, save_bytes};
+pub(crate) use save::{save, write_binary};
+pub(crate) use trash::remove_verified;
 pub(crate) use trash::trash;
-pub(crate) use trash::trash_file;
 
 use std::{
     io::Read,

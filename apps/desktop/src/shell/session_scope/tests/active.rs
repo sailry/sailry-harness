@@ -6,7 +6,7 @@ fn selector(value: String) -> &'static str {
 }
 
 #[gpui::test]
-fn header_and_group_share_local_and_remote_attention(cx: &mut TestAppContext) {
+fn header_and_group_share_attention(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     let (shell, visual) = mount(cx, &fixture);
     let handle = visual.update(|window, _| window.window_handle());

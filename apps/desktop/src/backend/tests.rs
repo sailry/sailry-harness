@@ -93,7 +93,7 @@ fn restores_relays_and_respects_explicit_startup_options() {
 }
 
 #[test]
-fn update_handoff_drains_only_the_shared_local_owner() {
+fn handoff_drains_only_local_owner() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("local");
     let local = Owner::start(Options {

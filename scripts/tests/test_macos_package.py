@@ -23,7 +23,7 @@ notary = load("notarize")
 
 
 class CodeSigning(unittest.TestCase):
-    def test_finds_macho_without_following_symlinks_or_signing_linux(self):
+    def test_finds_macho_without_symlinks_or_linux(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "nested").mkdir()
@@ -33,7 +33,7 @@ class CodeSigning(unittest.TestCase):
             (root / "link").symlink_to("program")
             self.assertEqual(signing.mach_objects(root), [root / "nested/lib.so", root / "program"])
 
-    def test_signs_inside_out_and_repackages_the_signed_interpreter(self):
+    def test_signs_inside_out_and_repackages_interpreter(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             app = root / "Sailry.app"
@@ -68,7 +68,7 @@ class CodeSigning(unittest.TestCase):
             self.assertEqual((host / "sailry-host").read_bytes(), (native / "sailry-host").read_bytes())
             verify.assert_any_call(app, "FIXTURE", deep=True)
 
-    def test_rejects_wrong_team_and_missing_runtime_or_timestamp(self):
+    def test_rejects_wrong_team_and_incomplete_metadata(self):
         for metadata in ("TeamIdentifier=OTHER\nflags=0x10000(runtime)\nTimestamp=now\n",
                          "TeamIdentifier=FIXTURE\nTimestamp=now\n",
                          "TeamIdentifier=FIXTURE\nflags=0x10000(runtime)\n"):

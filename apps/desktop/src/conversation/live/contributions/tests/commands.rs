@@ -1,7 +1,7 @@
 use super::*;
 
 #[gpui::test]
-fn command_aliases_reuse_toggle_and_picker_state(cx: &mut TestAppContext) {
+fn aliases_reuse_toggle_and_picker_state(cx: &mut TestAppContext) {
     init(cx);
     cx.update(crate::plugins::init);
     for remote in [false, true] {

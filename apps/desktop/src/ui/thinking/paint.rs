@@ -38,7 +38,7 @@ fn ink_color(white: f32, alpha: f32, ink: Ink) -> Hsla {
 ///
 /// Measured: batching saves nothing at one orb (2.0 % either way) and about one
 /// point of a core at twelve. Not worth a visible change to the artwork.
-fn paint_lines(window: &mut Window, origin: Point<Pixels>, lines: &[Line], ink: Ink) {
+fn lines(window: &mut Window, origin: Point<Pixels>, lines: &[Line], ink: Ink) {
     for l in lines {
         if l.a < 0.02 {
             continue;
@@ -53,7 +53,7 @@ fn paint_lines(window: &mut Window, origin: Point<Pixels>, lines: &[Line], ink: 
 }
 
 /// Paint dots as rounded quads (true circles at GPU level via corner radii).
-fn paint_dots(window: &mut Window, origin: Point<Pixels>, frame: &Frame, ink: Ink, r_min: f32) {
+fn dots(window: &mut Window, origin: Point<Pixels>, frame: &Frame, ink: Ink, r_min: f32) {
     for d in &frame.dots {
         if d.a < 0.02 {
             continue;
@@ -79,7 +79,7 @@ fn paint_dots(window: &mut Window, origin: Point<Pixels>, frame: &Frame, ink: In
 /// Paint a complete frame into `bounds` (top-left of the orb).
 ///
 /// Background is fully transparent — the host supplies the substrate.
-pub(super) fn paint_frame(
+pub(super) fn frame(
     window: &mut Window,
     bounds: Bounds<Pixels>,
     frame: &Frame,
@@ -100,7 +100,7 @@ pub(super) fn paint_frame(
     // still holds. Confirmed by pixel-diffing the golden grid against a build
     // with this call removed: every dot-only orb came out byte-identical.
     window.paint_layer(bounds, |window| {
-        paint_lines(window, bounds.origin, &frame.lines, ink);
-        paint_dots(window, bounds.origin, frame, ink, r_min);
+        lines(window, bounds.origin, &frame.lines, ink);
+        dots(window, bounds.origin, frame, ink, r_min);
     });
 }

@@ -119,7 +119,7 @@ fn bounds_index_metadata_and_query_inputs() {
 }
 
 #[test]
-fn caps_count_and_encoded_output_before_returning_a_page() {
+fn pages_bound_count_and_encoded_size() {
     let db = database();
     let value = json!("x".repeat(240 * 1024));
     for key in ["one", "two", "three"] {

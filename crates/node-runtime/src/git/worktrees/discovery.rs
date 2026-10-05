@@ -1,5 +1,5 @@
 //! Discovery follows sailry-code 67ae9fa0 command_support.rs inspect_worktrees (Apache-2.0).
-use super::super::{Control, check_root, git_error, io_error, open, path};
+use super::super::{Control, check_root, fault, io_error, open, path};
 use git2::{Repository, Worktree, WorktreeLockStatus};
 use sailry_protocol::{
     ErrorCode, Fault, GitWorktree, GitWorktrees, MAX_GIT_WORKTREES, RepositoryKind,
@@ -26,19 +26,19 @@ pub(in crate::git) fn list(root: &Path, control: &Control) -> Result<GitWorktree
         kind: match repository.head() {
             Ok(_) => RepositoryKind::Ready,
             Err(error) if error.code() == git2::ErrorCode::UnbornBranch => RepositoryKind::Unborn,
-            Err(error) => return Err(git_error(error)),
+            Err(error) => return Err(fault(error)),
         },
         entries: Vec::new(),
         truncated: false,
         omitted_paths: 0,
     };
     let common = repository.commondir().canonicalize().map_err(io_error)?;
-    let main = Repository::open(&common).map_err(git_error)?;
+    let main = Repository::open(&common).map_err(fault)?;
     let mut paths = Vec::new();
     if let Some(root) = main.workdir() {
         paths.push((root.to_owned(), true, false));
     }
-    for name in repository.worktrees().map_err(git_error)?.iter() {
+    for name in repository.worktrees().map_err(fault)?.iter() {
         control.check()?;
         if paths.len() >= MAX_GIT_WORKTREES {
             result.truncated = true;
@@ -56,7 +56,7 @@ pub(in crate::git) fn list(root: &Path, control: &Control) -> Result<GitWorktree
                 worktree.path().to_owned(),
                 false,
                 matches!(
-                    worktree.is_locked().map_err(git_error)?,
+                    worktree.is_locked().map_err(fault)?,
                     WorktreeLockStatus::Locked(_)
                 ),
             )),
@@ -147,8 +147,8 @@ fn member(common: &Path, root: &Path) -> Result<Repository, Fault> {
         ));
     }
     if repository.is_worktree() {
-        let worktree = Worktree::open_from_repository(&repository).map_err(git_error)?;
-        worktree.validate().map_err(git_error)?;
+        let worktree = Worktree::open_from_repository(&repository).map_err(fault)?;
+        worktree.validate().map_err(fault)?;
         if worktree.path().canonicalize().map_err(io_error)? != root {
             return Err(Fault::new(
                 ErrorCode::Conflict,

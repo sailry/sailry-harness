@@ -269,7 +269,7 @@ fn cancelled_native_completion_is_not_replayed(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn remote_and_unavailable_access_cannot_be_requested_locally(cx: &mut TestAppContext) {
+fn local_requests_reject_remote_and_unavailable_access(cx: &mut TestAppContext) {
     let visual = mount(cx);
     for status in [Status::Remote, Status::Unavailable, Status::Unknown] {
         let mock = Mock::new(status);
@@ -286,9 +286,7 @@ fn remote_and_unavailable_access_cannot_be_requested_locally(cx: &mut TestAppCon
 }
 
 #[gpui::test]
-fn continuation_respects_dependencies_without_requiring_optional_permissions(
-    cx: &mut TestAppContext,
-) {
+fn continuation_requires_only_mandatory_permissions(cx: &mut TestAppContext) {
     let visual = mount(cx);
     let data = Mock::new(Status::Required);
     let key = Mock::new(Status::Granted);
@@ -313,7 +311,7 @@ fn continuation_respects_dependencies_without_requiring_optional_permissions(
 }
 
 #[gpui::test]
-fn failed_checks_keep_the_card_and_show_feedback(cx: &mut TestAppContext) {
+fn failed_checks_preserve_cards_and_feedback(cx: &mut TestAppContext) {
     let visual = mount(cx);
     let mock = Mock::new(Status::Required);
     let mut card = mock.card(Resource::Screen);
@@ -447,7 +445,7 @@ fn remote_requirements_skip_local_checks(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn disk_settings_wait_for_the_check_and_do_not_imply_granted(cx: &mut TestAppContext) {
+fn disk_settings_require_verified_access(cx: &mut TestAppContext) {
     let visual = mount(cx);
     let (send, receive) = tokio::sync::oneshot::channel();
     let receive = Arc::new(Mutex::new(Some(receive)));

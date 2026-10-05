@@ -160,7 +160,7 @@ fn claims_same_group_beyond_previous_limits() {
 }
 
 #[test]
-fn claim_batches_keep_draining_while_callbacks_are_running() {
+fn claims_drain_during_callbacks() {
     let mut fixture = Fixture::new();
     let handler = fixture.setup("batch");
     let db = &fixture.database.connection;
@@ -307,7 +307,7 @@ fn schedules_coalesce_and_consume_once() {
 }
 
 #[test]
-fn callbacks_bind_event_data_and_retain_request_identity() {
+fn callbacks_preserve_event_data_and_request_identity() {
     let fixture = Fixture::new();
     let mut handler = fixture.setup("bound");
     handler
@@ -495,7 +495,7 @@ fn recovery_preserves_unsupported_receipts_without_replay() {
 }
 
 #[test]
-fn full_queue_rolls_back_fanout_and_preserves_schedule() {
+fn full_queue_rolls_back_fanout_preserving_schedule() {
     let fixture = Fixture::new();
     let handler = fixture.setup("fanout");
     let db = &fixture.database.connection;

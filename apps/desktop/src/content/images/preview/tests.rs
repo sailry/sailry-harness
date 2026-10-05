@@ -52,7 +52,7 @@ fn loaded(preview: &Entity<Preview>, visual: &mut VisualTestContext) {
     });
 }
 
-fn preview_size(
+fn sizes_to_viewport(
     preview: &Entity<Preview>,
     visual: &mut VisualTestContext,
 ) -> gpui_kit::Size<DevicePixels> {
@@ -250,7 +250,7 @@ fn controls_and_original_download(cx: &mut TestAppContext) {
         tap(visual, "image-rotate");
         loaded(&preview, visual);
         assert_eq!(
-            preview_size(&preview, visual),
+            sizes_to_viewport(&preview, visual),
             size(DevicePixels(800), DevicePixels(1200))
         );
         tap(visual, "image-flip-horizontal");
@@ -267,7 +267,7 @@ fn controls_and_original_download(cx: &mut TestAppContext) {
             Viewport::default()
         );
         assert_eq!(
-            preview_size(&preview, visual),
+            sizes_to_viewport(&preview, visual),
             size(DevicePixels(1200), DevicePixels(800))
         );
         // Navigation keys also work after focus has moved to a toolbar button.
@@ -317,7 +317,7 @@ fn controls_and_original_download(cx: &mut TestAppContext) {
         loaded(&reduced, visual);
         let fitted = visual.debug_bounds("image-lightbox-image").unwrap().size;
         let canvas = visual.debug_bounds("image-lightbox-canvas").unwrap().size;
-        let expected = viewport::fit(preview_size(&reduced, visual), canvas);
+        let expected = viewport::fit(sizes_to_viewport(&reduced, visual), canvas);
         assert!((fitted.width - expected.width).abs() < px(1.));
         assert!((fitted.height - expected.height).abs() < px(1.));
         tap(visual, "image-zoom-in");

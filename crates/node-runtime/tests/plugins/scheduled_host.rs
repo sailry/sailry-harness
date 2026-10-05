@@ -627,7 +627,7 @@ async fn admission_preserves_scope() {
 }
 
 #[tokio::test]
-async fn long_prompts_are_paginated_within_the_callback_budget() {
+async fn long_prompts_respect_callback_budget() {
     for remote in [false, true] {
         let (directory, node, controller, client, tree) = fixture(remote).await;
         let context = installed(&client, directory.path(), tree).await;

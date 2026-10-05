@@ -66,7 +66,7 @@ impl Transport for Altered {
 }
 
 #[tokio::test]
-async fn failures_release_staging() {
+async fn releases_staging() {
     let fixture = Fixture::start().await;
     let text = "large document\n".repeat(20_000);
     std::fs::write(fixture.root.join("file.txt"), &text).unwrap();

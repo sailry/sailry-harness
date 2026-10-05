@@ -53,13 +53,13 @@ Future<void> mountSheet(
   await tester.pumpAndSettle();
 }
 
-Finder sheetSurface() => find.byWidgetPredicate(
+Finder surface() => find.byWidgetPredicate(
   (widget) => widget is Surface && widget.kind == SurfaceKind.sheet,
 );
 
 void main() {
   for (final brightness in Brightness.values) {
-    testWidgets('sheet and confirmation use tinted glass in $brightness', (
+    testWidgets('confirmation uses tinted glass in $brightness', (
       tester,
     ) async {
       await mountSheet(
@@ -85,9 +85,9 @@ void main() {
           ),
         ),
       );
-      final panel = tester.getRect(sheetSurface());
+      final panel = tester.getRect(surface());
       final ink = tester.widget<Ink>(
-        find.descendant(of: sheetSurface(), matching: find.byType(Ink)).first,
+        find.descendant(of: surface(), matching: find.byType(Ink)).first,
       );
       final fill = (ink.decoration! as BoxDecoration).gradient!;
       expect(
@@ -95,7 +95,7 @@ void main() {
         isTrue,
       );
       final sheetBlur = find.descendant(
-        of: sheetSurface(),
+        of: surface(),
         matching: find.byType(BackdropFilter),
       );
       expect(sheetBlur, findsOneWidget);
@@ -120,7 +120,7 @@ void main() {
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsNothing);
-      expect(tester.getRect(sheetSurface()), panel);
+      expect(tester.getRect(surface()), panel);
       expect(tester.takeException(), isNull);
     });
   }
@@ -141,7 +141,7 @@ void main() {
         ),
       );
 
-      final panel = tester.getRect(sheetSurface());
+      final panel = tester.getRect(surface());
       final row = tester.getRect(find.byKey(rowKey));
       expect(panel.left, 12);
       expect(panel.right, width - 12);
@@ -163,21 +163,21 @@ void main() {
       expect(find.byTooltip(tr('close')), findsNothing);
       await tester.tapAt(const Offset(8, 80));
       await tester.pumpAndSettle();
-      expect(sheetSurface(), findsNothing);
+      expect(surface(), findsNothing);
       expect(tester.takeException(), isNull);
     });
   }
 
   testWidgets('handle drag dismisses the sheet', (tester) async {
     await mountSheet(tester, width: 390, child: const Text('Sheet content'));
-    final panel = tester.getRect(sheetSurface());
+    final panel = tester.getRect(surface());
     await tester.flingFrom(
       Offset(panel.center.dx, panel.top + 12),
       const Offset(0, 350),
       1200,
     );
     await tester.pumpAndSettle();
-    expect(sheetSurface(), findsNothing);
+    expect(surface(), findsNothing);
   });
 
   testWidgets('centered sheets respect native width limits', (tester) async {
@@ -187,7 +187,7 @@ void main() {
       child: const Surface(child: Text('feature/sign-in')),
     );
 
-    final panel = tester.getRect(sheetSurface());
+    final panel = tester.getRect(surface());
     expect(panel.center.dx, 450);
     expect(panel.width, lessThanOrEqualTo(520));
     expect(
@@ -219,7 +219,7 @@ void main() {
     for (final inset in [300.0, 0.0]) {
       keyboard.value = inset;
       await tester.pumpAndSettle();
-      final panel = tester.getRect(sheetSurface());
+      final panel = tester.getRect(surface());
       final bottom = 844 - (inset == 0 ? 34 : inset) - 12;
       expect(panel.bottom, bottom);
       expect(panel.top, greaterThanOrEqualTo(44));

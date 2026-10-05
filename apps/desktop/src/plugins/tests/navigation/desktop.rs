@@ -3,7 +3,7 @@ use sailry_client::Client;
 use sailry_protocol::{Output, plugin::Scope};
 
 #[test]
-fn desktop_packages_are_not_turn_defaults() {
+fn packages_are_not_turn_defaults() {
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
         let queue = || {

@@ -17,8 +17,8 @@ mod view;
 pub use doc::{Block, BlockKind, Doc, Mark, Part};
 #[cfg(test)]
 pub use parse::parse;
-pub use parse::parse_ranges;
-pub use render::{BlockLayouts, Editing, render_with};
+pub use parse::with_ranges;
+pub use render::{BlockLayouts, Editing, with_selection};
 pub use select::{Cursor, Selection};
 pub use view::{State, View};
 

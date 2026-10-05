@@ -1,7 +1,7 @@
 //! Repository management invoked through the durable worktree command owner.
 use super::{
     actions::{name, remote_name},
-    cli, git_error,
+    cli, fault,
 };
 use git2::Repository;
 use sailry_protocol::{ErrorCode, Fault, GitAction, GitTag};
@@ -20,8 +20,8 @@ pub(super) fn execute(root: &Path, repo: &Repository, action: &GitAction) -> Res
             message,
         } => {
             tag_name(tag)?;
-            let oid = git2::Oid::from_str(commit).map_err(git_error)?;
-            repo.find_commit(oid).map_err(git_error)?;
+            let oid = git2::Oid::from_str(commit).map_err(fault)?;
+            repo.find_commit(oid).map_err(fault)?;
             if repo.find_reference(&format!("refs/tags/{tag}")).is_ok() {
                 return Err(Fault::new(ErrorCode::Conflict, "tag already exists"));
             }
@@ -42,7 +42,7 @@ pub(super) fn execute(root: &Path, repo: &Repository, action: &GitAction) -> Res
         } => {
             tag_name(tag)?;
             let reference = format!("refs/tags/{tag}");
-            let oid = git2::Oid::from_str(commit).map_err(git_error)?;
+            let oid = git2::Oid::from_str(commit).map_err(fault)?;
             if let Some(remote) = remote {
                 remote_name(repo, remote)?;
                 vec![
@@ -58,7 +58,7 @@ pub(super) fn execute(root: &Path, repo: &Repository, action: &GitAction) -> Res
         }
         GitAction::DeleteRemoteBranch { branch, commit } => {
             let (remote, branch) = remote_branch(repo, branch)?;
-            let oid = git2::Oid::from_str(commit).map_err(git_error)?;
+            let oid = git2::Oid::from_str(commit).map_err(fault)?;
             let reference = format!("refs/heads/{branch}");
             vec![
                 "push".into(),
@@ -72,14 +72,14 @@ pub(super) fn execute(root: &Path, repo: &Repository, action: &GitAction) -> Res
             vec!["push".into(), "--tags".into(), remote.clone()]
         }
         GitAction::DropAllStashes { commits } => {
-            let mut repository = Repository::open(root).map_err(git_error)?;
+            let mut repository = Repository::open(root).map_err(fault)?;
             let mut current = Vec::new();
             repository
                 .stash_foreach(|_, _, id| {
                     current.push(id.to_string());
                     true
                 })
-                .map_err(git_error)?;
+                .map_err(fault)?;
             if &current != commits {
                 return Err(Fault::new(
                     ErrorCode::RevisionConflict,
@@ -95,9 +95,9 @@ pub(super) fn execute(root: &Path, repo: &Repository, action: &GitAction) -> Res
         } => {
             remote_branch(repo, remote)?;
             repo.find_branch(remote, git2::BranchType::Remote)
-                .map_err(git_error)?;
+                .map_err(fault)?;
             name(local)?;
-            if !git2::Branch::name_is_valid(local).map_err(git_error)? {
+            if !git2::Branch::name_is_valid(local).map_err(fault)? {
                 return Err(Fault::new(
                     ErrorCode::InvalidRequest,
                     "invalid local branch name",
@@ -135,7 +135,7 @@ pub(super) fn execute(root: &Path, repo: &Repository, action: &GitAction) -> Res
             name(branch)?;
             let found = repo
                 .find_branch(branch, git2::BranchType::Local)
-                .map_err(git_error)?;
+                .map_err(fault)?;
             if found.get().target().map(|id| id.to_string()).as_deref() != Some(commit) {
                 return Err(Fault::new(
                     ErrorCode::RevisionConflict,
@@ -181,7 +181,7 @@ fn stash_before_switch(root: &Path) -> Result<(), Fault> {
 pub(super) fn remote_branch(repo: &Repository, branch: &str) -> Result<(String, String), Fault> {
     name(branch)?;
     repo.remotes()
-        .map_err(git_error)?
+        .map_err(fault)?
         .iter()
         .flatten()
         .flatten()
@@ -208,7 +208,7 @@ fn tag_name(tag: &str) -> Result<(), Fault> {
 }
 
 pub(super) fn remote_tags(root: &Path, remote: &str) -> Result<Vec<GitTag>, Fault> {
-    let repo = Repository::open(root).map_err(git_error)?;
+    let repo = Repository::open(root).map_err(fault)?;
     remote_name(&repo, remote)?;
     let output = cli::run(
         root,
@@ -224,7 +224,7 @@ pub(super) fn remote_tags(root: &Path, remote: &str) -> Result<Vec<GitTag>, Faul
         if let Some((commit, name)) = line.split_once('\t')
             && let Some(name) = name.strip_prefix("refs/tags/")
         {
-            git2::Oid::from_str(commit).map_err(git_error)?;
+            git2::Oid::from_str(commit).map_err(fault)?;
             result.push(GitTag {
                 name: name.into(),
                 commit: commit.into(),

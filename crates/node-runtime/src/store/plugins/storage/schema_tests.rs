@@ -106,7 +106,7 @@ fn reads_captured_defaults_without_mutating_storage() {
 }
 
 #[test]
-fn writes_defaults_and_preserves_unknown_fields_with_cas() {
+fn revisioned_defaults_preserve_unknown_fields() {
     let db = database();
     let captured = package(&db, "first", declared(Scope::Node, false));
     let old = json!({"title":"Old","legacy":7});

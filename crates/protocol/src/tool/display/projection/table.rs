@@ -144,7 +144,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_cells_fall_back_without_changing_raw_values() {
+    fn malformed_cells_preserve_raw_values() {
         let result = json!({"columns":["binary"],"rows":[[{"value":[256]}]]});
         assert!(projection().render(&Value::Null, &result).is_none());
         let mut projection = projection();

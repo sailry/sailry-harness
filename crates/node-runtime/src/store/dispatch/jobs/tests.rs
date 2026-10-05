@@ -2,7 +2,7 @@ use super::*;
 use serde_json::json;
 
 #[test]
-fn only_the_claimed_request_can_use_a_retained_version() {
+fn retained_version_requires_claimed_request() {
     retained(Callback {
         scope: Scope::default(),
         completion: Completion::Command,

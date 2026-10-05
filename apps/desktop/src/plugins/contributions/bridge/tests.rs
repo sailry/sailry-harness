@@ -73,7 +73,7 @@ async fn exposes_current_state_before_projection() {
 }
 
 #[tokio::test]
-async fn named_intents_preserve_hidden_entry_and_frozen_value() {
+async fn named_intents_preserve_hidden_entries_and_values() {
     let bridge = Bridge::new(vec![
         serde_json::from_value(json!({
             "id":"create", "slot":"composer", "kind":"button", "intent":"create_worktree",

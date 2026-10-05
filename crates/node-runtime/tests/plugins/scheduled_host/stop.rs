@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn stops_only_the_owned_admission_and_replays_its_receipt() {
+async fn preserves_ownership_and_receipt_replay() {
     for remote in [false, true] {
         let start = Arc::new(Notify::new());
         let finish = Arc::new(Notify::new());

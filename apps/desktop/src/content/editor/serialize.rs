@@ -537,16 +537,16 @@ fn escape_span(out: &mut String, s: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::markdown::{doc::MarkSpan, parse_ranges};
+    use crate::content::markdown::{doc::MarkSpan, with_ranges};
 
     #[test]
     fn preserves_mixed_inline_meaning() {
-        let original = parse_ranges(
+        let original = with_ranges(
             "Plain **bold _nested_** and [linked text](<notes/My File.md>) plus `code`",
         )
         .doc;
         let source = block(&original.blocks[0]);
-        assert_eq!(parse_ranges(&source).doc, original);
+        assert_eq!(with_ranges(&source).doc, original);
     }
 
     #[test]
@@ -554,7 +554,7 @@ mod tests {
         let value = Block::new(BlockKind::Paragraph(Text::plain(
             "# title\n> quote\n1. item\n+ item\n---\nname_value and &amp; <tag>",
         )));
-        let result = parse_ranges(&block(&value)).doc;
+        let result = with_ranges(&block(&value)).doc;
         assert_eq!(result.blocks, vec![value]);
     }
 
@@ -564,7 +564,7 @@ mod tests {
             language: Some("rust".into()),
             code: Text::plain("let ticks = \"```\";\n\n"),
         });
-        assert_eq!(parse_ranges(&block(&value)).doc.blocks, vec![value]);
+        assert_eq!(with_ranges(&block(&value)).doc.blocks, vec![value]);
     }
 
     #[test]
@@ -578,7 +578,7 @@ mod tests {
                 }],
             };
             let spelled = text(&value);
-            let parsed = parse_ranges(&spelled).doc;
+            let parsed = with_ranges(&spelled).doc;
             assert_eq!(
                 parsed.blocks[0].text_at(crate::content::markdown::Part::Body),
                 Some(&value),
@@ -594,7 +594,7 @@ mod tests {
             header: vec![Text::plain("Name"), Text::plain("Value")],
             rows: vec![vec![Text::plain("left|right"), Text::plain("中文")]],
         });
-        assert_eq!(parse_ranges(&block(&value)).doc.blocks, vec![value]);
+        assert_eq!(with_ranges(&block(&value)).doc.blocks, vec![value]);
     }
 
     #[test]
@@ -607,7 +607,7 @@ mod tests {
                 mark: Mark::Link("notes.md".into()),
             }],
         };
-        let parsed = parse_ranges(&text(&value)).doc;
+        let parsed = with_ranges(&text(&value)).doc;
         assert_eq!(
             parsed.blocks[0].text_at(crate::content::markdown::Part::Body),
             Some(&value),

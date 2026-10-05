@@ -53,7 +53,7 @@ fn draw(cx: &mut VisualTestContext) {
 }
 
 #[gpui::test]
-fn scrollbar_stays_interactive_after_scrolling(cx: &mut TestAppContext) {
+fn stays_interactive_after_scrolling(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::theme::init(cx);

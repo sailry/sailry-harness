@@ -150,7 +150,7 @@ mod tests {
     }
 
     #[test]
-    fn directory_check_does_not_read_or_change_contents() {
+    fn directory_check_avoids_content_access() {
         let root = tempfile::tempdir().unwrap();
         let file = root.path().join("unopened");
         std::fs::write(&file, b"preserved").unwrap();

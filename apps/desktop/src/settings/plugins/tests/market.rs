@@ -327,7 +327,7 @@ fn previews_without_installing(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn details_keep_their_node_and_cancel_on_close(cx: &mut TestAppContext) {
+fn details_preserve_ownership_and_cancel_on_close(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         for close in [false, true] {
@@ -672,7 +672,7 @@ fn remains_interactive_while_loading(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn failed_source_switch_does_not_restore_previous_results(cx: &mut TestAppContext) {
+fn failed_switch_rejects_previous_results(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let server = Server::new();

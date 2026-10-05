@@ -223,7 +223,7 @@ fn conflicting_selection_preserves_the_directory(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn updates_from_the_execution_worktree(cx: &mut TestAppContext) {
+fn uses_the_execution_worktree(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
@@ -306,7 +306,7 @@ fn keeps_installed_market_actions_disabled(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn checks_before_updating_and_recovers_the_original_request(cx: &mut TestAppContext) {
+fn checks_before_update_and_recovers_original_request(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);

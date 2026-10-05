@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn projects_and_validates_inline_schemas_on_both_paths() {
+async fn inline_schemas_project_and_validate() {
     for remote in [false, true] {
         let (directory, node, controller, client, worktree) = fixture(remote).await;
         let root = directory.path().join("source/package");

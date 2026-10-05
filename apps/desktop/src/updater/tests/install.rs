@@ -3,7 +3,7 @@ use super::super::install;
 use super::fixture;
 
 #[test]
-fn rejects_profile_or_recovery_data_inside_the_replaced_app() {
+fn rejects_profiles_and_recovery_inside_app() {
     let directory = tempfile::tempdir().unwrap();
     let installed = directory.path().join("Sailry.app");
     let profile = directory.path().join("profile");

@@ -92,7 +92,7 @@ fn preview_never_starts_update_work(cx: &mut TestAppContext) {
 
 #[cfg(target_os = "macos")]
 #[gpui::test]
-fn checks_and_downloads_an_authenticated_fixture_through_live_services(cx: &mut TestAppContext) {
+fn live_services_authenticate_checks_and_downloads(cx: &mut TestAppContext) {
     use crate::updater::tests::{fixture, transfer};
     use std::{collections::BTreeMap, sync::Arc};
     cx.executor().allow_parking();

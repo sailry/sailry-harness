@@ -5,7 +5,7 @@ async fn execute(client: &Client, command: Command) -> Output {
 }
 
 #[tokio::test]
-async fn installs_for_new_turns_and_retains_admitted_resources() {
+async fn new_turn_installation_preserves_admitted_resources() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");

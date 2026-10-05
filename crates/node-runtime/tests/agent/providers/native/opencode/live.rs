@@ -54,7 +54,7 @@ async fn probes_one_request_without_tools() {
 
 #[tokio::test]
 #[ignore = "requires SAILRY_ACCEPTANCE_PROFILE and incurs real model usage"]
-async fn reads_file_with_deepseek_on_local_and_remote_nodes() {
+async fn deepseek_reads_local_and_remote_files() {
     const MODEL: &str = "deepseek-v4.1-flash";
     let (source, secret) = provider_fixture::load(MODEL);
     assert_eq!(

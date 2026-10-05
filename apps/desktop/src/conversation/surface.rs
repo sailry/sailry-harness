@@ -15,7 +15,7 @@ pub(crate) mod diff;
 mod thought;
 pub(crate) use thought::thought;
 mod work;
-pub(crate) use work::{work, work_trigger};
+pub(crate) use work::{trigger, work};
 #[cfg(test)]
 mod scrolling;
 

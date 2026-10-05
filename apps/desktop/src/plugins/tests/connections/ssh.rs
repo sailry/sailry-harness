@@ -38,7 +38,7 @@ fn edits_profiles_on_the_captured_node(cx: &mut TestAppContext) {
         assert_eq!(profile.port, 2222);
         shown(&panel, visual, &format!("ssh-open-{}", profile.id));
         landing_width(visual, "ssh");
-        connection_action(&panel, visual, "ssh", "edit");
+        action(&panel, visual, "ssh", "edit");
         shown(&panel, visual, "ssh-editor");
         input(visual, "field-8", "Renamed SSH");
         tap(visual, "ssh-save");
@@ -63,7 +63,7 @@ fn edits_profiles_on_the_captured_node(cx: &mut TestAppContext) {
             }
         ));
         drop(requests);
-        connection_action(&panel, visual, "ssh", "remove");
+        action(&panel, visual, "ssh", "remove");
         shown(&panel, visual, "ssh-confirm");
         tap(visual, "ssh-confirm-submit");
         wait(visual, |_| state(&fixture).ssh.is_empty());
@@ -279,7 +279,7 @@ fn opens_core_terminals_and_changes_remote_files(cx: &mut TestAppContext) {
             std::fs::read(&destination).is_ok_and(|bytes| bytes == b"opaque upload")
         });
         assert_eq!(std::fs::read(destination).unwrap(), b"opaque upload");
-        connection_action(&panel, visual, "ssh", "open");
+        action(&panel, visual, "ssh", "open");
         shown(&panel, visual, "ssh-page");
         assert_eq!(
             state(&fixture)

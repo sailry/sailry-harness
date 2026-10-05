@@ -110,7 +110,7 @@ pub(crate) fn export(root: &Path, options: &Export) -> Result<Written, Fault> {
         return Err(invalid("PDF export needs a separate .pdf destination"));
     }
     let (bytes, _, warnings) = preview(root, &options.source)?;
-    let file = crate::files::save_bytes(
+    let file = crate::files::write_binary(
         root,
         &options.path,
         &bytes,

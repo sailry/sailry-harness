@@ -1,5 +1,5 @@
 //! Ownership traversal follows sailry-code 67ae9fa0 command_support.rs (Apache-2.0).
-use super::{git_error, io_error};
+use super::{fault, io_error};
 use git2::{Repository, RepositoryState};
 use sailry_protocol::{ErrorCode, Fault};
 use std::path::Path;
@@ -50,9 +50,9 @@ pub(super) fn check_mutable(repository: &Repository, reference: &str) -> Result<
 fn owns(repository: &Repository, reference: &str) -> Result<bool, Fault> {
     Ok(repository
         .find_reference("HEAD")
-        .map_err(git_error)?
+        .map_err(fault)?
         .symbolic_target()
-        .map_err(git_error)?
+        .map_err(fault)?
         == Some(reference))
 }
 
@@ -60,13 +60,13 @@ fn visit(
     repository: &Repository,
     mut check: impl FnMut(&Repository) -> Result<(), Fault>,
 ) -> Result<(), Fault> {
-    check(&Repository::open(repository.commondir()).map_err(git_error)?)?;
-    for name in repository.worktrees().map_err(git_error)?.iter() {
+    check(&Repository::open(repository.commondir()).map_err(fault)?)?;
+    for name in repository.worktrees().map_err(fault)?.iter() {
         let name = name
-            .map_err(git_error)?
+            .map_err(fault)?
             .ok_or_else(|| Fault::new(ErrorCode::InvalidRequest, "worktree name is not UTF-8"))?;
-        let worktree = repository.find_worktree(name).map_err(git_error)?;
-        check(&Repository::open(worktree.path()).map_err(git_error)?)?;
+        let worktree = repository.find_worktree(name).map_err(fault)?;
+        check(&Repository::open(worktree.path()).map_err(fault)?)?;
     }
     Ok(())
 }

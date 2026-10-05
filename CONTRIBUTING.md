@@ -102,7 +102,7 @@ actual prerequisites and results separately. Screenshots are not a default gate.
 
 ## Continuous integration
 
-[GitHub Actions](.github/workflows/ci.yml) checks workflow and script syntax,
+[GitHub Actions](.github/workflows/ci.yml) checks concise names, workflow and script syntax,
 public-source fixtures, packaged JavaScript tests and the pairing service.
 Both macOS architectures run strict Rust checks, backend local/remote integration,
 desktop Kit interactions and binary builds with an explicit Xcode SDK.

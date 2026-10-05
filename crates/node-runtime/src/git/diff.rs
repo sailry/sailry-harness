@@ -5,7 +5,7 @@ use std::path::Path;
 use git2::{DiffFormat, DiffOptions};
 use sailry_protocol::*;
 
-use super::{Control, check_entry, git_error, open, valid_path};
+use super::{Control, check_entry, fault, open, valid_path};
 
 pub(super) fn read(
     root: &Path,
@@ -17,11 +17,11 @@ pub(super) fn read(
     check_entry(root, &path)?;
     let repository = open(root)?;
     let tree = match repository.head() {
-        Ok(head) => Some(head.peel_to_tree().map_err(git_error)?),
+        Ok(head) => Some(head.peel_to_tree().map_err(fault)?),
         Err(error) if error.code() == git2::ErrorCode::UnbornBranch => None,
-        Err(error) => return Err(git_error(error)),
+        Err(error) => return Err(fault(error)),
     };
-    let index = repository.index().map_err(git_error)?;
+    let index = repository.index().map_err(fault)?;
     let mut options = DiffOptions::new();
     options
         .pathspec(&path)
@@ -46,7 +46,7 @@ pub(super) fn read(
             repository.diff_index_to_workdir(Some(&index), Some(&mut options))
         }
     }
-    .map_err(git_error)?;
+    .map_err(fault)?;
     let result = print(&diff, path, scope, control)?;
     check_entry(root, &result.path)?;
     Ok(result)
@@ -130,7 +130,7 @@ fn render(
         return Err(error);
     }
     if !truncated {
-        printed.map_err(git_error)?;
+        printed.map_err(fault)?;
     }
     control.check()?;
     Ok(files)

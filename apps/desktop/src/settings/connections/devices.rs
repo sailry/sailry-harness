@@ -233,7 +233,10 @@ impl Connections {
                             .gap_3()
                             .child(
                                 Icon::default()
-                                    .path(device_icon(device.known.platform.as_deref(), execution))
+                                    .path(platform_icon(
+                                        device.known.platform.as_deref(),
+                                        execution,
+                                    ))
                                     .size_5()
                                     .flex_shrink_0(),
                             )
@@ -259,7 +262,7 @@ fn key(node: NodeId) -> String {
     node.0.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn device_icon(platform: Option<&str>, execution: bool) -> &'static str {
+fn platform_icon(platform: Option<&str>, execution: bool) -> &'static str {
     match platform {
         Some("android") => "icons/os/android.svg",
         Some("ios" | "macos") => "icons/os/apple.svg",

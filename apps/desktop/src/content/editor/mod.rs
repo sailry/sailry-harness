@@ -493,7 +493,7 @@ impl State {
             .input
             .textarea()
             .map(|input| input.read(cx).presentation().placeholder().clone());
-        let content = markdown::render_with(
+        let content = markdown::with_selection(
             &self.doc,
             Editing {
                 selection: Some(self.selection),

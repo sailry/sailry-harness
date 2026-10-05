@@ -16,7 +16,7 @@ void main() {
       List<Map<String, dynamic>> rows, {
       String current = '0.1.0-alpha.1',
       String target = 'android-arm64',
-    }) => latestRelease(rows, current: releaseVersion(current), target: target);
+    }) => latestRelease(rows, current: precedence(current), target: target);
 
     test('orders preview identifiers numerically', () {
       final selected = select([
@@ -62,17 +62,14 @@ void main() {
     });
 
     test('ignores build metadata for precedence', () {
-      expect(
-        releaseVersion('0.1.0-alpha.1+1'),
-        releaseVersion('0.1.0-alpha.1+2'),
-      );
+      expect(precedence('0.1.0-alpha.1+1'), precedence('0.1.0-alpha.1+2'));
     });
 
     test('rejects invalid metadata and an unrelated download', () {
       expect(
         () => latestRelease(
           {},
-          current: releaseVersion('0.1.0'),
+          current: precedence('0.1.0'),
           target: 'android-arm64',
         ),
         throwsFormatException,

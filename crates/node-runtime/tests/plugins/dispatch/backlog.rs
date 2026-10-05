@@ -59,7 +59,7 @@ async fn completed(client: &Client, context: &Context, count: usize) -> Vec<jobs
 }
 
 #[tokio::test]
-async fn fanout_drains_writes_and_reads_without_losing_admissions() {
+async fn fanout_preserves_admissions_while_draining() {
     for remote in [false, true] {
         let (directory, node, controller, client, worktree) = fixture(remote).await;
         let context = actions::install_actions(

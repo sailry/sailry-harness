@@ -127,7 +127,7 @@ mod redirects {
     }
 
     #[tokio::test]
-    async fn rejects_protocols_and_credentials_before_fetching_the_destination() {
+    async fn rejects_unsafe_destinations_before_fetching() {
         for credentials in [false, true] {
             let (base, requests, serving) = responses(|base| {
                 let target = if credentials {
@@ -228,7 +228,7 @@ mod redirects {
 
     #[cfg(target_os = "macos")]
     #[tokio::test]
-    async fn verifies_the_complete_signed_bundle_after_a_redirect() {
+    async fn requires_complete_bundle_verification() {
         let staged = fixture::staged();
         let bytes = std::fs::read(&staged.archive).unwrap();
         let (base, requests, serving) = responses(|base| {

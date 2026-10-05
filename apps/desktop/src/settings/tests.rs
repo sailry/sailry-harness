@@ -9,7 +9,7 @@ mod memory;
 mod statistics;
 
 #[gpui::test]
-fn permissions_page_uses_the_shared_catalog_without_preview_requests(cx: &mut TestAppContext) {
+fn permissions_catalog_skips_preview_requests(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::theme::init(cx);

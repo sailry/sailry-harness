@@ -61,7 +61,7 @@ async fn keeps_public_status_without_provider_content() {
 }
 
 #[tokio::test]
-async fn shares_routing_and_identity_on_local_and_remote_nodes() {
+async fn local_and_remote_nodes_share_routing_identity() {
     for remote in [false, true] {
         for (api, model, wire, path) in [
             (

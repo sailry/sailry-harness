@@ -99,7 +99,7 @@ class GuideLinks(unittest.TestCase):
             self.assertEqual(public.check_documents(root, {"README.md", "AGENTS.md"}),
                              ["Guide link has no public source target: README.md: docs/secret.md"])
 
-    def test_examples_and_remote_links_are_not_local_navigation(self):
+    def test_remote_links_and_examples_skip_navigation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             write(root, "README.md", "[Web](https://example.invalid)\n"

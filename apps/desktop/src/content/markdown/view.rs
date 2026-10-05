@@ -12,7 +12,7 @@ use gpui_kit::{
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::render::{OnFile, OnImage, OnLink};
-use super::{BlockLayouts, Cursor, Doc, Editing, Selection, parse_ranges, render_with};
+use super::{BlockLayouts, Cursor, Doc, Editing, Selection, with_ranges, with_selection};
 
 gpui_kit::actions!(sailry_markdown, [Copy, SelectAll]);
 struct Bindings;
@@ -90,7 +90,7 @@ impl State {
             cx.set_global(Bindings);
         }
         let source = source.into();
-        let parsed = parse_ranges(source.as_ref());
+        let parsed = with_ranges(source.as_ref());
         Self {
             document: Rc::new(parsed.doc),
             source,
@@ -126,7 +126,7 @@ impl State {
         if source == self.source {
             return;
         }
-        let parsed = parse_ranges(source.as_ref());
+        let parsed = with_ranges(source.as_ref());
         self.document = Rc::new(if self.on_image.is_some() {
             super::images::expand(parsed.doc)
         } else {
@@ -297,7 +297,7 @@ impl Render for State {
                 state.select_all(cx);
             }))
             .children(listener)
-            .child(render_with(
+            .child(with_selection(
                 &self.document,
                 Editing {
                     selection: self.selection,
@@ -392,7 +392,7 @@ impl RenderOnce for View {
         };
         state.update(cx, |state, _| {
             if state.on_image.is_some() != self.on_image.is_some() {
-                let doc = parse_ranges(state.source.as_ref()).doc;
+                let doc = with_ranges(state.source.as_ref()).doc;
                 state.document = Rc::new(if self.on_image.is_some() {
                     super::images::expand(doc)
                 } else {

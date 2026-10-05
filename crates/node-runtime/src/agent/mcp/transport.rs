@@ -24,7 +24,7 @@ impl<T: Transport<RoleClient> + 'static> Drop for Tracked<T> {
             // The SDK drops its transport on failed/cancelled initialization without
             // calling close. Node retains and awaits this completion before reaping.
             tokio::spawn(async move {
-                let result = transport.close().await.map_err(|_| transport_error());
+                let result = transport.close().await.map_err(|_| failure());
                 drop(transport);
                 let _ = closed.send(result);
             });
@@ -43,7 +43,7 @@ impl<T: Transport<RoleClient> + 'static> Transport<RoleClient> for Tracked<T> {
             .as_mut()
             .expect("MCP transport is retained")
             .send(item);
-        async move { send.await.map_err(|_| transport_error()) }
+        async move { send.await.map_err(|_| failure()) }
     }
     async fn receive(&mut self) -> Option<RxJsonRpcMessage<RoleClient>> {
         self.inner.as_mut()?.receive().await
@@ -58,14 +58,14 @@ impl<T: Transport<RoleClient> + 'static> Transport<RoleClient> for Tracked<T> {
             let _ = closed.send(if result.is_ok() {
                 Ok(())
             } else {
-                Err(transport_error())
+                Err(failure())
             });
         }
-        result.map_err(|_| transport_error())
+        result.map_err(|_| failure())
     }
 }
 
-fn transport_error() -> io::Error {
+fn failure() -> io::Error {
     io::Error::other("MCP transport failed")
 }
 
@@ -90,7 +90,7 @@ impl Child {
         let settings = if let Some(file) = self.settings.take() {
             tokio::task::spawn_blocking(move || file.close())
                 .await
-                .map_err(|_| transport_error())?
+                .map_err(|_| failure())?
         } else {
             Ok(())
         };

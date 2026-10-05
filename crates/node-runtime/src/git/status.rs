@@ -1,6 +1,6 @@
 //! Bounded candidate scanning and classification adapted from sailry-code
 //! 67ae9fa0 sailry-git/src/action_read/status.rs (Apache-2.0).
-use super::{Control, git_error, io_error, open, path, valid_path};
+use super::{Control, fault, io_error, open, path, valid_path};
 use git2::{ObjectType, Oid, Repository, Status};
 use sailry_protocol::*;
 use std::{collections::BTreeSet, path::Path};
@@ -24,7 +24,7 @@ pub(super) fn inspect(root: &Path, control: &Control) -> Result<GitStatus, Fault
     let head = match repository.head() {
         Ok(head) => Some(head),
         Err(error) if error.code() == git2::ErrorCode::UnbornBranch => None,
-        Err(error) => return Err(git_error(error)),
+        Err(error) => return Err(fault(error)),
     };
     let branch = head
         .as_ref()
@@ -74,7 +74,7 @@ pub(super) fn inspect(root: &Path, control: &Control) -> Result<GitStatus, Fault
                 scan.omitted_paths += 1;
                 continue;
             }
-            Err(error) => return Err(git_error(error)),
+            Err(error) => return Err(fault(error)),
         };
         if let Some(entry) = classify(value.clone(), status) {
             if entries.len() == MAX_GIT_ENTRIES {
@@ -178,7 +178,7 @@ fn scan_index(
     scan: &mut Candidates,
     control: &Control,
 ) -> Result<(), Fault> {
-    let index = repository.index().map_err(git_error)?;
+    let index = repository.index().map_err(fault)?;
     for entry in index.iter() {
         control.check()?;
         if !scan.has_budget() {
@@ -205,9 +205,9 @@ fn scan_head(
         {
             return Ok(());
         }
-        Err(error) => return Err(git_error(error)),
+        Err(error) => return Err(fault(error)),
     };
-    let tree = head.peel_to_tree().map_err(git_error)?;
+    let tree = head.peel_to_tree().map_err(fault)?;
     let mut pending = vec![(tree.id(), Vec::<u8>::new())];
     while let Some((tree_id, prefix)) = pending.pop() {
         control.check()?;
@@ -215,7 +215,7 @@ fn scan_head(
             scan.truncated = true;
             break;
         }
-        let tree = repository.find_tree(tree_id).map_err(git_error)?;
+        let tree = repository.find_tree(tree_id).map_err(fault)?;
         let mut child_trees: Vec<(Oid, Vec<u8>)> = Vec::new();
         for entry in &tree {
             control.check()?;
@@ -303,7 +303,7 @@ fn statistics(
         .head()
         .ok()
         .and_then(|head| head.peel_to_tree().ok());
-    let index = repository.index().map_err(git_error)?;
+    let index = repository.index().map_err(fault)?;
     for scope in [
         GitDiffScope::All,
         GitDiffScope::Staged,
@@ -334,10 +334,10 @@ fn statistics(
                 repository.diff_index_to_workdir(Some(&index), Some(&mut options))
             }
         }
-        .map_err(git_error)?;
+        .map_err(fault)?;
         for position in 0..diff.deltas().len() {
             control.check()?;
-            let Some(patch) = git2::Patch::from_diff(&diff, position).map_err(git_error)? else {
+            let Some(patch) = git2::Patch::from_diff(&diff, position).map_err(fault)? else {
                 continue;
             };
             let delta = patch.delta();
@@ -346,7 +346,7 @@ fn statistics(
                 .iter_mut()
                 .find(|entry| path == Some(Path::new(&entry.path)))
             {
-                let (_, additions, deletions) = patch.line_stats().map_err(git_error)?;
+                let (_, additions, deletions) = patch.line_stats().map_err(fault)?;
                 let stats = GitLineStats {
                     additions,
                     deletions,

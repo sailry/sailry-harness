@@ -5,7 +5,7 @@ use std::{collections::HashMap, path::Path};
 use git2::{Oid, Repository, Sort};
 use sailry_protocol::*;
 
-use super::{Control, diff, git_error, open};
+use super::{Control, diff, fault, open};
 
 pub(super) fn log(
     root: &Path,
@@ -36,23 +36,23 @@ pub(super) fn log(
         head
     } else {
         match repository.head() {
-            Ok(head) => head.peel_to_commit().map_err(git_error)?.id(),
+            Ok(head) => head.peel_to_commit().map_err(fault)?.id(),
             Err(error) if error.code() == git2::ErrorCode::UnbornBranch => {
                 return Ok(empty(RepositoryKind::Unborn));
             }
-            Err(error) => return Err(git_error(error)),
+            Err(error) => return Err(fault(error)),
         }
     };
     let (references, references_truncated) = references(&repository, control)?;
-    let mut walk = repository.revwalk().map_err(git_error)?;
+    let mut walk = repository.revwalk().map_err(fault)?;
     walk.set_sorting(Sort::TOPOLOGICAL | Sort::TIME)
-        .map_err(git_error)?;
-    walk.push(head).map_err(git_error)?;
+        .map_err(fault)?;
+    walk.push(head).map_err(fault)?;
     let mut entries = Vec::with_capacity(limit);
     let mut truncated = false;
     for (position, oid) in walk.enumerate() {
         control.check()?;
-        let oid = oid.map_err(git_error)?;
+        let oid = oid.map_err(fault)?;
         if position < offset {
             continue;
         }
@@ -100,13 +100,13 @@ fn references(
 ) -> Result<(HashMap<Oid, Vec<String>>, bool), Fault> {
     let mut references: HashMap<Oid, Vec<String>> = HashMap::new();
     let mut truncated = false;
-    for (index, reference) in repository.references().map_err(git_error)?.enumerate() {
+    for (index, reference) in repository.references().map_err(fault)?.enumerate() {
         control.check()?;
         if index == 256 {
             truncated = true;
             break;
         }
-        let reference = reference.map_err(git_error)?;
+        let reference = reference.map_err(fault)?;
         let Some(name) = reference.name_bytes().strip_prefix(b"refs/") else {
             continue;
         };
@@ -135,7 +135,7 @@ fn entry(
     oid: Oid,
     references: Option<&Vec<String>>,
 ) -> Result<GitLogEntry, Fault> {
-    let commit = repository.find_commit(oid).map_err(git_error)?;
+    let commit = repository.find_commit(oid).map_err(fault)?;
     let signature = commit.author();
     let (message, message_partial) = bounded_text(commit.message_bytes(), 4096);
     let (author, author_partial) = bounded_text(signature.name_bytes(), 256);
@@ -159,31 +159,25 @@ fn commit_id(id: &str) -> Result<Oid, Fault> {
             "expected a full Git commit object ID",
         ));
     }
-    Oid::from_str(id).map_err(git_error)
+    Oid::from_str(id).map_err(fault)
 }
 
 pub(super) fn commit(root: &Path, id: &str, control: &Control) -> Result<GitCommit, Fault> {
     let id = commit_id(id)?;
     let repository = open(root)?;
-    let commit = repository.find_commit(id).map_err(git_error)?;
-    let tree = commit.tree().map_err(git_error)?;
+    let commit = repository.find_commit(id).map_err(fault)?;
+    let tree = commit.tree().map_err(fault)?;
     let parent = if commit.parent_count() == 0 {
         None
     } else {
-        Some(
-            commit
-                .parent(0)
-                .map_err(git_error)?
-                .tree()
-                .map_err(git_error)?,
-        )
+        Some(commit.parent(0).map_err(fault)?.tree().map_err(fault)?)
     };
     control.check()?;
     let mut options = git2::DiffOptions::new();
     options.ignore_submodules(true).max_size(1024 * 1024);
     let diff = repository
         .diff_tree_to_tree(parent.as_ref(), Some(&tree), Some(&mut options))
-        .map_err(git_error)?;
+        .map_err(fault)?;
     let files = diff::files(&diff, control)?;
     Ok(GitCommit {
         entry: entry(&repository, id, None)?,

@@ -119,7 +119,7 @@ fn ready(view: &Entity<View>, visual: &mut VisualTestContext, selector: &'static
 }
 
 #[gpui::test]
-fn owns_commands_and_status_popover_on_both_paths(cx: &mut TestAppContext) {
+fn local_and_remote_commands_share_status(cx: &mut TestAppContext) {
     fixture::init(cx);
     for remote in [false, true] {
         let fixture = fixture::Fixture::with_server(remote, |runtime| {

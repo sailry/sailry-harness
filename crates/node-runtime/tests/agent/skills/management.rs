@@ -358,7 +358,7 @@ async fn planning_exposes_only_reads() {
 }
 
 #[tokio::test]
-async fn management_keeps_admitted_resources() {
+async fn keeps_admitted_resources() {
     for remote in [false, true] {
         let git = source::Git::new();
         let fixture = Fixture::new(

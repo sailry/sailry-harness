@@ -213,7 +213,7 @@ void main() {
   });
 
   test('added diff preserves original text and coordinates', () {
-    final lines = diffLines('Original 中文 🙂\nsecond\n', added: true);
+    final lines = parseLines('Original 中文 🙂\nsecond\n', added: true);
     expect(
       lines.map((line) => [line.text, line.before, line.after, line.kind]),
       [
@@ -221,7 +221,7 @@ void main() {
         ['second', null, 2, 'added'],
       ],
     );
-    expect(diffLines('', added: true), isEmpty);
+    expect(parseLines('', added: true), isEmpty);
   });
   testWidgets('sent file reference remains visible', (tester) async {
     await tester.pumpWidget(

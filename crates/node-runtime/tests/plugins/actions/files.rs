@@ -442,7 +442,7 @@ async fn confines_directory_changes_to_both_captured_paths() {
 }
 
 #[tokio::test]
-async fn scopes_office_reads_and_exports_to_file_grants() {
+async fn office_reads_and_exports_require_grants() {
     for remote in [false, true] {
         let (directory, node, controller, client, worktree) = fixture(remote).await;
         let root = directory.path().join("source");

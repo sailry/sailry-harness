@@ -207,7 +207,7 @@ fn trust_binds_original_path(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn project_forms_fit_and_cancel(cx: &mut TestAppContext) {
+fn forms_fit_and_cancel(cx: &mut TestAppContext) {
     let (shell, mut cx) = setup(cx);
     for mode in [ThemeMode::Light, ThemeMode::Dark] {
         for width in [760., 1280.] {

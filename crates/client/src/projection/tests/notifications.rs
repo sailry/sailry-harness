@@ -75,7 +75,7 @@ fn read_and_dismiss_updates_reconcile_existing_entries() {
 }
 
 #[test]
-fn plugin_and_activity_sequences_do_not_mask_each_other() {
+fn plugin_and_activity_sequences_remain_independent() {
     let mut snapshot = snapshot(900);
     snapshot.notifications = vec![notice(1, false)];
     let mut feed = Feed::default();

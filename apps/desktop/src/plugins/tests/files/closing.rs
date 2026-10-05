@@ -1,7 +1,7 @@
 use super::*;
 
 #[gpui::test]
-fn confirms_the_captured_tab_and_rejects_a_released_view(cx: &mut TestAppContext) {
+fn confirms_captured_tabs_and_rejects_released_views(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);

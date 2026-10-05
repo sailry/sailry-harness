@@ -13,7 +13,7 @@ use gpui_kit::{
 };
 
 /// The existing turn status is also the process disclosure's trigger.
-pub(crate) fn work_trigger(
+pub(crate) fn trigger(
     id: String,
     label: SharedString,
     status: impl IntoElement,

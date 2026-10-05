@@ -307,7 +307,7 @@ impl Shell {
             .child(label.clone())
             .child(div().ml_auto().child(tr("turn_preview")));
         let header = if answer_from > 0 {
-            super::surface::work_trigger(
+            super::surface::trigger(
                 location.selector("work", None),
                 label,
                 status_row,

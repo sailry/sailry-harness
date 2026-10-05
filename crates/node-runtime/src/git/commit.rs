@@ -1,5 +1,5 @@
 //! Commit creation uses native Git so hooks, signoff and signing follow repository settings.
-use super::{actions, cli, git_error};
+use super::{actions, cli, fault};
 use git2::Repository;
 use sailry_protocol::{ErrorCode, Fault, GitCommitOptions};
 use std::path::Path;
@@ -55,7 +55,7 @@ pub(crate) fn create(
             if options.push_remote.is_some() =>
         {
             let remote = options.push_remote.as_ref().unwrap();
-            let repository = Repository::open(root).map_err(git_error)?;
+            let repository = Repository::open(root).map_err(fault)?;
             actions::remote_name(&repository, remote)?;
             let branch = expected_branch.ok_or_else(|| {
                 Fault::new(
@@ -83,7 +83,7 @@ pub(crate) fn create(
 
 pub(super) fn signature(repository: &Repository) -> Result<git2::Signature<'static>, Fault> {
     // Reading identity/config does not execute filters, hooks, or signing programs.
-    let configured = Repository::open(repository.path()).map_err(git_error)?;
+    let configured = Repository::open(repository.path()).map_err(fault)?;
     let signature = configured.signature().map_err(|_| {
         Fault::new(
             ErrorCode::NotConfigured,
@@ -92,7 +92,7 @@ pub(super) fn signature(repository: &Repository) -> Result<git2::Signature<'stat
     })?;
     match configured
         .config()
-        .map_err(git_error)?
+        .map_err(fault)?
         .get_bool("commit.gpgsign")
     {
         Ok(true) => {
@@ -103,7 +103,7 @@ pub(super) fn signature(repository: &Repository) -> Result<git2::Signature<'stat
         }
         Ok(false) => {}
         Err(error) if error.code() == git2::ErrorCode::NotFound => {}
-        Err(error) => return Err(git_error(error)),
+        Err(error) => return Err(fault(error)),
     }
     Ok(signature)
 }

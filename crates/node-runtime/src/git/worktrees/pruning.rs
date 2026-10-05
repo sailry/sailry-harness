@@ -1,5 +1,5 @@
 //! Pruning drops one stale Git registration, never files or branch references.
-use super::{git_error, io_error};
+use super::{fault, io_error};
 use git2::{Repository, WorktreeLockStatus, WorktreePruneOptions};
 use sailry_protocol::{ErrorCode, Fault};
 use std::{io::ErrorKind, path::Path};
@@ -11,16 +11,16 @@ pub(in crate::git) fn prune(repository: &Repository, path: &Path) -> Result<(), 
             "worktree path must be absolute",
         ));
     }
-    for name in repository.worktrees().map_err(git_error)?.iter() {
+    for name in repository.worktrees().map_err(fault)?.iter() {
         let name = name
-            .map_err(git_error)?
+            .map_err(fault)?
             .ok_or_else(|| Fault::new(ErrorCode::InvalidRequest, "worktree name is not UTF-8"))?;
-        let worktree = repository.find_worktree(name).map_err(git_error)?;
+        let worktree = repository.find_worktree(name).map_err(fault)?;
         if worktree.path() != path {
             continue;
         }
         if matches!(
-            worktree.is_locked().map_err(git_error)?,
+            worktree.is_locked().map_err(fault)?,
             WorktreeLockStatus::Locked(_)
         ) {
             return Err(Fault::new(ErrorCode::Busy, "worktree is locked"));
@@ -39,10 +39,7 @@ pub(in crate::git) fn prune(repository: &Repository, path: &Path) -> Result<(), 
         }
         let mut options = WorktreePruneOptions::new();
         options.valid(false).locked(false).working_tree(false);
-        if !worktree
-            .is_prunable(Some(&mut options))
-            .map_err(git_error)?
-        {
+        if !worktree.is_prunable(Some(&mut options)).map_err(fault)? {
             return Err(Fault::new(
                 ErrorCode::Conflict,
                 "worktree registration is not stale",

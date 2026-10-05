@@ -4,7 +4,7 @@ use adk_browser::BrowserSession;
 use adk_core::Result;
 use serde_json::{Value, json};
 
-pub(super) async fn evaluate_js(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn script(browser: &BrowserSession, args: Value) -> Result<Value> {
     let script = args
         .get("script")
         .and_then(|v| v.as_str())

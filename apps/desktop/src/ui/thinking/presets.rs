@@ -28,7 +28,7 @@ struct Preset {
     spread: Option<f32>,
 }
 
-fn preset_for(mode: ModeKey, size: OrbSize) -> Preset {
+fn select(mode: ModeKey, size: OrbSize) -> Preset {
     use ModeKey::*;
 
     // The large designs preserve each avatar preset's character while adding
@@ -36,7 +36,7 @@ fn preset_for(mode: ModeKey, size: OrbSize) -> Preset {
     // (2-D lattices, flat lists, lane/segment pairs), so this is deliberately
     // not a naive coordinate scale.
     if matches!(size, OrbSize::Large | OrbSize::Hero) {
-        let mut preset = preset_for(mode, OrbSize::Avatar);
+        let mut preset = select(mode, OrbSize::Avatar);
         let (count, radius, speed) = match size {
             OrbSize::Large => (1.15, 1.05, 0.95),
             OrbSize::Hero => (1.30, 1.10, 0.90),
@@ -336,7 +336,7 @@ fn preset_for(mode: ModeKey, size: OrbSize) -> Preset {
 /// Resolve a (state, size) pair to its mode + fully-scaled draw options.
 pub fn resolve_preset(state: OrbState, size: OrbSize) -> Resolved {
     let mode = ModeKey::from_state(state);
-    let preset = preset_for(mode, size);
+    let preset = select(mode, size);
     let mut opts = base_profile(mode);
     if (preset.count - 1.0).abs() > f32::EPSILON {
         opts = scale_counts(&opts, preset.count);

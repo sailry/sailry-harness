@@ -12,7 +12,7 @@ import 'package:sailry_mobile/ui/kit.dart';
 import 'package:sailry_mobile/ui/theme.dart';
 import 'input.dart';
 
-Future<void> unassignedConversation(
+Future<void> conversationWithoutProject(
   WidgetTester tester, {
   required String invitation,
   required String profile,

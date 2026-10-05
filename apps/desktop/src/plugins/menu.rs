@@ -88,7 +88,7 @@ pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule 
             if let Some(primary)=props.primary {
                 let menu_id=id.clone();let event_id=primary.id.clone();let value=primary.value;
                 let button=Button::new(primary.id.clone()).flex_1().label(primary.label)
-                    .when_some(primary.icon.as_deref(),|button,icon|button.icon(menu_icon(icon)))
+                    .when_some(primary.icon.as_deref(),|button,icon|button.icon(resolve_icon(icon)))
                     .disabled(!primary.enabled||closed.is_cancelled())
                     .debug_selector(move||event_id.clone())
                     .on_click(move|_,_,_|{let _=sender.try_send(serde_json::json!({"menu":menu_id,"id":primary.id,"value":value}));});
@@ -100,7 +100,7 @@ pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule 
             let button = if props.form {
                 button.w_full().label(props.label).dropdown_caret(true)
             } else if let Some(icon) = &props.icon {
-                button.ghost().when(!medium,|button|button.small()).icon(menu_icon(icon)).tooltip(props.label.clone()).accessibility_label(props.label)
+                button.ghost().when(!medium,|button|button.small()).icon(resolve_icon(icon)).tooltip(props.label.clone()).accessibility_label(props.label)
             } else {
                 button.ghost().label(props.label)
             };
@@ -123,7 +123,7 @@ pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule 
         .declarations(declarations)
 }
 
-fn menu_icon(value: &str) -> Icon {
+fn resolve_icon(value: &str) -> Icon {
     Icon::empty().path(if value.contains(':') || value.contains('/') {
         value.to_owned()
     } else {
@@ -158,7 +158,7 @@ fn entries(
             let sender = sender.clone();
             let id = id.to_owned();
             menu = menu.submenu_with_icon(
-                item.icon.as_deref().map(menu_icon),
+                item.icon.as_deref().map(resolve_icon),
                 item.label.clone(),
                 window,
                 cx,
@@ -172,7 +172,7 @@ fn entries(
             menu = menu.item(
                 PopupMenuItem::new(item.label.clone())
                     .when_some(item.icon.as_deref(), |item, icon| {
-                        item.icon(menu_icon(icon))
+                        item.icon(resolve_icon(icon))
                     })
                     .disabled(!item.enabled)
                     .checked(item.checked)

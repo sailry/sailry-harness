@@ -100,7 +100,7 @@ fn claims_ordinary_input_with_an_opaque_fence() {
 }
 
 #[test]
-fn restored_conversation_values_do_not_authorize_automatic_input() {
+fn restored_values_reject_automatic_input() {
     let mut fixture = Fixture::new();
     let mut context = prepare(&mut fixture);
     let after = fixture.completed(&["Recorded result"]);

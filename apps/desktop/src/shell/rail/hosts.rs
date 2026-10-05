@@ -1,5 +1,5 @@
 use super::*;
-use crate::live::{host::host_icon, menus};
+use crate::live::{host::platform_icon, menus};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use sailry_protocol::NodeId;
 
@@ -14,7 +14,7 @@ impl Shell {
         let owner = cx.entity().downgrade();
         let (icon, hosts) = if let Some(live) = &self.live {
             (
-                host_icon(live.info.as_ref().and_then(|info| info.os.as_deref())),
+                platform_icon(live.info.as_ref().and_then(|info| info.os.as_deref())),
                 live.hosts
                     .keys()
                     .map(|node| (Host::Node(*node), live.name(*node), live.selected == *node))
@@ -22,7 +22,7 @@ impl Shell {
             )
         } else {
             (
-                host_icon(None),
+                platform_icon(None),
                 ["local_host_name", "remote_host_name"]
                     .into_iter()
                     .enumerate()

@@ -1,6 +1,6 @@
 //! Safe checkout follows sailry-code 67ae9fa0 command_support.rs (Apache-2.0).
 //! libgit2 owns checkout and index publication; partial effects are never replayed.
-use super::{check_root, git_error, index, io_error, open, path, revision, worktrees};
+use super::{check_root, fault, index, io_error, open, path, revision, worktrees};
 use git2::{Branch, BranchType, Oid, Reference, RepositoryState, build::CheckoutBuilder};
 use sailry_protocol::{ErrorCode, Fault, GitBranch};
 use std::path::Path;
@@ -13,17 +13,17 @@ pub(crate) fn switch(
     expected_branch: Option<&str>,
     expected_index: &str,
 ) -> Result<GitBranch, Fault> {
-    if name.len() > 1024 || !Branch::name_is_valid(name).map_err(git_error)? || commit.len() != 40 {
+    if name.len() > 1024 || !Branch::name_is_valid(name).map_err(fault)? || commit.len() != 40 {
         return Err(Fault::new(
             ErrorCode::InvalidRequest,
             "invalid branch or commit identifier",
         ));
     }
-    let expected_commit = Oid::from_str(commit).map_err(git_error)?;
+    let expected_commit = Oid::from_str(commit).map_err(fault)?;
     let expected_head = expected_head
         .map(Oid::from_str)
         .transpose()
-        .map_err(git_error)?;
+        .map_err(fault)?;
     let previous = expected_branch
         .map(|name| format!("refs/heads/{name}"))
         .unwrap_or_else(|| "HEAD".into());
@@ -42,16 +42,16 @@ pub(crate) fn switch(
         ));
     }
     let target_name = format!("refs/heads/{name}");
-    let mut refs = repository.transaction().map_err(git_error)?;
-    refs.lock_ref("HEAD").map_err(git_error)?;
-    refs.lock_ref(&target_name).map_err(git_error)?;
+    let mut refs = repository.transaction().map_err(fault)?;
+    refs.lock_ref("HEAD").map_err(fault)?;
+    refs.lock_ref(&target_name).map_err(fault)?;
     if previous != "HEAD" && previous != target_name {
-        refs.lock_ref(&previous).map_err(git_error)?;
+        refs.lock_ref(&previous).map_err(fault)?;
     }
     revision::check(&repository, &previous, expected_head, expected_index)?;
     let target = repository
         .find_branch(name, BranchType::Local)
-        .map_err(git_error)?;
+        .map_err(fault)?;
     if target.get().target() != Some(expected_commit) {
         return Err(revision::conflict());
     }
@@ -64,7 +64,7 @@ pub(crate) fn switch(
         });
     }
     worktrees::check_available(&repository, root, &target_name)?;
-    let tree = target.get().peel_to_tree().map_err(git_error)?;
+    let tree = target.get().peel_to_tree().map_err(fault)?;
     check_root(&retained, root)?;
     revision::check(&repository, &previous, expected_head, expected_index)?;
     // Stage the HEAD change while it is still only in memory. Do not invent a
@@ -75,7 +75,7 @@ pub(crate) fn switch(
         None,
         &format!("checkout: moving to {name}"),
     )
-    .map_err(git_error)?;
+    .map_err(fault)?;
     apply(&repository, &tree)?;
     check_root(&retained, root).map_err(|_| unknown())?;
     refs.commit().map_err(|_| unknown())?;

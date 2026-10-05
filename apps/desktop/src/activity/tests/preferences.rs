@@ -10,7 +10,7 @@ impl Render for Background {
 }
 
 #[gpui::test]
-fn preferences_and_shortcuts(cx: &mut TestAppContext) {
+fn persists_and_updates_shortcuts(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     rust_i18n::set_locale("zh-CN");
     let fixture = fixture::Fixture::new();

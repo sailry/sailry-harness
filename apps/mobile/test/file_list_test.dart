@@ -27,7 +27,7 @@ void main() {
     }
   });
 
-  testWidgets('file list formats sizes and navigates through breadcrumbs', (
+  testWidgets('formats sizes and navigates through breadcrumbs', (
     tester,
   ) async {
     final paths = <String>[];

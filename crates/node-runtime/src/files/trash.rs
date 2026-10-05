@@ -14,7 +14,7 @@ pub(crate) fn trash(root: &Path, relative: &str) -> Result<(), Fault> {
     relocate(root, relative, native)
 }
 
-pub(crate) fn trash_file(
+pub(crate) fn remove_verified(
     root: &Path,
     relative: &str,
     revision: &str,

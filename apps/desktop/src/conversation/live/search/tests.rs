@@ -96,7 +96,7 @@ fn searched(view: &Entity<View>, cx: &mut VisualTestContext, count: usize) {
     });
 }
 
-fn search_divider(visual: &mut VisualTestContext, visible: bool) {
+fn divider(visual: &mut VisualTestContext, visible: bool) {
     visual.update(|window, cx| window.draw(cx).clear(cx));
     let bounds = visual.debug_bounds("list-search").unwrap();
     visual.update(|window, _| {
@@ -154,13 +154,13 @@ fn finds_old_turns(cx: &mut TestAppContext) {
         wait(visual, |cx| view.read(cx).search.read(cx).open);
         let collapsed = visual.debug_bounds("live-search-panel").unwrap();
         assert!(collapsed.size.height < px(50.));
-        search_divider(visual, false);
+        divider(visual, false);
         assert!(visual.debug_bounds("live-search-case").is_none());
         assert!(visual.debug_bounds("live-search-refresh").is_none());
         assert!(visual.debug_bounds("live-search-close").is_none());
         visual.simulate_input("äbc 中文 🙂 literal .*");
         searched(&view, visual, 1);
-        search_divider(visual, true);
+        divider(visual, true);
         assert_eq!(
             visual.debug_bounds("live-history-viewport").unwrap(),
             viewport
@@ -187,7 +187,7 @@ fn finds_old_turns(cx: &mut TestAppContext) {
         );
         lifecycle::query(&view, visual, "No matching text");
         searched(&view, visual, 0);
-        search_divider(visual, true);
+        divider(visual, true);
         assert_eq!(
             visual
                 .debug_bounds("live-search-panel")
@@ -198,7 +198,7 @@ fn finds_old_turns(cx: &mut TestAppContext) {
         );
         lifecycle::query(&view, visual, "");
         searched(&view, visual, 0);
-        search_divider(visual, false);
+        divider(visual, false);
         assert_eq!(
             visual
                 .debug_bounds("live-search-panel")

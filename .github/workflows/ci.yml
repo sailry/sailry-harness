@@ -43,6 +43,8 @@ jobs:
           cache: false
       - name: Public source and fixtures
         run: python3 -m unittest discover -s scripts/tests -v
+      - name: Concise function and test names
+        run: python3 scripts/check-names.py
       - name: Workflow syntax and expressions
         run: |
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
@@ -95,6 +97,8 @@ jobs:
           test "$(rustc -vV | awk '/^host: / {print $2}')" = "$DESKTOP_TARGET"
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
+      - name: Search prerequisite
+        run: brew install ripgrep
       - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: |
@@ -142,6 +146,8 @@ jobs:
       - name: Pinned Flutter dependencies
         working-directory: apps/mobile
         run: flutter pub get --enforce-lockfile
+      - name: Search prerequisite
+        run: brew install ripgrep
       - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: |
@@ -188,10 +194,16 @@ jobs:
           flutter-version: '3.44.7'
           channel: stable
       - name: Android toolchain
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.0
+        with:
+          cmdline-tools-version: '15859902'
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0 ndk;28.2.13676358'
+      - name: Android native prerequisites
         run: |
-          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
           printf 'ANDROID_NDK_HOME=%s/ndk/28.2.13676358\n' "$ANDROID_HOME" >> "$GITHUB_ENV"
           rustup target add aarch64-linux-android
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes ripgrep
       - name: Pinned Flutter dependencies
         working-directory: apps/mobile
         run: flutter pub get --enforce-lockfile
@@ -233,6 +245,7 @@ jobs:
       - name: iOS toolchain
         run: |
           xcodebuild -version
+          brew install ripgrep
           rustup target add aarch64-apple-ios
       - name: Pinned Flutter dependencies
         working-directory: apps/mobile

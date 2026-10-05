@@ -31,7 +31,7 @@ fn complete(fixture: &Fixture, module: &HostModule, name: &str, arguments: Value
 }
 
 #[test]
-fn storage_uses_scoped_node_receipts_on_both_connections() {
+fn storage_scopes_local_and_remote_receipts() {
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
         let (package, _server) =

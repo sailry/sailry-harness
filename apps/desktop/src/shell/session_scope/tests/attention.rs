@@ -61,7 +61,7 @@ fn visible_completion_stays_read_and_notifies(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn completion_waits_for_open_and_tracks_other_controllers(cx: &mut TestAppContext) {
+fn completion_tracks_opening_and_other_controllers(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     let (shell, visual) = mount(cx, &fixture);
     visual.update(|window, _| window.activate_window());

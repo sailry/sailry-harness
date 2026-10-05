@@ -194,7 +194,7 @@ fn creates_missing_parents_for_text_and_artifacts() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().canonicalize().unwrap();
     save(&root, "output/资料/report.txt", "Report", None).unwrap();
-    save_bytes(
+    write_binary(
         &root,
         "images/nested/image.png",
         b"binary fixture",

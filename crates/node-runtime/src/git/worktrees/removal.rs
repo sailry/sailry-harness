@@ -1,5 +1,5 @@
 //! Adapted from sailry-code 67ae9fa0 service.rs remove_worktree (Apache-2.0).
-use super::super::{check_root, git_error, io_error, open, path, revision};
+use super::super::{check_root, fault, io_error, open, path, revision};
 use git2::{
     Branch, Oid, RepositoryState, StatusOptions, Worktree, WorktreeLockStatus, WorktreePruneOptions,
 };
@@ -9,14 +9,14 @@ use std::path::Path;
 pub(crate) fn remove(root: &Path, expected_head: &str, expected_branch: &str) -> Result<(), Fault> {
     if expected_head.len() != 40
         || expected_branch.len() > 1024
-        || !Branch::name_is_valid(expected_branch).map_err(git_error)?
+        || !Branch::name_is_valid(expected_branch).map_err(fault)?
     {
         return Err(Fault::new(
             ErrorCode::InvalidRequest,
             "invalid worktree revision",
         ));
     }
-    let expected = Oid::from_str(expected_head).map_err(git_error)?;
+    let expected = Oid::from_str(expected_head).map_err(fault)?;
     let retained = path::root(root)?;
     let repository = open(root)?;
     if !repository.is_worktree() {
@@ -25,8 +25,8 @@ pub(crate) fn remove(root: &Path, expected_head: &str, expected_branch: &str) ->
             "cannot remove the main worktree",
         ));
     }
-    let worktree = Worktree::open_from_repository(&repository).map_err(git_error)?;
-    worktree.validate().map_err(git_error)?;
+    let worktree = Worktree::open_from_repository(&repository).map_err(fault)?;
+    worktree.validate().map_err(fault)?;
     if worktree.path().canonicalize().map_err(io_error)? != root
         || repository
             .commondir()
@@ -40,17 +40,17 @@ pub(crate) fn remove(root: &Path, expected_head: &str, expected_branch: &str) ->
         ));
     }
     if matches!(
-        worktree.is_locked().map_err(git_error)?,
+        worktree.is_locked().map_err(fault)?,
         WorktreeLockStatus::Locked(_)
     ) {
         return Err(Fault::new(ErrorCode::Busy, "worktree is locked"));
     }
     // Git may know a nested worktree whose Node registration was interrupted.
-    for name in repository.worktrees().map_err(git_error)?.iter() {
+    for name in repository.worktrees().map_err(fault)?.iter() {
         let name = name
-            .map_err(git_error)?
+            .map_err(fault)?
             .ok_or_else(|| Fault::new(ErrorCode::InvalidRequest, "worktree name is not UTF-8"))?;
-        let other = repository.find_worktree(name).map_err(git_error)?;
+        let other = repository.find_worktree(name).map_err(fault)?;
         let other = other
             .path()
             .canonicalize()
@@ -68,10 +68,10 @@ pub(crate) fn remove(root: &Path, expected_head: &str, expected_branch: &str) ->
             "finish the current Git operation before removing the worktree",
         ));
     }
-    let head = repository.find_reference("HEAD").map_err(git_error)?;
+    let head = repository.find_reference("HEAD").map_err(fault)?;
     let reference = format!("refs/heads/{expected_branch}");
-    if head.symbolic_target().map_err(git_error)? != Some(reference.as_str())
-        || head.resolve().map_err(git_error)?.target() != Some(expected)
+    if head.symbolic_target().map_err(fault)? != Some(reference.as_str())
+        || head.resolve().map_err(fault)?.target() != Some(expected)
     {
         return Err(revision::conflict());
     }
@@ -79,7 +79,7 @@ pub(crate) fn remove(root: &Path, expected_head: &str, expected_branch: &str) ->
     status.include_untracked(true).recurse_untracked_dirs(true);
     if !repository
         .statuses(Some(&mut status))
-        .map_err(git_error)?
+        .map_err(fault)?
         .is_empty()
     {
         return Err(Fault::new(

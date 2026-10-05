@@ -135,7 +135,7 @@ fn leaves_other_node_drafts_pending(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn restores_new_draft_configuration_without_creating_a_session(cx: &mut TestAppContext) {
+fn restores_configuration_without_creating_session(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     cx.update(|cx| {
         gpui_kit::init(cx);

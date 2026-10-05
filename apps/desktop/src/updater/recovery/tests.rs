@@ -35,7 +35,7 @@ fn snapshot(node: NodeId, session: Option<SessionId>) -> Snapshot {
 }
 
 #[test]
-fn preserves_scoped_text_references_and_independent_attachment_bytes() {
+fn preserves_scoped_references_and_attachment_bytes() {
     let directory = tempfile::tempdir().unwrap();
     let inputs = tempfile::tempdir().unwrap();
     let file = inputs.path().join("资料.bin");
@@ -115,7 +115,7 @@ fn preserves_unreadable_or_changed_cache() {
 }
 
 #[test]
-fn missing_attachment_blocks_save_without_touching_previous_cache() {
+fn missing_attachments_preserve_previous_cache() {
     let directory = tempfile::tempdir().unwrap();
     Capture {
         snapshots: vec![],
@@ -144,7 +144,7 @@ fn missing_attachment_blocks_save_without_touching_previous_cache() {
 }
 
 #[test]
-fn retries_saved_drafts_without_overwriting_an_external_revision() {
+fn draft_retries_preserve_external_revisions() {
     let directory = tempfile::tempdir().unwrap();
     let expected = Arc::new(Mutex::new(None));
     let mut saved = snapshot(NodeId([3; 32]), None);

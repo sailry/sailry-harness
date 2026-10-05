@@ -83,7 +83,7 @@ mod tests {
         assert_eq!(formatted["file_data"][0]["file_uri"], "asset");
     }
     #[test]
-    fn preserves_native_recovery_even_when_formatter_omits_it() {
+    fn native_recovery_survives_formatter_omission() {
         let mut output = json!({"kind":"computer","data":{"response":{"error":"partial input","completed":1,"total":2,"requires_verification":true},"inline_data":[{"data":"original"}]}});
         let media = Media::take(&mut output);
         assert!(media.recovery());

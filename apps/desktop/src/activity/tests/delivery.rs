@@ -40,7 +40,7 @@ pub(super) fn publish(fixture: &fixture::Fixture, index: usize, session: bool) {
 }
 
 #[gpui::test]
-fn offline_notices_open_captured_hosts_and_clear_durably(cx: &mut TestAppContext) {
+fn offline_notices_keep_ownership_and_durable_reads(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     let fixture = fixture::Fixture::new();
     publish(&fixture, 0, false);

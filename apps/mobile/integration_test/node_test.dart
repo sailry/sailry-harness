@@ -62,7 +62,7 @@ void main({bool host = false}) {
           ? _profile
           : '${(await getApplicationSupportDirectory()).path}/acceptance-$_run';
       final internet = !host && Platform.isAndroid;
-      await unassignedConversation(
+      await conversationWithoutProject(
         tester,
         invitation: unassignedInvitation,
         profile: '$baseProfile-unassigned',

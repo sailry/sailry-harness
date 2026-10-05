@@ -106,7 +106,7 @@ mod installation {
     use super::*;
 
     #[test]
-    fn replaces_the_entire_bundle_and_retains_the_original() {
+    fn replaces_bundle_and_retains_original() {
         let fixture = Fixture::new();
         install(&fixture.workspace, &fixture.plan, &fixture.verified).unwrap();
         let installed = &fixture.plan.install_root;
@@ -211,7 +211,7 @@ mod receipt {
     use super::*;
 
     #[test]
-    fn reports_an_install_outcome_without_overwriting_existing_state() {
+    fn reports_outcomes_without_overwriting_state() {
         let fixture = Fixture::new();
         write_receipt(
             &fixture.plan.receipt,

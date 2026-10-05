@@ -77,7 +77,7 @@ impl IntoElement for Surface {
 }
 
 #[gpui::test]
-fn popup_width_tracks_the_trigger_and_confirms_options(cx: &mut TestAppContext) {
+fn popup_tracks_trigger_and_confirms_options(cx: &mut TestAppContext) {
     init(cx);
     let directory = tempfile::tempdir().unwrap();
     std::fs::write(

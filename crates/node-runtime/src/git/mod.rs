@@ -197,7 +197,7 @@ fn open(root: &Path) -> Result<Repository, Fault> {
         RepositoryOpenFlags::NO_SEARCH,
         std::iter::empty::<&OsStr>(),
     )
-    .map_err(git_error)?;
+    .map_err(fault)?;
     let workdir = repository
         .workdir()
         .ok_or_else(|| Fault::new(ErrorCode::InvalidRequest, "expected a non-bare worktree"))?;
@@ -209,8 +209,8 @@ fn open(root: &Path) -> Result<Repository, Fault> {
     }
     // Do not inherit command-valued filters, fsmonitor, credential or transport configuration.
     repository
-        .set_config(&Config::new().map_err(git_error)?)
-        .map_err(git_error)?;
+        .set_config(&Config::new().map_err(fault)?)
+        .map_err(fault)?;
     Ok(repository)
 }
 
@@ -260,7 +260,7 @@ fn check_entry(root: &Path, value: &str) -> Result<(), Fault> {
     }
 }
 
-fn git_error(error: git2::Error) -> Fault {
+fn fault(error: git2::Error) -> Fault {
     let code = match error.code() {
         git2::ErrorCode::NotFound | git2::ErrorCode::UnbornBranch => ErrorCode::NotFound,
         git2::ErrorCode::Locked => ErrorCode::Busy,

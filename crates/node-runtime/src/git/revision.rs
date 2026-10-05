@@ -1,4 +1,4 @@
-use super::{git_error, index, open};
+use super::{fault, index, open};
 use git2::{Oid, Repository};
 use sailry_protocol::{ErrorCode, Fault};
 
@@ -13,9 +13,9 @@ pub(super) fn resolve(root: &std::path::Path, revision: &str) -> Result<String, 
     let repository = open(root)?;
     let commit = repository
         .revparse_single(revision)
-        .map_err(git_error)?
+        .map_err(fault)?
         .peel_to_commit()
-        .map_err(git_error)?;
+        .map_err(fault)?;
     Ok(commit.id().to_string())
 }
 
@@ -25,14 +25,14 @@ pub(super) fn check(
     expected_head: Option<Oid>,
     expected_index: &str,
 ) -> Result<(), Fault> {
-    let head = repository.find_reference("HEAD").map_err(git_error)?;
-    if head.symbolic_target().map_err(git_error)?.unwrap_or("HEAD") != reference {
+    let head = repository.find_reference("HEAD").map_err(fault)?;
+    if head.symbolic_target().map_err(fault)?.unwrap_or("HEAD") != reference {
         return Err(conflict());
     }
     let target = match head.resolve() {
         Ok(head) => head.target(),
         Err(error) if error.code() == git2::ErrorCode::NotFound && expected_head.is_none() => None,
-        Err(error) => return Err(git_error(error)),
+        Err(error) => return Err(fault(error)),
     };
     if target != expected_head || index::revision(repository)? != expected_index {
         return Err(conflict());

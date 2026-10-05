@@ -58,7 +58,7 @@ mod parsing {
             "- [x] done\n  > | a | b |\n  > | - | - |\n  > | *one* | [two](url) |\n",
             "```unknown\n👩‍💻 é\n```\n\nraw <span>HTML</span>\n",
         ] {
-            let parsed = parse_ranges(source);
+            let parsed = with_ranges(source);
             assert_eq!(parsed.block_ranges.len(), parsed.doc.blocks.len());
             let reconstructed: String = parsed
                 .block_ranges

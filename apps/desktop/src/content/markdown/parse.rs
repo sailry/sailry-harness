@@ -36,7 +36,7 @@ impl From<BlockQuoteKind> for QuoteKind {
 
 /// Parse a markdown document.
 pub fn parse(source: &str) -> Doc {
-    parse_spanned(source).0
+    spanned(source).0
 }
 
 /// A parse, and where in the source each block came from.
@@ -55,8 +55,8 @@ pub struct ParsedDoc {
 }
 
 /// [`parse`], keeping the source range each block was parsed from.
-pub fn parse_ranges(source: &str) -> ParsedDoc {
-    let (doc, starts) = parse_spanned(source);
+pub fn with_ranges(source: &str) -> ParsedDoc {
+    let (doc, starts) = spanned(source);
     ParsedDoc {
         block_ranges: ranges(&starts, source.len()),
         doc,
@@ -71,7 +71,7 @@ impl From<&str> for Doc {
 
 impl From<&str> for ParsedDoc {
     fn from(source: &str) -> Self {
-        parse_ranges(source)
+        with_ranges(source)
     }
 }
 
@@ -98,7 +98,7 @@ fn ranges(starts: &[usize], len: usize) -> Vec<Range<usize>> {
 /// The parse every entry point runs, with the offset each block started at.
 ///
 /// List numbering comes from each parser list, preserving distinct list starts.
-fn parse_spanned(source: &str) -> (Doc, Vec<usize>) {
+fn spanned(source: &str) -> (Doc, Vec<usize>) {
     let mut state = ParseState::default();
     strong::parse(source, |event, range| state.event(event, range));
     (state.doc, state.starts)

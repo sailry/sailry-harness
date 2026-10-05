@@ -70,7 +70,7 @@ jobs:
             packages-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'crates/node-runtime/src/office/runtime/requirements.lock', 'scripts/package/linux-sysroot.lock.json') }}-
       - name: Build prerequisites
         run: |
-          brew install llvm@21
+          brew install llvm@21 ripgrep
           python3 -m pip install --disable-pip-version-check uv==0.10.9
           rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
           if ! test -x target/tooling/bin/cargo-zigbuild; then

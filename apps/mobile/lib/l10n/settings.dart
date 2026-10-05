@@ -7,4 +7,4 @@ const settingsStrings = <String, String>{
   'connectionsCount': '{count} 个连接',
 };
 
-String settingsText(String key) => settingsStrings[key] ?? key;
+String lookup(String key) => settingsStrings[key] ?? key;

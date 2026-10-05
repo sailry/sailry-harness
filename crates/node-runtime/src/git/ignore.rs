@@ -1,5 +1,5 @@
 //! Literal ignore rules use the existing revision-checked file save boundary.
-use super::{git_error, io_error, path, valid_path};
+use super::{fault, io_error, path, valid_path};
 use sailry_protocol::{ErrorCode, Fault, MAX_FILE_BYTES, MAX_GIT_ENTRIES};
 use std::{io::Read, path::Path};
 
@@ -36,9 +36,7 @@ pub(super) fn add(
                     "ignore target is not a file",
                 ));
             }
-            let status = repository
-                .status_file(Path::new(value))
-                .map_err(git_error)?;
+            let status = repository.status_file(Path::new(value)).map_err(fault)?;
             if !status.is_wt_new() && !status.is_ignored() {
                 return Err(Fault::new(
                     ErrorCode::Conflict,
@@ -81,7 +79,7 @@ pub(super) fn add(
         if text.lines().any(|line| line == rule)
             && repository
                 .status_should_ignore(Path::new(value))
-                .map_err(git_error)?
+                .map_err(fault)?
         {
             continue;
         }
