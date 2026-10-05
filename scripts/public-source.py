@@ -10,7 +10,8 @@ from urllib.parse import unquote, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
-GUIDES = {"README.md", "ARCHITECTURE.md", "CONTRIBUTING.md", "AGENTS.md"}
+GUIDES = {"README.md", "README.zh-CN.md", "ARCHITECTURE.md", "CONTRIBUTING.md", "AGENTS.md"}
+LOCALIZED_GUIDES = {"README.zh-CN.md"}
 REQUIRED = GUIDES | {"LICENSE", "NOTICE", ".gitignore", "Cargo.lock"}
 INTERNAL = {
     "docs", "plan", "plans", "notes", "reports", "internal", "output",
@@ -84,7 +85,8 @@ def check_documents(root, paths):
     errors = []
     for name in document_paths(paths):
         text = (root / name).read_text(encoding="utf-8")
-        if re.search(r"/Volumes/|/Users/|[\u3400-\u9fff]", text):
+        if re.search(r"/Volumes/|/Users/", text) or (
+                name not in LOCALIZED_GUIDES and re.search(r"[\u3400-\u9fff]", text)):
             errors.append(f"Non-public or non-English guide text: {name}")
         # Examples inside code fences are not documentation navigation.
         text = re.sub(r"```.*?```", "", text, flags=re.S)

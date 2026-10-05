@@ -4,6 +4,10 @@
 
 <h1 align="center">Sailry</h1>
 
+<p align="center">
+  English · <a href="README.zh-CN.md">Chinese (Simplified)</a>
+</p>
+
 <p align="center"><strong>Your AI workspace for everyday work</strong></p>
 
 <p align="center">

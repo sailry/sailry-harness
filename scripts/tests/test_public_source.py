@@ -73,6 +73,23 @@ class PublicationPaths(unittest.TestCase):
 
 
 class GuideLinks(unittest.TestCase):
+    def test_localized_readme_keeps_publication_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(root, "README.md", "[Chinese](README.zh-CN.md)\n")
+            write(root, "README.zh-CN.md", "# 简体中文\n[English](README.md)\n")
+            paths = {"README.md", "README.zh-CN.md"}
+            self.assertEqual(public.check_documents(root, paths), [])
+            write(root, "README.zh-CN.md", "# 简体中文\n[Private](docs/secret.md)\n")
+            write(root, "docs/secret.md", "Private\n")
+            self.assertEqual(public.check_documents(root, paths), [
+                "Guide link has no public source target: README.zh-CN.md: docs/secret.md",
+            ])
+            write(root, "README.zh-CN.md", "/Users/fixture/private\n")
+            self.assertEqual(public.check_documents(root, paths), [
+                "Non-public or non-English guide text: README.zh-CN.md",
+            ])
+
     def test_checks_tracked_targets_not_private_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
