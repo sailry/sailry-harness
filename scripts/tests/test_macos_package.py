@@ -1,0 +1,120 @@
+"""macOS packaging fixtures never use developer certificates or Apple services."""
+
+import importlib.util
+import json
+from pathlib import Path
+import tarfile
+import tempfile
+import unittest
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def load(name):
+    spec = importlib.util.spec_from_file_location(name, ROOT / f"scripts/package/{name}-macos.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+signing = load("sign")
+notary = load("notarize")
+
+
+class CodeSigning(unittest.TestCase):
+    def test_finds_macho_without_following_symlinks_or_signing_linux(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "nested").mkdir()
+            (root / "program").write_bytes(b"\xcf\xfa\xed\xfe" + b"fixture")
+            (root / "nested/lib.so").write_bytes(b"\xca\xfe\xba\xbe" + b"fixture")
+            (root / "linux").write_bytes(b"\x7fELF" + b"fixture")
+            (root / "link").symlink_to("program")
+            self.assertEqual(signing.mach_objects(root), [root / "nested/lib.so", root / "program"])
+
+    def test_signs_inside_out_and_repackages_the_signed_interpreter(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app = root / "Sailry.app"
+            resources = app / "Contents/Resources"
+            office = resources / "office-runtime"
+            native = resources / "hosts/aarch64-apple-darwin"
+            main = app / "Contents/MacOS/sailry-desktop"
+            python = office / "python/bin/python3.12"
+            host = root / "host"
+            host.mkdir()
+            for path in (main, python, native / "sailry-host"):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"\xcf\xfa\xed\xfe" + b"fixture")
+            (python.parent / "python3").symlink_to("python3.12")
+            def command(*args):
+                if args[1] == "--force" and Path(args[-1]) == python:
+                    python.write_bytes(python.read_bytes() + b"signed")
+                return ""
+            with patch.object(signing, "run", side_effect=command) as run, \
+                    patch.object(signing, "verify") as verify:
+                signing.sign(app, host, "aarch64-apple-darwin", "Fixture identity", "FIXTURE", root / "keychain")
+            calls = [call.args for call in run.call_args_list]
+            self.assertEqual(calls[-1][-1], app)
+            self.assertTrue(all("--deep" not in call for call in calls))
+            self.assertTrue(all("--timestamp" in call and "runtime" in call for call in calls))
+            self.assertTrue(all("--keychain" in call for call in calls))
+            self.assertIn("--entitlements", calls[-1])
+            with tarfile.open(native / "office-runtime.tar.gz") as archive:
+                self.assertEqual(archive.extractfile("office-runtime/python/bin/python3.12").read(), python.read_bytes())
+            self.assertEqual((host / "office-runtime/python/bin/python3.12").read_bytes(), python.read_bytes())
+            self.assertEqual((host / "office-runtime/python/bin/python3").readlink(), Path("python3.12"))
+            self.assertEqual((host / "sailry-host").read_bytes(), (native / "sailry-host").read_bytes())
+            verify.assert_any_call(app, "FIXTURE", deep=True)
+
+    def test_rejects_wrong_team_and_missing_runtime_or_timestamp(self):
+        for metadata in ("TeamIdentifier=OTHER\nflags=0x10000(runtime)\nTimestamp=now\n",
+                         "TeamIdentifier=FIXTURE\nTimestamp=now\n",
+                         "TeamIdentifier=FIXTURE\nflags=0x10000(runtime)\n"):
+            with self.subTest(metadata=metadata), patch.object(signing, "run", return_value=metadata):
+                with self.assertRaises(RuntimeError):
+                    signing.verify(Path("fixture"), "FIXTURE")
+
+    def test_accepts_verified_distribution_metadata(self):
+        metadata = "TeamIdentifier=FIXTURE\nflags=0x10000(runtime)\nTimestamp=now\n"
+        with patch.object(signing, "run", return_value=metadata) as run:
+            signing.verify(Path("fixture"), "FIXTURE", deep=True)
+        self.assertEqual(run.call_args_list[0].args, ("codesign", "--verify", "--strict", "--deep", Path("fixture")))
+
+
+class Notarization(unittest.TestCase):
+    def test_requires_acceptance(self):
+        for status in ("Invalid", "In Progress", None):
+            with self.subTest(status=status), patch.object(notary, "run", return_value=json.dumps({"status": status})):
+                with self.assertRaisesRegex(RuntimeError, "did not succeed"):
+                    notary.submit(Path("fixture.zip"), [])
+
+    def test_reports_rejected_submission_issues(self):
+        responses = [json.dumps({"status": "Invalid", "id": "fixture-id"}),
+                     json.dumps({"issues": [{"path": "Sailry.app", "message": "Unsigned code"}]})]
+        with patch.object(notary, "run", side_effect=responses) as run, patch("builtins.print") as output:
+            with self.assertRaises(RuntimeError):
+                notary.submit(Path("fixture.zip"), ["--key", "fixture.p8"])
+        self.assertEqual(run.call_args_list[1].args[1:4], ("notarytool", "log", "fixture-id"))
+        output.assert_called_once_with("Notarization issue: Sailry.app: Unsigned code")
+
+    def test_staples_and_assesses_only_after_both_submissions(self):
+        with patch.object(notary, "run") as run, patch.object(notary, "submit") as submit:
+            notary.notarize(Path("Sailry.app"), Path("host"), ["--key", "fixture.p8"])
+        self.assertEqual(submit.call_count, 2)
+        self.assertEqual([call.args[1:3] for call in run.call_args_list], [
+            ("-c", "-k"), ("-c", "-k"), ("stapler", "staple"),
+            ("stapler", "validate"), ("--verify", "--deep"), ("--assess", "--type"),
+        ])
+
+    def test_does_not_staple_after_submission_failure(self):
+        with patch.object(notary, "run") as run, \
+                patch.object(notary, "submit", side_effect=RuntimeError("Service unavailable")):
+            with self.assertRaises(RuntimeError):
+                notary.notarize(Path("Sailry.app"), Path("host"), [])
+        self.assertEqual(run.call_count, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

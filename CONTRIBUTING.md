@@ -116,6 +116,62 @@ require PostgreSQL/MySQL executables. Run `just test-mobile-contract` with those
 executables available to include the database contracts. A macOS host-side Flutter
 run does not establish iOS or Android device acceptance.
 
+## macOS releases
+
+[The release workflow](.github/workflows/release.yml) runs only when a `v*` tag is
+pushed. The tag must match `apps/desktop/Cargo.toml`, such as `v0.1.0` for version
+`0.1.0`; branch pushes, pull requests and manual dispatch do not build releases.
+Publish a tag only when you intend to make a formal release. iOS and App Store
+publication are not part of this workflow.
+
+Configure these repository secrets through GitHub's encrypted secret storage:
+
+- `APPLE_CERTIFICATE_P12`: base64-encoded Developer ID Application certificate
+  with its private key
+- `APPLE_CERTIFICATE_PASSWORD`: the certificate export password
+- `APPLE_API_PRIVATE_KEY`: the App Store Connect API private key contents
+
+Configure repository variables `APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID`,
+`APPLE_API_KEY_ID` and `APPLE_API_ISSUER_ID`. The signing identity is the Developer
+ID certificate's SHA-1 fingerprint. Keep credentials out of source, artifacts and
+logs; the workflow imports them into a temporary keychain and removes its key
+files after packaging. The Apple account must have accepted current agreements
+and the API key must have notarization access.
+
+Apple silicon and Intel runners build separate native Desktop/Host packages.
+Each Desktop bundle includes both Linux Host architectures and pinned Office
+runtimes. Linux link inputs are checksum-pinned in
+[`linux-sysroot.lock.json`](scripts/package/linux-sysroot.lock.json); the build
+does not install cross-compilation packages into the host system.
+
+For local verification, build Desktop and the bundled Hosts, then package into a
+fresh `dist/` directory:
+
+```sh
+cargo build --locked --release -p sailry-desktop -p sailry-host
+bash scripts/build-hosts.sh release
+SAILRY_SIGNING=developer-id SAILRY_NOTARIZE=1 bash scripts/package-macos.sh release
+```
+
+The local command requires the signing variables above plus `APPLE_API_KEY_PATH`,
+pointing to a private API key file. `APPLE_SIGNING_KEYCHAIN` optionally selects a
+keychain containing the imported identity. Never put those private values in a
+checked-in environment file. Without distribution options, the packaging command
+creates an ad hoc development package, not a notarized release.
+
+Distribution signs nested native code inside out with hardened runtime and secure
+timestamps, submits Desktop and Host for notarization, staples Desktop's ticket,
+and verifies Gatekeeper before creating archives. Standalone executables cannot
+carry stapled tickets. Both native builds must succeed before GitHub publishes
+their ZIP/TAR packages and checksums.
+
+Release notes are generated from the immutable tag's Git commits since the
+previous version tag. The same entry is prepended to [`CHANGELOG.md`](CHANGELOG.md)
+on the default branch automatically after publication; existing entries are
+preserved. Publishing needs `contents: write` and permission to update that file
+on the default branch. A failed changelog update is reported as a failed workflow,
+even if the release was already published; inspect that outcome before retrying.
+
 ## Public source and history
 
 Internal `docs/`, plans, local outputs, profiles and credentials are ignored and

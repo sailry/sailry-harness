@@ -1,0 +1,238 @@
+{
+  "version": 1,
+  "source": "https://archive.debian.org/debian/",
+  "packages": {
+    "amd64": [
+      {
+        "package": "libx11-6",
+        "version": "2:1.7.2-1+deb11u2",
+        "filename": "pool/main/libx/libx11/libx11-6_1.7.2-1+deb11u2_amd64.deb",
+        "sha256": "2b3b959cb10c07be065eb638a8577fe20f282045aaef76425dbd7310d1244b8c"
+      },
+      {
+        "package": "libx11-dev",
+        "version": "2:1.7.2-1+deb11u2",
+        "filename": "pool/main/libx/libx11/libx11-dev_1.7.2-1+deb11u2_amd64.deb",
+        "sha256": "9fbcda6af06d8db9cd8a48b581570aa8fee862bfc43b6f569a66503ae7d83211"
+      },
+      {
+        "package": "libxau-dev",
+        "version": "1:1.0.9-1",
+        "filename": "pool/main/libx/libxau/libxau-dev_1.0.9-1_amd64.deb",
+        "sha256": "d1a7f5d484e0879b3b2e8d512894744505e53d078712ce65903fef2ecfd824bb"
+      },
+      {
+        "package": "libxau6",
+        "version": "1:1.0.9-1",
+        "filename": "pool/main/libx/libxau/libxau6_1.0.9-1_amd64.deb",
+        "sha256": "679db1c4579ec7c61079adeaae8528adeb2e4bf5465baa6c56233b995d714750"
+      },
+      {
+        "package": "libxcb1",
+        "version": "1.14-3",
+        "filename": "pool/main/libx/libxcb/libxcb1_1.14-3_amd64.deb",
+        "sha256": "d5e0f047ed766f45eb7473947b70f9e8fddbe45ef22ecfd92ab712c0671a93ac"
+      },
+      {
+        "package": "libxcb1-dev",
+        "version": "1.14-3",
+        "filename": "pool/main/libx/libxcb/libxcb1-dev_1.14-3_amd64.deb",
+        "sha256": "b75544f334c8963b8b7b0e8a88f8a7cde95a714dddbcda076d4beb669a961b58"
+      },
+      {
+        "package": "libxdmcp-dev",
+        "version": "1:1.1.2-3",
+        "filename": "pool/main/libx/libxdmcp/libxdmcp-dev_1.1.2-3_amd64.deb",
+        "sha256": "c6733e5f6463afd261998e408be6eb37f24ce0a64b63bed50a87ddb18ebc1699"
+      },
+      {
+        "package": "libxdmcp6",
+        "version": "1:1.1.2-3",
+        "filename": "pool/main/libx/libxdmcp/libxdmcp6_1.1.2-3_amd64.deb",
+        "sha256": "ecb8536f5fb34543b55bb9dc5f5b14c9dbb4150a7bddb3f2287b7cab6e9d25ef"
+      },
+      {
+        "package": "libxext-dev",
+        "version": "2:1.3.3-1.1",
+        "filename": "pool/main/libx/libxext/libxext-dev_1.3.3-1.1_amd64.deb",
+        "sha256": "0aa17565287ca8a37914e043789ee33c6e1f987acf346dac7175165009c5db7c"
+      },
+      {
+        "package": "libxext6",
+        "version": "2:1.3.3-1.1",
+        "filename": "pool/main/libx/libxext/libxext6_1.3.3-1.1_amd64.deb",
+        "sha256": "dc1ff8a2b60c7dd3c8917ffb9aa65ee6cda52648d9150608683c47319d1c0c8c"
+      },
+      {
+        "package": "libxfixes-dev",
+        "version": "1:5.0.3-2",
+        "filename": "pool/main/libx/libxfixes/libxfixes-dev_5.0.3-2_amd64.deb",
+        "sha256": "bacfcd67ca931839a2e2ae87922ecb40e2870470afa86d0c7245288825da2340"
+      },
+      {
+        "package": "libxfixes3",
+        "version": "1:5.0.3-2",
+        "filename": "pool/main/libx/libxfixes/libxfixes3_5.0.3-2_amd64.deb",
+        "sha256": "58622d0d65c3535bd724c4da62ae7acb71e0e8f527bcbd65daf8c97e6f0ef843"
+      },
+      {
+        "package": "libxi-dev",
+        "version": "2:1.7.10-1",
+        "filename": "pool/main/libx/libxi/libxi-dev_1.7.10-1_amd64.deb",
+        "sha256": "736309ff476f0e1594f855cf44e2fb20bf1e594518ce2259eb9b2dd93917f2db"
+      },
+      {
+        "package": "libxi6",
+        "version": "2:1.7.10-1",
+        "filename": "pool/main/libx/libxi/libxi6_1.7.10-1_amd64.deb",
+        "sha256": "4d583f43b5396ca5434100a7274613e9983357d80875a47b29a4f3218fe0bec0"
+      },
+      {
+        "package": "libxtst-dev",
+        "version": "2:1.2.3-1",
+        "filename": "pool/main/libx/libxtst/libxtst-dev_1.2.3-1_amd64.deb",
+        "sha256": "9ed56e0fd5807afe20cfee8fad16c657c6d7410d7934d8726584794bd77ea989"
+      },
+      {
+        "package": "libxtst6",
+        "version": "2:1.2.3-1",
+        "filename": "pool/main/libx/libxtst/libxtst6_1.2.3-1_amd64.deb",
+        "sha256": "7072f9be17abdb9c5af7d052b19c84d1a6c1c13c30c120a98d284ba73d2da73f"
+      },
+      {
+        "package": "xorg-sgml-doctools",
+        "version": "1:1.11-1.1",
+        "filename": "pool/main/x/xorg-sgml-doctools/xorg-sgml-doctools_1.11-1.1_all.deb",
+        "sha256": "168345058319094e475a87ace66f5fb6ae802109650ea8434d672117982b5d0a"
+      },
+      {
+        "package": "x11proto-dev",
+        "version": "2020.1-1",
+        "filename": "pool/main/x/xorgproto/x11proto-dev_2020.1-1_all.deb",
+        "sha256": "d5568d587d9ad2664c34c14b0ac538ccb3c567e126ee5291085a8de704a565f5"
+      },
+      {
+        "package": "xtrans-dev",
+        "version": "1.4.0-1",
+        "filename": "pool/main/x/xtrans/xtrans-dev_1.4.0-1_all.deb",
+        "sha256": "9ce1af9464faee0c679348dd11cdf63934c12e734a64e0903692b0cb5af38e06"
+      }
+    ],
+    "arm64": [
+      {
+        "package": "libx11-6",
+        "version": "2:1.7.2-1+deb11u2",
+        "filename": "pool/main/libx/libx11/libx11-6_1.7.2-1+deb11u2_arm64.deb",
+        "sha256": "1ddb1a4d3dbdaeac8fd8d0009a27e6453b15d97362fdd1d3efb1d5f577364f30"
+      },
+      {
+        "package": "libx11-dev",
+        "version": "2:1.7.2-1+deb11u2",
+        "filename": "pool/main/libx/libx11/libx11-dev_1.7.2-1+deb11u2_arm64.deb",
+        "sha256": "daab6b6a6de5aa8aea8ec61ac89a25b86812e20292aa891bb0d9481c5d3ae310"
+      },
+      {
+        "package": "libxau-dev",
+        "version": "1:1.0.9-1",
+        "filename": "pool/main/libx/libxau/libxau-dev_1.0.9-1_arm64.deb",
+        "sha256": "21db3761a8f388fc83707c00fac645d4332737a859dd727571e1e6ede003b048"
+      },
+      {
+        "package": "libxau6",
+        "version": "1:1.0.9-1",
+        "filename": "pool/main/libx/libxau/libxau6_1.0.9-1_arm64.deb",
+        "sha256": "36c2bf400641a80521093771dc2562c903df4065f9eb03add50d90564337ea6c"
+      },
+      {
+        "package": "libxcb1",
+        "version": "1.14-3",
+        "filename": "pool/main/libx/libxcb/libxcb1_1.14-3_arm64.deb",
+        "sha256": "48f82b65c93adb7af7757961fdd2730928316459f008d767b7104a56bc20a8f1"
+      },
+      {
+        "package": "libxcb1-dev",
+        "version": "1.14-3",
+        "filename": "pool/main/libx/libxcb/libxcb1-dev_1.14-3_arm64.deb",
+        "sha256": "43ebe78dd7f66933286fe68fd7ccc650ef14464d479fff13e635e95d1f742efa"
+      },
+      {
+        "package": "libxdmcp-dev",
+        "version": "1:1.1.2-3",
+        "filename": "pool/main/libx/libxdmcp/libxdmcp-dev_1.1.2-3_arm64.deb",
+        "sha256": "6fd0bc51f3a4e6b7f944f24f15524a4c4ba68a4b0aa136c18bdb96a2d36988f2"
+      },
+      {
+        "package": "libxdmcp6",
+        "version": "1:1.1.2-3",
+        "filename": "pool/main/libx/libxdmcp/libxdmcp6_1.1.2-3_arm64.deb",
+        "sha256": "e92569ac33247261aa09adfadc34ced3994ac301cf8b58de415a2d5dbf15ccfc"
+      },
+      {
+        "package": "libxext-dev",
+        "version": "2:1.3.3-1.1",
+        "filename": "pool/main/libx/libxext/libxext-dev_1.3.3-1.1_arm64.deb",
+        "sha256": "121790750c8e167fe0ef18e46b9450ca6c8414cd9e92666c0ee8f974e47402f2"
+      },
+      {
+        "package": "libxext6",
+        "version": "2:1.3.3-1.1",
+        "filename": "pool/main/libx/libxext/libxext6_1.3.3-1.1_arm64.deb",
+        "sha256": "57237ecf54662372e206b154c0ab6096e05955e048552575b45d3ad14a6ff6e5"
+      },
+      {
+        "package": "libxfixes-dev",
+        "version": "1:5.0.3-2",
+        "filename": "pool/main/libx/libxfixes/libxfixes-dev_5.0.3-2_arm64.deb",
+        "sha256": "666d887e81f2f446177e9c99fb3dcfc12c51c47d7722746530978fc7688cbe41"
+      },
+      {
+        "package": "libxfixes3",
+        "version": "1:5.0.3-2",
+        "filename": "pool/main/libx/libxfixes/libxfixes3_5.0.3-2_arm64.deb",
+        "sha256": "eb70f12af1d13e1632ee29ddf103617af00a078faf6c3a2531ab3d01b395606b"
+      },
+      {
+        "package": "libxi-dev",
+        "version": "2:1.7.10-1",
+        "filename": "pool/main/libx/libxi/libxi-dev_1.7.10-1_arm64.deb",
+        "sha256": "801088725612512a6afc2c1e9282f488144d8318270298d82a0821c58b59a343"
+      },
+      {
+        "package": "libxi6",
+        "version": "2:1.7.10-1",
+        "filename": "pool/main/libx/libxi/libxi6_1.7.10-1_arm64.deb",
+        "sha256": "0a6788844441f160d970fc7d61004607fe92cfad8966d0b371291703201b3971"
+      },
+      {
+        "package": "libxtst-dev",
+        "version": "2:1.2.3-1",
+        "filename": "pool/main/libx/libxtst/libxtst-dev_1.2.3-1_arm64.deb",
+        "sha256": "3bb78ca3cb41236a8d38fc7e36f961f119685611ae47de4be1110d1c5e3607e0"
+      },
+      {
+        "package": "libxtst6",
+        "version": "2:1.2.3-1",
+        "filename": "pool/main/libx/libxtst/libxtst6_1.2.3-1_arm64.deb",
+        "sha256": "1124ac3c680f1d454a676366d96564ffb8c8924214c776b514965f9c4fbd49ca"
+      },
+      {
+        "package": "xorg-sgml-doctools",
+        "version": "1:1.11-1.1",
+        "filename": "pool/main/x/xorg-sgml-doctools/xorg-sgml-doctools_1.11-1.1_all.deb",
+        "sha256": "168345058319094e475a87ace66f5fb6ae802109650ea8434d672117982b5d0a"
+      },
+      {
+        "package": "x11proto-dev",
+        "version": "2020.1-1",
+        "filename": "pool/main/x/xorgproto/x11proto-dev_2020.1-1_all.deb",
+        "sha256": "d5568d587d9ad2664c34c14b0ac538ccb3c567e126ee5291085a8de704a565f5"
+      },
+      {
+        "package": "xtrans-dev",
+        "version": "1.4.0-1",
+        "filename": "pool/main/x/xtrans/xtrans-dev_1.4.0-1_all.deb",
+        "sha256": "9ce1af9464faee0c679348dd11cdf63934c12e734a64e0903692b0cb5af38e06"
+      }
+    ]
+  }
+}

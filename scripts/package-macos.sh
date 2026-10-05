@@ -10,6 +10,12 @@ task_root="$(cd "$(dirname "$0")/.." && pwd)"
 task_build="$task_root/target/$task_profile"
 task_target="$(rustc -vV | awk '/^host: / {print $2}')"
 task_version="$(awk -F '"' '/^version = "/ {print $2; exit}' "$task_root/apps/desktop/Cargo.toml")"
+task_signing="${SAILRY_SIGNING:-ad-hoc}"
+case "$task_signing" in
+  ad-hoc) test "${SAILRY_NOTARIZE:-0}" != 1 ;;
+  developer-id) test -n "${APPLE_SIGNING_IDENTITY:-}"; test -n "${APPLE_TEAM_ID:-}" ;;
+  *) echo 'SAILRY_SIGNING must be ad-hoc or developer-id' >&2; exit 1 ;;
+esac
 test -n "$task_version"
 test -x "$task_build/sailry-desktop"
 test -x "$task_build/sailry-host"
@@ -25,8 +31,10 @@ for task_host in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu "$task_targe
   test -f "$task_root/target/host-artifacts/$task_host/office-runtime.tar.gz"
 done
 tar -xzf "$task_root/target/host-artifacts/$task_target/office-runtime.tar.gz" -C "$task_app/Contents/Resources"
-cp -R "$task_app/Contents/Resources/office-runtime" "$task_output/host/office-runtime"
-cp -R "$task_root/target/host-artifacts" "$task_app/Contents/Resources/hosts"
+mkdir -p "$task_app/Contents/Resources/hosts"
+for task_host in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu "$task_target"; do
+  cp -R "$task_root/target/host-artifacts/$task_host" "$task_app/Contents/Resources/hosts/$task_host"
+done
 cp "$task_build/sailry-desktop" "$task_app/Contents/MacOS/sailry-desktop"
 cp "$task_build/sailry-host" "$task_output/host/sailry-host"
 cp "$task_root/scripts/host-launchd.sh" "$task_output/host/host-launchd.sh"
@@ -51,13 +59,22 @@ cp "$task_root/Cargo.lock" "$task_app/Contents/Resources/Cargo.lock"
 cp "$task_app/Contents/Resources/build.json" "$task_output/host/build.json"
 cp "$task_root/Cargo.lock" "$task_output/host/Cargo.lock"
 
-# Ad hoc signatures support local acceptance. Developer ID and notarization are separate.
-codesign --force --sign - "$task_output/host/sailry-host"
-codesign --force --sign - "$task_app"
+# Sign inside out for distribution; ad hoc bundles remain available for development.
+if test "$task_signing" = developer-id; then
+  python3 "$task_root/scripts/package/sign-macos.py" --app "$task_app" \
+    --host "$task_output/host" --target "$task_target"
+else
+  cp -R "$task_app/Contents/Resources/office-runtime" "$task_output/host/office-runtime"
+  codesign --force --sign - "$task_output/host/sailry-host"
+  codesign --force --sign - "$task_app"
+fi
 codesign --verify --deep --strict "$task_app"
 codesign --verify --strict "$task_output/host/sailry-host"
 "$task_app/Contents/MacOS/sailry-desktop" --help
 "$task_output/host/sailry-host" --help
+if test "${SAILRY_NOTARIZE:-0}" = 1; then
+  python3 "$task_root/scripts/package/notarize-macos.py" --app "$task_app" --host "$task_output/host"
+fi
 ditto -c -k --keepParent "$task_app" "$task_output/Sailry-$task_version-$task_target.zip"
 tar -czf "$task_output/sailry-host-$task_version-$task_target.tar.gz" -C "$task_output/host" .
 (cd "$task_output" && shasum -a 256 ./*.zip ./*.tar.gz > SHA256SUMS)
