@@ -113,6 +113,18 @@ mobile builds check the Rust dependency boundary. Actions and toolchains are
 pinned; Rust and Flutter use committed lockfiles. `Checks passed` requires every
 job to succeed, including both Desktop architectures.
 
+Node integration features share eight compiled suites instead of linking a
+binary per feature. Keep feature files focused and register new files in the
+appropriate suite; the source check rejects missing or duplicate registrations.
+Rust caches retain dependency and workspace library artifacts, including after
+failed tests. Cargo still validates fingerprints and recompiles changed inputs.
+The pinned sccache compiler cache reuses Rust library compilation by content;
+test executables still need linking. Cache statistics are recorded in each run.
+Checks disable general optimization and debug information; the GPUI hot-path
+overrides stay in place. This does not change development or release profiles.
+Compilation and execution are separate steps; compilation timings are uploaded
+for both Desktop architectures. Desktop tests remain serial for native UI state.
+
 CI does not supply model credentials, production profiles or OS permissions.
 Live-service and device tests stay opt-in. The ordinary Flutter suite skips its
 bootstrap-dependent native fixture, which the explicit remote-Node step runs.

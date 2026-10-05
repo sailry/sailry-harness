@@ -1,5 +1,5 @@
+use super::super::trash_fixture::Entry;
 use super::*;
-use crate::trash_fixture::Entry;
 use std::{fs, time::Duration};
 
 #[tokio::test]

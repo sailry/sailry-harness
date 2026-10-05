@@ -14,6 +14,7 @@ use std::{
 };
 
 #[allow(dead_code)]
+#[path = "discovery_support/mod.rs"]
 mod discovery_support;
 use discovery_support::{Reply, Server};
 #[path = "login/catalog.rs"]

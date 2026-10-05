@@ -6,7 +6,7 @@ use std::time::Duration;
 
 #[allow(dead_code)]
 #[path = "agent_support/mod.rs"]
-mod agent_support;
+pub(crate) mod agent_support;
 
 #[path = "support/files.rs"]
 mod files;

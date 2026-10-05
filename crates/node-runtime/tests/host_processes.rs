@@ -13,7 +13,7 @@ impl Fixture {
     fn start() -> Self {
         Self(
             OsCommand::new(std::env::current_exe().unwrap())
-                .args(["fixture_process", "--ignored", "--exact"])
+                .args(["host_processes::fixture_process", "--ignored", "--exact"])
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())

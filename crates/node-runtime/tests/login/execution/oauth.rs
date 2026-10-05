@@ -76,7 +76,7 @@ async fn keeps_captured_headers_through_restart_and_refresh() {
             (Authentication::Copilot, ModelApi::Responses),
             (Authentication::Copilot, ModelApi::ChatCompletions),
         ] {
-            let options = crate::oauth::options(authentication, "captured");
+            let options = super::super::oauth::options(authentication, "captured");
             let expected = options.clone();
             let exchanges = Arc::new(AtomicUsize::new(0));
             let count = exchanges.clone();
@@ -84,18 +84,18 @@ async fn keeps_captured_headers_through_restart_and_refresh() {
                 assert_eq!(request.headers["user-agent"], expected.user_agent());
                 if exchange(request) {
                     if authentication == Authentication::Copilot {
-                        crate::oauth::headers(request, &expected);
+                        super::super::oauth::headers(request, &expected);
                     }
                     let fresh = count.fetch_add(1, Ordering::SeqCst) > 0;
                     Reply::Json(exchanged(authentication, fresh))
                 } else if request.path.starts_with("/models") {
-                    crate::oauth::headers(request, &expected);
+                    super::super::oauth::headers(request, &expected);
                     if authentication == Authentication::ChatGpt {
                         assert_eq!(request.path, "/models?client_version=0.161.0");
                     }
                     Reply::Json(catalog::models(authentication))
                 } else if matches!(request.path.as_str(), "/responses" | "/chat/completions") {
-                    crate::oauth::headers(request, &expected);
+                    super::super::oauth::headers(request, &expected);
                     generation(request, authentication, true)
                 } else {
                     standard(request)
@@ -108,7 +108,7 @@ async fn keeps_captured_headers_through_restart_and_refresh() {
             let turn = queued(&fixture, &session).await;
             assert_eq!(captured(&fixture, &turn).oauth, Some(options));
             let mut changed = provider.clone();
-            changed.oauth = Some(crate::oauth::options(authentication, "current"));
+            changed.oauth = Some(super::super::oauth::options(authentication, "current"));
             let Output::Provider(saved) = fixture
                 .client
                 .execute(fixture.client.prepare(Command::PutProvider {
@@ -123,7 +123,7 @@ async fn keeps_captured_headers_through_restart_and_refresh() {
             let fixture = renewals::restart(fixture, &server, remote).await;
             assert_eq!(
                 captured(&fixture, &turn).oauth,
-                Some(crate::oauth::options(authentication, "captured"))
+                Some(super::super::oauth::options(authentication, "captured"))
             );
             let Output::Snapshot(snapshot) = fixture
                 .client

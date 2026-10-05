@@ -134,7 +134,13 @@ async fn fills_missing_choices() {
             gateway.models[0].efforts,
             [Effort::High, Effort::Medium, Effort::Low]
         );
-        assert!(!gateway.models[0].web_search);
+        assert!(gateway.models[0].web_search);
+        let mut unknown = provider();
+        unknown.endpoint = gateway.endpoint.clone();
+        unknown.models[0].id = "unknown-model".into();
+        unknown.default_model = "unknown-model".into();
+        let unknown = save(&fixture.client, unknown).await;
+        assert!(!unknown.models[0].web_search);
         let Fixture {
             _directory,
             node,

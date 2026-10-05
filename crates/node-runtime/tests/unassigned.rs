@@ -8,6 +8,7 @@ use std::time::Duration;
     dead_code,
     reason = "The shared model fixture includes response modes used by other integration test binaries"
 )]
+#[path = "agent_support/mod.rs"]
 mod agent_support;
 
 fn create() -> Command {

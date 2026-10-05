@@ -4,6 +4,39 @@ version = "0.1.0"
 edition.workspace = true
 publish.workspace = true
 license.workspace = true
+autotests = false
+
+[[test]]
+name = "agent"
+path = "tests/agent.rs"
+
+[[test]]
+name = "databases"
+path = "tests/databases.rs"
+
+[[test]]
+name = "files"
+path = "tests/suites/files.rs"
+
+[[test]]
+name = "repositories"
+path = "tests/suites/repositories.rs"
+
+[[test]]
+name = "connections"
+path = "tests/suites/connections.rs"
+
+[[test]]
+name = "configuration"
+path = "tests/suites/configuration.rs"
+
+[[test]]
+name = "extensions"
+path = "tests/suites/extensions.rs"
+
+[[test]]
+name = "resources"
+path = "tests/suites/resources.rs"
 
 [features]
 test-support = []

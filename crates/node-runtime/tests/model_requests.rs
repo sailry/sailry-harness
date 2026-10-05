@@ -9,6 +9,7 @@ use sailry_protocol::conversation::ModelApi;
 use std::time::Duration;
 
 #[allow(dead_code)]
+#[path = "discovery_support/mod.rs"]
 mod discovery_support;
 use discovery_support::{Reply, Server};
 #[path = "model_requests/runtime.rs"]

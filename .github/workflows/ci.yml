@@ -16,6 +16,8 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_OPT_LEVEL: '0'
+  CARGO_PROFILE_TEST_OPT_LEVEL: '0'
   CARGO_PROFILE_DEV_DEBUG: '0'
   CARGO_PROFILE_TEST_DEBUG: '0'
   CARGO_PROFILE_DEV_SPLIT_DEBUGINFO: 'off'
@@ -78,11 +80,12 @@ jobs:
           - runner: macos-15-intel
             target: x86_64-apple-darwin
     runs-on: ${{ matrix.runner }}
-    # Cold Intel builds reached the former two-hour job limit.
-    timeout-minutes: 360
+    timeout-minutes: 120
     env:
       CARGO_BUILD_JOBS: '2'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: 'true'
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -102,10 +105,15 @@ jobs:
           xcrun --sdk macosx --show-sdk-version
       - name: Search prerequisite
         run: brew install ripgrep
+      - name: Compiler cache
+        uses: Mozilla-Actions/sccache-action@fd02668681acd5f960e1372061bee5e3e987195c # v0.0.11
+        with:
+          version: v0.18.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: ${{ matrix.target }}
           cache-on-failure: true
+          cache-workspace-crates: true
           cache-bin: false
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST DEVELOPER_DIR SDKROOT MACOSX_DEPLOYMENT_TARGET
       - name: Formatting
@@ -113,7 +121,7 @@ jobs:
       - name: Strict lint
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Backend test compilation
-        run: cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --no-run
+        run: cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --no-run --timings
       - name: Backend unit and local/remote integration
         run: cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --no-fail-fast -- --test-threads=4
       - name: Isolated database engines
@@ -123,12 +131,23 @@ jobs:
           export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
           cargo test --locked -p sailry-node-runtime --test databases -- --ignored --test-threads=1
       - name: Desktop test compilation
-        run: cargo test --locked -p sailry-desktop --no-run
+        run: cargo test --locked -p sailry-desktop --no-run --timings
       - name: Desktop behavior and Kit interactions
         # Desktop fixtures share process-global locale and native UI state.
         run: cargo test --locked -p sailry-desktop -- --test-threads=1
       - name: Desktop and Host binaries
         run: cargo build --locked -p sailry-desktop -p sailry-host
+      - name: Compilation timings
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cargo-timings-${{ matrix.target }}
+          path: target/cargo-timings
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Compiler cache statistics
+        if: always()
+        run: sccache --show-stats
 
   mobile:
     name: Mobile and shared bridge
@@ -137,6 +156,8 @@ jobs:
     env:
       CARGO_BUILD_JOBS: '2'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: 'true'
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -155,9 +176,14 @@ jobs:
         run: flutter pub get --enforce-lockfile
       - name: Search prerequisite
         run: brew install ripgrep
+      - name: Compiler cache
+        uses: Mozilla-Actions/sccache-action@fd02668681acd5f960e1372061bee5e3e987195c # v0.0.11
+        with:
+          version: v0.18.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-on-failure: true
+          cache-workspace-crates: true
           cache-bin: false
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST DEVELOPER_DIR SDKROOT MACOSX_DEPLOYMENT_TARGET
       - name: Flutter analysis and widget tests
@@ -169,7 +195,7 @@ jobs:
       - name: Native shared bridge
         run: cargo build --locked -p sailry-mobile-bridge --lib
       - name: Dart FFI test compilation
-        run: cargo test --locked -p sailry-mobile-bridge --test dart --no-run
+        run: cargo test --locked -p sailry-mobile-bridge --test dart --no-run --timings
       - name: Dart FFI contract fixtures
         run: |
           brew install postgresql@17 mysql@8.4
@@ -181,6 +207,9 @@ jobs:
           cargo test --locked -p sailry-mobile-bridge --test dart -- --ignored --skip mcp_peer::stdio_peer --test-threads=4 --nocapture
       - name: Flutter controls a real remote Node
         run: cargo test --locked -p sailry-mobile-bridge --test flutter controls_remote_node -- --ignored --exact --nocapture
+      - name: Compiler cache statistics
+        if: always()
+        run: sccache --show-stats
 
   android:
     name: Mobile Android
