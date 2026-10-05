@@ -66,12 +66,13 @@ fn resumes_authorization() {
                 .count(),
             3
         );
+        // Two completed logins refresh models, followed by discovery and validation.
         assert_eq!(
             requests
                 .iter()
                 .filter(|request| request.path.starts_with("/models"))
                 .count(),
-            2
+            4
         );
         assert_eq!(
             requests

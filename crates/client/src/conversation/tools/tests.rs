@@ -233,6 +233,42 @@ fn retains_unconsumed_answers() {
 }
 
 #[test]
+fn started_question_retains_pending_input() {
+    use sailry_protocol::conversation::question::{Question, State as QuestionState};
+    let mut page = page();
+    page.entries[0].parts[0] = Part::ToolCall {
+        display: None,
+        presentation: Default::default(),
+        grouping: Default::default(),
+        id: Some("call".into()),
+        name: "ask_user".into(),
+        arguments: json!({"prompt":"Describe", "input":{"kind":"text", "multiline":true, "max_bytes":100}}),
+    };
+    let question = Question {
+        id: sailry_protocol::QuestionId::new(),
+        session: page.session,
+        turn: page.runs[0].turn,
+        entry: page.entries[0].id.clone(),
+        index: 0,
+        state: QuestionState::Pending,
+    };
+    page.questions.push(question.clone());
+    let mut started = entry(2, question.turn, "", false);
+    started.parts = vec![Part::Resource(json!({
+        "type":"tool_started", "id":"call", "name":"ask_user"
+    }))];
+    page.entries.push(started);
+    let calls = collect(&page);
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].state, State::Running);
+    assert_eq!(calls[0].question, Some(question.clone()));
+    assert_eq!(calls[0].source.entry, question.entry);
+    assert_eq!(calls[0].source.index, question.index);
+    assert!(calls[0].response.is_none());
+    assert_eq!(calls[0].question_spec(&page).unwrap().prompt, "Describe");
+}
+
+#[test]
 fn retains_uncertain_calls() {
     let mut page = page();
     let turn = page.runs[0].turn;

@@ -112,8 +112,12 @@ Future<void> main() async {
   final first = pending(waiting);
   final call = (waiting['calls'] as List).single;
   check(
-    call['state'] == 'waiting' &&
-        call['question']['id'] == first['id'] &&
+    call['state'] == 'running' &&
+        call['question']['state']['kind'] == 'pending',
+    'admitted question tool waits for input',
+  );
+  check(
+    call['question']['id'] == first['id'] &&
         call['source']['entry'] == first['entry'] &&
         call['source']['index'] == first['index'],
     'shared pending question references its exact canonical call',
