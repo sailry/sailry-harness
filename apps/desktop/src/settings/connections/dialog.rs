@@ -12,6 +12,7 @@ impl Connections {
         cx: &mut Context<Self>,
     ) {
         self.cancel(cx);
+        self.sharing = sharing;
         self.pin.update(cx, |pin, cx| pin.set_value("", window, cx));
         let owner = cx.entity().downgrade();
         let closing = owner.clone();
@@ -40,11 +41,8 @@ impl Connections {
                     let closing = closing.clone();
                     move |_, _, cx| {
                         let _ = closing.update(cx, |this, cx| {
-                            if let Some(stop) = this.stop.take() {
-                                stop.cancel();
-                            }
-                            this.task = None;
-                            this.code = None;
+                            this.cancel(cx);
+                            this.sharing = false;
                             this.dialog = None;
                             cx.notify();
                         });
@@ -101,12 +99,12 @@ impl Connections {
     }
     fn shared_code(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let width = ((window.viewport_size().width - px(96.) - px(40.)) / 6.).min(px(48.));
-        let body = v_flex().w_full().items_center().gap_2().pb_2().child(
-            div()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(tr("pairing_refresh_hint")),
-        );
+        let body = v_flex()
+            .w_full()
+            .items_center()
+            .gap_4()
+            .pb_2()
+            .child(self.relay_fields(cx));
         let code =
             if let Some(code) = &self.code {
                 if self.display.read(cx).value().as_str() != code {
@@ -136,20 +134,43 @@ impl Connections {
                         },
                     )))
                     .into_any_element()
-            } else {
+            } else if self.stop.is_some() {
                 h_flex()
                     .h_16()
+                    .gap_2()
                     .items_center()
                     .justify_center()
                     .child(Spinner::new())
+                    .child(tr(if self.checking {
+                        "pairing_relay_checking"
+                    } else {
+                        "pairing_preparing"
+                    }))
                     .into_any_element()
+            } else if self.relay_feedback.is_some() {
+                Button::new("pairing-relay-retry")
+                    .debug_selector(|| "pairing-relay-retry".into())
+                    .label(tr("settings_retry"))
+                    .on_click(cx.listener(|this, _, _, cx| this.share(cx)))
+                    .into_any_element()
+            } else {
+                div().h_16().into_any_element()
             };
-        body.child(div().py_4().child(code)).child(
-            div()
-                .text_sm()
-                .text_center()
-                .text_color(cx.theme().muted_foreground)
-                .child(tr("pairing_share_hint")),
-        )
+        body.child(div().py_2().child(code))
+            .when(self.code.is_some(), |body| {
+                body.child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(tr("pairing_refresh_hint")),
+                )
+            })
+            .child(
+                div()
+                    .text_sm()
+                    .text_center()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(tr("pairing_share_hint")),
+            )
     }
 }

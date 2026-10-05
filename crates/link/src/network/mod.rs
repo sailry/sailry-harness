@@ -1,5 +1,6 @@
 mod frame;
 mod pairing;
+mod relays;
 mod remote;
 mod server;
 mod stream;
@@ -33,6 +34,7 @@ const CONNECTION_WINDOW: u32 = 4 * 1024 * 1024;
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
 type Work = Pending<'static, ()>;
 pub use pairing::Invitation;
+pub use relays::RelaySelection;
 
 pub trait PeerStore: Send + Sync {
     /// Release controller-owned storage after the Link worker has stopped.
@@ -72,6 +74,8 @@ struct Core {
     trust_changed: watch::Sender<()>,
     invitation: std::sync::Mutex<Option<pairing::Offer>>,
     auxiliary: Arc<tokio::sync::Semaphore>,
+    relay_selection: RwLock<Option<RelaySelection>>,
+    relay_update: Mutex<()>,
 }
 
 struct CachedConnection {
@@ -103,11 +107,15 @@ impl Link {
         handler: Arc<dyn Handler>,
         store: Arc<dyn PeerStore>,
     ) -> Result<Self, Fault> {
-        let trusted = store.peers().await?.into_iter().collect();
+        let relay_selection = match &scope {
+            NetworkScope::Internet => Some(RelaySelection::Default),
+            NetworkScope::CustomRelays(urls) => Some(RelaySelection::Custom(urls.clone())),
+            NetworkScope::Direct(_) => None,
+        };
         let builder = match scope {
-            NetworkScope::Internet => Endpoint::builder(presets::N0),
+            NetworkScope::Internet => Endpoint::builder(presets::N0).relay_mode(RelayMode::Default),
             NetworkScope::CustomRelays(urls) => {
-                let relays = custom_relays(&urls)?;
+                let relays = RelaySelection::Custom(urls).map()?;
                 Endpoint::builder(presets::Minimal).relay_mode(RelayMode::Custom(relays))
             }
             NetworkScope::Direct(address) => Endpoint::builder(presets::Minimal)
@@ -132,6 +140,16 @@ impl Link {
             .bind()
             .await
             .map_err(network)?;
+        Self::from_endpoint(endpoint, relay_selection, handler, store).await
+    }
+
+    async fn from_endpoint(
+        endpoint: Endpoint,
+        relay_selection: Option<RelaySelection>,
+        handler: Arc<dyn Handler>,
+        store: Arc<dyn PeerStore>,
+    ) -> Result<Self, Fault> {
+        let trusted = store.peers().await?.into_iter().collect();
         let (work, receiver) = mpsc::channel(MAX_TASKS);
         let core = Arc::new(Core {
             name: RwLock::new(None),
@@ -146,6 +164,8 @@ impl Link {
             trust_changed: watch::channel(()).0,
             invitation: std::sync::Mutex::new(None),
             auxiliary: Arc::new(tokio::sync::Semaphore::new(32)),
+            relay_selection: RwLock::new(relay_selection),
+            relay_update: Mutex::new(()),
         });
         let worker = tokio::spawn(drive(core.clone(), receiver));
         Ok(Self {
@@ -296,32 +316,6 @@ impl LinkHandle {
                 .close(0u32.into(), b"client disconnected");
         }
     }
-}
-
-fn custom_relays(urls: &[String]) -> Result<iroh::RelayMap, Fault> {
-    if urls.is_empty() || urls.len() > 8 {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "expected one to eight relay URLs",
-        ));
-    }
-    for value in urls {
-        let url = reqwest::Url::parse(value)
-            .map_err(|_| Fault::new(ErrorCode::InvalidRequest, "invalid relay URL"))?;
-        if url.scheme() != "https"
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.query().is_some()
-            || url.fragment().is_some()
-        {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "relay URLs require HTTPS without credentials",
-            ));
-        }
-    }
-    iroh::RelayMap::try_from_iter(urls.iter().map(String::as_str))
-        .map_err(|_| Fault::new(ErrorCode::InvalidRequest, "invalid relay URL"))
 }
 
 impl Core {

@@ -19,6 +19,7 @@ fn preserves_failed_changes() {
         language: Language::English,
     });
     preferences.data.pairing = "https://pairing.example.test".into();
+    preferences.data.iroh_relays = Some(vec!["https://relay.example.test".into()]);
     std::fs::create_dir(&path).unwrap();
     preferences.save();
     assert_eq!(preferences.error, Some("preferences_save_failed"));
@@ -33,6 +34,22 @@ fn preserves_failed_changes() {
     unavailable.save();
     assert_eq!(unavailable.error, Some("preferences_read_failed"));
     assert_eq!(std::fs::read(path).unwrap(), b"invalid preference data");
+}
+
+#[test]
+fn rejects_invalid_relays_without_overwriting() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("preferences.json");
+    let data = Data {
+        iroh_relays: Some(vec!["http://relay.example.test".into()]),
+        ..Default::default()
+    };
+    let bytes = serde_json::to_vec(&data).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+    let mut preferences = Preferences::open(path.clone());
+    assert_eq!(preferences.error, Some("preferences_read_failed"));
+    preferences.save();
+    assert_eq!(std::fs::read(path).unwrap(), bytes);
 }
 
 #[test]

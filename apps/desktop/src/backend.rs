@@ -72,10 +72,18 @@ impl Owner {
                 signal(SignalKind::interrupt())?,
             )
         };
-        let scope = if options.relays.is_empty() {
+        let preferences = crate::preferences::Preferences::open(
+            options.data_dir.join("desktop/preferences.json"),
+        );
+        let relays = if options.relays.is_empty() {
+            preferences.data.iroh_relays.clone().unwrap_or_default()
+        } else {
+            options.relays
+        };
+        let scope = if relays.is_empty() {
             NetworkScope::Internet
         } else {
-            NetworkScope::CustomRelays(options.relays)
+            NetworkScope::CustomRelays(relays)
         };
         let computer = if cfg!(target_os = "macos") {
             Some(sailry_node_runtime::ComputerWorker {

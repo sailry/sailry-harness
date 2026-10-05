@@ -11,7 +11,9 @@ use tokio::sync::oneshot;
 
 pub use identity::Identity;
 pub use iroh::EndpointAddr;
-pub use network::{Invitation, Link, LinkHandle, NetworkScope, PeerInfo, PeerStore};
+pub use network::{
+    Invitation, Link, LinkHandle, NetworkScope, PeerInfo, PeerStore, RelaySelection,
+};
 pub use stream::{ByteStream, Stream};
 pub use tokio_util::sync::CancellationToken;
 

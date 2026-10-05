@@ -22,6 +22,7 @@ pub(crate) struct Data {
     pub notifications: [bool; 4],
     pub toast_seconds: u64,
     pub pairing: String,
+    pub iroh_relays: Option<Vec<String>>,
     pub devices: Option<std::collections::BTreeMap<String, Device>>,
     pub terminal: Terminal,
     pub appearance: crate::theme::Selection,
@@ -94,6 +95,7 @@ impl Default for Data {
             notifications: [true; 4],
             toast_seconds: 5,
             pairing: String::new(),
+            iroh_relays: None,
             devices: None,
             terminal: Terminal::default(),
             appearance: crate::theme::Selection::default(),
@@ -141,6 +143,11 @@ impl Data {
         }
         if !self.pairing.is_empty() {
             sailry_link::rendezvous::Relay::new(&self.pairing)
+                .map_err(|error| error.to_string())?;
+        }
+        if let Some(urls) = &self.iroh_relays {
+            sailry_link::RelaySelection::Custom(urls.clone())
+                .validate()
                 .map_err(|error| error.to_string())?;
         }
         Ok(())

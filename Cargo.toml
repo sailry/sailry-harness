@@ -59,6 +59,7 @@ serde-saphyr = { version = "=0.0.29", default-features = false, features = ["des
 uuid = { version = "=1.26.0", features = ["serde", "v4"] }
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
 iroh = { version = "=1.3.0", default-features = false, features = ["tls-ring"] }
+iroh-relay = { version = "=1.3.0", default-features = false, features = ["tls-ring"] }
 tokio-util = { version = "=0.7.19", features = ["rt", "codec"] }
 reqwest = { version = "=0.13.4", default-features = false, features = ["rustls", "json", "stream"] }
 self_update = { version = "=1.3.0", default-features = false, features = ["async", "rustls", "manifest", "checksums", "signatures", "archive-zip", "compression-zip-deflate"] }

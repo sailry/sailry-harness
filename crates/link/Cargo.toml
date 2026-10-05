@@ -19,3 +19,4 @@ libc.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+iroh-relay = { workspace = true, features = ["server", "test-utils"] }

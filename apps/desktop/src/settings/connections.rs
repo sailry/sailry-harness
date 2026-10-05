@@ -1,17 +1,20 @@
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
-    input::{OtpInput, OtpState},
+    input::{Input, InputEvent, InputState, OtpInput, OtpState},
+    select::{Select, SelectEvent, SelectState},
     *,
 };
 use gpui_kit::*;
 use sailry_link::{
-    CancellationToken,
-    rendezvous::{Relay, RequestId, ShareState},
+    CancellationToken, RelaySelection,
+    rendezvous::{Relay, RequestId},
 };
 
 use super::group::Group;
 mod devices;
 mod dialog;
+mod relay;
+mod sharing;
 use gpui_kit::prelude::FluentBuilder as _;
 #[cfg(test)]
 #[path = "connections/live_test.rs"]
@@ -31,6 +34,12 @@ pub struct Connections {
     stop: Option<CancellationToken>,
     task: Option<Task<()>>,
     claim: Option<(String, RequestId)>,
+    relay_select: Entity<SelectState<Vec<relay::Network>>>,
+    relay_address: Entity<InputState>,
+    relay_feedback: Option<&'static str>,
+    sharing: bool,
+    checking: bool,
+    revision: u64,
 }
 
 impl Connections {
@@ -47,10 +56,11 @@ impl Connections {
                 ]
                 .into_iter()
                 .filter(|key| this.status == tr(key))
+                .chain(this.relay_feedback)
                 .collect()
             },
             |_, key, _| {
-                if key == "pairing_success" {
+                if matches!(key, "pairing_success" | "pairing_relay_ready") {
                     gpui_kit::component::notification::Notification::info(tr(key))
                 } else {
                     gpui_kit::component::notification::Notification::error(tr(key))
@@ -76,6 +86,7 @@ impl Connections {
         .detach();
         let pin = cx.new(|cx| OtpState::new(6, window, cx));
         cx.observe(&pin, |_, _, cx| cx.notify()).detach();
+        let (relay_select, relay_address) = relay::fields(window, cx);
         Self {
             endpoint: crate::preferences::data(cx).pairing,
             pin,
@@ -89,21 +100,31 @@ impl Connections {
             stop: None,
             task: None,
             claim: None,
+            relay_select,
+            relay_address,
+            relay_feedback: None,
+            sharing: false,
+            checking: false,
+            revision: 0,
         }
     }
 
     fn cancel(&mut self, cx: &mut Context<Self>) {
+        self.revision += 1;
         if let Some(stop) = self.stop.take() {
             stop.cancel();
         }
         self.task = None;
         self.code = None;
         self.status = tr("pairing_idle");
+        self.checking = false;
+        self.relay_feedback = None;
         cx.notify();
     }
 
     pub fn close(&mut self, cx: &mut Context<Self>) {
         self.cancel(cx);
+        self.sharing = false;
         if let Some(stop) = self.watch_stop.take() {
             stop.cancel();
         }
@@ -128,70 +149,6 @@ impl Connections {
                 None
             }
         }
-    }
-
-    fn share(&mut self, cx: &mut Context<Self>) {
-        self.cancel(cx);
-        let Some((services, relay)) = self.setup(cx) else {
-            return;
-        };
-        let stop = CancellationToken::new();
-        self.stop = Some(stop.clone());
-        let (state, mut updates) = tokio::sync::watch::channel(ShareState::Preparing);
-        let link = services.link.clone();
-        services.runtime.spawn(async move {
-            // Relay-enabled endpoints must announce the selected home relay.
-            if services.relay_enabled {
-                let online = tokio::select! { _ = stop.cancelled() => return, result = link.online() => result };
-                if online.is_err() {
-                    state.send_replace(ShareState::Closed);
-                    return;
-                }
-            }
-            if let Err(error) = relay.share(&link, state.clone(), stop).await {
-                state.send_replace(ShareState::Retrying(error));
-            }
-        });
-        self.task = Some(cx.spawn(async move |this, cx| {
-            loop {
-                let state = updates.borrow_and_update().clone();
-                if this
-                    .update(cx, |this, cx| {
-                        this.code = None;
-                        this.status = match state {
-                            ShareState::Preparing => tr("pairing_preparing"),
-                            ShareState::Ready { code, .. } => {
-                                this.code = Some(code);
-                                tr("pairing_refresh_hint")
-                            }
-                            ShareState::Retrying(_) => tr("pairing_retrying"),
-                            ShareState::Paired => {
-                                this.stop = None;
-                                cx.emit(DismissEvent);
-                                tr("pairing_success")
-                            }
-                            ShareState::Closed => {
-                                this.stop = None;
-                                tr("pairing_idle")
-                            }
-                        };
-                        cx.notify();
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-                if updates.changed().await.is_err() {
-                    let _ = this.update(cx, |this, cx| {
-                        if this.stop.take().is_some() && this.code.is_none() {
-                            this.status = tr("pairing_failed");
-                        }
-                        cx.notify();
-                    });
-                    break;
-                }
-            }
-        }));
     }
 
     fn pair(&mut self, cx: &mut Context<Self>) {
@@ -356,6 +313,76 @@ mod tests {
         visual.update(|window, cx| {
             let _ = window.draw(cx);
         });
+    }
+
+    #[gpui::test]
+    fn relay_choice_clears_old_codes_and_preserves_drafts(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::init(cx);
+        });
+        let mut owner = None;
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Connections::new(window, cx));
+            owner = Some(view.clone());
+            Root::new(cx.new(|_| Frame(view)), window, cx)
+        });
+        let view = owner.unwrap();
+        let token = CancellationToken::new();
+        visual.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.endpoint = "https://pairing.example.test".into();
+                view.open_dialog(true, window, cx);
+                assert_eq!(view.relay_selection(cx), Some(RelaySelection::Default));
+                view.code = Some("123456".into());
+                view.stop = Some(token.clone());
+            });
+            let _ = window.draw(cx);
+        });
+        assert!(visual.debug_bounds("pairing-relay-address").is_none());
+        let selector = visual.debug_bounds("pairing-relay-select").unwrap();
+        visual.simulate_click(selector.center(), Modifiers::default());
+        visual.simulate_keystrokes("down enter");
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        assert!(visual.debug_bounds("pairing-relay-address").is_some());
+        assert!(token.is_cancelled());
+        assert!(view.read_with(visual, |view, cx| view.custom_relay(cx)
+            && view.code.is_none()
+            && view.stop.is_none()
+            && view.task.is_none()));
+        visual.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.relay_address.update(cx, |input, cx| {
+                    input.set_value("https://relay.example.test", window, cx);
+                });
+            });
+        });
+        visual.run_until_parked();
+        assert!(view.read_with(visual, |view, cx| view.relay_selection(cx)
+            == Some(RelaySelection::Custom(vec![
+                "https://relay.example.test".into()
+            ]))));
+        visual.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.relay_select.update(cx, |select, cx| {
+                    select.set_selected_value(&relay::Network::Iroh, window, cx);
+                    cx.emit(SelectEvent::Confirm(Some(relay::Network::Iroh)));
+                });
+            });
+        });
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        assert!(visual.debug_bounds("pairing-relay-address").is_none());
+        assert!(view.read_with(visual, |view, cx| view.relay_selection(cx)
+            == Some(RelaySelection::Default)
+            && view.relay_address.read(cx).value() == "https://relay.example.test"
+            && view.endpoint == "https://pairing.example.test"
+            && view.task.is_none()));
     }
 
     #[gpui::test]
