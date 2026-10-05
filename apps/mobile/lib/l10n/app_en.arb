@@ -268,7 +268,7 @@
   "resourcePreviewLink": "Cannot open this link in preview",
   "resourceForwardStopped": "Forwarding stopped",
   "resourceTerminalControl": "Take control",
-  "resourceTerminalControlHint": "Tap to take control",
+  "resourceTerminalControlHint": "Controlled by another device",
   "resourceTerminalClaiming": "Taking control",
   "resourceTerminalReadOnly": "Read-only terminal",
   "resourceTerminalEnded": "Terminal ended",

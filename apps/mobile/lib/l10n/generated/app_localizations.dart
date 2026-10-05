@@ -1295,7 +1295,7 @@ abstract class AppLocalizations {
   /// No description provided for @resourceTerminalControlHint.
   ///
   /// In en, this message translates to:
-  /// **'Tap to take control'**
+  /// **'Controlled by another device'**
   String get resourceTerminalControlHint;
 
   /// No description provided for @resourceTerminalClaiming.

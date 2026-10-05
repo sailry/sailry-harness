@@ -498,7 +498,9 @@ impl Render for View {
                         .bg(cx.theme().background.opacity(0.9))
                         .text_color(cx.theme().muted_foreground)
                         .text_sm()
-                        .child(tr(status))
+                        .when(status != "terminal_other_controller", |element| {
+                            element.child(tr(status))
+                        })
                         .when(self.connection.can_retry(), |element| {
                             element.child(
                                 Button::new("terminal-retry-open")
@@ -514,13 +516,16 @@ impl Render for View {
                         })
                         .when(status == "terminal_other_controller", |element| {
                             element.child(
-                                Button::new("terminal-take-control")
-                                    .debug_selector(|| "terminal-take-control".into())
-                                    .small()
-                                    .outline()
-                                    .label(tr("terminal_take_control"))
-                                    .disabled(self.claim_pending)
-                                    .on_click(cx.listener(Self::take_control)),
+                                crate::empty_state::panel(IconName::SquareTerminal, status, cx)
+                                    .gap_4()
+                                    .child(
+                                        Button::new("terminal-take-control")
+                                            .debug_selector(|| "terminal-take-control".into())
+                                            .primary()
+                                            .label(tr("terminal_take_control"))
+                                            .disabled(self.claim_pending)
+                                            .on_click(cx.listener(Self::take_control)),
+                                    ),
                             )
                         }),
                 )

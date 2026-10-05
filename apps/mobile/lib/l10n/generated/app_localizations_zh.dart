@@ -624,7 +624,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get resourceTerminalControl => '接管输入';
 
   @override
-  String get resourceTerminalControlHint => '轻触接管输入';
+  String get resourceTerminalControlHint => '由另一设备控制';
 
   @override
   String get resourceTerminalClaiming => '正在接管';

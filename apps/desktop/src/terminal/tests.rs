@@ -178,9 +178,23 @@ fn input_and_remount(cx: &mut TestAppContext) {
         };
         assert_eq!(snapshot.info.owner, Some(remote.id()));
         assert_eq!(snapshot.info.revision, info.revision);
+        let icon = visual
+            .debug_bounds("empty-icon-terminal_other_controller")
+            .unwrap();
+        let title = visual
+            .debug_bounds("empty-title-terminal_other_controller")
+            .unwrap();
         let takeover = visual.debug_bounds("terminal-take-control").unwrap();
+        assert_eq!(icon.size, size(px(48.), px(48.)));
+        assert!(takeover.top() > title.bottom());
+        assert!((takeover.center().x - title.center().x).abs() < px(1.));
         visual.simulate_click(takeover.center(), Modifiers::default());
         wait(visual, &view, View::controlling);
+        assert!(
+            visual
+                .debug_bounds("empty-terminal_other_controller")
+                .is_none()
+        );
         assert!(view.read_with(visual, |view, _| {
             view.info().unwrap().revision > info.revision
         }));

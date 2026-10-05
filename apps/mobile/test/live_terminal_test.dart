@@ -228,7 +228,9 @@ void main() {
             as TerminalGridPainter;
     expect(painter().focused, isFalse);
     expect(painter().cursorVisible, isTrue);
-    await tester.tap(find.text(tr('resourceTerminalControlHint')));
+    await tester.tap(
+      find.widgetWithText(FilledButton, tr('resourceTerminalControl')),
+    );
     await tester.pump();
     await tester.pump();
     expect(painter().focused, isTrue);
@@ -310,7 +312,9 @@ void main() {
           widget is CustomPaint && widget.painter is TerminalGridPainter,
     );
     final original = tester.element(grid);
-    await tester.tap(find.text(tr('resourceTerminalControlHint')));
+    await tester.tap(
+      find.widgetWithText(FilledButton, tr('resourceTerminalControl')),
+    );
     await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 200));
     final initial = commands
@@ -489,8 +493,12 @@ void main() {
       expect(commands.single.$2!['terminal'], 'terminal');
       expect(commands.single.$2!['viewport'], isNotNull);
       commands.clear();
-      expect(find.byType(FilledButton), findsNothing);
-      await tester.tap(find.text(tr('resourceTerminalControlHint')));
+      expect(find.byType(EmptyState), findsOneWidget);
+      expect(find.text(tr('resourceTerminalControlHint')), findsOneWidget);
+      expect(find.byType(FilledButton), findsOneWidget);
+      await tester.tap(
+        find.widgetWithText(FilledButton, tr('resourceTerminalControl')),
+      );
       await tester.pumpAndSettle();
       expect(commands.first.$1, 'claim_terminal');
       expect(

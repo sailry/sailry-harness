@@ -679,21 +679,22 @@ class _LiveTerminalPageState extends State<LiveTerminalPage>
                                 color: Theme.of(
                                   context,
                                 ).colorScheme.surface.withValues(alpha: .72),
-                                child: InkWell(
+                                child: EmptyState(
                                   key: const ValueKey(
                                     'terminal-control-overlay',
                                   ),
-                                  onTap: _opening ? null : _claim,
-                                  child: Center(
+                                  icon: 'terminal',
+                                  message: context.tr(
+                                    'resourceTerminalControlHint',
+                                  ),
+                                  action: FilledButton(
+                                    onPressed: _opening ? null : _claim,
                                     child: Text(
                                       context.tr(
                                         _opening
                                             ? 'resourceTerminalClaiming'
-                                            : 'resourceTerminalControlHint',
+                                            : 'resourceTerminalControl',
                                       ),
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodyMedium,
                                     ),
                                   ),
                                 ),

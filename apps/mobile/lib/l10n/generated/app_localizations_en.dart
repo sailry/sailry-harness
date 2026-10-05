@@ -642,7 +642,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get resourceTerminalControl => 'Take control';
 
   @override
-  String get resourceTerminalControlHint => 'Tap to take control';
+  String get resourceTerminalControlHint => 'Controlled by another device';
 
   @override
   String get resourceTerminalClaiming => 'Taking control';

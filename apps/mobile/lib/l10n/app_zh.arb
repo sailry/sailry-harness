@@ -354,7 +354,7 @@
   "resourcePreviewLink": "无法在预览中打开此链接",
   "resourceForwardStopped": "转发已停止",
   "resourceTerminalControl": "接管输入",
-  "resourceTerminalControlHint": "轻触接管输入",
+  "resourceTerminalControlHint": "由另一设备控制",
   "resourceTerminalClaiming": "正在接管",
   "resourceTerminalReadOnly": "只读终端",
   "resourceTerminalEnded": "终端已结束",
