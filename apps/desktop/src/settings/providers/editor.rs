@@ -431,7 +431,7 @@ impl Editor {
 }
 
 impl Render for Editor {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let preset = self.preset;
         let real = self.binding.is_some();
         let mut form = Form::vertical()
@@ -493,7 +493,9 @@ impl Render for Editor {
                 )
             })
             .child(form)
-            .when(preset.oauth(), |body| body.child(self.oauth_form(cx)))
+            .when(preset.oauth(), |body| {
+                body.child(self.oauth_form(window, cx))
+            })
             .when(
                 preset.authentication() == sailry_protocol::Authentication::Host,
                 |body| {

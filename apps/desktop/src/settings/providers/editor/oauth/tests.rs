@@ -48,6 +48,19 @@ fn preserves_keyboard_and_vendor_defaults(cx: &mut TestAppContext) {
     std::thread::sleep(*gpui_kit::component::dialog::ANIMATION_DURATION);
     draw(visual);
     assert!(visual.debug_bounds("provider-oauth-advanced").is_some());
+    let body = visual.debug_bounds("provider-editor").unwrap();
+    let trigger = visual.debug_bounds("provider-oauth-advanced").unwrap();
+    let label = visual
+        .debug_bounds("provider-oauth-advanced-label")
+        .unwrap();
+    assert_eq!(trigger.left(), body.left());
+    assert!(label.left() - trigger.left() < trigger.size.width / 4.);
+    visual.update(|window, _| {
+        assert_eq!(
+            window.find("provider-oauth-advanced").expanded(),
+            Some(false)
+        );
+    });
     assert!(visual.debug_bounds("provider-oauth-user-agent").is_none());
     editor.read_with(visual, |editor, cx| {
         assert_eq!(
@@ -82,6 +95,10 @@ fn preserves_keyboard_and_vendor_defaults(cx: &mut TestAppContext) {
     );
     assert!(visual.debug_bounds("provider-oauth-user-agent").is_some());
     visual.update(|window, cx| {
+        assert_eq!(
+            window.find("provider-oauth-advanced").expanded(),
+            Some(true)
+        );
         assert_eq!(window.find("provider-oauth-advanced").focused(), Some(true));
         window.press("enter", cx);
     });
