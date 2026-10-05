@@ -2049,6 +2049,7 @@ browser_import_selected: 导入所选网站
 browser_imported: 已导入 %{count} 个 Cookie，跳过 %{skipped} 个
 browser_import_failed: Cookie 导入失败
 browser_chrome_missing: 未找到 Chrome 档案
+browser_chrome_access_denied: 无法访问 Chrome 数据，请检查“完全磁盘访问”设置
 browser_chrome_failed: 无法读取 Chrome 数据，请关闭 Chrome 后重试
 browser_chrome_schema: 暂不支持此 Chrome 数据格式
 browser_chrome_empty: 此档案没有网站 Cookie
@@ -2393,6 +2394,7 @@ permission_restricted: 系统限制
 permission_remote: 请在执行设备上授权
 permission_unavailable: 此设备不可用
 permission_settings: 打开设置
+permission_retry: 重试
 permission_check: 检查
 permission_cancelled: 已取消
 computer_permissions_remote: 请在执行电脑上打开 Sailry 设置并授权

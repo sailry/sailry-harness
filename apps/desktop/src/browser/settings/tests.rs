@@ -1,6 +1,7 @@
 use super::*;
 use core::prelude::v1::test;
 use gpui_kit::component::{Root, WindowExt as _};
+use gpui_kit::test::TestWindowExt as _;
 
 struct Surface;
 impl Render for Surface {
@@ -22,13 +23,122 @@ fn metadata() -> tempfile::TempDir {
 }
 
 fn mount(cx: &mut TestAppContext) -> (Entity<Settings>, &mut VisualTestContext) {
-    cx.update(gpui_kit::init);
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::preferences::init(cx);
+        crate::theme::init(cx);
+    });
     let mut owner = None;
     let (_, visual) = cx.add_window_view(|window, cx| {
         owner = Some(cx.new(|cx| Settings::new(window, cx)));
         Root::new(cx.new(|_| Surface), window, cx)
     });
     (owner.unwrap(), visual)
+}
+
+fn denied_access(cx: &mut TestAppContext, locale: &str, message: &str) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let before = rust_i18n::locale().to_string();
+    let (_, visual) = mount(cx);
+    rust_i18n::set_locale(locale);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let requests = calls.clone();
+    let request: PermissionAction = Rc::new(move |cx, _| {
+        let attempt = requests.fetch_add(1, Ordering::SeqCst);
+        cx.background_executor().spawn(async move {
+            if attempt == 0 {
+                Err(access_failure("browser_chrome_access_denied"))
+            } else {
+                Ok(vec![(Resource::Chrome, Status::Granted)])
+            }
+        })
+    });
+    let completed = Rc::new(RefCell::new(Vec::new()));
+    let result = completed.clone();
+    visual.update(|window, cx| {
+        permissions::open(
+            vec![chrome_card(request)],
+            CancellationToken::new(),
+            Box::new(move |granted, _, _| result.borrow_mut().push(granted)),
+            window,
+            cx,
+        );
+    });
+    visual.run_until_parked();
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert!(visual.opened_url().is_none());
+    assert!(!visual.did_prompt_for_paths());
+    visual.update(|window, cx| {
+        assert_eq!(
+            window.find("permission_chrome").label(),
+            Some(crate::tr("permission_check").as_ref())
+        );
+        window.click("chrome-access-settings", cx);
+    });
+    visual.run_until_parked();
+    assert_eq!(
+        visual.opened_url().as_deref(),
+        Some("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert!(completed.borrow().is_empty());
+
+    visual.update(|window, cx| window.click("permission_chrome", cx));
+    visual.run_until_parked();
+    visual.update(|window, cx| {
+        assert_eq!(
+            crate::feedback::tests::summary(window, cx).as_ref(),
+            message
+        );
+        assert_eq!(crate::feedback::tests::count(window, message, cx), 1);
+        assert_eq!(
+            window.find("permission_chrome").label(),
+            Some(crate::tr("permission_retry").as_ref())
+        );
+        assert_eq!(
+            window.find("chrome-access-settings").label(),
+            Some(crate::tr("permission_settings").as_ref())
+        );
+        window.click("chrome-access-settings", cx);
+    });
+    visual.run_until_parked();
+    assert_eq!(
+        visual.opened_url().as_deref(),
+        Some("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(completed.borrow().is_empty());
+
+    visual.update(|window, cx| window.click("permission_chrome", cx));
+    visual.run_until_parked();
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(&*completed.borrow(), &[true]);
+    assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+    visual.update(|window, _| window.remove_window());
+    rust_i18n::set_locale(&before);
+}
+
+mod access_guide {
+    use super::*;
+
+    #[gpui::test]
+    fn english(cx: &mut TestAppContext) {
+        denied_access(
+            cx,
+            "en",
+            "Chrome data access denied; check Full Disk Access",
+        );
+    }
+
+    #[gpui::test]
+    fn chinese(cx: &mut TestAppContext) {
+        denied_access(
+            cx,
+            "zh-CN",
+            "无法访问 Chrome 数据，请检查“完全磁盘访问”设置",
+        );
+    }
 }
 
 fn finish(

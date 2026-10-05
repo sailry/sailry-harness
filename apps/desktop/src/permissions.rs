@@ -1,9 +1,10 @@
 //! Presentation for explicit OS access requests; platform and Node owners keep authority.
-use crate::tr;
+use crate::{theme::DialogStyle, tr};
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
-    dialog::{DialogFooter, DialogHeader, DialogTitle},
+    dialog::DialogFooter,
     group_box::{GroupBox, GroupBoxVariants},
+    spinner::Spinner,
 };
 use gpui_kit::{component::*, prelude::FluentBuilder as _, *};
 use sailry_link::CancellationToken;
@@ -166,9 +167,14 @@ pub(crate) fn open(
     let close = flow.clone();
     let initial = flow.clone();
     window.open_dialog(cx, move |dialog, window, _| {
+        let footer = flow.clone();
         dialog
+            .form_title(
+                div()
+                    .debug_selector(|| "permissions-title".into())
+                    .child(tr("permission_title")),
+            )
             .w((window.viewport_size().width - px(48.)).min(px(520.)))
-            .p_0()
             .on_ok(|_, _, _| false)
             .on_cancel({
                 let cancel = cancel.clone();
@@ -184,6 +190,17 @@ pub(crate) fn open(
                 }
             })
             .child(flow.clone())
+            .footer(
+                DialogFooter::new().w_full().child(
+                    Button::new("permissions-cancel")
+                        .label(tr("settings_cancel"))
+                        .debug_selector(|| "permissions-cancel".into())
+                        .on_click(move |_, window, cx| {
+                            footer.update(cx, |flow, cx| flow.finish(false, window, cx));
+                            window.close_dialog(cx);
+                        }),
+                ),
+            )
     });
     // Checks never prompt. Actual authorization starts only from a card button.
     initial.update(cx, |flow, cx| flow.check(window, cx));
@@ -322,84 +339,79 @@ impl Render for Flow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .w_full()
+            .gap_2()
+            .text_sm()
+            .line_height(relative(1.25))
             .debug_selector(|| "permissions-modal".into())
-            .child(
-                DialogHeader::new().child(
-                    v_flex()
-                        .relative()
-                        .overflow_hidden()
-                        .p_6()
-                        .gap_3()
-                        .bg(cx.theme().sidebar)
-                        .children(crate::theme::background("background.content", cx))
-                        .child(
-                            h_flex()
-                                .relative()
-                                .gap_3()
-                                .child(crate::theme::brand(px(40.), cx).unwrap_or_else(|| {
-                                    svg()
-                                        .path("branding/sailry-mark.svg")
-                                        .size_10()
-                                        .into_any_element()
-                                }))
-                                .child(DialogTitle::new().child(tr("app"))),
-                        )
-                        .child(div().relative().text_sm().child(tr("permission_title"))),
-                ),
-            )
-            .child(
-                v_flex().p_6().gap_3().children(
-                    self.cards
-                        .iter()
-                        .filter(|card| card.status != Status::NotNeeded)
-                        .map(|card| {
-                            let resource = card.resource;
-                            let status = card.status;
-                            let pending = self.pending == Some(resource);
-                            let disabled = self.checking
-                                || self.pending.is_some() && !pending
-                                || matches!(
-                                    card.status,
-                                    Status::Granted | Status::Remote | Status::Unavailable
-                                )
-                                || card.status == Status::Restricted && card.settings.is_none()
-                                || card.requires.is_some_and(|required| {
-                                    !self.cards.iter().any(|card| {
-                                        card.resource == required && card.status == Status::Granted
-                                    })
-                                });
-                            GroupBox::new()
-                                .fill()
-                                .content_style(StyleRefinement::default().p_4().gap_2())
-                                .child(
-                                    h_flex()
-                                        .gap_3()
-                                        .justify_between()
-                                        .child(
-                                            v_flex()
-                                                .gap_1()
-                                                .flex_1()
-                                                .min_w_0()
-                                                .child(
-                                                    div().font_medium().child(tr(resource.key())),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .text_sm()
-                                                        .text_color(cx.theme().muted_foreground)
-                                                        .debug_selector(move || {
-                                                            format!(
-                                                                "{}-{}",
-                                                                resource.key(),
-                                                                status.key()
-                                                            )
-                                                        })
-                                                        .child(tr(card.status.key())),
-                                                ),
-                                        )
-                                        .when(card.check.is_some(), |row| {
-                                            row.child(
-                                                Button::new(format!("{}-check", resource.key()))
+            .children(
+                self.cards
+                    .iter()
+                    .filter(|card| card.status != Status::NotNeeded)
+                    .map(|card| {
+                        let resource = card.resource;
+                        let status = card.status;
+                        let pending = self.pending == Some(resource);
+                        let disabled = self.checking
+                            || self.pending.is_some() && !pending
+                            || matches!(
+                                card.status,
+                                Status::Granted | Status::Remote | Status::Unavailable
+                            )
+                            || card.status == Status::Restricted && card.settings.is_none()
+                            || card.requires.is_some_and(|required| {
+                                !self.cards.iter().any(|card| {
+                                    card.resource == required && card.status == Status::Granted
+                                })
+                            });
+                        GroupBox::new()
+                            .outline()
+                            .content_style(StyleRefinement::default().p_3().gap_0())
+                            .child(
+                                h_flex()
+                                    .w_full()
+                                    .gap_3()
+                                    .flex_wrap()
+                                    .debug_selector(move || format!("{}-row", resource.key()))
+                                    .child(
+                                        v_flex()
+                                            .gap_0p5()
+                                            .flex_1()
+                                            .min_w_32()
+                                            .max_w_full()
+                                            .debug_selector(move || {
+                                                format!("{}-summary", resource.key())
+                                            })
+                                            .child(div().font_medium().child(tr(resource.key())))
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(cx.theme().muted_foreground)
+                                                    .debug_selector(move || {
+                                                        format!(
+                                                            "{}-{}",
+                                                            resource.key(),
+                                                            status.key()
+                                                        )
+                                                    })
+                                                    .child(tr(card.status.key())),
+                                            ),
+                                    )
+                                    .child(
+                                        h_flex()
+                                            .gap_2()
+                                            .flex_wrap()
+                                            .justify_end()
+                                            .flex_shrink_0()
+                                            .max_w_full()
+                                            .debug_selector(move || {
+                                                format!("{}-actions", resource.key())
+                                            })
+                                            .when(card.check.is_some(), |row| {
+                                                row.child(
+                                                    Button::new(format!(
+                                                        "{}-check",
+                                                        resource.key()
+                                                    ))
                                                     .ghost()
                                                     .small()
                                                     .label(tr("permission_check"))
@@ -409,74 +421,75 @@ impl Render for Flow {
                                                     .debug_selector(move || {
                                                         format!("{}-check", resource.key())
                                                     })
+                                                    .on_click(cx.listener(|flow, _, window, cx| {
+                                                        flow.check(window, cx)
+                                                    })),
+                                                )
+                                            })
+                                            .when(
+                                                resource == Resource::Chrome
+                                                    && matches!(
+                                                        status,
+                                                        Status::Unknown
+                                                            | Status::Required
+                                                            | Status::Denied
+                                                    )
+                                                    && card.settings.is_some(),
+                                                |row| {
+                                                    let url = card.settings.unwrap();
+                                                    row.child(
+                                                        Button::new("chrome-access-settings")
+                                                            .ghost()
+                                                            .small()
+                                                            .label(tr("permission_settings"))
+                                                            .disabled(
+                                                                self.checking
+                                                                    || self.pending.is_some(),
+                                                            )
+                                                            .on_click(move |_, _, cx| {
+                                                                cx.open_url(url)
+                                                            }),
+                                                    )
+                                                },
+                                            )
+                                            .child(
+                                                Button::new(resource.key())
+                                                    .small()
+                                                    .label(tr(match (resource, status) {
+                                                        (Resource::Chrome, Status::Denied) => {
+                                                            "permission_retry"
+                                                        }
+                                                        (
+                                                            Resource::Chrome,
+                                                            Status::Unknown | Status::Required,
+                                                        ) => "permission_check",
+                                                        (
+                                                            _,
+                                                            Status::Denied | Status::Restricted,
+                                                        ) if card.settings.is_some()
+                                                            && resource != Resource::Chrome =>
+                                                        {
+                                                            "permission_settings"
+                                                        }
+                                                        _ => "permission_request",
+                                                    }))
+                                                    .when(pending, |button| {
+                                                        button.icon(Spinner::new())
+                                                    })
+                                                    .loading(pending)
+                                                    .disabled(disabled)
+                                                    .debug_selector(move || {
+                                                        format!("{}-request", resource.key())
+                                                    })
                                                     .on_click(cx.listener(
-                                                        |flow, _, window, cx| {
-                                                            flow.check(window, cx)
+                                                        move |flow, _, window, cx| {
+                                                            flow.request(resource, window, cx)
                                                         },
                                                     )),
-                                            )
-                                        })
-                                        .when(
-                                            resource == Resource::Chrome
-                                                && status == Status::Denied
-                                                && card.settings.is_some(),
-                                            |row| {
-                                                let url = card.settings.unwrap();
-                                                row.child(
-                                                    Button::new("chrome-access-settings")
-                                                        .ghost()
-                                                        .small()
-                                                        .label(tr("permission_settings"))
-                                                        .on_click(move |_, _, cx| cx.open_url(url)),
-                                                )
-                                            },
-                                        )
-                                        .child(
-                                            Button::new(resource.key())
-                                                .small()
-                                                .label(tr(
-                                                    if matches!(
-                                                        card.status,
-                                                        Status::Denied | Status::Restricted
-                                                    ) && card.settings.is_some()
-                                                        && resource != Resource::Chrome
-                                                    {
-                                                        "permission_settings"
-                                                    } else {
-                                                        "permission_request"
-                                                    },
-                                                ))
-                                                .when(pending, |button| {
-                                                    button.icon(
-                                                        gpui_kit::component::spinner::Spinner::new(
-                                                        ),
-                                                    )
-                                                })
-                                                .loading(pending)
-                                                .disabled(disabled)
-                                                .debug_selector(move || {
-                                                    format!("{}-request", resource.key())
-                                                })
-                                                .on_click(cx.listener(
-                                                    move |flow, _, window, cx| {
-                                                        flow.request(resource, window, cx)
-                                                    },
-                                                )),
-                                        ),
-                                )
-                        }),
-                ),
-            )
-            .child(
-                DialogFooter::new().px_6().pb_6().child(
-                    Button::new("permissions-cancel")
-                        .label(tr("settings_cancel"))
-                        .debug_selector(|| "permissions-cancel".into())
-                        .on_click(cx.listener(|flow, _, window, cx| {
-                            flow.finish(false, window, cx);
-                            window.close_dialog(cx);
-                        })),
-                ),
+                                            ),
+                                    ),
+                            )
+                    }),
             )
     }
 }

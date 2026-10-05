@@ -396,7 +396,7 @@ fn releases_button_after_scan_ends(cx: &mut TestAppContext) {
     for (result, message) in [
         (
             Err("browser_chrome_access_denied"),
-            Some("Chrome data access denied; check Privacy & Security"),
+            Some("Chrome data access denied; check Full Disk Access"),
         ),
         (Ok(json!([])), Some("No Chrome profiles found")),
         (Ok(Value::Null), None),

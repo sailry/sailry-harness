@@ -301,8 +301,8 @@ fn chrome_card(request: PermissionAction) -> Card {
     Card {
         resource: Resource::Chrome,
         status: Status::Unknown,
-        // App-data consent has no public preflight or dedicated pane URL. Do not claim Full Disk Access is required.
-        settings: Some("x-apple.systempreferences:com.apple.preference.security"),
+        // Full Disk Access is user-managed; this opens its pane without granting access.
+        settings: Some("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"),
         check: None,
         request: Some(request),
         requires: None,

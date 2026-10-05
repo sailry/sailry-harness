@@ -90,8 +90,8 @@ pub(crate) type Result<T> = std::result::Result<T, &'static str>;
 
 pub(crate) fn profiles() -> Result<Vec<Profile>> {
     let home = dirs::home_dir().ok_or("browser_chrome_missing")?;
-    // Opening metadata after Import is pressed lets macOS request app-data
-    // consent when required (WWDC23 10053); do not replace it with a file picker.
+    // User-initiated access lets macOS request consent where supported (WWDC23
+    // 10053). macOS 27 instead requires Settings; preserve its access-denied error.
     discover(&home.join("Library/Application Support/Google/Chrome"))
 }
 
@@ -146,8 +146,8 @@ fn cookie_path(directory: &Path) -> Result<Option<PathBuf>> {
 }
 
 fn database(path: &Path) -> Result<Connection> {
-    // The database can be protected separately from Local State. Opening it
-    // requests native consent and preserves access-denied errors before SQLite.
+    // The database can be protected separately from Local State. Opening it lets
+    // macOS enforce consent and preserves access-denied errors before SQLite.
     let _access = std::fs::File::open(path).map_err(discovery_error)?;
     let db = Connection::open_with_flags(
         path,

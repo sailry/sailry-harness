@@ -1,5 +1,6 @@
 use super::*;
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -91,6 +92,101 @@ fn present(
 }
 
 #[gpui::test]
+fn keeps_title_and_actions_compact(cx: &mut TestAppContext) {
+    let before = rust_i18n::locale().to_string();
+    for locale in ["en", "zh-CN"] {
+        rust_i18n::set_locale(locale);
+        for width in [1280., 360.] {
+            let visual = mount(cx);
+            let handle = visual.update(|window, _| window.window_handle());
+            visual.simulate_window_resize(handle, size(px(width), px(800.)));
+            let chrome = Mock::new(Status::Denied);
+            let mut data = chrome.card(Resource::Chrome);
+            data.settings = Some("sailry-fixture://settings");
+            let key = Mock::new(Status::Required);
+            let mut keychain = key.card(Resource::Keychain);
+            keychain.requires = Some(Resource::Chrome);
+            let mut microphone = Mock::new(Status::NotNeeded).card(Resource::Microphone);
+            microphone.check = None;
+            microphone.status = Status::NotNeeded;
+            let completed = present(
+                visual,
+                vec![data, keychain, microphone],
+                CancellationToken::new(),
+            );
+
+            let title = visual.debug_bounds("permissions-title").unwrap();
+            let body = visual.debug_bounds("permissions-modal").unwrap();
+            let row = visual.debug_bounds("permission_chrome-row").unwrap();
+            let keychain = visual.debug_bounds("permission_keychain-row").unwrap();
+            let cancel = visual.debug_bounds("permissions-cancel").unwrap();
+            assert_eq!(title.left(), body.left());
+            assert!(title.bottom() <= body.top());
+            assert!(body.top() - title.bottom() <= px(32.));
+            assert!(row.bottom() < keychain.top());
+            assert!(cancel.top() >= body.bottom());
+            assert!(visual.debug_bounds("permission_microphone-row").is_none());
+            visual.update(|window, _| {
+                for (id, key) in [
+                    ("permission_chrome-check", "permission_check"),
+                    ("chrome-access-settings", "permission_settings"),
+                    ("permission_chrome", "permission_retry"),
+                ] {
+                    let action = window.find(id);
+                    assert_eq!(action.role(), Some(Role::Button));
+                    assert_eq!(action.label(), Some(tr(key).as_ref()));
+                    assert!(action.bounds().left() >= row.left());
+                    assert!(action.bounds().right() <= row.right());
+                    assert!(action.bounds().top() >= row.top());
+                    assert!(action.bounds().bottom() <= row.bottom());
+                }
+                assert_eq!(
+                    window.find("permission_keychain").label(),
+                    Some(tr("permission_request").as_ref())
+                );
+            });
+            if width == 1280. {
+                let request = visual.debug_bounds("permission_chrome-request").unwrap();
+                assert!(
+                    row.size.height < request.size.height * 2.,
+                    "wide row wrapped: row={row:?}, request={request:?}, summary={:?}, actions={:?}",
+                    visual.debug_bounds("permission_chrome-summary").unwrap(),
+                    visual.debug_bounds("permission_chrome-actions").unwrap(),
+                );
+            }
+            tap(visual, "permission_keychain-request");
+            assert_eq!(key.calls.load(Ordering::SeqCst), 0);
+            assert!(completed.borrow().is_empty());
+            visual.update(|window, cx| window.click("chrome-access-settings", cx));
+            draw(visual);
+            assert_eq!(
+                visual.opened_url().as_deref(),
+                Some("sailry-fixture://settings")
+            );
+            assert_eq!(chrome.calls.load(Ordering::SeqCst), 0);
+            assert!(completed.borrow().is_empty());
+            *chrome.status.lock().unwrap() = Status::Unknown;
+            tap(visual, "permission_chrome-check");
+            visual.update(|window, _| {
+                assert_eq!(
+                    window.find("permission_chrome").label(),
+                    Some(tr("permission_check").as_ref())
+                );
+                assert!(window.try_find("chrome-access-settings").is_some());
+            });
+            visual.update(|window, cx| window.click("chrome-access-settings", cx));
+            draw(visual);
+            assert_eq!(chrome.calls.load(Ordering::SeqCst), 0);
+            assert!(completed.borrow().is_empty());
+            tap(visual, "permissions-cancel");
+            assert_eq!(&*completed.borrow(), &[false]);
+            visual.update(|window, _| window.remove_window());
+        }
+    }
+    rust_i18n::set_locale(&before);
+}
+
+#[gpui::test]
 fn checks_without_prompting_and_rechecks_after_settings(cx: &mut TestAppContext) {
     let visual = mount(cx);
     let mock = Mock::new(Status::Required);
@@ -173,7 +269,7 @@ fn cancelled_native_completion_is_not_replayed(cx: &mut TestAppContext) {
         vec![Card {
             resource: Resource::Chrome,
             status: Status::Required,
-            settings: None,
+            settings: Some("sailry-fixture://settings"),
             check: None,
             request: Some(action),
             requires: None,
@@ -182,6 +278,9 @@ fn cancelled_native_completion_is_not_replayed(cx: &mut TestAppContext) {
     );
     tap(visual, "permission_chrome-request");
     tap(visual, "permission_chrome-request");
+    visual.update(|window, cx| window.click("chrome-access-settings", cx));
+    draw(visual);
+    assert_eq!(visual.opened_url(), None);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert!(completed.borrow().is_empty());
     tap(visual, "permissions-cancel");
