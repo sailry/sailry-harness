@@ -52,7 +52,8 @@ Sailry Harness 是一个面向编码与日常工作的 **AI 工作区（AI Agent
 本地与远程工作使用同一套命令模型。
 
 Flutter 移动控制端直接连接选定节点，不需要桌面端充当网关。
-移动端仍在开发，当前尚未分发；可用的桌面安装包请查看[发布页面](https://github.com/sailry/sailry-harness/releases)。
+Android 已支持，iOS 测试中。移动端控制所连接节点上的工作，
+而不是在手机上运行另一套本地智能体引擎。
 
 ## 从你的需求开始
 
@@ -108,10 +109,25 @@ Rust 与 GPUI Kit 构成桌面界面，ADK-Rust 负责智能体执行。
 原生渲染不需要为整个应用界面运行浏览器外壳。
 内嵌 WebView 用于浏览器面板中的网页内容，不负责渲染应用界面。
 
+## 支持的平台
+
+| 平台 | 最低要求 | 应用形态 | 状态 |
+| --- | --- | --- | --- |
+| macOS | macOS 13.0 Ventura 及以上；Apple 芯片或 Intel | 桌面工作区 | 支持 |
+| Android | Android 7.0 及以上（API 24）；ARM64 | 移动控制端 | 支持 |
+| Windows | 系统要求验证中 | 桌面工作区 | 测试中 |
+| iOS | iOS 15.0 及以上 | 移动控制端 | 测试中 |
+
+移动控制端需要连接运行 Sailry Desktop 或 Sailry Host 的电脑。
+已发布的安装包请查看[发布页面](https://github.com/sailry/sailry-harness/releases)；
+平台支持不表示每个平台都已经提供公开安装包。
+
 ## 开始使用
 
 Sailry Harness 正在积极开发中。请查看[发布页面](https://github.com/sailry/sailry-harness/releases)，
 获取可用的 macOS 版本；应用在 Mac App Store 之外分发。
+
+macOS 安装步骤：
 
 1. 根据你的 Mac 选择安装包：Apple 芯片或 Intel
 2. 解压后，将 **Sailry.app** 拖入 **Applications（应用程序）**

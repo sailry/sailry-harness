@@ -54,8 +54,8 @@ settings. Disconnecting the controller does not stop admitted work, provided the
 execution Node stays running. Local and remote work use the same command model.
 
 A Flutter mobile controller connects directly to the selected Node without using
-Desktop as a gateway. It is in development and is not currently distributed;
-available desktop packages are listed under [Releases](https://github.com/sailry/sailry-harness/releases).
+Desktop as a gateway. Android is supported; iOS is in testing. Mobile controls
+work on the connected Node rather than running a separate local agent engine.
 
 ## Start with what you need
 
@@ -119,10 +119,25 @@ Native rendering avoids running a browser-based shell for the whole application
 interface. Embedded webviews are used for web content in browser panes, not to
 render the application UI.
 
+## Platforms
+
+| Platform | Minimum requirements | Application | Status |
+| --- | --- | --- | --- |
+| macOS | macOS 13.0 Ventura or later; Apple silicon or Intel | Desktop workspace | Supported |
+| Android | Android 7.0 or later (API 24); ARM64 | Mobile controller | Supported |
+| Windows | System requirements under validation | Desktop workspace | In testing |
+| iOS | iOS 15.0 or later | Mobile controller | In testing |
+
+Mobile controllers connect to a computer running Sailry Desktop or Sailry Host.
+Published packages are listed under [Releases](https://github.com/sailry/sailry-harness/releases);
+platform support does not mean every platform already has a published installer.
+
 ## Get started
 
 Sailry Harness is in active development. Check [Releases](https://github.com/sailry/sailry-harness/releases)
 for available macOS builds, distributed outside the Mac App Store.
+
+On macOS:
 
 1. Choose the macOS package for your Mac: Apple silicon or Intel
 2. Unzip it and drag **Sailry.app** into **Applications**
