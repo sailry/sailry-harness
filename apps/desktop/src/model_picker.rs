@@ -196,7 +196,11 @@ impl Picker {
                         .map(|channel| channel.category);
             self.channels = channels;
             self.selected = selected;
-            if changed {
+            let missing = self.family.is_some_and(|family| !self.has_category(family));
+            if missing {
+                self.family = None;
+            }
+            if changed || missing {
                 self.reveal(cx);
             }
             cx.notify();
@@ -239,11 +243,17 @@ impl Picker {
         if let Some(channel) = self.selected.as_ref().and_then(|selection| {
             self.channels
                 .iter()
-                .find(|channel| channel.id == selection.channel)
+                .find(|channel| channel.id == selection.channel && !channel.models.is_empty())
         }) {
             self.family = Some(channel.category);
             self.collapsed.remove(&channel.id);
         }
         cx.notify();
+    }
+
+    fn has_category(&self, category: ModelCategory) -> bool {
+        self.channels
+            .iter()
+            .any(|channel| channel.category == category && !channel.models.is_empty())
     }
 }

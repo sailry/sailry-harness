@@ -126,8 +126,7 @@ impl Picker {
     }
 
     fn navigation(&self, cx: &mut Context<Self>) -> AnyElement {
-        let categories =
-            ModelCategory::ALL.map(|category| (Some(category), category.key(), category.icon()));
+        let categories = ModelCategory::ALL;
         v_flex()
             .id("model-family-scroll")
             .overflow_y_scrollbar()
@@ -156,7 +155,11 @@ impl Picker {
                 categories
                     .into_iter()
                     .enumerate()
-                    .map(|(index, (family, key, icon))| {
+                    .filter(|(_, category)| self.has_category(*category))
+                    .map(|(index, category)| {
+                        let family = Some(category);
+                        let key = category.key();
+                        let icon = category.icon();
                         div()
                             .debug_selector(move || format!("composer-model-family-{index}"))
                             .child(

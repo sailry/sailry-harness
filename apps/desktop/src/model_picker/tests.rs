@@ -20,7 +20,11 @@ fn selection_and_filters(cx: &mut TestAppContext) {
                 _ => unreachable!(),
             }
             .into();
-            crate::settings::channel(id, &provider)
+            let mut channel = crate::settings::channel(id, &provider);
+            channel
+                .models
+                .push(crate::settings::Model::example("fixture"));
+            channel
         })
         .collect::<Vec<_>>();
     let selection = |channel| {
@@ -186,5 +190,109 @@ fn brand_navigation(cx: &mut TestAppContext) {
         assert!(model.size.width >= px(120.));
         assert!(model.left() >= navigation.right());
         assert!(model.right() <= panel.right());
+        assert!(visual.debug_bounds("composer-model-family-0").is_some());
+        assert!(visual.debug_bounds("composer-model-family-1").is_none());
+        assert!(visual.debug_bounds("composer-model-family-2").is_none());
     }
+}
+
+#[gpui::test]
+fn categories_follow_available_providers(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+    });
+    let channel = |id, api, enabled, models| {
+        let mut provider = crate::provider_fixture::provider(Authentication::ApiKey, api);
+        provider.enabled = enabled;
+        let mut channel = crate::settings::channel(id, &provider);
+        if models {
+            channel
+                .models
+                .push(crate::settings::Model::example("fixture"));
+        }
+        channel
+    };
+    let mut owner = None;
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let picker = cx.new(|_| Picker::new());
+        picker.update(cx, |picker, cx| {
+            picker.set(
+                vec![
+                    channel(0, ModelApi::Responses, true, true),
+                    channel(1, ModelApi::Responses, true, true),
+                    channel(2, ModelApi::Anthropic, true, true),
+                    channel(3, ModelApi::Gemini, false, true),
+                    channel(4, ModelApi::OpenCodeGo, true, false),
+                ],
+                Some(Selection {
+                    channel: 0,
+                    model: "fixture".into(),
+                }),
+                cx,
+            )
+        });
+        owner = Some(picker.clone());
+        Root::new(picker, window, cx)
+    });
+    let picker = owner.unwrap();
+    let draw = |visual: &mut VisualTestContext| {
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+    };
+    draw(visual);
+    assert!(visual.debug_bounds("composer-model-family-0").is_some());
+    assert!(visual.debug_bounds("composer-model-family-1").is_some());
+    for id in [
+        "composer-model-family-2",
+        "composer-model-family-3",
+        "composer-model-family-4",
+    ] {
+        assert!(visual.debug_bounds(id).is_none());
+    }
+    let family = visual.debug_bounds("composer-model-family-1").unwrap();
+    visual.simulate_click(family.center(), Modifiers::default());
+    draw(visual);
+    assert!(
+        visual
+            .debug_bounds("composer-model-option-2-fixture")
+            .is_some()
+    );
+    assert!(
+        visual
+            .debug_bounds("composer-model-option-0-fixture")
+            .is_none()
+    );
+    assert!(
+        visual
+            .debug_bounds("composer-model-option-1-fixture")
+            .is_none()
+    );
+    picker.update(visual, |picker, cx| {
+        picker.set(
+            vec![channel(0, ModelApi::Responses, true, true)],
+            Some(Selection {
+                channel: 0,
+                model: "fixture".into(),
+            }),
+            cx,
+        )
+    });
+    draw(visual);
+    assert_eq!(
+        picker.read_with(visual, |picker, _| picker.family),
+        Some(ModelCategory::OpenAi)
+    );
+    assert!(visual.debug_bounds("composer-model-family-1").is_none());
+    assert!(
+        visual
+            .debug_bounds("composer-model-option-0-fixture")
+            .is_some()
+    );
+    assert!(visual.debug_bounds("composer-model-empty").is_none());
+    picker.update(visual, |picker, cx| picker.set(Vec::new(), None, cx));
+    draw(visual);
+    assert_eq!(picker.read_with(visual, |picker, _| picker.family), None);
+    assert!(visual.debug_bounds("composer-model-family-0").is_none());
+    assert!(visual.debug_bounds("composer-model-empty").is_some());
 }

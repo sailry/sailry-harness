@@ -374,10 +374,9 @@ fn model_picker(cx: &mut TestAppContext) {
     let trigger = cx.debug_bounds("composer-model").unwrap();
     cx.simulate_click(trigger.center(), Modifiers::default());
     frame(&mut cx, 200);
-    let other = cx.debug_bounds("composer-model-family-2").unwrap();
-    cx.simulate_click(other.center(), Modifiers::default());
-    frame(&mut cx, 200);
-    assert!(cx.debug_bounds("composer-model-empty").is_some());
+    assert!(cx.debug_bounds("composer-model-family-2").is_none());
+    assert!(cx.debug_bounds("composer-model-family-4").is_none());
+    assert!(cx.debug_bounds("composer-model-empty").is_none());
     cx.simulate_keystrokes("escape");
     frame(&mut cx, 200);
     let trigger = cx.debug_bounds("composer-model").unwrap();
@@ -387,10 +386,7 @@ fn model_picker(cx: &mut TestAppContext) {
         cx.debug_bounds("composer-model-option-0-preview-text-1")
             .is_some()
     );
-    let other = cx.debug_bounds("composer-model-family-4").unwrap();
-    cx.simulate_click(other.center(), Modifiers::default());
-    frame(&mut cx, 200);
-    assert!(cx.debug_bounds("composer-model-empty").is_some());
+    assert!(cx.debug_bounds("composer-model-family-4").is_none());
     let all = cx.debug_bounds("composer-model-family-0").unwrap();
     cx.simulate_click(all.center(), Modifiers::default());
     frame(&mut cx, 200);
