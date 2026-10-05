@@ -13,6 +13,54 @@ fn frame(cx: &mut VisualTestContext) {
     });
 }
 
+#[gpui::test]
+fn launcher_has_filled_controls_in_both_themes(cx: &mut TestAppContext) {
+    let (_shell, mut visual) = setup(cx);
+    super::workspace::click(&mut visual, "toggle-details");
+    for mode in [ThemeMode::Light, ThemeMode::Dark] {
+        visual.update(|window, cx| {
+            Theme::change(mode, Some(window), cx);
+            cx.refresh_windows();
+        });
+        frame(&mut visual);
+        for selector in [
+            "launch-resource_browser",
+            "launch-terminal",
+            "launch-files",
+            "launch-resource_review",
+        ] {
+            let bounds = visual.debug_bounds(selector).unwrap();
+            assert_eq!(bounds.size.height, px(40.));
+            visual.update(|window, cx| {
+                let bounds = bounds.scale(window.scale_factor());
+                let expected = cx.theme().secondary;
+                assert!(expected.a > 0.);
+                assert!(
+                    window.painted_quads().into_iter().any(|quad| {
+                        quad.bounds == bounds && quad.background == expected.into()
+                    }),
+                    "{selector} must retain a semantic surface in {mode:?}"
+                );
+            });
+            visual.simulate_mouse_move(bounds.center(), None, Modifiers::default());
+            frame(&mut visual);
+            visual.update(|window, cx| {
+                let bounds = bounds.scale(window.scale_factor());
+                assert!(
+                    window.painted_quads().into_iter().any(|quad| {
+                        quad.bounds == bounds
+                            && quad.background == cx.theme().button_secondary_hover.into()
+                    }),
+                    "{selector} must retain the Kit hover state"
+                );
+            });
+            visual.simulate_mouse_move(point(px(0.), px(0.)), None, Modifiers::default());
+            frame(&mut visual);
+        }
+    }
+    visual.update(|window, _| window.remove_window());
+}
+
 fn assert_split(cx: &mut VisualTestContext, page: Page) {
     let editor = cx
         .debug_bounds(if page == Page::Git {
