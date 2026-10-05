@@ -229,7 +229,7 @@ class _NewConversationPageState extends State<NewConversationPage> {
             ? 'conversationNoModel'
             : 'conversationEmpty';
         return ConversationFrame(
-          title: context.tr('newTask'),
+          title: context.tr('newConversation'),
           leading: Align(
             alignment: Alignment.centerLeft,
             child: Surface(

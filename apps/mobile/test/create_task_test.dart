@@ -82,9 +82,11 @@ Future<void> open(
     ),
   );
   await tester.pumpAndSettle();
-  await tester.tap(find.byTooltip(tr('newTask')));
+  await tester.tap(find.byTooltip(tr('newConversation')));
   await tester.pumpAndSettle();
   expect(find.byType(NewConversationPage), findsOneWidget);
+  expect(find.text(tr('newConversation')), findsOneWidget);
+  expect(find.text(tr('newTask')), findsNothing);
   expect(find.byType(BottomSheet), findsNothing);
   if (draft.isNotEmpty) await tester.enterText(find.byType(TextField), draft);
   await tester.pumpAndSettle();

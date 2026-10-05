@@ -19,7 +19,7 @@ void main() {
     final session = AppSession.test(hosts: []);
     await tester.pumpWidget(SailryApp(session: session));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip(tr('newTask')));
+    await tester.tap(find.byTooltip(tr('newConversation')));
     await tester.pumpAndSettle();
     final toast = find.byKey(const ValueKey('app-toast'));
     expect(toast, findsNothing);

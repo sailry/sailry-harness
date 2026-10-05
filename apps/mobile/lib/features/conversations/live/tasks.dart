@@ -227,7 +227,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
           ),
           RoundButton(
             icon: 'plus',
-            tooltip: context.tr('newTask'),
+            tooltip: context.tr('newConversation'),
             onPressed: selected?.connected == true ? _create : null,
           ),
         ],

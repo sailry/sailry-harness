@@ -161,7 +161,7 @@ class _TasksPageState extends State<_PreviewTasksPage> {
     _Task? created;
     await showAppSheet(
       context,
-      context.tr('newTask'),
+      context.tr('newConversation'),
       child: StatefulBuilder(
         builder: (context, update) => FormBody(
           children: [
@@ -314,7 +314,7 @@ class _TasksPageState extends State<_PreviewTasksPage> {
         ),
         RoundButton(
           icon: 'plus',
-          tooltip: context.tr('newTask'),
+          tooltip: context.tr('newConversation'),
           onPressed: _create,
         ),
       ],

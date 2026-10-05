@@ -161,7 +161,7 @@ void main() {
 
     testWidgets('creates an isolated draft', (tester) async {
       await mount(tester, const TasksPage());
-      await tester.tap(find.byTooltip(tr('newTask')));
+      await tester.tap(find.byTooltip(tr('newConversation')));
       await tester.pumpAndSettle();
       await tester.enterText(
         find.widgetWithText(TextField, tr('describeTask')),
