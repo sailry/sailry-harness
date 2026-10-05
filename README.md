@@ -8,10 +8,10 @@
   English · <a href="README.zh-CN.md">Chinese (Simplified)</a>
 </p>
 
-<p align="center"><strong>A native, connected, plugin-first AI workspace</strong></p>
+<p align="center"><strong>A native AI workspace for coding and everyday work</strong></p>
 
 <p align="center">
-  Choose your models. Connect your computers. Make the workspace yours.
+  Connect models, agents, and tools. Extend your workspace with plugins.
 </p>
 
 <p align="center">
@@ -22,9 +22,14 @@
 
 ![Sailry workspace with an English conversation and weekly plan](assets/readme/workspace.png)
 
-Sailry Harness brings AI conversations, agents, and tools into one native
-workspace. Use it for research, writing, documents, or software projects—with
-your own model providers and a local or remote computer doing the work.
+Sailry Harness is an **AI agent harness**: a native workspace for coding and
+everyday work. It brings models, agents, context, tools, and permissions together,
+with an interface to follow and steer the work.
+
+Write and review code, research a topic, prepare documents, or manage project
+tasks—with your own model providers and a local or remote computer doing the
+work. Plugins extend this shared foundation into specialized workbenches with
+their own panels, assistants, and tools.
 
 ## What makes Sailry Harness different
 
@@ -66,7 +71,13 @@ close while you work.
 
 ![An English launch brief open alongside a Sailry conversation](assets/readme/files.png)
 
-## Plugins are more than tool connectors
+## One harness, many workbenches
+
+Use the same AI workspace across different kinds of work. Plugins can shape it
+into a focused workbench for document workflows, database operations, or your
+own domain—with a dedicated interface, an assistant, and the tools it needs.
+The harness supplies shared conversations, execution, and permission controls;
+plugins add the domain-specific capabilities.
 
 Add capabilities from the official marketplace, or build your own. Plugins can
 contribute agent tools, navigation entries, resource panels, embedded assistants,
