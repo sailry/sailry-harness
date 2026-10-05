@@ -1,6 +1,6 @@
 //! Header shortcuts share the sidebar's activity projection and navigation.
-//! Kit b79f4ce's AvatarGroup only accepts Avatar children, not focusable buttons.
-//! Compose Kit Buttons in overlapping flex rows instead.
+//! Kit 0c830f4's AvatarGroup only accepts Avatar children, not focusable buttons.
+//! Compose Kit Buttons in spaced flex rows instead.
 use super::*;
 use gpui_kit::component::{
     badge::Badge, hover_card::HoverCard, popover::Popover, scroll::ScrollableElement,
@@ -9,10 +9,6 @@ use std::time::Duration;
 
 #[cfg(test)]
 mod tests;
-
-const OVERLAP: f32 = 0.3;
-// The 20 px glyphs overlap, while their 28 px pointer targets stay generous.
-const STEP_REMS: f32 = 1.25 * (1. - OVERLAP);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Group {
@@ -77,18 +73,9 @@ impl Shell {
                                 h_flex()
                                     .debug_selector(move || format!("header-{}", group.key()))
                                     .flex_shrink_0()
-                                    // Negative margins collapse intrinsic group measurement;
-                                    // derive its minimum extent from the rendered slots only.
-                                    .min_w(rems(
-                                        1.75 + STEP_REMS * (entries.len().min(slots) - 1) as f32,
-                                    ))
-                                    .children(entries.iter().take(visible).enumerate().map(
-                                        |(index, (node, session))| {
-                                            self.activity_avatar(*node, session, cx)
-                                                .when(index > 0, |button| {
-                                                    button.ml(rems(STEP_REMS - 1.75))
-                                                })
-                                        },
+                                    .gap_1()
+                                    .children(entries.iter().take(visible).map(
+                                        |(node, session)| self.activity_avatar(*node, session, cx),
                                     ))
                                     .when(entries.len() > visible, |row| {
                                         row.child(self.activity_overflow(
@@ -237,11 +224,7 @@ impl Shell {
                     )
                     .into_any_element()
             });
-        div()
-            .size_7()
-            .ml(rems(STEP_REMS - 1.75))
-            .flex_shrink_0()
-            .child(popover)
+        div().size_7().flex_shrink_0().child(popover)
     }
 
     fn session_preview(

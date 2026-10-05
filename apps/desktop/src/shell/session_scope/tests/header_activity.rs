@@ -171,7 +171,7 @@ fn session(template: &Session, status: Status, waiting: Option<Waiting>) -> Sess
 }
 
 #[gpui::test]
-fn groups_overlapping_indicators(cx: &mut TestAppContext) {
+fn groups_spaced_indicators(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     let (shell, visual) = mount(cx, &fixture);
     let handle = visual.update(|window, _| window.window_handle());
@@ -230,16 +230,14 @@ fn groups_overlapping_indicators(cx: &mut TestAppContext) {
     }
     let first = visual.debug_bounds(avatar(node, running[0].id)).unwrap();
     let second = visual.debug_bounds(avatar(node, running[1].id)).unwrap();
-    assert!(second.left() > first.left() && second.left() < first.right());
+    assert_eq!(second.left() - first.right(), px(4.));
     let first_glyph = visual
         .debug_bounds(glyph("running", running[0].id))
         .unwrap();
     let second_glyph = visual
         .debug_bounds(glyph("running", running[1].id))
         .unwrap();
-    assert!(
-        (first_glyph.right() - second_glyph.left() - first_glyph.size.width * 0.3).abs() < px(0.1)
-    );
+    assert_eq!(second_glyph.left() - first_glyph.right(), px(12.));
     assert!(visual.debug_bounds(avatar(node, running[2].id)).is_none());
     for (left, right) in [("waiting", "running"), ("running", "completed")] {
         let left = visual
