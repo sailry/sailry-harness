@@ -442,10 +442,10 @@ impl Panel {
             return;
         }
         if matches!(card.status, Status::Denied | Status::Restricted)
-            && card.settings.is_some()
+            && let Some(settings) = card.settings
             && resource != Resource::Chrome
         {
-            cx.open_url(card.settings.unwrap());
+            cx.open_url(settings);
             return;
         }
         if matches!(

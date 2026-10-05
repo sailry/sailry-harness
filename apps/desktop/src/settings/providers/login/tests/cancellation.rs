@@ -91,7 +91,10 @@ fn preserves_delayed_cleanup(cx: &mut TestAppContext) {
                 assert!(!window.has_active_dialog(cx));
                 assert!(window.notifications(cx).is_empty());
             });
-            assert_eq!(*delayed.requests.lock().unwrap(), [begin.clone()]);
+            assert_eq!(
+                delayed.requests.lock().unwrap().as_slice(),
+                std::slice::from_ref(&begin)
+            );
             assert!(retained.upgrade().is_some());
             visual.update(|window, cx| {
                 window.open_dialog(cx, |dialog, _, _| {
@@ -111,7 +114,10 @@ fn preserves_delayed_cleanup(cx: &mut TestAppContext) {
             delayed.release.notify_one();
             wait(visual, |_| retained.upgrade().is_none());
             if rejected {
-                assert_eq!(*delayed.requests.lock().unwrap(), [begin.clone()]);
+                assert_eq!(
+                    delayed.requests.lock().unwrap().as_slice(),
+                    std::slice::from_ref(&begin)
+                );
                 let client = Client::new(fixture.transport.clone());
                 let state = fixture.runtime.block_on(async {
                     let mut updates = client.subscribe_login(begin.id).await?;

@@ -22,8 +22,7 @@ fn selects_discovered_models(cx: &mut TestAppContext) {
         view.read_with(visual, |view, _| {
             assert_eq!(
                 view.model_sources()
-                    .filter(|(node, _)| *node == fixture.target.id())
-                    .next()
+                    .find(|(node, _)| *node == fixture.target.id())
                     .unwrap()
                     .1
                     .models
