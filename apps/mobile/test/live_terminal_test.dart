@@ -14,6 +14,7 @@ import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/runtime/json.dart';
 import 'package:sailry_mobile/ui/theme.dart';
 import 'package:sailry_mobile/ui/kit.dart';
+import '../integration_test/input.dart';
 
 class UpdatesFixture implements TerminalUpdates {
   final _values = StreamController<String>();
@@ -394,26 +395,28 @@ void main() {
     );
     await tester.pumpAndSettle();
     final editor = find.byType(EditableText);
-    tester.testTextInput.updateEditingValue(
-      const TextEditingValue(
-        text: 'zhongwen',
-        selection: TextSelection.collapsed(offset: 8),
-        composing: TextRange(start: 0, end: 8),
-      ),
-    );
-    await tester.pump();
     final grid = find.byWidgetPredicate(
       (widget) =>
           widget is CustomPaint && widget.painter is TerminalGridPainter,
     );
     final bounds = tester.getRect(grid);
-    final input = tester.getRect(editor);
     final painter =
         tester.widget<CustomPaint>(grid).painter! as TerminalGridPainter;
-    expect(input.width, greaterThan(100));
-    expect(input.left, lessThan(bounds.left + 29 * painter.cell.width));
-    expect(input.left, greaterThanOrEqualTo(bounds.left));
-    expect(input.right, lessThanOrEqualTo(bounds.right));
+    for (final text in ['zhong', 'zhongwen']) {
+      tester.testTextInput.updateEditingValue(
+        TextEditingValue(
+          text: text,
+          selection: TextSelection.collapsed(offset: text.length),
+          composing: TextRange(start: 0, end: text.length),
+        ),
+      );
+      await tester.pump();
+      expectCompositionFits(tester, editor);
+      final input = tester.getRect(editor);
+      expect(input.left, lessThan(bounds.left + 29 * painter.cell.width));
+      expect(input.left, greaterThanOrEqualTo(bounds.left));
+      expect(input.right, lessThanOrEqualTo(bounds.right));
+    }
     expect(
       commands.where(
         (command) =>
@@ -677,7 +680,7 @@ void main() {
             .opacity,
         1,
       );
-      expect(tester.getSize(input).width, greaterThan(100));
+      expectCompositionFits(tester, input);
       expect(tester.getSize(input).height, greaterThan(10));
       expect(
         commands.where((entry) => entry.$1 == 'input_terminal'),

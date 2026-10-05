@@ -116,7 +116,15 @@ Future<void> conversationWithoutProject(
           .opacity,
       1,
     );
-    expect(tester.getSize(editor).width, greaterThan(100));
+    expectCompositionFits(tester, editor);
+    final grid = find.byWidgetPredicate(
+      (widget) =>
+          widget is CustomPaint && widget.painter is TerminalGridPainter,
+    );
+    final bounds = tester.getRect(grid);
+    final inputBounds = tester.getRect(editor);
+    expect(inputBounds.left, greaterThanOrEqualTo(bounds.left));
+    expect(inputBounds.right, lessThanOrEqualTo(bounds.right));
     String output() {
       final painter =
           tester

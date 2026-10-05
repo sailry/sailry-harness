@@ -20,3 +20,18 @@ Future<void> edit(WidgetTester tester, Finder finder, String value) async {
   );
   await tester.pump();
 }
+
+void expectCompositionFits(WidgetTester tester, Finder finder) {
+  final state = tester.state<EditableTextState>(finder);
+  final render = state.renderEditable;
+  final range = state.widget.controller.value.composing;
+  final bounds = render.getRectForComposingRange(range);
+  expect(bounds, isNotNull);
+  // Check rendered glyphs, including the editor's horizontal scroll offset.
+  expect(bounds!.width, greaterThan(0));
+  expect(bounds.left, greaterThanOrEqualTo(0));
+  expect(bounds.right, lessThanOrEqualTo(render.size.width));
+  final caret = render.getLocalRectForCaret(TextPosition(offset: range.end));
+  expect(caret.left, greaterThanOrEqualTo(0));
+  expect(caret.right, lessThanOrEqualTo(render.size.width));
+}
