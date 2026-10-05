@@ -64,15 +64,13 @@ class ProjectFormState extends State<ProjectForm> {
   }
 
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
+  Widget build(BuildContext context) => FormBody(
     children: [
       TextField(
         controller: _name,
         enabled: !_busy,
         decoration: InputDecoration(labelText: tr('hostProjectName')),
       ),
-      const SizedBox(height: 12),
       TextField(
         controller: _path,
         enabled: !_busy,
@@ -85,7 +83,6 @@ class ProjectFormState extends State<ProjectForm> {
           ),
         ),
       ),
-      const SizedBox(height: 16),
       FilledButton(onPressed: _busy ? null : _save, child: Text(tr('save'))),
     ],
   );

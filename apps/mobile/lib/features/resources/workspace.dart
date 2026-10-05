@@ -86,9 +86,7 @@ Future<String?> askResourceText(
     context,
     tr(label),
     child: Builder(
-      builder: (context) => Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      builder: (context) => FormBody(
         children: [
           TextFormField(
             initialValue: initial,
@@ -98,7 +96,6 @@ Future<String?> askResourceText(
             maxLines: multiline ? 6 : 1,
             decoration: InputDecoration(labelText: tr(label)),
           ),
-          const SizedBox(height: 16),
           FilledButton(
             onPressed: () {
               if (value.trim().isNotEmpty) {

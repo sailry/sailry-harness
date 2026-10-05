@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/strings.dart';
 import '../../runtime/session.dart' show HostConnection;
 import 'live.dart';
+import '../../ui/form.dart';
 
 class RecordForm extends StatefulWidget {
   const RecordForm({
@@ -216,44 +217,39 @@ class _RecordFormState extends State<RecordForm> {
     bool required = true,
     bool enabled = true,
     bool numeric = false,
-  }) => Padding(
-    padding: const EdgeInsets.only(bottom: 14),
-    child: TextFormField(
-      key: ValueKey('settings-$key'),
-      controller: field(key),
-      enabled: !_busy && enabled,
-      minLines: lines,
-      maxLines: lines == 1 ? 1 : 8,
-      keyboardType: numeric ? TextInputType.number : null,
-      decoration: InputDecoration(labelText: tr(label)),
-      validator: (value) {
-        if (required && (value == null || value.trim().isEmpty)) {
-          return tr('settingsRequired');
-        }
-        if (numeric && (int.tryParse(value ?? '') ?? 0) <= 0) {
-          return tr('settingsRequired');
-        }
-        if (key == 'name' && widget.names.contains(value?.trim())) {
-          return tr('configDuplicate');
-        }
-        return null;
-      },
-    ),
+  }) => TextFormField(
+    key: ValueKey('settings-$key'),
+    controller: field(key),
+    enabled: !_busy && enabled,
+    minLines: lines,
+    maxLines: lines == 1 ? 1 : 8,
+    keyboardType: numeric ? TextInputType.number : null,
+    decoration: InputDecoration(labelText: tr(label)),
+    validator: (value) {
+      if (required && (value == null || value.trim().isEmpty)) {
+        return tr('settingsRequired');
+      }
+      if (numeric && (int.tryParse(value ?? '') ?? 0) <= 0) {
+        return tr('settingsRequired');
+      }
+      if (key == 'name' && widget.names.contains(value?.trim())) {
+        return tr('configDuplicate');
+      }
+      return null;
+    },
   );
 
   @override
   Widget build(BuildContext context) => Form(
     key: _form,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
+    child: FormBody(
       children: [
         input('name', 'configName'),
         if (provider) ...[
-          DropdownButtonFormField<String>(
-            initialValue: _api,
-            decoration: InputDecoration(labelText: tr('settingsApi')),
-            items:
+          SelectField<String>(
+            value: _api,
+            label: tr('settingsApi'),
+            options:
                 [
                       'chat_completions',
                       'responses',
@@ -268,19 +264,18 @@ class _RecordFormState extends State<RecordForm> {
                       'vertex',
                     ]
                     .map(
-                      (api) => DropdownMenuItem(
-                        value: api,
-                        child: Text(switch (api) {
+                      (api) => (
+                        api,
+                        switch (api) {
                           'open_code_go' => tr('settingsOpenCodeGo'),
                           'open_code_zen' => tr('settingsOpenCodeZen'),
                           _ => api,
-                        }),
+                        },
                       ),
                     )
                     .toList(),
-            onChanged: _busy ? null : (value) => setState(() => _api = value!),
+            onChanged: _busy ? null : (value) => setState(() => _api = value),
           ),
-          const SizedBox(height: 14),
           if (fixedEndpoint == null) input('endpoint', 'configEndpoint'),
           if (keyAuth)
             input(
@@ -306,30 +301,29 @@ class _RecordFormState extends State<RecordForm> {
             input('description', 'settingsDescription'),
           ],
           if (memory)
-            DropdownButtonFormField<String>(
-              initialValue: _memoryKind,
-              decoration: InputDecoration(labelText: tr('settingsMemoryKind')),
-              items: [
+            SelectField<String>(
+              value: _memoryKind,
+              label: tr('settingsMemoryKind'),
+              options: [
                 for (final item in [
                   ('user', 'settingsMemoryUser'),
                   ('feedback', 'settingsMemoryFeedback'),
                   ('project', 'settingsMemoryProject'),
                   ('reference', 'settingsMemoryReference'),
                 ])
-                  DropdownMenuItem(value: item.$1, child: Text(tr(item.$2))),
+                  (item.$1, tr(item.$2)),
               ],
               onChanged: _busy
                   ? null
-                  : (value) => setState(() => _memoryKind = value!),
+                  : (value) => setState(() => _memoryKind = value),
             ),
-          const SizedBox(height: 14),
           input(
             'content',
             memory ? 'configContent' : 'settingsInstructions',
             lines: 5,
           ),
         ],
-        settingsError(_error),
+        if (_error != null) settingsError(_error),
         FilledButton(
           onPressed: _busy || !_keyReady ? null : _save,
           child: Text(tr('save')),

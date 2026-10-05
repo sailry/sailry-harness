@@ -149,9 +149,7 @@ class _TasksPageState extends State<_PreviewTasksPage> {
       context,
       tr('newTask'),
       child: StatefulBuilder(
-        builder: (context, update) => Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        builder: (context, update) => FormBody(
           children: [
             TextFormField(
               initialValue: draft,
@@ -161,40 +159,31 @@ class _TasksPageState extends State<_PreviewTasksPage> {
               onChanged: (value) => update(() => draft = value),
               decoration: InputDecoration(hintText: tr('describeTask')),
             ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              icon: const AppIcon('down', size: 14),
-              initialValue: host,
-              decoration: InputDecoration(labelText: tr('newTaskHost')),
-              items: [
-                for (final value in ['Studio', 'Build Server'])
-                  DropdownMenuItem(value: value, child: Text(value)),
+            SelectField<String>(
+              value: host,
+              label: tr('newTaskHost'),
+              options: [
+                for (final value in ['Studio', 'Build Server']) (value, value),
               ],
-              onChanged: (value) => update(() => host = value!),
+              onChanged: (value) => update(() => host = value),
             ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              icon: const AppIcon('down', size: 14),
-              initialValue: project,
-              decoration: InputDecoration(labelText: tr('newTaskProject')),
-              items: [
+            SelectField<String>(
+              value: project,
+              label: tr('newTaskProject'),
+              options: [
                 for (final value in ['sailry-web', 'sailry-api', 'sailry'])
-                  DropdownMenuItem(value: value, child: Text(value)),
+                  (value, value),
               ],
-              onChanged: (value) => update(() => project = value!),
+              onChanged: (value) => update(() => project = value),
             ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              icon: const AppIcon('down', size: 14),
-              initialValue: branch,
-              decoration: InputDecoration(labelText: tr('newTaskWorktree')),
-              items: [
-                for (final value in ['main', 'feature/sign-in'])
-                  DropdownMenuItem(value: value, child: Text(value)),
+            SelectField<String>(
+              value: branch,
+              label: tr('newTaskWorktree'),
+              options: [
+                for (final value in ['main', 'feature/sign-in']) (value, value),
               ],
-              onChanged: (value) => update(() => branch = value!),
+              onChanged: (value) => update(() => branch = value),
             ),
-            const SizedBox(height: 20),
             FilledButton(
               onPressed: draft.trim().isEmpty
                   ? null

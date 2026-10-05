@@ -13,6 +13,7 @@ export 'loading.dart' show LoadingOverlay;
 export 'icons.dart' show AppIcon, DisclosureIcon;
 export 'empty_state.dart' show EmptyState;
 export 'failure_state.dart' show FailureState;
+export 'form.dart' show FormBody, SelectField;
 
 class RoundButton extends StatelessWidget {
   const RoundButton({
@@ -334,8 +335,8 @@ Future<T?> showAppSheet<T>(
           padding: EdgeInsets.zero,
           child: ListTileTheme.merge(
             dense: true,
-            minTileHeight: 40,
-            minVerticalPadding: 4,
+            minTileHeight: 48,
+            minVerticalPadding: 8,
             minLeadingWidth: 20,
             horizontalTitleGap: 10,
             contentPadding: const EdgeInsets.symmetric(horizontal: 8),
@@ -375,7 +376,7 @@ Future<T?> showAppSheet<T>(
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         final content = FailureViewport(
-                          height: (constraints.maxHeight - 12).clamp(
+                          height: (constraints.maxHeight - 24).clamp(
                             0,
                             double.infinity,
                           ),
@@ -388,7 +389,7 @@ Future<T?> showAppSheet<T>(
                             ),
                           ),
                         );
-                        const padding = EdgeInsets.fromLTRB(20, 0, 20, 12);
+                        const padding = EdgeInsets.fromLTRB(20, 8, 20, 16);
                         return scroll
                             ? SingleChildScrollView(
                                 padding: padding,

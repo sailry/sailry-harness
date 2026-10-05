@@ -81,9 +81,7 @@ class _MemorySheetState extends State<MemorySheet> {
           scroll: true,
           loading: _busy || _saved == null && _error == null,
           minHeight: 128,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          child: FormBody(
             children: [
               if (_saved != null) ...[
                 SwitchListTile.adaptive(
@@ -106,7 +104,6 @@ class _MemorySheetState extends State<MemorySheet> {
                     labelText: tr('settingsMemoryBudget'),
                   ),
                 ),
-                const SizedBox(height: 14),
                 TextField(
                   controller: _days,
                   enabled: !_busy,
@@ -115,7 +112,6 @@ class _MemorySheetState extends State<MemorySheet> {
                     labelText: tr('settingsMemoryReview'),
                   ),
                 ),
-                const SizedBox(height: 14),
                 ListTile(
                   title: Text(tr('settingsMemoryRecords')),
                   trailing: const Icon(Icons.chevron_right),
@@ -126,7 +122,7 @@ class _MemorySheetState extends State<MemorySheet> {
                   ),
                 ),
               ],
-              settingsError(_error),
+              if (_error != null) settingsError(_error),
               FilledButton(
                 onPressed: _busy || _saved == null ? null : _save,
                 child: Text(tr('save')),

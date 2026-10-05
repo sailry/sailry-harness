@@ -3,6 +3,7 @@ import '../../l10n/strings.dart';
 import '../../runtime/speech.dart';
 import 'live.dart';
 import '../../ui/loading.dart';
+import '../../ui/form.dart';
 
 class SpeechSheet extends StatelessWidget {
   const SpeechSheet({super.key, required this.speech});
@@ -10,9 +11,7 @@ class SpeechSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: speech,
-    builder: (context, _) => Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    builder: (context, _) => FormBody(
       children: [
         SwitchListTile.adaptive(
           contentPadding: EdgeInsets.zero,
@@ -20,22 +19,19 @@ class SpeechSheet extends StatelessWidget {
           value: speech.enabled,
           onChanged: speech.setEnabled,
         ),
-        DropdownButtonFormField<String>(
-          initialValue: speech.language,
-          decoration: InputDecoration(labelText: tr('settingsSpeechLanguage')),
-          items: [
+        SelectField<String>(
+          value: speech.language,
+          label: tr('settingsSpeechLanguage'),
+          options: [
             for (final item in [
               ('auto', 'settingsSpeechAuto'),
               ('zh', 'settingsSpeechChinese'),
               ('en', 'settingsSpeechEnglish'),
             ])
-              DropdownMenuItem(value: item.$1, child: Text(tr(item.$2))),
+              (item.$1, tr(item.$2)),
           ],
-          onChanged: (value) {
-            if (value != null) speech.setLanguage(value);
-          },
+          onChanged: speech.setLanguage,
         ),
-        const SizedBox(height: 20),
         if (speech.ready)
           Text(tr('settingsSpeechReady'))
         else if (speech.downloading) ...[
@@ -50,7 +46,7 @@ class SpeechSheet extends StatelessWidget {
             onPressed: speech.download,
             child: Text(tr('settingsSpeechDownload')),
           ),
-        settingsError(speech.error == null ? null : tr('settingsSpeechFailed')),
+        if (speech.error != null) settingsError(tr('settingsSpeechFailed')),
       ],
     ),
   );

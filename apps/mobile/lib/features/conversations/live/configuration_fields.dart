@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../l10n/strings.dart';
 import 'model_controls.dart';
+import '../../../ui/form.dart';
 
 class ConfigurationFields extends StatelessWidget {
   const ConfigurationFields({
@@ -48,9 +49,7 @@ class ConfigurationFields extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
           ),
         );
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return FormBody(
       children: [
         ModelControls(
           providers: providers,
@@ -63,7 +62,6 @@ class ConfigurationFields extends StatelessWidget {
           ('code', 'conversationCode'),
           ('plan', 'conversationPlan'),
         ]),
-        const SizedBox(height: 8),
         choices('permission', [
           ('ask', 'conversationAsk'),
           ('project', 'conversationProject'),

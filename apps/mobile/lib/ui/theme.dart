@@ -145,8 +145,62 @@ abstract final class SailryTheme {
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: colors.outline),
+          borderSide: BorderSide(color: colors.outlineVariant),
         ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(
+            color: colors.onSurfaceVariant.withValues(alpha: .5),
+          ),
+        ),
+        disabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: colors.outlineVariant),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: colors.error),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: colors.error),
+        ),
+      ),
+      dropdownMenuTheme: DropdownMenuThemeData(
+        textStyle: base.textTheme.bodyLarge?.copyWith(fontSize: 14, color: ink),
+        menuStyle: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(
+            Color.alphaBlend(colors.surfaceContainer, background),
+          ),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+          elevation: const WidgetStatePropertyAll(0),
+          padding: const WidgetStatePropertyAll(EdgeInsets.all(6)),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: colors.outlineVariant),
+            ),
+          ),
+        ),
+      ),
+      menuButtonTheme: MenuButtonThemeData(
+        style:
+            MenuItemButton.styleFrom(
+              foregroundColor: ink,
+              textStyle: TextStyle(fontSize: 14, height: 1.5, color: ink),
+              minimumSize: const Size(48, 48),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ).copyWith(
+              backgroundColor: WidgetStateProperty.resolveWith(
+                (states) => states.contains(WidgetState.focused)
+                    ? colors.surfaceContainerHigh
+                    : Colors.transparent,
+              ),
+              overlayColor: overlay,
+            ),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(

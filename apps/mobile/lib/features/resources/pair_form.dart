@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:pinput/pinput.dart';
 import '../../l10n/strings.dart';
 import '../../runtime/session.dart';
+import '../../ui/form.dart';
 
 class PairForm extends StatefulWidget {
   const PairForm({super.key, required this.session});
@@ -51,9 +52,7 @@ class _PairFormState extends State<PairForm> {
     listenable: widget.session,
     builder: (context, _) => Form(
       key: _form,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: FormBody(
         children: [
           LayoutBuilder(
             builder: (context, constraints) {
@@ -105,7 +104,6 @@ class _PairFormState extends State<PairForm> {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
-          const SizedBox(height: 12),
           FilledButton(
             onPressed: _busy || !widget.session.ready ? null : _connect,
             child: Text(tr(_busy ? 'pairing' : 'pairAction')),
