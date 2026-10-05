@@ -372,6 +372,61 @@ void main() {
     session.dispose();
   });
 
+  testWidgets('composition stays visible at the right edge', (tester) async {
+    final connection = ConnectionFixture();
+    final commands = <(String, Map<String, dynamic>?)>[];
+    final host = HostConnection.test(
+      id: 'node',
+      label: 'Host',
+      connection: connection,
+      command: (kind, data) async {
+        commands.add((kind, data));
+        return kind == 'claim_terminal' ? {'data': info(2)} : {'data': {}};
+      },
+    );
+    final session = AppSession.test(hosts: [host]);
+    final state = view(2);
+    state['snapshot']['screen']['cursor'] = {'row': 0, 'column': 29};
+    connection.updates.emit(state);
+    await mount(tester, session);
+    await tester.tap(
+      find.widgetWithText(FilledButton, tr('resourceTerminalControl')),
+    );
+    await tester.pumpAndSettle();
+    final editor = find.byType(EditableText);
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: 'zhongwen',
+        selection: TextSelection.collapsed(offset: 8),
+        composing: TextRange(start: 0, end: 8),
+      ),
+    );
+    await tester.pump();
+    final grid = find.byWidgetPredicate(
+      (widget) =>
+          widget is CustomPaint && widget.painter is TerminalGridPainter,
+    );
+    final bounds = tester.getRect(grid);
+    final input = tester.getRect(editor);
+    final painter =
+        tester.widget<CustomPaint>(grid).painter! as TerminalGridPainter;
+    expect(input.width, greaterThan(100));
+    expect(input.left, lessThan(bounds.left + 29 * painter.cell.width));
+    expect(input.left, greaterThanOrEqualTo(bounds.left));
+    expect(input.right, lessThanOrEqualTo(bounds.right));
+    expect(
+      commands.where(
+        (command) =>
+            command.$1 == 'input_terminal' &&
+            object(command.$2?['input']).containsKey('text'),
+      ),
+      isEmpty,
+    );
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    session.dispose();
+  });
+
   testWidgets('keyboard resize coalesces and preserves the grid', (
     tester,
   ) async {

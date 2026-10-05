@@ -379,7 +379,26 @@ class _LiveTerminalPageState extends State<LiveTerminalPage>
     builder: (context, value, _) {
       final composing = value.composing.isValid && !value.composing.isCollapsed;
       final cursor = object(screen['cursor']);
-      final left = number(cursor['column']) * cell.width;
+      final style = TextStyle(
+        fontFamily: 'monospace',
+        fontSize: terminalFontSize(context),
+        height: 1,
+        color: terminalColor(
+          screen['foreground'],
+          Theme.of(context).colorScheme.onSurface,
+        ),
+      );
+      var left = number(cursor['column']) * cell.width;
+      if (composing) {
+        final inputWidth =
+            TextPainter.computeWidth(
+              text: TextSpan(text: value.text, style: style),
+              textDirection: Directionality.of(context),
+              textScaler: MediaQuery.textScalerOf(context),
+            ) +
+            cell.width;
+        left = math.min(left, math.max(0, width - inputWidth));
+      }
       final top =
           (objects(screen['scrollback']).length + number(cursor['row'])) *
           cell.height;
@@ -403,15 +422,7 @@ class _LiveTerminalPageState extends State<LiveTerminalPage>
                 controller: _draft,
                 focusNode: _focus,
                 readOnly: !_controlling,
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: terminalFontSize(context),
-                  height: 1,
-                  color: terminalColor(
-                    screen['foreground'],
-                    Theme.of(context).colorScheme.onSurface,
-                  ),
-                ),
+                style: style,
                 cursorColor: Theme.of(context).colorScheme.onSurface,
                 backgroundCursorColor: Theme.of(context).colorScheme.surface,
                 showCursor: false,
