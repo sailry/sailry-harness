@@ -302,7 +302,13 @@ async fn confines_generation_credentials() {
                 let provider = signed_in(&fixture, authentication, api).await;
                 let session = session(&fixture, &provider).await;
                 let (request, turn) = submit(&fixture.client, &session).await;
-                finished(&fixture.client, &turn, Status::Failed).await;
+                finished_within(
+                    &fixture.client,
+                    &turn,
+                    Status::Failed,
+                    crate::retry_fixture::budget(),
+                )
+                .await;
                 assert_eq!(
                     fixture.client.execute(request).await.unwrap(),
                     Output::QueuedTurn(turn)

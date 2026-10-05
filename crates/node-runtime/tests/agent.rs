@@ -66,6 +66,8 @@ mod questions;
 mod queue;
 #[path = "agent/references.rs"]
 mod references;
+#[path = "support/retry.rs"]
+mod retry_fixture;
 #[path = "agent/rewind.rs"]
 mod rewind;
 #[path = "agent/search.rs"]
@@ -201,7 +203,16 @@ async fn history(client: &Client, session: SessionId) -> Page {
 }
 
 async fn finished(client: &Client, session: SessionId, turn: TurnId) -> Page {
-    tokio::time::timeout(Duration::from_secs(10), async {
+    finished_within(client, session, turn, Duration::from_secs(10)).await
+}
+
+async fn finished_within(
+    client: &Client,
+    session: SessionId,
+    turn: TurnId,
+    budget: Duration,
+) -> Page {
+    tokio::time::timeout(budget, async {
         loop {
             let page = history(client, session).await;
             if page.runs.iter().any(|run| {

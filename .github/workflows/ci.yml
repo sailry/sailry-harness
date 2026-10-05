@@ -68,16 +68,17 @@ jobs:
           pnpm build:edgeone
 
   rust:
-    name: Desktop (${{ matrix.target }})
+    name: Rust ${{ matrix.kind }} (${{ matrix.platform.target }})
     strategy:
       fail-fast: false
       matrix:
-        include:
+        kind: [backend, desktop, lint]
+        platform:
           - runner: macos-15
             target: aarch64-apple-darwin
           - runner: macos-15-intel
             target: x86_64-apple-darwin
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 120
     env:
       CARGO_BUILD_JOBS: '2'
@@ -95,7 +96,7 @@ jobs:
           use-cache: false
       - name: Pinned Rust toolchain
         env:
-          DESKTOP_TARGET: ${{ matrix.target }}
+          DESKTOP_TARGET: ${{ matrix.platform.target }}
         run: |
           rustup show active-toolchain
           test "$(rustc -vV | awk '/^host: / {print $2}')" = "$DESKTOP_TARGET"
@@ -109,37 +110,45 @@ jobs:
           version: v0.18.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: ${{ matrix.target }}
+          # Backend and Desktop reuse libraries; lint metadata has its own cache.
+          key: ${{ matrix.platform.target }}${{ matrix.kind == 'lint' && '-lint' || '' }}
           cache-on-failure: true
           cache-workspace-crates: true
           cache-bin: false
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST DEVELOPER_DIR SDKROOT MACOSX_DEPLOYMENT_TARGET
       - name: Formatting
+        if: matrix.kind == 'lint'
         run: cargo fmt --all -- --check
       - name: Strict lint
+        if: matrix.kind == 'lint'
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Backend test compilation
+        if: matrix.kind == 'backend'
         run: cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --no-run --timings
       - name: Backend unit and local/remote integration
+        if: matrix.kind == 'backend'
         run: cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --no-fail-fast -- --test-threads=4
       - name: Isolated database engines
-        if: matrix.target == 'aarch64-apple-darwin'
+        if: matrix.kind == 'backend' && matrix.platform.target == 'aarch64-apple-darwin'
         run: |
           brew install postgresql@17 mysql@8.4
           export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
           cargo test --locked -p sailry-node-runtime --test databases -- --ignored --test-threads=1
       - name: Desktop test compilation
+        if: matrix.kind == 'desktop'
         run: cargo test --locked -p sailry-desktop --no-run --timings
       - name: Desktop behavior and Kit interactions
+        if: matrix.kind == 'desktop'
         # Desktop fixtures share process-global locale and native UI state.
         run: cargo test --locked -p sailry-desktop -- --test-threads=1
       - name: Desktop and Host binaries
+        if: matrix.kind == 'desktop'
         run: cargo build --locked -p sailry-desktop -p sailry-host
       - name: Compilation timings
-        if: always()
+        if: always() && matrix.kind != 'lint'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: cargo-timings-${{ matrix.target }}
+          name: cargo-timings-${{ matrix.kind }}-${{ matrix.platform.target }}
           path: target/cargo-timings
           if-no-files-found: ignore
           retention-days: 7

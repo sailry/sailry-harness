@@ -231,7 +231,16 @@ async fn submit(client: &Client, session: &Session) -> (Request, QueuedTurn) {
 }
 
 async fn finished(client: &Client, turn: &QueuedTurn, status: Status) -> Page {
-    tokio::time::timeout(Duration::from_secs(10), async {
+    finished_within(client, turn, status, Duration::from_secs(10)).await
+}
+
+async fn finished_within(
+    client: &Client,
+    turn: &QueuedTurn,
+    status: Status,
+    budget: Duration,
+) -> Page {
+    tokio::time::timeout(budget, async {
         loop {
             let Output::Conversation(history) = client
                 .execute(client.prepare(Command::ReadConversation {

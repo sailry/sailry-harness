@@ -17,16 +17,25 @@ async fn request(stream: &mut TcpStream) -> String {
     }
 }
 
-async fn source(endpoint: &str, messages: String) -> (String, tokio::task::JoinHandle<()>) {
+async fn source(
+    endpoint: &str,
+    messages: String,
+) -> (
+    String,
+    tokio::task::JoinHandle<()>,
+    tokio::sync::oneshot::Receiver<()>,
+) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}/sse", listener.local_addr().unwrap());
     let endpoint = endpoint.replace("{authority}", &listener.local_addr().unwrap().to_string());
+    let (sent, delivered) = tokio::sync::oneshot::channel();
     let peer = tokio::spawn(async move {
         let (mut events, _) = listener.accept().await.unwrap();
         let get = request(&mut events).await;
         assert!(get.starts_with("GET /sse "));
         assert!(get.contains("authorization: Bearer fixture\r\n"));
         events.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\nevent: endpoint\ndata: {endpoint}\n\n{messages}").as_bytes()).await.ok();
+        sent.send(()).ok();
         // Keep the GET alive while receiving the independent client POST.
         let (mut post, _) = listener.accept().await.unwrap();
         let head = request(&mut post).await;
@@ -49,7 +58,7 @@ async fn source(endpoint: &str, messages: String) -> (String, tokio::task::JoinH
         let mut byte = [0];
         assert_eq!(events.read(&mut byte).await.unwrap(), 0);
     });
-    (url, peer)
+    (url, peer, delivered)
 }
 
 async fn connect(url: &str) -> io::Result<Connection> {
@@ -70,7 +79,7 @@ async fn connect(url: &str) -> io::Result<Connection> {
 
 #[tokio::test]
 async fn uses_advertised_path_with_headers() {
-    let (url, peer) = source(
+    let (url, peer, _) = source(
         "/messages?session=fixture",
         "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{}}\n\n".into(),
     )
@@ -97,7 +106,7 @@ async fn rejects_untrusted_endpoints() {
         "http://user:password@{authority}/messages",
         "/messages#fragment",
     ] {
-        let (url, peer) = source(endpoint, String::new()).await;
+        let (url, peer, _) = source(endpoint, String::new()).await;
         assert!(
             connect(&url).await.is_err(),
             "endpoint must be rejected: {endpoint}"
@@ -114,14 +123,25 @@ async fn closes_invalid_streams() {
         format!("event: message\ndata: {}", "x".repeat(limits::MAX_MESSAGE)),
         "event: endpoint\ndata: /replacement\n\n".to_owned(),
     ] {
-        let (url, peer) = source("/messages?session=fixture", message).await;
+        let (url, peer, delivered) = source("/messages?session=fixture", message).await;
         let mut connection = connect(&url).await.unwrap();
-        assert!(
-            tokio::time::timeout(Duration::from_secs(2), connection.receive())
-                .await
-                .unwrap()
-                .is_none()
-        );
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let receive = connection.receive();
+            tokio::pin!(receive);
+            // Poll the reader during the 8 MiB transfer; time closure after delivery.
+            let message = tokio::select! {
+                message = &mut receive => message,
+                sent = delivered => {
+                    sent.unwrap();
+                    tokio::time::timeout(Duration::from_secs(2), &mut receive)
+                        .await
+                        .expect("invalid stream closure deadline")
+                }
+            };
+            assert!(message.is_none());
+        })
+        .await
+        .expect("invalid stream transfer deadline");
         assert!(connection.stop.is_cancelled());
         peer.abort();
         assert!(peer.await.unwrap_err().is_cancelled());

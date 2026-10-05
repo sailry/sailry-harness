@@ -39,7 +39,13 @@ async fn bounds_transient_failure_retries() {
             let server = Server::start(api, Reply::Failure).await;
             let fixture = Fixture::new(remote, api, &server.endpoint).await;
             let turn = fixture.submit("Failure fixture").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            let page = finished_within(
+                &fixture.client,
+                fixture.session.id,
+                turn,
+                retry_fixture::budget(),
+            )
+            .await;
             assert_eq!(
                 page.runs.last().unwrap().status,
                 Status::Failed,

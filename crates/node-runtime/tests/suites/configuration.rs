@@ -1,5 +1,7 @@
 #[path = "../discovery_support/mod.rs"]
 mod discovery_support;
+#[path = "../support/retry.rs"]
+mod retry_fixture;
 
 #[path = "../catalog.rs"]
 mod catalog;

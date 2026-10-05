@@ -124,6 +124,9 @@ Checks omit debug information and preserve the workspace's optimization settings
 including the GPUI hot-path overrides. Development and release profiles are unchanged.
 Compilation and execution are separate steps; compilation timings are uploaded
 for both Desktop architectures. Desktop tests remain serial for native UI state.
+Lint, backend and Desktop checks run in parallel on each architecture rather than
+adding their cold compilation times together. Backend and Desktop share their
+library cache; lint uses a separate metadata cache.
 
 CI does not supply model credentials, production profiles or OS permissions.
 Live-service and device tests stay opt-in. The ordinary Flutter suite skips its
