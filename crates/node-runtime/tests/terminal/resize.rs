@@ -74,11 +74,20 @@ RPROMPT=''
                 .unwrap();
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
-        // A subscription opened after the last shell redraw observes the canonical screen.
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        // Resize admission precedes the shell's asynchronous prompt redraw.
         let mut stream = client.subscribe_terminal(info.id).await.unwrap();
         let mut projection = Projection::new(node.id(), info.id, 1);
-        projection.apply(1, stream.next().await.unwrap()).unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                projection.apply(1, stream.next().await.unwrap()).unwrap();
+                let text = content(&projection.snapshot().unwrap().screen);
+                if text.ends_with("resize-fixture project > ") {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("resized prompt deadline");
         let screen = &projection.snapshot().unwrap().screen;
         let text = content(screen);
         assert!(text.ends_with("resize-fixture project > "), "{text:?}");
