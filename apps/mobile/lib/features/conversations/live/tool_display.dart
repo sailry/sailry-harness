@@ -39,9 +39,17 @@ String capturedLabel(BuildContext context, Object? value) {
   final label = object(value);
   final locale = Localizations.localeOf(context);
   final locales = object(label['locales']);
+  final traditional =
+      locale.scriptCode == 'Hant' ||
+      (locale.scriptCode != 'Hans' &&
+          const ['TW', 'HK', 'MO'].contains(locale.countryCode));
+  final alias = locale.languageCode == 'zh'
+      ? (traditional ? 'zh-TW' : 'zh-CN')
+      : locale.languageCode;
   return text(
     locales[locale.toLanguageTag()] ??
-        locales[locale.languageCode == 'zh' ? 'zh-CN' : locale.languageCode],
+        locales[alias] ??
+        locales[locale.languageCode],
     text(label['label']),
   );
 }

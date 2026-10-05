@@ -1,5 +1,13 @@
 settings_language: Language
 settings_language_system: Follow system
 settings_language_english: English
-settings_language_chinese: Simplified Chinese
+settings_language_chinese: 简体中文
 settings_language_restart: Restart to apply language
+settings_language_traditional_chinese: 繁體中文
+settings_language_japanese: 日本語
+settings_language_korean: 한국어
+settings_language_french: Français
+settings_language_german: Deutsch
+settings_language_spanish: Español
+settings_language_portuguese_brazil: Português (Brasil)
+settings_language_russian: Русский

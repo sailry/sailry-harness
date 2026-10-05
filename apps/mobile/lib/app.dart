@@ -156,6 +156,7 @@ class _SailryAppState extends State<SailryApp> {
       darkTheme: SailryTheme.of(Brightness.dark),
       themeMode: _mode,
       locale: _language.locale,
+      localeListResolutionCallback: AppLanguage.resolve,
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       builder: (context, child) {

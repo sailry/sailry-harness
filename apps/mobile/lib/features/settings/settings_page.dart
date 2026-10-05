@@ -117,22 +117,34 @@ class _SettingsPageState extends State<SettingsPage> {
     final color = onTap == null
         ? Theme.of(context).disabledColor
         : colors.onSurfaceVariant;
-    return ListTile(
-      enabled: onTap != null,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-      leading: AppIcon(icon, color: color),
-      title: Text(context.tr(label)),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (value != null) ...[
-            Text(value, style: TextStyle(color: color)),
-            const SizedBox(width: 8),
-          ],
-          if (onTap != null) AppIcon('chevron', size: 14, color: color),
-        ],
+    return LayoutBuilder(
+      builder: (context, constraints) => ListTile(
+        enabled: onTap != null,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+        leading: AppIcon(icon, color: color),
+        title: Text(context.tr(label)),
+        trailing: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: constraints.maxWidth / 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (value != null) ...[
+                Flexible(
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: color),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              if (onTap != null) AppIcon('chevron', size: 14, color: color),
+            ],
+          ),
+        ),
+        onTap: onTap,
       ),
-      onTap: onTap,
     );
   }
 

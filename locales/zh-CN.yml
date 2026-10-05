@@ -86,6 +86,7 @@ ssh_cancelled: 已取消
 ssh_busy: 正在处理其他连接，请稍后重试
 ssh_failed: 操作失败
 ssh_running: 正在处理
+ssh_details: 详情
 ssh_stopping: 正在停止
 ssh_stop: 停止
 ssh_transfer: 传输文件
@@ -762,11 +763,12 @@ media_video_generation_description: 为视频生成选择模型
 settings_edit: 编辑
 settings_delete: 删除
 settings_cancel: 取消
+settings_retry: 重试
 settings_clear: 清除
 settings_save_preview: 保存示例
 settings_remove_preview: 确认删除此示例
 provider_openai: OpenAI
-provider_other: Other
+provider_other: 其他
 provider_anthropic: Anthropic
 provider_gemini: Gemini
 provider_azure: Azure
@@ -813,13 +815,13 @@ provider_baidu: Baidu
 provider_group_other: 其他
 provider_cohere: Cohere
 preset_openai: OpenAI
-preset_compatible: OpenAI Compatible
+preset_compatible: OpenAI 兼容
 preset_chatgpt: ChatGPT OAuth
 preset_copilot: GitHub Copilot OAuth
 preset_anthropic: Anthropic
-preset_anthropic_compatible: Anthropic Compatible
+preset_anthropic_compatible: Anthropic 兼容
 preset_gemini: Gemini
-preset_gemini_compatible: Gemini Compatible
+preset_gemini_compatible: Gemini 兼容
 provider_catalog: 模型数据
 provider_catalog_status: 模型元数据
 provider_catalog_last_update: 上次更新
@@ -876,7 +878,7 @@ provider_endpoint: 接口地址
 provider_endpoint_hint: https://api.example.com/v1
 provider_endpoint_anthropic_hint: https://api.example.com
 provider_endpoint_gemini_hint: https://api.example.com/v1beta
-provider_api_key: API Key
+provider_api_key: API 密钥
 provider_editor_preview: 仅编辑当前窗口的示例。密钥不保存，模型发现与验证不发起网络请求。
 provider_save: 保存
 chat_action_unknown: 结果未确认，可重试原请求
@@ -893,7 +895,7 @@ chat_select_project: 选择项目
 chat_session: "会话 %{id}"
 chat_stop: 停止
 chat_enqueue: 加入队列
-chat_effort_max: max
+chat_effort_max: 最高
 chat_running: 正在处理
 chat_stopping: 正在停止
 chat_interrupted: 已中断
@@ -1179,15 +1181,15 @@ composer_effort: 推理强度
 composer_model_settings: 模型与强度
 composer_effort_reset: 恢复默认强度
 composer_effort_unavailable: 默认
-composer_effort_default: default
-composer_effort_dynamic: dynamic
+composer_effort_default: 默认
+composer_effort_dynamic: 动态
 composer_effort_budget: "%{tokens} Token"
-composer_effort_none: none
-composer_effort_minimal: minimal
-composer_effort_low: low
-composer_effort_medium: medium
-composer_effort_high: high
-composer_effort_xhigh: xhigh
+composer_effort_none: 无
+composer_effort_minimal: 极低
+composer_effort_low: 低
+composer_effort_medium: 中
+composer_effort_high: 高
+composer_effort_xhigh: 极高
 composer_compression_hint: 上下文压缩进度：暂无运行数据（UI 预览）
 composer_context_usage: "%{used} / %{limit}"
 composer_context_thousand: "%{value}K"
@@ -2253,7 +2255,7 @@ db_table_clear_confirm: 清空 %{table} 的全部数据？表结构会保留
 db_table_drop_confirm: 删除 %{table} 及其全部数据？此操作不可撤销
 db_ready: 就绪
 db_transport_tcp: TCP/IP
-db_transport_socket: Socket
+db_transport_socket: 套接字
 db_transport_ssh: SSH
 db_socket: Socket 路径
 db_socket_directory: Socket 目录
