@@ -51,9 +51,9 @@ function requests(view,data) {
   const {state,text}=view,rows=requestRows(data.requests.items,text);
   const fields=['model_provider','project_time','input_output','cached_reasoning','first_token_duration','cost'];
   const rowHeight=48;
-  return column().child(div().id('usage-table').w_full().min_w_0().h(rowHeight+(rows.rows.length?rows.rows.length*rowHeight:96))
+  return column().child(div().id('usage-table').w_full().min_w_0().h(rowHeight+(rows.rows.length?rows.rows.length*rowHeight:192))
       .child(DataTable.new('usage-requests',{revision:`${state.generation}:${state.cursor}`,columns:fields.map(key=>text[`usage_column_${key}`]),
-        ...rows,row_height:rowHeight,stripe:true,widths:[160,160,105,110,110,80],alignments:fields.map((_,index)=>index<2?'start':'end'),resizable:false,empty:text.usage_empty})))
+        ...rows,row_height:rowHeight,stripe:true,widths:[160,160,105,110,110,80],alignments:fields.map((_,index)=>index<2?'start':'end'),resizable:false,empty:text.usage_empty,empty_icon:'chart-pie'})))
     .children(state.page>1||data.requests.has_more?[div().id('usage-pagination').h_flex().justify_end()
       .child(new Pagination('usage-pages').size('small').current_page(state.page).total_pages(Math.max(state.cursors.length,state.page+Number(data.requests.has_more)))
         .disabled(!state.ready()).on_change((page,cx)=>view.page(page,cx)))]:[]);

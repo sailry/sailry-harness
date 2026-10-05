@@ -175,5 +175,10 @@ test('request content starts with the native six-column two-line table',async()=
   requests({state,text:messages('en')},{requests:{items:Array.from({length:20},(_,index)=>({...request,position:{...request.position,sequence:String(index)}})),has_more:false}});
   assert.equal(nodes.get('usage-table').height,48*21);
   requests({state,text:messages('en')},{requests:{items:[],has_more:false}});
-  assert.equal(nodes.get('usage-table').height,144);
+  assert.equal(nodes.get('usage-table').height,240);
+  const emptyTable=nodes.get('usage-requests');
+  assert.equal(emptyTable.props.empty,messages('en').usage_empty);
+  assert.equal(emptyTable.props.empty_icon,'chart-pie');
+  assert.deepEqual(plain(emptyTable.props.rows),[]);
+  assert.deepEqual(plain(emptyTable.props.columns),plain(table.props.columns));
 });

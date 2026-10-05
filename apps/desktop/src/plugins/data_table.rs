@@ -37,6 +37,8 @@ struct Props {
     #[serde(default)]
     empty: String,
     #[serde(default)]
+    empty_icon: Option<String>,
+    #[serde(default)]
     widths: Vec<f32>,
     #[serde(default)]
     alignments: Vec<Alignment>,
@@ -297,6 +299,21 @@ impl TableDelegate for Rows {
         _: &mut Window,
         cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
+        if let Some(icon) = &self.props.empty_icon {
+            let icon = Icon::empty().path(if icon.contains('/') {
+                icon.clone()
+            } else {
+                format!("icons/{icon}.svg")
+            });
+            return crate::empty_state::list_content(
+                icon,
+                self.props.empty.clone().into(),
+                format!("{}-empty", self.id).into(),
+                cx,
+            )
+            .h_full()
+            .min_h_0();
+        }
         div()
             .p_4()
             .text_sm()

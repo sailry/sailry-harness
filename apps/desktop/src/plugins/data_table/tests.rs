@@ -117,6 +117,7 @@ fn stripes_and_headers_are_opt_in() {
     assert!(!props.stripe);
     assert!(!props.empty_stripes);
     assert!(props.header);
+    assert!(props.empty_icon.is_none());
 }
 
 #[gpui::test]

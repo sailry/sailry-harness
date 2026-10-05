@@ -78,9 +78,6 @@ fn observes_each_host_and_keeps_filters_in_the_header(cx: &mut TestAppContext) {
     let server = fixture
         .runtime
         .block_on(crate::agent_fixture::Server::tools(vec![]));
-    for index in 0..2 {
-        populate(&fixture, index, &server.endpoint);
-    }
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::theme::init(cx);
@@ -157,6 +154,47 @@ fn observes_each_host_and_keeps_filters_in_the_header(cx: &mut TestAppContext) {
         let panel = owner.read_with(visual, |owner, _| {
             owner.extensions.as_ref().unwrap().panel.clone().unwrap()
         });
+        shown(visual, "empty-usage-requests-empty", true);
+        shown(visual, "empty-usage-ranking-empty", true);
+        let table = visual.debug_bounds("usage-requests").unwrap();
+        let header = visual.debug_bounds("usage-requests-header").unwrap();
+        let empty = visual.debug_bounds("empty-usage-requests-empty").unwrap();
+        assert_eq!(header.size.height, px(48.));
+        assert_eq!(empty.top(), header.bottom());
+        assert_eq!(empty.bottom(), table.bottom());
+        for column in 0..6 {
+            shown(
+                visual,
+                Box::leak(format!("usage-requests-header-{column}").into_boxed_str()),
+                true,
+            );
+        }
+        let ranking_icon = visual
+            .debug_bounds("empty-icon-usage-ranking-empty")
+            .unwrap();
+        let ranking_title = visual
+            .debug_bounds("empty-title-usage-ranking-empty")
+            .unwrap();
+        let icon = visual
+            .debug_bounds("empty-icon-usage-requests-empty")
+            .unwrap();
+        let title = visual
+            .debug_bounds("empty-title-usage-requests-empty")
+            .unwrap();
+        assert_eq!(icon.size, ranking_icon.size);
+        assert_eq!(title.size, ranking_title.size);
+        assert!(icon.top() >= empty.top() && title.bottom() <= empty.bottom());
+        assert_eq!(title.top() - icon.bottom(), px(12.));
+        assert!((icon.center().x - title.center().x).abs() < px(1.));
+        assert!((icon.center().x - empty.center().x).abs() < px(1.));
+        assert!(((icon.top() + title.bottom()) / 2. - empty.center().y).abs() < px(1.));
+        shown(visual, "usage-requests-row-0", false);
+        populate(&fixture, index, &server.endpoint);
+        wait(visual, |cx| {
+            crate::plugins::diagnostics(&panel, cx).contains("12 · 4")
+        });
+        shown(visual, "empty-usage-requests-empty", false);
+        shown(visual, "empty-usage-ranking-empty", false);
         shown(visual, "usage-requests-cell-0-2-secondary", true);
         assert_eq!(
             visual
