@@ -1,3 +1,6 @@
+#[path = "../discovery_support/mod.rs"]
+mod discovery_support;
+
 #[path = "../catalog.rs"]
 mod catalog;
 #[path = "../credentials.rs"]

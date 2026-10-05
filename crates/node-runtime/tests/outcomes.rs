@@ -1,10 +1,7 @@
+use crate::file_fixture::Fixture;
 use sailry_client::Client;
 use sailry_node_runtime::Node;
 use sailry_protocol::*;
-
-#[path = "support/files.rs"]
-mod support;
-use support::Fixture;
 
 fn counts(db: &rusqlite::Connection) -> (i64, i64) {
     db.query_row(

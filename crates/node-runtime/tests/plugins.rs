@@ -46,7 +46,7 @@ mod standalone_mcp;
 #[path = "plugins/storage.rs"]
 mod storage;
 #[path = "plugins/support.rs"]
-mod support;
+pub(super) mod support;
 #[path = "plugins/transactions.rs"]
 mod transactions;
 #[path = "plugins/updates.rs"]

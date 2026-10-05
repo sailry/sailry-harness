@@ -1,15 +1,10 @@
+use crate::file_fixture as files;
 use sailry_client::Client;
 use sailry_link::CancellationToken;
 use sailry_node_runtime::Node;
 use sailry_protocol::{attachment::*, *};
 use std::time::Duration;
 
-#[allow(dead_code)]
-#[path = "agent_support/mod.rs"]
-pub(crate) mod agent_support;
-
-#[path = "support/files.rs"]
-mod files;
 use files::Fixture;
 
 #[path = "attachments/conversation.rs"]

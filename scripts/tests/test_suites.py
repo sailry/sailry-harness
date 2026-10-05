@@ -26,8 +26,11 @@ class Registration(unittest.TestCase):
             else:
                 for source in re.findall(r'#\[path = "([^"]+)"\]', path.read_text()):
                     feature = (path.parent / source).resolve()
-                    self.assertIn(feature, features)
-                    registered.append(feature)
+                    self.assertTrue(feature.is_file(), feature)
+                    self.assertTrue(feature.is_relative_to(ROOT / "tests"), feature)
+                    if feature.parent == ROOT / "tests":
+                        self.assertIn(feature, features)
+                        registered.append(feature)
         self.assertEqual(set(registered), features)
         self.assertTrue(all(count == 1 for count in Counter(registered).values()))
 

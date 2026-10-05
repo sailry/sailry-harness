@@ -1,15 +1,9 @@
+use crate::agent_support;
 use sailry_client::Client;
 use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
 use sailry_protocol::*;
 use std::time::Duration;
-
-#[expect(
-    dead_code,
-    reason = "The shared model fixture includes response modes used by other integration test binaries"
-)]
-#[path = "agent_support/mod.rs"]
-mod agent_support;
 
 fn create() -> Command {
     Command::CreateSession {

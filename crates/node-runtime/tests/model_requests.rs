@@ -1,4 +1,5 @@
 //! Direct ADK transport checks against isolated HTTP servers, without account access.
+use crate::discovery_support::{Reply, Server};
 use adk_core::{Content, Llm, LlmRequest};
 use adk_model::{
     openai::{OpenAIReasoningEffort, OpenAIResponsesClient, OpenAIResponsesConfig},
@@ -8,10 +9,6 @@ use futures::StreamExt;
 use sailry_protocol::conversation::ModelApi;
 use std::time::Duration;
 
-#[allow(dead_code)]
-#[path = "discovery_support/mod.rs"]
-mod discovery_support;
-use discovery_support::{Reply, Server};
 #[path = "model_requests/runtime.rs"]
 mod runtime;
 

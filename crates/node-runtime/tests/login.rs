@@ -1,4 +1,5 @@
 #![cfg(feature = "test-support")]
+use crate::discovery_support::{self, Reply, Server};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use sailry_client::Client;
 use sailry_link::{Link, NetworkScope, Subscription};
@@ -13,10 +14,6 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-#[allow(dead_code)]
-#[path = "discovery_support/mod.rs"]
-mod discovery_support;
-use discovery_support::{Reply, Server};
 #[path = "login/catalog.rs"]
 mod catalog;
 #[path = "login/execution.rs"]

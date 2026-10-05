@@ -1,5 +1,6 @@
 #![cfg(feature = "test-support")]
 
+use crate::discovery_support::{Reply, Server};
 use sailry_client::{Client, Projection};
 use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
@@ -16,10 +17,6 @@ use std::{
     time::Duration,
 };
 
-#[allow(dead_code)]
-#[path = "discovery_support/mod.rs"]
-mod discovery_support;
-use discovery_support::{Reply, Server};
 #[path = "catalog/completion.rs"]
 mod completion;
 #[path = "catalog/lifecycle.rs"]

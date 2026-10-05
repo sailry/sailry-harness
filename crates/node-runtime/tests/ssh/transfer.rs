@@ -1,9 +1,6 @@
 use super::*;
+use crate::file_fixture as files;
 use sailry_protocol::ssh::{Direction, Transfer};
-
-#[path = "../support/files.rs"]
-#[allow(dead_code)]
-mod files;
 
 #[tokio::test]
 async fn copies_confirmed_files() {

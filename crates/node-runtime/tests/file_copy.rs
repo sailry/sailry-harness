@@ -1,3 +1,4 @@
+use crate::file_fixture::{Fixture, register};
 use sailry_client::Client;
 use sailry_node_runtime::Node;
 use sailry_protocol::*;
@@ -5,10 +6,6 @@ use std::{path::PathBuf, time::Duration};
 
 #[path = "file_copy/between.rs"]
 mod between;
-
-#[path = "support/files.rs"]
-mod fixture;
-use fixture::{Fixture, register};
 
 fn copy(worktree: WorktreeId, from: &str, to: &str) -> Command {
     Command::CopyEntry {

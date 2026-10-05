@@ -169,7 +169,14 @@ fn controls_remote_node() {
         };
         command.arg(format!(
             "--dart-define=SAILRY_BRIDGE_LIBRARY={}",
-            root.join("target/debug").join(name).display()
+            std::env::current_exe()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join(name)
+                .display()
         ));
     }
     command

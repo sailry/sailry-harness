@@ -1,3 +1,10 @@
+#[expect(
+    dead_code,
+    reason = "Connection fixtures exercise separate Node and controller shutdown paths"
+)]
+#[path = "../support/files.rs"]
+mod file_fixture;
+
 #[path = "../pairing.rs"]
 mod pairing;
 #[path = "../ports.rs"]

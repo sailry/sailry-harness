@@ -1,3 +1,6 @@
+#[path = "../support/files.rs"]
+mod file_fixture;
+
 #[path = "../directory_pages.rs"]
 mod directory_pages;
 #[path = "../file_browser.rs"]

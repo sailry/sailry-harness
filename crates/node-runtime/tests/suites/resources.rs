@@ -1,4 +1,8 @@
-use attachments::agent_support;
+#[allow(dead_code)]
+#[path = "../agent_support/mod.rs"]
+mod agent_support;
+#[path = "../support/files.rs"]
+mod file_fixture;
 
 #[path = "../attachments.rs"]
 mod attachments;

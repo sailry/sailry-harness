@@ -1,11 +1,8 @@
+use crate::file_fixture::{Fixture, register};
 use sailry_client::Client;
 use sailry_node_runtime::Node;
 use sailry_protocol::*;
 use std::{path::PathBuf, time::Duration};
-
-#[path = "support/files.rs"]
-mod fixture;
-use fixture::{Fixture, register};
 
 #[path = "file_move/protection.rs"]
 mod protection;

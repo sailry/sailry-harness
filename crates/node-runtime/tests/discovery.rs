@@ -1,3 +1,4 @@
+use crate::discovery_support::{Reply, Server};
 use sailry_client::Client;
 use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
@@ -8,9 +9,6 @@ use sailry_protocol::{
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
 
-#[path = "discovery_support/mod.rs"]
-mod discovery_support;
-use discovery_support::{Reply, Server};
 #[path = "discovery/anthropic.rs"]
 mod anthropic;
 #[path = "discovery/endpoints.rs"]

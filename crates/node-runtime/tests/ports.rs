@@ -1,11 +1,9 @@
+use crate::file_fixture as files;
 use sailry_client::ports::State;
 use sailry_protocol::{Command, ErrorCode, Output};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-#[path = "support/files.rs"]
-#[allow(dead_code)]
-mod files;
 #[path = "ports/server.rs"]
 mod server;
 

@@ -120,8 +120,8 @@ Rust caches retain dependency and workspace library artifacts, including after
 failed tests. Cargo still validates fingerprints and recompiles changed inputs.
 The pinned sccache compiler cache reuses Rust library compilation by content;
 test executables still need linking. Cache statistics are recorded in each run.
-Checks disable general optimization and debug information; the GPUI hot-path
-overrides stay in place. This does not change development or release profiles.
+Checks omit debug information and preserve the workspace's optimization settings,
+including the GPUI hot-path overrides. Development and release profiles are unchanged.
 Compilation and execution are separate steps; compilation timings are uploaded
 for both Desktop architectures. Desktop tests remain serial for native UI state.
 
