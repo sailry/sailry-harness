@@ -11,10 +11,17 @@ void main(List<String> args) async {
         ![OS.iOS, OS.android].contains(input.config.code.targetOS)) {
       return;
     }
-    await const FlutterRustBridgeNativeAssetsBuilder(
+    await FlutterRustBridgeNativeAssetsBuilder(
       cratePath: '..',
       assetName: 'frb_generated.io.dart',
       extraCargoBuildArgs: ['--locked'],
+      // Hooks run outside Xcode's environment. Keep Rust and C dependencies
+      // on Flutter's deployment target rather than their different defaults.
+      extraCargoEnvironmentVariables: {
+        if (input.config.code.targetOS == OS.iOS)
+          'IPHONEOS_DEPLOYMENT_TARGET': input.config.code.iOS.targetVersion
+              .toString(),
+      },
     ).run(input: input, output: output);
     await speech.bundle(input, output);
   });
