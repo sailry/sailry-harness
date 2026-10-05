@@ -218,6 +218,24 @@ jobs:
           save-if: false
           cache-bin: false
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST DEVELOPER_DIR SDKROOT MACOSX_DEPLOYMENT_TARGET
+      - name: Speech native libraries
+        id: speech-cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: target/sherpa-onnx-prebuilt
+          key: speech-aarch64-apple-darwin-${{ hashFiles('Cargo.lock') }}
+      - name: Prepare uncached speech libraries
+        if: steps.speech-cache.outputs.cache-hit != 'true'
+        # The shared Rust cache includes build scripts, not their downloaded libraries.
+        run: |
+          cargo clean --locked -p sherpa-onnx-sys
+          cargo build --locked -p sailry-speech --jobs 1 -vv
+      - name: Save speech native libraries
+        if: steps.speech-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: target/sherpa-onnx-prebuilt
+          key: ${{ steps.speech-cache.outputs.cache-primary-key }}
       - name: Flutter analysis and widget tests
         working-directory: apps/mobile
         run: |
