@@ -14,6 +14,7 @@ import 'package:sailry_mobile/app.dart';
 import 'package:sailry_mobile/features/conversations/live/page.dart';
 import 'package:sailry_mobile/features/conversations/live/tool_heading.dart';
 import 'package:sailry_mobile/features/conversations/live/disclosure.dart';
+import 'package:sailry_mobile/features/conversations/live/turn_frame.dart';
 import 'package:sailry_mobile/features/resources/projects_page.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/json.dart';
@@ -147,6 +148,14 @@ void main({bool host = false}) {
         tester,
         () =>
             find.text('answer-flutter-fixture').evaluate().isNotEmpty &&
+            find
+                .byWidgetPredicate(
+                  (widget) =>
+                      widget is TurnFrame &&
+                      widget.run['status'] == 'completed',
+                )
+                .evaluate()
+                .isNotEmpty &&
             object(
                   object(
                     objects(node.snapshot['sessions']).firstOrNull?['activity'],
@@ -156,6 +165,9 @@ void main({bool host = false}) {
       );
       expect(objects(node.snapshot['sessions']), hasLength(1));
       expect(find.text(_prompt), findsWidgets);
+      // The transcript projection can finish after the session snapshot. Let
+      // its automatic collapse settle before opening the tool details.
+      await tester.pumpAndSettle();
       if (find.byType(ToolHeading).evaluate().isEmpty) {
         await tester.tap(
           find.byWidgetPredicate(

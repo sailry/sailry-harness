@@ -13,10 +13,4 @@ fn main() {
         .manifest_required()
         .expect("failed to embed the Sailry application icon");
     }
-    if target_os == "macos" && std::env::var("PROFILE").as_deref() == Ok("debug") {
-        // Apple ld recommends this for large debug binaries. DWARF unwinding
-        // remains available beyond the compact table's 24-bit offset limit.
-        // Keep the size warning enabled for release builds.
-        println!("cargo:rustc-link-arg=-Wl,-no_warn_eh_frame_too_large");
-    }
 }

@@ -159,6 +159,7 @@ void main() {
       String? toolState,
       bool answer = false,
       bool connected = true,
+      bool settle = true,
     }) async {
       final projection = fixture.view(
         status: status,
@@ -198,7 +199,7 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      if (settle) await tester.pumpAndSettle();
     }
 
     await render('running');
@@ -211,7 +212,15 @@ void main() {
     await render('running', toolState: 'returned');
     expect(find.textContaining('source.txt'), findsOneWidget);
     expect(find.text('Tool output'), findsNothing);
-    await render('completed', toolState: 'returned', answer: true);
+    tester.binding.platformDispatcher.clearAccessibilityFeaturesTestValue();
+    await render(
+      'completed',
+      toolState: 'returned',
+      answer: true,
+      settle: false,
+    );
+    expect(find.textContaining(tr('tool_read_file')), findsOneWidget);
+    await tester.pumpAndSettle();
     expect(find.textContaining(tr('tool_read_file')), findsNothing);
     expect(find.text('First final paragraph'), findsOneWidget);
     expect(find.text('Second final paragraph'), findsOneWidget);

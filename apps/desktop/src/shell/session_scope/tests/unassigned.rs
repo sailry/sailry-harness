@@ -305,6 +305,7 @@ fn navigation_and_resources(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn overflowing_sessions_scroll_without_moving_peer_groups(cx: &mut TestAppContext) {
+    cx.update(|cx| crate::preferences::update(cx, |data| data.sidebar_metrics = true));
     let fixture = Fixture::new();
     let (shell, visual) = mount(cx, &fixture);
     let handle = visual.update(|window, _| window.window_handle());

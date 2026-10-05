@@ -46,6 +46,7 @@ mod tests {
 
     #[test]
     fn keeps_original_names() {
+        rust_i18n::set_locale("en");
         for value in [
             "default", "none", "minimal", "low", "medium", "high", "xhigh", "max",
         ] {
@@ -53,6 +54,6 @@ mod tests {
             assert_eq!(label(effort).as_ref(), value);
         }
         assert_eq!(label(Effort::Budget(-1)).as_ref(), "dynamic");
-        assert_eq!(label(Effort::Budget(1024)).as_ref(), "1024 Token");
+        assert_eq!(label(Effort::Budget(1024)).as_ref(), "1024 tokens");
     }
 }

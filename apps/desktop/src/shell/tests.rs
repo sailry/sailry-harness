@@ -214,6 +214,7 @@ mod sidebar {
 
     #[gpui::test]
     fn layout(cx: &mut TestAppContext) {
+        cx.update(|cx| crate::preferences::update(cx, |data| data.sidebar_metrics = true));
         let (_, mut cx) = setup(cx);
         for (width, height) in [(1280., 820.), (760., 560.)] {
             let handle = cx.update(|window, _| window.window_handle());
@@ -239,14 +240,15 @@ mod sidebar {
             assert!(first_action.top() <= px(HEADER_HEIGHT + 17.));
             assert!(search.right() < first_action.left());
             assert!(footer.origin.y > px(height - 100.));
-            assert!(px(height) - footer.origin.y <= px(48.));
-            assert!(footer.bottom() <= px(height));
+            assert_eq!(footer.bottom(), px(height));
             assert!(settings.origin.x < px(NAV_WIDTH / 2.));
             assert!(cpu.origin.x > settings.right());
             assert!(memory.origin.x > cpu.origin.x);
             assert!(memory.right() <= px(NAV_WIDTH + RAIL_WIDTH));
             assert!((cpu.center().y - footer.center().y).abs() < px(1.));
-            assert_eq!(cpu.size.width, px(64.));
+            assert_eq!(cpu.left(), footer.left() + px(12.));
+            assert_eq!(memory.right(), footer.right() - px(12.));
+            assert_eq!(memory.left() - cpu.right(), px(12.));
             assert!(cpu.size.height < footer.size.height);
             assert_eq!(memory.size, cpu.size);
             for selector in ["cpu-preview-value", "memory-preview-value"] {
@@ -335,6 +337,7 @@ mod sidebar {
 
     #[gpui::test]
     fn indicators_are_read_only(cx: &mut TestAppContext) {
+        cx.update(|cx| crate::preferences::update(cx, |data| data.sidebar_metrics = true));
         let (shell, mut cx) = setup(cx);
         for selector in ["cpu-preview", "memory-preview", "sidebar-footer"] {
             let bounds = cx.debug_bounds(selector).unwrap();

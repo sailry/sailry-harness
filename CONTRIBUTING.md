@@ -116,8 +116,8 @@ job to succeed, including both Desktop architectures.
 Node integration features share eight compiled suites instead of linking a
 binary per feature. Keep feature files focused and register new files in the
 appropriate suite; the source check rejects missing or duplicate registrations.
-Rust caches retain dependency and workspace library artifacts, including after
-failed tests. Cargo still validates fingerprints and recompiles changed inputs.
+Rust target caches retain dependencies, including after failed tests, but exclude
+workspace outputs. Cargo validates fingerprints and rebuilds changed inputs.
 The pinned sccache compiler cache reuses Rust library compilation by content;
 test executables still need linking. Cache statistics are recorded in each run.
 Checks omit debug information and preserve the workspace's optimization settings,
@@ -126,7 +126,11 @@ Compilation and execution are separate steps; compilation timings are uploaded
 for both Desktop architectures. Desktop tests remain serial for native UI state.
 Lint, backend and Desktop checks run in parallel on each architecture rather than
 adding their cold compilation times together. Backend and Desktop share their
-library cache; lint uses a separate metadata cache.
+dependency cache, with Desktop as its sole producer; Mobile reuses the ARM cache.
+Lint uses a separate metadata cache. Downloaded speech libraries are cached
+separately and saved after preparation, before subsequent checks or target cleanup.
+ARM Rust steps use one Cargo build job to fit the standard runner's memory;
+Intel uses two. This does not reduce parallel test execution.
 
 CI does not supply model credentials, production profiles or OS permissions.
 Live-service and device tests stay opt-in. The ordinary Flutter suite skips its

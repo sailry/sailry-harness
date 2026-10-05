@@ -233,7 +233,6 @@ fn input_and_remount(cx: &mut TestAppContext) {
             });
         });
         crate::feedback::tests::shown(visual);
-        crate::feedback::tests::settle(visual);
         assert_eq!(
             visual.update(crate::feedback::tests::summary),
             tr("terminal_input_unknown")
@@ -244,12 +243,18 @@ fn input_and_remount(cx: &mut TestAppContext) {
             view.read_with(visual, |view, _| content(view)),
             original_text
         );
-        let original = visual.update(|window, cx| window.notifications(cx));
+        // A successful viewport command can clear the transient error state.
+        // Observe delivery without requiring that toast to outlive its state.
+        let reported = visual.update(|window, cx| {
+            crate::feedback::tests::count(window, &tr("terminal_input_unknown"), cx)
+        });
         visual.update(|_, cx| view.update(cx, |_, cx| cx.notify()));
         visual.run_until_parked();
         assert_eq!(
-            visual.update(|window, cx| window.notifications(cx)),
-            original
+            visual.update(|window, cx| {
+                crate::feedback::tests::count(window, &tr("terminal_input_unknown"), cx)
+            }),
+            reported
         );
         visual.update(|window, cx| {
             view.update(cx, |view, cx| {

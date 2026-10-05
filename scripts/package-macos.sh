@@ -76,7 +76,8 @@ codesign --verify --strict "$task_output/host/sailry-host"
 if test "${SAILRY_NOTARIZE:-0}" = 1; then
   python3 "$task_root/scripts/package/notarize-macos.py" --app "$task_app" --host "$task_output/host"
 fi
-ditto -c -k --keepParent "$task_app" "$task_output/Sailry-$task_version-$task_target.zip"
+# Rust ZIP extraction treats AppleDouble metadata as extra, unsealed bundle files.
+ditto -c -k --norsrc --keepParent "$task_app" "$task_output/Sailry-$task_version-$task_target.zip"
 tar -czf "$task_output/sailry-host-$task_version-$task_target.tar.gz" -C "$task_output/host" .
 (cd "$task_output" && shasum -a 256 ./*.zip ./*.tar.gz > SHA256SUMS)
 printf 'Local package: %s\n' "$task_output"

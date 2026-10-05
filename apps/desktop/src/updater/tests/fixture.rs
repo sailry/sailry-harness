@@ -139,7 +139,7 @@ pub(in crate::updater) fn staged() -> Staged {
     let unsigned = directory.path().join("unsigned.zip");
     assert!(
         std::process::Command::new("/usr/bin/ditto")
-            .args(["-c", "-k", "--keepParent"])
+            .args(["-c", "-k", "--norsrc", "--keepParent"])
             .arg(&root)
             .arg(&unsigned)
             .output()

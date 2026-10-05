@@ -74,6 +74,10 @@ fn creates_moves_and_forks(cx: &mut TestAppContext) {
             view.read(cx).git
                 && !view.read(cx).rows.is_empty()
                 && view.read(cx).can_move()
+                && contributions(view.read(cx)).read(cx).ready(cx)
+                && view
+                    .read(cx)
+                    .can_invoke_contribution(sailry_protocol::plugin::ui::Intent::GitBranches, cx)
                 && view.read(cx).can_invoke_contribution(
                     sailry_protocol::plugin::ui::Intent::CreateWorktree,
                     cx,
@@ -83,13 +87,16 @@ fn creates_moves_and_forks(cx: &mut TestAppContext) {
             view.read_with(visual, |view, _| view.binding.branch.clone()),
             "main"
         );
+        until(visual, "showing Git control", |visual| {
+            visual.debug_bounds("plugin-control-git-branch").is_some()
+        });
         click(visual, "plugin-control-git-branch");
-        until(visual, |visual| {
+        until(visual, "opening Git picker", |visual| {
             visual.debug_bounds("git-picker-1").is_some()
         });
         assert!(visual.debug_bounds("composer-location-picker").is_none());
         visual.simulate_keystrokes("escape");
-        until(visual, |visual| {
+        until(visual, "closing Git picker", |visual| {
             visual.debug_bounds("git-picker-1").is_none()
         });
         assert_eq!(
@@ -107,9 +114,14 @@ fn creates_moves_and_forks(cx: &mut TestAppContext) {
         visual.simulate_keystrokes("up enter");
         create(&view, visual, "isolated", true, false);
         wait(visual, |cx| {
-            view.read(cx).binding.branch == "isolated" && view.read(cx).can_move()
+            view.read(cx).binding.branch == "isolated"
+                && view.read(cx).can_move()
+                && view.read(cx).location_state()["main"].as_bool() == Some(false)
         });
-        assert!(visual.debug_bounds("plugin-control-git-branch").is_some());
+        until(visual, "hiding Git control", |visual| {
+            visual.debug_bounds("plugin-control-git-branch").is_none()
+        });
+        assert!(visual.debug_bounds("plugin-control-git-branch").is_none());
         let moved = view.read_with(visual, |view, cx| {
             assert_eq!(view.draft(cx), "Continue here");
             assert!(view.rows.contains(&turn));
@@ -141,6 +153,9 @@ fn creates_moves_and_forks(cx: &mut TestAppContext) {
                 && view.read(cx).git
                 && view.read(cx).can_move()
         });
+        until(visual, "showing Git control", |visual| {
+            visual.debug_bounds("plugin-control-git-branch").is_some()
+        });
         assert!(visual.debug_bounds("plugin-control-git-branch").is_some());
         let forked = std::sync::Arc::new(std::sync::Mutex::new(None));
         let seen = forked.clone();
@@ -153,8 +168,10 @@ fn creates_moves_and_forks(cx: &mut TestAppContext) {
             .detach()
         });
         wait(visual, |cx| {
-            view.read(cx)
-                .can_invoke_contribution(sailry_protocol::plugin::ui::Intent::ForkWorktree, cx)
+            contributions(view.read(cx)).read(cx).ready(cx)
+                && view
+                    .read(cx)
+                    .can_invoke_contribution(sailry_protocol::plugin::ui::Intent::ForkWorktree, cx)
         });
         visual.update(|window, cx| {
             view.update(cx, |view, cx| view.fork_worktree(window, cx));
@@ -192,9 +209,14 @@ fn creates_moves_and_forks(cx: &mut TestAppContext) {
         let (_restored_host, restored, visual) =
             package::open(&fixture, cx, binding, Some(fork.clone()));
         wait(visual, |cx| {
-            restored.read(cx).binding.branch == "forked" && restored.read(cx).can_move()
+            restored.read(cx).binding.branch == "forked"
+                && restored.read(cx).can_move()
+                && restored.read(cx).location_state()["main"].as_bool() == Some(false)
         });
         assert!(restored.read_with(visual, |view, _| view.rows.contains(&turn)));
+        until(visual, "hiding Git control", |visual| {
+            visual.debug_bounds("plugin-control-git-branch").is_none()
+        });
         select(&fixture, &restored, visual, "isolated");
         wait(visual, |cx| {
             restored.read(cx).binding.worktree == Some(moved.worktree)
@@ -232,20 +254,22 @@ fn repository(fixture: &fixture::Fixture) {
 }
 
 fn choose(visual: &mut VisualTestContext, query: &str, selector: Option<&'static str>) {
-    until(visual, |visual| {
+    until(visual, "loading location control", |visual| {
         visual
             .debug_bounds("plugin-control-worktrees-location")
             .is_some()
     });
     click(visual, "plugin-control-worktrees-location");
-    until(visual, |visual| {
+    until(visual, "opening location picker", |visual| {
         visual.debug_bounds("composer-location-picker").is_some()
     });
     if !query.is_empty() {
         visual.simulate_input(query);
     }
     if let Some(selector) = selector {
-        until(visual, |visual| visual.debug_bounds(selector).is_some());
+        until(visual, "loading location choice", |visual| {
+            visual.debug_bounds(selector).is_some()
+        });
         click(visual, selector);
     } else {
         visual.simulate_keystrokes("enter");
@@ -260,7 +284,7 @@ fn create(
     include_changes: bool,
     keyboard: bool,
 ) {
-    until(visual, |visual| {
+    until(visual, "opening worktree form", |visual| {
         assert_eq!(
             view.read_with(visual, |view, _| view.error),
             None,
@@ -279,21 +303,41 @@ fn create(
     } else {
         click(visual, "location-create-submit");
     }
-    until(visual, |visual| {
+    until(visual, "submitting worktree form", |visual| {
         visual.debug_bounds("location-branch-name").is_none()
     });
 }
 
 #[track_caller]
-fn until(visual: &mut VisualTestContext, predicate: impl Fn(&mut VisualTestContext) -> bool) {
+fn until(
+    visual: &mut VisualTestContext,
+    phase: &str,
+    predicate: impl Fn(&mut VisualTestContext) -> bool,
+) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
+        visual.executor().advance_clock(Duration::from_millis(10));
         visual.run_until_parked();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+        });
         if predicate(visual) {
             return;
         }
-        assert!(Instant::now() < deadline, "location surface deadline");
+        if Instant::now() >= deadline {
+            let visible = [
+                "git-picker-1",
+                "git-picker-2",
+                "location-create-form",
+                "location-branch-loading",
+                "location-branch-name",
+            ]
+            .into_iter()
+            .filter(|selector| visual.debug_bounds(selector).is_some())
+            .collect::<Vec<_>>();
+            panic!("location surface deadline: {phase}; visible surfaces: {visible:?}");
+        }
         std::thread::sleep(Duration::from_millis(10));
     }
 }
@@ -347,8 +391,12 @@ fn select(
         Some(Ok(serde_json::Value::Bool(true)))
     );
     let selector = Box::leak(format!("entry-{index}").into_boxed_str());
-    until(visual, |visual| visual.debug_bounds(selector).is_some());
+    until(visual, "loading worktree choice", |visual| {
+        visual.debug_bounds(selector).is_some()
+    });
     click(visual, selector);
-    until(visual, |visual| visual.debug_bounds("action-0").is_some());
+    until(visual, "opening worktree actions", |visual| {
+        visual.debug_bounds("action-0").is_some()
+    });
     click(visual, "action-0");
 }
