@@ -87,20 +87,21 @@ class _SettingsPageState extends State<SettingsPage> {
       context,
       context.tr('language'),
       child: Builder(
-        builder: (sheetContext) => FormBody(
+        builder: (sheetContext) => Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            SelectField<AppLanguage>(
-              label: context.tr('language'),
-              value: widget.language,
-              options: [
-                for (final language in AppLanguage.values)
-                  (language, context.tr(language.labelKey)),
-              ],
-              onChanged: (language) {
-                widget.onLanguageChanged?.call(language);
-                Navigator.pop(sheetContext);
-              },
-            ),
+            for (final language in AppLanguage.values)
+              ListTile(
+                selected: widget.language == language,
+                title: Text(context.tr(language.labelKey)),
+                trailing: widget.language == language
+                    ? const AppIcon('check')
+                    : null,
+                onTap: () {
+                  widget.onLanguageChanged?.call(language);
+                  Navigator.pop(sheetContext);
+                },
+              ),
           ],
         ),
       ),

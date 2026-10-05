@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Tristate;
 import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +10,7 @@ import 'package:sailry_mobile/features/settings/usage_data.dart';
 import 'package:sailry_mobile/features/settings/usage_page.dart';
 import 'package:sailry_mobile/features/settings/usage_watch.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
+import 'package:sailry_mobile/l10n/language.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/ui/kit.dart';
 import 'package:sailry_mobile/ui/theme.dart';
@@ -145,6 +147,62 @@ class NodeFixture {
 }
 
 void main() {
+  for (final brightness in Brightness.values) {
+    testWidgets('language choices use the appearance list in $brightness', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        AppLanguage? chosen;
+        await pumpPage(
+          tester,
+          SettingsPage(
+            themeMode: brightness == Brightness.dark
+                ? ThemeMode.dark
+                : ThemeMode.light,
+            onThemeChanged: (_) {},
+            language: AppLanguage.chinese,
+            onLanguageChanged: (language) => chosen = language,
+          ),
+          brightness: brightness,
+        );
+        await tap(tester, find.text(tr('language')));
+        expect(find.byType(SelectField<AppLanguage>), findsNothing);
+        expect(find.byType(MenuAnchor), findsNothing);
+        for (final language in AppLanguage.values) {
+          final row = find.widgetWithText(ListTile, tr(language.labelKey)).last;
+          final tile = tester.widget<ListTile>(row);
+          expect(tile.onTap, isNotNull);
+          expect(tile.selected, language == AppLanguage.chinese);
+          expect(
+            find.descendant(
+              of: row,
+              matching: find.byWidgetPredicate(
+                (widget) => widget is AppIcon && widget.name == 'check',
+              ),
+            ),
+            language == AppLanguage.chinese ? findsOneWidget : findsNothing,
+          );
+          expect(
+            tester.getSemantics(row).flagsCollection.isSelected,
+            language == AppLanguage.chinese
+                ? Tristate.isTrue
+                : Tristate.isFalse,
+          );
+        }
+        await tap(
+          tester,
+          find.widgetWithText(ListTile, tr(AppLanguage.english.labelKey)),
+        );
+        expect(chosen, AppLanguage.english);
+        expect(find.byType(BottomSheet), findsNothing);
+        expect(tester.takeException(), isNull);
+      } finally {
+        semantics.dispose();
+      }
+    });
+  }
+
   testWidgets('appearance stays available before pairing', (tester) async {
     ThemeMode? chosen;
     await pumpPage(

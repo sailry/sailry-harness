@@ -1,3 +1,5 @@
+import 'dart:ui' show Tristate;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -39,6 +41,38 @@ void main() {
         expect(menu.left, greaterThanOrEqualTo(0));
         expect(menu.right, lessThanOrEqualTo(width));
         expect(tester.testTextInput.isVisible, isFalse);
+        final surface = find
+            .ancestor(
+              of: find.byType(MenuItemButton).first,
+              matching: find.byWidgetPredicate(
+                (widget) =>
+                    widget is Surface && widget.kind == SurfaceKind.sheet,
+              ),
+            )
+            .first;
+        expect(surface, findsOneWidget);
+        final fill =
+            (tester
+                        .widget<Ink>(
+                          find
+                              .descendant(
+                                of: surface,
+                                matching: find.byType(Ink),
+                              )
+                              .first,
+                        )
+                        .decoration!
+                    as BoxDecoration)
+                .gradient!;
+        expect(
+          fill,
+          SailryTheme.glassFill(tester.element(surface), SurfaceKind.sheet),
+        );
+        expect(fill.colors.every((color) => color.a < .9), isTrue);
+        expect(
+          find.descendant(of: surface, matching: find.byType(BackdropFilter)),
+          findsOneWidget,
+        );
         await tester.tap(
           find.widgetWithText(MenuItemButton, tr('settingsSpeechEnglish')),
         );
@@ -91,6 +125,9 @@ void main() {
     translated.value = true;
     await tester.pumpAndSettle();
     expect(find.text('Translated'), findsOneWidget);
+    await tester.tap(find.byType(SelectField<String>));
+    await tester.pumpAndSettle();
+    expect(find.byType(MenuItemButton), findsNWidgets(2));
     enabled.value = false;
     await tester.pumpAndSettle();
     await tester.tap(find.byType(SelectField<String>));
@@ -131,6 +168,97 @@ void main() {
     expect(selected, 'b');
     expect(find.byType(MenuItemButton), findsNothing);
     expect(tester.testTextInput.isVisible, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('selection menu dismisses and restores field focus', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SailryTheme.of(Brightness.dark),
+          home: Scaffold(
+            body: Padding(
+              padding: const EdgeInsets.all(20),
+              child: SelectField<String>(
+                label: 'Language',
+                value: 'a',
+                options: const [('a', 'First'), ('b', 'Second')],
+                onChanged: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      final field = find.bySemanticsLabel('Language');
+      expect(tester.getSemantics(field).flagsCollection.isButton, isTrue);
+      expect(tester.getSemantics(field).value, 'First');
+      await tester.tap(find.byType(SelectField<String>));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getSemantics(field).flagsCollection.isExpanded,
+        Tristate.isTrue,
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.byType(MenuItemButton), findsNothing);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).focusNode!.hasFocus,
+        isTrue,
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      await tester.pumpAndSettle();
+      expect(find.byType(MenuItemButton), findsNWidgets(2));
+      await tester.tapAt(const Offset(10, 450));
+      await tester.pumpAndSettle();
+      expect(find.byType(MenuItemButton), findsNothing);
+      expect(
+        tester.getSemantics(field).flagsCollection.isExpanded,
+        Tristate.isFalse,
+      );
+      expect(tester.testTextInput.isVisible, isFalse);
+      expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('long selection menus scroll within the glass surface', (
+    tester,
+  ) async {
+    var chosen = -1;
+    await mountSheet(
+      tester,
+      width: 320,
+      child: SelectField<int>(
+        label: 'Choose',
+        value: 0,
+        options: [
+          for (var index = 0; index < 20; index++) (index, 'Option $index'),
+        ],
+        onChanged: (value) => chosen = value,
+      ),
+    );
+    await tester.tap(find.byType(SelectField<int>));
+    await tester.pumpAndSettle();
+    final surface = find
+        .ancestor(
+          of: find.byType(MenuItemButton).first,
+          matching: find.byType(Surface),
+        )
+        .first;
+    expect(tester.getRect(surface).height, lessThanOrEqualTo(320));
+    await tester.ensureVisible(
+      find.widgetWithText(MenuItemButton, 'Option 19'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Option 19').hitTestable(), findsOneWidget);
+    await tester.tap(find.text('Option 19'));
+    await tester.pumpAndSettle();
+    expect(chosen, 19);
+    expect(find.byType(MenuItemButton), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

@@ -166,23 +166,6 @@ abstract final class SailryTheme {
           borderSide: BorderSide(color: colors.error),
         ),
       ),
-      dropdownMenuTheme: DropdownMenuThemeData(
-        textStyle: base.textTheme.bodyLarge?.copyWith(fontSize: 14, color: ink),
-        menuStyle: MenuStyle(
-          backgroundColor: WidgetStatePropertyAll(
-            Color.alphaBlend(colors.surfaceContainer, background),
-          ),
-          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
-          elevation: const WidgetStatePropertyAll(0),
-          padding: const WidgetStatePropertyAll(EdgeInsets.all(6)),
-          shape: WidgetStatePropertyAll(
-            RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: colors.outlineVariant),
-            ),
-          ),
-        ),
-      ),
       menuButtonTheme: MenuButtonThemeData(
         style:
             MenuItemButton.styleFrom(

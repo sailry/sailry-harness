@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'icons.dart';
+import 'surface.dart';
+import 'theme.dart';
 
 /// Shared spacing for stacked settings and resource forms.
 class FormBody extends StatelessWidget {
@@ -38,6 +41,15 @@ class SelectField<T> extends StatefulWidget {
 
 class _SelectFieldState<T> extends State<SelectField<T>> {
   final _controller = TextEditingController();
+  final _focus = FocusNode();
+  final _menu = MenuController();
+
+  bool get enabled => widget.onChanged != null && widget.options.isNotEmpty;
+
+  void toggle() {
+    if (!enabled) return;
+    _menu.isOpen ? _menu.close() : _menu.open();
+  }
 
   String name(SelectField<T> field) =>
       field.options.where((item) => item.$1 == field.value).firstOrNull?.$2 ??
@@ -55,51 +67,118 @@ class _SelectFieldState<T> extends State<SelectField<T>> {
     if (oldWidget.value != widget.value || name(oldWidget) != name(widget)) {
       _controller.text = name(widget);
     }
+    if (!enabled) _menu.close();
   }
 
   @override
   void dispose() {
     _controller.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return DropdownMenu<T>(
-      controller: _controller,
-      initialSelection: widget.value,
-      enabled: widget.onChanged != null && widget.options.isNotEmpty,
-      expandedInsets: EdgeInsets.zero,
-      menuHeight: 320,
-      selectOnly: true,
-      requestFocusOnTap: true,
-      enableSearch: false,
-      label: Text(widget.label),
-      trailingIcon: const AppIcon('down'),
-      selectedTrailingIcon: const RotatedBox(
-        quarterTurns: 2,
-        child: AppIcon('down'),
-      ),
-      textStyle: theme.textTheme.bodyLarge,
-      dropdownMenuEntries: [
-        for (final (id, name) in widget.options)
-          DropdownMenuEntry<T>(
-            value: id,
-            label: name,
-            labelWidget: Text(
-              name,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+    // DropdownMenu has no menu-surface builder. MenuAnchor keeps Flutter's
+    // placement, focus, navigation and dismissal around the shared glass surface.
+    return LayoutBuilder(
+      builder: (context, constraints) => MenuAnchor(
+        controller: _menu,
+        childFocusNode: _focus,
+        crossAxisUnconstrained: false,
+        clipBehavior: Clip.none,
+        style: const MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(Colors.transparent),
+          surfaceTintColor: WidgetStatePropertyAll(Colors.transparent),
+          elevation: WidgetStatePropertyAll(0),
+          padding: WidgetStatePropertyAll(EdgeInsets.zero),
+          shape: WidgetStatePropertyAll(RoundedRectangleBorder()),
+        ),
+        menuChildren: [
+          SizedBox(
+            width: constraints.maxWidth,
+            child: Surface(
+              kind: SurfaceKind.sheet,
+              radius: 16,
+              padding: const EdgeInsets.all(6),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 308),
+                child: SingleChildScrollView(
+                  primary: false,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final (index, (id, label)) in widget.options.indexed)
+                        Semantics(
+                          selected: id == widget.value,
+                          child: MenuItemButton(
+                            autofocus: index == 0,
+                            trailingIcon: id == widget.value
+                                ? const AppIcon('check', size: 16)
+                                : null,
+                            onPressed: () {
+                              _controller.text = label;
+                              widget.onChanged?.call(id);
+                            },
+                            child: Text(
+                              label,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
             ),
-            trailingIcon: id == widget.value
-                ? const AppIcon('check', size: 16)
-                : null,
           ),
-      ],
-      onSelected: (selected) {
-        if (selected != null) widget.onChanged?.call(selected);
-      },
+        ],
+        builder: (context, menu, _) => CallbackShortcuts(
+          bindings: enabled
+              ? {
+                  const SingleActivator(LogicalKeyboardKey.enter): toggle,
+                  const SingleActivator(LogicalKeyboardKey.space): toggle,
+                  const SingleActivator(LogicalKeyboardKey.arrowDown):
+                      _menu.open,
+                  const SingleActivator(LogicalKeyboardKey.arrowUp): _menu.open,
+                }
+              : const {},
+          child: Semantics(
+            button: true,
+            enabled: enabled,
+            label: widget.label,
+            value: _controller.text,
+            expanded: menu.isOpen,
+            onTap: enabled ? toggle : null,
+            onExpand: enabled && !menu.isOpen ? menu.open : null,
+            onCollapse: menu.isOpen ? menu.close : null,
+            excludeSemantics: true,
+            child: TextField(
+              controller: _controller,
+              focusNode: _focus,
+              enabled: enabled,
+              readOnly: true,
+              enableInteractiveSelection: false,
+              keyboardType: TextInputType.none,
+              style: theme.textTheme.bodyLarge,
+              onTap: toggle,
+              decoration: InputDecoration(
+                labelText: widget.label,
+                suffixIcon: IconButton(
+                  onPressed: enabled ? toggle : null,
+                  icon: RotatedBox(
+                    quarterTurns: menu.isOpen ? 2 : 0,
+                    child: const AppIcon('down'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

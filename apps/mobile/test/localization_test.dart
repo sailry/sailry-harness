@@ -9,7 +9,6 @@ import 'package:sailry_mobile/features/conversations/message_composer.dart';
 import 'package:sailry_mobile/features/settings/settings_page.dart';
 import 'package:sailry_mobile/l10n/language.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
-import 'package:sailry_mobile/ui/kit.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 
 import 'notifications_test.dart' show Preferences;
@@ -26,10 +25,8 @@ Future<void> selectLanguage(WidgetTester tester, AppLanguage language) async {
   final context = tester.element(find.byType(SettingsPage));
   await tester.tap(find.widgetWithText(ListTile, context.tr('language')));
   await tester.pumpAndSettle();
-  await tester.tap(find.byType(SelectField<AppLanguage>));
-  await tester.pumpAndSettle();
   await tester.tap(
-    find.widgetWithText(MenuItemButton, context.tr(language.labelKey)),
+    find.widgetWithText(ListTile, context.tr(language.labelKey)).last,
   );
   await tester.pumpAndSettle();
 }

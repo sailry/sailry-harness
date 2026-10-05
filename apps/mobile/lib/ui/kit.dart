@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../l10n/strings.dart';
 import 'icons.dart';
 import 'theme.dart';
+import 'surface.dart';
 import 'app_background.dart';
 import 'failure_state.dart';
 import 'loading.dart';
@@ -15,6 +16,7 @@ export 'empty_state.dart' show EmptyState;
 export 'failure_state.dart' show FailureState;
 export 'form.dart' show FormBody, SelectField;
 export 'host_state.dart' show HostState;
+export 'surface.dart' show Surface;
 
 class RoundButton extends StatelessWidget {
   const RoundButton({
@@ -38,79 +40,11 @@ class RoundButton extends StatelessWidget {
         tooltip: tooltip,
         style: IconButton.styleFrom(
           backgroundColor: primary ? colors.primary : colors.surfaceContainer,
+          foregroundColor: primary ? colors.onPrimary : colors.onSurfaceVariant,
+          disabledForegroundColor: Theme.of(context).disabledColor,
         ),
         onPressed: onPressed,
-        icon: AppIcon(
-          icon,
-          size: 18,
-          color: primary ? colors.onPrimary : colors.onSurfaceVariant,
-        ),
-      ),
-    );
-  }
-}
-
-class Surface extends StatelessWidget {
-  const Surface({
-    super.key,
-    required this.child,
-    this.padding = const EdgeInsets.all(16),
-    this.radius = 20,
-    this.onTap,
-    this.kind = SurfaceKind.card,
-  });
-  final Widget child;
-  final EdgeInsetsGeometry padding;
-  final double radius;
-  final VoidCallback? onTap;
-  final SurfaceKind kind;
-  @override
-  Widget build(BuildContext context) {
-    final borderRadius = BorderRadius.circular(radius);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: borderRadius,
-        boxShadow: SailryTheme.glassShadow(context, kind),
-      ),
-      child: ClipRRect(
-        borderRadius: borderRadius,
-        child: BackdropFilter(
-          filter: SailryTheme.glassFilter(context, kind),
-          child: Stack(
-            fit: StackFit.passthrough,
-            children: [
-              Material(
-                type: MaterialType.transparency,
-                child: Ink(
-                  decoration: BoxDecoration(
-                    gradient: SailryTheme.glassFill(context, kind),
-                  ),
-                  child: InkWell(
-                    onTap: onTap,
-                    child: Padding(padding: padding, child: child),
-                  ),
-                ),
-              ),
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: ShaderMask(
-                    blendMode: BlendMode.srcIn,
-                    shaderCallback: SailryTheme.glassEdge(
-                      context,
-                      kind,
-                    ).createShader,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        borderRadius: borderRadius,
-                        border: Border.all(color: Colors.white),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+        icon: AppIcon(icon, size: 18),
       ),
     );
   }

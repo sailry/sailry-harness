@@ -314,7 +314,6 @@ class _TasksPageState extends State<_PreviewTasksPage> {
         ),
         RoundButton(
           icon: 'plus',
-          primary: true,
           tooltip: context.tr('newTask'),
           onPressed: _create,
         ),
