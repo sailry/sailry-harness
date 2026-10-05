@@ -9,24 +9,24 @@ fn package(fixture: &Fixture, control: bool) -> sailry_protocol::plugin::Info {
     for (path, content) in [
         (
             "plugin.json",
-            include_str!("../../../../../examples/plugins/task-notes/plugin.json"),
+            include_str!("../../../../../plugins/examples/task-notes/plugin.json"),
         ),
         (
             "dev.sailry.platform/desktop/main.js",
             include_str!(
-                "../../../../../examples/plugins/task-notes/dev.sailry.platform/desktop/main.js"
+                "../../../../../plugins/examples/task-notes/dev.sailry.platform/desktop/main.js"
             ),
         ),
         (
             "dev.sailry.platform/desktop/locales.js",
             include_str!(
-                "../../../../../examples/plugins/task-notes/dev.sailry.platform/desktop/locales.js"
+                "../../../../../plugins/examples/task-notes/dev.sailry.platform/desktop/locales.js"
             ),
         ),
         (
             "dev.sailry.platform/desktop/chat.js",
             include_str!(
-                "../../../../../examples/plugins/task-notes/dev.sailry.platform/desktop/chat.js"
+                "../../../../../plugins/examples/task-notes/dev.sailry.platform/desktop/chat.js"
             ),
         ),
     ] {

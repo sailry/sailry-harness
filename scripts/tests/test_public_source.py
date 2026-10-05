@@ -1,10 +1,12 @@
 """Publication checks use synthetic repositories, never private profiles."""
 
 import importlib.util
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -98,6 +100,32 @@ class GuideLinks(unittest.TestCase):
 
 
 class SnapshotExport(unittest.TestCase):
+    def test_preserves_pinned_submodule_without_copying_its_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "source"
+            root.mkdir()
+            initialize(root)
+            module = Path(directory) / "packages"
+            module.mkdir()
+            initialize(module)
+            write(module, "README.md", "# Packages\n")
+            write(module, "package/plugin.json", '{}\n')
+            commit(module, "Reviewed package")
+            pinned = public.git(module, "rev-parse", "HEAD").decode().strip()
+            with patch.dict(os.environ, {"GIT_ALLOW_PROTOCOL": "file"}):
+                public.git(root, "submodule", "add", str(module), "plugins")
+                write(root, "README.md", "[Packages](plugins/README.md)\n")
+                commit(root, "Reviewed application")
+                write(module, "new.txt", "Not selected\n")
+                commit(module, "Later package")
+                destination = Path(directory) / "public"
+                public.export_source(root, destination)
+            self.assertEqual(public.git(destination / "plugins", "rev-parse", "HEAD").decode().strip(), pinned)
+            self.assertEqual(public.git(destination, "ls-files", "plugins"), b"plugins\n")
+            self.assertEqual((destination / "plugins/package/plugin.json").read_text(), '{}\n')
+            self.assertFalse((destination / "plugins/new.txt").exists())
+            self.assertIn("plugins/package/plugin.json", public.check_source(destination))
+
     def test_exports_committed_source_without_private_history(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "source"

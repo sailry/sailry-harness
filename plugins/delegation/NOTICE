@@ -1,5 +1,0 @@
-Sailry delegation package
-Derived from Sailry's native delegation integration in commit ef5e82ea.
-Child execution, session persistence, cancellation and frozen role ownership remain in Sailry core.
-The desktop role catalog, editor, removal flow and localized prompt presets are
-adapted from plugins/builtin/delegation/desktop/settings at the same revision.

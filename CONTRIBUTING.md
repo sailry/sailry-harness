@@ -12,6 +12,11 @@ absolute local paths. Plugin JavaScript tests require Node.js 22 or newer; sourc
 checks use Python's standard library. Pairing-service dependencies and checks have
 their own [guide](services/pairing-relay/README.md#run-and-verify).
 
+Clone with `git clone --recurse-submodules` or run
+`git submodule update --init --recursive` before building. Official package changes
+are committed and pushed in `sailry-plugins`; then commit the reviewed `plugins/`
+gitlink update in this repository. Never copy plugin source into a second owner.
+
 ```sh
 just check          # Rust formatting and Clippy with warnings denied
 just test-source    # Public guides, publication boundaries and source fixtures

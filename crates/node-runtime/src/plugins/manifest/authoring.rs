@@ -112,9 +112,9 @@ fn validates_all_shipped_manifests_offline() {
         assert!(errors.is_empty(), "{name}: {errors:?}");
     }
     for bytes in [
-        include_bytes!("../../../../../examples/plugins/project-summary/plugin.json").as_slice(),
-        include_bytes!("../../../../../examples/plugins/task-notes/plugin.json").as_slice(),
-        include_bytes!("../../../../../examples/plugins/tool-content/plugin.json").as_slice(),
+        include_bytes!("../../../../../plugins/examples/project-summary/plugin.json").as_slice(),
+        include_bytes!("../../../../../plugins/examples/task-notes/plugin.json").as_slice(),
+        include_bytes!("../../../../../plugins/examples/tool-content/plugin.json").as_slice(),
     ] {
         let manifest: Value = serde_json::from_slice(bytes).unwrap();
         assert!(validator.is_valid(&manifest), "{}", manifest["name"]);

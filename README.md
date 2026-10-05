@@ -19,6 +19,7 @@ committed lockfiles; machine-local Cargo overrides are not part of the build.
 From the repository root:
 
 ```sh
+git submodule update --init --recursive
 cargo build --locked -p sailry-host
 just desktop
 ```
@@ -54,11 +55,11 @@ business profile. It cannot be combined with profile or relay options.
 - [Architecture](ARCHITECTURE.md): system context, components and runtime boundaries
 - [Contributing](CONTRIBUTING.md): checks, test conventions and publication
 - [Engineering rules](AGENTS.md): coding and repository conventions
-- [Plugin SDK](plugins/SDK.md): desktop and headless extension contracts
+- [Plugin SDK](sdk/plugins.md): desktop and headless extension contracts
 - [Pairing service](services/pairing-relay/README.md): verification and hosting
-- [Project summary](examples/plugins/project-summary/README.md),
-  [Task Notes](examples/plugins/task-notes/README.md) and
-  [tool content](examples/plugins/tool-content/README.md): installable examples
+- [Project summary](plugins/examples/project-summary/README.md),
+  [Task Notes](plugins/examples/task-notes/README.md) and
+  [tool content](plugins/examples/tool-content/README.md): installable examples
 
 ## Checks
 

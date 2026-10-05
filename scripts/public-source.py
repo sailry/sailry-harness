@@ -31,7 +31,27 @@ def git(root, *args, input=None):
 def source_paths(root, revision=None):
     output = (git(root, "ls-tree", "-rz", "--name-only", revision) if revision
               else git(root, "ls-files", "-z"))
-    return {path.decode("utf-8") for path in output.split(b"\0") if path}
+    paths = {path.decode("utf-8") for path in output.split(b"\0") if path}
+    for path, commit in gitlinks(root, revision):
+        module = root / path
+        if not (module / ".git").exists():
+            raise ValueError("Submodules are missing; run git submodule update --init --recursive")
+        paths.update(f"{path}/{child}" for child in source_paths(module, commit))
+    return paths
+
+
+def gitlinks(root, revision=None):
+    output = (git(root, "ls-tree", "-rz", revision) if revision
+              else git(root, "ls-files", "--stage", "-z"))
+    links = []
+    for entry in output.split(b"\0"):
+        if not entry:
+            continue
+        metadata, path = entry.split(b"\t", 1)
+        fields = metadata.decode().split()
+        if fields[0] == "160000":
+            links.append((path.decode("utf-8"), fields[2] if revision else fields[1]))
+    return links
 
 
 def validate_paths(paths):
@@ -53,10 +73,11 @@ def validate_paths(paths):
 
 def document_paths(paths):
     # Skills and vendor fixtures can contain illustrative links, not guide links.
-    return sorted(name for name in paths if name in GUIDES or (
-        name.endswith(".md") and PurePosixPath(name).name in {"README.md", "SDK.md"}
-        and not name.startswith("vendor/")
-    ))
+    return sorted(name for name in paths if name in GUIDES
+                  or name.startswith("sdk/") and name.endswith(".md") or (
+                      name.endswith(".md")
+                      and PurePosixPath(name).name in {"README.md", "SDK.md"}
+                      and not name.startswith("vendor/")))
 
 
 def check_documents(root, paths):
@@ -115,6 +136,13 @@ def export_source(root, destination):
     git(destination, "init", "--initial-branch=main", "--template=")
     for key, value in author.items():
         git(destination, "config", key, value)
+    # Preserve dependency ownership and the exact reviewed gitlinks, not a
+    # second tracked copy of their source or whichever remote HEAD is newest.
+    links = gitlinks(root, revision)
+    for path, commit in links:
+        git(destination, "update-index", "--add", "--cacheinfo", "160000", commit, path)
+    if links:
+        git(destination, "submodule", "update", "--init", "--recursive")
     git(destination, "add", "--all")
     check_source(destination)
     git(destination, "commit", "-m", "Initial public source")

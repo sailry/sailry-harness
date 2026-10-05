@@ -1,5 +1,0 @@
-Sailry databases package logic is relocated from the corresponding
-plugins/builtin/databases sources at ef5e82ea.
-
-License: GPL-3.0-only, as in the Sailry repository.
-Native execution, storage, credentials and transport remain owned by Sailry core.

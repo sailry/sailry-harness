@@ -30,6 +30,10 @@ fn files(root: &Path, directory: &Path, output: &mut String) {
 
 fn main() {
     let root = Path::new("../../plugins");
+    assert!(
+        root.join("catalog.json").is_file(),
+        "official plugins are missing; run git submodule update --init --recursive"
+    );
     println!("cargo:rerun-if-changed={}", root.display());
     let mut output = String::from(
         "type File<'a> = (&'a str, &'a [u8]);\ntype Package<'a> = (&'a str, &'a [File<'a>]);\npub(super) const PACKAGES: &[Package<'_>] = &[\n",

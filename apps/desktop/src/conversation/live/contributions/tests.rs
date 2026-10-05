@@ -18,7 +18,7 @@ fn install_with(fixture: &mut Fixture, edit: impl FnOnce(&mut Value)) -> plugin:
     let root = fixture.directory.path().join("project/package");
     std::fs::create_dir_all(root.join("dev.sailry.platform/desktop")).unwrap();
     let source =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/plugins/task-notes");
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples/task-notes");
     for path in [
         "plugin.json",
         "dev.sailry.platform/desktop/main.js",

@@ -102,7 +102,7 @@ pub(super) fn run(
             assert_eq!(
                 results[0]["content"],
                 include_str!(
-                    "../../../../../examples/plugins/project-summary/skills/project-summary/SKILL.md"
+                    "../../../../../plugins/examples/project-summary/skills/project-summary/SKILL.md"
                 )
             );
             assert_eq!(results[1]["output"]["version"], "project-summary");

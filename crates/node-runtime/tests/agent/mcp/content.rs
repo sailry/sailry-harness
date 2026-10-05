@@ -15,19 +15,19 @@ async fn restores() {
         for (name, text) in [
             (
                 "plugin.json",
-                include_str!("../../../../../examples/plugins/tool-content/plugin.json"),
+                include_str!("../../../../../plugins/examples/tool-content/plugin.json"),
             ),
             (
                 "mcp.json",
-                include_str!("../../../../../examples/plugins/tool-content/mcp.json"),
+                include_str!("../../../../../plugins/examples/tool-content/mcp.json"),
             ),
             (
                 "server.py",
-                include_str!("../../../../../examples/plugins/tool-content/server.py"),
+                include_str!("../../../../../plugins/examples/tool-content/server.py"),
             ),
             (
                 "content.json",
-                include_str!("../../../../../examples/plugins/tool-content/content.json"),
+                include_str!("../../../../../plugins/examples/tool-content/content.json"),
             ),
         ] {
             fs::write(package.join(name), text).unwrap();
@@ -60,7 +60,7 @@ async fn restores() {
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         assert!(page.approvals.is_empty());
         let expected: Content = serde_json::from_str(include_str!(
-            "../../../../../examples/plugins/tool-content/content.json"
+            "../../../../../plugins/examples/tool-content/content.json"
         ))
         .unwrap();
         let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;

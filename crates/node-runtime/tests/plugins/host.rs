@@ -218,7 +218,7 @@ async fn executes_the_external_summary_package() {
         let (directory, node, controller, client, worktree) = fixture(remote).await;
         let root = directory.path().join("source/summary");
         let source =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/plugins/project-summary");
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples/project-summary");
         for file in [
             "plugin.json",
             "dev.sailry.platform/settings.json",

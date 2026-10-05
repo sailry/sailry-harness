@@ -23,7 +23,7 @@ async fn install(fixture: &mut process::Fixture) -> plugin::Info {
             .root
             .join("package/dev.sailry.platform/desktop/chat.js"),
         include_str!(
-            "../../../../../examples/plugins/task-notes/dev.sailry.platform/desktop/chat.js"
+            "../../../../../plugins/examples/task-notes/dev.sailry.platform/desktop/chat.js"
         ),
     )
     .unwrap();
@@ -32,7 +32,7 @@ async fn install(fixture: &mut process::Fixture) -> plugin::Info {
             .root
             .join("package/dev.sailry.platform/desktop/main.js"),
         include_str!(
-            "../../../../../examples/plugins/task-notes/dev.sailry.platform/desktop/main.js"
+            "../../../../../plugins/examples/task-notes/dev.sailry.platform/desktop/main.js"
         ),
     )
     .unwrap();
@@ -41,12 +41,12 @@ async fn install(fixture: &mut process::Fixture) -> plugin::Info {
             .root
             .join("package/dev.sailry.platform/desktop/locales.js"),
         include_str!(
-            "../../../../../examples/plugins/task-notes/dev.sailry.platform/desktop/locales.js"
+            "../../../../../plugins/examples/task-notes/dev.sailry.platform/desktop/locales.js"
         ),
     )
     .unwrap();
     let mut manifest: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../examples/plugins/task-notes/plugin.json"
+        "../../../../../plugins/examples/task-notes/plugin.json"
     ))
     .unwrap();
     for tool in manifest["extensions"]["dev.sailry.platform"]["tools"]

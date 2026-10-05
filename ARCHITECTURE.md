@@ -128,14 +128,19 @@ adapters. See the [service contract](services/pairing-relay/README.md).
 
 ## Extension and presentation boundaries
 
-Packages in `plugins/` use the Agent Plugins manifest and Sailry's v1 extension
-contract. Node owns validation, immutable resources, grants, private KV, callbacks,
+The application lives in `sailry-harness`; official plugin source lives only in
+`sailry-plugins`. The `plugins/` Git submodule pins a reviewed plugin commit.
+Builds embed that snapshot as ordinary package assets for offline use; new Node
+profiles install the selected defaults once, without resurrecting removed packages.
+
+Packages use the Agent Plugins manifest and Sailry's v1 extension contract.
+Node owns validation, immutable resources, grants, private KV, callbacks,
 tools and dispatch. Updates affect new admission; admitted work retains its
 captured package and settings revision.
 
 Headless JavaScript callbacks use a bounded Node-owned QuickJS runtime. Desktop
 entries use GPUI Kit script bindings and host-owned SDKs. Desktop and headless
-exports are distinct; see the [SDK contract](plugins/SDK.md). Sailry's SDK does not
+exports are distinct; see the [SDK contract](sdk/plugins.md). Sailry's SDK does not
 grant raw OS access. Desktop UI code is trusted code, not an OS sandbox.
 
 GPUI Kit owns standard controls, semantic themes, focus, keyboard behavior and

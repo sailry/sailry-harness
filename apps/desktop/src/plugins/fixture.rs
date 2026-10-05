@@ -432,7 +432,7 @@ impl Fixture {
     pub fn package(&self) {
         let root = self.directory.path().join("project/package");
         let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../examples/plugins/project-summary");
+            .join("../../plugins/examples/project-summary");
         copy_package(&source, &root);
     }
 

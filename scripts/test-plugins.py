@@ -8,8 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
-    tests = sorted(path for directory in ("plugins", "examples/plugins")
-                   for path in (ROOT / directory).rglob("*.test.mjs")
+    tests = sorted(path for path in (ROOT / "plugins").rglob("*.test.mjs")
                    if "node_modules" not in path.parts)
     if not tests:
         raise SystemExit("No plugin tests found")
