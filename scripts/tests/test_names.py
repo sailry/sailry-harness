@@ -82,7 +82,7 @@ const aNameThatContainsFarTooManyWords = () => {};
 '''
         self.assertEqual(checking.violations(source, ".js"), [])
 
-    def test_long_group_context_is_not_a_test_label(self):
+    def test_groups_have_no_label_limit(self):
         source = '''group('one two three four five six seven eight nine ten eleven twelve thirteen', () {
   test('preserves manual choice', () {});
 });
