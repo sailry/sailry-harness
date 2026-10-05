@@ -25,6 +25,7 @@ async fn session(
     api: ModelApi,
 ) -> (Session, Provider) {
     let provider = Provider {
+        oauth: None,
         options: match api {
             ModelApi::AzureOpenAi => {
                 Some(sailry_protocol::conversation::cloud::Options::AzureOpenAi {

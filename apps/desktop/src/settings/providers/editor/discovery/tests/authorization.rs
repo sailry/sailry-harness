@@ -40,6 +40,9 @@ fn tap(cx: &mut VisualTestContext, selector: &'static str) {
     cx.run_until_parked();
 }
 
+#[path = "authorization/advanced.rs"]
+mod advanced;
+
 #[gpui::test]
 fn configures_an_empty_account(cx: &mut TestAppContext) {
     cx.executor().allow_parking();

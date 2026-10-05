@@ -70,6 +70,7 @@ fn preserves_drafts(cx: &mut TestAppContext) {
         let client = Client::new(node.local());
         let provider = Provider {
             options: None,
+            oauth: None,
             id: ProviderId::new(),
             revision: 0,
             name: "Navigation fixture".into(),

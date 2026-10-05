@@ -36,6 +36,7 @@ impl Editor {
             return Ok(discovery::Source::Saved {
                 provider: provider.id,
                 expected_revision: provider.revision,
+                oauth: self.oauth.options(self.preset, cx)?,
             });
         }
         let (api, endpoint) = self.connection(cx)?;

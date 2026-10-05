@@ -169,9 +169,10 @@ impl Worker {
                 })
                 .transpose()?
                 .flatten();
-            Ok((provider, credential))
+            let options = crate::providers::login::effective(&provider)?;
+            Ok((provider, credential, options))
         })();
-        let (provider, credential) = match prepared {
+        let (provider, credential, options) = match prepared {
             Ok(value) => value,
             Err(error) => return database.finish_external(caller, request, Err(error), events),
         };
@@ -226,6 +227,7 @@ impl Worker {
                 let grant = service
                     .authorize(
                         authentication,
+                        &options,
                         |state| async {
                             sender
                                 .send(Job::Login(Box::new(Progress::Prompt { caller, id, state })))
@@ -239,7 +241,7 @@ impl Worker {
                 #[cfg(any(test, feature = "test-support"))]
                 let endpoint = service.model_endpoint.as_deref().unwrap_or(endpoint);
                 let models = discovery
-                    .authorized(api, endpoint, &grant, stop.clone())
+                    .authorized(api, endpoint, &grant, &options, stop.clone())
                     .await;
                 Ok(Authorized { grant, models })
             };

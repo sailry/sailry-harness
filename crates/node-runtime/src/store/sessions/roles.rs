@@ -42,9 +42,10 @@ pub(in crate::store) fn capture(
                 .iter()
                 .any(|provider| provider.id == model.provider)
         {
-            let provider = providers::get(db, model.provider)?.ok_or_else(|| {
+            let mut provider = providers::get(db, model.provider)?.ok_or_else(|| {
                 Fault::new(ErrorCode::NotConfigured, "role provider is unavailable")
             })?;
+            crate::providers::login::capture(&mut provider)?;
             snapshot.providers.push(provider);
         }
     }
@@ -156,6 +157,7 @@ pub(in crate::store) fn import(
     }
     let mut snapshot = snapshot.clone();
     for provider in &mut snapshot.providers {
+        crate::providers::login::capture(provider)?;
         if provider.authentication == Authentication::Host {
             crate::providers::login::transferable(provider.authentication)?;
         }

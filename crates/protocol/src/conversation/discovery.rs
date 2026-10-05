@@ -3,7 +3,7 @@ use crate::{CredentialRef, Effort, ProviderId, Secret};
 use serde::{Deserialize, Serialize};
 mod configuration;
 
-/// Discovery uses either a draft API-key connection or a saved Node revision.
+/// Discovery reads a draft API-key connection or a saved Node revision.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Source {
@@ -11,6 +11,9 @@ pub enum Source {
     Saved {
         provider: ProviderId,
         expected_revision: u64,
+        /// Unsaved request metadata; omission uses the saved provider's effective settings.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        oauth: Option<super::oauth::Options>,
     },
 }
 

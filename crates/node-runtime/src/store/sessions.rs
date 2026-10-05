@@ -34,8 +34,11 @@ pub(super) fn create(
     profile: Option<&std::path::Path>,
     project: Option<ProjectId>,
     worktree: Option<WorktreeId>,
-    settings: Configuration,
+    mut settings: Configuration,
 ) -> Result<(Output, Option<Event>), Fault> {
+    if let Some(profile) = &mut settings.profile {
+        crate::providers::login::capture(&mut profile.provider)?;
+    }
     commands::validate_config(db, node, &settings.config)?;
     validate_model(db, &settings.config, settings.profile.as_ref())?;
     assistants::validate(db, project, &settings.config)?;

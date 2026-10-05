@@ -109,6 +109,7 @@ impl Fixture {
         };
         let provider = |endpoint: &str, model: &str| Provider {
             options: None,
+            oauth: None,
             id: ProviderId::new(),
             revision: 0,
             name: model.into(),

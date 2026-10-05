@@ -51,6 +51,7 @@ impl Fixture {
             }
             let provider = Provider {
                 options: None,
+                oauth: None,
                 id: ProviderId::new(),
                 revision: 0,
                 name: "Activity fixture".into(),

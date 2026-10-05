@@ -22,6 +22,8 @@ mod catalog;
 mod execution;
 #[path = "login/lifecycle.rs"]
 mod lifecycle;
+#[path = "login/oauth.rs"]
+mod oauth;
 #[path = "login/responses.rs"]
 mod responses;
 #[path = "login/synchronization.rs"]
@@ -169,6 +171,7 @@ fn standard(request: &discovery_support::Request) -> Reply {
 
 async fn provider(client: &Client, authentication: Authentication) -> Provider {
     let provider = Provider {
+        oauth: None,
         options: None,
         id: ProviderId::new(),
         revision: 0,

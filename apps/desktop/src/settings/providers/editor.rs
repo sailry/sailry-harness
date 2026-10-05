@@ -27,6 +27,7 @@ mod kind;
 #[cfg(test)]
 use super::discovery_server;
 mod live;
+mod oauth;
 
 pub(super) struct Editor {
     pub(super) focus: FocusHandle,
@@ -39,6 +40,7 @@ pub(super) struct Editor {
     original_key: Option<sailry_protocol::Secret>,
     key_ready: bool,
     cloud: cloud::Fields,
+    oauth: oauth::Fields,
     configured: bool,
     pub models: Vec<Draft>,
     pub default_model: usize,
@@ -84,6 +86,8 @@ pub(super) fn open(
             .w(width)
             .max_h(window.viewport_size().height * 0.8)
             .margin_top(window.viewport_size().height * 0.1)
+            // Explicit footer buttons own submission; Enter must not close the form.
+            .on_ok(|_, _, _| false)
             .on_close(move |_, window, cx| close.update(cx, |editor, cx| editor.close(window, cx)))
             .content({
                 let editor = editor.clone();
@@ -180,9 +184,16 @@ impl Editor {
             window,
             cx,
         );
+        let oauth = oauth::Fields::new(
+            preset,
+            initial.as_ref().and_then(|channel| channel.oauth.as_ref()),
+            window,
+            cx,
+        );
         let mut editor = Self {
             focus: cx.focus_handle(),
             cloud,
+            oauth,
             owner,
             editing,
             preset,
@@ -233,6 +244,7 @@ impl Editor {
             cx.notify();
             return;
         }
+        self.oauth = oauth::Fields::new(preset, None, window, cx);
         self.configured = false;
         self.original_key = None;
         self.key_ready = true;
@@ -401,6 +413,7 @@ impl Editor {
         }
         Ok(Channel {
             options: self.cloud.options(self.preset, cx)?,
+            oauth: self.oauth.options(self.preset, cx)?,
             id: self.editing.unwrap_or(0),
             name,
             preset: self.preset,
@@ -480,6 +493,7 @@ impl Render for Editor {
                 )
             })
             .child(form)
+            .when(preset.oauth(), |body| body.child(self.oauth_form(cx)))
             .when(
                 preset.authentication() == sailry_protocol::Authentication::Host,
                 |body| {

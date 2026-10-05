@@ -14,6 +14,7 @@ pub(super) async fn provider(client: &Client, endpoint: &str, model: &str) -> Pr
         .execute(client.prepare(Command::SaveProvider {
             provider: Provider {
                 options: None,
+                oauth: None,
                 id: ProviderId::new(),
                 revision: 0,
                 name: model.into(),

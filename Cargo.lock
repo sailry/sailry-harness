@@ -14361,6 +14361,7 @@ dependencies = [
  "sailry-link",
  "sailry-protocol",
  "schemars 1.2.2",
+ "semver",
  "serde",
  "serde-saphyr",
  "serde_json",

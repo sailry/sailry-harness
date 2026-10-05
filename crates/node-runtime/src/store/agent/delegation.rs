@@ -185,6 +185,9 @@ pub(super) fn admit(
         config.effort = model.effort.unwrap_or(metadata.default_effort);
         provider = Some(selected);
     }
+    if let Some(provider) = &mut provider {
+        crate::providers::login::capture(provider)?;
+    }
     super::super::commands::validate_config(&tx, database.node, &config)?;
     let session = Session {
         id: SessionId::new(),

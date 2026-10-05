@@ -11,6 +11,16 @@ Sailry's Node-owned device authorization adapters use the following reviewed pro
 
 The public OAuth client identifiers are application identifiers, not client secrets. Production authorization destinations are fixed. Only the compile-time test-support bootstrap can replace HTTP destinations. Access/renewal grants belong to the existing protected Node credential store; authorization codes are transient and no separate auth cache, CLI process, or Agent engine is introduced.
 
+Provider-specific advanced settings expose only non-secret request metadata:
+ChatGPT's catalog compatibility version and user agent, and Copilot's user agent,
+editor version and editor-plugin version. Shared defaults retain the reviewed
+baseline above. Node validates saved values and unsaved discovery drafts; drafts
+do not update provider configuration. Effective values are frozen into admitted
+turns and captured session profiles, including default values, and flow through
+the existing catalog, generation and credential-refresh owners. OAuth client
+identifiers, authorization destinations, bearer credentials and fixed integration
+headers are not editable.
+
 Device login, protected persistence, shared observation, refresh and ADK text/tool
 generation are verified using isolated HTTP services. ChatGPT uses streamed,
 stateless Responses and omits fields rejected by that endpoint; Copilot selects

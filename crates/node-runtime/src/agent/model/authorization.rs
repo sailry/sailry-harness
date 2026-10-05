@@ -34,19 +34,21 @@ impl Llm for Model {
                 "provider sign-in is required",
             ))
         })?;
+        let options = crate::providers::login::effective(&self.provider).map_err(failure)?;
         let grant = self
             .ingress
             .authorization(
                 reference,
                 self.provider.id,
                 self.provider.authentication,
+                &options,
                 &self.stop,
             )
             .await
             .map_err(failure)?;
         let mut provider = self.provider.clone();
         provider.endpoint = grant.endpoint().to_owned();
-        let base = grant.headers().map_err(failure)?;
+        let base = grant.headers(&options).map_err(failure)?;
         let (access, adapter, stream) = match grant {
             Grant::ChatGpt { access, .. } => {
                 let session =

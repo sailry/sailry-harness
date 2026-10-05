@@ -49,6 +49,7 @@ fn selects_a_concrete_model(cx: &mut TestAppContext) {
             credential: None,
             default_model: "fixture".into(),
             options: None,
+            oauth: None,
             models: vec![sailry_protocol::conversation::Model {
                 id: "fixture".into(),
                 context: 4096,

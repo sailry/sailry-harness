@@ -3,6 +3,7 @@ use sailry_protocol::conversation::{Model, Provider};
 
 fn provider() -> Provider {
     Provider {
+        oauth: None,
         id: ProviderId::new(),
         revision: 0,
         name: "Reference fixture".into(),

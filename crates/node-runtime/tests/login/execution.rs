@@ -1,6 +1,8 @@
 use super::*;
 use sailry_protocol::conversation::{Page, Status};
 use std::sync::atomic::{AtomicUsize, Ordering};
+#[path = "execution/oauth.rs"]
+mod oauth;
 #[path = "execution/renewals.rs"]
 mod renewals;
 #[path = "execution/transfers.rs"]
@@ -121,7 +123,17 @@ pub(super) async fn signed_in(
     authentication: Authentication,
     api: ModelApi,
 ) -> Provider {
+    configured(fixture, authentication, api, None).await
+}
+
+async fn configured(
+    fixture: &Fixture,
+    authentication: Authentication,
+    api: ModelApi,
+    options: Option<sailry_protocol::conversation::oauth::Options>,
+) -> Provider {
     let mut provider = provider(&fixture.client, authentication).await;
+    provider.oauth = options;
     provider.models = vec![sailry_protocol::conversation::Model {
         id: "fixture".into(),
         context: 8192,

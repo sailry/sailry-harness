@@ -56,6 +56,7 @@ pub(super) async fn prepare(
                 expected_revision: 0,
                 provider: Provider {
                     options: None,
+                    oauth: None,
                     id: provider,
                     revision: 0,
                     name: "Isolated model".into(),

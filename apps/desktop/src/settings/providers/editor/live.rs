@@ -70,6 +70,7 @@ impl Editor {
         self.probe = None;
         let provider = Provider {
             options: channel.options,
+            oauth: channel.oauth,
             id: self.provider_id,
             revision: self
                 .provider

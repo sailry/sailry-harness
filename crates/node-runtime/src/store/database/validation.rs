@@ -464,6 +464,7 @@ mod tests {
             let node = NodeId([37; 32]);
             let database = Database::open(&path, node, None).unwrap();
             let provider = Provider {
+                oauth: None,
                 options: None,
                 id: ProviderId::new(),
                 revision: 1,

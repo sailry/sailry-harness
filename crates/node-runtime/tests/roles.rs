@@ -183,6 +183,7 @@ async fn validates_fixed_models() {
         let (_directory, node, controller, client) = fixture(remote).await;
         let mut role = profile("fixed");
         let mut provider = Provider {
+            oauth: None,
             options: None,
             id: ProviderId::new(),
             revision: 0,

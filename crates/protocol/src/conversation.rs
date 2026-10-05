@@ -4,6 +4,7 @@ pub mod catalog;
 pub mod cloud;
 pub mod discovery;
 pub mod login;
+pub mod oauth;
 pub mod progress;
 pub mod question;
 pub mod reasoning;
@@ -77,6 +78,9 @@ pub struct Provider {
     pub endpoint: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub options: Option<cloud::Options>,
+    /// Non-secret request metadata; omission uses the shared vendor defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth: Option<oauth::Options>,
     pub enabled: bool,
     #[serde(default)]
     pub models: Vec<Model>,

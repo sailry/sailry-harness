@@ -268,6 +268,7 @@ fn refreshes_saved_drafts(cx: &mut TestAppContext) {
         let Output::Provider(provider) = fixture.execute(Command::SaveProvider {
             provider: Provider {
                 options: None,
+                oauth: None,
                 id: sailry_protocol::ProviderId::new(),
                 revision: 0,
                 name: "Saved".into(),

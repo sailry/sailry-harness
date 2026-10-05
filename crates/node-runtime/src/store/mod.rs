@@ -60,6 +60,7 @@ enum Job {
         reference: sailry_protocol::CredentialRef,
         provider: sailry_protocol::ProviderId,
         authentication: sailry_protocol::Authentication,
+        options: sailry_protocol::conversation::oauth::Options,
         reply: oneshot::Sender<Result<crate::providers::login::Grant, Fault>>,
     },
     Login(Box<login::Progress>),
@@ -552,6 +553,7 @@ impl Store {
                             reference,
                             provider,
                             authentication,
+                            options,
                             reply,
                         } => {
                             if accepting.load(Ordering::Acquire) {
@@ -560,6 +562,7 @@ impl Store {
                                     reference,
                                     provider,
                                     authentication,
+                                    options,
                                     reply,
                                 );
                             } else {

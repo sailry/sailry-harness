@@ -4,12 +4,15 @@ mod chatgpt;
 mod copilot;
 mod grant;
 mod headers;
+mod options;
 pub(crate) use grant::Grant;
+pub(crate) use options::capture;
+pub(crate) use options::effective;
 
 use reqwest::{Client, RequestBuilder, StatusCode};
 use sailry_link::CancellationToken;
 use sailry_protocol::{
-    conversation::{ModelApi, Provider, login::State},
+    conversation::{ModelApi, Provider, login::State, oauth::Options},
     *,
 };
 use serde::de::DeserializeOwned;
@@ -49,14 +52,16 @@ impl Service {
     pub(crate) async fn refresh(
         &self,
         grant: &Grant,
+        options: &Options,
         stop: &CancellationToken,
     ) -> Result<Grant, Fault> {
         let operation = async {
-            let client = client()?;
+            let client = client(options)?;
             let refreshed = match grant {
                 Grant::ChatGpt { .. } => self.refresh_chatgpt(&client, grant).await?,
                 Grant::Copilot { github, .. } => {
-                    self.exchange_copilot(&client, github.clone()).await?
+                    self.exchange_copilot(&client, github.clone(), options)
+                        .await?
                 }
             };
             refreshed.validate(grant.authentication())?;
@@ -88,6 +93,7 @@ impl Service {
     pub(crate) async fn authorize<P, F>(
         &self,
         authentication: Authentication,
+        options: &Options,
         progress: P,
         stop: &CancellationToken,
     ) -> Result<Grant, Fault>
@@ -107,10 +113,10 @@ impl Service {
             progress(state)
         };
         let operation = async {
-            let client = client()?;
+            let client = client(options)?;
             let grant = match authentication {
                 Authentication::ChatGpt => self.chatgpt(&client, progress).await?,
-                Authentication::Copilot => self.copilot(&client, progress).await?,
+                Authentication::Copilot => self.copilot(&client, options, progress).await?,
                 Authentication::ApiKey | Authentication::Host => {
                     return Err(invalid("provider does not use device authorization"));
                 }
@@ -143,12 +149,21 @@ pub(crate) fn validate(provider: &Provider) -> Result<(), Fault> {
             ) && endpoint == COPILOT_ENDPOINT
         }
     };
-    if valid {
-        Ok(())
-    } else {
-        Err(invalid(
+    if !valid {
+        return Err(invalid(
             "provider authentication requires its supported API and service endpoint",
-        ))
+        ));
+    }
+    match &provider.oauth {
+        Some(options) => options::validate(provider.authentication, provider.api, options),
+        None if matches!(
+            provider.authentication,
+            Authentication::ChatGpt | Authentication::Copilot
+        ) =>
+        {
+            effective(provider).map(|_| ())
+        }
+        None => Ok(()),
     }
 }
 
@@ -169,11 +184,11 @@ pub(crate) fn transferable(authentication: Authentication) -> Result<(), Fault> 
     Ok(())
 }
 
-fn client() -> Result<Client, Fault> {
+fn client(options: &Options) -> Result<Client, Fault> {
     Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))
-        .user_agent("Sailry/0.1")
+        .user_agent(options.user_agent())
         .build()
         .map_err(|_| unavailable())
 }

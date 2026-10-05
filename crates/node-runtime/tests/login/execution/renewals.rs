@@ -42,7 +42,7 @@ async fn retains_rotated_grants() {
     }
 }
 
-async fn restart(fixture: Fixture, server: &Server, remote: bool) -> Fixture {
+pub(super) async fn restart(fixture: Fixture, server: &Server, remote: bool) -> Fixture {
     let Fixture {
         directory,
         node,

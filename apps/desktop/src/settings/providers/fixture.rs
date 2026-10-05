@@ -43,6 +43,7 @@ impl Fixture {
                 let client = Client::new(node.local());
                 let provider = Provider {
                     options: None,
+                    oauth: None,
                     id: ProviderId::new(),
                     revision: 0,
                     name: format!("Media host {index}"),

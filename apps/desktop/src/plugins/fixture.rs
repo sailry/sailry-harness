@@ -349,6 +349,7 @@ impl Fixture {
         };
         let provider = sailry_protocol::conversation::Provider {
             options: None,
+            oauth: None,
             id: sailry_protocol::ProviderId::new(),
             revision: 0,
             name: "Unused fixture model".into(),

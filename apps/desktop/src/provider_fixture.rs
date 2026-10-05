@@ -12,13 +12,27 @@ use crate::discovery_fixture::Reply;
 pub(crate) use crate::discovery_fixture::Server;
 
 pub(crate) async fn server(mode: Arc<AtomicU8>) -> Server {
+    start(mode, None).await
+}
+
+pub(crate) async fn server_with_gate(
+    mode: Arc<AtomicU8>,
+    gate: Arc<tokio::sync::Notify>,
+) -> Server {
+    start(mode, Some(gate)).await
+}
+
+async fn start(mode: Arc<AtomicU8>, gate: Option<Arc<tokio::sync::Notify>>) -> Server {
     Server::start_with_request(ModelApi::Anthropic, move |request| {
         if mode.load(Ordering::SeqCst) == 2 {
             return Reply::Raw("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into());
         }
         match request.path.as_str() {
             path if path.starts_with("/models") && mode.load(Ordering::SeqCst) == 5 => Reply::Raw("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into()),
-            path if path.starts_with("/models") && mode.load(Ordering::SeqCst) == 3 => Reply::Hold,
+            path if path.starts_with("/models") && mode.load(Ordering::SeqCst) == 3 => match &gate {
+                Some(gate) => Reply::Delayed(gate.clone(), models(request.headers.contains_key("chatgpt-account-id"))),
+                None => Reply::Hold,
+            },
             path if path.starts_with("/models") && mode.load(Ordering::SeqCst) == 6 => Reply::Json(if request.headers.contains_key("chatgpt-account-id") { json!({"models":[]}) } else { json!({"data":[]}) }),
             path if path.starts_with("/models") => Reply::Json(models(request.headers.contains_key("chatgpt-account-id"))),
             "/api/accounts/deviceauth/usercode" => Reply::Json(json!({"device_auth_id":"desktop-device-secret","user_code":"SAIL-1234","interval":1})),
@@ -60,6 +74,7 @@ fn models(chatgpt: bool) -> serde_json::Value {
 pub(crate) fn provider(authentication: Authentication, api: ModelApi) -> Provider {
     Provider {
         options: None,
+        oauth: None,
         id: ProviderId::new(),
         revision: 0,
         name: if authentication == Authentication::ChatGpt {

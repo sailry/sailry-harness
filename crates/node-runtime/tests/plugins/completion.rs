@@ -23,6 +23,7 @@ async fn configure_api(client: &Client, endpoint: String, api: conversation::Mod
         }
     }
     let provider = conversation::Provider {
+        oauth: None,
         id: ProviderId::new(),
         revision: 0,
         name: "Plugin model fixture".into(),

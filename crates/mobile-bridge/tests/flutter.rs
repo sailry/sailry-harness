@@ -199,6 +199,7 @@ async fn configure(client: &Client, endpoint: &str) {
                 authentication: Authentication::ApiKey,
                 endpoint: endpoint.into(),
                 options: None,
+                oauth: None,
                 enabled: true,
                 default_model: MODEL.into(),
                 credential: None,

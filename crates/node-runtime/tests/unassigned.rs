@@ -179,6 +179,7 @@ async fn reports_usage_after_restart() {
         let Output::Provider(provider) = client
             .execute(client.prepare(Command::PutProvider {
                 provider: conversation::Provider {
+                    oauth: None,
                     options: None,
                     id: ProviderId::new(),
                     revision: 0,

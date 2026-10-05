@@ -45,6 +45,7 @@ async fn survives_without_projects() {
         let server = Server::start(false).await;
         let provider = Provider {
             options: None,
+            oauth: None,
             id: ProviderId::new(),
             revision: 0,
             name: "Connection model".into(),

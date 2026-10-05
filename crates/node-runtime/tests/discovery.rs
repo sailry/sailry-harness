@@ -148,6 +148,7 @@ async fn discovers_without_persistence() {
                 ]
             );
             let provider = Provider {
+                oauth: None,
                 options: None,
                 id: input.provider,
                 revision: 0,

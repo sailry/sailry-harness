@@ -115,6 +115,7 @@ impl Fixture {
             .block_on(client.execute(client.prepare(Command::PutProvider {
                 provider: Provider {
                     options: None,
+                    oauth: None,
                     id: sailry_protocol::ProviderId::new(),
                     revision: 0,
                     name: "Fixture provider".into(),

@@ -117,6 +117,7 @@ pub(super) fn click(cx: &mut VisualTestContext, selector: &'static str) {
 pub(super) fn provider(endpoint: &str, name: &str) -> Provider {
     Provider {
         options: None,
+        oauth: None,
         id: ProviderId::new(),
         revision: 0,
         name: name.into(),

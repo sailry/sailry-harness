@@ -66,8 +66,13 @@ impl Ingress {
                     discovery::Source::Saved {
                         provider,
                         expected_revision,
+                        oauth,
                     } => {
-                        let provider = self.provider(*provider, *expected_revision).await?;
+                        let mut provider = self.provider(*provider, *expected_revision).await?;
+                        if let Some(options) = oauth {
+                            provider.oauth = Some(options.clone());
+                            crate::providers::login::validate(&provider)?;
+                        }
                         self.saved_models(&provider).await?
                     }
                 };
@@ -116,6 +121,7 @@ impl Ingress {
             })
             .await?
         } else {
+            let options = crate::providers::login::effective(provider)?;
             let reference = provider.credential.clone().ok_or_else(|| {
                 Fault::new(ErrorCode::NotConfigured, "provider sign-in is required")
             })?;
@@ -124,6 +130,7 @@ impl Ingress {
                     reference,
                     provider.id,
                     provider.authentication,
+                    &options,
                     &self.closed,
                 )
                 .await?;
@@ -132,7 +139,13 @@ impl Ingress {
             let endpoint = self.authorization_endpoint.as_deref().unwrap_or(endpoint);
             let models = self
                 .discovery
-                .authorized(provider.api, endpoint, &grant, self.closed.clone())
+                .authorized(
+                    provider.api,
+                    endpoint,
+                    &grant,
+                    &options,
+                    self.closed.clone(),
+                )
                 .await?;
             discovery::Catalog {
                 endpoint: endpoint.to_owned(),

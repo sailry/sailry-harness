@@ -231,6 +231,7 @@ pub(in crate::settings) fn local(owner: &mut Workspace, cx: &mut Context<Workspa
 pub(crate) fn channel(id: usize, provider: &Provider) -> Channel {
     Channel {
         options: provider.options.clone(),
+        oauth: provider.oauth.clone(),
         id,
         name: provider.name.clone(),
         preset: match (provider.authentication, provider.api) {

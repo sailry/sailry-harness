@@ -15,6 +15,7 @@ async fn requires_explicit_models() {
         .await;
         context.worktree = None;
         let provider = Provider {
+            oauth: None,
             options: None,
             id: ProviderId::new(),
             revision: 0,

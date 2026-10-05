@@ -20,6 +20,7 @@ impl Worker {
         reference: CredentialRef,
         provider: ProviderId,
         authentication: Authentication,
+        options: sailry_protocol::conversation::oauth::Options,
         reply: oneshot::Sender<Result<Grant, Fault>>,
     ) {
         let Some((id, grant)) =
@@ -33,7 +34,7 @@ impl Worker {
         let stop = self.closed.clone();
         let sender = self.sender.clone();
         self.runtime.spawn(async move {
-            let result = AssertUnwindSafe(service.refresh(&grant, &stop))
+            let result = AssertUnwindSafe(service.refresh(&grant, &options, &stop))
                 .catch_unwind()
                 .await
                 .unwrap_or_else(|_| Err(super::super::unavailable()));
@@ -159,6 +160,7 @@ impl Ingress {
         reference: CredentialRef,
         provider: ProviderId,
         authentication: Authentication,
+        options: &sailry_protocol::conversation::oauth::Options,
         stop: &CancellationToken,
     ) -> Result<Grant, Fault> {
         let (reply, response) = oneshot::channel();
@@ -167,6 +169,7 @@ impl Ingress {
                 reference,
                 provider,
                 authentication,
+                options: options.clone(),
                 reply,
             })
             .map_err(|_| super::super::unavailable())?;

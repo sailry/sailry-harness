@@ -23,6 +23,7 @@ async fn retains_replaced_and_removed_configuration() {
             node.local()
         });
         let provider = Provider {
+            oauth: None,
             id: ProviderId::new(),
             revision: 0,
             name: "Owner fixture".into(),

@@ -5,6 +5,7 @@ fn command(provider: &Provider) -> Command {
     Command::DiscoverModels(Box::new(discovery::Source::Saved {
         provider: provider.id,
         expected_revision: provider.revision,
+        oauth: None,
     }))
 }
 

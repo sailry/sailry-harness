@@ -29,7 +29,12 @@ struct Endpoints {
 }
 
 impl Service {
-    pub(super) async fn copilot<P, F>(&self, client: &Client, progress: P) -> Result<Grant, Fault>
+    pub(super) async fn copilot<P, F>(
+        &self,
+        client: &Client,
+        options: &Options,
+        progress: P,
+    ) -> Result<Grant, Fault>
     where
         P: FnOnce(State) -> F,
         F: Future<Output = Result<(), Fault>>,
@@ -68,7 +73,7 @@ impl Service {
                 )
                 .await?;
                 if let Some(access) = token.access_token {
-                    return self.exchange_copilot(client, access).await;
+                    return self.exchange_copilot(client, access, options).await;
                 }
                 match token.error.as_deref() {
                     Some("authorization_pending") => {}
@@ -92,7 +97,16 @@ impl Service {
         &self,
         client: &Client,
         github: Secret,
+        options: &Options,
     ) -> Result<Grant, Fault> {
+        let Options::Copilot {
+            editor_version,
+            editor_plugin_version,
+            ..
+        } = options
+        else {
+            return Err(invalid("OAuth settings do not match the authorization"));
+        };
         let mut authorization =
             reqwest::header::HeaderValue::from_str(&format!("token {}", github.expose()))
                 .map_err(|_| invalid("authorization token is invalid"))?;
@@ -102,8 +116,8 @@ impl Service {
                 .get(format!("{}/copilot_internal/v2/token", self.github_api))
                 .header("accept", "application/json")
                 .header("authorization", authorization)
-                .header("editor-version", "vscode/1.107.0")
-                .header("editor-plugin-version", "copilot-chat/0.35.0"),
+                .header("editor-version", editor_version)
+                .header("editor-plugin-version", editor_plugin_version),
         )
         .await?;
         let target = access

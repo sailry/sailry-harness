@@ -3,18 +3,16 @@ use super::*;
 use sailry_protocol::{Authentication, Effort};
 use serde_json::Value;
 
-// Reviewed Codex catalog compatibility baseline, independent of Sailry's version.
-const CHATGPT_CATALOG_VERSION: &str = "0.160.0";
-
 impl Discovery {
     pub(crate) async fn authorized(
         &self,
         api: ModelApi,
         endpoint: &str,
         grant: &login::Grant,
+        options: &sailry_protocol::conversation::oauth::Options,
         closed: CancellationToken,
     ) -> Result<Vec<discovery::Model>, Fault> {
-        self.query(fetch(api, endpoint_url(endpoint)?, grant), closed)
+        self.query(fetch(api, endpoint_url(endpoint)?, grant, options), closed)
             .await
     }
 }
@@ -23,13 +21,20 @@ async fn fetch(
     api: ModelApi,
     mut url: Url,
     grant: &login::Grant,
+    options: &sailry_protocol::conversation::oauth::Options,
 ) -> Result<Vec<discovery::Model>, Fault> {
     url.set_path(&format!("{}/models", url.path().trim_end_matches('/')));
-    let mut headers = grant.headers()?;
+    let mut headers = grant.headers(options)?;
     match grant.authentication() {
         Authentication::ChatGpt => {
+            let sailry_protocol::conversation::oauth::Options::ChatGpt {
+                catalog_version, ..
+            } = options
+            else {
+                return Err(invalid("OAuth settings do not match the authorization"));
+            };
             url.query_pairs_mut()
-                .append_pair("client_version", CHATGPT_CATALOG_VERSION);
+                .append_pair("client_version", catalog_version);
         }
         Authentication::Copilot => {
             headers.insert(

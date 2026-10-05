@@ -3,6 +3,7 @@ use sailry_protocol::conversation::{Model, ModelApi, Provider};
 
 pub(super) async fn session(client: &Client, worktree: WorktreeId) -> Session {
     let provider = Provider {
+        oauth: None,
         options: None,
         id: ProviderId::new(),
         revision: 0,

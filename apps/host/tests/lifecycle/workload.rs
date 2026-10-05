@@ -70,6 +70,7 @@ async fn history_and_terminal_load() {
             expected_revision: 0,
             provider: Provider {
                 options: None,
+                oauth: None,
                 id: provider,
                 revision: 0,
                 name: "Isolated model".into(),

@@ -10,6 +10,7 @@ async fn restores_private_readback() {
         let node = Node::start(&profile).await.unwrap();
         let client = Client::new(node.local());
         let provider = Provider {
+            oauth: None,
             id: ProviderId::new(),
             revision: 0,
             name: "Readback fixture".into(),

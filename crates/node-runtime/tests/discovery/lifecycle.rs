@@ -32,6 +32,7 @@ async fn saved(fixture: &Fixture, server: &Server) -> Provider {
         &fixture.client,
         Command::SaveProvider {
             provider: Provider {
+                oauth: None,
                 options: None,
                 id: ProviderId::new(),
                 revision: 0,

@@ -129,6 +129,7 @@ async fn configured(
     // suites explicitly enable the packages they exercise.
     disable_tools(client, &["context7", "github", "code-review"]).await;
     let provider = Provider {
+        oauth: None,
         options: None,
         id: ProviderId::new(),
         revision: 0,

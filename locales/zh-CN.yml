@@ -775,6 +775,11 @@ provider_azure_ai: Azure AI Inference
 provider_bedrock: Amazon Bedrock
 provider_vertex: Vertex AI
 provider_api_version: API 版本
+provider_oauth_advanced: 高级设置
+provider_oauth_catalog_version: 模型目录兼容版本
+provider_oauth_user_agent: User-Agent
+provider_oauth_editor_version: 编辑器版本
+provider_oauth_editor_plugin_version: 编辑器插件版本
 provider_region: 区域
 provider_cloud_project: 项目 ID
 provider_cloud_endpoint: 地址（可选）
