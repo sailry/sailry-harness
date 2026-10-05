@@ -20,6 +20,16 @@ pub(super) struct Device {
     latency: Option<Duration>,
 }
 
+impl Device {
+    fn latency_text(&self) -> Option<String> {
+        (!self.local)
+            .then_some(self.latency)
+            .flatten()
+            .map(|latency| format!("{:.0} ms", latency.as_secs_f64() * 1000.))
+            .or_else(|| (!self.known.execution).then(|| "—".into()))
+    }
+}
+
 impl Connections {
     pub(super) fn observe_devices(&mut self, cx: &mut Context<Self>) {
         if self.watcher.is_some() {
@@ -121,6 +131,90 @@ impl Connections {
                                 .to_string()
                                 .into()
                         });
+                let status = h_flex()
+                    .debug_selector(move || format!("connection-status-{id:?}"))
+                    .gap_2()
+                    .w(px(STATUS_WIDTH))
+                    .flex_shrink_0()
+                    .child(div().size_1p5().child(Badge::new().dot().color(
+                        if device.latency.is_some() {
+                            cx.theme().success
+                        } else {
+                            cx.theme().muted_foreground
+                        },
+                    )))
+                    .child(div().text_color(cx.theme().muted_foreground).child(tr(
+                        if device.local {
+                            "composer_host_local"
+                        } else if device.latency.is_some() {
+                            "connections_online"
+                        } else {
+                            "connections_offline"
+                        },
+                    )));
+                let latency = div()
+                    .debug_selector(move || format!("connection-latency-{id:?}"))
+                    .w(px(LATENCY_WIDTH))
+                    .flex_shrink_0()
+                    .text_right()
+                    .text_color(cx.theme().muted_foreground)
+                    .children(device.latency_text());
+                let action = h_flex()
+                    .debug_selector(move || format!("connection-action-{id:?}"))
+                    .w(px(ACTION_WIDTH))
+                    .flex_shrink_0()
+                    .justify_end()
+                    .when(!device.local, |cell| {
+                        cell.child(
+                            Button::new(SharedString::from(format!("unpair-{id:?}")))
+                                .ghost()
+                                .small()
+                                .icon(IconName::Close)
+                                .tooltip(tr("live_revoke"))
+                                .accessibility_label(tr("live_revoke"))
+                                .on_click(cx.listener(move |_, _, window, cx| {
+                                    let Some(services) = cx.try_global::<Services>().cloned()
+                                    else {
+                                        return;
+                                    };
+                                    let owner = cx.entity().downgrade();
+                                    crate::prompts::confirm(
+                                        &tr("live_revoke"),
+                                        &tr("connections_revoke_confirm"),
+                                        tr("live_revoke"),
+                                        window,
+                                        cx,
+                                        move |_, cx| {
+                                            let job = services.runtime.clone().spawn(async move {
+                                                services.link.set_trust(id, false).await
+                                            });
+                                            cx.spawn(async move |cx| {
+                                                if !matches!(job.await, Ok(Ok(()))) {
+                                                    let _ = owner.update(cx, |this, cx| {
+                                                        this.status = tr("pairing_failed");
+                                                        cx.notify();
+                                                    });
+                                                }
+                                            })
+                                            .detach();
+                                        },
+                                    );
+                                })),
+                        )
+                    });
+                let columns = if execution {
+                    [
+                        latency.into_any_element(),
+                        action.into_any_element(),
+                        status.into_any_element(),
+                    ]
+                } else {
+                    [
+                        status.into_any_element(),
+                        latency.into_any_element(),
+                        action.into_any_element(),
+                    ]
+                };
                 h_flex()
                     .py_3()
                     .gap_3()
@@ -150,94 +244,7 @@ impl Connections {
                                     ),
                             ),
                     )
-                    .child(
-                        h_flex()
-                            .debug_selector(move || format!("connection-status-{id:?}"))
-                            .gap_2()
-                            .w(px(STATUS_WIDTH))
-                            .flex_shrink_0()
-                            .child(div().size_1p5().child(Badge::new().dot().color(
-                                if device.latency.is_some() {
-                                    cx.theme().success
-                                } else {
-                                    cx.theme().muted_foreground
-                                },
-                            )))
-                            .child(div().text_color(cx.theme().muted_foreground).child(tr(
-                                if device.local {
-                                    "composer_host_local"
-                                } else if device.latency.is_some() {
-                                    "connections_online"
-                                } else {
-                                    "connections_offline"
-                                },
-                            ))),
-                    )
-                    .child(
-                        div()
-                            .debug_selector(move || format!("connection-latency-{id:?}"))
-                            .w(px(LATENCY_WIDTH))
-                            .flex_shrink_0()
-                            .text_right()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(
-                                (!device.local)
-                                    .then_some(device.latency)
-                                    .flatten()
-                                    .map(|latency| {
-                                        format!("{:.0} ms", latency.as_secs_f64() * 1000.)
-                                    })
-                                    .unwrap_or_else(|| "—".into()),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .debug_selector(move || format!("connection-action-{id:?}"))
-                            .w(px(ACTION_WIDTH))
-                            .flex_shrink_0()
-                            .justify_end()
-                            .when(!device.local, |cell| {
-                                cell.child(
-                                    Button::new(SharedString::from(format!("unpair-{id:?}")))
-                                        .ghost()
-                                        .small()
-                                        .icon(IconName::Close)
-                                        .tooltip(tr("live_revoke"))
-                                        .accessibility_label(tr("live_revoke"))
-                                        .on_click(cx.listener(move |_, _, window, cx| {
-                                            let Some(services) =
-                                                cx.try_global::<Services>().cloned()
-                                            else {
-                                                return;
-                                            };
-                                            let owner = cx.entity().downgrade();
-                                            crate::prompts::confirm(
-                                                &tr("live_revoke"),
-                                                &tr("connections_revoke_confirm"),
-                                                tr("live_revoke"),
-                                                window,
-                                                cx,
-                                                move |_, cx| {
-                                                    let job = services.runtime.clone().spawn(
-                                                        async move {
-                                                            services.link.set_trust(id, false).await
-                                                        },
-                                                    );
-                                                    cx.spawn(async move |cx| {
-                                                        if !matches!(job.await, Ok(Ok(()))) {
-                                                            let _ = owner.update(cx, |this, cx| {
-                                                                this.status = tr("pairing_failed");
-                                                                cx.notify();
-                                                            });
-                                                        }
-                                                    })
-                                                    .detach();
-                                                },
-                                            );
-                                        })),
-                                )
-                            }),
-                    )
+                    .children(columns)
                     .into_any_element()
             })
             .collect()

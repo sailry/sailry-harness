@@ -80,7 +80,7 @@ impl Connections {
             .w_full()
             .gap_4()
             .child(
-                Field::new().label(tr("pairing_relay_server")).child(
+                Field::new().label_indent(false).child(
                     div()
                         .w_full()
                         .debug_selector(|| "pairing-relay-select".into())

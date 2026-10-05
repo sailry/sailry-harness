@@ -239,6 +239,7 @@ impl Render for Connections {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    use gpui_kit::test::TestWindowExt as _;
 
     struct Frame(Entity<Connections>);
     impl Render for Frame {
@@ -340,6 +341,11 @@ mod tests {
             let _ = window.draw(cx);
         });
         assert!(visual.debug_bounds("pairing-relay-address").is_none());
+        visual.update(|window, cx| {
+            let select = window.find(("select", view.read(cx).relay_select.entity_id()));
+            assert_eq!(select.label(), Some(tr("pairing_relay_server").as_ref()));
+            assert_eq!(select.value(), Some(tr("pairing_relay_iroh").as_ref()));
+        });
         let selector = visual.debug_bounds("pairing-relay-select").unwrap();
         visual.simulate_click(selector.center(), Modifiers::default());
         visual.simulate_keystrokes("down enter");
@@ -348,6 +354,11 @@ mod tests {
             let _ = window.draw(cx);
         });
         assert!(visual.debug_bounds("pairing-relay-address").is_some());
+        visual.update(|window, cx| {
+            let select = window.find(("select", view.read(cx).relay_select.entity_id()));
+            assert_eq!(select.label(), Some(tr("pairing_relay_server").as_ref()));
+            assert_eq!(select.value(), Some(tr("pairing_relay_custom").as_ref()));
+        });
         assert!(token.is_cancelled());
         assert!(view.read_with(visual, |view, cx| view.custom_relay(cx)
             && view.code.is_none()
