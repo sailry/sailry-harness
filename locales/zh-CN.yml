@@ -845,7 +845,7 @@ provider_login_failed: 登录失败，请重试
 provider_login_unknown: 登录结果未确认，请重试
 provider_login_cancelling: 正在取消
 provider_login_cancel_unknown: 尚未确认取消，请重试
-provider_login_cancel: 取消登录
+provider_login_cancel: 取消
 provider_login_retry: 重试
 provider_login_required: 请先连接账号
 provider_account_unavailable: 账号不可用，请重新登录
