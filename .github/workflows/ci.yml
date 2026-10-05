@@ -110,10 +110,10 @@ jobs:
           version: v0.18.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          # Backend and Desktop reuse libraries; lint metadata has its own cache.
-          key: ${{ matrix.platform.target }}${{ matrix.kind == 'lint' && '-lint' || '' }}
+          # Desktop seeds shared dependencies; lint metadata has its own cache.
+          shared-key: ${{ matrix.platform.target }}${{ matrix.kind == 'lint' && '-lint' || '' }}-rust
+          save-if: ${{ matrix.kind != 'backend' }}
           cache-on-failure: true
-          cache-workspace-crates: true
           cache-bin: false
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST DEVELOPER_DIR SDKROOT MACOSX_DEPLOYMENT_TARGET
       - name: Speech native libraries
@@ -201,8 +201,9 @@ jobs:
           version: v0.18.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          cache-on-failure: true
-          cache-workspace-crates: true
+          # Reuse Desktop's dependency cache without another large mobile copy.
+          shared-key: aarch64-apple-darwin-rust
+          save-if: false
           cache-bin: false
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST DEVELOPER_DIR SDKROOT MACOSX_DEPLOYMENT_TARGET
       - name: Flutter analysis and widget tests
