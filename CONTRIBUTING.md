@@ -4,18 +4,56 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) and [AGENTS.md](AGENTS.md) before changi
 ownership, execution or UI boundaries. Work from the committed implementation,
 preserve unrelated local changes and keep each task cohesive and reviewable.
 
-## Setup and checks
+## Native setup
 
-Follow [README.md](README.md#development) for native prerequisites. Use committed
-lockfiles and `--locked` for Rust commands. Do not replace pinned dependencies with
-absolute local paths. Plugin JavaScript tests require Node.js 22 or newer; source
-checks use Python's standard library. Pairing-service dependencies and checks have
-their own [guide](services/pairing-relay/README.md#run-and-verify).
+Use Rust 1.98.0, Git, Python 3.12 or newer, Zig 0.16.0, `just`, and your platform's
+native build tools. The Ghostty binding builds native code with Zig. macOS Desktop
+requires Xcode Command Line Tools. Use committed lockfiles and `--locked` for Rust
+commands; do not replace pinned dependencies with absolute local paths.
 
 Clone with `git clone --recurse-submodules` or run
 `git submodule update --init --recursive` before building. Official package changes
 are committed and pushed in `sailry-plugins`; then commit the reviewed `plugins/`
 gitlink update in this repository. Never copy plugin source into a second owner.
+
+From the repository root:
+
+```sh
+git submodule update --init --recursive
+cargo build --locked -p sailry-host
+just desktop
+```
+
+`just desktop` prepares the Office runtime and builds an application bundle on
+macOS. Its default profile is `.runtime/desktop`. Office preparation requires `uv`
+0.10.9 and creates a pinned, relocatable Python runtime without installing packages
+into your user Python environment. An available Apple Development signing identity
+keeps the development app's OS permission identity stable; otherwise signing is ad hoc.
+
+```sh
+just desktop /absolute/private/desktop-profile
+just host /absolute/private/host-profile
+just preview
+```
+
+Direct Desktop and Host binaries default to `~/.sailry`; one running Node may own
+a profile. Profiles contain Node storage, protected credentials, plugin packages,
+plugin data, and attachments. Projects remain at their registered paths. Remote
+execution data stays on the execution Node. Incompatible development profiles are
+reported without conversion, reset, or deletion.
+
+Host is a long-running headless service, not an interactive agent CLI. Desktop or
+Mobile controls it through the shared protocol. See [Host deployment](ARCHITECTURE.md#deployment-and-operations)
+and the [pairing service guide](services/pairing-relay/README.md).
+
+`just preview` uses identified example data without starting a Node or opening a
+business profile. It cannot be combined with profile or relay options.
+
+## Checks
+
+Plugin JavaScript tests require Node.js 22 or newer; source checks use Python's
+standard library. Pairing-service dependencies and checks have their own
+[guide](services/pairing-relay/README.md#run-and-verify).
 
 ```sh
 just check          # Rust formatting and Clippy with warnings denied

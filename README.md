@@ -1,79 +1,81 @@
-# Sailry
+<p align="center">
+  <img src="assets/branding/sailry-mark.svg" alt="Sailry" width="88" />
+</p>
 
-Sailry is a workspace for AI conversations, development tools and remote
-execution. A shared Rust Node runs agents and owns projects, sessions, terminals,
-files and credentials. Desktop can control its local Node or a paired remote Host.
+<h1 align="center">Sailry</h1>
 
-Desktop uses GPUI Kit, agent execution uses ADK-Rust, and authenticated device
-connections use iroh. This repository also includes a Flutter controller and a
-self-hostable short-code pairing service. This is development software;
-incompatible profiles are rejected, not automatically migrated or reset.
+<p align="center"><strong>Your AI workspace for everyday work</strong></p>
 
-## Development
+<p align="center">
+  Conversations, files, and tools. One place to move things forward.
+</p>
 
-Use Rust 1.98.0, Git, Python 3.12 or newer, Zig 0.16.0 and your platform's native
-build tools. The Ghostty binding builds native code with Zig. Desktop on macOS
-requires Xcode Command Line Tools. Dependencies are pinned in `Cargo.toml` and
-committed lockfiles; machine-local Cargo overrides are not part of the build.
+<p align="center">
+  <a href="https://github.com/sailry/sailry-harness/releases">Releases</a> ·
+  <a href="CHANGELOG.md">What's new</a> ·
+  <a href="https://github.com/sailry/sailry-harness/issues">Feedback</a>
+</p>
 
-From the repository root:
+![Sailry workspace with an English conversation and weekly plan](assets/readme/workspace.png)
 
-```sh
-git submodule update --init --recursive
-cargo build --locked -p sailry-host
-just desktop
-```
+Sailry brings AI conversations into the workspace where your work happens.
+Start with an idea, turn notes into a plan, explore your files, or work through a
+project with an agent—without losing the thread between chat and tools.
 
-`just` is the task runner. `just desktop` prepares the office runtime and, on
-macOS, builds an application bundle. Its default profile is `.runtime/desktop`.
-Office preparation requires `uv` 0.10.9; it creates a pinned, relocatable Python
-runtime without installing packages into your user Python environment.
-An available Apple Development signing identity keeps the development app's OS
-permission identity stable; otherwise the script uses ad hoc signing.
+## Start with what you need
 
-```sh
-just desktop /absolute/private/desktop-profile
-just host /absolute/private/host-profile
-just preview
-```
+| Make sense of things | Create something useful | Work on a project |
+| --- | --- | --- |
+| Summarize notes, explore questions, and organize next steps | Shape a draft, prepare a brief, or work with documents | Browse files, review changes, and run tools alongside your conversation |
 
-Direct Desktop and Host binaries default to `~/.sailry`; one running Node may own
-a profile. Profiles contain Node storage, protected credentials, plugin packages,
-plugin data and attachments. Projects remain at their registered paths. Remote
-execution data stays on the execution Node.
+## Keep your work in view
 
-Host is a long-running headless service, not an interactive agent CLI. Desktop or
-Mobile controls its conversations and tools through the shared protocol. See
-[Host deployment](ARCHITECTURE.md#deployment-and-operations) and the
-[pairing service guide](services/pairing-relay/README.md).
+Your projects and conversations stay on the left. Your current conversation sits
+in the center. Open files and previews alongside it, so you can keep the context
+close while you work.
 
-`just preview` uses identified example data without starting a Node or opening a
-business profile. It cannot be combined with profile or relay options.
+![An English launch brief open alongside a Sailry conversation](assets/readme/files.png)
 
-## Guides
+## Make it your workspace
 
-- [Architecture](ARCHITECTURE.md): system context, components and runtime boundaries
-- [Contributing](CONTRIBUTING.md): checks, test conventions and publication
-- [Engineering rules](AGENTS.md): coding and repository conventions
-- [Plugin SDK](sdk/plugins.md): desktop and headless extension contracts
-- [Pairing service](services/pairing-relay/README.md): verification and hosting
-- [Project summary](plugins/examples/project-summary/README.md),
-  [Task Notes](plugins/examples/task-notes/README.md) and
-  [tool content](plugins/examples/tool-content/README.md): installable examples
+- **Choose your model.** Connect your preferred provider or an OpenAI-compatible endpoint
+- **Bring your files.** Work with your own folders, with file browsing and previews built in
+- **Add useful tools.** Extend your workspace with plugins, skills, and MCP connections
+- **Stay in control.** Choose when agents can edit files or run tools
+- **Work remotely.** Connect a Sailry Host on another computer from the same desktop workspace
+- **Keep things together.** Conversations, terminals, files, and project tools share one place
 
-## Checks
+![Sailry's official plugin marketplace in English](assets/readme/plugins.png)
 
-```sh
-just check
-just test-source
-just test-plugins
-just test-backend
-just test-ui
-```
+## Get started
 
-Backend and UI tests are separate evidence. External services, OS permissions,
-real devices and performance workloads require explicit opt-in acceptance tests;
-deterministic tests do not establish those results.
+Sailry is in active development. Check [Releases](https://github.com/sailry/sailry-harness/releases)
+for available macOS builds, distributed outside the Mac App Store.
+
+1. Choose the macOS package for your Mac: Apple silicon or Intel
+2. Unzip it and drag **Sailry.app** into **Applications**
+3. Open Sailry and connect a model provider
+4. Add a folder or start a conversation
+
+Screenshots show a fresh English-language demo workspace with illustrative
+conversations, not personal data or previous test sessions.
+
+## Help shape Sailry
+
+Found a problem or have an idea? [Open an issue](https://github.com/sailry/sailry-harness/issues).
+For changes to the application, start with the [contributing guide](CONTRIBUTING.md).
+
+<details>
+<summary>For contributors and plugin authors</summary>
+
+- [Native setup and checks](CONTRIBUTING.md#native-setup)
+- [Architecture](ARCHITECTURE.md)
+- [Engineering rules](AGENTS.md)
+- [Plugin SDK](sdk/plugins.md)
+- [Official plugins](https://github.com/sailry/sailry-plugins)
+- [Host and pairing](services/pairing-relay/README.md)
+
+</details>
 
 ## License
 
