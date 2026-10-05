@@ -10,6 +10,7 @@ task_root="$(cd "$(dirname "$0")/.." && pwd)"
 task_build="$task_root/target/$task_profile"
 task_target="$(rustc -vV | awk '/^host: / {print $2}')"
 task_version="$(awk -F '"' '/^version = "/ {print $2; exit}' "$task_root/apps/desktop/Cargo.toml")"
+task_apple_version="$(python3 "$task_root/scripts/package/versions.py" --apple "$task_version")"
 task_signing="${SAILRY_SIGNING:-ad-hoc}"
 case "$task_signing" in
   ad-hoc) test "${SAILRY_NOTARIZE:-0}" != 1 ;;
@@ -40,7 +41,7 @@ cp "$task_build/sailry-host" "$task_output/host/sailry-host"
 cp "$task_root/scripts/host-launchd.sh" "$task_output/host/host-launchd.sh"
 cp "$task_root/apps/desktop/macos/Info.plist" "$task_app/Contents/Info.plist"
 cp -R "$task_root/apps/desktop/macos/zh_CN.lproj" "$task_app/Contents/Resources/"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $task_version" "$task_app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $task_apple_version" "$task_app/Contents/Info.plist"
 plutil -lint "$task_app/Contents/Info.plist"
 
 # Development and release bundles use the same generated application icon.

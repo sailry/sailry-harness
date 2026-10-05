@@ -5,10 +5,10 @@
          Keep application traffic on HTTPS; allow only the GTS revocation host.
          https://github.com/rustls/rustls-platform-verifier/issues/221 -->
     <domain-config cleartextTrafficPermitted="true">
-        <domain>c.pki.goog</domain>
+        <domain includeSubdomains="false">c.pki.goog</domain>
     </domain-config>
     <!-- The authenticated port tunnel listens only on this device. -->
     <domain-config cleartextTrafficPermitted="true">
-        <domain>127.0.0.1</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
     </domain-config>
 </network-security-config>

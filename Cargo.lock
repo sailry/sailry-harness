@@ -14171,7 +14171,7 @@ dependencies = [
 
 [[package]]
 name = "sailry-desktop"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "aes 0.8.4",
  "base64 0.22.1",
@@ -14239,7 +14239,7 @@ dependencies = [
 
 [[package]]
 name = "sailry-host"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "blake3",
  "cua-driver-sdk",

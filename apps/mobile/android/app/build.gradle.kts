@@ -6,6 +6,17 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val releaseSigning = listOf(
+    "ANDROID_KEYSTORE_PATH", "ANDROID_STORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD"
+).associateWith { System.getenv(it) }
+val hasReleaseSigning = releaseSigning.values.all { !it.isNullOrBlank() }
+require(releaseSigning.values.all { it.isNullOrBlank() } || hasReleaseSigning) {
+    "Android release signing configuration is incomplete"
+}
+require(System.getenv("SAILRY_ANDROID_RELEASE") != "1" || hasReleaseSigning) {
+    "Android distribution requires release signing credentials"
+}
+
 android {
     namespace = "com.sailry.sailry_mobile"
     compileSdk = flutter.compileSdkVersion
@@ -19,26 +30,40 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = if (System.getenv("SAILRY_ANDROID_TEST_APP") == "1") {
             "com.sailry.sailry_mobile.acceptance"
         } else {
             "com.sailry.sailry_mobile"
         }
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         proguardFiles("../../../../crates/mobile-bridge/android/consumer-rules.pro")
+        // Flutter's default filters also admit other ABIs from dependency AARs.
+        if (providers.gradleProperty("target-platform").orNull == "android-arm64") {
+            ndk {
+                abiFilters.clear()
+                abiFilters.add("arm64-v8a")
+            }
+        }
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("distribution") {
+                storeFile = file(releaseSigning.getValue("ANDROID_KEYSTORE_PATH")!!)
+                storePassword = releaseSigning.getValue("ANDROID_STORE_PASSWORD")
+                keyAlias = releaseSigning.getValue("ANDROID_KEY_ALIAS")
+                keyPassword = releaseSigning.getValue("ANDROID_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Local and CI builds keep their disposable signer; tag builds require distribution credentials.
+            signingConfig = signingConfigs.getByName(if (hasReleaseSigning) "distribution" else "debug")
         }
     }
 }

@@ -214,17 +214,14 @@ jobs:
       - name: ARM64 release APK
         working-directory: apps/mobile
         # CI uses a disposable debug certificate; distribution signing is tag-only.
-        run: flutter build apk --release --no-pub --target-platform android-arm64
+        # Pub setup regenerates release registrants without test-only plugins.
+        run: flutter build apk --release --target-platform android-arm64
       - name: Bundled native libraries
         run: |
-          python3 - <<'PY'
-          import zipfile
-          with zipfile.ZipFile('apps/mobile/build/app/outputs/flutter-apk/app-release.apk') as apk:
-              files = set(apk.namelist())
-          for library in ('libsailry_mobile_bridge.so', 'libsherpa-onnx-c-api.so', 'libonnxruntime.so'):
-              if f'lib/arm64-v8a/{library}' not in files:
-                  raise SystemExit(f'APK is missing {library}')
-          PY
+          git diff --exit-code -- apps/mobile/pubspec.lock
+          python3 scripts/package/verify-android.py apps/mobile/build/app/outputs/flutter-apk/app-release.apk \
+            --version "$(python3 scripts/package/versions.py)" \
+            --code "$(python3 scripts/package/versions.py --android-code)"
 
   ios:
     name: Mobile iOS
@@ -254,7 +251,9 @@ jobs:
         run: bash scripts/check-mobile-boundary.sh aarch64-apple-ios sailry-mobile-bridge
       - name: Unsigned iOS application
         working-directory: apps/mobile
-        run: flutter build ios --release --no-pub --no-codesign
+        run: |
+          flutter build ios --release --no-codesign --build-name="$(python3 ../../scripts/package/versions.py --apple)"
+          git diff --exit-code -- pubspec.lock
 
   checks:
     name: Checks passed

@@ -35,6 +35,14 @@ class ReleaseNotes(unittest.TestCase):
         self.assertIn(f"- Initial product ([{commit[:7]}]({REPOSITORY}/commit/{commit}))", entry)
         self.assertNotIn("Full changelog", entry)
 
+    def test_preview_tags_keep_the_full_release_version(self):
+        commit = self.commit("Initial alpha")
+        notes.git(self.root, "tag", "v0.1.0-alpha.1")
+        entry = notes.generate(self.root, "v0.1.0-alpha.1", REPOSITORY, "2026-10-05")
+        self.assertIn("## [0.1.0-alpha.1]", entry)
+        self.assertIn("/releases/tag/v0.1.0-alpha.1", entry)
+        self.assertIn(commit, entry)
+
     def test_uses_tagged_history_and_previous_release(self):
         old = self.commit("Previous release")
         notes.git(self.root, "tag", "v0.1.0")
@@ -75,6 +83,15 @@ class ReleaseNotes(unittest.TestCase):
         self.assertIn("--notes-file", workflow)
         self.assertIn("contents/CHANGELOG.md", workflow)
         self.assertNotIn("--generate-notes", workflow)
+
+    def test_publishes_both_platforms_with_distribution_signing(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        self.assertIn("needs: [build, android]", workflow)
+        self.assertIn("SAILRY_ANDROID_RELEASE: '1'", workflow)
+        self.assertIn("--certificate", workflow)
+        self.assertIn("versions.release_flags(tag[1:])", workflow)
+        self.assertIn("Sailry Harness", workflow)
+        self.assertNotIn("build apk --release --no-pub", workflow)
 
 
 if __name__ == "__main__":
