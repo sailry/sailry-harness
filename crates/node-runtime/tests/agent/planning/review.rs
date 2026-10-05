@@ -57,9 +57,13 @@ async fn starts_one_coding_turn() {
         });
         let mut inventory = other.subscribe().await.unwrap();
         let mut projection = sailry_client::Projection::new(other.target(), 0);
-        projection
-            .apply(0, inventory.next().await.unwrap())
-            .unwrap();
+        assert_eq!(
+            projection
+                .apply(0, inventory.next().await.unwrap())
+                .unwrap(),
+            Apply::Applied
+        );
+        let initial_cursor = projection.snapshot().unwrap().cursor;
         let mut updates = other.subscribe_conversation(session).await.unwrap();
         let mut conversation =
             sailry_client::conversation::Projection::new(other.target(), session, 0);
@@ -117,8 +121,18 @@ async fn starts_one_coding_turn() {
             loop {
                 let update = inventory.next().await.unwrap();
                 let accepted_event = matches!(&update, Update::Event(envelope) if matches!(envelope.event, Event::PlanAccepted(_)));
-                assert_eq!(projection.apply(0, update.clone()).unwrap(), Apply::Applied);
+                // The receiver opens before snapshotting; buffered events can already be covered.
+                let covered = matches!(
+                    &update,
+                    Update::Event(envelope) if envelope.cursor <= initial_cursor
+                );
+                assert_eq!(
+                    projection.apply(0, update.clone()).unwrap(),
+                    if covered { Apply::Ignored } else { Apply::Applied },
+                    "initial cursor: {initial_cursor}, update: {update:?}"
+                );
                 if accepted_event {
+                    assert!(!covered, "plan acceptance must follow the initial snapshot");
                     let snapshot = projection.snapshot().unwrap();
                     assert_eq!(snapshot.sessions.iter().find(|item| item.id == session).unwrap(), &accepted.session);
                     assert_eq!(snapshot.turns.iter().find(|turn| turn.id == accepted.turn.id).unwrap(), &accepted.turn);

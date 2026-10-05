@@ -1,7 +1,7 @@
 // Test-only management callbacks reuse the installed package's actual private owners.
 export * from './main.js';
 import {prepareTransaction,completeRequest,forgetRequest,indexedValue} from 'sailry/sdk';
-import {readMemorySettings,prepareMemorySettings,settingsOutput} from './settings.js';
+import {readMemorySettings,prepareMemorySettings,outcome} from './settings.js';
 import {listMemories,searchMemories,browseMemories} from './retrieval.js';
 import {readMemory,clock,record,metadata,scopeTag} from './storage.js';
 import {terms} from './tokenize.js';
@@ -20,7 +20,7 @@ export async function fixture(input) {
     let value;
     switch (input.action) {
       case 'settings': value=await readMemorySettings(); break;
-      case 'saveSettings': value=settingsOutput(await complete(await prepareMemorySettings(input.settings))); break;
+      case 'saveSettings': value=outcome(await complete(await prepareMemorySettings(input.settings))); break;
       case 'list': value=await listMemories(input.project); break;
       case 'search': value=await searchMemories(input.project,input.query); break;
       case 'browse': value=await browseMemories(input.filter); break;

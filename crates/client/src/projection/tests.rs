@@ -51,6 +51,25 @@ fn duplicates_do_not_change_state() {
 }
 
 #[test]
+fn snapshot_covers_buffered_events() {
+    let mut state = snapshot(3);
+    state.defaults.revision = 3;
+    let mut projection = Projection::new(state.node, 1);
+    assert_eq!(
+        projection
+            .apply(1, Update::Snapshot(state.clone()))
+            .unwrap(),
+        Apply::Applied
+    );
+    for cursor in 1..=3 {
+        assert_eq!(projection.apply(1, event(cursor)).unwrap(), Apply::Ignored);
+        assert_eq!(projection.snapshot(), Some(&state));
+    }
+    assert_eq!(projection.apply(1, event(4)).unwrap(), Apply::Applied);
+    assert_eq!(projection.snapshot().unwrap().defaults.revision, 4);
+}
+
+#[test]
 fn dispatch_invalidation_advances_shared_cursor() {
     let mut projection = Projection::new(NodeId([1; 32]), 1);
     projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
