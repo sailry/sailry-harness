@@ -1,7 +1,6 @@
 use super::*;
 use core::prelude::v1::test;
-use gpui_kit::component::Root;
-use std::time::{Duration, Instant};
+use gpui_kit::component::{Root, WindowExt as _};
 
 struct Surface;
 impl Render for Surface {
@@ -10,75 +9,136 @@ impl Render for Surface {
     }
 }
 
-fn reply(
-    visual: &mut VisualTestContext,
-    mut receive: tokio::sync::oneshot::Receiver<Result<Value, String>>,
-) -> Result<Value, String> {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        visual.run_until_parked();
-        match receive.try_recv() {
-            Ok(result) => return result,
-            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
-            Err(error) => panic!("scan reply closed: {error}"),
-        }
-        assert!(Instant::now() < deadline, "scan reply deadline");
-        std::thread::sleep(Duration::from_millis(10));
-    }
-}
-
-#[gpui::test]
-fn permission_selection_cancel_and_closed_view(cx: &mut TestAppContext) {
-    cx.update(gpui_kit::init);
+fn metadata() -> tempfile::TempDir {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join("Default")).unwrap();
     std::fs::write(root.path().join("Default/Cookies"), b"unopened fixture").unwrap();
     std::fs::write(
         root.path().join("Local State"),
-        br#"{"profile":{"info_cache":{"Default":{"name":"Selected"}}}}"#,
+        br#"{"profile":{"info_cache":{"Default":{"name":"Detected"}}}}"#,
     )
     .unwrap();
+    root
+}
+
+fn mount(cx: &mut TestAppContext) -> (Entity<Settings>, &mut VisualTestContext) {
+    cx.update(gpui_kit::init);
     let mut owner = None;
     let (_, visual) = cx.add_window_view(|window, cx| {
         owner = Some(cx.new(|cx| Settings::new(window, cx)));
         Root::new(cx.new(|_| Surface), window, cx)
     });
-    let owner = owner.unwrap();
-    for case in 0..3 {
+    (owner.unwrap(), visual)
+}
+
+fn finish(
+    owner: &Entity<Settings>,
+    visual: &mut VisualTestContext,
+    result: super::super::chrome::Result<Vec<super::super::chrome::Profile>>,
+    stop: CancellationToken,
+) -> Result<Value, String> {
+    let (send, mut receive) = tokio::sync::oneshot::channel();
+    owner.update(visual, |owner, _| {
+        owner.busy = true;
+        owner.finish_scan(result, stop, send);
+    });
+    visual.run_until_parked();
+    assert!(!visual.did_prompt_for_paths());
+    assert!(!owner.read_with(visual, |owner, _| owner.busy));
+    receive.try_recv().unwrap()
+}
+
+#[gpui::test]
+fn returns_opaque_profiles_without_picker(cx: &mut TestAppContext) {
+    let root = metadata();
+    let (owner, visual) = mount(cx);
+    let bytes = std::fs::read(root.path().join("Local State")).unwrap();
+    let profiles = finish(
+        &owner,
+        visual,
+        super::super::chrome::discover(root.path()),
+        CancellationToken::new(),
+    )
+    .unwrap();
+    let profiles = profiles.as_array().unwrap();
+    assert_eq!(profiles.len(), 1);
+    assert_eq!(profiles[0]["name"], "Detected");
+    assert_eq!(profiles[0].as_object().unwrap().len(), 2);
+    let id = profiles[0]["id"].as_str().unwrap();
+    assert_eq!(
+        owner.read_with(visual, |owner, _| owner.profiles[id].database.clone()),
+        root.path().join("Default/Cookies")
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("Local State")).unwrap(),
+        bytes
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("Default/Cookies")).unwrap(),
+        b"unopened fixture"
+    );
+    let replacement = finish(
+        &owner,
+        visual,
+        super::super::chrome::discover(root.path()),
+        CancellationToken::new(),
+    )
+    .unwrap();
+    assert_ne!(replacement[0]["id"], id);
+    assert!(!owner.read_with(visual, |owner, _| owner.profiles.contains_key(id)));
+}
+
+#[gpui::test]
+fn denied_and_closed_scans_preserve_retry_choices(cx: &mut TestAppContext) {
+    let root = metadata();
+    let (owner, visual) = mount(cx);
+    let profiles = finish(
+        &owner,
+        visual,
+        super::super::chrome::discover(root.path()),
+        CancellationToken::new(),
+    )
+    .unwrap();
+    let id = profiles[0]["id"].as_str().unwrap();
+    for cancelled in [false, true] {
         let stop = CancellationToken::new();
-        let (send, receive) = tokio::sync::oneshot::channel();
-        visual.update(|_, cx| {
-            owner.update(cx, |owner, cx| {
-                owner.finish_scan(Err("browser_chrome_access_denied"), stop.clone(), send, cx)
-            })
-        });
-        visual.run_until_parked();
-        assert!(visual.did_prompt_for_paths());
-        assert!(owner.read_with(visual, |owner, _| owner.busy));
-        if case == 2 {
+        if cancelled {
             stop.cancel();
         }
-        visual.simulate_path_prompt_response(|options| {
-            assert!(!options.files && options.directories && !options.multiple);
-            (case != 1).then(|| vec![root.path().to_path_buf()])
-        });
-        let result = reply(visual, receive);
-        match case {
-            0 => {
-                let profiles = result.unwrap();
-                let profiles = profiles.as_array().unwrap();
-                assert_eq!(profiles.len(), 1);
-                assert_eq!(profiles[0]["name"], "Selected");
-                assert_eq!(profiles[0].as_object().unwrap().len(), 2);
-                let id = profiles[0]["id"].as_str().unwrap();
-                assert_eq!(
-                    owner.read_with(visual, |owner, _| owner.profiles[id].database.clone()),
-                    root.path().join("Default/Cookies")
-                );
+        let result = if cancelled {
+            super::super::chrome::discover(root.path())
+        } else {
+            Err("browser_chrome_access_denied")
+        };
+        assert_eq!(
+            finish(&owner, visual, result, stop).unwrap_err(),
+            if cancelled {
+                "plugin view is closed"
+            } else {
+                "browser_chrome_access_denied"
             }
-            1 => assert_eq!(result.unwrap(), Value::Null),
-            _ => assert_eq!(result.unwrap_err(), "plugin view is closed"),
-        }
-        assert!(!owner.read_with(visual, |owner, _| owner.busy));
+        );
+        assert!(owner.read_with(visual, |owner, _| owner.profiles.contains_key(id)));
     }
+}
+
+#[gpui::test]
+fn preview_scan_does_not_open_authorization(cx: &mut TestAppContext) {
+    let (owner, visual) = mount(cx);
+    let (reply, mut receive) = tokio::sync::oneshot::channel();
+    owner.update(visual, |_, cx| {
+        cx.emit(Request {
+            action: Action::Scan,
+            stop: CancellationToken::new(),
+            reply: RefCell::new(Some(reply)),
+        })
+    });
+    visual.run_until_parked();
+    assert_eq!(
+        receive.try_recv().unwrap(),
+        Err("browser_import_unavailable".into())
+    );
+    assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+    assert!(visual.opened_url().is_none());
+    assert!(owner.read_with(visual, |owner, _| owner.profiles.is_empty() && !owner.busy));
 }

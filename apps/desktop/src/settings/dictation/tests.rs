@@ -65,6 +65,7 @@ fn language_and_downloads(cx: &mut TestAppContext) {
     visual.update(|window, cx| {
         panel.update(cx, |this, cx| {
             assert!(this.cancel.is_cancelled());
+            assert!(!this.permission_stop.is_cancelled());
             this.accept(Update::Finished(Err("dictation_cancelled")), window, cx);
             assert!(this.state == State::Missing);
             this.accept(Update::Finished(Err("dictation_download")), window, cx);
@@ -96,6 +97,26 @@ fn preview_isolation(cx: &mut TestAppContext) {
             assert!(panel.task.is_none());
         });
     });
+}
+
+#[gpui::test]
+fn preview_authorization_does_not_request_access(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+        crate::preferences::init(cx);
+    });
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let view = cx.new(Panel::new);
+        view.update(cx, |panel, cx| {
+            panel.permission = Status::NotDetermined;
+            panel.authorize(window, cx);
+        });
+        Root::new(view, window, cx)
+    });
+    visual.run_until_parked();
+    assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+    assert!(visual.opened_url().is_none());
 }
 
 #[gpui::test]
@@ -153,11 +174,11 @@ fn authorization_settings(cx: &mut TestAppContext) {
         // the launching application's TCC identity prohibits microphone use.
         panel.update(cx, |panel, cx| {
             panel.finish_authorization(Status::NotDetermined, cx);
-            assert!(panel.permission_task.is_none());
             assert_eq!(panel.permission, Status::NotDetermined);
         });
     });
-    assert_eq!(cx.opened_url().as_deref(), permission::settings_url());
+    // Returning from a request does not open another OS flow automatically.
+    assert!(cx.opened_url().is_none());
 }
 
 #[gpui::test]
@@ -168,7 +189,6 @@ fn granted_authorization(cx: &mut TestAppContext) {
         let panel = cx.new(Panel::new);
         panel.update(cx, |panel, cx| {
             panel.finish_authorization(Status::Granted, cx);
-            assert!(panel.permission_task.is_none());
             assert_eq!(panel.permission, Status::Granted);
         });
     });

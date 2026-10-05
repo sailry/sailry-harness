@@ -38,6 +38,46 @@ fn missing_model_settings(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn readonly_change_during_preparation_stops_input(cx: &mut TestAppContext) {
+    fixture::init(cx);
+    for remote in [false, true] {
+        let fixture = fixture::Fixture::with_tools(remote, vec![]);
+        let path = fixture.directory.path().join("desktop/preferences.json");
+        cx.update(|cx| cx.set_global(crate::preferences::Preferences::open(path)));
+        let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
+        wait(visual, |cx| view.read(cx).connected());
+        visual.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.input
+                    .update(cx, |input, cx| input.set_value("Keep draft", window, cx));
+                view.start_dictation(window, cx);
+                assert!(view.dictation.phase == super::super::dictation::Phase::Preparing);
+                view.session.as_mut().unwrap().delegation =
+                    Some(Box::new(sailry_protocol::Delegation {
+                        session: fixture.session.id,
+                        turn: sailry_protocol::TurnId::new(),
+                        entry: "fixture".into(),
+                        index: 0,
+                        role: None,
+                    }));
+            })
+        });
+        wait(visual, |cx| {
+            view.read(cx).dictation.phase == super::super::dictation::Phase::Idle
+        });
+        assert_eq!(
+            view.read_with(visual, |view, cx| view.draft(cx).to_string()),
+            "Keep draft"
+        );
+        assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+        assert_eq!(fixture.task_requests(), 0);
+        visual.update(|window, _| window.remove_window());
+        drop(view);
+        fixture.close();
+    }
+}
+
+#[gpui::test]
 fn appends_bilingual_text(cx: &mut TestAppContext) {
     fixture::init(cx);
     for remote in [false, true] {

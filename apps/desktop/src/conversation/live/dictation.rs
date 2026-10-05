@@ -72,7 +72,7 @@ impl View {
             .into_any_element()
     }
 
-    fn start_dictation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn start_dictation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.readonly() || self.dictation.phase != Phase::Idle {
             return;
         }
@@ -81,11 +81,9 @@ impl View {
             crate::feedback::info("", tr("dictation_unavailable").as_ref(), window, cx);
             return;
         };
-        let owner = Service::shared(cx);
-        let options = crate::preferences::data(cx).dictation.unwrap_or_default();
         let cancel = CancellationToken::new();
         let finish = CancellationToken::new();
-        let (updates, mut receiver) = tokio::sync::mpsc::channel(4);
+        let options = crate::preferences::data(cx).dictation.unwrap_or_default();
         self.dictation = State {
             phase: Phase::Preparing,
             cancel: cancel.clone(),
@@ -93,6 +91,66 @@ impl View {
             task: None,
             partial: None,
         };
+        let check = directory.clone();
+        let ready = cx
+            .background_executor()
+            .spawn(async move { crate::dictation::model::ready(&check) });
+        self.dictation.task = Some(cx.spawn_in(window, async move |view, cx| {
+            let ready = ready.await;
+            let _ = view.update_in(cx, |view, window, cx| {
+                if cancel.is_cancelled() {
+                    return;
+                }
+                if view.readonly() {
+                    view.dictation = State::default();
+                    cx.notify();
+                    return;
+                }
+                if !ready {
+                    view.accept_dictation(
+                        Update::Finished(Err("dictation_model_missing")),
+                        window,
+                        cx,
+                    );
+                    return;
+                }
+                let owner = cx.entity().downgrade();
+                crate::permissions::microphone(
+                    cancel.clone(),
+                    Box::new(move |granted, window, cx| {
+                        let _ = owner.update(cx, |view, cx| {
+                            if cancel.is_cancelled() {
+                                return;
+                            }
+                            if granted && !view.readonly() {
+                                view.record_dictation(
+                                    directory, options, finish, cancel, window, cx,
+                                );
+                            } else {
+                                view.dictation = State::default();
+                                cx.notify();
+                            }
+                        });
+                    }),
+                    window,
+                    cx,
+                );
+            });
+        }));
+        cx.notify();
+    }
+
+    fn record_dictation(
+        &mut self,
+        directory: std::path::PathBuf,
+        options: crate::preferences::Dictation,
+        finish: CancellationToken,
+        cancel: CancellationToken,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let owner = Service::shared(cx);
+        let (updates, mut receiver) = tokio::sync::mpsc::channel(4);
         self.binding.runtime.spawn(async move {
             let result =
                 crate::dictation::run(directory, options, owner, finish, cancel, updates.clone())

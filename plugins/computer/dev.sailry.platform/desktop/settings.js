@@ -55,8 +55,9 @@ export default class Settings extends View {
     this.pending = true; this.error = null; cx.notify();
     cx.spawn(async cx => {
       try {
-        this.permissions = permission === null ? await readComputerPermissions()
+        const value = permission === null ? await readComputerPermissions()
           : await requestComputerPermission(permission);
+        if (value !== null) this.permissions = value;
       } catch (_) {
         this.error = permission === null ? 'computer_permissions_failed' : 'computer_permissions_open_failed';
         toast({id:'computer-permissions-error',message:this.text[this.error],kind:'error'});

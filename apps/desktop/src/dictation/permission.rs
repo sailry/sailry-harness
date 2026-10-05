@@ -78,3 +78,11 @@ pub(crate) async fn ensure(cancel: &CancellationToken) -> Result<()> {
         Ok(())
     }
 }
+
+pub(crate) fn verify() -> Result<()> {
+    if cfg!(target_os = "macos") && status() != Status::Granted {
+        Err("dictation_permission")
+    } else {
+        Ok(())
+    }
+}

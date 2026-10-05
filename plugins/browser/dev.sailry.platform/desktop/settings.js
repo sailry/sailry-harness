@@ -19,8 +19,7 @@ export default class Settings extends View {
   init(_props, cx) {
     this.text = messages(JSON.parse(context()).locale);
     this.state = readBrowserSettings();
-    this.busy = false; this.profiles = null;
-    this.message = this.state.supported ? null : this.text.browser_import_unavailable;
+    this.busy = false; this.profiles = null; this.importing = null;
     cx.spawn(async cx => {
       try { while (true) {
         if (await modal_closed() === 'browser-profiles-dialog') { this.profiles = null; cx.notify(); }
@@ -37,12 +36,13 @@ export default class Settings extends View {
   }
   scan(cx) {
     if (this.busy || !this.state.enabled) return;
-    this.busy = true; this.message = null; cx.notify();
+    this.busy = true; cx.notify();
     cx.spawn(async cx => {
       try {
         const profiles = await listBrowserProfiles();
         if (profiles === null) return;
-        if (profiles.length) this.profiles = profiles;
+        if (profiles.length === 1) await this.transfer(profiles[0],null);
+        else if (profiles.length) this.profiles = profiles;
         else this.report(this.text.browser_chrome_missing);
       } catch (error) { this.report(this.text[errorKey(error,'browser_chrome_failed')]); }
       finally { this.busy = false; cx.notify(); }
@@ -50,15 +50,19 @@ export default class Settings extends View {
   }
   import(profile, cx) {
     if (this.busy || !this.state.enabled) return;
-    const profiles=this.profiles;this.busy = true; this.message = null; cx.notify();
+    const profiles=this.profiles;this.busy = true;this.importing=profile.id;cx.notify();
     cx.spawn(async cx => {
-      try {
-        const {count,skipped} = await importBrowserProfile(profile.id);
-        if(this.profiles===profiles)this.profiles=null;
-        this.report(count === 0 && skipped === 0 ? this.text.browser_chrome_empty : imported(this.text,count,skipped),'info');
-      } catch (error) { this.report(this.text[errorKey(error,'browser_import_failed')]); }
-      finally { this.busy = false; cx.notify(); }
+      try { await this.transfer(profile,profiles); }
+      catch (error) { this.report(this.text[errorKey(error,'browser_import_failed')]); }
+      finally { this.busy = false;this.importing=null;cx.notify(); }
     });
+  }
+  async transfer(profile,profiles) {
+    const result = await importBrowserProfile(profile.id);
+    if(result===null)return;
+    const {count,skipped} = result;
+    if(this.profiles===profiles)this.profiles=null;
+    this.report(count === 0 && skipped === 0 ? this.text.browser_chrome_empty : imported(this.text,count,skipped),'info');
   }
   persist(value, cx) {
     if (this.busy || !this.state.enabled) return;
@@ -72,12 +76,13 @@ export default class Settings extends View {
     return div().id('browser-settings-page').v_flex().gap_3()
       .children(state.supported ? [SettingsGroup.new('browser_data',{title:text.browser_data})
         .child(row('browser_chrome_import',text.browser_chrome_import,text.browser_chrome_description,
-          new Button('browser-chrome-scan').secondary().size('small').label(text.browser_import).disabled(disabled)
+          new Button('browser-chrome-scan').secondary().size('small').label(text.browser_import).disabled(!state.enabled || this.busy && !!this.profiles)
+            .loading(this.busy && !this.profiles)
+            .children(this.busy && !this.profiles ? [new Spinner().size('small')] : [])
             .on_click((_,cx) => this.scan(cx))))
         .child(row('browser_data_local',text.browser_data_local,text.browser_data_description,
           Toggle.new('browser-retain-data',{label:text.browser_data_local,checked:state.persistent,disabled})))] : [])
-      .children(this.message ? [div().id('browser-settings-message').text_sm().child(this.message)] : [])
-      .children(this.busy ? [new Spinner().size('small')] : [])
+      .children(!state.supported ? [div().id('browser-import-unavailable').text_sm().child(text.browser_import_unavailable)] : [])
       .child(Modal.new('browser-profiles-dialog',{open:!!this.profiles})
         .children(this.profiles ? [div().id('browser-profile-picker').v_flex().w(Math.min(380,window.viewport_size().width - 88)).gap_3()
           .child(div().h_flex().items_center().gap_3()
@@ -85,6 +90,9 @@ export default class Settings extends View {
             .child(IconButton.new('browser-profiles-close',{icon:'close',label:text.close})))
           .child(div().id('browser-profiles').v_flex().max_h_80().overflow_y_scroll().gap_1()
             .children(this.profiles.map((profile,index) => new Button(`browser-profile-${index}`).ghost().w_full().justify_start()
-              .label(profile.name).on_click((_,cx) => this.import(profile,cx)))))] : []));
+              .label(profile.name).disabled(!state.enabled || this.busy && this.importing!==profile.id)
+              .loading(this.busy && this.importing===profile.id)
+              .children(this.busy && this.importing===profile.id ? [new Spinner().size('small')] : [])
+              .on_click((_,cx) => this.import(profile,cx)))))] : []));
   }
 }

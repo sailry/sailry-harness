@@ -14,6 +14,7 @@
     <key>CFBundleIconFile</key><string>Sailry.icns</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>NSMicrophoneUsageDescription</key><string>Use the microphone for voice input</string>
+    <key>NSAppDataUsageDescription</key><string>Import Chrome website cookies into Sailry</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict>

@@ -33,12 +33,13 @@ pub(super) struct Panel {
     cancel: CancellationToken,
     task: Option<Task<()>>,
     permission: Status,
-    permission_task: Option<Task<()>>,
+    permission_stop: CancellationToken,
 }
 
 impl Drop for Panel {
     fn drop(&mut self) {
         self.cancel.cancel();
+        self.permission_stop.cancel();
     }
 }
 
@@ -57,7 +58,7 @@ impl Panel {
             cancel: CancellationToken::new(),
             task: None,
             permission: Status::Unknown,
-            permission_task: None,
+            permission_stop: CancellationToken::new(),
         }
     }
 
@@ -90,40 +91,25 @@ impl Panel {
         cx.notify();
     }
 
-    fn authorize(&mut self, cx: &mut Context<Self>) {
-        if self.permission_task.is_some() || dictation::directory(cx).is_none() {
+    fn authorize(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if dictation::directory(cx).is_none() {
             return;
         }
-        self.permission = permission::status();
-        if self.permission != Status::NotDetermined {
-            if let Some(url) = permission::settings_url() {
-                cx.open_url(url);
-            }
-            cx.notify();
-            return;
-        }
-        let cancel = CancellationToken::new();
-        let job = cx.background_executor().spawn(async move {
-            let _ = permission::ensure(&cancel).await;
-            permission::status()
-        });
-        self.permission_task = Some(cx.spawn(async move |owner, cx| {
-            let status = job.await;
-            _ = owner.update(cx, |this, cx| {
-                this.finish_authorization(status, cx);
-            });
-        }));
-        cx.notify();
+        let owner = cx.entity().downgrade();
+        crate::permissions::microphone(
+            self.permission_stop.clone(),
+            Box::new(move |_, _, cx| {
+                let _ = owner.update(cx, |this, cx| {
+                    this.finish_authorization(permission::status(), cx)
+                });
+            }),
+            window,
+            cx,
+        );
     }
 
     fn finish_authorization(&mut self, status: Status, cx: &mut Context<Self>) {
-        self.permission_task = None;
         self.permission = status;
-        if status != Status::Granted
-            && let Some(url) = permission::settings_url()
-        {
-            cx.open_url(url);
-        }
         self.refresh(cx);
         cx.notify();
     }
@@ -312,9 +298,10 @@ impl Render for Panel {
                                 row.child(
                                     Button::new("dictation-authorize")
                                         .label(tr("permission_request"))
-                                        .disabled(self.permission_task.is_some())
                                         .debug_selector(|| "dictation-authorize".into())
-                                        .on_click(cx.listener(|this, _, _, cx| this.authorize(cx))),
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.authorize(window, cx)
+                                        })),
                                 )
                             }),
                         )

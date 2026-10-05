@@ -21,7 +21,7 @@ use values::{decode, encode, revision};
 impl Host {
     #[cfg(test)]
     pub(in crate::plugins) fn sdk(self: &Arc<Self>) -> HostModule {
-        self.sdk_with_documents(None, false, Default::default())
+        self.sdk_with_documents(None, false, Default::default(), None)
     }
 
     pub(in crate::plugins) fn sdk_with_documents(
@@ -29,6 +29,7 @@ impl Host {
         documents: Option<gpui_kit::Entity<crate::plugins::documents::Controller>>,
         write_files: bool,
         sources: super::usage::Sources,
+        permissions: Option<gpui_kit::Entity<crate::permissions::Controller>>,
     ) -> HostModule {
         let completed_documents = documents.clone();
         let forgotten_documents = documents.clone();
@@ -218,6 +219,7 @@ impl Host {
                 self.terminal_module(self.git_module(self.conversation_module(module))),
                 documents,
             ),
+            permissions,
         ))))
         .declarations(include_str!("sdk/api.d.ts"))
     }

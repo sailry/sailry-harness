@@ -120,3 +120,12 @@ test('a failed refresh keeps previous permission data and reports only through a
   assert.equal(setup.view.value(),previous);assert.equal(setup.view.status('screen_capture'),'computer_permission_missing');
   assert.equal(setup.view.canRequest('screen_capture'),false);assert.equal(setup.notices.length,1);assert.equal(setup.notices[0].kind,'error');
 });
+
+test('closing permission guidance preserves status without feedback or another request',async()=>{
+  let requests=0;
+  const setup=await settings({readComputerPermissions:async()=>permissions(),requestComputerPermission:async()=>{requests++;return null;}});
+  await setup.ready();const previous=setup.view.value();await setup.act(()=>setup.view.read('screen_capture',setup.cx));
+  assert.equal(setup.view.value(),previous);assert.equal(setup.view.pending,false);assert.equal(setup.view.error,null);
+  assert.equal(setup.view.status('screen_capture'),'computer_permission_missing');assert.equal(setup.view.canRequest('screen_capture'),true);
+  assert.equal(setup.notices.length,0);assert.equal(requests,1);
+});

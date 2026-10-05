@@ -1,3 +1,4 @@
 "NSLocalNetworkUsageDescription" = "连接你的主机";
 
 NSMicrophoneUsageDescription = "使用麦克风进行语音输入";
+NSAppDataUsageDescription = "将 Chrome 网站 Cookie 导入 Sailry";

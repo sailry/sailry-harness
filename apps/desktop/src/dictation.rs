@@ -64,12 +64,12 @@ pub(crate) async fn run(
     if !ready {
         return Err("dictation_model_missing");
     }
-    permission::ensure(&cancel).await?;
+    permission::verify()?;
     let path = directory;
     if cancel.is_cancelled() {
         return Ok(String::new());
     }
-    // Permission prompts, device setup and inference stay off GPUI's executor.
+    // Device setup and inference stay off GPUI's executor. Authorization belongs to the central UI.
     tokio::task::spawn_blocking(move || {
         let recognizer = model::Recognizer::new(&path, options.language).map_err(error_key)?;
         let mut recorder = capture::Recorder::new(options.microphone.as_deref())?;

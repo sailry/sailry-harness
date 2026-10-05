@@ -46,6 +46,7 @@ mod native_provider_fixture;
 mod navigation_tabs;
 mod pages;
 mod panes;
+mod permissions;
 mod plugins;
 mod ports;
 mod preferences;

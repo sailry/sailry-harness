@@ -69,10 +69,21 @@ fn imports_selected_sites() {
         database,
     };
     assert_eq!(sites(&profile).unwrap().len(), 2);
-    let result = read(&profile, &BTreeSet::from([".example.test".into()]), || {
-        Ok(Zeroizing::new(b"isolated-password".to_vec()))
-    })
-    .unwrap();
+    let prepared = prepare(&profile, &BTreeSet::from([".example.test".into()])).unwrap();
+    assert!(prepared.needs_key());
+    // Preparation reads app data only; credentials are requested separately and failures retain retry data.
+    assert!(
+        prepared
+            .decrypt(|| Err("browser_chrome_key_denied"))
+            .is_err()
+    );
+    let unlocked = prepared
+        .decrypt(|| Ok(Zeroizing::new(b"isolated-password".to_vec())))
+        .unwrap();
+    assert_eq!(unlocked.cookies[0].value.as_str(), "fixture-login");
+    let result = prepared
+        .decrypt(|| Ok(Zeroizing::new(b"isolated-password".to_vec())))
+        .unwrap();
     assert_eq!(result.cookies.len(), 1);
     assert_eq!(result.skipped, 3);
     let cookie = &result.cookies[0];
@@ -82,15 +93,14 @@ fn imports_selected_sites() {
     assert_eq!(cookie.expires, None);
     assert_eq!(std::fs::read(&profile.database).unwrap(), original);
     assert!(
-        read(&profile, &BTreeSet::from([".example.test".into()]), || Err(
-            "browser_chrome_key_denied"
-        ))
-        .is_err()
+        prepared
+            .decrypt(|| Err("browser_chrome_key_denied"))
+            .is_err()
     );
-    let empty = read(&profile, &BTreeSet::new(), || {
-        panic!("unselected sites must not request credentials")
-    })
-    .unwrap();
+    let empty = prepare(&profile, &BTreeSet::new())
+        .unwrap()
+        .decrypt(|| panic!("unselected sites must not request credentials"))
+        .unwrap();
     assert!(empty.cookies.is_empty());
 }
 
@@ -130,6 +140,24 @@ fn distinguishes_missing_denied_and_unreadable_metadata() {
         discover(root.path()),
         Err("browser_chrome_failed")
     ));
+}
+
+#[test]
+fn preserves_database_access_errors() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("Cookies");
+    assert!(matches!(database(&path), Err("browser_chrome_missing")));
+    std::fs::write(&path, b"unreadable fixture").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert!(matches!(
+        database(&path),
+        Err("browser_chrome_access_denied")
+    ));
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(matches!(database(&path), Err("browser_chrome_failed")));
+    assert_eq!(std::fs::read(&path).unwrap(), b"unreadable fixture");
 }
 
 #[test]

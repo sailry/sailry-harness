@@ -60,6 +60,16 @@ fn explicit_requests_and_status_refresh(cx: &mut TestAppContext) {
         point(refresh.right() - px(40.), refresh.bottom() + px(36.)),
         Modifiers::default(),
     );
+    shown(visual, "permissions-modal", true);
+    assert!(
+        fixture
+            .transport
+            .permission_requests
+            .lock()
+            .unwrap()
+            .is_empty()
+    );
+    tap(visual, "permission_screen-request");
     wait(visual, |_| {
         *fixture.transport.permission_requests.lock().unwrap() == [Permission::ScreenCapture]
     });
@@ -71,6 +81,7 @@ fn explicit_requests_and_status_refresh(cx: &mut TestAppContext) {
         false,
     );
     shown_settings(&owner, visual, "computer-authorize-screen", true);
+    shown(visual, "permission_screen-permission_required", true);
     visual.deactivate_window();
     {
         let mut permissions = fixture.transport.computer.lock().unwrap();
@@ -176,6 +187,53 @@ fn wrong_device_recovery(cx: &mut TestAppContext) {
         );
         fixture.close(visual);
     }
+}
+
+#[gpui::test]
+fn cancelling_authorization_preserves_current_status(cx: &mut TestAppContext) {
+    init(cx);
+    let fixture = Fixture::new(false);
+    permissions(&fixture, true);
+    let (owner, visual) = fixture.mount(cx);
+    open(&owner, visual);
+    draw(visual);
+    let refresh = visual.debug_bounds("computer-permissions-refresh").unwrap();
+    visual.simulate_click(
+        point(refresh.right() - px(40.), refresh.bottom() + px(36.)),
+        Modifiers::default(),
+    );
+    shown(visual, "permissions-modal", true);
+    tap(visual, "permissions-cancel");
+    shown(visual, "permissions-modal", false);
+    shown_settings(&owner, visual, "computer-authorize-screen", true);
+    shown_settings(
+        &owner,
+        visual,
+        "computer-screen-computer_permission_missing",
+        false,
+    );
+    // The unchanged missing-access value renders its available action, not a second status label.
+    assert_eq!(
+        fixture
+            .transport
+            .computer
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .screen_capture,
+        Some(false)
+    );
+    assert!(
+        fixture
+            .transport
+            .permission_requests
+            .lock()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(visual.update(|window, cx| window.notifications(cx).is_empty()));
+    fixture.close(visual);
 }
 
 #[gpui::test]

@@ -18,7 +18,7 @@ export type ComputerPermissions = {
 /** Reads the captured execution Node without requesting OS permission. */
 export function readComputerPermissions(): Promise<ComputerPermissions>;
 /** Explicit permission guidance is allowed only on the execution device's local client. */
-export function requestComputerPermission(permission: "screen_capture" | "accessibility"): Promise<ComputerPermissions>;
+export function requestComputerPermission(permission: "screen_capture" | "accessibility"): Promise<ComputerPermissions | null>;
 export function listModels(): Promise<{ models: Json[] }>;
 /** Read-only resolution on the captured execution Node; credentials remain opaque references. */
 export function resolveSessionModel(model:string, effort?:Json|null, config?:Json|null):Promise<Json>;

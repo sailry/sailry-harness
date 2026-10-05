@@ -2373,6 +2373,23 @@ computer_permissions_failed: 检测失败
 computer_permissions_open_failed: 未能打开系统设置
 computer_permissions_refresh: 重新检测
 permission_request: 请求授权
+permission_title: 系统权限
+permission_screen: 屏幕录制
+permission_accessibility: 辅助功能
+permission_microphone: 麦克风
+permission_chrome: Chrome 数据
+permission_keychain: Chrome 钥匙串
+permission_unknown: 尚未检查
+permission_required: 需要授权
+permission_granted: 已允许
+permission_not_needed: 无需授权
+permission_denied: 已拒绝
+permission_restricted: 系统限制
+permission_remote: 请在执行设备上授权
+permission_unavailable: 此设备不可用
+permission_settings: 打开设置
+permission_check: 检查
+permission_cancelled: 已取消
 computer_permissions_remote: 请在执行电脑上打开 Sailry 设置并授权
 computer_permissions_unsupported: 此系统暂不支持权限检测与授权引导
 tool_computer_desktop: 查看桌面

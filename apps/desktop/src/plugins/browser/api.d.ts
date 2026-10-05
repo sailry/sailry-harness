@@ -6,4 +6,4 @@ export function browserAction(action: {kind: 'add'|'select'|'close'|'navigate'|'
 export function readBrowserSettings(): {supported:boolean; enabled:boolean; persistent:boolean};
 export function setBrowserPersistent(value:boolean): void;
 export function listBrowserProfiles(): Promise<{id:string;name:string}[] | null>;
-export function importBrowserProfile(id:string): Promise<{count:number;skipped:number}>;
+export function importBrowserProfile(id:string): Promise<{count:number;skipped:number} | null>;

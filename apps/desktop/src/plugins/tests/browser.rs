@@ -4,6 +4,7 @@ use crate::{
     shell::{Shell, session_scope::Key},
 };
 use sailry_protocol::{Output, plugin::Info};
+mod settings;
 
 fn package(fixture: &Fixture) -> Info {
     let Output::Plugin(info) = fixture.execute(Command::ReadPlugin {

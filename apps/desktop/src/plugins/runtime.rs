@@ -184,8 +184,13 @@ impl Mounted {
         let ui = super::data_table::module(ui, host.stop_token(), cx);
         let ui = super::charts::module(ui);
         let ui = super::activity::module(ui, owner.clone(), host.clone());
-        let sdk =
-            host.sdk_with_documents(documents.controller.clone(), documents.write, usage_sources);
+        let permissions = cx.new(|cx| crate::permissions::Controller::new(window, cx));
+        let sdk = host.sdk_with_documents(
+            documents.controller.clone(),
+            documents.write,
+            usage_sources,
+            Some(permissions),
+        );
         let sdk = host.activity_module(sdk, activity_sources);
         let credentials = cx.new(|_| super::credentials::Store::default());
         let connections = host.connections_module(credentials.clone());

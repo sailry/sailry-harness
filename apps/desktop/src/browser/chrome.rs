@@ -17,6 +17,7 @@ pub(crate) struct Profile {
     pub database: PathBuf,
 }
 
+#[derive(Clone)]
 pub(crate) struct Cookie {
     pub domain: String,
     pub name: String,
@@ -33,10 +34,64 @@ pub(crate) struct Import {
     pub skipped: usize,
 }
 
+pub(crate) struct Prepared {
+    cookies: Vec<PendingCookie>,
+    skipped: usize,
+}
+#[derive(Clone)]
+struct PendingCookie {
+    cookie: Cookie,
+    encrypted: Zeroizing<Vec<u8>>,
+}
+impl Prepared {
+    pub(crate) fn needs_key(&self) -> bool {
+        self.cookies
+            .iter()
+            .any(|cookie| !cookie.encrypted.is_empty())
+    }
+    pub(crate) fn unlock(&self) -> Result<Import> {
+        self.decrypt(|| {
+            security_framework::passwords::get_generic_password("Chrome Safe Storage", "Chrome")
+                .map(Zeroizing::new)
+                .map_err(|_| "browser_chrome_key_denied")
+        })
+    }
+    fn decrypt(&self, key: impl FnOnce() -> Result<Zeroizing<Vec<u8>>>) -> Result<Import> {
+        let secret = if self.needs_key() {
+            Some(crypto::key(&key()?))
+        } else {
+            None
+        };
+        let mut result = Import {
+            cookies: Vec::new(),
+            skipped: self.skipped,
+        };
+        for mut pending in self.cookies.iter().cloned() {
+            if !pending.encrypted.is_empty() {
+                match crypto::decrypt(
+                    secret.as_ref().unwrap(),
+                    &pending.cookie.domain,
+                    &pending.encrypted,
+                ) {
+                    Ok(value) => pending.cookie.value = value,
+                    Err(_) => {
+                        result.skipped += 1;
+                        continue;
+                    }
+                }
+            }
+            result.cookies.push(pending.cookie);
+        }
+        Ok(result)
+    }
+}
+
 pub(crate) type Result<T> = std::result::Result<T, &'static str>;
 
 pub(crate) fn profiles() -> Result<Vec<Profile>> {
     let home = dirs::home_dir().ok_or("browser_chrome_missing")?;
+    // Opening metadata after Import is pressed lets macOS request app-data
+    // consent when required (WWDC23 10053); do not replace it with a file picker.
     discover(&home.join("Library/Application Support/Google/Chrome"))
 }
 
@@ -91,6 +146,9 @@ fn cookie_path(directory: &Path) -> Result<Option<PathBuf>> {
 }
 
 fn database(path: &Path) -> Result<Connection> {
+    // The database can be protected separately from Local State. Opening it
+    // requests native consent and preserves access-denied errors before SQLite.
+    let _access = std::fs::File::open(path).map_err(discovery_error)?;
     let db = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -123,30 +181,15 @@ pub(crate) fn sites(profile: &Profile) -> Result<Vec<String>> {
         .map_err(|_| "browser_chrome_failed")
 }
 
-pub(crate) fn import(profile: &Profile, sites: &BTreeSet<String>) -> Result<Import> {
-    // The OS may ask the user to authorize this read. Never create or replace Chrome's key.
-    read(profile, sites, || {
-        security_framework::passwords::get_generic_password("Chrome Safe Storage", "Chrome")
-            .map(Zeroizing::new)
-            .map_err(|_| "browser_chrome_key_denied")
-    })
-}
-
-fn read(
-    profile: &Profile,
-    sites: &BTreeSet<String>,
-    key: impl FnOnce() -> Result<Zeroizing<Vec<u8>>>,
-) -> Result<Import> {
+pub(crate) fn prepare(profile: &Profile, sites: &BTreeSet<String>) -> Result<Prepared> {
     let db = database(&profile.database)?;
     let mut query = db.prepare("SELECT host_key,name,value,CAST(encrypted_value AS BLOB),path,is_secure,is_httponly,samesite,expires_utc,has_expires,top_frame_site_key FROM cookies")
         .map_err(|_| "browser_chrome_failed")?;
     let mut rows = query.query([]).map_err(|_| "browser_chrome_failed")?;
-    let mut result = Import {
+    let mut result = Prepared {
         cookies: Vec::new(),
         skipped: 0,
     };
-    let mut secret = None;
-    let mut key = Some(key);
     while let Some(row) = rows.next().map_err(|_| "browser_chrome_failed")? {
         let domain: String = row.get(0).map_err(|_| "browser_chrome_failed")?;
         if !sites.contains(&domain) {
@@ -187,33 +230,22 @@ fn read(
             result.skipped += 1;
             continue;
         }
-        let value = if encrypted.is_empty() {
-            plain
-        } else {
-            if !encrypted.starts_with(b"v10") {
-                result.skipped += 1;
-                continue;
-            }
-            if secret.is_none() {
-                secret = Some(crypto::key(&(key.take().unwrap())()?));
-            }
-            match crypto::decrypt(secret.as_ref().unwrap(), &domain, &encrypted) {
-                Ok(value) => value,
-                Err(_) => {
-                    result.skipped += 1;
-                    continue;
-                }
-            }
-        };
-        result.cookies.push(Cookie {
-            domain,
-            name,
-            value,
-            path,
-            secure,
-            http_only,
-            same_site,
-            expires,
+        if !encrypted.is_empty() && !encrypted.starts_with(b"v10") {
+            result.skipped += 1;
+            continue;
+        }
+        result.cookies.push(PendingCookie {
+            cookie: Cookie {
+                domain,
+                name,
+                value: plain,
+                path,
+                secure,
+                http_only,
+                same_site,
+                expires,
+            },
+            encrypted: Zeroizing::new(encrypted),
         });
     }
     Ok(result)
