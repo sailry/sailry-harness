@@ -8,6 +8,7 @@ import 'package:sailry_bridge/api/commands.dart';
 import 'support/commands.dart';
 import 'package:sailry_bridge/api/conversation.dart';
 import 'package:sailry_mobile/features/conversations/live/page.dart';
+import 'package:sailry_mobile/features/conversations/live/configuration.dart';
 import 'package:sailry_mobile/features/conversations/live/question.dart';
 import 'package:sailry_mobile/features/conversations/live/queue.dart';
 import 'package:sailry_mobile/features/conversations/live/timeline.dart';
@@ -161,6 +162,68 @@ Future<void> mount(WidgetTester tester, Widget page, AppSession app) async {
 }
 
 void main() {
+  for (final delegated in [false, true]) {
+    testWidgets(
+      'header groups actions ${delegated ? 'without delegated settings' : 'with settings last'}',
+      (tester) async {
+        final connection = ConnectionFixture();
+        final record = {
+          ...session(),
+          if (delegated) 'delegation': {'parent': 'parent'},
+        };
+        final host = HostConnection.test(
+          id: 'node',
+          label: 'Node',
+          connection: connection,
+          command: (_, _) async => {},
+        );
+        final app = AppSession.test(hosts: [host]);
+        await mount(
+          tester,
+          LiveConversationPage(
+            host: host,
+            sessionId: 'session',
+            initialSession: record,
+          ),
+          app,
+        );
+        connection.updates.emit(view());
+        await tester.pumpAndSettle();
+        final card = find.byKey(const ValueKey('conversation-actions'));
+        final buttons = find.descendant(
+          of: card,
+          matching: find.byType(IconButton),
+        );
+        expect(buttons, findsNWidgets(delegated ? 4 : 5));
+        final settings = find.byKey(const ValueKey('conversation-settings'));
+        if (delegated) {
+          expect(settings, findsNothing);
+        } else {
+          expect(tester.widget(buttons.last), same(tester.widget(settings)));
+          for (final width in [320.0, 430.0]) {
+            tester.view.physicalSize = Size(width, 900);
+            await tester.pumpAndSettle();
+            final bounds = tester.getRect(card);
+            for (final element in buttons.evaluate()) {
+              final center = tester.getCenter(find.byWidget(element.widget));
+              expect(bounds.contains(center), isTrue);
+            }
+            expect(
+              tester.getRect(settings).right,
+              lessThanOrEqualTo(width - 20),
+            );
+            expect(tester.takeException(), isNull);
+          }
+          await tester.tap(settings);
+          await tester.pumpAndSettle();
+          expect(find.byType(ConversationConfiguration), findsOneWidget);
+        }
+        await tester.pumpWidget(const SizedBox());
+        app.dispose();
+      },
+    );
+  }
+
   testWidgets('header ports use the captured host and session', (tester) async {
     final connection = ConnectionFixture();
     connection.commands.emit({'connected': true, 'items': []});

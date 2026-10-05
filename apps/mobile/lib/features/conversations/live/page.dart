@@ -375,23 +375,9 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
             unavailable && _snapshot.isNotEmpty;
         return ConversationFrame(
           title: text(_session['title'], context.tr('chat')),
-          leading: delegated
-              ? null
-              : Align(
-                  alignment: Alignment.centerLeft,
-                  child: Surface(
-                    radius: 20,
-                    padding: EdgeInsets.zero,
-                    child: IconButton(
-                      style: actionStyle,
-                      icon: const AppIcon('settings', size: 18),
-                      tooltip: context.tr('modelPicker'),
-                      onPressed: _configuration,
-                    ),
-                  ),
-                ),
           actions: [
             Surface(
+              key: const ValueKey('conversation-actions'),
               radius: 20,
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Row(
@@ -441,6 +427,14 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                       ),
                     ),
                   ),
+                  if (!delegated)
+                    IconButton(
+                      key: const ValueKey('conversation-settings'),
+                      style: actionStyle,
+                      icon: const AppIcon('settings', size: 18),
+                      tooltip: context.tr('modelPicker'),
+                      onPressed: _configuration,
+                    ),
                 ],
               ),
             ),
