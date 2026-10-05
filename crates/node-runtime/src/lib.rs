@@ -170,6 +170,24 @@ impl Node {
         .map_err(|error| Error::Worker(error.to_string()))?
     }
 
+    /// Routes only the official plugin index to an isolated HTTP fixture.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn start_with_plugin_catalog(
+        path: impl AsRef<Path>,
+        endpoint: &str,
+    ) -> Result<Self, Error> {
+        tokio::spawn(Self::start_owned(
+            path.as_ref().to_owned(),
+            NetworkScope::default(),
+            Default::default(),
+            Default::default(),
+            crate::plugins::github::Github::catalog_fixture(endpoint),
+            None,
+        ))
+        .await
+        .map_err(|error| Error::Worker(error.to_string()))?
+    }
+
     async fn start_owned(
         path: PathBuf,
         network_scope: NetworkScope,

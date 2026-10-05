@@ -1,4 +1,4 @@
-//! Offline official packages and the public pluginsmp.com Agent Plugins directory.
+//! Official repository packages and the public pluginsmp.com Agent Plugins directory.
 use super::*;
 use sailry_link::CancellationToken;
 use sailry_protocol::plugin::{
@@ -7,6 +7,7 @@ use sailry_protocol::plugin::{
 };
 use serde::Deserialize;
 use std::io::{Read, Seek};
+mod official;
 
 #[derive(Deserialize)]
 struct Response<T> {
@@ -53,7 +54,7 @@ impl Host {
             return Err(invalid("invalid catalog query"));
         }
         if source == CatalogSource::Official {
-            let mut entries = bundled::entries()?;
+            let mut entries = official::entries(self, &stop).await?;
             let query = query.to_lowercase();
             entries.retain(|entry| {
                 entry.name.to_lowercase().contains(&query)
@@ -140,11 +141,15 @@ impl Host {
 
     pub(crate) async fn catalog_source(
         &self,
+        catalog: CatalogSource,
         id: &str,
         stop: CancellationToken,
     ) -> Result<Source, Fault> {
         if !sailry_protocol::plugin::ui::identifier(id) {
             return Err(invalid("invalid catalog identifier"));
+        }
+        if catalog == CatalogSource::Official {
+            return official::source(self, id, &stop).await;
         }
         let response: Response<Detail> = self
             .catalog_json(self.catalog_url(&format!("api/v1/plugins/{id}")), &stop)
@@ -156,29 +161,31 @@ impl Host {
         &self,
         source: CatalogSource,
         id: &str,
+        bundled: bool,
         stop: CancellationToken,
     ) -> Result<Info, Fault> {
         if !sailry_protocol::plugin::ui::identifier(id) {
             return Err(invalid("invalid catalog identifier"));
         }
-        match source {
-            CatalogSource::Official => {
-                let _permit = self
-                    .reads
-                    .clone()
-                    .try_acquire_owned()
-                    .map_err(|_| Fault::new(ErrorCode::Busy, "plugin inspection is busy"))?;
-                let host = self.clone();
-                let id = id.to_owned();
-                tokio::task::spawn_blocking(move || host.inspect_bundled(&id, stop))
-                    .await
-                    .map_err(|_| github::unavailable())?
+        if bundled {
+            if source != CatalogSource::Official {
+                return Err(invalid(
+                    "third-party catalog cannot select bundled packages",
+                ));
             }
-            CatalogSource::ThirdParty => {
-                let source = self.catalog_source(id, stop.clone()).await?;
-                Ok(self.inspect_source(&source, stop).await?.info)
-            }
+            let _permit = self
+                .reads
+                .clone()
+                .try_acquire_owned()
+                .map_err(|_| Fault::new(ErrorCode::Busy, "plugin inspection is busy"))?;
+            let host = self.clone();
+            let id = id.to_owned();
+            return tokio::task::spawn_blocking(move || host.inspect_bundled(&id, stop))
+                .await
+                .map_err(|_| github::unavailable())?;
         }
+        let source = self.catalog_source(source, id, stop.clone()).await?;
+        Ok(self.inspect_source(&source, stop).await?.info)
     }
 
     fn catalog_url(&self, path: &str) -> url::Url {
@@ -205,6 +212,33 @@ impl Host {
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes).map_err(io_error)?;
         serde_json::from_slice(&bytes).map_err(|_| invalid("invalid plugin catalog response"))
+    }
+}
+
+pub(super) fn entry(id: &str, manifest: manifest::Manifest) -> Entry {
+    Entry {
+        id: id.to_owned(),
+        name: manifest.name,
+        description: manifest
+            .extension
+            .as_ref()
+            .and_then(|extension| extension.description.as_ref())
+            .map(|description| description.label.clone())
+            .or(manifest.description),
+        description_locales: manifest
+            .extension
+            .as_ref()
+            .and_then(|extension| extension.description.as_ref())
+            .map(|description| description.locales.clone())
+            .unwrap_or_default(),
+        display: manifest.extension.and_then(|extension| {
+            extension
+                .display
+                .or_else(|| extension.desktop.and_then(|desktop| desktop.navigation))
+        }),
+        icon: None,
+        repository: None,
+        bundled: false,
     }
 }
 
@@ -235,7 +269,8 @@ mod tests {
     use super::*;
     #[tokio::test]
     async fn official_is_offline_and_searches_localized_titles() {
-        let host = Host::new(None);
+        let mut host = Host::new(None);
+        host.github = github::Github::catalog_fixture("http://127.0.0.1:9/");
         let page = host
             .catalog(CatalogSource::Official, "", 1, CancellationToken::new())
             .await
@@ -328,7 +363,10 @@ mod live_tests {
             .collect();
         assert!(!entries.is_empty());
         for entry in entries {
-            let source = host.catalog_source(&entry.id, stop.clone()).await.unwrap();
+            let source = host
+                .catalog_source(CatalogSource::ThirdParty, &entry.id, stop.clone())
+                .await
+                .unwrap();
             let selected = host.inspect_source(&source, stop.clone()).await.unwrap();
             let info = selected.info;
             assert_eq!(info.summary.name, entry.name);
@@ -364,7 +402,10 @@ mod live_tests {
             .iter()
             .find(|entry| !entry.bundled)
             .expect("portable public catalog entry");
-        let source = host.catalog_source(&entry.id, stop.clone()).await.unwrap();
+        let source = host
+            .catalog_source(CatalogSource::ThirdParty, &entry.id, stop.clone())
+            .await
+            .unwrap();
         let selected = host.inspect_source(&source, stop).await.unwrap();
         assert_eq!(selected.info.summary.name, entry.name);
         assert!(!selected.info.summary.digest.is_empty());

@@ -13,6 +13,12 @@ struct Server {
 }
 impl Server {
     fn new() -> Self {
+        Self::start(false)
+    }
+    fn official() -> Self {
+        Self::start(true)
+    }
+    fn start(official: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -26,6 +32,27 @@ impl Server {
                 zip.start_file(path, zip::write::SimpleFileOptions::default()).unwrap(); zip.write_all(body.as_bytes()).unwrap();
             }
             let archive = zip.finish().unwrap().into_inner();
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            for (path, body) in [
+                ("repo/portable/plugin.json", manifest.to_string()),
+                ("repo/portable/skills/review/SKILL.md", "---\nname: review\ndescription: Review project changes\n---\nReview the changes\n".into()),
+                ("repo/portable/mcp.json", serde_json::json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", "mcpServers":{"remote":{"type":"streamable-http", "url":"https://example.invalid/mcp"}}}).to_string()),
+            ] {
+                zip.start_file(path, zip::write::SimpleFileOptions::default()).unwrap();
+                zip.write_all(body.as_bytes()).unwrap();
+            }
+            let root =
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/reminders");
+            add_files(&root, &root, &mut zip);
+            zip.start_file(
+                "repo/reminders/fixture-update.txt",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+            zip.write_all(b"Official repository update").unwrap();
+            let reminders: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(root.join("plugin.json")).unwrap()).unwrap();
+            let official_archive = zip.finish().unwrap().into_inner();
             for stream in listener.incoming() {
                 if stopped.load(Ordering::SeqCst) {
                     break;
@@ -46,7 +73,21 @@ impl Server {
                 let request = String::from_utf8(request).unwrap();
                 let path = request.split_whitespace().nth(1).unwrap();
                 captured.lock().unwrap().push(path.to_owned());
-                let body = if path.starts_with("/api/v1/plugins?") {
+                if path == "/catalog.json" && !official {
+                    write!(
+                        stream,
+                        "HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    )
+                    .unwrap();
+                    continue;
+                }
+                let body = if path == "/catalog.json" {
+                    serde_json::json!({"version":1,"packages":[{"id":"portable","manifest":manifest},{"id":"reminders","manifest":reminders}]}).to_string().into_bytes()
+                } else if path == "/repos/sailry/sailry-plugins/commits/main" {
+                    "a".repeat(40).into_bytes()
+                } else if path == format!("/sailry/sailry-plugins/zip/{}", "a".repeat(40)) {
+                    official_archive.clone()
+                } else if path.starts_with("/api/v1/plugins?") {
                     assert!(path.contains("protocol=agent-plugins"));
                     serde_json::json!({"data":[{"slug":"portable", "name":"portable", "description":"Portable review skill", "repoUrl":"https://github.com/fixture/plugins", "protocols":["agent-plugins"]}],"meta":{"page":1,"total_pages":1}}).to_string().into_bytes()
                 } else if path == "/api/v1/plugins/portable" {
@@ -75,11 +116,138 @@ impl Server {
         }
     }
 }
+
+fn add_files(
+    root: &std::path::Path,
+    directory: &std::path::Path,
+    zip: &mut zip::ZipWriter<std::io::Cursor<Vec<u8>>>,
+) {
+    let mut entries = std::fs::read_dir(directory)
+        .unwrap()
+        .map(Result::unwrap)
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        let path = entry.path();
+        if entry.file_type().unwrap().is_dir() {
+            add_files(root, &path, zip);
+        } else {
+            assert!(entry.file_type().unwrap().is_file());
+            let relative = path
+                .strip_prefix(root)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .replace('\\', "/");
+            zip.start_file(
+                format!("repo/reminders/{relative}"),
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+            zip.write_all(&std::fs::read(path).unwrap()).unwrap();
+        }
+    }
+}
 impl Drop for Server {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
         let _ = std::net::TcpStream::connect(self.endpoint.trim_start_matches("http://"));
         self.thread.take().unwrap().join().unwrap();
+    }
+}
+
+#[gpui::test]
+fn official_install_and_details(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let server = Server::official();
+        let fixture = Fixture::with_skill_source(remote, &server.endpoint);
+        let before = fixture.public_packages(false);
+        let (_, visual) = fixture.mount(cx);
+        tap(visual, "plugins-market-tab");
+        shown(visual, "market-details-portable", true);
+        tap(visual, "market-details-portable");
+        shown(visual, "plugin-skill-review", true);
+        shown(visual, "plugin-server-remote", true);
+        assert_eq!(fixture.public_packages(false), before);
+        visual.simulate_keystrokes("escape");
+        tap(visual, "market-install-portable");
+        wait(visual, |_| {
+            fixture
+                .plugins()
+                .iter()
+                .any(|package| package.name == "portable")
+        });
+        shown(visual, "plugin-download-submit", false);
+        let paths = server.requests.lock().unwrap().clone();
+        assert!(
+            paths
+                .iter()
+                .any(|path| path == "/repos/sailry/sailry-plugins/commits/main")
+        );
+        assert!(
+            paths
+                .iter()
+                .any(|path| path.starts_with("/sailry/sailry-plugins/zip/"))
+        );
+        assert!(!paths.iter().any(|path| path.starts_with("/api/v1/plugins")));
+        let Output::Plugin(info) = fixture.execute(Command::ReadPlugin {
+            name: "portable".into(),
+        }) else {
+            panic!("plugin expected");
+        };
+        let Some(sailry_protocol::plugin::Origin::Online { source, path }) = info.origin else {
+            panic!("online origin expected");
+        };
+        assert_eq!(
+            source.repository,
+            "https://github.com/sailry/sailry-plugins.git"
+        );
+        assert_eq!(source.commit, "a".repeat(40));
+        assert_eq!(path, "portable");
+        fixture.close(visual);
+    }
+}
+
+#[gpui::test]
+fn preinstalled_updates(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let server = Server::official();
+        let fixture = Fixture::with_skill_source(remote, &server.endpoint);
+        fixture.execute(Command::SetPluginEnabled {
+            name: "reminders".into(),
+            expected_revision: 1,
+            enabled: false,
+        });
+        let (owner, visual) = fixture.mount(cx);
+        updates::ready(&owner, visual, "reminders", 2);
+        menu(visual, "plugin-menu-reminders", 1);
+        wait(visual, |cx| {
+            !owner.read(cx).plugin_catalog.updates.checking()
+        });
+        shown(visual, "plugin-update-reminders", true);
+        shown(visual, "plugins-update-all", true);
+        assert!(fixture.transport.requests.lock().unwrap().is_empty());
+        tap(visual, "plugins-update-all");
+        updates::ready(&owner, visual, "reminders", 3);
+        let Output::Plugin(info) = fixture.execute(Command::ReadPlugin {
+            name: "reminders".into(),
+        }) else {
+            panic!("package expected");
+        };
+        assert!(!info.summary.enabled);
+        let Some(sailry_protocol::plugin::Origin::Online { source, path }) = info.origin else {
+            panic!("official source expected");
+        };
+        assert_eq!(
+            source.repository,
+            "https://github.com/sailry/sailry-plugins.git"
+        );
+        assert_eq!(source.commit, "a".repeat(40));
+        assert_eq!(path, "reminders");
+        assert!(!visual.did_prompt_for_paths());
+        fixture.close(visual);
     }
 }
 
@@ -117,12 +285,20 @@ fn previews_without_installing(cx: &mut TestAppContext) {
         let before = fixture.public_packages(false);
         let (_, visual) = fixture.mount(cx);
         tap(visual, "plugins-market-tab");
+        shown(visual, "market-details-gomoku", true);
         tap(visual, "market-details-gomoku");
         shown(visual, "plugin-info-version", true);
         shown(visual, "plugin-details-configure", false);
         assert_eq!(fixture.public_packages(false), before);
         assert!(fixture.transport.requests.lock().unwrap().is_empty());
-        assert!(server.requests.lock().unwrap().is_empty());
+        assert!(
+            server
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|path| path == "/catalog.json")
+        );
         visual.simulate_keystrokes("escape");
         tap(visual, "market-details-files");
         shown(visual, "plugin-tool-read_file", true);
@@ -180,6 +356,7 @@ fn details_keep_their_node_and_cancel_on_close(cx: &mut TestAppContext) {
                 visual.simulate_keystrokes("escape");
                 wait(visual, |_| fixture.transport.read_cancelled.is_cancelled());
                 tap(visual, "plugins-official");
+                shown(visual, "market-details-files", true);
                 tap(visual, "market-details-files");
                 shown(visual, "plugin-tool-read_file", true);
             } else {
@@ -235,7 +412,14 @@ fn installs_portable_packages_from_catalog(cx: &mut TestAppContext) {
         assert!(text.right() < install.left());
         assert!((icon.center().y - text.center().y).abs() < px(1.));
         assert!((icon.center().y - install.center().y).abs() < px(1.));
-        assert!(server.requests.lock().unwrap().is_empty());
+        assert!(
+            server
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|path| path == "/catalog.json")
+        );
         shown(visual, "market-install-portable", false);
         tap(visual, "plugins-third-party");
         shown(visual, "market-install-portable", true);

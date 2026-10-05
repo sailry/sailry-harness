@@ -46,17 +46,21 @@ impl Host {
         let name = current.summary.name.clone();
         let (mut candidate, origin) = match &current.origin {
             Some(Origin::Bundled) => {
-                let _permit = self
-                    .reads
-                    .clone()
-                    .try_acquire_owned()
-                    .map_err(|_| Fault::new(ErrorCode::Busy, "plugin inspection is busy"))?;
-                let host = self.clone();
-                let candidate =
-                    tokio::task::spawn_blocking(move || host.inspect_bundled(&name, stop))
-                        .await
-                        .map_err(|_| github::unavailable())??;
-                (candidate, Origin::Bundled)
+                let source = self
+                    .catalog_source(
+                        sailry_protocol::plugin::catalog::Source::Official,
+                        &name,
+                        stop.clone(),
+                    )
+                    .await?;
+                let selected = self.inspect_source(&source, stop).await?;
+                (
+                    selected.info,
+                    Origin::Online {
+                        source: selected.source,
+                        path: selected.path,
+                    },
+                )
             }
             Some(Origin::Worktree { worktree, path }) => {
                 let _permit = self

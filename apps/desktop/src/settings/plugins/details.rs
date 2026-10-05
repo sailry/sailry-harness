@@ -14,6 +14,7 @@ enum Target {
         source: Source,
         id: String,
         name: String,
+        bundled: bool,
     },
 }
 
@@ -66,6 +67,7 @@ pub(crate) fn open_bound(
 
 pub(super) fn open_catalog(
     binding: Binding,
+    source: Source,
     entry: sailry_protocol::plugin::catalog::Entry,
     window: &mut Window,
     cx: &mut App,
@@ -73,13 +75,10 @@ pub(super) fn open_catalog(
     mount(
         binding,
         Target::Catalog {
-            source: if entry.bundled {
-                Source::Official
-            } else {
-                Source::ThirdParty
-            },
+            source,
             id: entry.id,
             name: entry.name,
+            bundled: entry.bundled,
         },
         window,
         cx,
@@ -183,9 +182,15 @@ impl Details {
             Target::Installed(expected) => Command::ReadPlugin {
                 name: expected.name.clone(),
             },
-            Target::Catalog { source, id, .. } => Command::ReadCatalogPluginInfo {
+            Target::Catalog {
+                source,
+                id,
+                bundled,
+                ..
+            } => Command::ReadCatalogPluginInfo {
                 source: *source,
                 id: id.clone(),
+                bundled: *bundled,
             },
         };
         let stop = self.stop.clone();

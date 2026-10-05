@@ -132,6 +132,12 @@ The application lives in `sailry-harness`; official plugin source lives only in
 `sailry-plugins`. The `plugins/` Git submodule pins a reviewed plugin commit.
 Builds embed that snapshot as ordinary package assets for offline use; new Node
 profiles install the selected defaults once, without resurrecting removed packages.
+The online official marketplace reads the plugin repository's `catalog.json`;
+unavailable networks leave the bundled snapshot installable. Invalid indexes are
+reported, not treated as an offline result. Official installation and updates
+capture immutable repository commits through Node's shared acquisition path.
+Preinstalled packages can update from the official repository without an app
+upgrade; update failures preserve installed packages and are reported honestly.
 
 Packages use the Agent Plugins manifest and Sailry's v1 extension contract.
 Node owns validation, immutable resources, grants, private KV, callbacks,

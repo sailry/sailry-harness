@@ -369,7 +369,10 @@ fn computer_routes(cx: &mut TestAppContext) {
         updates::ready(&owner, visual, "computer", revision);
         menu(visual, "plugin-menu-computer", 1);
         assert!(!visual.did_prompt_for_paths());
-        wait(visual, |_| package().revision > revision);
+        wait(visual, |cx| {
+            !owner.read(cx).plugin_catalog.updates.checking()
+        });
+        assert_eq!(package().revision, revision);
         ready(&owner, visual);
         assert!(!package().enabled);
         menu(visual, "plugin-menu-computer", 0);

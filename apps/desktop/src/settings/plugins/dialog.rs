@@ -72,7 +72,7 @@ fn create(
     } else {
         None
     };
-    if matches!(origin, Some(Origin::Online { .. })) {
+    if matches!(origin, Some(Origin::Bundled | Origin::Online { .. })) {
         owner.update(cx, |owner, cx| owner.check_plugin_updates(window, cx));
         return None;
     }
@@ -106,7 +106,7 @@ impl Editor {
             return;
         }
         match &self.origin {
-            Some(Origin::Bundled | Origin::Worktree { .. }) => self.submit(window, cx),
+            Some(Origin::Worktree { .. }) => self.submit(window, cx),
             Some(Origin::Directory) => {
                 let original = self
                     .original
@@ -169,24 +169,15 @@ impl Editor {
             });
         }
         let revision = self.original.as_ref().map_or(0, |plugin| plugin.revision);
-        if let Some(original) = &self.original {
-            match &self.origin {
-                Some(Origin::Bundled) => {
-                    return Ok(Command::InstallBundledPlugin {
-                        name: original.name.clone(),
-                        expected_revision: revision,
-                    });
-                }
-                Some(Origin::Worktree { worktree, path }) => {
-                    return Ok(Command::InstallPlugin {
-                        worktree: *worktree,
-                        path: path.clone(),
-                        name: original.name.clone(),
-                        expected_revision: revision,
-                    });
-                }
-                _ => {}
-            }
+        if let Some(original) = &self.original
+            && let Some(Origin::Worktree { worktree, path }) = &self.origin
+        {
+            return Ok(Command::InstallPlugin {
+                worktree: *worktree,
+                path: path.clone(),
+                name: original.name.clone(),
+                expected_revision: revision,
+            });
         }
         let package = self.package.as_ref().ok_or("plugins_choose_package")?;
         Ok(Command::InstallPluginUpload {

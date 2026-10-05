@@ -14359,6 +14359,7 @@ dependencies = [
  "rustls-native-certs",
  "sailry-client",
  "sailry-link",
+ "sailry-node-runtime",
  "sailry-protocol",
  "schemars 1.2.2",
  "semver",

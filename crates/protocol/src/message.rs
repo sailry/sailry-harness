@@ -305,11 +305,13 @@ pub enum Command {
         page: u32,
     },
     ReadCatalogPlugin {
+        source: crate::plugin::catalog::Source,
         id: String,
     },
     ReadCatalogPluginInfo {
         source: crate::plugin::catalog::Source,
         id: String,
+        bundled: bool,
     },
     InspectPluginSource {
         source: crate::plugin::skills::Source,

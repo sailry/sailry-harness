@@ -37,7 +37,10 @@ pub(crate) fn info(output: Output) -> Info {
 
 pub(crate) async fn fixture(remote: bool) -> (tempfile::TempDir, Node, Link, Client, WorktreeId) {
     let directory = tempfile::tempdir().unwrap();
-    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let node =
+        Node::start_with_plugin_catalog(directory.path().join("node"), "http://127.0.0.1:9/")
+            .await
+            .unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();

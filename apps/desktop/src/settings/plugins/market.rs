@@ -152,11 +152,12 @@ impl Market {
         let stop = self.begin(Loading::Repository(entry.id.clone()));
         let cancelled = stop.clone();
         let binding = self.binding.clone();
+        let source = self.source;
         let job = binding.runtime.spawn(async move {
             tokio::select! {
                 biased;
                 _ = cancelled.cancelled() => None,
-                result = binding.client.execute(binding.client.prepare(Command::ReadCatalogPlugin { id: entry.id })) => Some(result),
+                result = binding.client.execute(binding.client.prepare(Command::ReadCatalogPlugin { source, id: entry.id })) => Some(result),
             }
         });
         self.task = Some(cx.spawn_in(window, async move |state, cx| {
@@ -203,7 +204,7 @@ impl Market {
         if let Some(installed) = installed {
             details::open(owner, installed, window, cx);
         } else {
-            details::open_catalog(self.binding.clone(), entry, window, cx);
+            details::open_catalog(self.binding.clone(), self.source, entry, window, cx);
         }
     }
 }

@@ -12,6 +12,8 @@ pub(super) mod source;
 pub(crate) struct Github {
     #[cfg(any(test, feature = "test-support"))]
     pub(super) endpoint: Option<url::Url>,
+    #[cfg(any(test, feature = "test-support"))]
+    pub(super) official_endpoint: Option<url::Url>,
 }
 
 impl Github {
@@ -25,6 +27,15 @@ impl Github {
         ));
         Self {
             endpoint: Some(endpoint),
+            official_endpoint: None,
+        }
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn catalog_fixture(endpoint: &str) -> Self {
+        Self {
+            official_endpoint: Self::fixture(endpoint).endpoint,
+            endpoint: None,
         }
     }
 

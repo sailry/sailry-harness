@@ -108,14 +108,24 @@ async fn checks_content_without_installing_and_rejects_stale_revisions() {
 }
 
 #[tokio::test]
-async fn shipped_packages_match_their_installed_digest() {
+async fn unavailable_official_source() {
     for remote in [false, true] {
         let (_directory, node, controller, client, _) = fixture(remote).await;
         let stored = packages(&node);
         for name in ["files", "progress", "ssh", "databases"] {
             let current = info(execute(&client, Command::ReadPlugin { name: name.into() }).await);
-            let report = check(&client, &current.summary).await;
-            assert!(!report.manual && report.available.is_none());
+            let error = client
+                .execute(client.prepare(Command::CheckPluginUpdate {
+                    name: name.into(),
+                    expected_revision: current.summary.revision,
+                }))
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, ErrorCode::Unavailable);
+            assert_eq!(
+                info(execute(&client, Command::ReadPlugin { name: name.into() }).await),
+                current
+            );
         }
         assert_eq!(packages(&node), stored);
         node.shutdown().await.unwrap();

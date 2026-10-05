@@ -95,6 +95,7 @@ windows.workspace = true
 objc2-foundation = { workspace = true, features = ["NSFileManager", "NSPathUtilities", "NSURL"] }
 
 [dev-dependencies]
+sailry-node-runtime = { workspace = true, features = ["test-support"] }
 hyper.workspace = true
 hyper-util.workspace = true
 http-body-util.workspace = true

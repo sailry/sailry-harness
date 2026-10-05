@@ -38,35 +38,16 @@ pub(super) fn entries() -> Result<Vec<sailry_protocol::plugin::catalog::Entry>, 
                 .unwrap()
                 .1;
             let manifest = manifest::parse(bytes)?;
-            Ok(sailry_protocol::plugin::catalog::Entry {
-                id: name.to_string(),
-                name: manifest.name,
-                icon: manifest
-                    .extension
-                    .as_ref()
-                    .and_then(|extension| extension.icon.as_ref())
-                    .and_then(|path| files.iter().find(|(name, _)| *name == path.as_str()))
-                    .and_then(|(_, bytes)| super::icon::encode(bytes)),
-                description: manifest
-                    .extension
-                    .as_ref()
-                    .and_then(|extension| extension.description.as_ref())
-                    .map(|description| description.label.clone())
-                    .or(manifest.description),
-                description_locales: manifest
-                    .extension
-                    .as_ref()
-                    .and_then(|extension| extension.description.as_ref())
-                    .map(|description| description.locales.clone())
-                    .unwrap_or_default(),
-                display: manifest.extension.and_then(|extension| {
-                    extension
-                        .display
-                        .or_else(|| extension.desktop.and_then(|desktop| desktop.navigation))
-                }),
-                repository: None,
-                bundled: true,
-            })
+            let icon = manifest
+                .extension
+                .as_ref()
+                .and_then(|extension| extension.icon.as_ref())
+                .and_then(|path| files.iter().find(|(name, _)| *name == path.as_str()))
+                .and_then(|(_, bytes)| super::icon::encode(bytes));
+            let mut entry = catalog::entry(name, manifest);
+            entry.icon = icon;
+            entry.bundled = true;
+            Ok(entry)
         })
         .collect()
 }

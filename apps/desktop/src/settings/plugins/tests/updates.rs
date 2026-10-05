@@ -272,14 +272,17 @@ fn keeps_installed_market_actions_disabled(cx: &mut TestAppContext) {
             visual.pending_prompt()
         );
         assert!(!visual.did_prompt_for_paths());
-        ready(&owner, visual, "files", 3);
+        wait(visual, |cx| {
+            !owner.read(cx).plugin_catalog.updates.checking()
+        });
+        ready(&owner, visual, "files", 2);
         tap(visual, "plugins-market-tab");
         shown(visual, "market-install-files", true);
         tap(visual, "market-install-files");
         for _ in 0..10 {
             draw(visual);
         }
-        ready(&owner, visual, "files", 3);
+        ready(&owner, visual, "files", 2);
         assert_eq!(
             fixture
                 .public_packages(false)
@@ -287,7 +290,7 @@ fn keeps_installed_market_actions_disabled(cx: &mut TestAppContext) {
                 .find(|plugin| plugin.name == "files")
                 .unwrap()
                 .revision,
-            3
+            2
         );
         assert!(!visual.did_prompt_for_paths());
         let Output::Plugin(info) = fixture.execute(Command::ReadPlugin {

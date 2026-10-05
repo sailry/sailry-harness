@@ -24,13 +24,23 @@ impl Ingress {
                     .catalog(*source, query, *page, self.closed.clone())
                     .await?,
             ),
-            Command::ReadCatalogPlugin { id } => Output::PluginRepository(
-                self.plugins.catalog_source(id, self.closed.clone()).await?,
+            Command::ReadCatalogPlugin { source, id } => Output::PluginRepository(
+                self.plugins
+                    .catalog_source(*source, id, self.closed.clone())
+                    .await?,
             ),
-            Command::ReadCatalogPluginInfo { source, id } => {
+            Command::ReadCatalogPluginInfo {
+                source,
+                id,
+                bundled,
+            } => {
                 let stop = self.closed.child_token();
                 let _guard = stop.clone().drop_guard();
-                Output::Plugin(self.plugins.catalog_info(*source, id, stop).await?)
+                Output::Plugin(
+                    self.plugins
+                        .catalog_info(*source, id, *bundled, stop)
+                        .await?,
+                )
             }
             Command::InspectPluginSource { source } => Output::PluginSource(
                 self.plugins

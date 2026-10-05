@@ -188,12 +188,21 @@ impl Fixture {
                     Some(endpoint) => {
                         Node::start_with_skill_source(directory.path().join("node"), endpoint).await
                     }
-                    None => Node::start(directory.path().join("node")).await,
+                    None => {
+                        Node::start_with_plugin_catalog(
+                            directory.path().join("node"),
+                            "http://127.0.0.1:9/",
+                        )
+                        .await
+                    }
                 }
             })
             .unwrap();
         let other = runtime
-            .block_on(Node::start(directory.path().join("other")))
+            .block_on(Node::start_with_plugin_catalog(
+                directory.path().join("other"),
+                "http://127.0.0.1:9/",
+            ))
             .unwrap();
         let controller = runtime
             .block_on(Link::controller(

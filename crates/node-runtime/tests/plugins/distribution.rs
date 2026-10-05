@@ -66,6 +66,7 @@ async fn catalog_details_do_not_install_packages() {
         let request = client.prepare(Command::ReadCatalogPluginInfo {
             source: plugin::catalog::Source::Official,
             id: "city-trader".into(),
+            bundled: true,
         });
         assert!(!request.command.durable());
         let admission = client.dispatch(request).await.unwrap();
@@ -94,6 +95,7 @@ async fn catalog_details_do_not_install_packages() {
             .execute(client.prepare(Command::ReadCatalogPluginInfo {
                 source: plugin::catalog::Source::Official,
                 id: "../city-trader".into(),
+                bundled: true,
             }))
             .await
             .unwrap_err();
