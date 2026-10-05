@@ -58,6 +58,8 @@ fn stable_column_alignment(cx: &mut TestAppContext) {
                 assert!(name.right() < latency.left());
                 assert!(latency.right() < action.left());
                 assert!(action.right() < status.left());
+                assert_eq!(bounds(index, "status-label").right(), status.right());
+                assert_eq!(status.right(), bounds(index, "device").right());
             } else {
                 assert!(name.right() < status.left());
                 assert!(status.right() < latency.left());

@@ -136,6 +136,7 @@ impl Connections {
                     .gap_2()
                     .w(px(STATUS_WIDTH))
                     .flex_shrink_0()
+                    .when(execution, |cell| cell.justify_end())
                     .child(div().size_1p5().child(Badge::new().dot().color(
                         if device.latency.is_some() {
                             cx.theme().success
@@ -143,15 +144,18 @@ impl Connections {
                             cx.theme().muted_foreground
                         },
                     )))
-                    .child(div().text_color(cx.theme().muted_foreground).child(tr(
-                        if device.local {
-                            "composer_host_local"
-                        } else if device.latency.is_some() {
-                            "connections_online"
-                        } else {
-                            "connections_offline"
-                        },
-                    )));
+                    .child(
+                        div()
+                            .debug_selector(move || format!("connection-status-label-{id:?}"))
+                            .text_color(cx.theme().muted_foreground)
+                            .child(tr(if device.local {
+                                "composer_host_local"
+                            } else if device.latency.is_some() {
+                                "connections_online"
+                            } else {
+                                "connections_offline"
+                            })),
+                    );
                 let latency = div()
                     .debug_selector(move || format!("connection-latency-{id:?}"))
                     .w(px(LATENCY_WIDTH))
