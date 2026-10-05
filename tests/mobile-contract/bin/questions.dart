@@ -87,12 +87,24 @@ Future<void> main() async {
     );
   }
 
-  Future<Map<String, dynamic>> next(int count) => until(
-    updates,
-    (snapshot) =>
-        hasPending(snapshot) &&
-        (snapshot['page']['questions'] as List).length == count,
-  );
+  Future<Map<String, dynamic>> next(int count) => Future(() async {
+    while (true) {
+      final view = await until(
+        updates,
+        (snapshot) =>
+            hasPending(snapshot) &&
+            (snapshot['page']['questions'] as List).length == count,
+      );
+      // Question admission and the ADK start event are separate notifications.
+      if ((view['calls'] as List).any(
+        (call) =>
+            call['state'] == 'running' &&
+            call['question']?['state']['kind'] == 'pending',
+      )) {
+        return view;
+      }
+    }
+  }).timeout(const Duration(seconds: 10));
 
   final workspace = (await execute(connection, 'snapshot', null))['data'];
   final original = (workspace['sessions'] as List).singleWhere(
@@ -114,7 +126,7 @@ Future<void> main() async {
   check(
     call['state'] == 'running' &&
         call['question']['state']['kind'] == 'pending',
-    'admitted question tool waits for input',
+    'admitted question tool waits for input: ${jsonEncode(call)}',
   );
   check(
     call['question']['id'] == first['id'] &&

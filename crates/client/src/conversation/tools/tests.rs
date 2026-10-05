@@ -253,6 +253,9 @@ fn started_question_retains_pending_input() {
         state: QuestionState::Pending,
     };
     page.questions.push(question.clone());
+    let admitted = collect(&page);
+    assert_eq!(admitted[0].state, State::Waiting);
+    assert_eq!(admitted[0].question, Some(question.clone()));
     let mut started = entry(2, question.turn, "", false);
     started.parts = vec![Part::Resource(json!({
         "type":"tool_started", "id":"call", "name":"ask_user"
