@@ -37,8 +37,20 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '22.22.1'
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+        with:
+          go-version: '1.26.1'
+          cache: false
       - name: Public source and fixtures
         run: python3 -m unittest discover -s scripts/tests -v
+      - name: Workflow syntax and expressions
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint" -shellcheck= -pyflakes=
+      - name: Script syntax
+        run: |
+          git ls-files -z '*.sh' | xargs -0 -r -n 1 bash -n
+          python3 -m compileall -q scripts
       - name: Plugin packages and examples
         run: python3 scripts/test-plugins.py
       - name: Pairing service
@@ -52,11 +64,20 @@ jobs:
           pnpm build:edgeone
 
   rust:
-    name: Rust and desktop
-    runs-on: macos-15
+    name: Desktop (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     env:
       CARGO_BUILD_JOBS: '2'
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -67,16 +88,36 @@ jobs:
           version: '0.16.0'
           use-cache: false
       - name: Pinned Rust toolchain
-        run: rustup show active-toolchain
+        env:
+          DESKTOP_TARGET: ${{ matrix.target }}
+        run: |
+          rustup show active-toolchain
+          test "$(rustc -vV | awk '/^host: / {print $2}')" = "$DESKTOP_TARGET"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: checks-cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
       - name: Formatting
         run: cargo fmt --all -- --check
       - name: Strict lint
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Backend unit and local/remote integration
         run: cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host -- --test-threads=4
+      - name: Isolated database engines
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: |
+          brew install postgresql@17 mysql@8.4
+          export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
+          cargo test --locked -p sailry-node-runtime --test databases -- --ignored --test-threads=1
       - name: Desktop behavior and Kit interactions
         # Desktop fixtures share process-global locale and native UI state.
         run: cargo test --locked -p sailry-desktop -- --test-threads=1
+      - name: Desktop and Host binaries
+        run: cargo build --locked -p sailry-desktop -p sailry-host
 
   mobile:
     name: Mobile and shared bridge
@@ -84,6 +125,7 @@ jobs:
     timeout-minutes: 120
     env:
       CARGO_BUILD_JOBS: '2'
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -100,6 +142,12 @@ jobs:
       - name: Pinned Flutter dependencies
         working-directory: apps/mobile
         run: flutter pub get --enforce-lockfile
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: checks-cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
       - name: Flutter analysis and widget tests
         working-directory: apps/mobile
         run: |
@@ -110,10 +158,107 @@ jobs:
         run: cargo build --locked -p sailry-mobile-bridge --lib
       - name: Dart FFI contract fixtures
         run: |
+          brew install postgresql@17 mysql@8.4
+          export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
           cd tests/mobile-contract
           dart pub get --enforce-lockfile
           dart analyze
           cd ../..
-          cargo test --locked -p sailry-mobile-bridge --test dart -- --ignored --skip mcp_peer::stdio_peer --skip databases:: --test-threads=4 --nocapture
+          cargo test --locked -p sailry-mobile-bridge --test dart -- --ignored --skip mcp_peer::stdio_peer --test-threads=4 --nocapture
       - name: Flutter controls a real remote Node
         run: cargo test --locked -p sailry-mobile-bridge --test flutter controls_remote_node -- --ignored --exact --nocapture
+
+  android:
+    name: Mobile Android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.0.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+      - name: Android toolchain
+        run: |
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+          printf 'ANDROID_NDK_HOME=%s/ndk/28.2.13676358\n' "$ANDROID_HOME" >> "$GITHUB_ENV"
+          rustup target add aarch64-linux-android
+      - name: Pinned Flutter dependencies
+        working-directory: apps/mobile
+        run: flutter pub get --enforce-lockfile
+      - name: Rust boundary and Android initializer
+        env:
+          SAILRY_ANDROID_API: '36'
+        run: bash scripts/check-mobile-android.sh
+      - name: ARM64 release APK
+        working-directory: apps/mobile
+        # CI uses a disposable debug certificate; distribution signing is tag-only.
+        run: flutter build apk --release --no-pub --target-platform android-arm64
+      - name: Bundled native libraries
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('apps/mobile/build/app/outputs/flutter-apk/app-release.apk') as apk:
+              files = set(apk.namelist())
+          for library in ('libsailry_mobile_bridge.so', 'libsherpa-onnx-c-api.so', 'libonnxruntime.so'):
+              if f'lib/arm64-v8a/{library}' not in files:
+                  raise SystemExit(f'APK is missing {library}')
+          PY
+
+  ios:
+    name: Mobile iOS
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: '2'
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+      - name: iOS toolchain
+        run: |
+          xcodebuild -version
+          rustup target add aarch64-apple-ios
+      - name: Pinned Flutter dependencies
+        working-directory: apps/mobile
+        run: flutter pub get --enforce-lockfile
+      - name: Rust dependency boundary
+        run: bash scripts/check-mobile-boundary.sh aarch64-apple-ios sailry-mobile-bridge
+      - name: Unsigned iOS application
+        working-directory: apps/mobile
+        run: flutter build ios --release --no-pub --no-codesign
+
+  checks:
+    name: Checks passed
+    if: always()
+    needs: [source, rust, mobile, android, ios]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every result
+        env:
+          CHECK_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = json.loads(os.environ['CHECK_RESULTS'])
+          for name, job in results.items():
+              print(f"{name}: {job['result']}")
+          if any(job['result'] != 'success' for job in results.values()):
+              raise SystemExit('One or more required checks did not pass')
+          PY

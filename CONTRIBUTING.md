@@ -102,19 +102,25 @@ actual prerequisites and results separately. Screenshots are not a default gate.
 
 ## Continuous integration
 
-[GitHub Actions](.github/workflows/ci.yml) runs public-source fixtures, all packaged
-JavaScript tests and pairing-service checks on Linux. macOS jobs run strict Rust
-checks, backend local/remote integration, desktop Kit interactions, Flutter widget
-tests, native Dart FFI contracts and Flutter against an isolated real remote Node.
-Actions and toolchains are pinned; Rust and Flutter use committed lockfiles.
+[GitHub Actions](.github/workflows/ci.yml) checks workflow and script syntax,
+public-source fixtures, packaged JavaScript tests and the pairing service.
+Both macOS architectures run strict Rust checks, backend local/remote integration,
+desktop Kit interactions and binary builds with an explicit Xcode SDK.
+Mobile checks include Flutter analysis and widget tests, native Dart FFI contracts
+and Flutter against an isolated real remote Node. Android builds an ARM64 release
+APK and checks its native libraries; iOS builds an unsigned application. Both
+mobile builds check the Rust dependency boundary. Actions and toolchains are
+pinned; Rust and Flutter use committed lockfiles. `Checks passed` requires every
+job to succeed, including both Desktop architectures.
 
 CI does not supply model credentials, production profiles or OS permissions.
 Live-service and device tests stay opt-in. The ordinary Flutter suite skips its
 bootstrap-dependent native fixture, which the explicit remote-Node step runs.
-The FFI step excludes the MCP subprocess entry point and database contracts that
-require PostgreSQL/MySQL executables. Run `just test-mobile-contract` with those
-executables available to include the database contracts. A macOS host-side Flutter
-run does not establish iOS or Android device acceptance.
+Database fixtures start isolated PostgreSQL/MySQL servers, including native
+backend and Dart FFI coverage. The FFI step excludes only the MCP subprocess
+entry point, which its parent fixtures launch themselves. CI APKs use disposable
+debug certificates, not distribution keys. Native builds and a macOS host-side
+Flutter run do not establish iOS or Android device acceptance.
 
 ## macOS releases
 
