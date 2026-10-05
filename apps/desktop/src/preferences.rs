@@ -39,6 +39,8 @@ pub(crate) struct Data {
     pub plugin_directories: Option<std::collections::BTreeMap<String, plugins::Directory>>,
     pub message_display: Option<MessageDisplay>,
     pub language: Option<crate::locale::Language>,
+    #[serde(default)]
+    pub sidebar_metrics: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,6 +114,7 @@ impl Default for Data {
             recent: None,
             message_display: None,
             language: None,
+            sidebar_metrics: false,
         }
     }
 }

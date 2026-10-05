@@ -34,6 +34,21 @@ impl Workspace {
                                     Select::new(&self.language)
                                         .accessibility_label(tr("settings_language")),
                                 ),
+                        ))
+                        .child(Row::new(
+                            "settings_sidebar_metrics",
+                            div()
+                                .debug_selector(|| "toggle-sidebar-metrics".into())
+                                .child(
+                                    Switch::new("sidebar-metrics")
+                                        .accessibility_label(tr("settings_sidebar_metrics"))
+                                        .checked(preferences.sidebar_metrics)
+                                        .on_click(cx.listener(|_, checked, _, cx| {
+                                            crate::preferences::update(cx, |data| {
+                                                data.sidebar_metrics = *checked;
+                                            });
+                                        })),
+                                ),
                         )),
                 )
                 .child(

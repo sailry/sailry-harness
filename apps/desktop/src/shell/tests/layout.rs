@@ -160,6 +160,7 @@ fn feature_navigation_and_headers(cx: &mut TestAppContext) {
 fn short_project_content_does_not_reserve_height(cx: &mut TestAppContext) {
     let (shell, mut visual) = setup(cx);
     visual.update(|_, cx| {
+        crate::preferences::update(cx, |data| data.sidebar_metrics = true);
         shell.update(cx, |shell, cx| {
             shell
                 .workspace
@@ -198,6 +199,7 @@ fn short_project_content_does_not_reserve_height(cx: &mut TestAppContext) {
 fn project_scrolling_preserves_hosts(cx: &mut TestAppContext) {
     let (shell, mut cx) = setup(cx);
     let handle = cx.update(|window, cx| {
+        crate::preferences::update(cx, |data| data.sidebar_metrics = true);
         shell.update(cx, |shell, cx| {
             let owner = shell.workspace.owner(0);
             for _ in 0..30 {

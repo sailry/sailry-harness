@@ -35,6 +35,55 @@ fn local_dictation_navigation(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn sidebar_metrics_toggle_fills_two_columns(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("preferences.json");
+    cx.update(|cx| cx.set_global(crate::preferences::Preferences::open(path.clone())));
+    let (shell, mut visual) = setup(cx);
+    assert!(visual.debug_bounds("sidebar-footer").is_none());
+    open(&shell, &mut visual);
+    super::workspace::click(&mut visual, "toggle-sidebar-metrics");
+    assert!(
+        crate::preferences::Preferences::open(path.clone())
+            .data
+            .sidebar_metrics
+    );
+    super::workspace::click(&mut visual, "navigation-conversation");
+    draw(&mut visual);
+    let handle = visual.update(|window, _| window.window_handle());
+    for width in [224., 320.] {
+        visual.update(|_, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.layout.sidebar_width = width;
+                cx.notify();
+            });
+        });
+        visual.simulate_window_resize(handle, size(px(1280.), px(820.)));
+        draw(&mut visual);
+        let footer = visual.debug_bounds("sidebar-footer").unwrap();
+        let cpu = visual.debug_bounds("cpu-preview").unwrap();
+        let memory = visual.debug_bounds("memory-preview").unwrap();
+        assert!((cpu.size.width - memory.size.width).abs() <= px(1.));
+        assert_eq!(cpu.top(), memory.top());
+        assert!((cpu.left() - footer.left() - px(12.)).abs() <= px(1.));
+        assert!((footer.right() - memory.right() - px(12.)).abs() <= px(1.));
+        assert!((memory.left() - cpu.right() - px(12.)).abs() <= px(1.));
+    }
+    open(&shell, &mut visual);
+    super::workspace::click(&mut visual, "toggle-sidebar-metrics");
+    assert!(
+        !crate::preferences::Preferences::open(path)
+            .data
+            .sidebar_metrics
+    );
+    super::workspace::click(&mut visual, "navigation-conversation");
+    draw(&mut visual);
+    assert!(visual.debug_bounds("sidebar-footer").is_none());
+    assert!(visual.debug_bounds("cpu-preview").is_none());
+    assert!(visual.debug_bounds("memory-preview").is_none());
+}
+
+#[gpui::test]
 fn replaces_navigation(cx: &mut TestAppContext) {
     let (shell, mut cx) = setup(cx);
     open(&shell, &mut cx);

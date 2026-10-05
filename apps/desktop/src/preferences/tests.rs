@@ -1,6 +1,19 @@
 use super::*;
 
 #[test]
+fn sidebar_metrics_are_opt_in_and_persisted() {
+    assert!(!Data::default().sidebar_metrics);
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("preferences.json");
+    let mut preferences = Preferences::open(path.clone());
+    assert!(!preferences.data.sidebar_metrics);
+    preferences.data.sidebar_metrics = true;
+    preferences.save();
+    assert_eq!(preferences.error, None);
+    assert!(Preferences::open(path).data.sidebar_metrics);
+}
+
+#[test]
 fn preserves_failed_changes() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("preferences.json");
