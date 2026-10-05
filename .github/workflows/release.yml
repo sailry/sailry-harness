@@ -55,6 +55,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target/release
+            target/sherpa-onnx-prebuilt
             target/host-cross
             target/host-sysroots
             target/tooling

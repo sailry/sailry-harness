@@ -116,6 +116,18 @@ jobs:
           cache-workspace-crates: true
           cache-bin: false
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST DEVELOPER_DIR SDKROOT MACOSX_DEPLOYMENT_TARGET
+      - name: Speech native libraries
+        if: matrix.kind != 'backend'
+        id: speech-cache
+        # Save before rust-cache's post step prunes non-profile target directories.
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: target/sherpa-onnx-prebuilt
+          key: speech-${{ matrix.platform.target }}-${{ hashFiles('Cargo.lock') }}
+      - name: Refresh uncached speech libraries
+        if: matrix.kind != 'backend' && steps.speech-cache.outputs.cache-hit != 'true'
+        # A restored build-script fingerprint can outlive its downloaded libraries.
+        run: cargo clean --locked -p sherpa-onnx-sys
       - name: Formatting
         if: matrix.kind == 'lint'
         run: cargo fmt --all -- --check
