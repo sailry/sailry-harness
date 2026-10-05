@@ -92,7 +92,7 @@ fn present(
 }
 
 #[gpui::test]
-fn keeps_title_and_actions_compact(cx: &mut TestAppContext) {
+fn keeps_application_permissions_compact(cx: &mut TestAppContext) {
     let before = rust_i18n::locale().to_string();
     for locale in ["en", "zh-CN"] {
         rust_i18n::set_locale(locale);
@@ -100,37 +100,37 @@ fn keeps_title_and_actions_compact(cx: &mut TestAppContext) {
             let visual = mount(cx);
             let handle = visual.update(|window, _| window.window_handle());
             visual.simulate_window_resize(handle, size(px(width), px(800.)));
+            let disk = Mock::new(Status::Required);
+            let mut disk_card = disk.card(Resource::FullDisk);
+            disk_card.settings = Some("sailry-fixture://settings");
             let chrome = Mock::new(Status::Denied);
-            let mut data = chrome.card(Resource::Chrome);
-            data.settings = Some("sailry-fixture://settings");
-            let key = Mock::new(Status::Required);
-            let mut keychain = key.card(Resource::Keychain);
-            keychain.requires = Some(Resource::Chrome);
-            let mut microphone = Mock::new(Status::NotNeeded).card(Resource::Microphone);
-            microphone.check = None;
-            microphone.status = Status::NotNeeded;
             let completed = present(
                 visual,
-                vec![data, keychain, microphone],
+                vec![disk_card, chrome.card(Resource::Chrome)],
                 CancellationToken::new(),
             );
-
             let title = visual.debug_bounds("permissions-title").unwrap();
             let body = visual.debug_bounds("permissions-modal").unwrap();
-            let row = visual.debug_bounds("permission_chrome-row").unwrap();
-            let keychain = visual.debug_bounds("permission_keychain-row").unwrap();
+            let row = visual.debug_bounds("permission_full_disk-row").unwrap();
             let cancel = visual.debug_bounds("permissions-cancel").unwrap();
             assert_eq!(title.left(), body.left());
             assert!(title.bottom() <= body.top());
             assert!(body.top() - title.bottom() <= px(32.));
-            assert!(row.bottom() < keychain.top());
             assert!(cancel.top() >= body.bottom());
-            assert!(visual.debug_bounds("permission_microphone-row").is_none());
+            for id in [
+                "permission_full_disk-row",
+                "permission_accessibility-row",
+                "permission_screen-row",
+                "permission_microphone-row",
+            ] {
+                assert!(visual.debug_bounds(id).is_some());
+            }
+            assert!(visual.debug_bounds("permission_chrome-row").is_none());
+            assert!(visual.debug_bounds("permission_keychain-row").is_none());
             visual.update(|window, _| {
                 for (id, key) in [
-                    ("permission_chrome-check", "permission_check"),
-                    ("chrome-access-settings", "permission_settings"),
-                    ("permission_chrome", "permission_retry"),
+                    ("permission_full_disk-check", "permission_check"),
+                    ("permission_full_disk", "permission_settings"),
                 ] {
                     let action = window.find(id);
                     assert_eq!(action.role(), Some(Role::Button));
@@ -141,41 +141,19 @@ fn keeps_title_and_actions_compact(cx: &mut TestAppContext) {
                     assert!(action.bounds().bottom() <= row.bottom());
                 }
                 assert_eq!(
-                    window.find("permission_keychain").label(),
-                    Some(tr("permission_request").as_ref())
+                    window.find("permissions-continue").label(),
+                    Some(tr("permission_continue").as_ref())
                 );
             });
             if width == 1280. {
-                let request = visual.debug_bounds("permission_chrome-request").unwrap();
-                assert!(
-                    row.size.height < request.size.height * 2.,
-                    "wide row wrapped: row={row:?}, request={request:?}, summary={:?}, actions={:?}",
-                    visual.debug_bounds("permission_chrome-summary").unwrap(),
-                    visual.debug_bounds("permission_chrome-actions").unwrap(),
-                );
+                let request = visual.debug_bounds("permission_full_disk-request").unwrap();
+                assert!(row.size.height < request.size.height * 2.);
             }
-            tap(visual, "permission_keychain-request");
-            assert_eq!(key.calls.load(Ordering::SeqCst), 0);
-            assert!(completed.borrow().is_empty());
-            visual.update(|window, cx| window.click("chrome-access-settings", cx));
-            draw(visual);
+            tap(visual, "permission_full_disk-request");
             assert_eq!(
                 visual.opened_url().as_deref(),
                 Some("sailry-fixture://settings")
             );
-            assert_eq!(chrome.calls.load(Ordering::SeqCst), 0);
-            assert!(completed.borrow().is_empty());
-            *chrome.status.lock().unwrap() = Status::Unknown;
-            tap(visual, "permission_chrome-check");
-            visual.update(|window, _| {
-                assert_eq!(
-                    window.find("permission_chrome").label(),
-                    Some(tr("permission_check").as_ref())
-                );
-                assert!(window.try_find("chrome-access-settings").is_some());
-            });
-            visual.update(|window, cx| window.click("chrome-access-settings", cx));
-            draw(visual);
             assert_eq!(chrome.calls.load(Ordering::SeqCst), 0);
             assert!(completed.borrow().is_empty());
             tap(visual, "permissions-cancel");
@@ -276,9 +254,9 @@ fn cancelled_native_completion_is_not_replayed(cx: &mut TestAppContext) {
         }],
         CancellationToken::new(),
     );
-    tap(visual, "permission_chrome-request");
-    tap(visual, "permission_chrome-request");
-    visual.update(|window, cx| window.click("chrome-access-settings", cx));
+    tap(visual, "permissions-continue");
+    tap(visual, "permissions-continue");
+    visual.update(|window, cx| window.click("permission_full_disk", cx));
     draw(visual);
     assert_eq!(visual.opened_url(), None);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -308,10 +286,12 @@ fn remote_and_unavailable_access_cannot_be_requested_locally(cx: &mut TestAppCon
 }
 
 #[gpui::test]
-fn dependent_keychain_request_waits_for_data(cx: &mut TestAppContext) {
+fn continuation_respects_dependencies_without_requiring_optional_permissions(
+    cx: &mut TestAppContext,
+) {
     let visual = mount(cx);
-    let data = Mock::new(Status::Granted);
-    let key = Mock::new(Status::Required);
+    let data = Mock::new(Status::Required);
+    let key = Mock::new(Status::Granted);
     let mut data_card = data.card(Resource::Chrome);
     data_card.check = None;
     data_card.status = Status::Required;
@@ -320,15 +300,16 @@ fn dependent_keychain_request_waits_for_data(cx: &mut TestAppContext) {
     key_card.status = Status::Required;
     key_card.requires = Some(Resource::Chrome);
     let completed = present(visual, vec![data_card, key_card], CancellationToken::new());
-    tap(visual, "permission_keychain-request");
-    assert_eq!(key.calls.load(Ordering::SeqCst), 0);
-    tap(visual, "permission_chrome-request");
+    tap(visual, "permissions-continue");
     assert_eq!(data.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(key.calls.load(Ordering::SeqCst), 0);
     assert!(completed.borrow().is_empty());
-    *key.status.lock().unwrap() = Status::Granted;
-    tap(visual, "permission_keychain-request");
+    *data.status.lock().unwrap() = Status::Granted;
+    tap(visual, "permissions-continue");
+    assert_eq!(data.calls.load(Ordering::SeqCst), 2);
     assert_eq!(key.calls.load(Ordering::SeqCst), 1);
     assert_eq!(&*completed.borrow(), &[true]);
+    assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
 }
 
 #[gpui::test]
@@ -391,4 +372,121 @@ fn fast_completion_releases_the_requesting_entity(cx: &mut TestAppContext) {
         assert_eq!(owner.read_with(visual, |value, _| *value), 1);
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
     }
+}
+
+#[gpui::test]
+fn each_native_action_requests_only_its_permission(cx: &mut TestAppContext) {
+    let visual = mount(cx);
+    let screen = Mock::new(Status::Required);
+    let accessibility = Mock::new(Status::Required);
+    let microphone = Mock::new(Status::Required);
+    let completed = present(
+        visual,
+        vec![
+            screen.card(Resource::Screen),
+            accessibility.card(Resource::Accessibility),
+            microphone.card(Resource::Microphone),
+        ],
+        CancellationToken::new(),
+    );
+    assert_eq!(screen.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(accessibility.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(microphone.calls.load(Ordering::SeqCst), 0);
+    *screen.status.lock().unwrap() = Status::Granted;
+    tap(visual, "permission_screen-request");
+    assert_eq!(screen.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(accessibility.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(microphone.calls.load(Ordering::SeqCst), 0);
+    assert!(completed.borrow().is_empty());
+    *accessibility.status.lock().unwrap() = Status::Granted;
+    tap(visual, "permission_accessibility-request");
+    assert_eq!(screen.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(accessibility.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(microphone.calls.load(Ordering::SeqCst), 0);
+    *microphone.status.lock().unwrap() = Status::Granted;
+    tap(visual, "permission_microphone-request");
+    assert_eq!(microphone.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(&*completed.borrow(), &[true]);
+}
+
+#[gpui::test]
+fn remote_requirements_skip_local_checks(cx: &mut TestAppContext) {
+    let visual = mount(cx);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let local = calls.clone();
+    let panel = visual.update(|window, cx| {
+        cx.new(|cx| {
+            let mut panel = Panel::new(window, cx);
+            panel.required = vec![Resource::Screen];
+            panel.cards = vec![
+                Mock::new(Status::Remote).card(Resource::Screen),
+                Card {
+                    resource: Resource::FullDisk,
+                    status: Status::Unknown,
+                    settings: Some(app::DISK_SETTINGS),
+                    request: None,
+                    requires: None,
+                    check: Some(Rc::new(move |cx, _| {
+                        local.fetch_add(1, Ordering::SeqCst);
+                        cx.background_executor()
+                            .spawn(async { Ok(vec![(Resource::FullDisk, Status::Granted)]) })
+                    })),
+                },
+            ];
+            panel.check(window, cx);
+            panel
+        })
+    });
+    draw(visual);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    panel.read_with(visual, |panel, _| {
+        assert!(!panel.checking);
+        assert!(panel.cards.iter().all(|card| card.status == Status::Remote));
+    });
+    assert!(visual.opened_url().is_none());
+}
+
+#[gpui::test]
+fn disk_settings_wait_for_the_check_and_do_not_imply_granted(cx: &mut TestAppContext) {
+    let visual = mount(cx);
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let receive = Arc::new(Mutex::new(Some(receive)));
+    let panel = visual.update(|window, cx| {
+        cx.new(|cx| {
+            let mut panel = Panel::new(window, cx);
+            panel.cards = vec![Card {
+                resource: Resource::FullDisk,
+                status: Status::Required,
+                settings: Some("sailry-fixture://disk"),
+                request: None,
+                requires: None,
+                check: Some(Rc::new(move |cx, _| {
+                    let receive = receive.lock().unwrap().take().unwrap();
+                    cx.background_executor().spawn(async move {
+                        let _ = receive.await;
+                        Ok(vec![(Resource::FullDisk, Status::Required)])
+                    })
+                })),
+            }];
+            panel.disk_settings(window, cx);
+            panel
+        })
+    });
+    draw(visual);
+    assert_eq!(visual.opened_url(), None);
+    assert_eq!(
+        panel.read_with(visual, |panel, _| panel.pending),
+        Some(Resource::FullDisk)
+    );
+    send.send(()).unwrap();
+    draw(visual);
+    assert_eq!(
+        visual.opened_url().as_deref(),
+        Some("sailry-fixture://disk")
+    );
+    panel.read_with(visual, |panel, _| {
+        assert_eq!(panel.pending, None);
+        assert_eq!(panel.cards[0].status, Status::Required);
+        assert!(!panel.closed);
+    });
 }

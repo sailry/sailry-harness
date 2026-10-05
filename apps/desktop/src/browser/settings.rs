@@ -301,8 +301,7 @@ fn chrome_card(request: PermissionAction) -> Card {
     Card {
         resource: Resource::Chrome,
         status: Status::Unknown,
-        // Full Disk Access is user-managed; this opens its pane without granting access.
-        settings: Some("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"),
+        settings: None,
         check: None,
         request: Some(request),
         requires: None,

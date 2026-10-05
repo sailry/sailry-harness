@@ -9,6 +9,39 @@ mod memory;
 mod statistics;
 
 #[gpui::test]
+fn permissions_page_uses_the_shared_catalog_without_preview_requests(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+    });
+    let mut owner = None;
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|cx| Workspace::new(window, cx));
+        owner = Some(view.clone());
+        Root::new(view, window, cx)
+    });
+    owner.unwrap().update(visual, |workspace, cx| {
+        workspace.select(Section::Permissions, cx)
+    });
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    for id in [
+        "permission_full_disk-row",
+        "permission_accessibility-row",
+        "permission_screen-row",
+        "permission_microphone-row",
+    ] {
+        assert!(visual.debug_bounds(id).is_some());
+    }
+    assert!(visual.debug_bounds("permission_chrome-row").is_none());
+    assert!(visual.debug_bounds("permission_keychain-row").is_none());
+    assert!(visual.debug_bounds("permissions-continue").is_none());
+    assert!(visual.opened_url().is_none());
+    assert!(!visual.did_prompt_for_paths());
+    assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+}
+
+#[gpui::test]
 fn page_headers(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);

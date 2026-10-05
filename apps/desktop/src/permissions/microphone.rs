@@ -14,17 +14,7 @@ pub(crate) fn open(stop: CancellationToken, done: Completion, window: &mut Windo
     open_with_status(status(), stop, done, window, cx);
 }
 
-pub(super) fn open_with_status(
-    initial: Status,
-    stop: CancellationToken,
-    done: Completion,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    if !cfg!(target_os = "macos") || initial == Status::Granted {
-        window.defer(cx, move |window, cx| done(!stop.is_cancelled(), window, cx));
-        return;
-    }
+pub(super) fn card(initial: Status) -> Card {
     let check: Action = Rc::new(|cx, _| {
         cx.background_executor()
             .spawn(async { Ok(vec![(Resource::Microphone, status())]) })
@@ -40,18 +30,26 @@ pub(super) fn open_with_status(
             }
         })
     });
-    super::open(
-        vec![Card {
-            resource: Resource::Microphone,
-            status: initial,
-            settings: permission::settings_url(),
-            check: Some(check),
-            request: Some(request),
-            requires: None,
-        }],
-        stop,
-        done,
-        window,
-        cx,
-    );
+    Card {
+        resource: Resource::Microphone,
+        status: initial,
+        settings: permission::settings_url(),
+        check: Some(check),
+        request: Some(request),
+        requires: None,
+    }
+}
+
+pub(super) fn open_with_status(
+    initial: Status,
+    stop: CancellationToken,
+    done: Completion,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if !cfg!(target_os = "macos") || initial == Status::Granted {
+        window.defer(cx, move |window, cx| done(!stop.is_cancelled(), window, cx));
+        return;
+    }
+    super::open(vec![card(initial)], stop, done, window, cx);
 }

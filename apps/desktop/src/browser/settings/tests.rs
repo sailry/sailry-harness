@@ -58,7 +58,19 @@ fn denied_access(cx: &mut TestAppContext, locale: &str, message: &str) {
     let result = completed.clone();
     visual.update(|window, cx| {
         permissions::open(
-            vec![chrome_card(request)],
+            vec![
+                chrome_card(request),
+                Card {
+                    resource: Resource::FullDisk,
+                    status: Status::NotNeeded,
+                    settings: Some(
+                        "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+                    ),
+                    check: None,
+                    request: None,
+                    requires: None,
+                },
+            ],
             CancellationToken::new(),
             Box::new(move |granted, _, _| result.borrow_mut().push(granted)),
             window,
@@ -71,10 +83,10 @@ fn denied_access(cx: &mut TestAppContext, locale: &str, message: &str) {
     assert!(!visual.did_prompt_for_paths());
     visual.update(|window, cx| {
         assert_eq!(
-            window.find("permission_chrome").label(),
-            Some(crate::tr("permission_check").as_ref())
+            window.find("permissions-continue").label(),
+            Some(crate::tr("permission_continue").as_ref())
         );
-        window.click("chrome-access-settings", cx);
+        window.click("permission_full_disk", cx);
     });
     visual.run_until_parked();
     assert_eq!(
@@ -84,7 +96,7 @@ fn denied_access(cx: &mut TestAppContext, locale: &str, message: &str) {
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert!(completed.borrow().is_empty());
 
-    visual.update(|window, cx| window.click("permission_chrome", cx));
+    visual.update(|window, cx| window.click("permissions-continue", cx));
     visual.run_until_parked();
     visual.update(|window, cx| {
         assert_eq!(
@@ -93,14 +105,14 @@ fn denied_access(cx: &mut TestAppContext, locale: &str, message: &str) {
         );
         assert_eq!(crate::feedback::tests::count(window, message, cx), 1);
         assert_eq!(
-            window.find("permission_chrome").label(),
-            Some(crate::tr("permission_retry").as_ref())
+            window.find("permissions-continue").label(),
+            Some(crate::tr("permission_continue").as_ref())
         );
         assert_eq!(
-            window.find("chrome-access-settings").label(),
+            window.find("permission_full_disk").label(),
             Some(crate::tr("permission_settings").as_ref())
         );
-        window.click("chrome-access-settings", cx);
+        window.click("permission_full_disk", cx);
     });
     visual.run_until_parked();
     assert_eq!(
@@ -110,7 +122,7 @@ fn denied_access(cx: &mut TestAppContext, locale: &str, message: &str) {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert!(completed.borrow().is_empty());
 
-    visual.update(|window, cx| window.click("permission_chrome", cx));
+    visual.update(|window, cx| window.click("permissions-continue", cx));
     visual.run_until_parked();
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert_eq!(&*completed.borrow(), &[true]);

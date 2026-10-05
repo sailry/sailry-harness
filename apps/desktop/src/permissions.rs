@@ -3,20 +3,21 @@ use crate::{theme::DialogStyle, tr};
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
     dialog::DialogFooter,
-    group_box::{GroupBox, GroupBoxVariants},
-    spinner::Spinner,
 };
 use gpui_kit::{component::*, prelude::FluentBuilder as _, *};
 use sailry_link::CancellationToken;
 use std::{cell::RefCell, rc::Rc};
 
+mod app;
 mod microphone;
 #[cfg(test)]
 mod tests;
+mod view;
 pub(crate) use microphone::open as microphone;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Resource {
+    FullDisk,
     Screen,
     Accessibility,
     Microphone,
@@ -24,8 +25,12 @@ pub(crate) enum Resource {
     Keychain,
 }
 impl Resource {
+    fn is_system(self) -> bool {
+        !matches!(self, Self::Chrome | Self::Keychain)
+    }
     fn key(self) -> &'static str {
         match self {
+            Self::FullDisk => "permission_full_disk",
             Self::Screen => "permission_screen",
             Self::Accessibility => "permission_accessibility",
             Self::Microphone => "permission_microphone",
@@ -103,8 +108,12 @@ impl Controller {
         Self
     }
 }
-struct Flow {
+pub(crate) struct Panel {
     cards: Vec<Card>,
+    required: Vec<Resource>,
+    continuing: bool,
+    active: bool,
+    refresh: bool,
     pending: Option<Resource>,
     closed: bool,
     stop: CancellationToken,
@@ -112,7 +121,7 @@ struct Flow {
     task: Option<Task<()>>,
     checking: bool,
 }
-impl Drop for Flow {
+impl Drop for Panel {
     fn drop(&mut self) {
         self.stop.cancel();
     }
@@ -130,14 +139,19 @@ pub(crate) fn open(
     }
     let external = stop;
     let flow = cx.new(|cx| {
-        cx.observe_window_activation(window, |flow: &mut Flow, window, cx| {
-            if window.is_window_active() {
+        cx.observe_window_activation(window, |flow: &mut Panel, window, cx| {
+            if flow.active && window.is_window_active() {
                 flow.check(window, cx);
             }
         })
         .detach();
-        Flow {
-            cards,
+        let required = cards.iter().map(|card| card.resource).collect();
+        Panel {
+            cards: app::catalog(cards, cx),
+            required,
+            continuing: false,
+            active: true,
+            refresh: false,
             pending: None,
             closed: false,
             stop: CancellationToken::new(),
@@ -166,8 +180,10 @@ pub(crate) fn open(
     let cancel = flow.clone();
     let close = flow.clone();
     let initial = flow.clone();
-    window.open_dialog(cx, move |dialog, window, _| {
+    window.open_dialog(cx, move |dialog, window, cx| {
         let footer = flow.clone();
+        let proceed = flow.clone();
+        let has_workflow = flow.read(cx).has_workflow();
         dialog
             .form_title(
                 div()
@@ -191,21 +207,131 @@ pub(crate) fn open(
             })
             .child(flow.clone())
             .footer(
-                DialogFooter::new().w_full().child(
-                    Button::new("permissions-cancel")
-                        .label(tr("settings_cancel"))
-                        .debug_selector(|| "permissions-cancel".into())
-                        .on_click(move |_, window, cx| {
-                            footer.update(cx, |flow, cx| flow.finish(false, window, cx));
-                            window.close_dialog(cx);
-                        }),
-                ),
+                DialogFooter::new()
+                    .w_full()
+                    .when(has_workflow, |footer| {
+                        let panel = proceed.read(cx);
+                        footer.child(
+                            Button::new("permissions-continue")
+                                .primary()
+                                .label(tr("permission_continue"))
+                                .loading(panel.pending.is_some())
+                                .disabled(
+                                    panel.checking || panel.pending.is_some() || panel.remote(),
+                                )
+                                .debug_selector(|| "permissions-continue".into())
+                                .on_click(move |_, window, cx| {
+                                    proceed.update(cx, |panel, cx| panel.proceed(window, cx));
+                                }),
+                        )
+                    })
+                    .child(
+                        Button::new("permissions-cancel")
+                            .label(tr("settings_cancel"))
+                            .debug_selector(|| "permissions-cancel".into())
+                            .on_click(move |_, window, cx| {
+                                footer.update(cx, |flow, cx| flow.finish(false, window, cx));
+                                window.close_dialog(cx);
+                            }),
+                    ),
             )
     });
-    // Checks never prompt. Actual authorization starts only from a card button.
+    // Native prompts and operation access start only from explicit actions.
     initial.update(cx, |flow, cx| flow.check(window, cx));
 }
-impl Flow {
+impl Panel {
+    pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        cx.observe_window_activation(window, |panel: &mut Self, window, cx| {
+            if panel.active && window.is_window_active() {
+                panel.check(window, cx);
+            }
+        })
+        .detach();
+        Self {
+            cards: app::catalog(Vec::new(), cx),
+            required: Vec::new(),
+            continuing: false,
+            active: false,
+            refresh: false,
+            pending: None,
+            closed: false,
+            stop: CancellationToken::new(),
+            completion: None,
+            task: None,
+            checking: false,
+        }
+    }
+    pub(crate) fn activate(&mut self, active: bool, cx: &mut Context<Self>) {
+        self.active = active;
+        self.refresh = active;
+        cx.notify();
+    }
+    fn remote(&self) -> bool {
+        self.cards.iter().any(|card| card.status == Status::Remote)
+    }
+    fn has_workflow(&self) -> bool {
+        self.required.iter().any(|resource| !resource.is_system())
+    }
+    fn proceed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.closed || self.checking || self.pending.is_some() || self.remote() {
+            return;
+        }
+        let next = self
+            .required
+            .iter()
+            .find(|resource| {
+                !resource.is_system()
+                    && self.cards.iter().any(|card| {
+                        card.resource == **resource
+                            && !matches!(card.status, Status::Granted | Status::NotNeeded)
+                    })
+            })
+            .copied();
+        if let Some(resource) = next {
+            self.continuing = true;
+            self.request(resource, window, cx);
+        } else {
+            self.complete(window, cx);
+        }
+    }
+    fn disk_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(card) = self
+            .cards
+            .iter()
+            .find(|card| card.resource == Resource::FullDisk)
+        else {
+            return;
+        };
+        if matches!(card.status, Status::Remote | Status::Unavailable) {
+            return;
+        }
+        let Some(url) = card.settings else {
+            return;
+        };
+        // A denied protected directory open can register the app before showing the pane.
+        let Some(check) = card.check.clone() else {
+            cx.open_url(url);
+            return;
+        };
+        self.pending = Some(Resource::FullDisk);
+        let stop = self.stop.clone();
+        let job = check(cx, stop.clone());
+        self.task = Some(cx.spawn_in(window, async move |owner, cx| {
+            let result = job.await;
+            if stop.is_cancelled() {
+                return;
+            }
+            let _ = owner.update_in(cx, |panel, _, cx| {
+                panel.pending = None;
+                if let Ok(changes) = result {
+                    panel.apply(changes);
+                }
+                cx.open_url(url);
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
     fn finish(&mut self, granted: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.closed {
             return;
@@ -225,10 +351,14 @@ impl Flow {
         }
     }
     fn complete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self
-            .cards
-            .iter()
-            .all(|card| matches!(card.status, Status::Granted | Status::NotNeeded))
+        if self.completion.is_some()
+            && !self.required.is_empty()
+            && self.required.iter().all(|resource| {
+                self.cards.iter().any(|card| {
+                    card.resource == *resource
+                        && matches!(card.status, Status::Granted | Status::NotNeeded)
+                })
+            })
         {
             self.finish(true, window, cx);
             window.close_dialog(cx);
@@ -238,11 +368,21 @@ impl Flow {
         if self.closed || self.pending.is_some() || self.checking {
             return;
         }
-        let checks: Vec<_> = self
+        if self.remote() {
+            for card in &mut self.cards {
+                if card.resource.is_system() {
+                    card.status = Status::Remote;
+                }
+            }
+            cx.notify();
+            return;
+        }
+        let mut checks: Vec<_> = self
             .cards
             .iter()
             .filter_map(|card| card.check.clone().map(|check| (card.resource, check)))
             .collect();
+        checks.sort_by_key(|(resource, _)| !self.required.contains(resource));
         if checks.is_empty() {
             return;
         }
@@ -258,16 +398,29 @@ impl Flow {
                 if stop.is_cancelled() {
                     return;
                 }
-                let _ = owner.update_in(cx, |flow, window, cx| {
-                    match result {
-                        Ok(changes) => flow.apply(changes),
-                        Err(failure) => {
-                            flow.apply(vec![(resource, failure.status)]);
-                            crate::feedback::info("", tr(&failure.key).as_ref(), window, cx);
+                let remote = owner
+                    .update_in(cx, |flow, window, cx| {
+                        match result {
+                            Ok(changes) => flow.apply(changes),
+                            Err(failure) => {
+                                flow.apply(vec![(resource, failure.status)]);
+                                crate::feedback::info("", tr(&failure.key).as_ref(), window, cx);
+                            }
                         }
-                    }
-                    cx.notify();
-                });
+                        if flow.remote() {
+                            for card in &mut flow.cards {
+                                if card.resource.is_system() {
+                                    card.status = Status::Remote;
+                                }
+                            }
+                        }
+                        cx.notify();
+                        flow.remote()
+                    })
+                    .unwrap_or(true);
+                if remote {
+                    break;
+                }
             }
             let _ = owner.update_in(cx, |flow, window, cx| {
                 flow.checking = false;
@@ -284,6 +437,10 @@ impl Flow {
         let Some(card) = self.cards.iter().find(|card| card.resource == resource) else {
             return;
         };
+        if resource == Resource::FullDisk {
+            self.disk_settings(window, cx);
+            return;
+        }
         if matches!(card.status, Status::Denied | Status::Restricted)
             && card.settings.is_some()
             && resource != Resource::Chrome
@@ -318,178 +475,32 @@ impl Flow {
             }
             let _ = owner.update_in(cx, |flow, window, cx| {
                 flow.pending = None;
+                let advanced = result.as_ref().is_ok_and(|changes| {
+                    changes.iter().any(|(changed, status)| {
+                        *changed == resource
+                            && matches!(status, Status::Granted | Status::NotNeeded)
+                    })
+                });
                 match result {
                     Ok(changes) => flow.apply(changes),
                     Err(failure) => {
+                        flow.continuing = false;
                         flow.apply(vec![(resource, failure.status)]);
                         crate::feedback::info("", tr(&failure.key).as_ref(), window, cx);
                     }
                 }
                 flow.complete(window, cx);
                 if !flow.closed {
-                    flow.check(window, cx);
+                    if flow.continuing && advanced {
+                        flow.proceed(window, cx);
+                    } else {
+                        flow.continuing = false;
+                        flow.check(window, cx);
+                    }
                 }
                 cx.notify();
             });
         }));
         cx.notify();
-    }
-}
-impl Render for Flow {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
-            .w_full()
-            .gap_2()
-            .text_sm()
-            .line_height(relative(1.25))
-            .debug_selector(|| "permissions-modal".into())
-            .children(
-                self.cards
-                    .iter()
-                    .filter(|card| card.status != Status::NotNeeded)
-                    .map(|card| {
-                        let resource = card.resource;
-                        let status = card.status;
-                        let pending = self.pending == Some(resource);
-                        let disabled = self.checking
-                            || self.pending.is_some() && !pending
-                            || matches!(
-                                card.status,
-                                Status::Granted | Status::Remote | Status::Unavailable
-                            )
-                            || card.status == Status::Restricted && card.settings.is_none()
-                            || card.requires.is_some_and(|required| {
-                                !self.cards.iter().any(|card| {
-                                    card.resource == required && card.status == Status::Granted
-                                })
-                            });
-                        GroupBox::new()
-                            .outline()
-                            .content_style(StyleRefinement::default().p_3().gap_0())
-                            .child(
-                                h_flex()
-                                    .w_full()
-                                    .gap_3()
-                                    .flex_wrap()
-                                    .debug_selector(move || format!("{}-row", resource.key()))
-                                    .child(
-                                        v_flex()
-                                            .gap_0p5()
-                                            .flex_1()
-                                            .min_w_32()
-                                            .max_w_full()
-                                            .debug_selector(move || {
-                                                format!("{}-summary", resource.key())
-                                            })
-                                            .child(div().font_medium().child(tr(resource.key())))
-                                            .child(
-                                                div()
-                                                    .text_xs()
-                                                    .text_color(cx.theme().muted_foreground)
-                                                    .debug_selector(move || {
-                                                        format!(
-                                                            "{}-{}",
-                                                            resource.key(),
-                                                            status.key()
-                                                        )
-                                                    })
-                                                    .child(tr(card.status.key())),
-                                            ),
-                                    )
-                                    .child(
-                                        h_flex()
-                                            .gap_2()
-                                            .flex_wrap()
-                                            .justify_end()
-                                            .flex_shrink_0()
-                                            .max_w_full()
-                                            .debug_selector(move || {
-                                                format!("{}-actions", resource.key())
-                                            })
-                                            .when(card.check.is_some(), |row| {
-                                                row.child(
-                                                    Button::new(format!(
-                                                        "{}-check",
-                                                        resource.key()
-                                                    ))
-                                                    .ghost()
-                                                    .small()
-                                                    .label(tr("permission_check"))
-                                                    .disabled(
-                                                        self.checking || self.pending.is_some(),
-                                                    )
-                                                    .debug_selector(move || {
-                                                        format!("{}-check", resource.key())
-                                                    })
-                                                    .on_click(cx.listener(|flow, _, window, cx| {
-                                                        flow.check(window, cx)
-                                                    })),
-                                                )
-                                            })
-                                            .when(
-                                                resource == Resource::Chrome
-                                                    && matches!(
-                                                        status,
-                                                        Status::Unknown
-                                                            | Status::Required
-                                                            | Status::Denied
-                                                    )
-                                                    && card.settings.is_some(),
-                                                |row| {
-                                                    let url = card.settings.unwrap();
-                                                    row.child(
-                                                        Button::new("chrome-access-settings")
-                                                            .ghost()
-                                                            .small()
-                                                            .label(tr("permission_settings"))
-                                                            .disabled(
-                                                                self.checking
-                                                                    || self.pending.is_some(),
-                                                            )
-                                                            .on_click(move |_, _, cx| {
-                                                                cx.open_url(url)
-                                                            }),
-                                                    )
-                                                },
-                                            )
-                                            .child(
-                                                Button::new(resource.key())
-                                                    .small()
-                                                    .label(tr(match (resource, status) {
-                                                        (Resource::Chrome, Status::Denied) => {
-                                                            "permission_retry"
-                                                        }
-                                                        (
-                                                            Resource::Chrome,
-                                                            Status::Unknown | Status::Required,
-                                                        ) => "permission_check",
-                                                        (
-                                                            _,
-                                                            Status::Denied | Status::Restricted,
-                                                        ) if card.settings.is_some()
-                                                            && resource != Resource::Chrome =>
-                                                        {
-                                                            "permission_settings"
-                                                        }
-                                                        _ => "permission_request",
-                                                    }))
-                                                    .when(pending, |button| {
-                                                        button.icon(Spinner::new())
-                                                    })
-                                                    .loading(pending)
-                                                    .disabled(disabled)
-                                                    .debug_selector(move || {
-                                                        format!("{}-request", resource.key())
-                                                    })
-                                                    .on_click(cx.listener(
-                                                        move |flow, _, window, cx| {
-                                                            flow.request(resource, window, cx)
-                                                        },
-                                                    )),
-                                            ),
-                                    ),
-                            )
-                    }),
-            )
     }
 }

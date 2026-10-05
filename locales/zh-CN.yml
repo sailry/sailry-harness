@@ -2380,6 +2380,13 @@ computer_permissions_open_failed: 未能打开系统设置
 computer_permissions_refresh: 重新检测
 permission_request: 请求授权
 permission_title: 系统权限
+settings_permissions: 权限
+settings_permissions_description: Sailry 的系统访问权限
+permission_full_disk: 完全磁盘访问
+permission_continue: 继续
+permission_disk_help: 若列表中没有 Sailry，点击 + 添加或将应用拖入列表
+permission_show_app: 显示应用
+permission_app_unavailable: 请使用已安装的 Sailry 应用授权
 permission_screen: 屏幕录制
 permission_accessibility: 辅助功能
 permission_microphone: 麦克风

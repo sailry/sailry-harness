@@ -44,6 +44,7 @@ pub enum Section {
     Connections,
     Shortcuts,
     Dictation,
+    Permissions,
     About,
 }
 
@@ -56,7 +57,7 @@ impl Section {
 
     // Sailry Code 67ae9fa0: app/sailry_code_app/lib/settings/settings_models.dart.
     #[cfg(test)]
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::General,
         Self::Appearance,
         Self::Conversation,
@@ -69,6 +70,7 @@ impl Section {
         Self::Connections,
         Self::Shortcuts,
         Self::Dictation,
+        Self::Permissions,
         Self::About,
     ];
 
@@ -85,12 +87,13 @@ impl Section {
         ),
         ("settings_group_ai", &[Self::Providers]),
         ("settings_group_tools", &[Self::Terminal, Self::Connections]),
-        ("settings_group_system", &[Self::About]),
+        ("settings_group_system", &[Self::Permissions, Self::About]),
     ];
 
     pub(crate) fn navigation_order(self) -> u16 {
         match self {
-            Self::General | Self::Providers | Self::Terminal | Self::About => 100,
+            Self::General | Self::Providers | Self::Terminal | Self::Permissions => 100,
+            Self::About => 200,
             Self::Appearance | Self::Connections => 200,
             Self::Conversation => 300,
             Self::Shortcuts => 400,
@@ -114,6 +117,7 @@ impl Section {
             Self::Connections => "settings_connections",
             Self::Shortcuts => "settings_shortcuts",
             Self::Dictation => "settings_dictation",
+            Self::Permissions => "settings_permissions",
             Self::About => "settings_about",
         }
     }
@@ -131,6 +135,7 @@ impl Section {
             Self::Connections => IconName::Network,
             Self::Shortcuts => IconName::ALargeSmall,
             Self::Dictation => IconName::ALargeSmall,
+            Self::Permissions => IconName::Settings2,
             Self::About => IconName::Info,
         }
         .into()
@@ -149,6 +154,7 @@ pub struct Workspace {
     opacity: appearance::opacity::State,
     shortcuts: Entity<shortcuts::Panel>,
     dictation: Entity<dictation::Panel>,
+    permissions: Entity<crate::permissions::Panel>,
     updater: Entity<crate::updater::Panel>,
     pub(crate) usage_sources: Vec<crate::plugins::usage::Source>,
     toast_duration: Entity<gpui_kit::component::select::SelectState<Vec<preferences::Duration>>>,
@@ -234,6 +240,7 @@ impl Workspace {
             opacity: appearance::opacity::State::new(cx),
             shortcuts: cx.new(shortcuts::Panel::new),
             dictation: cx.new(dictation::Panel::new),
+            permissions: cx.new(|cx| crate::permissions::Panel::new(window, cx)),
             updater: cx.new(|cx| crate::updater::Panel::new(window, cx)),
             usage_sources: vec![],
             toast_duration: preferences::duration(window, cx),
@@ -258,6 +265,9 @@ impl Workspace {
             self.shortcuts.update(cx, |panel, cx| panel.cancel(cx));
         }
         self.section = section;
+        self.permissions.update(cx, |panel, cx| {
+            panel.activate(section == Section::Permissions, cx)
+        });
         if let Some(metadata) = &self.plugin_catalog.metadata {
             metadata.update(cx, |metadata, cx| metadata.refresh(cx));
         }
@@ -274,6 +284,8 @@ impl Workspace {
     }
 
     pub fn deactivate(&mut self, cx: &mut Context<Self>) {
+        self.permissions
+            .update(cx, |panel, cx| panel.activate(false, cx));
         self.extensions.release();
         self.shortcuts.update(cx, |panel, cx| panel.cancel(cx));
         self.connections
@@ -293,6 +305,7 @@ impl Render for Workspace {
             Section::Terminal => self.terminal(window, cx),
             Section::Shortcuts => self.shortcuts.clone().into_any_element(),
             Section::Dictation => self.dictation.clone().into_any_element(),
+            Section::Permissions => self.permissions.clone().into_any_element(),
             Section::Market => self.plugin_page(window, cx),
             Section::Plugins => self.plugins(cx),
             Section::Mcp => self.mcp(cx),
