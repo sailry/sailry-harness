@@ -9,6 +9,35 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get updatesVersion => 'Version';
+
+  @override
+  String get updatesCheck => 'Check for updates';
+
+  @override
+  String get updatesChecking => 'Checking';
+
+  @override
+  String updatesAvailable(String version) {
+    return 'Version $version is available';
+  }
+
+  @override
+  String get updatesDownload => 'Download update';
+
+  @override
+  String get updatesCurrent => 'You\'re up to date';
+
+  @override
+  String get updatesUnpublished => 'No mobile release yet';
+
+  @override
+  String get updatesCheckFailed => 'Could not check for updates';
+
+  @override
+  String get updatesOpenFailed => 'Could not open the download';
+
+  @override
   String get retryTask => 'Retry';
 
   @override

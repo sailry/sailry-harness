@@ -1,5 +1,19 @@
 {
   "@@locale": "zh",
+  "updatesVersion": "版本",
+  "updatesCheck": "检查更新",
+  "updatesChecking": "检查中",
+  "updatesAvailable": "有新版本 {version}",
+  "@updatesAvailable": {
+    "placeholders": {
+      "version": {"type": "String"}
+    }
+  },
+  "updatesDownload": "下载更新",
+  "updatesCurrent": "已是最新版本",
+  "updatesUnpublished": "暂无移动端发布版本",
+  "updatesCheckFailed": "无法检查更新",
+  "updatesOpenFailed": "无法打开下载链接",
   "retryTask": "重试",
   "welcomeTitle": "今天，想一起做点什么？",
   "welcomeExplore": "探索项目",

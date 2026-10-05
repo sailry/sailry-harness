@@ -98,6 +98,60 @@ abstract class AppLocalizations {
     Locale('en'),
   ];
 
+  /// No description provided for @updatesVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Version'**
+  String get updatesVersion;
+
+  /// No description provided for @updatesCheck.
+  ///
+  /// In en, this message translates to:
+  /// **'Check for updates'**
+  String get updatesCheck;
+
+  /// No description provided for @updatesChecking.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking'**
+  String get updatesChecking;
+
+  /// No description provided for @updatesAvailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Version {version} is available'**
+  String updatesAvailable(String version);
+
+  /// No description provided for @updatesDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'Download update'**
+  String get updatesDownload;
+
+  /// No description provided for @updatesCurrent.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'re up to date'**
+  String get updatesCurrent;
+
+  /// No description provided for @updatesUnpublished.
+  ///
+  /// In en, this message translates to:
+  /// **'No mobile release yet'**
+  String get updatesUnpublished;
+
+  /// No description provided for @updatesCheckFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check for updates'**
+  String get updatesCheckFailed;
+
+  /// No description provided for @updatesOpenFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open the download'**
+  String get updatesOpenFailed;
+
   /// No description provided for @retryTask.
   ///
   /// In en, this message translates to:

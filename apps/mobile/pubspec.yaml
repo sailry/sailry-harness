@@ -22,12 +22,15 @@ dependencies:
   markdown: 7.3.1
   re_highlight: 0.0.3
   html: 0.15.7
+  http: 1.6.0
   intl: 0.20.2
   fluttertoast: 10.0.0
   flutter_foreground_task: 11.0.3
   flutter_rust_bridge: 2.13.0
   path_provider: 2.1.6
+  package_info_plus: 10.2.2
   pinput: 6.0.2
+  pub_semver: 2.2.1
   shared_preferences: 2.5.5
   file_picker: 13.1.0
   record: 7.1.1
@@ -40,6 +43,7 @@ dependencies:
   open_filex: 4.7.0
 
 dev_dependencies:
+  url_launcher_platform_interface: 2.3.2
   webview_flutter_platform_interface: 2.15.1
   integration_test:
     sdk: flutter

@@ -4,13 +4,21 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'kit.dart';
 
 /// Transient feedback shares one queue, without covering navigation or input.
-void showToast(BuildContext context, String message, {String? icon, Key? key}) {
+void showToast(
+  BuildContext context,
+  String message, {
+  String? icon,
+  Key? key,
+  Duration duration = const Duration(seconds: 2),
+  String? action,
+  VoidCallback? onAction,
+}) {
   if (!context.mounted) return;
   final toast = FToast()..removeQueuedCustomToasts();
   toast.init(context);
   toast.showToast(
-    ignorePointer: true,
-    toastDuration: const Duration(seconds: 2),
+    ignorePointer: onAction == null,
+    toastDuration: duration,
     fadeDuration: const Duration(milliseconds: 180),
     positionedToastBuilder: (context, child, _) => Positioned(
       left: 24,
@@ -27,14 +35,29 @@ void showToast(BuildContext context, String message, {String? icon, Key? key}) {
         key: key ?? const ValueKey('app-toast'),
         radius: 28,
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-        child: Row(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (icon != null) ...[
-              AppIcon(icon, size: 18),
-              const SizedBox(width: 10),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (icon != null) ...[
+                  AppIcon(icon, size: 18),
+                  const SizedBox(width: 10),
+                ],
+                Flexible(child: Text(message)),
+              ],
+            ),
+            if (action != null && onAction != null) ...[
+              const SizedBox(height: 4),
+              TextButton(
+                onPressed: () {
+                  toast.removeCustomToast();
+                  onAction();
+                },
+                child: Text(action),
+              ),
             ],
-            Flexible(child: Text(message)),
           ],
         ),
       ),

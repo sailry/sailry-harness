@@ -3,6 +3,15 @@
 import 'app_localizations.dart';
 
 String? lookupString(AppLocalizations strings, String key) => switch (key) {
+  'updatesVersion' => strings.updatesVersion,
+  'updatesCheck' => strings.updatesCheck,
+  'updatesChecking' => strings.updatesChecking,
+  'updatesAvailable' => strings.updatesAvailable('{version}'),
+  'updatesDownload' => strings.updatesDownload,
+  'updatesCurrent' => strings.updatesCurrent,
+  'updatesUnpublished' => strings.updatesUnpublished,
+  'updatesCheckFailed' => strings.updatesCheckFailed,
+  'updatesOpenFailed' => strings.updatesOpenFailed,
   'retryTask' => strings.retryTask,
   'welcomeTitle' => strings.welcomeTitle,
   'welcomeExplore' => strings.welcomeExplore,

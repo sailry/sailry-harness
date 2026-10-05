@@ -1,5 +1,19 @@
 {
   "@@locale": "en",
+  "updatesVersion": "Version",
+  "updatesCheck": "Check for updates",
+  "updatesChecking": "Checking",
+  "updatesAvailable": "Version {version} is available",
+  "@updatesAvailable": {
+    "placeholders": {
+      "version": {"type": "String"}
+    }
+  },
+  "updatesDownload": "Download update",
+  "updatesCurrent": "You're up to date",
+  "updatesUnpublished": "No mobile release yet",
+  "updatesCheckFailed": "Could not check for updates",
+  "updatesOpenFailed": "Could not open the download",
   "retryTask": "Retry",
   "welcomeTitle": "What would you like to work on today?",
   "welcomeExplore": "Explore a project",

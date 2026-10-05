@@ -7,6 +7,8 @@ import 'features/notifications/delivery.dart';
 import 'features/resources/hosts_page.dart';
 import 'features/resources/resources_page.dart';
 import 'features/settings/settings_page.dart';
+import 'features/updates/presentation.dart';
+import 'features/updates/service.dart';
 import 'ui/app_background.dart';
 import 'ui/kit.dart';
 import 'ui/theme.dart';
@@ -22,10 +24,12 @@ class SailryApp extends StatefulWidget {
     this.session,
     this.preview = false,
     this.preferences,
+    this.updates,
   });
   final AppSession? session;
   final bool preview;
   final SharedPreferencesAsync? preferences;
+  final AppUpdates? updates;
   @override
   State<SailryApp> createState() => _SailryAppState();
 }
@@ -39,6 +43,7 @@ class _SailryAppState extends State<SailryApp> {
   bool _notificationsEdited = false;
   bool _preferencesLoaded = false;
   AppSession? _session;
+  AppUpdates? _updates;
   final _navigator = GlobalKey<NavigatorState>();
   late final _preferences = widget.preferences ?? SharedPreferencesAsync();
   bool get _persist =>
@@ -47,6 +52,8 @@ class _SailryAppState extends State<SailryApp> {
   void initState() {
     super.initState();
     if (!widget.preview) {
+      _updates =
+          widget.updates ?? (widget.session == null ? AppUpdates() : null);
       _session = widget.session ?? AppSession();
       if (widget.session == null) unawaited(_session!.start());
       if (_persist) unawaited(_loadPreferences());
@@ -135,6 +142,7 @@ class _SailryAppState extends State<SailryApp> {
   void dispose() {
     FToast().removeQueuedCustomToasts();
     if (widget.session == null) _session?.dispose();
+    if (widget.updates == null) _updates?.dispose();
     super.dispose();
   }
 
@@ -165,29 +173,37 @@ class _SailryAppState extends State<SailryApp> {
           ),
         );
       },
-      home: _session == null
-          ? _shell()
-          : NotificationDelivery(
-              session: _session!,
-              enabled:
-                  _notifications &&
-                  (!_persist || _preferencesLoaded || _notificationsEdited),
-              child: _shell(),
-            ),
+      home: _home(),
     );
     return _session == null
         ? app
         : SessionScope(session: _session!, child: app);
   }
 
-  Widget _shell() => _Shell(
-    language: _language,
-    onLanguageChanged: _setLanguage,
-    themeMode: _mode,
-    onThemeChanged: _setTheme,
-    notifications: _notifications,
-    onNotificationsChanged: _setNotifications,
-  );
+  Widget _home() {
+    Widget home = _Shell(
+      language: _language,
+      onLanguageChanged: _setLanguage,
+      themeMode: _mode,
+      onThemeChanged: _setTheme,
+      notifications: _notifications,
+      onNotificationsChanged: _setNotifications,
+      updates: _updates,
+    );
+    if (_session != null) {
+      home = NotificationDelivery(
+        session: _session!,
+        enabled:
+            _notifications &&
+            (!_persist || _preferencesLoaded || _notificationsEdited),
+        child: home,
+      );
+    }
+    if (_updates != null) {
+      home = UpdateDelivery(updates: _updates!, child: home);
+    }
+    return home;
+  }
 }
 
 class _Shell extends StatefulWidget {
@@ -198,6 +214,7 @@ class _Shell extends StatefulWidget {
     required this.onThemeChanged,
     required this.notifications,
     required this.onNotificationsChanged,
+    required this.updates,
   });
   final AppLanguage language;
   final ValueChanged<AppLanguage> onLanguageChanged;
@@ -205,6 +222,7 @@ class _Shell extends StatefulWidget {
   final ValueChanged<ThemeMode> onThemeChanged;
   final bool notifications;
   final ValueChanged<bool> onNotificationsChanged;
+  final AppUpdates? updates;
   @override
   State<_Shell> createState() => _ShellState();
 }
@@ -256,6 +274,7 @@ class _ShellState extends State<_Shell> {
                           ),
                           const ResourcesPage(),
                           SettingsPage(
+                            updates: widget.updates,
                             language: widget.language,
                             onLanguageChanged: widget.onLanguageChanged,
                             initialHost: _settingsHost,

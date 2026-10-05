@@ -5,6 +5,8 @@ import '../../l10n/language.dart';
 import '../../ui/kit.dart';
 import '../../ui/toast.dart';
 import '../../runtime/session.dart';
+import '../updates/presentation.dart';
+import '../updates/service.dart';
 import 'live.dart';
 import 'memory_sheet.dart';
 import 'speech_sheet.dart';
@@ -22,6 +24,7 @@ class SettingsPage extends StatefulWidget {
     this.onNotificationsChanged,
     this.language = AppLanguage.chinese,
     this.onLanguageChanged,
+    this.updates,
   });
 
   final ValueChanged<ThemeMode> onThemeChanged;
@@ -32,6 +35,7 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<bool>? onNotificationsChanged;
   final AppLanguage language;
   final ValueChanged<AppLanguage>? onLanguageChanged;
+  final AppUpdates? updates;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -238,6 +242,8 @@ class _SettingsPageState extends State<SettingsPage> {
               _row('mic', 'speech', session?.speech == null ? null : _speech),
             ]),
           ),
+          const SizedBox(height: 16),
+          UpdateSettings(updates: widget.updates),
         ],
       ),
     );
