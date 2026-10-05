@@ -19,9 +19,7 @@ class ProjectsPage extends StatelessWidget {
       final projects = objects(host.snapshot['projects']);
       return PageFrame(
         title: tr('project'),
-        failure: !host.connected
-            ? FailureState(message: tr('resourceDisconnected'))
-            : null,
+        failure: !host.connected ? const HostState(added: true) : null,
         actions: [
           RoundButton(
             icon: 'plus',

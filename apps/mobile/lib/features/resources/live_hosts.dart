@@ -138,26 +138,21 @@ class _LiveHostsPageState extends State<LiveHostsPage> {
       title: tr('hosts'),
       failure: !session.ready && session.error != null
           ? FailureState(message: tr('startupFailed'), onRetry: session.start)
-          : host != null && !host.connected
-          ? FailureState(message: tr('resourceDisconnected'))
+          : host?.connected != true && !session.loading
+          ? HostState(
+              added: host != null,
+              action: host == null
+                  ? FilledButton(
+                      onPressed: session.ready ? _pair : null,
+                      child: Text(tr('pair')),
+                    )
+                  : null,
+            )
           : _error != null
           ? FailureState(
               icon: 'cpu',
               message: tr('hostMetricsFailed'),
               onRetry: _refresh,
-            )
-          : null,
-      empty:
-          host == null &&
-              !session.loading &&
-              (session.ready || session.error == null)
-          ? EmptyState(
-              icon: 'server',
-              message: tr('connectFirst'),
-              action: FilledButton(
-                onPressed: session.ready ? _pair : null,
-                child: Text(tr('pair')),
-              ),
             )
           : null,
       actions: [

@@ -515,7 +515,7 @@ void main() {
     expect(find.text(tr('taskDone')), findsNothing);
     await tester.tap(find.byKey(const ValueKey('tab-1')));
     await tester.pumpAndSettle();
-    expect(find.text(tr('connectFirst')), findsOneWidget);
+    expect(find.text(tr('hostConnectPrompt')), findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, tr('pair')));
     // Pinput animates its focused cursor continuously while awaiting digits.
     await tester.pump();

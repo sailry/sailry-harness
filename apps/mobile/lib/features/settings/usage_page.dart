@@ -34,7 +34,9 @@ class _UsagePageState extends State<UsagePage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _session = AppSession.maybeOf(context);
-    final binding = _session?.hosts.map((host) => host.id).join(',');
+    final binding = _session?.hosts
+        .map((host) => '${host.id}:${host.connected}')
+        .join(',');
     if (_binding != binding) {
       _binding = binding;
       _load();
@@ -55,17 +57,19 @@ class _UsagePageState extends State<UsagePage> {
     _watch = null;
     if (previous != null) await previous.close();
     final session = _session;
-    if (!mounted ||
-        generation != _generation ||
-        session == null ||
-        session.hosts.isEmpty) {
-      return;
-    }
+    if (!mounted || generation != _generation) return;
     setState(() {
       _report = null;
       _error = null;
       _partial = false;
     });
+    if (session == null ||
+        session.hosts.isEmpty ||
+        (_host == null
+            ? !session.hosts.any((host) => host.connected)
+            : session.host(_host)?.connected != true)) {
+      return;
+    }
     final now = DateTime.now().toUtc();
     final end = DateTime.utc(now.year, now.month, now.day + 1);
     final start = end.subtract(Duration(days: _period == 'week' ? 7 : 30));
@@ -187,6 +191,10 @@ class _UsagePageState extends State<UsagePage> {
         ? null
         : TokenStack.from(object(totals['tokens']));
     final responses = integer(totals['responses']);
+    final added = _session?.hosts.isNotEmpty == true;
+    final connected = _host == null
+        ? _session?.hosts.any((host) => host.connected) == true
+        : host?.connected == true;
     final cost = object(totals['cost']);
     final days = objects(_report?['days']);
     final buckets = usageBuckets(days, weekly: _weekly);
@@ -197,25 +205,32 @@ class _UsagePageState extends State<UsagePage> {
         )
         .toList();
     return PageFrame(
-      loading:
-          _session?.hosts.isNotEmpty == true &&
-          _report == null &&
-          _error == null,
+      loading: connected && _report == null && _error == null,
       title: tr('usage'),
-      failure: _error == null
+      failure: !connected
+          ? HostState(added: added)
+          : _error == null
           ? null
           : FailureState(icon: 'chart', message: _error!, onRetry: _load),
-      empty: _session?.hosts.isEmpty != false
-          ? EmptyState(icon: 'chart', message: tr('settingsNoHost'))
-          : _report != null && responses == 0 && _error == null
+      empty: connected && _report != null && responses == 0 && _error == null
           ? EmptyState(icon: 'chart', message: tr('usageEmpty'))
           : null,
       actions: [
         RoundButton(
           icon: 'server',
           tooltip: '${tr('selectHost')}: ${host?.label ?? tr('allHosts')}',
-          onPressed: _pickHost,
+          onPressed: added ? _pickHost : null,
         ),
+        if (_partial && responses > 0)
+          RoundButton(
+            icon: 'info',
+            tooltip: tr('details'),
+            onPressed: () => showAppSheet(
+              context,
+              tr('usage'),
+              child: Text(tr('settingsUsagePartial')),
+            ),
+          ),
       ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -245,11 +260,6 @@ class _UsagePageState extends State<UsagePage> {
                 ),
             ],
           ),
-          if (_partial)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Text(tr('settingsUsagePartial')),
-            ),
           if (_report != null && responses > 0) ...[
             const SizedBox(height: 12),
             Surface(

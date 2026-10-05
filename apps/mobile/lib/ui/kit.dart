@@ -14,6 +14,7 @@ export 'icons.dart' show AppIcon, DisclosureIcon;
 export 'empty_state.dart' show EmptyState;
 export 'failure_state.dart' show FailureState;
 export 'form.dart' show FormBody, SelectField;
+export 'host_state.dart' show HostState;
 
 class RoundButton extends StatelessWidget {
   const RoundButton({
@@ -207,7 +208,7 @@ class PageFrame extends StatelessWidget {
   final EdgeInsetsGeometry padding;
   final Widget? bottom;
   final Widget? empty;
-  final FailureState? failure;
+  final Widget? failure;
   final double titleSize;
   final bool backEnabled;
   @override

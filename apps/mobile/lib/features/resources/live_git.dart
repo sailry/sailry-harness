@@ -416,7 +416,7 @@ class _LiveGitPageState extends State<LiveGitPage> {
     final empty = _target == null
         ? 'resourceNoWorkspace'
         : !_target!.host.connected
-        ? 'resourceDisconnected'
+        ? 'hostDisconnected'
         : _busy || _error != null || _pending != null
         ? null
         : _status['kind'] == 'directory'
@@ -431,7 +431,7 @@ class _LiveGitPageState extends State<LiveGitPage> {
       loading: _busy,
       title: tr('git'),
       failure: _target != null && !_target!.host.connected
-          ? FailureState(message: tr('resourceDisconnected'))
+          ? const HostState(added: true)
           : _error != null
           ? FailureState(
               icon: 'branch',

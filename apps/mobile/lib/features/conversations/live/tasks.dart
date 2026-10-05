@@ -167,65 +167,69 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
       return PageFrame(
         title: tr('brand'),
         titleSize: 28,
-        failure: selected != null && !selected.connected
-            ? FailureState(message: tr('conversationOffline'))
+        failure: selected?.connected != true
+            ? HostState(added: selected != null)
             : null,
         actions: [
           RoundButton(
             icon: 'server',
             tooltip: tr('selectHost'),
-            onPressed: () => showAppSheet(
-              context,
-              tr('selectHost'),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final host in hosts)
-                    ListTile(
-                      title: Text(host.label),
-                      subtitle: Text(tr(host.connected ? 'online' : 'offline')),
-                      trailing: selected?.id == host.id
-                          ? const AppIcon('check')
-                          : null,
-                      onTap: () {
-                        setState(() {
-                          _project = null;
-                        });
-                        widget.session.selectHost(host.id);
-                        Navigator.pop(context);
-                      },
+            onPressed: hosts.isEmpty
+                ? null
+                : () => showAppSheet(
+                    context,
+                    tr('selectHost'),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final host in hosts)
+                          ListTile(
+                            title: Text(host.label),
+                            subtitle: Text(
+                              tr(host.connected ? 'online' : 'offline'),
+                            ),
+                            trailing: selected?.id == host.id
+                                ? const AppIcon('check')
+                                : null,
+                            onTap: () {
+                              setState(() {
+                                _project = null;
+                              });
+                              widget.session.selectHost(host.id);
+                              Navigator.pop(context);
+                            },
+                          ),
+                      ],
                     ),
-                ],
-              ),
-            ),
+                  ),
           ),
           RoundButton(
             icon: _searching ? 'close' : 'search',
             tooltip: tr('searchTasks'),
-            onPressed: () => setState(() {
-              _searching = !_searching;
-              if (!_searching) _search = '';
-            }),
+            onPressed: selected?.connected != true
+                ? null
+                : () => setState(() {
+                    _searching = !_searching;
+                    if (!_searching) _search = '';
+                  }),
           ),
           RoundButton(
             icon: 'terminal',
             tooltip: tr('newTerminal'),
-            onPressed: _terminal,
+            onPressed: selected?.connected == true ? _terminal : null,
           ),
           RoundButton(
             icon: 'plus',
             primary: true,
             tooltip: tr('newTask'),
-            onPressed: _create,
+            onPressed: selected?.connected == true ? _create : null,
           ),
         ],
-        empty: tasks.isEmpty && terminals.isEmpty
+        empty: selected?.connected == true && tasks.isEmpty && terminals.isEmpty
             ? EmptyState(
                 icon: 'chat',
                 message: tr(
-                  hosts.isEmpty
-                      ? 'conversationNoHost'
-                      : _filter == 'archived'
+                  _filter == 'archived'
                       ? 'archiveEmpty'
                       : 'conversationNoTasks',
                 ),

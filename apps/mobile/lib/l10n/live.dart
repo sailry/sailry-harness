@@ -1,4 +1,7 @@
 const liveStrings = <String, String>{
+  'hostConnectPrompt': '请连接主机',
+  'hostDisconnected': '连接已断开',
+  'details': '详情',
   'backgroundConnection': '后台保持连接',
   'backgroundConnectionActive': '正在保持主机连接',
   'backgroundConnectionFailed': '后台连接未开启，请重试',

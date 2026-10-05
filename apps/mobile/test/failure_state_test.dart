@@ -173,12 +173,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(FailureState), findsOneWidget);
     expect(find.text(tr('startupFailed')), findsOneWidget);
-    expect(find.text(tr('conversationNoHost')), findsNothing);
+    expect(find.text(tr('hostConnectPrompt')), findsNothing);
     await tester.tap(find.text(tr('retry')));
     await tester.pumpAndSettle();
     expect(session.retries, 1);
-    expect(find.byType(FailureState), findsNothing);
-    expect(find.text(tr('conversationNoHost')), findsOneWidget);
+    expect(find.byType(HostState), findsOneWidget);
+    expect(find.text(tr('hostConnectPrompt')), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
     session.dispose();
@@ -212,13 +212,15 @@ void main() {
       expect(find.text(tr('startupFailed')), findsNothing);
       expect(
         find.byType(FailureState),
-        connected == false ? findsOneWidget : findsNothing,
+        connected != true ? findsOneWidget : findsNothing,
       );
       expect(
-        find.text(tr('resourceDisconnected')),
+        find.text(tr('hostDisconnected')),
         connected == false ? findsOneWidget : findsNothing,
       );
-      if (host == null) expect(find.text(tr('connectFirst')), findsOneWidget);
+      if (host == null) {
+        expect(find.text(tr('hostConnectPrompt')), findsOneWidget);
+      }
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
       session.dispose();

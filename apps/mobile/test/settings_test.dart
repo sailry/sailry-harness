@@ -154,7 +154,13 @@ void main() {
         onThemeChanged: (mode) => chosen = mode,
       ),
     );
-    expect(find.text(tr('settingsNoHost')), findsOneWidget);
+    for (final label in ['providers', 'roles', 'memorySettings', 'usage']) {
+      final row = tester.widget<ListTile>(
+        find.widgetWithText(ListTile, tr(label)),
+      );
+      expect(row.enabled, isFalse);
+      expect(row.onTap, isNull);
+    }
     await tap(tester, find.text(tr('appearance')));
     await tap(tester, find.text(tr('dark')));
     expect(chosen, ThemeMode.dark);

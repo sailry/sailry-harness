@@ -44,7 +44,7 @@ class _LiveResourcesPageState extends State<LiveResourcesPage> {
                 title: Text(host.label),
                 subtitle: host.connected
                     ? null
-                    : Text(tr('resourceDisconnected')),
+                    : Text(tr('hostDisconnected')),
                 onTap: () => Navigator.pop(context, host.id),
               ),
           ],
@@ -74,12 +74,8 @@ class _LiveResourcesPageState extends State<LiveResourcesPage> {
     final target = resourceTarget(context, _hostId, _worktreeId);
     return PageFrame(
       title: tr('resources'),
-      failure: host != null && !host.connected
-          ? FailureState(message: tr('resourceDisconnected'))
-          : null,
-      empty: host == null
-          ? EmptyState(icon: 'server', message: tr('resourceDisconnected'))
-          : target == null
+      failure: host?.connected != true ? HostState(added: host != null) : null,
+      empty: host?.connected == true && target == null
           ? EmptyState(message: tr('resourceNoWorkspace'))
           : null,
       actions: [
@@ -99,7 +95,7 @@ class _LiveResourcesPageState extends State<LiveResourcesPage> {
           RoundButton(
             icon: 'server',
             tooltip: tr('selectHost'),
-            onPressed: _host,
+            onPressed: session.hosts.isEmpty ? null : _host,
           ),
       ],
       child: Column(

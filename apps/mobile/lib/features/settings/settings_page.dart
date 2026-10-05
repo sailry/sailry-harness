@@ -35,7 +35,9 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   void _records(String kind) {
     final host = AppSession.maybeOf(context)?.selectedHost;
-    if (host != null) showSettingRecords(context, kind: kind, host: host);
+    if (host?.connected == true) {
+      showSettingRecords(context, kind: kind, host: host!);
+    }
   }
 
   void _appearance() {
@@ -73,18 +75,22 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _row(String icon, String label, VoidCallback? onTap, [String? value]) {
     final colors = Theme.of(context).colorScheme;
+    final color = onTap == null
+        ? Theme.of(context).disabledColor
+        : colors.onSurfaceVariant;
     return ListTile(
+      enabled: onTap != null,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-      leading: AppIcon(icon, color: colors.onSurfaceVariant),
+      leading: AppIcon(icon, color: color),
       title: Text(tr(label)),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (value != null) ...[
-            Text(value, style: TextStyle(color: colors.onSurfaceVariant)),
+            Text(value, style: TextStyle(color: color)),
             const SizedBox(width: 8),
           ],
-          AppIcon('chevron', size: 14, color: colors.onSurfaceVariant),
+          if (onTap != null) AppIcon('chevron', size: 14, color: color),
         ],
       ),
       onTap: onTap,
@@ -108,15 +114,16 @@ class _SettingsPageState extends State<SettingsPage> {
     final colors = Theme.of(context).colorScheme;
     final session = AppSession.maybeOf(context);
     final host = session?.selectedHost;
+    final connected = host?.connected == true;
     return PageFrame(
       title: tr('settings'),
       actions: [
         RoundButton(
           icon: 'server',
           tooltip: '${tr('selectHost')}: ${host?.label ?? ''}',
-          onPressed: () {
-            if (session != null) pickSettingsHost(context, session);
-          },
+          onPressed: session?.hosts.isNotEmpty == true
+              ? () => pickSettingsHost(context, session!)
+              : null,
         ),
       ],
       child: Column(
@@ -154,37 +161,34 @@ class _SettingsPageState extends State<SettingsPage> {
                   },
                 ),
               ),
-            _row('chart', 'usage', () => pushPage(context, const UsagePage())),
+            _row(
+              'chart',
+              'usage',
+              session?.hosts.any((host) => host.connected) == true
+                  ? () => pushPage(context, const UsagePage())
+                  : null,
+            ),
           ]),
           const SizedBox(height: 16),
-          if (host == null)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(tr('settingsNoHost')),
-            ),
           Semantics(
             label: host?.label ?? '',
             child: _group([
               _row(
                 'spark',
                 'providers',
-                host == null ? null : () => _records('providers'),
+                connected ? () => _records('providers') : null,
               ),
-              _row(
-                'user',
-                'roles',
-                host == null ? null : () => _records('roles'),
-              ),
+              _row('user', 'roles', connected ? () => _records('roles') : null),
               _row(
                 'file',
                 'memorySettings',
-                host == null
+                !connected
                     ? null
                     : () => showAppSheet(
                         context,
                         tr('memorySettings'),
                         scroll: false,
-                        child: MemorySheet(host: host),
+                        child: MemorySheet(host: host!),
                       ),
               ),
               _row('mic', 'speech', session?.speech == null ? null : _speech),

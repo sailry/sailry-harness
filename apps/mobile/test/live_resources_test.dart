@@ -232,10 +232,10 @@ void main() {
     expect(writes, 0);
   });
 
-  testWidgets('disconnected pages exclude preview projects', (tester) async {
+  testWidgets('unpaired pages exclude preview projects', (tester) async {
     final session = AppSession.test();
     await mount(tester, const ResourcesPage(), session);
-    expect(find.text(tr('resourceDisconnected')), findsOneWidget);
+    expect(find.text(tr('hostConnectPrompt')), findsOneWidget);
     expect(find.text('sailry-web'), findsNothing);
     await tester.pumpWidget(const SizedBox());
     session.dispose();

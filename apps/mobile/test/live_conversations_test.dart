@@ -379,7 +379,7 @@ void main() {
   testWidgets('empty list without a connected Node', (tester) async {
     final app = AppSession.test();
     await mount(tester, const TasksPage(), app);
-    expect(find.text(tr('conversationNoHost')), findsOneWidget);
+    expect(find.text(tr('hostConnectPrompt')), findsOneWidget);
     expect(find.text(tr('approveTitle')), findsNothing);
     expect(find.text('sailry-web'), findsNothing);
     await tester.pumpWidget(const SizedBox());

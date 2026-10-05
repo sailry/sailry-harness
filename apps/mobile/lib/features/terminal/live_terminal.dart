@@ -555,7 +555,7 @@ class _LiveTerminalPageState extends State<LiveTerminalPage>
                     (!_connected && _snapshot.isNotEmpty)
                 ? FailureState(
                     icon: 'terminal',
-                    message: _error ?? tr('resourceDisconnected'),
+                    message: _error ?? tr('hostDisconnected'),
                     onRetry:
                         _opening || _host?.connected != true || _updates != null
                         ? null

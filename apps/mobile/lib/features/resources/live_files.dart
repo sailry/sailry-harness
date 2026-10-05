@@ -177,7 +177,7 @@ class _LiveFilesPageState extends State<LiveFilesPage> {
       loading: _busy,
       title: tr('files'),
       failure: target != null && !target.host.connected
-          ? FailureState(message: tr('resourceDisconnected'))
+          ? const HostState(added: true)
           : null,
       empty: target == null
           ? EmptyState(message: tr('resourceNoWorkspace'))

@@ -15,20 +15,17 @@ class UnavailablePreferences extends Preferences {
 }
 
 void main() {
-  testWidgets('offline actions report in place', (tester) async {
+  testWidgets('offline actions remain disabled', (tester) async {
     final session = AppSession.test(hosts: []);
     await tester.pumpWidget(SailryApp(session: session));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip(tr('newTask')));
     await tester.pumpAndSettle();
     final toast = find.byKey(const ValueKey('app-toast'));
-    expect(
-      find.descendant(of: toast, matching: find.text(tr('conversationNoHost'))),
-      findsOneWidget,
-    );
+    expect(toast, findsNothing);
+    expect(find.text(tr('hostConnectPrompt')), findsOneWidget);
     expect(find.byType(SnackBar), findsNothing);
     expect(find.byType(BottomSheet), findsNothing);
-    expect(tester.getSize(toast).width, lessThan(300));
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
     expect(toast, findsNothing);
