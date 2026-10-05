@@ -20,7 +20,11 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.sailry.sailry_mobile"
+        applicationId = if (System.getenv("SAILRY_ANDROID_TEST_APP") == "1") {
+            "com.sailry.sailry_mobile.acceptance"
+        } else {
+            "com.sailry.sailry_mobile"
+        }
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

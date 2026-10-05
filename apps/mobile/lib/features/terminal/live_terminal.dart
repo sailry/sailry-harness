@@ -62,6 +62,7 @@ class _LiveTerminalPageState extends State<LiveTerminalPage>
   bool _foreground = true;
   bool _visible = true;
   Future<void> _inputTail = Future.value();
+  Map<String, dynamic>? _textBatch;
   CellPosition? _anchor;
   CellPosition? _extent;
 
@@ -276,19 +277,37 @@ class _LiveTerminalPageState extends State<LiveTerminalPage>
     final host = _host!;
     final terminal = _terminal;
     final revision = _lease;
+    final committed = object(object(data['input'])['text'])['text'];
+    final payload = {'terminal': terminal, 'revision': revision, ...data};
+    if (kind == 'input_terminal' && committed is String) {
+      final batch = _textBatch;
+      final previous = object(object(batch?['input'])['text'])['text'];
+      if (batch != null &&
+          batch['terminal'] == terminal &&
+          batch['revision'] == revision &&
+          previous is String &&
+          utf8.encode(previous).length + utf8.encode(committed).length <=
+              4096) {
+        batch['input'] = {
+          'text': {'text': previous + committed},
+        };
+        return;
+      }
+      _textBatch = payload;
+    } else {
+      // Keys, paste, focus and geometry remain ordered barriers between text batches.
+      _textBatch = null;
+    }
     _inputTail = _inputTail
         .then((_) async {
+          if (identical(_textBatch, payload)) _textBatch = null;
           if (!mounted ||
               !_controlling ||
               _lease != revision ||
               _terminal != terminal) {
             return;
           }
-          await host.command(kind, {
-            'terminal': terminal,
-            'revision': revision,
-            ...data,
-          });
+          await host.command(kind, payload);
         })
         .catchError((Object error) {
           // A failed input invalidates the queued tail. Terminal keystrokes are never replayed.
@@ -350,6 +369,67 @@ class _LiveTerminalPageState extends State<LiveTerminalPage>
     );
     _resetting = false;
   }
+
+  Widget _ime(
+    Map<String, dynamic> screen,
+    Size cell,
+    double width,
+  ) => ValueListenableBuilder<TextEditingValue>(
+    valueListenable: _draft,
+    builder: (context, value, _) {
+      final composing = value.composing.isValid && !value.composing.isCollapsed;
+      final cursor = object(screen['cursor']);
+      final left = number(cursor['column']) * cell.width;
+      final top =
+          (objects(screen['scrollback']).length + number(cursor['row'])) *
+          cell.height;
+      return Positioned(
+        left: left,
+        top: top,
+        width: composing ? math.max(cell.width, width - left) : 1,
+        height: composing ? cell.height : 1,
+        child: Opacity(
+          key: const ValueKey('terminal-ime'),
+          opacity: composing ? 1 : 0,
+          child: ColoredBox(
+            color: terminalColor(
+              screen['background'],
+              Theme.of(context).colorScheme.surface,
+            ),
+            child: Focus(
+              onKeyEvent: _hardware,
+              child: EditableText(
+                key: _editor,
+                controller: _draft,
+                focusNode: _focus,
+                readOnly: !_controlling,
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: terminalFontSize(context),
+                  height: 1,
+                  color: terminalColor(
+                    screen['foreground'],
+                    Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+                cursorColor: Theme.of(context).colorScheme.onSurface,
+                backgroundCursorColor: Theme.of(context).colorScheme.surface,
+                showCursor: false,
+                keyboardType: TextInputType.text,
+                textInputAction: TextInputAction.send,
+                autocorrect: false,
+                enableSuggestions: true,
+                onSubmitted: (_) {
+                  _key('enter');
+                  _focus.requestFocus();
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
 
   void _typed() {
     if (!_resetting) _syncCursor(restart: true);
@@ -611,64 +691,38 @@ class _LiveTerminalPageState extends State<LiveTerminalPage>
                                     onLongPressMoveUpdate: (event) => setState(
                                       () => _extent = hit(event.localPosition),
                                     ),
-                                    child: Semantics(
-                                      label: context.tr('terminal'),
-                                      child: CustomPaint(
-                                        size: Size(width, height),
-                                        painter: TerminalGridPainter(
-                                          screen: screen,
-                                          cell: cell,
-                                          fontSize: terminalFontSize(context),
-                                          anchor: _anchor,
-                                          extent: _extent,
-                                          focused: _cursorFocused,
-                                          blink: _blink,
-                                          selectionColor: Theme.of(context)
-                                              .colorScheme
-                                              .primary
-                                              .withValues(alpha: .2),
-                                        ),
+                                    child: SizedBox(
+                                      width: width,
+                                      height: height,
+                                      child: Stack(
+                                        children: [
+                                          Semantics(
+                                            label: context.tr('terminal'),
+                                            child: CustomPaint(
+                                              size: Size(width, height),
+                                              painter: TerminalGridPainter(
+                                                screen: screen,
+                                                cell: cell,
+                                                fontSize: terminalFontSize(
+                                                  context,
+                                                ),
+                                                anchor: _anchor,
+                                                extent: _extent,
+                                                focused: _cursorFocused,
+                                                blink: _blink,
+                                                selectionColor:
+                                                    Theme.of(context)
+                                                        .colorScheme
+                                                        .primary
+                                                        .withValues(alpha: .2),
+                                              ),
+                                            ),
+                                          ),
+                                          _ime(screen, cell, width),
+                                        ],
                                       ),
                                     ),
                                   ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          // EditableText owns the platform IME. Preedit stays here; only a committed
-                          // value reaches the Node's existing text/key/paste encoder.
-                          Positioned(
-                            left: 0,
-                            bottom: 0,
-                            width: 1,
-                            height: 1,
-                            child: Opacity(
-                              opacity: 0,
-                              child: Focus(
-                                onKeyEvent: _hardware,
-                                child: EditableText(
-                                  key: _editor,
-                                  controller: _draft,
-                                  focusNode: _focus,
-                                  readOnly: !_controlling,
-                                  style: TextStyle(
-                                    fontFamily: 'monospace',
-                                    fontSize: terminalFontSize(context),
-                                  ),
-                                  cursorColor: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurface,
-                                  backgroundCursorColor: Theme.of(
-                                    context,
-                                  ).colorScheme.surface,
-                                  keyboardType: TextInputType.text,
-                                  textInputAction: TextInputAction.send,
-                                  autocorrect: false,
-                                  enableSuggestions: false,
-                                  onSubmitted: (_) {
-                                    _key('enter');
-                                    _focus.requestFocus();
-                                  },
                                 ),
                               ),
                             ),

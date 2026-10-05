@@ -152,10 +152,16 @@ class TerminalGridPainter extends CustomPainter {
         )..layout();
         canvas.save();
         canvas.clipRect(bounds);
-        painter.paint(
-          canvas,
-          Offset(x, row * cell.height + (cell.height - painter.height) / 2),
+        canvas.translate(
+          bounds.left,
+          bounds.top + (cell.height - painter.height) / 2,
         );
+        // Fallback fonts can give a one-cell symbol a wider advance. Fit its
+        // complete glyph into the Node's columns instead of clipping it in half.
+        if (painter.width > bounds.width) {
+          canvas.scale(bounds.width / painter.width, 1);
+        }
+        painter.paint(canvas, Offset.zero);
         canvas.restore();
         painter.dispose();
       }

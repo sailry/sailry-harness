@@ -11,6 +11,7 @@ import 'package:sailry_mobile/features/terminal/terminal_page.dart';
 import 'package:sailry_mobile/features/terminal/toolbar.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/session.dart';
+import 'package:sailry_mobile/runtime/json.dart';
 import 'package:sailry_mobile/ui/theme.dart';
 import 'package:sailry_mobile/ui/kit.dart';
 
@@ -114,6 +115,92 @@ Future<void> mount(WidgetTester tester, AppSession session) async {
 }
 
 void main() {
+  for (final fail in [false, true]) {
+    testWidgets(
+      'queued text ${fail ? 'drops after failure' : 'batches across a slow response'}',
+      (tester) async {
+        final connection = ConnectionFixture();
+        final commands = <(String, Map<String, dynamic>?)>[];
+        final held = Completer<Map<String, dynamic>>();
+        final host = HostConnection.test(
+          id: 'node',
+          label: 'Host',
+          connection: connection,
+          command: (kind, data) async {
+            commands.add((kind, data));
+            if (kind == 'claim_terminal') return {'data': info(2)};
+            if (object(object(data?['input'])['text'])['text'] == 'a') {
+              return held.future;
+            }
+            return {'data': {}};
+          },
+        );
+        final session = AppSession.test(hosts: [host]);
+        connection.updates.emit(view(2));
+        await mount(tester, session);
+        await tester.tap(
+          find.widgetWithText(FilledButton, tr('resourceTerminalControl')),
+        );
+        await tester.pumpAndSettle();
+        commands.clear();
+        void type(String value) => tester.testTextInput.updateEditingValue(
+          TextEditingValue(
+            text: value,
+            selection: TextSelection.collapsed(offset: value.length),
+          ),
+        );
+        type('a');
+        await tester.pump();
+        type('b');
+        type('c');
+        type('中');
+        final enter = find.byTooltip(tr('terminalEnter'));
+        await tester.ensureVisible(enter);
+        await tester.tap(enter);
+        type('d');
+        type('e');
+        await tester.pump();
+        expect(commands, hasLength(1));
+        if (fail) {
+          held.completeError(const CommandFailure('outcome_unknown'));
+        } else {
+          held.complete({'data': {}});
+        }
+        await tester.pumpAndSettle();
+        if (fail) {
+          expect(commands, hasLength(1));
+          expect(
+            find.byKey(const ValueKey('terminal-control-overlay')),
+            findsOneWidget,
+          );
+          expect(
+            tester.widget<EditableText>(find.byType(EditableText)).readOnly,
+            isTrue,
+          );
+          await tester.pump(const Duration(seconds: 3));
+        } else {
+          final inputs = commands
+              .map((command) => command.$2!['input'])
+              .toList();
+          expect(inputs, hasLength(4));
+          expect(inputs[0], {
+            'text': {'text': 'a'},
+          });
+          expect(inputs[1], {
+            'text': {'text': 'bc中'},
+          });
+          expect(inputs[2]['key']['event']['key'], 'enter');
+          expect(inputs[3], {
+            'text': {'text': 'de'},
+          });
+        }
+        await tester.pumpWidget(const SizedBox());
+        await session.close();
+        session.dispose();
+      },
+    );
+  }
+
   testWidgets('uncertain reopen preserves the terminal and request', (
     tester,
   ) async {
@@ -511,6 +598,13 @@ void main() {
       });
       final input = find.byType(EditableText);
       expect(tester.widget<EditableText>(input).readOnly, isFalse);
+      expect(
+        tester.widget<EditableText>(input).keyboardType,
+        TextInputType.text,
+      );
+      expect(tester.widget<EditableText>(input).obscureText, isFalse);
+      expect(tester.widget<EditableText>(input).enableSuggestions, isTrue);
+      expect(tester.widget<EditableText>(input).autocorrect, isFalse);
       final writesBefore = commands
           .where((entry) => entry.$1 == 'input_terminal')
           .length;
@@ -523,6 +617,14 @@ void main() {
       );
       await tester.pump();
       expect(
+        tester
+            .widget<Opacity>(find.byKey(const ValueKey('terminal-ime')))
+            .opacity,
+        1,
+      );
+      expect(tester.getSize(input).width, greaterThan(100));
+      expect(tester.getSize(input).height, greaterThan(10));
+      expect(
         commands.where((entry) => entry.$1 == 'input_terminal'),
         hasLength(writesBefore),
       );
@@ -533,6 +635,12 @@ void main() {
         ),
       );
       await tester.pump();
+      expect(
+        tester
+            .widget<Opacity>(find.byKey(const ValueKey('terminal-ime')))
+            .opacity,
+        0,
+      );
       final committed = commands
           .where(
             (entry) =>

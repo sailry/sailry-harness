@@ -20,11 +20,16 @@ import 'package:sailry_mobile/runtime/json.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/ui/kit.dart';
 
+import 'unassigned.dart';
+import 'input.dart';
+import '../test/support/terminal_grid.dart';
+
 const _fixture = String.fromEnvironment('SAILRY_FLUTTER_FIXTURE');
 const _project = String.fromEnvironment('SAILRY_PROJECT_PATH');
 const _profile = String.fromEnvironment('SAILRY_CONTROLLER_PROFILE');
 const _run = String.fromEnvironment('SAILRY_FLUTTER_RUN');
 const _library = String.fromEnvironment('SAILRY_BRIDGE_LIBRARY');
+const _nativeIme = bool.fromEnvironment('SAILRY_ANDROID_IME_ACCEPTANCE');
 const _prompt = 'Read source.txt and report its contents';
 const _content = 'Flutter reads this file 中文 🙂';
 
@@ -32,6 +37,7 @@ void main({bool host = false}) {
   WidgetController.hitTestWarningShouldBeFatal = true;
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   if (host) binding.testTextInput.register();
+  gridTests();
   testWidgets(
     'remote conversation creation and resume',
     (tester) async {
@@ -43,6 +49,34 @@ void main({bool host = false}) {
         await initializeBridge(library: ExternalLibrary.open(_library));
       }
       final http = HttpClient();
+      final unassignedResponse = await (await http.getUrl(
+        Uri.parse('$_fixture/unassigned'),
+      )).close();
+      expect(unassignedResponse.statusCode, 200);
+      final unassignedInvitation = text(
+        object(
+          jsonDecode(await utf8.decoder.bind(unassignedResponse).join()),
+        )['invitation'],
+      );
+      final baseProfile = host
+          ? _profile
+          : '${(await getApplicationSupportDirectory()).path}/acceptance-$_run';
+      final internet = !host && Platform.isAndroid;
+      await unassignedConversation(
+        tester,
+        invitation: unassignedInvitation,
+        profile: '$baseProfile-unassigned',
+        internet: internet,
+        nativeIme: _nativeIme,
+        nativeInput: () async {
+          final response = await (await http.getUrl(
+            Uri.parse('$_fixture/ime'),
+          )).close();
+          expect(response.statusCode, 200);
+          await response.drain<void>();
+        },
+        until: until,
+      );
       final response = await (await http.getUrl(Uri.parse(_fixture))).close();
       expect(response.statusCode, 200);
       final invitation =
@@ -51,14 +85,11 @@ void main({bool host = false}) {
               )['invitation']
               as String;
       http.close();
-      final profile = host
-          ? _profile
-          : '${(await getApplicationSupportDirectory()).path}/acceptance-$_run';
+      final profile = baseProfile;
       var app = AppSession();
       addTearDown(() => app.close());
       // Android's emulator has its own network namespace. Exercise the real
       // application's network binding while execution stays on the fixture Node.
-      final internet = !host && Platform.isAndroid;
       await app.start(path: profile, internet: internet);
       expect(app.error, isNull, reason: 'isolated native controller startup');
       expect(app.ready, isTrue, reason: 'native shared controller initializes');
@@ -81,11 +112,13 @@ void main({bool host = false}) {
       expect(find.byType(ProjectsPage), findsOneWidget);
       await tester.tap(find.byTooltip(tr('hostRegisterProject')));
       await tester.pumpAndSettle();
-      await tester.enterText(
+      await edit(
+        tester,
         find.widgetWithText(TextField, tr('hostProjectName')),
         'Flutter fixture',
       );
-      await tester.enterText(
+      await edit(
+        tester,
         find.widgetWithText(TextField, tr('hostProjectPath')),
         _project,
       );
@@ -100,10 +133,10 @@ void main({bool host = false}) {
         find.descendant(of: navigation, matching: find.text(tr('chat'))),
       );
       await tester.pump();
-      await tester.tap(find.byTooltip(tr('newTask')));
+      await tester.tap(find.byTooltip(tr('newConversation')));
       await tester.pumpAndSettle();
       expect(objects(node.snapshot['sessions']), isEmpty);
-      await tester.enterText(find.byType(TextField), _prompt);
+      await edit(tester, find.byType(TextField), _prompt);
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip(tr('send')));
       await until(

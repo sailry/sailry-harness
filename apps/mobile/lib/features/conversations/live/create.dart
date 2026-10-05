@@ -41,6 +41,8 @@ class _NewConversationPageState extends State<NewConversationPage> {
   bool _busy = false;
   bool _uncertain = false;
   bool _attaching = false;
+  bool _defaultsCaptured = false;
+  bool _configChosen = false;
 
   List<Map<String, dynamic>> get _providers =>
       objects(widget.host.snapshot['providers'])
@@ -51,9 +53,11 @@ class _NewConversationPageState extends State<NewConversationPage> {
           )
           .toList();
 
-  List<Map<String, dynamic>> get _worktrees => objects(
-    widget.host.snapshot['worktrees'],
-  ).where((tree) => tree['project'] == _project?['id']).toList();
+  List<Map<String, dynamic>> get _worktrees => _project == null
+      ? []
+      : objects(
+          widget.host.snapshot['worktrees'],
+        ).where((tree) => tree['project'] == _project!['id']).toList();
 
   List<PickedAttachment> get _files =>
       _attachments.putIfAbsent(text(_worktree?['id']), () => []);
@@ -69,23 +73,47 @@ class _NewConversationPageState extends State<NewConversationPage> {
   @override
   void initState() {
     super.initState();
+    _syncDraft();
+    widget.host.addListener(_hostChanged);
+  }
+
+  void _hostChanged() {
+    if (!mounted || _busy || _uncertain || _attaching || _created != null) {
+      return;
+    }
+    setState(_syncDraft);
+  }
+
+  void _syncDraft() {
     final projects = objects(widget.host.snapshot['projects']);
     _project =
+        projects
+            .where((project) => project['id'] == _project?['id'])
+            .firstOrNull ??
         projects
             .where((project) => project['id'] == widget.initialProject)
             .firstOrNull ??
         projects.firstOrNull;
-    _worktree = _worktrees.firstOrNull;
-    final defaults = object(object(widget.host.snapshot['defaults'])['config']);
-    _config = {
-      'mode': defaults['mode'] ?? 'code',
-      'permission': defaults['permission'] ?? 'ask',
-      'provider': defaults['provider'],
-      'model': defaults['model'],
-      'effort': defaults['effort'] ?? 'default',
-      'credential': defaults['credential'],
-    };
-    if (!_hasModel) {
+    _worktree =
+        _worktrees
+            .where((tree) => tree['id'] == _worktree?['id'])
+            .firstOrNull ??
+        _worktrees.firstOrNull;
+    if (!_defaultsCaptured && !_configChosen) {
+      final defaults = object(
+        object(widget.host.snapshot['defaults'])['config'],
+      );
+      _config = {
+        'mode': defaults['mode'] ?? 'code',
+        'permission': defaults['permission'] ?? 'ask',
+        'provider': defaults['provider'],
+        'model': defaults['model'],
+        'effort': defaults['effort'] ?? 'default',
+        'credential': defaults['credential'],
+      };
+      _defaultsCaptured = widget.host.snapshot.containsKey('defaults');
+    }
+    if (!_hasModel && !_configChosen) {
       final provider = _providers.firstOrNull;
       if (provider != null) {
         final models = objects(provider['models']);
@@ -106,6 +134,7 @@ class _NewConversationPageState extends State<NewConversationPage> {
 
   @override
   void dispose() {
+    widget.host.removeListener(_hostChanged);
     _draft.dispose();
     _inputFocus.dispose();
     super.dispose();
@@ -127,8 +156,7 @@ class _NewConversationPageState extends State<NewConversationPage> {
     if (_busy || _attaching || !widget.host.connected) return;
     if (_uncertain && _pendingRequest == null) return;
     if (!_uncertain &&
-        (_project == null ||
-            _worktree == null ||
+        (_project != null && _worktree == null ||
             !_hasModel ||
             _draft.text.trim().isEmpty && _files.isEmpty)) {
       return;
@@ -138,8 +166,8 @@ class _NewConversationPageState extends State<NewConversationPage> {
       final result = _uncertain
           ? await widget.host.execute(_pendingRequest!)
           : await widget.host.command('create_session', {
-              'project': _project!['id'],
-              'worktree': _worktree!['id'],
+              'project': _project?['id'],
+              'worktree': _worktree?['id'],
               'config': Map<String, dynamic>.of(_config),
             });
       if (mounted) setState(() => _created = object(result['data']));
@@ -196,7 +224,10 @@ class _NewConversationPageState extends State<NewConversationPage> {
             _worktree = _worktrees.firstOrNull;
           }),
           onWorktree: (tree) => change(() => _worktree = tree),
-          onConfig: (config) => change(() => _config = config),
+          onConfig: (config) => change(() {
+            _config = config;
+            _configChosen = true;
+          }),
         );
       },
     ),
@@ -221,9 +252,7 @@ class _NewConversationPageState extends State<NewConversationPage> {
         final editable = !_busy && !_uncertain && !_attaching;
         final message = !widget.host.connected
             ? 'conversationOffline'
-            : _project == null
-            ? 'conversationNoProject'
-            : _worktree == null
+            : _project != null && _worktree == null
             ? 'resourceNoWorkspace'
             : !_hasModel
             ? 'conversationNoModel'
@@ -288,7 +317,9 @@ class _NewConversationPageState extends State<NewConversationPage> {
             busy: false,
             enabled: editable,
             sendEnabled:
-                widget.host.connected && _worktree != null && _hasModel,
+                widget.host.connected &&
+                (_project == null || _worktree != null) &&
+                _hasModel,
             attachmentsEnabled: widget.host.connected && _worktree != null,
             onAttachment: (_) => _attach(),
             onVoice: () => dictate(context, _draft),

@@ -132,6 +132,115 @@ Map<String, dynamic> admitted(Map<String, dynamic> data) => {
 };
 
 void main() {
+  testWidgets('unassigned draft uses the Node session workspace', (
+    tester,
+  ) async {
+    final connection = live.ConnectionFixture();
+    final calls = <(String, Map<String, dynamic>?)>[];
+    final data = snapshot('a')
+      ..['projects'] = []
+      ..['worktrees'] = [
+        {
+          'id': 'another-session-workspace',
+          'project': null,
+          'path': '/session/other',
+        },
+      ];
+    final host = HostConnection.test(
+      id: 'host-a',
+      label: 'Host',
+      snapshot: data,
+      connection: connection,
+      command: (kind, data) async {
+        calls.add((kind, data));
+        return kind == 'create_session'
+            ? {
+                'data': {...admitted(data!), 'worktree': 'node-workspace'},
+              }
+            : {'data': {}};
+      },
+    );
+    final app = AppSession.test(hosts: [host]);
+    await open(tester, app);
+    expect(find.text(tr('conversationNoProject')), findsNothing);
+    expect(
+      tester
+          .widget<MessageComposer>(find.byType(MessageComposer))
+          .attachmentsEnabled,
+      isFalse,
+    );
+    await submit(tester, awaitingView: true);
+    expect(calls.single.$2!['project'], isNull);
+    expect(calls.single.$2!['worktree'], isNull);
+    connection.updates.emit(live.view());
+    await tester.pumpAndSettle();
+    expect(calls.map((call) => call.$1), ['create_session', 'submit_turn']);
+    expect(calls.last.$2!['message'], {
+      'text': 'First real task',
+      'attachments': [],
+    });
+    await tester.pumpWidget(const SizedBox());
+    await app.close();
+    app.dispose();
+  });
+
+  testWidgets('late resources enable the existing draft', (tester) async {
+    final send = find.byWidgetPredicate(
+      (widget) => widget is IconButton && widget.tooltip == tr('send'),
+    );
+    final calls = <(String, Map<String, dynamic>?)>[];
+    final host = HostConnection.test(
+      id: 'host-a',
+      label: 'Host',
+      snapshot: {},
+      command: (kind, data) async {
+        calls.add((kind, data));
+        throw const CommandFailure('unavailable');
+      },
+    );
+    final app = AppSession.test(hosts: [host]);
+    await open(tester, app, draft: 'Keep this draft');
+    expect(find.text(tr('conversationNoModel')), findsOneWidget);
+    expect(tester.widget<IconButton>(send).onPressed, isNull);
+    final config = {
+      'mode': 'plan',
+      'permission': 'deny',
+      'provider': 'a',
+      'model': 'a-second',
+      'effort': 'high',
+      'credential': provider('a')['credential'],
+    };
+    host.snapshot = snapshot('a', config: config);
+    host.notifyListeners();
+    await tester.pumpAndSettle();
+    expect(find.text(tr('conversationNoProject')), findsNothing);
+    expect(find.text('Keep this draft'), findsOneWidget);
+    expect(tester.widget<IconButton>(send).onPressed, isNotNull);
+    host.snapshot = snapshot('a', config: {...config, 'model': 'a-first'});
+    host.notifyListeners();
+    await tester.pumpAndSettle();
+    await submit(tester);
+    expect(calls.single.$1, 'create_session');
+    expect(calls.single.$2, {
+      'project': 'project-a',
+      'worktree': 'tree-a',
+      'config': config,
+    });
+    await tester.pump(const Duration(seconds: 3));
+    expect(find.text('Keep this draft'), findsOneWidget);
+    host.snapshot = snapshot('a', config: config, providers: []);
+    host.notifyListeners();
+    await tester.pumpAndSettle();
+    expect(tester.widget<IconButton>(send).onPressed, isNull);
+    host.snapshot = snapshot('a', config: config);
+    host.notifyListeners();
+    await tester.pumpAndSettle();
+    expect(tester.widget<IconButton>(send).onPressed, isNotNull);
+    await tester.pumpWidget(const SizedBox());
+    await app.close();
+    app.dispose();
+  });
+
   testWidgets('welcome prompts edit without creating a session', (
     tester,
   ) async {

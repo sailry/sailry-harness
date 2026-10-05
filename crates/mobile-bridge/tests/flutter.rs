@@ -19,6 +19,9 @@ use tokio::{
 #[path = "../../node-runtime/tests/agent_support/mod.rs"]
 mod support;
 
+#[path = "flutter/android.rs"]
+mod android;
+
 const CONTENT: &str = "Flutter reads this file 中文 🙂";
 const MODEL: &str = "flutter-fixture";
 
@@ -26,9 +29,16 @@ const MODEL: &str = "flutter-fixture";
 #[ignore = "requires Flutter dependencies/native bridge; SAILRY_FLUTTER_DEVICE selects a simulator"]
 fn controls_remote_node() {
     let device = std::env::var("SAILRY_FLUTTER_DEVICE").ok();
-    let android = device
+    let profile = std::env::var("SAILRY_FLUTTER_PROFILE").as_deref() == Ok("1");
+    let emulator = device
         .as_deref()
         .is_some_and(|id| id.starts_with("emulator-"));
+    let android = emulator || std::env::var("SAILRY_FLUTTER_ANDROID").as_deref() == Ok("1");
+    assert!(
+        !profile || device.is_some() && !emulator,
+        "profile measurements require a physical device"
+    );
+    let adb = std::env::var("SAILRY_ADB").unwrap_or_else(|_| "adb".into());
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()
@@ -43,52 +53,109 @@ fn controls_remote_node() {
     std::fs::create_dir(&project).unwrap();
     std::fs::write(project.join("source.txt"), CONTENT).unwrap();
     let runtime = tokio::runtime::Runtime::new().unwrap();
-    let (node, server, bootstrap, fixture) = runtime.block_on(async {
+    let (node, server, unassigned, text_server, bootstrap, fixture) = runtime.block_on(async {
         let server = support::Server::tools(vec![(support::plugin_tool("files", "read_file"), json!({"path":"source.txt"}))]).await;
-        let network = if android {
+        let network = if android && !emulator {
+            sailry_node_runtime::NetworkScope::Internet
+        } else if android {
             sailry_node_runtime::NetworkScope::Direct(([0, 0, 0, 0], 0).into())
         } else {
             sailry_node_runtime::NetworkScope::default()
         };
-        let node = Node::start_with_network(directory.path().join("node"), network)
+        let node = Node::start_with_network(directory.path().join("node"), network.clone())
             .await
             .unwrap();
         configure(&Client::new(node.local()), &server.endpoint).await;
+        let text_server = support::Server::start(false).await;
+        let unassigned = Node::start_with_network(directory.path().join("unassigned"), network).await.unwrap();
+        configure(&Client::new(unassigned.local()), &text_server.endpoint).await;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let token = RequestId::new().to_string();
-        // Android's emulator maps this address to the host loopback interface.
-        // Only the isolated test bootstrap uses it; Link advertises its real addresses.
+        // The emulator maps host loopback; a physical phone uses one isolated
+        // adb reverse port for bootstrap. Link still uses the real Node endpoint.
         let address = listener.local_addr().unwrap();
-        let host = if android {
+        let host = if emulator {
             "10.0.2.2"
         } else {
             "127.0.0.1"
         };
         let url = format!("http://{host}:{}/{token}", address.port());
         let link = node.link();
+        let unassigned_link = unassigned.link();
+        let input_device = device.clone();
+        let input_adb = adb.clone();
         // Invitations expire after one minute. Issue it only after Flutter has
         // compiled/launched, without extending the real pairing lifetime.
         let fixture = tokio::spawn(async move {
+            for (path, link) in [(format!("/{token}/unassigned"), unassigned_link), (format!("/{token}"), link)] {
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut bytes = vec![0; 4096];
             let count = stream.read(&mut bytes).await.unwrap();
             let request = std::str::from_utf8(&bytes[..count]).unwrap();
-            assert!(request.starts_with(&format!("GET /{token} HTTP/1.1\r\n")));
+            assert!(request.starts_with(&format!("GET {path} HTTP/1.1\r\n")));
             let mut invitation = link.invite().unwrap();
             let body = json!({"invitation":invitation.ticket()}).to_string();
             let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
             stream.write_all(response.as_bytes()).await.unwrap();
             stream.shutdown().await.unwrap();
             invitation.paired().await.unwrap();
+            if android && path.ends_with("/unassigned") {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let count = stream.read(&mut bytes).await.unwrap();
+                let request = std::str::from_utf8(&bytes[..count]).unwrap();
+                assert!(request.starts_with(&format!("GET /{token}/ime HTTP/1.1\r\n")));
+                let adb = input_adb.clone();
+                let device = input_device.clone().unwrap();
+                tokio::task::spawn_blocking(move || android::enter_input(&adb, &device)).await.unwrap();
+                stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+                stream.shutdown().await.unwrap();
+            }
+            }
         });
-        (node, server, url, fixture)
+        (node, server, unassigned, text_server, (url, address.port()), fixture)
     });
+    let (bootstrap, port) = bootstrap;
+    let reverse = android && !emulator;
+    if reverse {
+        assert!(
+            std::process::Command::new(&adb)
+                .args([
+                    "-s",
+                    device.as_deref().unwrap(),
+                    "reverse",
+                    &format!("tcp:{port}"),
+                    &format!("tcp:{port}")
+                ])
+                .status()
+                .unwrap()
+                .success(),
+            "physical Android fixture bootstrap"
+        );
+    }
     let mut command = std::process::Command::new("flutter");
-    command
-        .current_dir(root.join("apps/mobile"))
-        .args(["test", "--no-pub", "--reporter=expanded"]);
+    command.current_dir(root.join("apps/mobile"));
+    if profile {
+        command.args([
+            "drive",
+            "--no-pub",
+            "--profile",
+            "--no-dds",
+            "--keep-app-running",
+            "--driver=integration_test/driver.dart",
+            "--target=integration_test/node_test.dart",
+        ]);
+    } else {
+        command.args(["test", "--no-pub", "--no-uninstall", "--reporter=expanded"]);
+    }
+    if android {
+        command.env("SAILRY_ANDROID_TEST_APP", "1");
+        command.arg("--dart-define=SAILRY_ANDROID_IME_ACCEPTANCE=true");
+    }
     if let Some(device) = device {
-        command.args(["integration_test/node_test.dart", "-d", &device]);
+        if !profile {
+            command.arg("integration_test/node_test.dart");
+        }
+        command.args(["-d", &device]);
     } else {
         // This wrapper runs the same real-network flow in flutter-tester,
         // without claiming iOS/Android device acceptance.
@@ -121,6 +188,7 @@ fn controls_remote_node() {
         ));
     let mut child = command.spawn().unwrap();
     let deadline = Instant::now() + Duration::from_secs(25 * 60);
+    let mut terminal_claimed = false;
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() {
             break status;
@@ -129,17 +197,81 @@ fn controls_remote_node() {
             let _ = child.kill();
             let _ = child.wait();
             runtime.block_on(node.shutdown()).unwrap();
+            runtime.block_on(unassigned.shutdown()).unwrap();
             panic!("Flutter acceptance deadline");
+        }
+        if !terminal_claimed {
+            let client = Client::new(unassigned.local());
+            if let Output::Snapshot(snapshot) = runtime
+                .block_on(client.execute(client.prepare(Command::Snapshot)))
+                .unwrap()
+                && let Some(terminal) = snapshot.terminals.first()
+            {
+                runtime
+                    .block_on(client.execute(client.prepare(Command::ClaimTerminal {
+                        terminal: terminal.id,
+                        expected_revision: terminal.revision,
+                    })))
+                    .unwrap();
+                terminal_claimed = true;
+            }
         }
         std::thread::sleep(Duration::from_millis(100));
     };
+    if reverse {
+        assert!(
+            std::process::Command::new(&adb)
+                .args([
+                    "-s",
+                    std::env::var("SAILRY_FLUTTER_DEVICE").unwrap().as_str(),
+                    "reverse",
+                    "--remove",
+                    &format!("tcp:{port}")
+                ])
+                .status()
+                .unwrap()
+                .success(),
+            "remove isolated Android bootstrap forwarding"
+        );
+    }
     let page = runtime.block_on(async {
         if !status.success() {
             fixture.abort();
             node.shutdown().await.unwrap();
+            unassigned.shutdown().await.unwrap();
             panic!("Flutter UI acceptance failed");
         }
         fixture.await.unwrap();
+        let empty_client = Client::new(unassigned.local());
+        let Output::Snapshot(empty) = empty_client
+            .execute(empty_client.prepare(Command::Snapshot))
+            .await
+            .unwrap()
+        else {
+            panic!("unassigned snapshot expected")
+        };
+        assert!(empty.projects.is_empty());
+        assert_eq!(empty.sessions.len(), 1);
+        assert!(empty.sessions[0].project.is_none());
+        assert!(
+            empty
+                .worktrees
+                .iter()
+                .any(|tree| tree.id == empty.sessions[0].worktree)
+        );
+        let unassigned_page = empty_client
+            .read_conversation(empty.sessions[0].id, None, 100)
+            .await
+            .unwrap()
+            .page;
+        assert_eq!(unassigned_page.runs.len(), 1);
+        assert_eq!(unassigned_page.runs[0].status, Status::Completed);
+        assert_eq!(text_server.requests.lock().unwrap().len(), 1);
+        assert!(
+            terminal_claimed,
+            "terminal control transferred from the execution Node"
+        );
+        unassigned.shutdown().await.unwrap();
         let client = Client::new(node.local());
         let Output::Snapshot(snapshot) = client
             .execute(client.prepare(Command::Snapshot))
