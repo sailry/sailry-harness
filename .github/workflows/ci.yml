@@ -78,7 +78,8 @@ jobs:
           - runner: macos-15-intel
             target: x86_64-apple-darwin
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120
+    # Cold Intel builds reached the former two-hour job limit.
+    timeout-minutes: 360
     env:
       CARGO_BUILD_JOBS: '2'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
@@ -111,14 +112,18 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Strict lint
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Backend test compilation
+        run: cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --no-run
       - name: Backend unit and local/remote integration
-        run: cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host -- --test-threads=4
+        run: cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --no-fail-fast -- --test-threads=4
       - name: Isolated database engines
         if: matrix.target == 'aarch64-apple-darwin'
         run: |
           brew install postgresql@17 mysql@8.4
           export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
           cargo test --locked -p sailry-node-runtime --test databases -- --ignored --test-threads=1
+      - name: Desktop test compilation
+        run: cargo test --locked -p sailry-desktop --no-run
       - name: Desktop behavior and Kit interactions
         # Desktop fixtures share process-global locale and native UI state.
         run: cargo test --locked -p sailry-desktop -- --test-threads=1
@@ -163,6 +168,8 @@ jobs:
           flutter test --no-pub
       - name: Native shared bridge
         run: cargo build --locked -p sailry-mobile-bridge --lib
+      - name: Dart FFI test compilation
+        run: cargo test --locked -p sailry-mobile-bridge --test dart --no-run
       - name: Dart FFI contract fixtures
         run: |
           brew install postgresql@17 mysql@8.4
