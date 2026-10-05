@@ -46,8 +46,9 @@ class _Task {
     this.status,
     this.project,
     this.host,
-    this.branch,
-  );
+    this.branch, {
+    this.localized = false,
+  });
 
   final String id;
   final String title;
@@ -56,6 +57,7 @@ class _Task {
   final String project;
   final String host;
   final String branch;
+  final bool localized;
   bool archived = false;
 }
 
@@ -63,48 +65,53 @@ class _TasksPageState extends State<_PreviewTasksPage> {
   final List<_Task> _tasks = [
     _Task(
       'approval',
-      tr('approveTitle'),
-      tr('approveNote'),
+      'approveTitle',
+      'approveNote',
       'waiting',
       'sailry-web',
       'Studio',
       'feature/sign-in',
+      localized: true,
     ),
     _Task(
       'question',
-      tr('questionTitle'),
-      tr('questionNote'),
+      'questionTitle',
+      'questionNote',
       'waiting',
       'sailry-api',
       'Build Server',
       'docs/api',
+      localized: true,
     ),
     _Task(
       'search',
-      tr('taskSearch'),
-      tr('taskSearchNote'),
+      'taskSearch',
+      'taskSearchNote',
       'running',
       'sailry',
       'Studio',
       'main',
+      localized: true,
     ),
     _Task(
       'test',
-      tr('taskTest'),
-      tr('taskTestNote'),
+      'taskTest',
+      'taskTestNote',
       'running',
       'sailry',
       'Build Server',
       'fix/recovery',
+      localized: true,
     ),
     _Task(
       'done',
-      tr('taskDone'),
-      tr('taskDoneNote'),
+      'taskDone',
+      'taskDoneNote',
       'completed',
       'sailry-web',
       'Studio',
       'main',
+      localized: true,
     ),
   ];
   String _host = 'all';
@@ -113,6 +120,11 @@ class _TasksPageState extends State<_PreviewTasksPage> {
   String _search = '';
   bool _searching = false;
 
+  String _title(_Task task) =>
+      task.localized ? context.tr(task.title) : task.title;
+  String _note(_Task task) =>
+      task.localized ? context.tr(task.note) : task.note;
+
   void _projects() {
     final projects = _tasks
         .where((task) => _host == 'all' || task.host == _host)
@@ -120,14 +132,16 @@ class _TasksPageState extends State<_PreviewTasksPage> {
         .toSet();
     showAppSheet(
       context,
-      tr('filterProjects'),
+      context.tr('filterProjects'),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           for (final project in ['all', ...projects])
             ListTile(
               leading: const AppIcon('folder'),
-              title: Text(project == 'all' ? tr('allProjects') : project),
+              title: Text(
+                project == 'all' ? context.tr('allProjects') : project,
+              ),
               trailing: project == _project ? const AppIcon('check') : null,
               onTap: () {
                 setState(() => _project = project);
@@ -147,7 +161,7 @@ class _TasksPageState extends State<_PreviewTasksPage> {
     _Task? created;
     await showAppSheet(
       context,
-      tr('newTask'),
+      context.tr('newTask'),
       child: StatefulBuilder(
         builder: (context, update) => FormBody(
           children: [
@@ -157,11 +171,11 @@ class _TasksPageState extends State<_PreviewTasksPage> {
               maxLines: 5,
               autofocus: true,
               onChanged: (value) => update(() => draft = value),
-              decoration: InputDecoration(hintText: tr('describeTask')),
+              decoration: InputDecoration(hintText: context.tr('describeTask')),
             ),
             SelectField<String>(
               value: host,
-              label: tr('newTaskHost'),
+              label: context.tr('newTaskHost'),
               options: [
                 for (final value in ['Studio', 'Build Server']) (value, value),
               ],
@@ -169,7 +183,7 @@ class _TasksPageState extends State<_PreviewTasksPage> {
             ),
             SelectField<String>(
               value: project,
-              label: tr('newTaskProject'),
+              label: context.tr('newTaskProject'),
               options: [
                 for (final value in ['sailry-web', 'sailry-api', 'sailry'])
                   (value, value),
@@ -178,7 +192,7 @@ class _TasksPageState extends State<_PreviewTasksPage> {
             ),
             SelectField<String>(
               value: branch,
-              label: tr('newTaskWorktree'),
+              label: context.tr('newTaskWorktree'),
               options: [
                 for (final value in ['main', 'feature/sign-in']) (value, value),
               ],
@@ -191,7 +205,7 @@ class _TasksPageState extends State<_PreviewTasksPage> {
                       created = _Task(
                         'created-${_tasks.length}',
                         draft.trim(),
-                        tr('taskCreated'),
+                        context.tr('taskCreated'),
                         'waiting',
                         project,
                         host,
@@ -207,7 +221,7 @@ class _TasksPageState extends State<_PreviewTasksPage> {
                       });
                       Navigator.pop(context);
                     },
-              child: Text(tr('create')),
+              child: Text(context.tr('create')),
             ),
           ],
         ),
@@ -220,7 +234,7 @@ class _TasksPageState extends State<_PreviewTasksPage> {
     pushPage(
       context,
       ConversationPage(
-        title: task.title,
+        title: _title(task),
         project: task.project,
         host: task.host,
         branch: task.branch,
@@ -233,14 +247,14 @@ class _TasksPageState extends State<_PreviewTasksPage> {
   void _delete(_Task task) {
     showAppSheet(
       context,
-      tr('deleteTask'),
+      context.tr('deleteTask'),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(task.title, style: Theme.of(context).textTheme.titleMedium),
+          Text(_title(task), style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
-          Text(tr('deleteWarning')),
+          Text(context.tr('deleteWarning')),
           const SizedBox(height: 20),
           FilledButton(
             style: FilledButton.styleFrom(
@@ -251,7 +265,7 @@ class _TasksPageState extends State<_PreviewTasksPage> {
               setState(() => _tasks.remove(task));
               Navigator.pop(context);
             },
-            child: Text(tr('delete')),
+            child: Text(context.tr('delete')),
           ),
         ],
       ),
@@ -269,17 +283,17 @@ class _TasksPageState extends State<_PreviewTasksPage> {
               task.status == _filter) &&
           (_host == 'all' || task.host == _host) &&
           (_project == 'all' || task.project == _project) &&
-          '${task.title} ${task.project} ${task.host}'.toLowerCase().contains(
+          '${_title(task)} ${task.project} ${task.host}'.toLowerCase().contains(
             _search.toLowerCase(),
           ),
     );
     return PageFrame(
-      title: tr('brand'),
+      title: context.tr('brand'),
       titleSize: 28,
       actions: [
         RoundButton(
           icon: 'server',
-          tooltip: tr('selectHost'),
+          tooltip: context.tr('selectHost'),
           onPressed: () => showHostPicker(
             context,
             selected: _host,
@@ -292,7 +306,7 @@ class _TasksPageState extends State<_PreviewTasksPage> {
         ),
         RoundButton(
           icon: _searching ? 'close' : 'search',
-          tooltip: tr('searchTasks'),
+          tooltip: context.tr('searchTasks'),
           onPressed: () => setState(() {
             _searching = !_searching;
             if (!_searching) _search = '';
@@ -301,7 +315,7 @@ class _TasksPageState extends State<_PreviewTasksPage> {
         RoundButton(
           icon: 'plus',
           primary: true,
-          tooltip: tr('newTask'),
+          tooltip: context.tr('newTask'),
           onPressed: _create,
         ),
       ],
@@ -317,15 +331,15 @@ class _TasksPageState extends State<_PreviewTasksPage> {
                     padding: EdgeInsets.all(12),
                     child: AppIcon('search'),
                   ),
-                  hintText: tr('searchTasks'),
+                  hintText: context.tr('searchTasks'),
                 ),
                 onChanged: (value) => setState(() => _search = value),
               ),
               const SizedBox(height: 16),
             ],
             SelectorCard(
-              title: _project == 'all' ? tr('allProjects') : _project,
-              subtitle: tr('allWorktrees'),
+              title: _project == 'all' ? context.tr('allProjects') : _project,
+              subtitle: context.tr('allWorktrees'),
               onTap: _projects,
             ),
             const SizedBox(height: 16),
@@ -384,7 +398,7 @@ class _TasksPageState extends State<_PreviewTasksPage> {
                               ),
                               onPressed: () => setState(() => _filter = filter),
                               child: Text(
-                                tr(
+                                context.tr(
                                   filter == 'archived' ? 'archiveTab' : filter,
                                 ),
                                 softWrap: false,
@@ -402,7 +416,9 @@ class _TasksPageState extends State<_PreviewTasksPage> {
               Padding(
                 padding: const EdgeInsets.all(30),
                 child: Text(
-                  tr(_filter == 'archived' ? 'archiveEmpty' : 'noResults'),
+                  context.tr(
+                    _filter == 'archived' ? 'archiveEmpty' : 'noResults',
+                  ),
                   textAlign: TextAlign.center,
                   style: TextStyle(color: colors.onSurfaceVariant),
                 ),
@@ -433,7 +449,9 @@ class _TasksPageState extends State<_PreviewTasksPage> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                tr(task.archived ? 'restore' : 'archiveShort'),
+                                context.tr(
+                                  task.archived ? 'restore' : 'archiveShort',
+                                ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ],
@@ -449,7 +467,7 @@ class _TasksPageState extends State<_PreviewTasksPage> {
                               AppIcon('trash', size: 24, color: colors.onError),
                               const SizedBox(height: 4),
                               Text(
-                                tr('delete'),
+                                context.tr('delete'),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ],
@@ -467,7 +485,7 @@ class _TasksPageState extends State<_PreviewTasksPage> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Text(
-                              task.title,
+                              _title(task),
                               style: Theme.of(context).textTheme.titleMedium
                                   ?.copyWith(
                                     fontWeight: FontWeight.w600,
@@ -476,7 +494,7 @@ class _TasksPageState extends State<_PreviewTasksPage> {
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              '${task.status == 'waiting' ? '•  ' : ''}${task.note}',
+                              '${task.status == 'waiting' ? '•  ' : ''}${_note(task)}',
                               style: TextStyle(
                                 height: 1.5,
                                 color: SailryTheme.statusColor(

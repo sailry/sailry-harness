@@ -28,7 +28,7 @@ class UserBubble extends StatelessWidget {
       notice = 'copyFailed';
     }
     if (context.mounted) {
-      showToast(context, tr(notice));
+      showToast(context, context.tr(notice));
     }
   }
 
@@ -95,12 +95,12 @@ class UserBubble extends StatelessWidget {
             ],
             if (onEdit != null)
               IconButton(
-                tooltip: tr('messageEdit'),
+                tooltip: context.tr('messageEdit'),
                 onPressed: onEdit,
                 icon: const AppIcon('edit', size: 14),
               ),
             IconButton(
-              tooltip: tr('copy'),
+              tooltip: context.tr('copy'),
               onPressed: () => _copy(context),
               style: IconButton.styleFrom(
                 padding: const EdgeInsets.all(6),

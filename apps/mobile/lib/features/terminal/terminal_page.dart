@@ -39,7 +39,7 @@ class _TerminalPageState extends State<TerminalPage> {
     super.dispose();
   }
 
-  void _placeholder() => showToast(context, tr('terminalUnavailable'));
+  void _placeholder() => showToast(context, context.tr('terminalUnavailable'));
 
   @override
   Widget build(BuildContext context) {
@@ -53,11 +53,11 @@ class _TerminalPageState extends State<TerminalPage> {
       );
     }
     final colors = Theme.of(context).colorScheme;
-    final output = tr(
-      'terminalFixture',
-    ).replaceFirst('sailry-web', widget.project);
+    final output = context
+        .tr('terminalFixture')
+        .replaceFirst('sailry-web', widget.project);
     return PageFrame(
-      title: tr('terminal'),
+      title: context.tr('terminal'),
       scroll: false,
       child: Column(
         children: [

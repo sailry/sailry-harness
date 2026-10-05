@@ -14,7 +14,7 @@ Future<void> dictate(BuildContext context, TextEditingController draft) async {
   if (speech == null) return;
   final text = await showAppSheet<String>(
     context,
-    tr('voice'),
+    context.tr('voice'),
     child: VoiceInput(speech: speech),
   );
   if (!context.mounted || text == null || text.isEmpty) return;
@@ -59,7 +59,7 @@ class _VoiceInputState extends State<VoiceInput> {
     });
     try {
       if (!await _recorder.hasPermission()) {
-        throw StateError(tr('conversationMicrophoneDenied'));
+        throw StateError(context.tr('conversationMicrophoneDenied'));
       }
       if (!mounted) return;
       final stream = await _recorder.startStream(
@@ -89,7 +89,7 @@ class _VoiceInputState extends State<VoiceInput> {
         onError: (Object error) {
           if (mounted) {
             setState(() {
-              _error = tr('conversationRecordingFailed');
+              _error = context.tr('conversationRecordingFailed');
               _recording = false;
             });
           }
@@ -98,7 +98,9 @@ class _VoiceInputState extends State<VoiceInput> {
       );
       setState(() => _recording = true);
     } catch (_) {
-      if (mounted) setState(() => _error = tr('conversationMicrophoneDenied'));
+      if (mounted) {
+        setState(() => _error = context.tr('conversationMicrophoneDenied'));
+      }
     } finally {
       if (mounted) setState(() => _working = false);
     }
@@ -128,7 +130,9 @@ class _VoiceInputState extends State<VoiceInput> {
       );
       if (mounted) Navigator.pop(context, text);
     } catch (_) {
-      if (mounted) setState(() => _error = tr('conversationRecordingFailed'));
+      if (mounted) {
+        setState(() => _error = context.tr('conversationRecordingFailed'));
+      }
     } finally {
       _transcribing = false;
       if (mounted) setState(() => _working = false);
@@ -143,12 +147,12 @@ class _VoiceInputState extends State<VoiceInput> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (!widget.speech.enabled)
-          Text(tr('conversationSpeechDisabled'))
+          Text(context.tr('conversationSpeechDisabled'))
         else if (!widget.speech.ready)
-          Text(tr('conversationSpeechMissing'))
+          Text(context.tr('conversationSpeechMissing'))
         else
           Text(
-            tr(
+            context.tr(
               _recording
                   ? 'conversationRecording'
                   : _working
@@ -172,7 +176,7 @@ class _VoiceInputState extends State<VoiceInput> {
               ? _finish
               : _start,
           child: Text(
-            tr(
+            context.tr(
               _recording
                   ? 'conversationFinishRecording'
                   : 'conversationStartRecording',

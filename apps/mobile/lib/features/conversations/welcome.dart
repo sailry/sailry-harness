@@ -26,7 +26,7 @@ class ConversationWelcome extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      tr('brand'),
+                      context.tr('brand'),
                       style: theme.textTheme.headlineLarge?.copyWith(
                         fontSize: 40,
                         fontWeight: FontWeight.w600,
@@ -35,7 +35,7 @@ class ConversationWelcome extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      tr('welcomeTitle'),
+                      context.tr('welcomeTitle'),
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
@@ -57,7 +57,9 @@ class ConversationWelcome extends StatelessWidget {
                               tone: tone,
                               onPressed: onPrompt == null
                                   ? null
-                                  : () => onPrompt!(tr('welcome${name}Prompt')),
+                                  : () => onPrompt!(
+                                      context.tr('welcome${name}Prompt'),
+                                    ),
                             ),
                         ];
                         final paired =
@@ -146,14 +148,14 @@ class _PromptCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            tr('welcome$name'),
+            context.tr('welcome$name'),
             style: theme.textTheme.labelLarge?.copyWith(
               fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 4),
           Text(
-            tr('welcome${name}Detail'),
+            context.tr('welcome${name}Detail'),
             style: theme.textTheme.bodySmall?.copyWith(
               fontSize: 12,
               height: 1.4,

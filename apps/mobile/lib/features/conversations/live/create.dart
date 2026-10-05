@@ -149,7 +149,7 @@ class _NewConversationPageState extends State<NewConversationPage> {
           _uncertain = true;
           _pendingRequest = error.request ?? _pendingRequest;
         }
-        showToast(context, failureLabel(error));
+        showToast(context, failureLabel(error, translate: context.tr));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -166,7 +166,9 @@ class _NewConversationPageState extends State<NewConversationPage> {
         setState(() => _attachments.putIfAbsent(tree, () => []).add(file));
       }
     } catch (error) {
-      if (mounted) showToast(context, failureLabel(error));
+      if (mounted) {
+        showToast(context, failureLabel(error, translate: context.tr));
+      }
     } finally {
       if (mounted) setState(() => _attaching = false);
     }
@@ -174,7 +176,7 @@ class _NewConversationPageState extends State<NewConversationPage> {
 
   void _settings() => showAppSheet(
     context,
-    tr('modelPicker'),
+    context.tr('modelPicker'),
     child: StatefulBuilder(
       builder: (context, update) {
         void change(VoidCallback action) {
@@ -227,7 +229,7 @@ class _NewConversationPageState extends State<NewConversationPage> {
             ? 'conversationNoModel'
             : 'conversationEmpty';
         return ConversationFrame(
-          title: tr('newTask'),
+          title: context.tr('newTask'),
           leading: Align(
             alignment: Alignment.centerLeft,
             child: Surface(
@@ -241,7 +243,7 @@ class _NewConversationPageState extends State<NewConversationPage> {
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
                 icon: const AppIcon('settings', size: 18),
-                tooltip: tr('modelPicker'),
+                tooltip: context.tr('modelPicker'),
                 onPressed: editable ? _settings : null,
               ),
             ),
@@ -257,17 +259,19 @@ class _NewConversationPageState extends State<NewConversationPage> {
                 : !widget.host.connected || _uncertain
                 ? FailureState(
                     icon: 'chat',
-                    message: tr(_uncertain ? 'conversationUnknown' : message),
+                    message: context.tr(
+                      _uncertain ? 'conversationUnknown' : message,
+                    ),
                     action: _pendingRequest == null
                         ? null
                         : FilledButton(
                             onPressed: _busy || !widget.host.connected
                                 ? null
                                 : _send,
-                            child: Text(tr('conversationCheckResult')),
+                            child: Text(context.tr('conversationCheckResult')),
                           ),
                   )
-                : EmptyState(icon: 'chat', message: tr(message)),
+                : EmptyState(icon: 'chat', message: context.tr(message)),
           ),
           composer: MessageComposer(
             controller: _draft,

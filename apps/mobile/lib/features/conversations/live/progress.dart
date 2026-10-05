@@ -43,7 +43,7 @@ class TaskProgress extends StatelessWidget {
                 itemBuilder: (context, index) {
                   final step = steps[index];
                   final done = ['completed', 'skipped'].contains(step['state']);
-                  final label = tr(switch (step['state']) {
+                  final label = context.tr(switch (step['state']) {
                     'completed' => 'completed',
                     'in_progress' => 'running',
                     'skipped' => 'conversationStepSkipped',

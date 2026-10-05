@@ -68,7 +68,7 @@ class _PairFormState extends State<PairForm> {
                 ),
               );
               return Semantics(
-                label: tr('pairCode'),
+                label: context.tr('pairCode'),
                 child: Pinput(
                   controller: _pin,
                   length: 6,
@@ -88,7 +88,7 @@ class _PairFormState extends State<PairForm> {
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   validator: (value) => RegExp(r'^\d{6}$').hasMatch(value ?? '')
                       ? null
-                      : tr('pairInvalid'),
+                      : context.tr('pairInvalid'),
                   onSubmitted: (_) {
                     if (widget.session.ready) _connect();
                   },
@@ -100,13 +100,13 @@ class _PairFormState extends State<PairForm> {
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: Text(
-                tr(_failure!),
+                context.tr(_failure!),
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
           FilledButton(
             onPressed: _busy || !widget.session.ready ? null : _connect,
-            child: Text(tr(_busy ? 'pairing' : 'pairAction')),
+            child: Text(context.tr(_busy ? 'pairing' : 'pairAction')),
           ),
         ],
       ),

@@ -44,7 +44,7 @@ class MessageComposer extends StatelessWidget {
           dimension: 40,
           child: IconButton(
             padding: EdgeInsets.zero,
-            tooltip: tr(tooltip),
+            tooltip: context.tr(tooltip),
             onPressed: onPressed,
             icon: AppIcon(name, size: 21),
           ),
@@ -72,7 +72,7 @@ class MessageComposer extends StatelessWidget {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: InputChip(
-                      label: Text(tr('attachment')),
+                      label: Text(context.tr('attachment')),
                       avatar: const AppIcon('file', size: 15),
                       deleteIcon: const AppIcon('close', size: 18),
                       onDeleted: enabled ? () => onAttachment(false) : null,
@@ -98,7 +98,7 @@ class MessageComposer extends StatelessWidget {
                         style: const TextStyle(fontSize: 15, height: 1.5),
                         textInputAction: TextInputAction.newline,
                         decoration: InputDecoration(
-                          hintText: tr('describeTask'),
+                          hintText: context.tr('describeTask'),
                           hintMaxLines: 1,
                           border: InputBorder.none,
                           enabledBorder: InputBorder.none,
@@ -124,7 +124,7 @@ class MessageComposer extends StatelessWidget {
                         child: RoundButton(
                           icon: busy ? 'clock' : 'send',
                           primary: true,
-                          tooltip: tr(busy ? 'enqueue' : 'send'),
+                          tooltip: context.tr(busy ? 'enqueue' : 'send'),
                           onPressed: enabled && sendEnabled ? onSend : null,
                         ),
                       ),

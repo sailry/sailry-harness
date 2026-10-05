@@ -25,7 +25,7 @@ class PageHeading extends StatelessWidget {
     );
     if (ModalRoute.canPopOf(context) != true) return label;
     return Tooltip(
-      message: tr('back'),
+      message: context.tr('back'),
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
         onTap: enabled ? () => Navigator.maybePop(context) : null,

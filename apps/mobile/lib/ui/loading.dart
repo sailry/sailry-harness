@@ -63,7 +63,7 @@ class LoadingOverlay extends StatelessWidget {
                       child: CircularProgressIndicator.adaptive(
                         value: progress,
                         strokeWidth: 2,
-                        semanticsLabel: label ?? tr('loading'),
+                        semanticsLabel: label ?? context.tr('loading'),
                       ),
                     ),
                   ),

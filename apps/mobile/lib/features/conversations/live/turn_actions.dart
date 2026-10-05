@@ -22,16 +22,16 @@ class TurnActions extends StatelessWidget {
       if (onAction != null) ...[
         if (failed && canEdit)
           IconButton(
-            tooltip: tr('retry'),
+            tooltip: context.tr('retry'),
             icon: const AppIcon('refresh', size: 16),
             onPressed: () => onAction!('retry'),
           ),
         IconButton(
-          tooltip: tr('messageActions'),
+          tooltip: context.tr('messageActions'),
           icon: const AppIcon('more', size: 16),
           onPressed: () => showAppSheet(
             context,
-            tr('messageActions'),
+            context.tr('messageActions'),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -42,7 +42,7 @@ class TurnActions extends StatelessWidget {
                 ])
                   ListTile(
                     title: Text(
-                      tr(switch (action) {
+                      context.tr(switch (action) {
                         'edit' => 'messageEdit',
                         'fork' => 'fork',
                         _ => 'messageRewind',

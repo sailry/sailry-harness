@@ -119,7 +119,7 @@ extension _HistoryActions on _LiveConversationPageState {
                   objects(_page['runs']).lastOrNull?['turn'] != head ||
                   _page['revision'] != revision ||
                   _session['revision'] != sessionRevision) {
-                _failure(tr('conversationConflict'));
+                _failure(context.tr('conversationConflict'));
                 return false;
               }
               final success = await _historyCommand('replace_turn', {
@@ -140,16 +140,16 @@ extension _HistoryActions on _LiveConversationPageState {
         final confirmed = await showAppDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: Text(tr('messageRewind')),
-            content: Text(tr('messageRewindConfirm')),
+            title: Text(context.tr('messageRewind')),
+            content: Text(context.tr('messageRewindConfirm')),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: Text(tr('cancel')),
+                child: Text(context.tr('cancel')),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: Text(tr('confirm')),
+                child: Text(context.tr('confirm')),
               ),
             ],
           ),
@@ -158,7 +158,7 @@ extension _HistoryActions on _LiveConversationPageState {
         if (!_canChangeHistory ||
             _page['revision'] != revision ||
             objects(_page['runs']).lastOrNull?['turn'] != head) {
-          _failure(tr('conversationConflict'));
+          _failure(context.tr('conversationConflict'));
           return;
         }
         await _historyCommand('rewind_conversation', {
@@ -177,7 +177,7 @@ extension _HistoryActions on _LiveConversationPageState {
     );
     if (!mounted || result == null) return;
     if (result['revision'] != _page['revision']) {
-      _failure(tr('messageSearchStale'));
+      _failure(context.tr('messageSearchStale'));
       return;
     }
     _reveal = (turn: text(result['turn']), revision: result['revision'] as int);
@@ -200,17 +200,17 @@ extension _HistoryActions on _LiveConversationPageState {
     if (target == null) return;
     if (_page['revision'] != target.revision) {
       _reveal = null;
-      _failure(tr('messageSearchStale'));
+      _failure(context.tr('messageSearchStale'));
       return;
     }
     if (!objects(_page['runs']).any((run) => run['turn'] == target.turn)) {
       if (_view.value['older_error'] != null) {
         _reveal = null;
-        _failure(tr('conversationFailed'));
+        _failure(context.tr('conversationFailed'));
       } else if (_page['next_before'] == null &&
           _view.value['loading_older'] != true) {
         _reveal = null;
-        _failure(tr('messageSearchMissing'));
+        _failure(context.tr('messageSearchMissing'));
       }
       return;
     }

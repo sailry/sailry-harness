@@ -34,7 +34,7 @@ class _LiveResourcesPageState extends State<LiveResourcesPage> {
     final session = AppSession.of(context);
     final id = await showAppSheet<String>(
       context,
-      tr('selectHost'),
+      context.tr('selectHost'),
       child: Builder(
         builder: (context) => Column(
           mainAxisSize: MainAxisSize.min,
@@ -44,7 +44,7 @@ class _LiveResourcesPageState extends State<LiveResourcesPage> {
                 title: Text(host.label),
                 subtitle: host.connected
                     ? null
-                    : Text(tr('hostDisconnected')),
+                    : Text(context.tr('hostDisconnected')),
                 onTap: () => Navigator.pop(context, host.id),
               ),
           ],
@@ -73,16 +73,16 @@ class _LiveResourcesPageState extends State<LiveResourcesPage> {
         : session.host(_hostId!);
     final target = resourceTarget(context, _hostId, _worktreeId);
     return PageFrame(
-      title: tr('resources'),
+      title: context.tr('resources'),
       failure: host?.connected != true ? HostState(added: host != null) : null,
       empty: host?.connected == true && target == null
-          ? EmptyState(message: tr('resourceNoWorkspace'))
+          ? EmptyState(message: context.tr('resourceNoWorkspace'))
           : null,
       actions: [
         if (host != null && host.connected && target != null)
           RoundButton(
             icon: 'terminal',
-            tooltip: tr('terminal'),
+            tooltip: context.tr('terminal'),
             onPressed: () => pushPage(
               context,
               TerminalPage(
@@ -94,7 +94,7 @@ class _LiveResourcesPageState extends State<LiveResourcesPage> {
         if (ModalRoute.canPopOf(context) != true)
           RoundButton(
             icon: 'server',
-            tooltip: tr('selectHost'),
+            tooltip: context.tr('selectHost'),
             onPressed: session.hosts.isEmpty ? null : _host,
           ),
       ],
@@ -140,7 +140,7 @@ class _LiveResourcesPageState extends State<LiveResourcesPage> {
                             ),
                             const SizedBox(height: 22),
                             Text(
-                              tr(item.$2),
+                              context.tr(item.$2),
                               style: Theme.of(context).textTheme.titleMedium,
                             ),
                           ],

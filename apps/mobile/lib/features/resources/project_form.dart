@@ -69,21 +69,24 @@ class ProjectFormState extends State<ProjectForm> {
       TextField(
         controller: _name,
         enabled: !_busy,
-        decoration: InputDecoration(labelText: tr('hostProjectName')),
+        decoration: InputDecoration(labelText: context.tr('hostProjectName')),
       ),
       TextField(
         controller: _path,
         enabled: !_busy,
         decoration: InputDecoration(
-          labelText: tr('hostProjectPath'),
+          labelText: context.tr('hostProjectPath'),
           suffixIcon: IconButton(
-            tooltip: tr('hostChooseDirectory'),
+            tooltip: context.tr('hostChooseDirectory'),
             onPressed: _busy ? null : _browse,
             icon: const AppIcon('folder'),
           ),
         ),
       ),
-      FilledButton(onPressed: _busy ? null : _save, child: Text(tr('save'))),
+      FilledButton(
+        onPressed: _busy ? null : _save,
+        child: Text(context.tr('save')),
+      ),
     ],
   );
 }

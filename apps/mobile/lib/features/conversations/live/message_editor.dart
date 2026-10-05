@@ -31,13 +31,13 @@ class _MessageEditorState extends State<MessageEditor> {
   Widget build(BuildContext context) => PopScope(
     canPop: !_busy,
     child: PageFrame(
-      title: tr('messageEdit'),
+      title: context.tr('messageEdit'),
       backEnabled: !_busy,
       loading: _busy,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(tr('messageEditConfirm')),
+          Text(context.tr('messageEditConfirm')),
           const SizedBox(height: 12),
           TextField(
             controller: _text,
@@ -58,7 +58,9 @@ class _MessageEditorState extends State<MessageEditor> {
                     if (accepted) Navigator.pop(context);
                   },
             child: Text(
-              tr(widget.isPending() ? 'messageCheck' : 'messageRegenerate'),
+              context.tr(
+                widget.isPending() ? 'messageCheck' : 'messageRegenerate',
+              ),
             ),
           ),
         ],

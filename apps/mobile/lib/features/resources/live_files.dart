@@ -80,7 +80,7 @@ class _LiveFilesPageState extends State<LiveFilesPage> {
       });
     } catch (error) {
       if (mounted && generation == _generation) {
-        setState(() => _error = failureText(error));
+        setState(() => _error = failureText(error, translate: context.tr));
       }
     } finally {
       if (mounted && generation == _generation) setState(() => _busy = false);
@@ -114,7 +114,7 @@ class _LiveFilesPageState extends State<LiveFilesPage> {
       await _load();
     } catch (error) {
       if (mounted && identity == _identity) {
-        setState(() => _error = failureText(error));
+        setState(() => _error = failureText(error, translate: context.tr));
       }
     } finally {
       if (mounted && identity == _identity) setState(() => _opening = null);
@@ -142,20 +142,21 @@ class _LiveFilesPageState extends State<LiveFilesPage> {
       final matches = objects(data['matches']);
       final path = await showAppSheet<String>(
         context,
-        tr('searchFiles'),
+        context.tr('searchFiles'),
         child: Builder(
           builder: (context) => Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (matches.isEmpty)
-                EmptyState(icon: 'search', message: tr('noResults')),
+                EmptyState(icon: 'search', message: context.tr('noResults')),
               for (final match in matches)
                 ListTile(
                   title: Text('${text(match['path'])}:${match['line_number']}'),
                   subtitle: Text(text(match['line'])),
                   onTap: () => Navigator.pop(context, text(match['path'])),
                 ),
-              if (data['truncated'] == true) Text(tr('resourcePartial')),
+              if (data['truncated'] == true)
+                Text(context.tr('resourcePartial')),
             ],
           ),
         ),
@@ -163,7 +164,7 @@ class _LiveFilesPageState extends State<LiveFilesPage> {
       if (mounted && identity == _identity && path != null) await _open(path);
     } catch (error) {
       if (mounted && identity == _identity) {
-        setState(() => _error = failureText(error));
+        setState(() => _error = failureText(error, translate: context.tr));
       }
     }
   }
@@ -175,24 +176,24 @@ class _LiveFilesPageState extends State<LiveFilesPage> {
     final next = _listing?['next'];
     return PageFrame(
       loading: _busy,
-      title: tr('files'),
+      title: context.tr('files'),
       failure: target != null && !target.host.connected
           ? const HostState(added: true)
           : null,
       empty: target == null
-          ? EmptyState(message: tr('resourceNoWorkspace'))
+          ? EmptyState(message: context.tr('resourceNoWorkspace'))
           : entries.isEmpty && !_busy && _error == null
-          ? EmptyState(message: tr('resourceEmpty'))
+          ? EmptyState(message: context.tr('resourceEmpty'))
           : null,
       actions: [
         RoundButton(
           icon: 'search',
-          tooltip: tr('searchFiles'),
+          tooltip: context.tr('searchFiles'),
           onPressed: _busy ? null : _search,
         ),
         RoundButton(
           icon: 'refresh',
-          tooltip: tr('refresh'),
+          tooltip: context.tr('refresh'),
           onPressed: _busy ? null : _load,
         ),
       ],
@@ -256,10 +257,10 @@ class _LiveFilesPageState extends State<LiveFilesPage> {
             if (_error == null && next != null)
               TextButton(
                 onPressed: _busy ? null : () => _load(after: object(next)),
-                child: Text(tr('resourceMore')),
+                child: Text(context.tr('resourceMore')),
               )
             else if (_error == null && _listing?['truncated'] == true)
-              Text(tr('resourcePartial')),
+              Text(context.tr('resourcePartial')),
           ],
         ],
       ),

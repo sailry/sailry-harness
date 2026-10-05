@@ -424,13 +424,13 @@ Future<void> showHostPicker(
 }) async {
   final value = await showAppSheet<String>(
     context,
-    tr('selectHost'),
+    context.tr('selectHost'),
     actions: onAdd == null
         ? []
         : [
             ListTile(
               leading: const AppIcon('plus'),
-              title: Text(tr('pair')),
+              title: Text(context.tr('pair')),
               onTap: () {
                 Navigator.of(context).pop();
                 onAdd();
@@ -443,7 +443,7 @@ Future<void> showHostPicker(
         children: [
           if (allowAll)
             ListTile(
-              title: Text(tr('allHosts')),
+              title: Text(context.tr('allHosts')),
               trailing: selected == 'all' ? const AppIcon('check') : null,
               onTap: () => Navigator.pop(sheetContext, 'all'),
             ),
@@ -465,7 +465,9 @@ Future<void> showHostPicker(
                 ),
               ),
               title: Text(host),
-              subtitle: Text(tr(host == 'MacBook Air' ? 'offline' : 'online')),
+              subtitle: Text(
+                context.tr(host == 'MacBook Air' ? 'offline' : 'online'),
+              ),
               trailing: selected == host ? const AppIcon('check') : null,
               onTap: () => Navigator.pop(sheetContext, host),
             ),
@@ -542,7 +544,7 @@ class FloatingNavigation extends StatelessWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            tr(labels[index]),
+                            context.tr(labels[index]),
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 14,

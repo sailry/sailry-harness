@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../l10n/strings.dart';
-import '../../l10n/conversations.dart';
 import '../../ui/kit.dart';
 import '../../ui/toast.dart';
 import '../resources/git_page.dart';
@@ -42,7 +41,8 @@ class _ConversationPageState extends State<ConversationPage> {
   final _scroll = ScrollController();
   final List<String> _messages = [];
   final List<String> _followups = [];
-  final List<QueuedDraft> _queue = [QueuedDraft(1, tr('queueSample'))];
+  final List<QueuedDraft> _queue = [];
+  bool _sampleLoaded = false;
   DemoPhase _phase = DemoPhase.approval;
   Timer? _timer;
   var _chars = 8;
@@ -65,9 +65,12 @@ class _ConversationPageState extends State<ConversationPage> {
       _phase != DemoPhase.complete;
 
   @override
-  void initState() {
-    super.initState();
-    if (!widget.sample) _queue.clear();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_sampleLoaded) {
+      _sampleLoaded = true;
+      if (widget.sample) _queue.add(QueuedDraft(1, context.tr('queueSample')));
+    }
   }
 
   @override
@@ -78,7 +81,7 @@ class _ConversationPageState extends State<ConversationPage> {
     super.dispose();
   }
 
-  void _notify(String key) => showToast(context, tr(key));
+  void _notify(String key) => showToast(context, context.tr(key));
 
   void _play() {
     _timer?.cancel();
@@ -91,7 +94,7 @@ class _ConversationPageState extends State<ConversationPage> {
       if (!mounted || !_playing || !_busy || _phase.streamKey == null) return;
       final atBottom = _scroll.hasClients && _scroll.position.extentAfter < 40;
       setState(() => _chars += 2);
-      if (_chars > tr(_phase.streamKey!).length + 12) _next();
+      if (_chars > context.tr(_phase.streamKey!).length + 12) _next();
       if (atBottom) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && _scroll.hasClients) {
@@ -147,9 +150,9 @@ class _ConversationPageState extends State<ConversationPage> {
       _followups.clear();
       _queue.clear();
       if (phase.position >= 3 && phase.position < 7) {
-        _queue.add(QueuedDraft(_nextQueueId++, tr('queueSample')));
+        _queue.add(QueuedDraft(_nextQueueId++, context.tr('queueSample')));
       } else if (phase.position >= 7) {
-        _followups.add(tr('queueSample'));
+        _followups.add(context.tr('queueSample'));
       }
     });
   }
@@ -174,19 +177,19 @@ class _ConversationPageState extends State<ConversationPage> {
   void _question() {
     showAppSheet(
       context,
-      tr('question'),
+      context.tr('question'),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(tr(widget.question ? 'question' : 'layoutQuestion')),
+          Text(context.tr(widget.question ? 'question' : 'layoutQuestion')),
           const SizedBox(height: 16),
           for (final key
               in widget.question
                   ? ['optionChinese', 'optionEnglish']
                   : ['wideButton', 'keepButton'])
             ListTile(
-              title: Text(tr(key)),
+              title: Text(context.tr(key)),
               trailing: const AppIcon('chevron'),
               onTap: () {
                 Navigator.pop(context);
@@ -198,11 +201,11 @@ class _ConversationPageState extends State<ConversationPage> {
                     _chars = 8;
                     if (_queue.isEmpty) {
                       _queue.add(
-                        QueuedDraft(_nextQueueId++, tr('queueSample')),
+                        QueuedDraft(_nextQueueId++, context.tr('queueSample')),
                       );
                     }
                   } else {
-                    _messages.add(tr(key));
+                    _messages.add(context.tr(key));
                   }
                 });
                 if (widget.sample) _play();
@@ -216,7 +219,7 @@ class _ConversationPageState extends State<ConversationPage> {
   void _queueSheet() {
     showAppSheet(
       context,
-      tr('queue'),
+      context.tr('queue'),
       child: QueueSheet(
         items: _queue,
         paused: _queuePaused,
@@ -283,7 +286,7 @@ class _ConversationPageState extends State<ConversationPage> {
   void _demo() {
     showAppSheet(
       context,
-      tr('replyPreview'),
+      context.tr('replyPreview'),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -298,7 +301,7 @@ class _ConversationPageState extends State<ConversationPage> {
                     }
                     _play();
                   },
-                  child: Text(tr('playFlow')),
+                  child: Text(context.tr('playFlow')),
                 ),
               ),
               const SizedBox(width: 8),
@@ -308,11 +311,11 @@ class _ConversationPageState extends State<ConversationPage> {
                     _pause();
                     Navigator.pop(context);
                   },
-                  child: Text(tr('pauseFlow')),
+                  child: Text(context.tr('pauseFlow')),
                 ),
               ),
               IconButton(
-                tooltip: tr('nextFlow'),
+                tooltip: context.tr('nextFlow'),
                 onPressed: () {
                   _next();
                   Navigator.pop(context);
@@ -324,7 +327,7 @@ class _ConversationPageState extends State<ConversationPage> {
           const SizedBox(height: 12),
           for (final phase in DemoPhase.values)
             ListTile(
-              title: Text(phase.label),
+              title: Text(context.tr(phase.labelKey)),
               trailing: phase == _phase ? const AppIcon('check') : null,
               onTap: () {
                 _choose(phase);
@@ -339,13 +342,13 @@ class _ConversationPageState extends State<ConversationPage> {
   void _menu() {
     showAppSheet(
       context,
-      tr('sessionActions'),
+      context.tr('sessionActions'),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           ListTile(
             leading: const AppIcon('terminal'),
-            title: Text(tr('terminal')),
+            title: Text(context.tr('terminal')),
             trailing: const AppIcon('chevron'),
             onTap: () {
               Navigator.pop(context);
@@ -354,7 +357,7 @@ class _ConversationPageState extends State<ConversationPage> {
           ),
           ListTile(
             leading: const AppIcon('clock'),
-            title: Text(tr('queue')),
+            title: Text(context.tr('queue')),
             trailing: Text('${_queue.length}'),
             onTap: () {
               Navigator.pop(context);
@@ -364,7 +367,7 @@ class _ConversationPageState extends State<ConversationPage> {
           if (widget.sample)
             ListTile(
               leading: const AppIcon('spark'),
-              title: Text(tr('replyPreview')),
+              title: Text(context.tr('replyPreview')),
               trailing: const AppIcon('chevron'),
               onTap: () {
                 Navigator.pop(context);
@@ -373,7 +376,7 @@ class _ConversationPageState extends State<ConversationPage> {
             ),
           ListTile(
             leading: const AppIcon('branch'),
-            title: Text(tr('fork')),
+            title: Text(context.tr('fork')),
             onTap: () {
               Navigator.pop(context);
               pushPage(
@@ -391,7 +394,7 @@ class _ConversationPageState extends State<ConversationPage> {
           if (_busy)
             ListTile(
               leading: const AppIcon('stop'),
-              title: Text(tr('stop')),
+              title: Text(context.tr('stop')),
               onTap: () {
                 Navigator.pop(context);
                 _pause();
@@ -406,7 +409,7 @@ class _ConversationPageState extends State<ConversationPage> {
   void _todos() {
     showAppSheet(
       context,
-      tr('todoShort'),
+      context.tr('todoShort'),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -422,9 +425,9 @@ class _ConversationPageState extends State<ConversationPage> {
                     ? 'check'
                     : 'clock',
               ),
-              title: Text(tr(key)),
+              title: Text(context.tr(key)),
               trailing: Text(
-                tr(
+                context.tr(
                   _phase != DemoPhase.followup &&
                           _phase.position >= [3, 4, 6][index]
                       ? 'completed'
@@ -490,14 +493,17 @@ class _ConversationPageState extends State<ConversationPage> {
             'pnpm test',
             () => showAppSheet(
               context,
-              tr('approval'),
-              child: Text(tr('approvalBody')),
+              context.tr('approval'),
+              child: Text(context.tr('approvalBody')),
             ),
           ),
-          TextButton(onPressed: () => _approve(false), child: Text(tr('deny'))),
+          TextButton(
+            onPressed: () => _approve(false),
+            child: Text(context.tr('deny')),
+          ),
           FilledButton(
             onPressed: () => _approve(true),
-            child: Text(tr('allowShort')),
+            child: Text(context.tr('allowShort')),
           ),
         ],
       );
@@ -505,14 +511,18 @@ class _ConversationPageState extends State<ConversationPage> {
         (widget.question && _messages.isEmpty)) {
       content = Row(
         children: [
-          main('chat', tr('confirmShort'), _question),
-          FilledButton(onPressed: _question, child: Text(tr('reply'))),
+          main('chat', context.tr('confirmShort'), _question),
+          FilledButton(onPressed: _question, child: Text(context.tr('reply'))),
         ],
       );
     } else if (_queue.isNotEmpty) {
       content = Row(
         children: [
-          main('clock', '${tr('queueShort')}  ${_queue.length}', _queueSheet),
+          main(
+            'clock',
+            '${context.tr('queueShort')}  ${_queue.length}',
+            _queueSheet,
+          ),
           const AppIcon('chevron', size: 14),
         ],
       );
@@ -530,20 +540,17 @@ class _ConversationPageState extends State<ConversationPage> {
           main(
             'task',
             _phase == DemoPhase.followup
-                ? '${tr('todoShort')}  0/1'
-                : '${tr('todoShort')}  $index/3',
+                ? '${context.tr('todoShort')}  0/1'
+                : '${context.tr('todoShort')}  $index/3',
             _todos,
-            subtitle: tr(
+            subtitle: context.tr(
               _phase == DemoPhase.followup
                   ? 'todoNarrow'
                   : ['todoInspect', 'todoEdit', 'todoTest'][index],
             ),
           ),
           if (_phase == DemoPhase.failed)
-            TextButton(
-              onPressed: _retry,
-              child: Text(conversationTr('retryTask')),
-            )
+            TextButton(onPressed: _retry, child: Text(context.tr('retryTask')))
           else
             const AppIcon('chevron', size: 14),
         ],
@@ -551,7 +558,7 @@ class _ConversationPageState extends State<ConversationPage> {
     } else if (widget.sample && _phase.position >= 3) {
       content = Row(
         children: [
-          main('branch', tr('changes'), _changes),
+          main('branch', context.tr('changes'), _changes),
           Text('+42', style: TextStyle(color: colors.tertiary)),
           const SizedBox(width: 5),
           Text('−18', style: TextStyle(color: colors.secondary)),
@@ -611,17 +618,17 @@ class _ConversationPageState extends State<ConversationPage> {
 
   @override
   Widget build(BuildContext context) {
-    final title = widget.title.isEmpty ? tr('chatTitle') : widget.title;
+    final title = widget.title.isEmpty ? context.tr('chatTitle') : widget.title;
     return ConversationFrame(
       title: title,
       leading: Align(
         alignment: Alignment.centerLeft,
         child: RoundButton(
           icon: 'settings',
-          tooltip: tr('modelPicker'),
+          tooltip: context.tr('modelPicker'),
           onPressed: () => showAppSheet(
             context,
-            tr('modelPicker'),
+            context.tr('modelPicker'),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -640,10 +647,14 @@ class _ConversationPageState extends State<ConversationPage> {
         ),
       ),
       actions: [
-        RoundButton(icon: 'more', tooltip: tr('more'), onPressed: _menu),
+        RoundButton(
+          icon: 'more',
+          tooltip: context.tr('more'),
+          onPressed: _menu,
+        ),
         RoundButton(
           icon: 'folder',
-          tooltip: tr('resources'),
+          tooltip: context.tr('resources'),
           onPressed: () => pushPage(
             context,
             ResourcesPage(
@@ -667,7 +678,7 @@ class _ConversationPageState extends State<ConversationPage> {
               ),
               children: [
                 UserBubble(
-                  text: widget.sample ? tr('userMessage') : title,
+                  text: widget.sample ? context.tr('userMessage') : title,
                   time: widget.sample ? '09:36' : null,
                   attachment: widget.sample
                       ? SentAttachment(
@@ -675,7 +686,7 @@ class _ConversationPageState extends State<ConversationPage> {
                           onPressed: () => showAppSheet(
                             context,
                             'login-reference.md',
-                            child: Text(tr('flowAttachment')),
+                            child: Text(context.tr('flowAttachment')),
                           ),
                         )
                       : null,
@@ -697,7 +708,10 @@ class _ConversationPageState extends State<ConversationPage> {
                     onRetry: _retry,
                   )
                 else if (widget.question && _messages.isEmpty)
-                  Text(tr('question'), style: const TextStyle(height: 1.7)),
+                  Text(
+                    context.tr('question'),
+                    style: const TextStyle(height: 1.7),
+                  ),
                 for (final message in _messages) UserBubble(text: message),
               ],
             ),

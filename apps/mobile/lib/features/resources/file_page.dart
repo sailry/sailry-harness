@@ -85,8 +85,8 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
       if (mounted) {
         setState(
           () => _error = error is FileOpenFailure
-              ? error.message
-              : failureText(error),
+              ? context.tr(error.messageKey)
+              : failureText(error, translate: context.tr),
         );
       }
     } finally {
@@ -140,7 +140,7 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
           : '',
     );
     if (path == null) {
-      setState(() => _error = tr('fileLinkUnavailable'));
+      setState(() => _error = context.tr('fileLinkUnavailable'));
       return;
     }
     if (path == widget.path) return;
@@ -157,7 +157,7 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: Text(tr('cancel')),
+              child: Text(context.tr('cancel')),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
@@ -173,16 +173,19 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
       await _draft!.save(widget.host, widget.worktree, widget.path);
       if (mounted) _editing = false;
     } catch (error) {
-      if (mounted) _error = '${tr('resourceSaveError')}\n${failureText(error)}';
+      if (mounted) {
+        _error =
+            '${context.tr('resourceSaveError')}\n${failureText(error, translate: context.tr)}';
+      }
     }
   }, mutating: true);
 
   Future<void> _reload() async {
     if (_draft?.dirty == true &&
         !await _confirm(
-          tr('refresh'),
-          tr('resourceReloadConfirm'),
-          tr('discard'),
+          context.tr('refresh'),
+          context.tr('resourceReloadConfirm'),
+          context.tr('discard'),
         )) {
       return;
     }
@@ -192,9 +195,9 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
   Future<void> _export({required bool share, Rect? origin}) async {
     if (_draft?.dirty == true) {
       if (!await _confirm(
-        tr('unsaved'),
-        tr('fileSaveBeforeShare'),
-        tr('save'),
+        context.tr('unsaved'),
+        context.tr('fileSaveBeforeShare'),
+        context.tr('save'),
       )) {
         return;
       }
@@ -223,9 +226,9 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
   Future<void> _trash() async {
     if (widget.document.trashRequest == null &&
         !await _confirm(
-          tr('delete'),
-          tr('fileTrashConfirm').replaceAll('{name}', _name),
-          tr('delete'),
+          context.tr('delete'),
+          context.tr('fileTrashConfirm').replaceAll('{name}', _name),
+          context.tr('delete'),
         )) {
       return;
     }
@@ -264,13 +267,13 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
         if (_isText || _isImage)
           RoundButton(
             icon: 'refresh',
-            tooltip: tr('refresh'),
+            tooltip: context.tr('refresh'),
             onPressed: _busy || _pending ? null : _reload,
           ),
         if (_isText)
           RoundButton(
             icon: _editing ? 'check' : 'edit',
-            tooltip: tr(
+            tooltip: context.tr(
               _editing ? (_draft?.pending == null ? 'save' : 'retry') : 'edit',
             ),
             onPressed:
@@ -285,7 +288,7 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
         Builder(
           builder: (context) => RoundButton(
             icon: 'send',
-            tooltip: tr('send'),
+            tooltip: context.tr('send'),
             onPressed: _busy || _pending
                 ? null
                 : () {
@@ -299,7 +302,7 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
         ),
         RoundButton(
           icon: 'trash',
-          tooltip: tr(
+          tooltip: context.tr(
             widget.document.trashRequest == null ? 'delete' : 'retry',
           ),
           onPressed: _busy || _draft?.pending != null ? null : _trash,
@@ -316,12 +319,12 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             if (widget.document.trashRequest != null)
-              Text(tr('fileTrashUncertain')),
+              Text(context.tr('fileTrashUncertain')),
             if (_draft?.dirty == true || _editing)
               Row(
                 children: [
                   if (_draft?.dirty == true)
-                    Expanded(child: Text(tr('unsaved')))
+                    Expanded(child: Text(context.tr('unsaved')))
                   else
                     const Spacer(),
                   if (_editing)
@@ -329,11 +332,11 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
                       onPressed: _busy || _pending
                           ? null
                           : () => setState(() => _editing = false),
-                      child: Text(tr('preview')),
+                      child: Text(context.tr('preview')),
                     ),
                 ],
               ),
-            if (_draft?.truncated == true) Text(tr('resourcePartial')),
+            if (_draft?.truncated == true) Text(context.tr('resourcePartial')),
             Expanded(child: _body()),
           ],
         ),
@@ -351,7 +354,7 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
       return Center(
         child: FilledButton(
           onPressed: _busy || _pending ? null : () => _export(share: false),
-          child: Text(tr('fileOpenExternal')),
+          child: Text(context.tr('fileOpenExternal')),
         ),
       );
     }

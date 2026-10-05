@@ -30,7 +30,7 @@ class MessageReferences extends StatelessWidget {
     children: [
       for (final reference in references)
         ActionChip(
-          label: Text(text(reference['label'], tr('messageReference'))),
+          label: Text(text(reference['label'], context.tr('messageReference'))),
           avatar: AppIcon(
             object(reference['target'])['kind'] == 'directory'
                 ? 'folder'
@@ -42,8 +42,8 @@ class MessageReferences extends StatelessWidget {
             if (!['file', 'directory'].contains(target['kind'])) {
               await showAppSheet(
                 context,
-                text(reference['label'], tr('messageReference')),
-                child: Text(tr('messageReferenceContext')),
+                text(reference['label'], context.tr('messageReference')),
+                child: Text(context.tr('messageReferenceContext')),
               );
               return;
             }
@@ -56,7 +56,7 @@ class MessageReferences extends StatelessWidget {
               allowRoot: target['kind'] == 'directory',
             );
             if (path == null || !host.connected) {
-              showToast(context, tr('fileLinkUnavailable'));
+              showToast(context, context.tr('fileLinkUnavailable'));
               return;
             }
             if (target['kind'] == 'directory') {

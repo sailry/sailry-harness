@@ -35,13 +35,13 @@ class _GitPageState extends State<GitPage> {
 
   GitPreview get _git => _previews.putIfAbsent(
     '${widget.host}/$_project/$_worktree',
-    () => GitPreview(_worktree),
+    () => GitPreview(_worktree, translate: context.tr),
   );
 
   Future<void> _actions() async {
     final action = await showAppSheet<String>(
       context,
-      tr('gitActions'),
+      context.tr('gitActions'),
       child: Builder(
         builder: (context) => Column(
           mainAxisSize: MainAxisSize.min,
@@ -54,7 +54,7 @@ class _GitPageState extends State<GitPage> {
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: AppIcon(item.$1),
-                title: Text(tr(item.$2)),
+                title: Text(context.tr(item.$2)),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -84,7 +84,7 @@ class _GitPageState extends State<GitPage> {
   Future<void> _selectDiff() async {
     final name = await showAppSheet<String>(
       context,
-      tr('diffSelection'),
+      context.tr('diffSelection'),
       child: Builder(
         builder: (context) => Column(
           mainAxisSize: MainAxisSize.min,
@@ -107,7 +107,7 @@ class _GitPageState extends State<GitPage> {
   Future<void> _commit() async {
     final message = await showAppSheet<String>(
       context,
-      tr('commitTitle'),
+      context.tr('commitTitle'),
       child: _GitForm(
         label: 'commitMessage',
         hint: 'commitPlaceholder',
@@ -132,7 +132,7 @@ class _GitPageState extends State<GitPage> {
   Future<void> _createBranch() async {
     final name = await showAppSheet<String>(
       context,
-      tr('gitCreateBranch'),
+      context.tr('gitCreateBranch'),
       child: _GitForm(
         label: 'gitBranchName',
         action: 'create',
@@ -140,7 +140,7 @@ class _GitPageState extends State<GitPage> {
           if (!RegExp(r'^[a-zA-Z0-9][a-zA-Z0-9._/-]*$').hasMatch(value) ||
               RegExp(r'\.\.|//|/$|\.$|\.lock$').hasMatch(value) ||
               _git.branches.contains(value)) {
-            return tr('gitInvalidBranch');
+            return context.tr('gitInvalidBranch');
           }
           return null;
         },
@@ -158,7 +158,7 @@ class _GitPageState extends State<GitPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (name == _git.branch)
-              Text(tr('gitCurrent'))
+              Text(context.tr('gitCurrent'))
             else
               for (final item in [
                 ('branch', 'gitSwitch', 'switch'),
@@ -167,7 +167,7 @@ class _GitPageState extends State<GitPage> {
               ])
                 ListTile(
                   leading: AppIcon(item.$1),
-                  title: Text(tr(item.$2)),
+                  title: Text(context.tr(item.$2)),
                   trailing: const AppIcon('chevron'),
                   onTap: () => Navigator.pop(context, item.$3),
                 ),
@@ -184,7 +184,7 @@ class _GitPageState extends State<GitPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text(
-          tr(
+          context.tr(
             {
               'switch': 'gitSwitch',
               'merge': 'gitMerge',
@@ -196,11 +196,11 @@ class _GitPageState extends State<GitPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text(tr('cancel')),
+            child: Text(context.tr('cancel')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text(tr('confirm')),
+            child: Text(context.tr('confirm')),
           ),
         ],
       ),
@@ -215,7 +215,7 @@ class _GitPageState extends State<GitPage> {
         case 'merge':
           _git.history.insert(0, (
             id: 'sample-${_git.sequence++}',
-            title: '${tr('gitMerge')} $name',
+            title: '${context.tr('gitMerge')} $name',
             branch: _git.branch,
           ));
           _git.ahead++;
@@ -236,7 +236,7 @@ class _GitPageState extends State<GitPage> {
           tilePadding: EdgeInsets.zero,
           title: Row(
             children: [
-              Text(tr(staged ? 'staged' : 'workingTree')),
+              Text(context.tr(staged ? 'staged' : 'workingTree')),
               const SizedBox(width: 8),
               Text(
                 !_git.committed && _git.staged == staged ? '3' : '0',
@@ -250,7 +250,7 @@ class _GitPageState extends State<GitPage> {
             if (_git.committed || _git.staged != staged)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 24),
-                child: Text(tr('noChanges')),
+                child: Text(context.tr('noChanges')),
               )
             else ...[
               ListTile(
@@ -268,7 +268,9 @@ class _GitPageState extends State<GitPage> {
                     child: OutlinedButton(
                       onPressed: () =>
                           setState(() => _git.staged = !_git.staged),
-                      child: Text(tr(_git.staged ? 'unstage' : 'stage')),
+                      child: Text(
+                        context.tr(_git.staged ? 'unstage' : 'stage'),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -284,7 +286,9 @@ class _GitPageState extends State<GitPage> {
                                 branch: _worktree,
                               ),
                             ),
-                      child: Text(tr(_git.staged ? 'commit' : 'continueEdit')),
+                      child: Text(
+                        context.tr(_git.staged ? 'commit' : 'continueEdit'),
+                      ),
                     ),
                   ),
                 ],
@@ -308,7 +312,9 @@ class _GitPageState extends State<GitPage> {
                 contentPadding: EdgeInsets.zero,
                 leading: const AppIcon('branch'),
                 title: Text(branch),
-                subtitle: branch == _git.branch ? Text(tr('gitCurrent')) : null,
+                subtitle: branch == _git.branch
+                    ? Text(context.tr('gitCurrent'))
+                    : null,
                 trailing: AppIcon(branch == _git.branch ? 'check' : 'chevron'),
                 onTap: () => _branchActions(branch),
               ),
@@ -319,7 +325,7 @@ class _GitPageState extends State<GitPage> {
       OutlinedButton.icon(
         onPressed: _createBranch,
         icon: const AppIcon('plus'),
-        label: Text(tr('gitCreateBranch')),
+        label: Text(context.tr('gitCreateBranch')),
       ),
     ],
   );
@@ -337,7 +343,7 @@ class _GitPageState extends State<GitPage> {
             trailing: const AppIcon('chevron'),
             onTap: () => showAppSheet<void>(
               context,
-              tr('gitHistory'),
+              context.tr('gitHistory'),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,
@@ -374,12 +380,12 @@ class _GitPageState extends State<GitPage> {
         ? 0
         : lines.where((line) => line.startsWith('-')).length;
     return PageFrame(
-      title: tr('git'),
+      title: context.tr('git'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Semantics(
-            label: tr('gitActions'),
+            label: context.tr('gitActions'),
             button: true,
             child: Surface(
               radius: 16,
@@ -412,7 +418,10 @@ class _GitPageState extends State<GitPage> {
                 ('branches', 'gitBranches'),
                 ('history', 'gitHistory'),
               ])
-                ButtonSegment(value: entry.$1, label: Text(tr(entry.$2))),
+                ButtonSegment(
+                  value: entry.$1,
+                  label: Text(context.tr(entry.$2)),
+                ),
             ],
             selected: {_tab},
             onSelectionChanged: (value) => setState(() => _tab = value.single),
@@ -538,13 +547,13 @@ class _GitFormState extends State<_GitForm> {
           minLines: widget.multiline ? 3 : 1,
           maxLines: widget.multiline ? 6 : 1,
           decoration: InputDecoration(
-            labelText: tr(widget.label),
-            hintText: widget.hint == null ? null : tr(widget.hint!),
+            labelText: context.tr(widget.label),
+            hintText: widget.hint == null ? null : context.tr(widget.hint!),
             alignLabelWithHint: true,
           ),
           validator: (value) {
             final text = value?.trim() ?? '';
-            if (text.isEmpty) return tr(widget.label);
+            if (text.isEmpty) return context.tr(widget.label);
             return widget.validate?.call(text);
           },
         ),
@@ -555,7 +564,7 @@ class _GitFormState extends State<_GitForm> {
               Navigator.pop(context, _controller.text.trim());
             }
           },
-          child: Text(tr(widget.action)),
+          child: Text(context.tr(widget.action)),
         ),
       ],
     ),

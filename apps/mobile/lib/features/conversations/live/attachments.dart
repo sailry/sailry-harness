@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:sailry_bridge/api/transfers.dart';
 
-import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 import '../../../content/transfers.dart';
@@ -24,11 +23,11 @@ Future<PickedAttachment?> pickAttachment(
   if (file == null) return null;
   final length = await file.length();
   if (length == null || length > maximumAttachmentBytes) {
-    throw StateError(tr('conversationAttachmentTooLarge'));
+    throw StateError('Attachment is unreadable or exceeds the upload limit');
   }
   final bytes = await file.readAsBytes();
   if (bytes.length > maximumAttachmentBytes) {
-    throw StateError(tr('conversationAttachmentTooLarge'));
+    throw StateError('Attachment exceeds the upload limit');
   }
   return (
     attachment: await uploadAttachment(host, worktree, file.name, bytes),

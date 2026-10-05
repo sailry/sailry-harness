@@ -89,7 +89,7 @@ class CopyTextButton extends StatelessWidget {
   final String text;
   @override
   Widget build(BuildContext context) => IconButton(
-    tooltip: tr('copy'),
+    tooltip: context.tr('copy'),
     icon: const AppIcon('copy', size: 16),
     onPressed: () async {
       var message = 'copied';
@@ -98,7 +98,7 @@ class CopyTextButton extends StatelessWidget {
       } catch (_) {
         message = 'copyFailed';
       }
-      if (context.mounted) showToast(context, tr(message));
+      if (context.mounted) showToast(context, context.tr(message));
     },
   );
 }
@@ -125,7 +125,9 @@ class CodeBlock extends StatelessWidget {
           padding: const EdgeInsets.only(left: 12),
           child: Row(
             children: [
-              Expanded(child: Text(title ?? language ?? tr('codePlain'))),
+              Expanded(
+                child: Text(title ?? language ?? context.tr('codePlain')),
+              ),
               CopyTextButton(text),
             ],
           ),

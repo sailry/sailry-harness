@@ -35,7 +35,7 @@ class ConfigurationFields extends StatelessWidget {
           showSelectedIcon: false,
           segments: [
             for (final (value, label) in values)
-              ButtonSegment(value: value, label: Text(tr(label))),
+              ButtonSegment(value: value, label: Text(context.tr(label))),
           ],
           selected: {config[field] as String},
           onSelectionChanged: enabled

@@ -74,7 +74,7 @@ class _PortsPageState extends State<PortsPage> {
         ? int.tryParse(_port.text)
         : object(source['service'])['port'] as int?;
     if (port == null || port < 1 || port > 65535) {
-      setState(() => _error = tr('resourceInvalidPort'));
+      setState(() => _error = context.tr('resourceInvalidPort'));
       return;
     }
     setState(() {
@@ -90,7 +90,9 @@ class _PortsPageState extends State<PortsPage> {
         await _browse(mapping, uri: uri);
       }
     } catch (error) {
-      if (mounted) setState(() => _error = failureText(error));
+      if (mounted) {
+        setState(() => _error = failureText(error, translate: context.tr));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -100,7 +102,9 @@ class _PortsPageState extends State<PortsPage> {
     try {
       await _mappings.remove(entry.remote);
     } catch (error) {
-      if (mounted) setState(() => _error = failureText(error));
+      if (mounted) {
+        setState(() => _error = failureText(error, translate: context.tr));
+      }
     }
   }
 
@@ -132,7 +136,7 @@ class _PortsPageState extends State<PortsPage> {
               ),
               subtitle: Text(text(service['url'])),
               trailing: IconButton(
-                tooltip: tr('resourceServiceOpen'),
+                tooltip: context.tr('resourceServiceOpen'),
                 icon: const AppIcon('link'),
                 onPressed:
                     _busy || _mappings.busy || _services['connected'] != true
@@ -155,7 +159,7 @@ class _PortsPageState extends State<PortsPage> {
     builder: (context, _) {
       final rows = _serviceRows();
       return PageFrame(
-        title: tr('ports'),
+        title: context.tr('ports'),
         loading: _busy || _mappings.busy,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -166,7 +170,7 @@ class _PortsPageState extends State<PortsPage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      tr('resourceSessionServices'),
+                      context.tr('resourceSessionServices'),
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     if (_services.isEmpty)
@@ -174,10 +178,10 @@ class _PortsPageState extends State<PortsPage> {
                     else if (_services['connected'] != true)
                       TextButton(
                         onPressed: _watchServices,
-                        child: Text(tr('resourceServicesUnavailable')),
+                        child: Text(context.tr('resourceServicesUnavailable')),
                       )
                     else if (rows.isEmpty)
-                      Text(tr('resourceNoServices')),
+                      Text(context.tr('resourceNoServices')),
                     ...rows,
                   ],
                 ),
@@ -195,17 +199,18 @@ class _PortsPageState extends State<PortsPage> {
                     ),
                     SelectableText(entry.uri.toString()),
                     if (!entry.listening.value)
-                      Text(tr('resourceForwardStopped')),
-                    if (entry.error != null) Text(failureText(entry.error!)),
+                      Text(context.tr('resourceForwardStopped')),
+                    if (entry.error != null)
+                      Text(failureText(entry.error!, translate: context.tr)),
                     FilledButton(
                       onPressed: entry.listening.value
                           ? () => _browse(entry)
                           : null,
-                      child: Text(tr('resourceOpenBrowser')),
+                      child: Text(context.tr('resourceOpenBrowser')),
                     ),
                     OutlinedButton(
                       onPressed: () => _close(entry),
-                      child: Text(tr('closePort')),
+                      child: Text(context.tr('closePort')),
                     ),
                   ],
                 ),
@@ -221,7 +226,7 @@ class _PortsPageState extends State<PortsPage> {
                     enabled: !_busy && !_mappings.busy,
                     keyboardType: TextInputType.number,
                     decoration: InputDecoration(
-                      labelText: tr('resourceRemotePort'),
+                      labelText: context.tr('resourceRemotePort'),
                     ),
                   ),
                   if (_error != null)
@@ -240,7 +245,7 @@ class _PortsPageState extends State<PortsPage> {
             const SizedBox(height: 16),
             FilledButton(
               onPressed: _busy || _mappings.busy ? null : _open,
-              child: Text(tr('resourceOpenPort')),
+              child: Text(context.tr('resourceOpenPort')),
             ),
           ],
         ),

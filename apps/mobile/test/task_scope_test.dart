@@ -149,7 +149,7 @@ void main() {
     final project = tester.getRect(find.widgetWithText(ListTile, 'Project A'));
     expect(action.bottom, lessThan(all.top));
     expect(find.byType(Divider), findsOneWidget);
-    expect(all.height, 40);
+    expect(all.height, 48);
     expect(project.top, all.bottom);
     await tester.tap(find.widgetWithText(ListTile, 'Project A'));
     await tester.pumpAndSettle();

@@ -180,11 +180,13 @@ class _LiveTerminalPageState extends State<LiveTerminalPage>
       if (mounted) {
         setState(() {
           if (error.code == 'outcome_unknown') _launchRequest = error.request;
-          _error = failureText(error);
+          _error = failureText(error, translate: context.tr);
         });
       }
     } catch (error) {
-      if (mounted) setState(() => _error = failureText(error));
+      if (mounted) {
+        setState(() => _error = failureText(error, translate: context.tr));
+      }
     } finally {
       if (mounted) setState(() => _opening = false);
     }
@@ -231,7 +233,7 @@ class _LiveTerminalPageState extends State<LiveTerminalPage>
           _updates = null;
           _connected = false;
           _lease = null;
-          _error = failureText(error);
+          _error = failureText(error, translate: context.tr);
         });
         _syncCursor();
         await updates.close();
@@ -261,7 +263,9 @@ class _LiveTerminalPageState extends State<LiveTerminalPage>
       _syncCursor();
       _focus.requestFocus();
     } catch (error) {
-      if (mounted) showToast(context, failureText(error));
+      if (mounted) {
+        showToast(context, failureText(error, translate: context.tr));
+      }
     } finally {
       if (mounted) setState(() => _opening = false);
     }
@@ -293,7 +297,7 @@ class _LiveTerminalPageState extends State<LiveTerminalPage>
             setState(() {
               _lease = null;
             });
-            showToast(context, failureText(error));
+            showToast(context, failureText(error, translate: context.tr));
             _syncCursor();
             _resetInput();
             _focus.unfocus();
@@ -529,25 +533,25 @@ class _LiveTerminalPageState extends State<LiveTerminalPage>
         : terminalSelection(lines, _anchor!, _extent!);
     return PageFrame(
       loading: _opening && _updates == null,
-      title: widget.title.isEmpty ? tr('terminal') : widget.title,
+      title: widget.title.isEmpty ? context.tr('terminal') : widget.title,
       scroll: false,
       actions: [
         if (selected.isNotEmpty)
           RoundButton(
             icon: 'copy',
-            tooltip: tr('copy'),
+            tooltip: context.tr('copy'),
             onPressed: () => Clipboard.setData(ClipboardData(text: selected)),
           ),
         RoundButton(
           icon: 'paste',
-          tooltip: tr('resourceTerminalPaste'),
+          tooltip: context.tr('resourceTerminalPaste'),
           onPressed: _controlling ? _paste : null,
         ),
       ],
       child: Column(
         children: [
           if (_snapshot.isNotEmpty && !_running)
-            Text(tr('resourceTerminalEnded')),
+            Text(context.tr('resourceTerminalEnded')),
           Expanded(
             child:
                 _error != null ||
@@ -555,14 +559,14 @@ class _LiveTerminalPageState extends State<LiveTerminalPage>
                     (!_connected && _snapshot.isNotEmpty)
                 ? FailureState(
                     icon: 'terminal',
-                    message: _error ?? tr('hostDisconnected'),
+                    message: _error ?? context.tr('hostDisconnected'),
                     onRetry:
                         _opening || _host?.connected != true || _updates != null
                         ? null
                         : _open,
                   )
                 : screen.isEmpty
-                ? Center(child: Text(tr('resourceTerminalConnecting')))
+                ? Center(child: Text(context.tr('resourceTerminalConnecting')))
                 : LayoutBuilder(
                     builder: (context, constraints) {
                       _geometry(constraints.biggest, cell);
@@ -608,7 +612,7 @@ class _LiveTerminalPageState extends State<LiveTerminalPage>
                                       () => _extent = hit(event.localPosition),
                                     ),
                                     child: Semantics(
-                                      label: tr('terminal'),
+                                      label: context.tr('terminal'),
                                       child: CustomPaint(
                                         size: Size(width, height),
                                         painter: TerminalGridPainter(
@@ -682,7 +686,7 @@ class _LiveTerminalPageState extends State<LiveTerminalPage>
                                   onTap: _opening ? null : _claim,
                                   child: Center(
                                     child: Text(
-                                      tr(
+                                      context.tr(
                                         _opening
                                             ? 'resourceTerminalClaiming'
                                             : 'resourceTerminalControlHint',

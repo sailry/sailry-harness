@@ -18,11 +18,13 @@ class ConversationStatistics extends StatelessWidget {
     final turns = number(data['turns']);
     final elapsed = number(generation['elapsed_us']);
     final speed = elapsed > 0
-        ? tr('conversationStatsSpeedValue').replaceAll(
-            '{value}',
-            (number(generation['output_tokens']) * 1000000 / elapsed)
-                .toStringAsFixed(1),
-          )
+        ? context
+              .tr('conversationStatsSpeedValue')
+              .replaceAll(
+                '{value}',
+                (number(generation['output_tokens']) * 1000000 / elapsed)
+                    .toStringAsFixed(1),
+              )
         : null;
     final cache = number(usage['input']) > 0
         ? '${(100 * number(usage['cached_input']) / number(usage['input'])).toStringAsFixed(0)}%'
@@ -100,17 +102,18 @@ class ConversationStatistics extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: Text(
-            tr('conversationStats'),
+            context.tr('conversationStats'),
             style: Theme.of(context).textTheme.titleMedium,
           ),
         ),
-        if (groups.isEmpty) Text(tr('conversationStatsEmpty'), style: style),
+        if (groups.isEmpty)
+          Text(context.tr('conversationStatsEmpty'), style: style),
         for (final (index, (heading, rows)) in groups.indexed) ...[
           if (index > 0) const Divider(height: 24),
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Text(
-              tr(heading),
+              context.tr(heading),
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
@@ -122,7 +125,7 @@ class ConversationStatistics extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(
                 children: [
-                  Expanded(child: Text(tr(label), style: style)),
+                  Expanded(child: Text(context.tr(label), style: style)),
                   const SizedBox(width: 16),
                   Flexible(
                     child: Text(

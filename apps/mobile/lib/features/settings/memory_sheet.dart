@@ -46,7 +46,9 @@ class _MemorySheetState extends State<MemorySheet> {
         _error = null;
       });
     } catch (error) {
-      if (mounted) setState(() => _error = failure(error));
+      if (mounted) {
+        setState(() => _error = failure(error, translate: context.tr));
+      }
     }
   }
 
@@ -68,7 +70,11 @@ class _MemorySheetState extends State<MemorySheet> {
       });
       if (mounted) Navigator.pop(context);
     } catch (error) {
-      if (mounted) setState(() => _error = failure(error, saving: true));
+      if (mounted) {
+        setState(
+          () => _error = failure(error, saving: true, translate: context.tr),
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -86,13 +92,13 @@ class _MemorySheetState extends State<MemorySheet> {
               if (_saved != null) ...[
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
-                  title: Text(tr('settingsEnabled')),
+                  title: Text(context.tr('settingsEnabled')),
                   value: _enabled,
                   onChanged: _busy ? null : (v) => setState(() => _enabled = v),
                 ),
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
-                  title: Text(tr('settingsMemoryAuto')),
+                  title: Text(context.tr('settingsMemoryAuto')),
                   value: _auto,
                   onChanged: _busy ? null : (v) => setState(() => _auto = v),
                 ),
@@ -101,7 +107,7 @@ class _MemorySheetState extends State<MemorySheet> {
                   enabled: !_busy,
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
-                    labelText: tr('settingsMemoryBudget'),
+                    labelText: context.tr('settingsMemoryBudget'),
                   ),
                 ),
                 TextField(
@@ -109,11 +115,11 @@ class _MemorySheetState extends State<MemorySheet> {
                   enabled: !_busy,
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
-                    labelText: tr('settingsMemoryReview'),
+                    labelText: context.tr('settingsMemoryReview'),
                   ),
                 ),
                 ListTile(
-                  title: Text(tr('settingsMemoryRecords')),
+                  title: Text(context.tr('settingsMemoryRecords')),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => showSettingRecords(
                     context,
@@ -125,7 +131,7 @@ class _MemorySheetState extends State<MemorySheet> {
               if (_error != null) settingsError(_error),
               FilledButton(
                 onPressed: _busy || _saved == null ? null : _save,
-                child: Text(tr('save')),
+                child: Text(context.tr('save')),
               ),
             ],
           ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/strings.dart';
+import '../../l10n/language.dart';
 import '../../ui/kit.dart';
 import '../../ui/toast.dart';
 import '../../runtime/session.dart';
@@ -19,6 +20,8 @@ class SettingsPage extends StatefulWidget {
     this.onHostChanged,
     this.notifications = true,
     this.onNotificationsChanged,
+    this.language = AppLanguage.chinese,
+    this.onLanguageChanged,
   });
 
   final ValueChanged<ThemeMode> onThemeChanged;
@@ -27,6 +30,8 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<String>? onHostChanged;
   final bool notifications;
   final ValueChanged<bool>? onNotificationsChanged;
+  final AppLanguage language;
+  final ValueChanged<AppLanguage>? onLanguageChanged;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -43,7 +48,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void _appearance() {
     showAppSheet(
       context,
-      tr('appearance'),
+      context.tr('appearance'),
       child: Builder(
         builder: (sheetContext) => Column(
           mainAxisSize: MainAxisSize.min,
@@ -51,7 +56,7 @@ class _SettingsPageState extends State<SettingsPage> {
             for (final mode in [ThemeMode.light, ThemeMode.dark])
               ListTile(
                 leading: AppIcon(mode == ThemeMode.dark ? 'moon' : 'sun'),
-                title: Text(tr(mode.name)),
+                title: Text(context.tr(mode.name)),
                 trailing: Theme.of(context).brightness.name == mode.name
                     ? const AppIcon('check')
                     : null,
@@ -69,8 +74,37 @@ class _SettingsPageState extends State<SettingsPage> {
   void _speech() {
     final speech = AppSession.maybeOf(context)?.speech;
     if (speech != null) {
-      showAppSheet(context, tr('speech'), child: SpeechSheet(speech: speech));
+      showAppSheet(
+        context,
+        context.tr('speech'),
+        child: SpeechSheet(speech: speech),
+      );
     }
+  }
+
+  void _language() {
+    showAppSheet(
+      context,
+      context.tr('language'),
+      child: Builder(
+        builder: (sheetContext) => FormBody(
+          children: [
+            SelectField<AppLanguage>(
+              label: context.tr('language'),
+              value: widget.language,
+              options: [
+                for (final language in AppLanguage.values)
+                  (language, context.tr(language.labelKey)),
+              ],
+              onChanged: (language) {
+                widget.onLanguageChanged?.call(language);
+                Navigator.pop(sheetContext);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _row(String icon, String label, VoidCallback? onTap, [String? value]) {
@@ -82,7 +116,7 @@ class _SettingsPageState extends State<SettingsPage> {
       enabled: onTap != null,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16),
       leading: AppIcon(icon, color: color),
-      title: Text(tr(label)),
+      title: Text(context.tr(label)),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -116,11 +150,11 @@ class _SettingsPageState extends State<SettingsPage> {
     final host = session?.selectedHost;
     final connected = host?.connected == true;
     return PageFrame(
-      title: tr('settings'),
+      title: context.tr('settings'),
       actions: [
         RoundButton(
           icon: 'server',
-          tooltip: '${tr('selectHost')}: ${host?.label ?? ''}',
+          tooltip: '${context.tr('selectHost')}: ${host?.label ?? ''}',
           onPressed: session?.hosts.isNotEmpty == true
               ? () => pickSettingsHost(context, session!)
               : null,
@@ -130,15 +164,21 @@ class _SettingsPageState extends State<SettingsPage> {
         children: [
           _group([
             _row(
+              'globe',
+              'language',
+              widget.onLanguageChanged == null ? null : _language,
+              context.tr(widget.language.labelKey),
+            ),
+            _row(
               'sun',
               'appearance',
               _appearance,
-              tr(Theme.of(context).brightness.name),
+              context.tr(Theme.of(context).brightness.name),
             ),
             SwitchListTile.adaptive(
               contentPadding: const EdgeInsets.symmetric(horizontal: 16),
               secondary: AppIcon('bell', color: colors.onSurfaceVariant),
-              title: Text(tr('completionAlerts')),
+              title: Text(context.tr('completionAlerts')),
               value: widget.notifications,
               onChanged: widget.onNotificationsChanged,
             ),
@@ -148,14 +188,17 @@ class _SettingsPageState extends State<SettingsPage> {
                 builder: (context, _) => SwitchListTile.adaptive(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                   secondary: AppIcon('server', color: colors.onSurfaceVariant),
-                  title: Text(tr('backgroundConnection')),
+                  title: Text(context.tr('backgroundConnection')),
                   value: session.background.enabled,
                   onChanged: (value) async {
                     try {
                       await session.background.setEnabled(value);
                     } catch (_) {
                       if (context.mounted) {
-                        showToast(context, tr('backgroundConnectionFailed'));
+                        showToast(
+                          context,
+                          context.tr('backgroundConnectionFailed'),
+                        );
                       }
                     }
                   },
@@ -186,7 +229,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     ? null
                     : () => showAppSheet(
                         context,
-                        tr('memorySettings'),
+                        context.tr('memorySettings'),
                         scroll: false,
                         child: MemorySheet(host: host!),
                       ),

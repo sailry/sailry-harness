@@ -76,7 +76,7 @@ class _NotificationDeliveryState extends State<NotificationDelivery> {
           )) {
             showToast(
               context,
-              '${noticeTitle(notice)} · ${tr('completed')}',
+              '${noticeTitle(notice, translate: context.tr)} · ${context.tr('completed')}',
               icon: 'check',
               key: const ValueKey('completion-toast'),
             );

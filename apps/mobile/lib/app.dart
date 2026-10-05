@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'features/conversations/tasks_page.dart';
@@ -14,6 +13,7 @@ import 'ui/theme.dart';
 import 'ui/toast.dart';
 import 'runtime/session.dart';
 import 'l10n/strings.dart';
+import 'l10n/language.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SailryApp extends StatefulWidget {
@@ -33,6 +33,8 @@ class SailryApp extends StatefulWidget {
 class _SailryAppState extends State<SailryApp> {
   ThemeMode _mode = ThemeMode.dark;
   bool _themeEdited = false;
+  AppLanguage _language = AppLanguage.chinese;
+  bool _languageEdited = false;
   bool _notifications = true;
   bool _notificationsEdited = false;
   bool _preferencesLoaded = false;
@@ -54,6 +56,7 @@ class _SailryAppState extends State<SailryApp> {
   Future<void> _loadPreferences() async {
     try {
       final saved = await _preferences.getString('theme');
+      final language = await _preferences.getString('language');
       final notifications =
           await _preferences.getBool('notifications.in_app') ?? true;
       if (!mounted) return;
@@ -66,6 +69,13 @@ class _SailryAppState extends State<SailryApp> {
               ThemeMode.dark;
         }
         if (!_notificationsEdited) _notifications = notifications;
+        if (!_languageEdited) {
+          _language =
+              AppLanguage.values
+                  .where((item) => item.name == language)
+                  .firstOrNull ??
+              AppLanguage.chinese;
+        }
         _preferencesLoaded = true;
       });
     } catch (_) {
@@ -76,7 +86,7 @@ class _SailryAppState extends State<SailryApp> {
   void _preferenceError() {
     if (!mounted) return;
     final context = _navigator.currentContext;
-    if (context != null) showToast(context, tr('preferencesFailed'));
+    if (context != null) showToast(context, context.tr('preferencesFailed'));
   }
 
   Future<void> _savePreference(Future<void> Function() save) async {
@@ -93,6 +103,18 @@ class _SailryAppState extends State<SailryApp> {
     if (_persist) {
       unawaited(
         _savePreference(() => _preferences.setString('theme', mode.name)),
+      );
+    }
+  }
+
+  void _setLanguage(AppLanguage language) {
+    _languageEdited = true;
+    setState(() => _language = language);
+    if (_persist) {
+      unawaited(
+        _savePreference(
+          () => _preferences.setString('language', language.name),
+        ),
       );
     }
   }
@@ -125,21 +147,24 @@ class _SailryAppState extends State<SailryApp> {
       theme: SailryTheme.of(Brightness.light),
       darkTheme: SailryTheme.of(Brightness.dark),
       themeMode: _mode,
-      locale: const Locale('zh'),
-      supportedLocales: const [Locale('zh')],
-      localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      builder: (context, child) => FToastBuilder()(
-        context,
-        ColoredBox(
-          color: Theme.of(context).colorScheme.surface,
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: AppBackground(child: child!),
+      locale: _language.locale,
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      builder: (context, child) {
+        _session?.background.localize(context.tr);
+        return FToastBuilder()(
+          context,
+          ColoredBox(
+            color: Theme.of(context).colorScheme.surface,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: AppBackground(child: child!),
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
       home: _session == null
           ? _shell()
           : NotificationDelivery(
@@ -156,6 +181,8 @@ class _SailryAppState extends State<SailryApp> {
   }
 
   Widget _shell() => _Shell(
+    language: _language,
+    onLanguageChanged: _setLanguage,
     themeMode: _mode,
     onThemeChanged: _setTheme,
     notifications: _notifications,
@@ -165,11 +192,15 @@ class _SailryAppState extends State<SailryApp> {
 
 class _Shell extends StatefulWidget {
   const _Shell({
+    required this.language,
+    required this.onLanguageChanged,
     required this.themeMode,
     required this.onThemeChanged,
     required this.notifications,
     required this.onNotificationsChanged,
   });
+  final AppLanguage language;
+  final ValueChanged<AppLanguage> onLanguageChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeChanged;
   final bool notifications;
@@ -193,9 +224,9 @@ class _ShellState extends State<_Shell> {
       body: SlidableAutoCloseBehavior(
         child: session != null && !session.ready && session.error != null
             ? PageFrame(
-                title: tr('brand'),
+                title: context.tr('brand'),
                 failure: FailureState(
-                  message: tr('startupFailed'),
+                  message: context.tr('startupFailed'),
                   onRetry: session.start,
                 ),
                 child: const SizedBox.shrink(),
@@ -225,6 +256,8 @@ class _ShellState extends State<_Shell> {
                           ),
                           const ResourcesPage(),
                           SettingsPage(
+                            language: widget.language,
+                            onLanguageChanged: widget.onLanguageChanged,
                             initialHost: _settingsHost,
                             onHostChanged: (host) =>
                                 setState(() => _settingsHost = host),

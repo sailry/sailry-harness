@@ -48,6 +48,37 @@ class RecoveryConnection extends fixture.ConnectionFixture {
 }
 
 void main() {
+  testWidgets('late inspection failure is safe after disposal', (tester) async {
+    final gate = Completer<Map<String, dynamic>>();
+    final host = HostConnection.test(
+      id: 'node',
+      label: 'Node',
+      command: (_, _) => gate.future,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        home: Scaffold(
+          body: TurnChanges(
+            host: host,
+            session: 'session',
+            turn: 'turn',
+            worktree: 'tree',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(OutlinedButton));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox());
+    gate.completeError(const CommandFailure('unavailable'));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('changes belong only to the latest reply and hide during send', (
     tester,
   ) async {

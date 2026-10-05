@@ -93,7 +93,7 @@ class MarkdownContent extends StatelessWidget {
           // Keep unsupported links and failed opens visible to the user.
         }
         if (context.mounted) {
-          showToast(context, tr('fileLinkUnavailable'));
+          showToast(context, context.tr('fileLinkUnavailable'));
         }
       },
     );

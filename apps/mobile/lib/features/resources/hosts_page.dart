@@ -28,7 +28,7 @@ class _HostsPageState extends State<HostsPage> {
   Future<void> _pair() async {
     final added = await showAppSheet<bool>(
       context,
-      tr('pairTitle'),
+      context.tr('pairTitle'),
       child: const _PairForm(),
     );
     if (added == true && mounted) {
@@ -42,18 +42,18 @@ class _HostsPageState extends State<HostsPage> {
 
   void _details() => showAppSheet<void>(
     context,
-    tr('manageHost'),
+    context.tr('manageHost'),
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         ListTile(
           contentPadding: EdgeInsets.zero,
           leading: const AppIcon('link'),
-          title: Text(tr('connection')),
+          title: Text(context.tr('connection')),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(tr(_offline ? 'offline' : 'direct')),
+              Text(context.tr(_offline ? 'offline' : 'direct')),
               const AppIcon('chevron'),
             ],
           ),
@@ -61,12 +61,12 @@ class _HostsPageState extends State<HostsPage> {
             Navigator.pop(context);
             showAppSheet<void>(
               context,
-              tr('connectionDetails'),
+              context.tr('connectionDetails'),
               child: Surface(
                 child: Text(
                   _offline
-                      ? tr('offline')
-                      : '${tr('direct')}\n${tr('latency')}: ${_server ? 32 : 8} ms',
+                      ? context.tr('offline')
+                      : '${context.tr('direct')}\n${context.tr('latency')}: ${_server ? 32 : 8} ms',
                 ),
               ),
             );
@@ -76,7 +76,7 @@ class _HostsPageState extends State<HostsPage> {
         ListTile(
           contentPadding: EdgeInsets.zero,
           leading: const AppIcon('folder'),
-          title: Text(tr('hostProjects')),
+          title: Text(context.tr('hostProjects')),
           trailing: const AppIcon('chevron'),
           onTap: () {
             Navigator.pop(context);
@@ -93,7 +93,7 @@ class _HostsPageState extends State<HostsPage> {
         ListTile(
           contentPadding: EdgeInsets.zero,
           leading: const AppIcon('settings'),
-          title: Text(tr('nodeSettings')),
+          title: Text(context.tr('nodeSettings')),
           trailing: const AppIcon('chevron'),
           onTap: () {
             Navigator.pop(context);
@@ -116,11 +116,11 @@ class _HostsPageState extends State<HostsPage> {
     final metrics = _server ? [68, 42, 19] : [24, 58, 36];
     final counts = _server ? [2, 1, 2] : [4, 2, 3];
     return PageFrame(
-      title: tr('hosts'),
+      title: context.tr('hosts'),
       actions: [
         RoundButton(
           icon: 'server',
-          tooltip: tr('selectHost'),
+          tooltip: context.tr('selectHost'),
           onPressed: () => showHostPicker(
             context,
             selected: _host,
@@ -154,7 +154,7 @@ class _HostsPageState extends State<HostsPage> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            tr(
+                            context.tr(
                               _offline
                                   ? 'laptopSystem'
                                   : _server
@@ -181,14 +181,14 @@ class _HostsPageState extends State<HostsPage> {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        tr(_offline ? 'offline' : 'statusHealthy'),
+                        context.tr(_offline ? 'offline' : 'statusHealthy'),
                         style: TextStyle(color: colors.onSurfaceVariant),
                       ),
                     ),
                     Text(
                       _offline
                           ? '—'
-                          : '${tr('direct')} · ${_server ? 32 : 8} ms',
+                          : '${context.tr('direct')} · ${_server ? 32 : 8} ms',
                       style: TextStyle(color: colors.onSurfaceVariant),
                     ),
                   ],
@@ -202,11 +202,11 @@ class _HostsPageState extends State<HostsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(tr('hostOffline')),
+                  Text(context.tr('hostOffline')),
                   const SizedBox(height: 16),
                   OutlinedButton(
                     onPressed: () => showResourceNotice(context, 'retryNote'),
-                    child: Text(tr('retry')),
+                    child: Text(context.tr('retry')),
                   ),
                 ],
               ),
@@ -221,7 +221,7 @@ class _HostsPageState extends State<HostsPage> {
                         Expanded(
                           child: _Metric(
                             value: metrics[index],
-                            label: tr(['cpu', 'memory', 'disk'][index]),
+                            label: context.tr(['cpu', 'memory', 'disk'][index]),
                           ),
                         ),
                     ],
@@ -241,7 +241,7 @@ class _HostsPageState extends State<HostsPage> {
                               ),
                               const SizedBox(height: 3),
                               Text(
-                                tr(
+                                context.tr(
                                   [
                                     'sessionCount',
                                     'terminalCount',
@@ -268,19 +268,20 @@ class _HostsPageState extends State<HostsPage> {
                     children: [
                       Expanded(
                         child: Text(
-                          tr('activity'),
+                          context.tr('activity'),
                           style: Theme.of(context).textTheme.titleSmall,
                         ),
                       ),
                       Text(
-                        tr('lastHour'),
+                        context.tr('lastHour'),
                         style: TextStyle(color: colors.onSurfaceVariant),
                       ),
                     ],
                   ),
                   const SizedBox(height: 20),
                   Semantics(
-                    label: '${tr('activity')} · ${tr('sample')}',
+                    label:
+                        '${context.tr('activity')} · ${context.tr('sample')}',
                     child: SizedBox(
                       height: 76,
                       child: BarChart(
@@ -333,11 +334,11 @@ class _HostsPageState extends State<HostsPage> {
                     children: [
                       _Dot(color: colors.tertiary),
                       const SizedBox(width: 6),
-                      Text(tr('running')),
+                      Text(context.tr('running')),
                       const SizedBox(width: 14),
                       _Dot(color: colors.secondary),
                       const SizedBox(width: 6),
-                      Text(tr('waiting')),
+                      Text(context.tr('waiting')),
                     ],
                   ),
                 ],
@@ -354,7 +355,7 @@ class _HostsPageState extends State<HostsPage> {
                 defaultVerticalAlignment: TableCellVerticalAlignment.middle,
                 children: [
                   for (final row in [
-                    [tr('process'), 'CPU', tr('memory')],
+                    [context.tr('process'), 'CPU', context.tr('memory')],
                     [
                       _server ? 'sailry-host' : 'sailry-desktop',
                       '12.4%',
@@ -402,28 +403,31 @@ class _PairFormState extends State<_PairForm> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(tr('pairDescription')),
+        Text(context.tr('pairDescription')),
         const SizedBox(height: 16),
         TextFormField(
           autofocus: true,
           keyboardType: TextInputType.number,
           maxLength: 6,
           decoration: InputDecoration(
-            labelText: tr('pairCode'),
+            labelText: context.tr('pairCode'),
             hintText: '000000',
           ),
           validator: (value) => RegExp(r'^\d{6}$').hasMatch(value ?? '')
               ? null
-              : tr('pairInvalid'),
+              : context.tr('pairInvalid'),
         ),
         const SizedBox(height: 12),
-        Text(tr('pairHint'), style: Theme.of(context).textTheme.bodySmall),
+        Text(
+          context.tr('pairHint'),
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
         const SizedBox(height: 16),
         FilledButton(
           onPressed: () {
             if (_form.currentState!.validate()) Navigator.pop(context, true);
           },
-          child: Text(tr('pairDemo')),
+          child: Text(context.tr('pairDemo')),
         ),
       ],
     ),

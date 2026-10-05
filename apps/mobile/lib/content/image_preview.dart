@@ -15,7 +15,7 @@ class ImageThumbnail extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Semantics(
     button: true,
-    label: name == null ? tr('imagePreview') : null,
+    label: name == null ? context.tr('imagePreview') : null,
     child: InkWell(
       onTap: () => showImagePreview(context, image, name: name, save: save),
       child: ConstrainedBox(
@@ -24,7 +24,8 @@ class ImageThumbnail extends StatelessWidget {
           image: image,
           semanticLabel: name,
           fit: BoxFit.contain,
-          errorBuilder: (_, _, _) => Text(tr('conversationImageFailed')),
+          errorBuilder: (_, _, _) =>
+              Text(context.tr('conversationImageFailed')),
         ),
       ),
     ),
@@ -46,7 +47,9 @@ Widget uriImage(Uri uri) {
   } on FormatException {
     // Invalid image data should not prevent rendering the rest of the document.
   }
-  return Text(tr('conversationImageFailed'));
+  return Builder(
+    builder: (context) => Text(context.tr('conversationImageFailed')),
+  );
 }
 
 Future<void> showImagePreview(
@@ -83,7 +86,7 @@ class _ImagePreviewState extends State<_ImagePreview> {
     try {
       await widget.save!();
     } catch (_) {
-      if (mounted) setState(() => _error = tr('fileSaveFailed'));
+      if (mounted) setState(() => _error = context.tr('fileSaveFailed'));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -104,13 +107,13 @@ class _ImagePreviewState extends State<_ImagePreview> {
               Row(
                 children: [
                   IconButton(
-                    tooltip: tr('close'),
+                    tooltip: context.tr('close'),
                     onPressed: () => Navigator.pop(context),
                     icon: const AppIcon('close'),
                   ),
                   Expanded(
                     child: Text(
-                      widget.name ?? tr('imagePreview'),
+                      widget.name ?? context.tr('imagePreview'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -121,7 +124,7 @@ class _ImagePreviewState extends State<_ImagePreview> {
                         foregroundColor: Colors.white,
                       ),
                       onPressed: _saving ? null : _save,
-                      child: Text(tr('save')),
+                      child: Text(context.tr('save')),
                     ),
                 ],
               ),
@@ -182,7 +185,7 @@ class _ImageViewerState extends State<ImageViewer> {
           image: widget.image,
           fit: BoxFit.contain,
           errorBuilder: (_, _, _) =>
-              Center(child: Text(tr('conversationImageFailed'))),
+              Center(child: Text(context.tr('conversationImageFailed'))),
         ),
       ),
     ),

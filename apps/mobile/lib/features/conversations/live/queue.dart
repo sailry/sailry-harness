@@ -32,7 +32,9 @@ class _LiveQueueState extends State<LiveQueue> {
     try {
       await widget.command(kind, data);
     } catch (error) {
-      if (mounted) setState(() => _error = failureLabel(error));
+      if (mounted) {
+        setState(() => _error = failureLabel(error, translate: context.tr));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -51,7 +53,7 @@ class _LiveQueueState extends State<LiveQueue> {
       var pending = false;
       await showAppSheet(
         context,
-        tr('edit'),
+        context.tr('edit'),
         child: StatefulBuilder(
           builder: (context, update) {
             return Column(
@@ -80,11 +82,14 @@ class _LiveQueueState extends State<LiveQueue> {
                           } catch (error) {
                             if (context.mounted) {
                               update(() => pending = false);
-                              showToast(context, failureLabel(error));
+                              showToast(
+                                context,
+                                failureLabel(error, translate: context.tr),
+                              );
                             }
                           }
                         },
-                  child: Text(tr('save')),
+                  child: Text(context.tr('save')),
                 ),
               ],
             );
@@ -92,7 +97,9 @@ class _LiveQueueState extends State<LiveQueue> {
         ),
       );
     } catch (error) {
-      if (mounted) setState(() => _error = failureLabel(error));
+      if (mounted) {
+        setState(() => _error = failureLabel(error, translate: context.tr));
+      }
     }
   }
 
@@ -113,7 +120,7 @@ class _LiveQueueState extends State<LiveQueue> {
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           if (items.isEmpty)
-            EmptyState(icon: 'chat', message: tr('queueEmpty')),
+            EmptyState(icon: 'chat', message: context.tr('queueEmpty')),
           for (final (index, item) in items.indexed)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
@@ -134,7 +141,7 @@ class _LiveQueueState extends State<LiveQueue> {
                       children: [
                         TextButton(
                           onPressed: enabled ? () => _edit(item) : null,
-                          child: Text(tr('edit')),
+                          child: Text(context.tr('edit')),
                         ),
                         TextButton(
                           onPressed: enabled
@@ -143,7 +150,7 @@ class _LiveQueueState extends State<LiveQueue> {
                                   'expected_revision': item['revision'],
                                 })
                               : null,
-                          child: Text(tr('delete')),
+                          child: Text(context.tr('delete')),
                         ),
                         if (index > 0)
                           TextButton(
@@ -155,7 +162,7 @@ class _LiveQueueState extends State<LiveQueue> {
                                     'before': items[index - 1]['turn'],
                                   })
                                 : null,
-                            child: Text(tr('moveUp')),
+                            child: Text(context.tr('moveUp')),
                           ),
                         TextButton(
                           onPressed: enabled
@@ -164,7 +171,7 @@ class _LiveQueueState extends State<LiveQueue> {
                                   'expected_revision': item['revision'],
                                 })
                               : null,
-                          child: Text(tr('send')),
+                          child: Text(context.tr('send')),
                         ),
                       ],
                     ),
@@ -182,7 +189,9 @@ class _LiveQueueState extends State<LiveQueue> {
                     })
                   : null,
               child: Text(
-                tr(queue['paused'] == true ? 'resumeQueue' : 'pauseQueue'),
+                context.tr(
+                  queue['paused'] == true ? 'resumeQueue' : 'pauseQueue',
+                ),
               ),
             ),
         ],

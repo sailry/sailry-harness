@@ -110,7 +110,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
                   lineReference: true,
                 );
                 if (path == null) {
-                  showToast(context, tr('fileLinkUnavailable'));
+                  showToast(context, context.tr('fileLinkUnavailable'));
                   return;
                 }
                 await openResourceFile(
@@ -128,7 +128,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
           return WorkDisclosure(
             key: PageStorageKey('thought-${entry['id']}-$index'),
             title: Text(
-              tr('thought'),
+              context.tr('thought'),
               style: TextStyle(color: colors.onSurfaceVariant),
             ),
             autoExpanded: false,
@@ -145,7 +145,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
           return ExpansionTile(
             key: PageStorageKey('summary-${entry['id']}-$index'),
             tilePadding: EdgeInsets.zero,
-            title: Text(tr('conversationCompacted')),
+            title: Text(context.tr('conversationCompacted')),
             children: [
               MarkdownContent(
                 data as String,
@@ -170,7 +170,8 @@ class _LiveTimelineState extends State<LiveTimeline> {
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: ActivityText(
-              tr(
+              context
+                  .tr(
                     retrying
                         ? 'conversationModelRetrying'
                         : 'conversationModelRetried',
@@ -329,7 +330,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
                 continuing: continuingTools && row == last,
                 title: text(
                   object(object(value['data'])['arguments'])['title'],
-                  text(child['name'], tr('conversationChild')),
+                  text(child['name'], context.tr('conversationChild')),
                 ),
                 connected: connected,
                 onOpen:
@@ -465,7 +466,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
                 key: PageStorageKey('run-error-${run['turn']}'),
                 reason:
                     object(run['error'])['message'] as String? ??
-                    tr('conversationFailedStatus'),
+                    context.tr('conversationFailedStatus'),
               ),
             ),
         ],

@@ -74,7 +74,7 @@ class FileLocation extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      crumb(tr('resourceRoot'), '', root: true),
+                      crumb(context.tr('resourceRoot'), '', root: true),
                       for (var index = 0; index < parts.length; index++) ...[
                         const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 2),

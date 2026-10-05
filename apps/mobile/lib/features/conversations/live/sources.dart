@@ -25,7 +25,7 @@ class EntrySources extends StatelessWidget {
     Widget heading(String key) => Padding(
       padding: const EdgeInsets.only(top: 8, bottom: 2),
       child: Text(
-        tr(key),
+        context.tr(key),
         style: theme.textTheme.labelMedium?.copyWith(
           color: theme.colorScheme.onSurfaceVariant,
         ),
@@ -86,7 +86,7 @@ class _SourceLink extends StatelessWidget {
     } catch (_) {
       // The platform may reject an otherwise valid web link.
     }
-    if (context.mounted) showToast(context, tr('conversationFailed'));
+    if (context.mounted) showToast(context, context.tr('conversationFailed'));
   }
 }
 

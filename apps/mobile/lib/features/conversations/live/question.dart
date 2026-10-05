@@ -60,7 +60,7 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
       if (mounted) {
         setState(() {
           _busy = false;
-          _error = failureLabel(error);
+          _error = failureLabel(error, translate: context.tr);
         });
       }
     }
@@ -185,9 +185,9 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
             maxLines: input['multiline'] == true || kind == 'plan' ? 6 : 1,
             decoration: InputDecoration(
               hintText: kind == 'plan'
-                  ? tr('conversationPlanFeedback')
+                  ? context.tr('conversationPlanFeedback')
                   : kind == 'choice'
-                  ? tr('conversationOther')
+                  ? context.tr('conversationOther')
                   : null,
             ),
           ),
@@ -204,7 +204,7 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
                         uri,
                         mode: LaunchMode.externalApplication,
                       )) {
-                        throw StateError(tr('conversationFailed'));
+                        throw StateError(context.tr('conversationFailed'));
                       }
                       // Opening is consent, not a claim that the external workflow succeeded.
                       await _send({
@@ -212,7 +212,14 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
                         'data': {'kind': 'opened'},
                       });
                     } catch (error) {
-                      if (mounted) setState(() => _error = failureLabel(error));
+                      if (mounted) {
+                        setState(
+                          () => _error = failureLabel(
+                            error,
+                            translate: context.tr,
+                          ),
+                        );
+                      }
                     }
                   },
             child: Text(input['url'] as String),
@@ -232,11 +239,11 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
           children: [
             TextButton(
               onPressed: _busy ? null : () => _send({'kind': 'cancel'}),
-              child: Text(tr('cancel')),
+              child: Text(context.tr('cancel')),
             ),
             TextButton(
               onPressed: _busy ? null : () => _send({'kind': 'decline'}),
-              child: Text(tr('deny')),
+              child: Text(context.tr('deny')),
             ),
             if (kind == 'plan')
               FilledButton(
@@ -249,7 +256,7 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
                           'message': {'text': _text.text, 'attachments': []},
                         },
                       }),
-                child: Text(tr('conversationStartCoding')),
+                child: Text(context.tr('conversationStartCoding')),
               ),
             if (kind != 'url')
               FilledButton(
@@ -271,7 +278,7 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
                         };
                         _send({'kind': 'answer', 'data': answer});
                       },
-                child: Text(tr('conversationSubmit')),
+                child: Text(context.tr('conversationSubmit')),
               ),
           ],
         ),

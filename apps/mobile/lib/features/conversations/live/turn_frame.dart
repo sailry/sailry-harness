@@ -88,10 +88,10 @@ class _TurnFrameState extends State<TurnFrame> {
         ? elapsed(widget.run, DateTime.now().millisecondsSinceEpoch)
         : null;
     final status = active && !widget.connected
-        ? tr('conversationUnsynced')
+        ? context.tr('conversationUnsynced')
         : widget.run['status'] == 'running'
-        ? tr('conversationProcessing')
-        : runLabel(widget.run['status'] as String?);
+        ? context.tr('conversationProcessing')
+        : runLabel(widget.run['status'] as String?, translate: context.tr);
     final heading = Text(
       [status, ?time].join('  '),
       style: TextStyle(color: colors.onSurfaceVariant),
@@ -124,7 +124,7 @@ class _TurnFrameState extends State<TurnFrame> {
           Padding(
             padding: const EdgeInsets.only(bottom: 16),
             child: ActivityLabel(
-              label: tr(widget.phase!),
+              label: context.tr(widget.phase!),
               running: widget.phase != 'conversationWaiting',
               icon: 'spark',
               loadingIcon: true,

@@ -24,6 +24,20 @@ class BackgroundConnection extends ChangeNotifier with WidgetsBindingObserver {
   bool _hasHosts = false;
   bool _permissionRequested = false;
   Future<void> _pending = Future.value();
+  Translator _translate = tr;
+  bool _notificationDirty = false;
+
+  void localize(Translator translate) {
+    if (_closed) return;
+    final changed =
+        _translate('backgroundConnectionActive') !=
+        translate('backgroundConnectionActive');
+    _translate = translate;
+    if (changed) {
+      _notificationDirty = true;
+      if (_ready) unawaited(_sync());
+    }
+  }
 
   bool get _foreground =>
       WidgetsBinding.instance.lifecycleState == null ||
@@ -37,7 +51,7 @@ class BackgroundConnection extends ChangeNotifier with WidgetsBindingObserver {
       FlutterForegroundTask.init(
         androidNotificationOptions: AndroidNotificationOptions(
           channelId: 'host_connection',
-          channelName: tr('backgroundConnection'),
+          channelName: _translate('backgroundConnection'),
           channelImportance: NotificationChannelImportance.LOW,
           priority: NotificationPriority.LOW,
           onlyAlertOnce: true,
@@ -106,11 +120,19 @@ class BackgroundConnection extends ChangeNotifier with WidgetsBindingObserver {
           // runtime alive instead of opening another client in a worker isolate.
           final result = await FlutterForegroundTask.startService(
             serviceTypes: [ForegroundServiceTypes.connectedDevice],
-            notificationTitle: tr('brand'),
-            notificationText: tr('backgroundConnectionActive'),
+            notificationTitle: _translate('brand'),
+            notificationText: _translate('backgroundConnectionActive'),
           );
           if (result is ServiceRequestFailure) throw result.error;
           active = true;
+          _notificationDirty = false;
+        } else if (wanted && active && _notificationDirty) {
+          final result = await FlutterForegroundTask.updateService(
+            notificationTitle: _translate('brand'),
+            notificationText: _translate('backgroundConnectionActive'),
+          );
+          if (result is ServiceRequestFailure) throw result.error;
+          _notificationDirty = false;
         } else if (!wanted && active) {
           final result = await FlutterForegroundTask.stopService();
           if (result is ServiceRequestFailure) throw result.error;

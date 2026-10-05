@@ -12,7 +12,7 @@ class ErrorDetails extends StatelessWidget {
   Widget build(BuildContext context) => ExpansionTile(
     tilePadding: EdgeInsets.zero,
     dense: true,
-    title: Text(tr('conversationErrorDetails')),
+    title: Text(context.tr('conversationErrorDetails')),
     children: [
       ConstrainedBox(
         constraints: const BoxConstraints(maxHeight: 180),
@@ -51,7 +51,7 @@ class ConnectionStatus extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          tr(
+          context.tr(
             reconnecting
                 ? 'conversationReconnecting'
                 : 'conversationUnavailable',
@@ -68,7 +68,10 @@ class ConnectionStatus extends StatelessWidget {
           ),
         if (onRetry != null)
           Center(
-            child: FilledButton(onPressed: onRetry, child: Text(tr('retry'))),
+            child: FilledButton(
+              onPressed: onRetry,
+              child: Text(context.tr('retry')),
+            ),
           ),
       ],
     ),

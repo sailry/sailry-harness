@@ -40,7 +40,7 @@ Future<String?> showLiveWorkspacePicker(
   String? project,
 }) => showAppSheet<String>(
   context,
-  tr('selectWorkspace'),
+  context.tr('selectWorkspace'),
   child: Builder(
     builder: (context) {
       final projects = objects(host.snapshot['projects']);
@@ -50,7 +50,8 @@ Future<String?> showLiveWorkspacePicker(
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (worktrees.isEmpty) EmptyState(message: tr('resourceNoWorkspace')),
+          if (worktrees.isEmpty)
+            EmptyState(message: context.tr('resourceNoWorkspace')),
           for (final worktree in worktrees)
             ListTile(
               leading: const AppIcon('branch'),
@@ -84,7 +85,7 @@ Future<String?> askResourceText(
   var value = initial;
   return showAppSheet<String>(
     context,
-    tr(label),
+    context.tr(label),
     child: Builder(
       builder: (context) => FormBody(
         children: [
@@ -94,7 +95,7 @@ Future<String?> askResourceText(
             autofocus: true,
             minLines: multiline ? 3 : 1,
             maxLines: multiline ? 6 : 1,
-            decoration: InputDecoration(labelText: tr(label)),
+            decoration: InputDecoration(labelText: context.tr(label)),
           ),
           FilledButton(
             onPressed: () {
@@ -102,7 +103,7 @@ Future<String?> askResourceText(
                 Navigator.pop(context, value.trim());
               }
             },
-            child: Text(tr('confirm')),
+            child: Text(context.tr('confirm')),
           ),
         ],
       ),
@@ -125,13 +126,16 @@ Future<WorkspaceSelection?> showWorkspacePicker(
       : ['sailry-web', 'sailry'];
   return showAppSheet<WorkspaceSelection>(
     context,
-    tr('selectWorkspace'),
+    context.tr('selectWorkspace'),
     child: StatefulBuilder(
       builder: (context, update) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(tr('project'), style: Theme.of(context).textTheme.titleSmall),
+          Text(
+            context.tr('project'),
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
           const SizedBox(height: 8),
           for (final name in projects)
             ListTile(
@@ -142,7 +146,10 @@ Future<WorkspaceSelection?> showWorkspacePicker(
               onTap: () => update(() => selectedProject = name),
             ),
           const SizedBox(height: 16),
-          Text(tr('worktree'), style: Theme.of(context).textTheme.titleSmall),
+          Text(
+            context.tr('worktree'),
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
           const SizedBox(height: 8),
           for (final name in ['main', 'feature/sign-in'])
             ListTile(
@@ -158,7 +165,7 @@ Future<WorkspaceSelection?> showWorkspacePicker(
               project: selectedProject,
               branch: selectedBranch,
             )),
-            child: Text(tr('select')),
+            child: Text(context.tr('select')),
           ),
         ],
       ),
@@ -167,5 +174,5 @@ Future<WorkspaceSelection?> showWorkspacePicker(
 }
 
 void showResourceNotice(BuildContext context, String key) {
-  showToast(context, tr(key));
+  showToast(context, context.tr(key));
 }

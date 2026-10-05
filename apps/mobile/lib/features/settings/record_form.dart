@@ -96,7 +96,9 @@ class _RecordFormState extends State<RecordForm> {
         _error = null;
       });
     } catch (error) {
-      if (mounted) setState(() => _error = failure(error));
+      if (mounted) {
+        setState(() => _error = failure(error, translate: context.tr));
+      }
     }
   }
 
@@ -204,7 +206,11 @@ class _RecordFormState extends State<RecordForm> {
       }
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
-      if (mounted) setState(() => _error = failure(error, saving: true));
+      if (mounted) {
+        setState(
+          () => _error = failure(error, saving: true, translate: context.tr),
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -224,16 +230,16 @@ class _RecordFormState extends State<RecordForm> {
     minLines: lines,
     maxLines: lines == 1 ? 1 : 8,
     keyboardType: numeric ? TextInputType.number : null,
-    decoration: InputDecoration(labelText: tr(label)),
+    decoration: InputDecoration(labelText: context.tr(label)),
     validator: (value) {
       if (required && (value == null || value.trim().isEmpty)) {
-        return tr('settingsRequired');
+        return context.tr('settingsRequired');
       }
       if (numeric && (int.tryParse(value ?? '') ?? 0) <= 0) {
-        return tr('settingsRequired');
+        return context.tr('settingsRequired');
       }
       if (key == 'name' && widget.names.contains(value?.trim())) {
-        return tr('configDuplicate');
+        return context.tr('configDuplicate');
       }
       return null;
     },
@@ -248,7 +254,7 @@ class _RecordFormState extends State<RecordForm> {
         if (provider) ...[
           SelectField<String>(
             value: _api,
-            label: tr('settingsApi'),
+            label: context.tr('settingsApi'),
             options:
                 [
                       'chat_completions',
@@ -267,8 +273,8 @@ class _RecordFormState extends State<RecordForm> {
                       (api) => (
                         api,
                         switch (api) {
-                          'open_code_go' => tr('settingsOpenCodeGo'),
-                          'open_code_zen' => tr('settingsOpenCodeZen'),
+                          'open_code_go' => context.tr('settingsOpenCodeGo'),
+                          'open_code_zen' => context.tr('settingsOpenCodeZen'),
                           _ => api,
                         },
                       ),
@@ -285,11 +291,14 @@ class _RecordFormState extends State<RecordForm> {
               enabled: _keyReady,
             ),
           if (!_keyReady && _error != null)
-            TextButton(onPressed: _readKey, child: Text(tr('settingsRetry'))),
+            TextButton(
+              onPressed: _readKey,
+              child: Text(context.tr('settingsRetry')),
+            ),
           input('models', 'settingsModels', lines: 3),
           SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,
-            title: Text(tr('settingsEnabled')),
+            title: Text(context.tr('settingsEnabled')),
             value: _enabled,
             onChanged: _busy
                 ? null
@@ -303,7 +312,7 @@ class _RecordFormState extends State<RecordForm> {
           if (memory)
             SelectField<String>(
               value: _memoryKind,
-              label: tr('settingsMemoryKind'),
+              label: context.tr('settingsMemoryKind'),
               options: [
                 for (final item in [
                   ('user', 'settingsMemoryUser'),
@@ -311,7 +320,7 @@ class _RecordFormState extends State<RecordForm> {
                   ('project', 'settingsMemoryProject'),
                   ('reference', 'settingsMemoryReference'),
                 ])
-                  (item.$1, tr(item.$2)),
+                  (item.$1, context.tr(item.$2)),
               ],
               onChanged: _busy
                   ? null
@@ -326,7 +335,7 @@ class _RecordFormState extends State<RecordForm> {
         if (_error != null) settingsError(_error),
         FilledButton(
           onPressed: _busy || !_keyReady ? null : _save,
-          child: Text(tr('save')),
+          child: Text(context.tr('save')),
         ),
       ],
     ),

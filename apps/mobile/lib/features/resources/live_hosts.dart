@@ -78,14 +78,14 @@ class _LiveHostsPageState extends State<LiveHostsPage> {
     final session = AppSession.of(context);
     final selected = await showAppSheet<String>(
       context,
-      tr('selectHost'),
+      context.tr('selectHost'),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           for (final host in session.hosts)
             ListTile(
               title: Text(host.label),
-              subtitle: Text(tr(host.connected ? 'online' : 'offline')),
+              subtitle: Text(context.tr(host.connected ? 'online' : 'offline')),
               trailing: _host == host ? const AppIcon('check') : null,
               onTap: () => Navigator.pop(context, host.id),
             ),
@@ -97,7 +97,7 @@ class _LiveHostsPageState extends State<LiveHostsPage> {
 
   Future<void> _pair() => showAppSheet<void>(
     context,
-    tr('pairTitle'),
+    context.tr('pairTitle'),
     child: PairForm(session: AppSession.of(context)),
   );
 
@@ -135,23 +135,26 @@ class _LiveHostsPageState extends State<LiveHostsPage> {
     final cpu = _metrics['cpu_basis_points'];
     return PageFrame(
       loading: session.loading,
-      title: tr('hosts'),
+      title: context.tr('hosts'),
       failure: !session.ready && session.error != null
-          ? FailureState(message: tr('startupFailed'), onRetry: session.start)
+          ? FailureState(
+              message: context.tr('startupFailed'),
+              onRetry: session.start,
+            )
           : host?.connected != true && !session.loading
           ? HostState(
               added: host != null,
               action: host == null
                   ? FilledButton(
                       onPressed: session.ready ? _pair : null,
-                      child: Text(tr('pair')),
+                      child: Text(context.tr('pair')),
                     )
                   : null,
             )
           : _error != null
           ? FailureState(
               icon: 'cpu',
-              message: tr('hostMetricsFailed'),
+              message: context.tr('hostMetricsFailed'),
               onRetry: _refresh,
             )
           : null,
@@ -159,16 +162,20 @@ class _LiveHostsPageState extends State<LiveHostsPage> {
         if (host != null && host.connected)
           RoundButton(
             icon: 'link',
-            tooltip: tr('ports'),
+            tooltip: context.tr('ports'),
             onPressed: () => pushPage(context, PortsPage(host: host)),
           ),
         if (session.hosts.isNotEmpty)
           RoundButton(
             icon: 'server',
-            tooltip: tr('selectHost'),
+            tooltip: context.tr('selectHost'),
             onPressed: _select,
           ),
-        RoundButton(icon: 'plus', tooltip: tr('pair'), onPressed: _pair),
+        RoundButton(
+          icon: 'plus',
+          tooltip: context.tr('pair'),
+          onPressed: _pair,
+        ),
       ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -221,7 +228,9 @@ class _LiveHostsPageState extends State<LiveHostsPage> {
                                 ),
                                 const SizedBox(width: 5),
                                 Text(
-                                  tr(host.connected ? 'online' : 'offline'),
+                                  context.tr(
+                                    host.connected ? 'online' : 'offline',
+                                  ),
                                   style: Theme.of(context).textTheme.bodySmall,
                                 ),
                               ],
@@ -240,11 +249,17 @@ class _LiveHostsPageState extends State<LiveHostsPage> {
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
                   _Gauge(
-                    label: tr('hostMetricCpu'),
+                    label: context.tr('hostMetricCpu'),
                     value: cpu is num ? cpu / 10000 : null,
                   ),
-                  _Gauge(label: tr('hostMetricMemory'), value: used(memory)),
-                  _Gauge(label: tr('hostMetricDisk'), value: used(disk)),
+                  _Gauge(
+                    label: context.tr('hostMetricMemory'),
+                    value: used(memory),
+                  ),
+                  _Gauge(
+                    label: context.tr('hostMetricDisk'),
+                    value: used(disk),
+                  ),
                 ],
               ),
             ),
@@ -271,7 +286,7 @@ class _LiveHostsPageState extends State<LiveHostsPage> {
                                 '${objects(host.snapshot[entry.$1]).length}',
                                 style: Theme.of(context).textTheme.titleLarge,
                               ),
-                              Text(tr(entry.$2)),
+                              Text(context.tr(entry.$2)),
                             ],
                           ),
                         ),
@@ -314,7 +329,7 @@ class _LiveHostsPageState extends State<LiveHostsPage> {
               ),
             const SizedBox(height: 12),
             if (objects(_metrics['processes']).isEmpty)
-              EmptyState(icon: 'cpu', message: tr('hostProcessesEmpty'))
+              EmptyState(icon: 'cpu', message: context.tr('hostProcessesEmpty'))
             else
               Surface(
                 child: Column(

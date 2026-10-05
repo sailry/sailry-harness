@@ -128,7 +128,7 @@ class _AttachmentViewState extends State<AttachmentView> {
       setState(() => _bytes = bytes);
     } catch (_) {
       if (mounted && generation == _generation) {
-        setState(() => _error = tr('conversationDownloadFailed'));
+        setState(() => _error = context.tr('conversationDownloadFailed'));
       }
     } finally {
       if (mounted && generation == _generation) setState(() => _busy = false);
@@ -171,11 +171,11 @@ class _AttachmentViewState extends State<AttachmentView> {
                   await saveContent(bytes, name, mime);
                 } catch (_) {
                   if (context.mounted) {
-                    showToast(context, tr('fileSaveFailed'));
+                    showToast(context, context.tr('fileSaveFailed'));
                   }
                 }
               },
-              child: Text(tr('save')),
+              child: Text(context.tr('save')),
             ),
           ],
         ),
@@ -186,7 +186,8 @@ class _AttachmentViewState extends State<AttachmentView> {
   @override
   Widget build(BuildContext context) {
     final spec = _spec;
-    final name = spec['name'] as String? ?? tr('conversationAttachment');
+    final name =
+        spec['name'] as String? ?? context.tr('conversationAttachment');
     final bytes = _bytes;
     return LoadingOverlay(
       loading: _busy,
@@ -228,7 +229,7 @@ class _AttachmentViewState extends State<AttachmentView> {
                 ),
                 TextButton(
                   onPressed: _busy || !widget.host.connected ? null : _load,
-                  child: Text(tr('retry')),
+                  child: Text(context.tr('retry')),
                 ),
               ],
             ),

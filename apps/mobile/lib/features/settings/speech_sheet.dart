@@ -15,38 +15,42 @@ class SpeechSheet extends StatelessWidget {
       children: [
         SwitchListTile.adaptive(
           contentPadding: EdgeInsets.zero,
-          title: Text(tr('speechInput')),
+          title: Text(context.tr('speechInput')),
           value: speech.enabled,
           onChanged: speech.setEnabled,
         ),
         SelectField<String>(
           value: speech.language,
-          label: tr('settingsSpeechLanguage'),
+          label: context.tr('settingsSpeechLanguage'),
           options: [
             for (final item in [
               ('auto', 'settingsSpeechAuto'),
               ('zh', 'settingsSpeechChinese'),
               ('en', 'settingsSpeechEnglish'),
             ])
-              (item.$1, tr(item.$2)),
+              (item.$1, context.tr(item.$2)),
           ],
           onChanged: speech.setLanguage,
         ),
         if (speech.ready)
-          Text(tr('settingsSpeechReady'))
+          Text(context.tr('settingsSpeechReady'))
         else if (speech.downloading) ...[
           LoadingOverlay(
             loading: true,
             progress: speech.progress / 100,
             child: const SizedBox(height: 96, width: double.infinity),
           ),
-          TextButton(onPressed: speech.cancel, child: Text(tr('cancel'))),
+          TextButton(
+            onPressed: speech.cancel,
+            child: Text(context.tr('cancel')),
+          ),
         ] else
           FilledButton(
             onPressed: speech.download,
-            child: Text(tr('settingsSpeechDownload')),
+            child: Text(context.tr('settingsSpeechDownload')),
           ),
-        if (speech.error != null) settingsError(tr('settingsSpeechFailed')),
+        if (speech.error != null)
+          settingsError(context.tr('settingsSpeechFailed')),
       ],
     ),
   );

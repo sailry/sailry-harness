@@ -134,7 +134,7 @@ class DiffView extends StatelessWidget {
           if (diff['truncated'] == true)
             Padding(
               padding: const EdgeInsets.all(12),
-              child: Text(tr('resourcePartial')),
+              child: Text(context.tr('resourcePartial')),
             ),
         ],
       ),

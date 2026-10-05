@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:sailry_bridge/api/transfers/download.dart';
 
-import '../l10n/strings.dart';
 import '../runtime/json.dart';
 import '../runtime/session.dart';
 
@@ -62,7 +61,7 @@ Future<Uint8List> downloadAttachment(
   final spec = object(attachment['spec']);
   final length = spec['size'] as int;
   if (length > maximumAttachmentBytes) {
-    throw StateError(tr('conversationAttachmentTooLarge'));
+    throw StateError('Attachment exceeds the download limit');
   }
   final response = image == null
       ? await host.command('download_attachment', {
@@ -101,7 +100,7 @@ Future<Uint8List> _read(Download download) async {
       final chunk = await download.next();
       if (chunk == null) break;
       if (bytes.length + chunk.length > maximumAttachmentBytes) {
-        throw StateError(tr('conversationAttachmentTooLarge'));
+        throw StateError('Attachment exceeds the download limit');
       }
       bytes.add(chunk);
     }

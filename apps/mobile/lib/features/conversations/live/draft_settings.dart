@@ -38,7 +38,7 @@ class DraftSettings extends StatelessWidget {
     final selected = chooseProject ? project : worktree;
     final choice = await showAppSheet<Map<String, dynamic>>(
       context,
-      tr(chooseProject ? 'project' : 'worktree'),
+      context.tr(chooseProject ? 'project' : 'worktree'),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -73,7 +73,7 @@ class DraftSettings extends StatelessWidget {
       ListTile(
         key: const ValueKey('draft-project'),
         leading: ProjectIcon(project: project ?? {}, size: 20),
-        title: Text(text(project?['name'], tr('project'))),
+        title: Text(text(project?['name'], context.tr('project'))),
         trailing: const AppIcon('chevron', size: 16),
         onTap: projects.isEmpty
             ? null
@@ -83,7 +83,7 @@ class DraftSettings extends StatelessWidget {
         key: const ValueKey('draft-worktree'),
         leading: const AppIcon('branch', size: 20),
         title: Text(
-          text(worktree?['path'], tr('worktree')),
+          text(worktree?['path'], context.tr('worktree')),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),

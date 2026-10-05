@@ -67,7 +67,9 @@ class _HostFilePickerState extends State<HostFilePicker> {
         _address.text = text(directory['path']);
       });
     } catch (error) {
-      if (mounted) setState(() => _error = failureLabel(error));
+      if (mounted) {
+        setState(() => _error = failureLabel(error, translate: context.tr));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -81,12 +83,14 @@ class _HostFilePickerState extends State<HostFilePicker> {
 
   @override
   Widget build(BuildContext context) => PageFrame(
-    title: tr(widget.directoryOnly ? 'hostChooseDirectory' : 'hostChooseFile'),
+    title: context.tr(
+      widget.directoryOnly ? 'hostChooseDirectory' : 'hostChooseFile',
+    ),
     scroll: false,
     actions: [
       RoundButton(
         icon: 'close',
-        tooltip: tr('close'),
+        tooltip: context.tr('close'),
         onPressed: () => Navigator.pop(context),
       ),
     ],
@@ -97,16 +101,16 @@ class _HostFilePickerState extends State<HostFilePicker> {
           enabled: !_busy,
           textInputAction: TextInputAction.go,
           decoration: InputDecoration(
-            labelText: tr('hostProjectPath'),
+            labelText: context.tr('hostProjectPath'),
             prefixIcon: IconButton(
-              tooltip: tr('hostParentDirectory'),
+              tooltip: context.tr('hostParentDirectory'),
               icon: const AppIcon('back'),
               onPressed: _busy || _listing['parent'] == null
                   ? null
                   : () => _load(_listing['parent'] as String),
             ),
             suffixIcon: IconButton(
-              tooltip: tr('hostRefresh'),
+              tooltip: context.tr('hostRefresh'),
               icon: const AppIcon('refresh'),
               onPressed: _busy
                   ? null
@@ -142,7 +146,10 @@ class _HostFilePickerState extends State<HostFilePicker> {
                         _load(_address.text.isEmpty ? null : _address.text),
                   )
                 : objects(_directory['entries']).isEmpty && !_busy
-                ? EmptyState(icon: 'folder', message: tr('hostEmptyDirectory'))
+                ? EmptyState(
+                    icon: 'folder',
+                    message: context.tr('hostEmptyDirectory'),
+                  )
                 : ListView(
                     children: [
                       for (final entry in objects(_directory['entries']))
@@ -178,7 +185,7 @@ class _HostFilePickerState extends State<HostFilePicker> {
                               ? null
                               : () =>
                                     _load(text(_directory['path']), more: true),
-                          child: Text(tr('hostLoadMore')),
+                          child: Text(context.tr('hostLoadMore')),
                         ),
                     ],
                   ),
@@ -196,7 +203,7 @@ class _HostFilePickerState extends State<HostFilePicker> {
                 onPressed: _busy || _error != null || _directory['path'] == null
                     ? null
                     : () => Navigator.pop(context, text(_directory['path'])),
-                child: Text(tr('hostChooseDirectory')),
+                child: Text(context.tr('hostChooseDirectory')),
               ),
             ),
           ),

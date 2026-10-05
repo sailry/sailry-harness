@@ -6,7 +6,6 @@ import 'package:sailry_mobile/features/conversations/conversation_page.dart';
 import 'package:sailry_mobile/features/conversations/tasks_page.dart';
 import 'package:sailry_mobile/features/conversations/running_task_frame.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
-import 'package:sailry_mobile/l10n/conversations.dart';
 import 'package:sailry_mobile/ui/theme.dart';
 
 Future<void> mount(
@@ -164,7 +163,10 @@ void main() {
       await mount(tester, const TasksPage());
       await tester.tap(find.byTooltip(tr('newTask')));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'Review spacing');
+      await tester.enterText(
+        find.widgetWithText(TextField, tr('describeTask')),
+        'Review spacing',
+      );
       await tester.ensureVisible(find.text(tr('create')));
       await tester.pumpAndSettle();
       await tester.tap(find.text(tr('create')));
@@ -262,9 +264,9 @@ void main() {
       await tester.tap(find.byTooltip(tr('stop')));
       await tester.pumpAndSettle();
       await demo(tester, tr('phaseFailed'));
-      await tester.ensureVisible(find.text(conversationTr('retryTask')).last);
+      await tester.ensureVisible(find.text(tr('retryTask')).last);
       await tester.pumpAndSettle();
-      await tester.tap(find.text(conversationTr('retryTask')).last);
+      await tester.tap(find.text(tr('retryTask')).last);
       await tester.pump(const Duration(milliseconds: 400));
       expect(find.byType(CircularProgressIndicator), findsWidgets);
       await tester.tap(find.byTooltip(tr('stop')));

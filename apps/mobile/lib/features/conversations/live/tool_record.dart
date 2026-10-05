@@ -53,7 +53,9 @@ class _ToolRecordState extends State<ToolRecord> {
         'decision': decision,
       });
     } catch (error) {
-      if (mounted) showToast(context, failureLabel(error));
+      if (mounted) {
+        showToast(context, failureLabel(error, translate: context.tr));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -106,7 +108,7 @@ class _ToolRecordState extends State<ToolRecord> {
                     CodeBlock(
                       rawText(arguments),
                       language: 'json',
-                      title: tr('toolArguments'),
+                      title: context.tr('toolArguments'),
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
@@ -136,12 +138,12 @@ class _ToolRecordState extends State<ToolRecord> {
                 children: [
                   TextButton(
                     onPressed: enabled ? () => _approve('deny') : null,
-                    child: Text(tr('deny')),
+                    child: Text(context.tr('deny')),
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
                     onPressed: enabled ? () => _approve('approve') : null,
-                    child: Text(tr('allowShort')),
+                    child: Text(context.tr('allowShort')),
                   ),
                 ],
               ),
@@ -152,7 +154,7 @@ class _ToolRecordState extends State<ToolRecord> {
                   onPressed: enabled
                       ? () => showAppSheet(
                           context,
-                          tr('question'),
+                          context.tr('question'),
                           child: ConversationQuestion(
                             spec: arguments,
                             question: question,
@@ -161,7 +163,7 @@ class _ToolRecordState extends State<ToolRecord> {
                           ),
                         )
                       : null,
-                  child: Text(tr('reply')),
+                  child: Text(context.tr('reply')),
                 ),
               ),
           ],

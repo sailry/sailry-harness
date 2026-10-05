@@ -22,6 +22,7 @@ dependencies:
   markdown: 7.3.1
   re_highlight: 0.0.3
   html: 0.15.7
+  intl: 0.20.2
   fluttertoast: 10.0.0
   flutter_foreground_task: 11.0.3
   flutter_rust_bridge: 2.13.0
@@ -52,11 +53,11 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: assets/branding/mark.png
+  image_path: ../../assets/branding/sailry.png
   remove_alpha_ios: true
-  background_color_ios: '#17191c'
-  adaptive_icon_background: '#17191c'
-  adaptive_icon_foreground: assets/branding/mark.png
+  background_color_ios: '#ffffff'
+  adaptive_icon_background: '#ffffff'
+  adaptive_icon_foreground: ../../assets/branding/sailry.png
 
 flutter_native_splash:
   color: '#17191c'
@@ -67,6 +68,7 @@ flutter_native_splash:
     image: assets/branding/mark.png
 
 flutter:
+  generate: true
   uses-material-design: true
   assets:
     - assets/icons/

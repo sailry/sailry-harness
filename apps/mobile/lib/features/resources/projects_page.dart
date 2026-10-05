@@ -18,23 +18,23 @@ class ProjectsPage extends StatelessWidget {
     builder: (context, _) {
       final projects = objects(host.snapshot['projects']);
       return PageFrame(
-        title: tr('project'),
+        title: context.tr('project'),
         failure: !host.connected ? const HostState(added: true) : null,
         actions: [
           RoundButton(
             icon: 'plus',
-            tooltip: tr('hostRegisterProject'),
+            tooltip: context.tr('hostRegisterProject'),
             onPressed: !host.connected
                 ? null
                 : () => showAppSheet(
                     context,
-                    tr('hostRegisterProject'),
+                    context.tr('hostRegisterProject'),
                     child: ProjectForm(host: host),
                   ),
           ),
         ],
         empty: projects.isEmpty
-            ? EmptyState(message: tr('conversationNoProject'))
+            ? EmptyState(message: context.tr('conversationNoProject'))
             : null,
         child: Column(
           children: [

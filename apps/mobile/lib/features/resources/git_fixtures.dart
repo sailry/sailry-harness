@@ -1,11 +1,11 @@
 import '../../l10n/strings.dart';
 
 class GitPreview {
-  GitPreview(this.branch)
+  GitPreview(this.branch, {Translator translate = tr})
     : branches = {branch, 'main', 'feature/sign-in', 'fix/layout'},
       history = [
-        (id: 'sample-2', title: tr('gitHistoryLayout'), branch: branch),
-        (id: 'sample-1', title: tr('gitHistoryInit'), branch: 'main'),
+        (id: 'sample-2', title: translate('gitHistoryLayout'), branch: branch),
+        (id: 'sample-1', title: translate('gitHistoryInit'), branch: 'main'),
       ];
 
   String branch;

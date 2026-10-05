@@ -35,7 +35,10 @@ class FailureState extends StatelessWidget {
               action ??
               (onRetry == null
                   ? null
-                  : FilledButton(onPressed: onRetry, child: Text(tr('retry')))),
+                  : FilledButton(
+                      onPressed: onRetry,
+                      child: Text(context.tr('retry')),
+                    )),
         ),
       );
       if (height == null) return content;

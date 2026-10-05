@@ -62,7 +62,7 @@ class _PortPreviewPageState extends State<PortPreviewPage> {
             }
             if (mounted && request.isMainFrame) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(tr('resourcePreviewLink'))),
+                SnackBar(content: Text(context.tr('resourcePreviewLink'))),
               );
             }
             return NavigationDecision.prevent;
@@ -107,14 +107,14 @@ class _PortPreviewPageState extends State<PortPreviewPage> {
   Widget build(BuildContext context) => ValueListenableBuilder<bool>(
     valueListenable: widget.listening,
     builder: (context, listening, _) => PageFrame(
-      title: tr('browser'),
+      title: context.tr('browser'),
       scroll: false,
       padding: EdgeInsets.zero,
       loading: listening && _loading,
       actions: [
         RoundButton(
           icon: 'refresh',
-          tooltip: tr('refresh'),
+          tooltip: context.tr('refresh'),
           onPressed: listening && !_loading ? _reload : null,
         ),
       ],
@@ -130,7 +130,7 @@ class _PortPreviewPageState extends State<PortPreviewPage> {
                 color: Theme.of(context).colorScheme.surface,
                 child: FailureState(
                   icon: 'globe',
-                  message: tr(
+                  message: context.tr(
                     listening
                         ? 'resourcePreviewFailed'
                         : 'resourceForwardStopped',

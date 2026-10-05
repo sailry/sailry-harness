@@ -43,7 +43,7 @@ class ModelControls extends StatelessWidget {
     final budget = object(current)['budget'];
     final label = budget == null
         ? text(current)
-        : '${tr('conversationBudget')}: $budget';
+        : '${context.tr('conversationBudget')}: $budget';
     final colors = Theme.of(context).colorScheme;
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -65,7 +65,7 @@ class ModelControls extends StatelessWidget {
                 minimumSize: const Size.square(40),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
-              tooltip: tr('resetReasoning'),
+              tooltip: context.tr('resetReasoning'),
               onPressed: enabled && current != initial
                   ? () => _commit({...config, 'effort': initial})
                   : null,
@@ -85,7 +85,7 @@ class ModelControls extends StatelessWidget {
               : () async {
                   final selection = await showAppSheet<Map<String, dynamic>>(
                     context,
-                    tr('modelPicker'),
+                    context.tr('modelPicker'),
                     child: ModelChoices(providers: providers, config: config),
                   );
                   if (selection != null) _commit({...config, ...selection});
@@ -96,7 +96,7 @@ class ModelControls extends StatelessWidget {
               Flexible(
                 child: Text(
                   text(config['model']).isEmpty
-                      ? tr('conversationNoModel')
+                      ? context.tr('conversationNoModel')
                       : text(config['model']),
                   overflow: TextOverflow.ellipsis,
                 ),

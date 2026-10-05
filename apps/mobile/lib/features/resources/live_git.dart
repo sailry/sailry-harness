@@ -90,7 +90,7 @@ class _LiveGitPageState extends State<LiveGitPage> {
       }
     } catch (error) {
       if (mounted && generation == _generation) {
-        setState(() => _error = failureText(error));
+        setState(() => _error = failureText(error, translate: context.tr));
       }
     } finally {
       if (mounted && generation == _generation) setState(() => _busy = false);
@@ -129,11 +129,13 @@ class _LiveGitPageState extends State<LiveGitPage> {
       if (mounted) {
         setState(() {
           _pending = error.code == 'outcome_unknown' ? error.request : null;
-          _error = failureText(error);
+          _error = failureText(error, translate: context.tr);
         });
       }
     } catch (error) {
-      if (mounted) setState(() => _error = failureText(error));
+      if (mounted) {
+        setState(() => _error = failureText(error, translate: context.tr));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -153,11 +155,13 @@ class _LiveGitPageState extends State<LiveGitPage> {
       if (mounted) {
         setState(() {
           if (error.code != 'outcome_unknown') _pending = null;
-          _error = failureText(error);
+          _error = failureText(error, translate: context.tr);
         });
       }
     } catch (error) {
-      if (mounted) setState(() => _error = failureText(error));
+      if (mounted) {
+        setState(() => _error = failureText(error, translate: context.tr));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -192,7 +196,7 @@ class _LiveGitPageState extends State<LiveGitPage> {
                 onPressed: _canWrite
                     ? () => Navigator.pop(context, true)
                     : null,
-                child: Text(tr(staged ? 'unstage' : 'stage')),
+                child: Text(context.tr(staged ? 'unstage' : 'stage')),
               ),
             ],
           ),
@@ -207,7 +211,9 @@ class _LiveGitPageState extends State<LiveGitPage> {
         });
       }
     } catch (error) {
-      if (mounted) setState(() => _error = failureText(error));
+      if (mounted) {
+        setState(() => _error = failureText(error, translate: context.tr));
+      }
     }
   }
 
@@ -236,7 +242,7 @@ class _LiveGitPageState extends State<LiveGitPage> {
   Future<void> _actions() async {
     final action = await showAppSheet<String>(
       context,
-      tr('gitActions'),
+      context.tr('gitActions'),
       child: Builder(
         builder: (context) => Column(
           mainAxisSize: MainAxisSize.min,
@@ -247,7 +253,7 @@ class _LiveGitPageState extends State<LiveGitPage> {
               ('push', 'gitPush'),
             ])
               ListTile(
-                title: Text(tr(item.$2)),
+                title: Text(context.tr(item.$2)),
                 onTap: () => Navigator.pop(context, item.$1),
               ),
           ],
@@ -287,7 +293,7 @@ class _LiveGitPageState extends State<LiveGitPage> {
               ('delete', 'gitDeleteBranch'),
             ])
               ListTile(
-                title: Text(tr(item.$2)),
+                title: Text(context.tr(item.$2)),
                 onTap: () => Navigator.pop(context, item.$1),
               ),
           ],
@@ -299,7 +305,7 @@ class _LiveGitPageState extends State<LiveGitPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text(
-          tr(
+          context.tr(
             {
               'switch': 'gitSwitch',
               'merge': 'gitMerge',
@@ -311,11 +317,11 @@ class _LiveGitPageState extends State<LiveGitPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text(tr('cancel')),
+            child: Text(context.tr('cancel')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text(tr('confirm')),
+            child: Text(context.tr('confirm')),
           ),
         ],
       ),
@@ -367,12 +373,15 @@ class _LiveGitPageState extends State<LiveGitPage> {
                 padding: const EdgeInsets.only(bottom: 12),
                 child: DiffView(diff: diff),
               ),
-            if (commit['truncated'] == true) Text(tr('resourcePartial')),
+            if (commit['truncated'] == true)
+              Text(context.tr('resourcePartial')),
           ],
         ),
       );
     } catch (error) {
-      if (mounted) setState(() => _error = failureText(error));
+      if (mounted) {
+        setState(() => _error = failureText(error, translate: context.tr));
+      }
     }
   }
 
@@ -395,7 +404,9 @@ class _LiveGitPageState extends State<LiveGitPage> {
         _log = log;
       });
     } catch (error) {
-      if (mounted) setState(() => _error = failureText(error));
+      if (mounted) {
+        setState(() => _error = failureText(error, translate: context.tr));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -429,7 +440,7 @@ class _LiveGitPageState extends State<LiveGitPage> {
         : null;
     return PageFrame(
       loading: _busy,
-      title: tr('git'),
+      title: context.tr('git'),
       failure: _target != null && !_target!.host.connected
           ? const HostState(added: true)
           : _error != null
@@ -445,11 +456,11 @@ class _LiveGitPageState extends State<LiveGitPage> {
           : null,
       empty: empty == null
           ? null
-          : EmptyState(icon: 'branch', message: tr(empty)),
+          : EmptyState(icon: 'branch', message: context.tr(empty)),
       actions: [
         RoundButton(
           icon: 'refresh',
-          tooltip: tr('refresh'),
+          tooltip: context.tr('refresh'),
           onPressed: _busy ? null : _load,
         ),
       ],
@@ -460,7 +471,7 @@ class _LiveGitPageState extends State<LiveGitPage> {
             if (_pending != null)
               FilledButton(
                 onPressed: _busy ? null : _retry,
-                child: Text(tr('retry')),
+                child: Text(context.tr('retry')),
               ),
             if (_status['kind'] != 'directory') ...[
               Surface(
@@ -494,7 +505,10 @@ class _LiveGitPageState extends State<LiveGitPage> {
                     ('branches', 'gitBranches'),
                     ('history', 'gitHistory'),
                   ])
-                    ButtonSegment(value: item.$1, label: Text(tr(item.$2))),
+                    ButtonSegment(
+                      value: item.$1,
+                      label: Text(context.tr(item.$2)),
+                    ),
                 ],
                 selected: {_tab},
                 onSelectionChanged: (value) => _selectTab(value.single),
@@ -511,7 +525,7 @@ class _LiveGitPageState extends State<LiveGitPage> {
                     key: ValueKey('live-git-$staged'),
                     initiallyExpanded: true,
                     tilePadding: EdgeInsets.zero,
-                    title: Text(tr(staged ? 'staged' : 'workingTree')),
+                    title: Text(context.tr(staged ? 'staged' : 'workingTree')),
                     children: [
                       for (final entry in entries.where(
                         (entry) => staged
@@ -534,7 +548,7 @@ class _LiveGitPageState extends State<LiveGitPage> {
                           entries.any((entry) => entry['staged'] != null)
                       ? _commit
                       : null,
-                  child: Text(tr('commit')),
+                  child: Text(context.tr('commit')),
                 ),
               ],
               if (_tab == 'branches') ...[
@@ -548,7 +562,7 @@ class _LiveGitPageState extends State<LiveGitPage> {
                             leading: const AppIcon('branch'),
                             title: Text(text(branch['name'])),
                             subtitle: branch['current'] == true
-                                ? Text(tr('gitCurrent'))
+                                ? Text(context.tr('gitCurrent'))
                                 : null,
                             trailing: AppIcon(
                               branch['current'] == true ? 'check' : 'chevron',
@@ -563,7 +577,7 @@ class _LiveGitPageState extends State<LiveGitPage> {
                       ? _createBranch
                       : null,
                   icon: const AppIcon('plus'),
-                  label: Text(tr('gitCreateBranch')),
+                  label: Text(context.tr('gitCreateBranch')),
                 ),
                 OutlinedButton.icon(
                   onPressed:
@@ -573,9 +587,10 @@ class _LiveGitPageState extends State<LiveGitPage> {
                       ? () => _createBranch(worktree: true)
                       : null,
                   icon: const AppIcon('branch'),
-                  label: Text(tr('resourceWorktreeCreate')),
+                  label: Text(context.tr('resourceWorktreeCreate')),
                 ),
-                if (_branches['truncated'] == true) Text(tr('resourcePartial')),
+                if (_branches['truncated'] == true)
+                  Text(context.tr('resourcePartial')),
               ],
               if (_tab == 'history') ...[
                 if (objects(_log['entries']).isNotEmpty)
@@ -597,7 +612,7 @@ class _LiveGitPageState extends State<LiveGitPage> {
                 if (_log['next'] != null)
                   TextButton(
                     onPressed: _busy ? null : _more,
-                    child: Text(tr('resourceMore')),
+                    child: Text(context.tr('resourceMore')),
                   ),
               ],
             ],

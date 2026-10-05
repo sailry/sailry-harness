@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 import 'configuration_fields.dart';
@@ -46,7 +47,7 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _error = failureLabel(error);
+          _error = failureLabel(error, translate: context.tr);
         });
       }
     } finally {

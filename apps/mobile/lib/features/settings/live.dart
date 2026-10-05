@@ -8,17 +8,19 @@ import '../../ui/kit.dart';
 int integer(Object? value) => value is num ? value.toInt() : 0;
 String string(Object? value) => value is String ? value : '';
 
-String failure(Object error, {bool saving = false}) {
+String failure(Object error, {bool saving = false, Translator translate = tr}) {
   final detail = error.toString();
-  if (detail.contains('revision_conflict')) return tr('settingsConflict');
-  if (detail.contains('outcome_unknown')) return tr('settingsUnknown');
-  return tr(saving ? 'settingsSaveFailed' : 'settingsLoadFailed');
+  if (detail.contains('revision_conflict')) {
+    return translate('settingsConflict');
+  }
+  if (detail.contains('outcome_unknown')) return translate('settingsUnknown');
+  return translate(saving ? 'settingsSaveFailed' : 'settingsLoadFailed');
 }
 
 Future<void> pickSettingsHost(BuildContext context, AppSession session) async {
   final selected = await showAppSheet<String>(
     context,
-    tr('selectHost'),
+    context.tr('selectHost'),
     child: Builder(
       builder: (context) => Column(
         mainAxisSize: MainAxisSize.min,
@@ -49,27 +51,27 @@ Widget settingsError(String? error) => error == null
 Future<bool> confirmRemoval(BuildContext context, String name) async =>
     await showAppSheet<bool>(
       context,
-      tr('delete'),
+      context.tr('delete'),
       child: Builder(
         builder: (context) => Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(tr('configDelete').replaceAll('{name}', name)),
+            Text(context.tr('configDelete').replaceAll('{name}', name)),
             const SizedBox(height: 20),
             Row(
               children: [
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () => Navigator.pop(context, false),
-                    child: Text(tr('cancel')),
+                    child: Text(context.tr('cancel')),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: FilledButton(
                     onPressed: () => Navigator.pop(context, true),
-                    child: Text(tr('delete')),
+                    child: Text(context.tr('delete')),
                   ),
                 ),
               ],

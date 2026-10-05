@@ -11,7 +11,8 @@ import 'presentation.dart';
 
 /// UI-owned inspection state. Diffs and recovery decisions remain on the Node.
 class ChangeReview extends ChangeNotifier {
-  ChangeReview(this.host, this.session, this.turn);
+  ChangeReview(this.host, this.session, this.turn, {this.translate = tr});
+  Translator translate;
   final HostConnection host;
   final String session, turn;
   Map<String, dynamic>? diff;
@@ -49,7 +50,7 @@ class ChangeReview extends ChangeNotifier {
       }
       diff = data;
     } catch (failure) {
-      error = failureLabel(failure);
+      error = failureLabel(failure, translate: translate);
     } finally {
       busy = false;
       _changed();
@@ -134,7 +135,7 @@ class ChangeReview extends ChangeNotifier {
         _pendingCheckpoint = null;
       }
     } catch (failure) {
-      error = failureLabel(failure);
+      error = failureLabel(failure, translate: translate);
     } finally {
       busy = false;
       _changed();
@@ -162,6 +163,12 @@ class _TurnChangesState extends State<TurnChanges> {
   late final review = ChangeReview(widget.host, widget.session, widget.turn);
   bool _open = false;
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    review.translate = context.tr;
+  }
+
+  @override
   void dispose() {
     review.dispose();
     super.dispose();
@@ -184,8 +191,8 @@ class _TurnChangesState extends State<TurnChanges> {
         icon: const AppIcon('file', size: 16),
         label: Text(
           review.diff == null
-              ? tr('turnChanges')
-              : '${tr('turnChangesCount').replaceAll('{count}', '${files.length}')}  +$added −$removed',
+              ? context.tr('turnChanges')
+              : '${context.tr('turnChangesCount').replaceAll('{count}', '${files.length}')}  +$added −$removed',
         ),
         onPressed: _open
             ? null
@@ -244,23 +251,23 @@ class _ChangesPageState extends State<_ChangesPage> {
                 entry.value.draft?.pending != null),
       );
       if (dirty) {
-        review.error = tr('turnUndoUnsaved');
+        review.error = context.tr('turnUndoUnsaved');
         review._changed();
         return;
       }
       final confirmed = await showAppDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: Text(tr('turnUndo')),
-          content: Text([?path, tr('turnUndoConfirm')].join('\n')),
+          title: Text(context.tr('turnUndo')),
+          content: Text([?path, context.tr('turnUndoConfirm')].join('\n')),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: Text(tr('cancel')),
+              child: Text(context.tr('cancel')),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: Text(tr('confirm')),
+              child: Text(context.tr('confirm')),
             ),
           ],
         ),
@@ -286,7 +293,7 @@ class _ChangesPageState extends State<_ChangesPage> {
       return PopScope(
         canPop: !review.busy,
         child: PageFrame(
-          title: tr('turnChanges'),
+          title: context.tr('turnChanges'),
           loading: review.busy,
           backEnabled: !review.busy,
           failure: review.diff == null && review.error != null
@@ -304,7 +311,9 @@ class _ChangesPageState extends State<_ChangesPage> {
                   ? null
                   : () => _restore(null),
               child: Text(
-                tr(review.pending != null ? 'messageCheck' : 'turnUndoAll'),
+                context.tr(
+                  review.pending != null ? 'messageCheck' : 'turnUndoAll',
+                ),
               ),
             ),
           ],
@@ -317,8 +326,9 @@ class _ChangesPageState extends State<_ChangesPage> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               if (review.done.isNotEmpty && review.error != null)
-                Text(tr('turnUndoPartial')),
-              if (review.diff?['partial'] == true) Text(tr('resourcePartial')),
+                Text(context.tr('turnUndoPartial')),
+              if (review.diff?['partial'] == true)
+                Text(context.tr('resourcePartial')),
               for (final file in files) ...[
                 Row(
                   children: [
@@ -346,7 +356,7 @@ class _ChangesPageState extends State<_ChangesPage> {
                           ? null
                           : () => _restore(text(file['path'])),
                       child: Text(
-                        tr(
+                        context.tr(
                           review.restored(text(file['path']))
                               ? 'turnUndoDone'
                               : 'turnUndo',
@@ -358,7 +368,8 @@ class _ChangesPageState extends State<_ChangesPage> {
                 DiffView(diff: file),
                 const SizedBox(height: 12),
               ],
-              if (review.diff != null && files.isEmpty) Text(tr('noChanges')),
+              if (review.diff != null && files.isEmpty)
+                Text(context.tr('noChanges')),
             ],
           ),
         ),

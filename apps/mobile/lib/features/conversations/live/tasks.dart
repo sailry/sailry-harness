@@ -40,7 +40,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
   Future<void> _terminal() async {
     final host = widget.session.selectedHost;
     if (host == null || !host.connected) {
-      _error(tr('conversationNoHost'));
+      _error(context.tr('conversationNoHost'));
       return;
     }
     final tree = await showLiveWorkspacePicker(
@@ -59,13 +59,13 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
 
   void _error(Object error) {
     if (!mounted) return;
-    showToast(context, failureLabel(error));
+    showToast(context, failureLabel(error, translate: context.tr));
   }
 
   Future<void> _create() async {
     final selected = widget.session.selectedHost;
     if (selected == null || !selected.connected) {
-      _error(tr('conversationNoHost'));
+      _error(context.tr('conversationNoHost'));
       return;
     }
     pushPage(
@@ -98,14 +98,17 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
   ) async {
     await showAppSheet(
       context,
-      tr('deleteTask'),
+      context.tr('deleteTask'),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(title(session), style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            title(session, translate: context.tr),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           const SizedBox(height: 8),
-          Text(tr('deleteWarning')),
+          Text(context.tr('deleteWarning')),
           const SizedBox(height: 20),
           FilledButton(
             onPressed: () async {
@@ -119,7 +122,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                 _error(error);
               }
             },
-            child: Text(tr('delete')),
+            child: Text(context.tr('delete')),
           ),
         ],
       ),
@@ -145,7 +148,10 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                 (_filter == 'all' ||
                     _filter == 'archived' ||
                     status(session) == _filter) &&
-                title(session).toLowerCase().contains(_search.toLowerCase()))
+                title(
+                  session,
+                  translate: context.tr,
+                ).toLowerCase().contains(_search.toLowerCase()))
               (host, session),
       ];
       final colors = Theme.of(context).colorScheme;
@@ -162,10 +168,11 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                 terminalStatus(terminal) == _filter) &&
             terminalTitle(
               terminal,
+              translate: context.tr,
             ).toLowerCase().contains(_search.toLowerCase());
       }).toList();
       return PageFrame(
-        title: tr('brand'),
+        title: context.tr('brand'),
         titleSize: 28,
         failure: selected?.connected != true
             ? HostState(added: selected != null)
@@ -173,12 +180,12 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
         actions: [
           RoundButton(
             icon: 'server',
-            tooltip: tr('selectHost'),
+            tooltip: context.tr('selectHost'),
             onPressed: hosts.isEmpty
                 ? null
                 : () => showAppSheet(
                     context,
-                    tr('selectHost'),
+                    context.tr('selectHost'),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -186,7 +193,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                           ListTile(
                             title: Text(host.label),
                             subtitle: Text(
-                              tr(host.connected ? 'online' : 'offline'),
+                              context.tr(host.connected ? 'online' : 'offline'),
                             ),
                             trailing: selected?.id == host.id
                                 ? const AppIcon('check')
@@ -205,7 +212,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
           ),
           RoundButton(
             icon: _searching ? 'close' : 'search',
-            tooltip: tr('searchTasks'),
+            tooltip: context.tr('searchTasks'),
             onPressed: selected?.connected != true
                 ? null
                 : () => setState(() {
@@ -215,20 +222,20 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
           ),
           RoundButton(
             icon: 'terminal',
-            tooltip: tr('newTerminal'),
+            tooltip: context.tr('newTerminal'),
             onPressed: selected?.connected == true ? _terminal : null,
           ),
           RoundButton(
             icon: 'plus',
             primary: true,
-            tooltip: tr('newTask'),
+            tooltip: context.tr('newTask'),
             onPressed: selected?.connected == true ? _create : null,
           ),
         ],
         empty: selected?.connected == true && tasks.isEmpty && terminals.isEmpty
             ? EmptyState(
                 icon: 'chat',
-                message: tr(
+                message: context.tr(
                   _filter == 'archived'
                       ? 'archiveEmpty'
                       : 'conversationNoTasks',
@@ -243,7 +250,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                 TextField(
                   autofocus: true,
                   decoration: InputDecoration(
-                    hintText: tr('searchTasks'),
+                    hintText: context.tr('searchTasks'),
                     prefixIcon: const Padding(
                       padding: EdgeInsets.all(12),
                       child: AppIcon('search'),
@@ -254,24 +261,26 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                 const SizedBox(height: 16),
               ],
               SelectorCard(
-                title: selectedProject?['name'] as String? ?? tr('allProjects'),
+                title:
+                    selectedProject?['name'] as String? ??
+                    context.tr('allProjects'),
                 leading: selectedProject == null
                     ? null
                     : ProjectIcon(project: selectedProject),
-                subtitle: tr('allWorktrees'),
+                subtitle: context.tr('allWorktrees'),
                 onTap: () => showAppSheet(
                   context,
-                  tr('filterProjects'),
+                  context.tr('filterProjects'),
                   actions: [
                     if (selected?.connected == true)
                       ListTile(
                         leading: const AppIcon('plus'),
-                        title: Text(tr('hostRegisterProject')),
+                        title: Text(context.tr('hostRegisterProject')),
                         onTap: () {
                           Navigator.pop(context);
                           showAppSheet(
                             context,
-                            tr('hostRegisterProject'),
+                            context.tr('hostRegisterProject'),
                             child: ProjectForm(host: selected!),
                           );
                         },
@@ -282,7 +291,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                     children: [
                       ListTile(
                         leading: const AppIcon('folder'),
-                        title: Text(tr('allProjects')),
+                        title: Text(context.tr('allProjects')),
                         onTap: () {
                           setState(() => _project = null);
                           Navigator.pop(context);
@@ -335,7 +344,9 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                         ),
                         onPressed: () => setState(() => _filter = filter),
                         child: Text(
-                          tr(filter == 'archived' ? 'archiveTab' : filter),
+                          context.tr(
+                            filter == 'archived' ? 'archiveTab' : filter,
+                          ),
                           softWrap: false,
                         ),
                       ),
@@ -361,7 +372,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                             backgroundColor: colors.secondaryContainer,
                             foregroundColor: colors.onSecondaryContainer,
                             icon: Icons.archive_outlined,
-                            label: tr(
+                            label: context.tr(
                               session['archived'] == true
                                   ? 'restore'
                                   : 'archiveShort',
@@ -374,7 +385,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                             backgroundColor: colors.error,
                             foregroundColor: colors.onError,
                             icon: Icons.delete_outline,
-                            label: tr('delete'),
+                            label: context.tr('delete'),
                           ),
                         ],
                       ),

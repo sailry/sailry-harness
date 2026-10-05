@@ -54,21 +54,21 @@ class ToolHeading extends StatelessWidget {
     final resolved = object(call['resolved']);
     final capturedStatus = capturedLabel(context, resolved['status']);
     final resultStatus = switch (object(result['error'])['code']) {
-      'cancelled' => tr('toolCancelled'),
-      'outcome_unknown' => tr('toolOutcomeUnknown'),
+      'cancelled' => context.tr('toolCancelled'),
+      'outcome_unknown' => context.tr('toolOutcomeUnknown'),
       _ =>
         result['error'] != null || ownFailure
             ? null
             : capturedStatus.isNotEmpty
             ? capturedStatus
-            : commandStatus(result),
+            : commandStatus(result, translate: context.tr),
     };
     final status = waiting
-        ? tr('conversationToolWaiting')
+        ? context.tr('conversationToolWaiting')
         : hasFailure
-        ? (ownFailure ? resultStatus : null) ?? tr('toolFailed')
+        ? (ownFailure ? resultStatus : null) ?? context.tr('toolFailed')
         : resultStatus ??
-              tr(switch (call['state']) {
+              context.tr(switch (call['state']) {
                 'returned' => 'conversationToolReturned',
                 'cancelled' => 'conversationToolCancelled',
                 'not_executed' => 'conversationToolNotExecuted',
@@ -87,11 +87,11 @@ class ToolHeading extends StatelessWidget {
     final label = [
       resolved['label'] != null
           ? capturedLabel(context, resolved['label'])
-          : toolLabel(text(call['name'])),
+          : toolLabel(text(call['name']), translate: context.tr),
       if (target != null) target.split('\n').first,
     ].join(' ');
     return Semantics(
-      value: hasFailure ? tr('toolFailed') : null,
+      value: hasFailure ? context.tr('toolFailed') : null,
       child: Row(
         children: [
           Expanded(

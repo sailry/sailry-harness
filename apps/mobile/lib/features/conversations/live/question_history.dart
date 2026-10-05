@@ -52,7 +52,7 @@ class QuestionHistory extends StatelessWidget {
       children: [
         MarkdownContent(text(spec['prompt'])),
         Text(
-          tr(
+          context.tr(
             state['kind'] == 'answered'
                 ? 'toolQuestionAnswered'
                 : state['kind'] == 'declined'

@@ -13,7 +13,10 @@ import 'page.dart';
 import 'presentation.dart';
 
 /// A one-line presentation of committed messages; tool output stays in the turn.
-String messagePreview(List<Map<String, dynamic>> entries) {
+String messagePreview(
+  List<Map<String, dynamic>> entries, {
+  Translator translate = tr,
+}) {
   for (final entry in entries.reversed) {
     final parts = objects(entry['parts']);
     final content = parts
@@ -27,7 +30,7 @@ String messagePreview(List<Map<String, dynamic>> entries) {
       if (part['kind'] == 'attachment') {
         return text(
           object(object(part['data'])['spec'])['name'],
-          tr('conversationAttachment'),
+          translate('conversationAttachment'),
         );
       }
     }
@@ -98,9 +101,10 @@ class _ConversationTaskState extends State<ConversationTask> {
         'limit': 1,
       });
       final history = object(result['data']);
+      if (!mounted || request != _request) return;
       final page = object(history['page']);
       final entries = objects(page['entries']);
-      var preview = messagePreview(entries);
+      var preview = messagePreview(entries, translate: context.tr);
       // Large tool-heavy turns may put the last message in an earlier chunk.
       // Follow the Node's read cursor only until that message is available.
       if (preview.isEmpty && (history['missing'] as List? ?? []).isNotEmpty) {
@@ -117,7 +121,11 @@ class _ConversationTaskState extends State<ConversationTask> {
             'limit': 100,
           });
           final chunk = object(result['data']);
-          preview = messagePreview(objects(chunk['entries']));
+          if (!mounted || request != _request) return;
+          preview = messagePreview(
+            objects(chunk['entries']),
+            translate: context.tr,
+          );
           final next = chunk['next_before'];
           if (preview.isNotEmpty || next == null) break;
           if (before != null && number(next) >= number(before)) {
@@ -147,17 +155,19 @@ class _ConversationTaskState extends State<ConversationTask> {
                 'queued' ||
             number(object(widget.session['activity'])['queued']) > 0),
     icon: ProjectIcon(project: widget.project, size: 26),
-    title: title(widget.session),
+    title: title(widget.session, translate: context.tr),
     preview: _preview?.isNotEmpty == true
         ? _preview!
         : _failed
-        ? tr('conversationPreviewUnavailable')
+        ? context.tr('conversationPreviewUnavailable')
         : _preview != null
-        ? tr('conversationNoMessages')
+        ? context.tr('conversationNoMessages')
         : widget.host.connected
         ? ''
-        : tr('conversationOffline'),
-    status: widget.host.connected ? label(widget.session) : tr('offline'),
+        : context.tr('conversationOffline'),
+    status: widget.host.connected
+        ? label(widget.session, translate: context.tr)
+        : context.tr('offline'),
     tone: widget.host.connected ? tone(widget.session) : StatusTone.neutral,
     onTap: () => pushPage(
       context,

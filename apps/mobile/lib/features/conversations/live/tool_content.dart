@@ -5,14 +5,14 @@ import 'package:flutter/material.dart';
 import '../../../content/code.dart';
 import '../../../content/diff.dart';
 import '../../../l10n/strings.dart';
-import '../../../l10n/message_content.dart';
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 import 'command_result.dart';
 import 'references.dart';
 import 'tool_display.dart';
 
-String toolLabel(String name) => messageContentStrings['tool_$name'] ?? name;
+String toolLabel(String name, {Translator translate = tr}) =>
+    hasLocalization('tool_$name') ? translate('tool_$name') : name;
 String rawText(Object? value) =>
     value is String ? value : const JsonEncoder.withIndent('  ').convert(value);
 
@@ -188,11 +188,11 @@ class ToolContent extends StatelessWidget {
             );
           }
           if (capture['truncated'] == true) {
-            blocks.add(Text(tr('resourcePartial')));
+            blocks.add(Text(context.tr('resourcePartial')));
           }
         }
         final outcome = commandOutcome(output);
-        final status = commandStatus(output);
+        final status = commandStatus(output, translate: context.tr);
         if (status != null) {
           blocks.add(
             Text(
@@ -231,7 +231,9 @@ class ToolContent extends StatelessWidget {
           ),
         );
       }
-      if (data['truncated'] == true) blocks.add(Text(tr('resourcePartial')));
+      if (data['truncated'] == true) {
+        blocks.add(Text(context.tr('resourcePartial')));
+      }
     }
     return DefaultTextStyle.merge(
       style: muted,
@@ -302,7 +304,7 @@ class _Table extends StatelessWidget {
           ),
         ),
       ),
-      if (block['truncated'] == true) Text(tr('resourcePartial')),
+      if (block['truncated'] == true) Text(context.tr('resourcePartial')),
     ],
   );
 }

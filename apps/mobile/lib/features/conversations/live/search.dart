@@ -60,7 +60,7 @@ class _ConversationSearchState extends State<ConversationSearch> {
       final page = object(response['Ok']);
       if (page['session'] != widget.session ||
           more && page['revision'] != _page?['revision']) {
-        throw tr('messageSearchStale');
+        throw context.tr('messageSearchStale');
       }
       setState(() {
         _matches = [if (more) ..._matches, ...objects(page['matches'])];
@@ -68,7 +68,9 @@ class _ConversationSearchState extends State<ConversationSearch> {
         _searched = query;
       });
     } catch (failure) {
-      if (mounted) setState(() => _error = failureLabel(failure));
+      if (mounted) {
+        setState(() => _error = failureLabel(failure, translate: context.tr));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -76,11 +78,11 @@ class _ConversationSearchState extends State<ConversationSearch> {
 
   @override
   Widget build(BuildContext context) => PageFrame(
-    title: tr('messageSearch'),
+    title: context.tr('messageSearch'),
     loading: _busy,
     actions: [
       IconButton(
-        tooltip: tr('messageSearch'),
+        tooltip: context.tr('messageSearch'),
         onPressed: _busy ? null : _search,
         icon: const AppIcon('search'),
       ),
@@ -93,7 +95,9 @@ class _ConversationSearchState extends State<ConversationSearch> {
           enabled: !_busy,
           textInputAction: TextInputAction.search,
           onSubmitted: (_) => _search(),
-          decoration: InputDecoration(hintText: tr('messageSearchHint')),
+          decoration: InputDecoration(
+            hintText: context.tr('messageSearchHint'),
+          ),
         ),
         if (_error != null) FailureState(message: _error!, onRetry: _search),
         for (final match in _matches)
@@ -106,11 +110,11 @@ class _ConversationSearchState extends State<ConversationSearch> {
             }),
           ),
         if (_page != null && _matches.isEmpty && _error == null)
-          Text(tr('messageNoResults')),
+          Text(context.tr('messageNoResults')),
         if (_page?['next_before'] != null)
           TextButton(
             onPressed: _busy ? null : () => _search(more: true),
-            child: Text(tr('resourceMore')),
+            child: Text(context.tr('resourceMore')),
           ),
       ],
     ),

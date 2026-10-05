@@ -28,8 +28,8 @@ class ChildTask extends StatelessWidget {
   Widget build(BuildContext context) {
     final run = object(child['run']);
     final status = activeRun(run) && !connected
-        ? tr('conversationUnsynced')
-        : runLabel(run['status'] as String?);
+        ? context.tr('conversationUnsynced')
+        : runLabel(run['status'] as String?, translate: context.tr);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,

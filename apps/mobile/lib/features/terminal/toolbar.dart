@@ -72,7 +72,7 @@ class TerminalToolbar extends StatelessWidget {
               spacing: 2,
               children: [
                 button(
-                  tr(
+                  context.tr(
                     keyboardVisible
                         ? 'terminalHideKeyboard'
                         : 'terminalKeyboard',
@@ -85,10 +85,13 @@ class TerminalToolbar extends StatelessWidget {
                   ('escape', 'terminalEscape'),
                   ('tab', 'terminalTab'),
                 ])
-                  button(tr(label), onKey == null ? null : () => onKey!(key)),
+                  button(
+                    context.tr(label),
+                    onKey == null ? null : () => onKey!(key),
+                  ),
                 for (final key in ['Ctrl', 'Alt', 'Shift', 'Cmd'])
                   button(
-                    tr('terminal$key'),
+                    context.tr('terminal$key'),
                     onModifier == null ? null : () => onModifier!(key),
                     active: modifiers.contains(key),
                   ),
@@ -100,7 +103,7 @@ class TerminalToolbar extends StatelessWidget {
                   ('enter', 'enter', 'terminalEnter'),
                 ])
                   button(
-                    tr(label),
+                    context.tr(label),
                     onKey == null ? null : () => onKey!(key),
                     icon: icon,
                   ),

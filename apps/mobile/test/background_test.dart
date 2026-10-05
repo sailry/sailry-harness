@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/runtime/background.dart';
+import 'package:sailry_mobile/l10n/strings.dart';
 
 import 'runtime_test.dart' show Preferences;
 
@@ -11,6 +12,7 @@ void main() {
     var running = false;
     var starts = 0;
     var stops = 0;
+    var updates = 0;
     Map<dynamic, dynamic>? options;
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
       call,
@@ -28,6 +30,10 @@ void main() {
         case 'stopService':
           stops++;
           running = false;
+          return null;
+        case 'updateService':
+          updates++;
+          options = call.arguments as Map;
           return null;
         default:
           throw StateError('Unexpected platform call: ${call.method}');
@@ -54,6 +60,18 @@ void main() {
     expect(options!['callbackHandle'], isNull);
     expect(options!.containsKey('stopWithTask'), isFalse);
     expect(options!['autoRunOnBoot'], isFalse);
+    final english = await AppLocalizations.delegate.load(const Locale('en'));
+    background.localize(english.tr);
+    await tester.pumpAndSettle();
+    expect(updates, 1);
+    expect(starts, 1);
+    expect(
+      options!['notificationContentText'],
+      english.backgroundConnectionActive,
+    );
+    background.localize(english.tr);
+    await tester.pumpAndSettle();
+    expect(updates, 1);
     for (final state in [
       AppLifecycleState.inactive,
       AppLifecycleState.paused,

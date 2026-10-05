@@ -9,8 +9,9 @@ typedef ConversationCommand =
       Map<String, dynamic> data,
     );
 
-String failureLabel(Object error) => error is CommandFailure
-    ? tr(
+String failureLabel(Object error, {Translator translate = tr}) =>
+    error is CommandFailure
+    ? translate(
         error.code == 'outcome_unknown'
             ? 'conversationUnknown'
             : error.code == 'revision_conflict'
@@ -19,11 +20,11 @@ String failureLabel(Object error) => error is CommandFailure
       )
     : error is String
     ? error
-    : tr('conversationFailed');
+    : translate('conversationFailed');
 
-String title(Map<String, dynamic> session) {
+String title(Map<String, dynamic> session, {Translator translate = tr}) {
   final value = object(session['activity'])['title'] as String? ?? '';
-  return value.isEmpty ? tr('conversationNew') : value;
+  return value.isEmpty ? translate('conversationNew') : value;
 }
 
 String status(Map<String, dynamic> session) {
@@ -37,11 +38,14 @@ String status(Map<String, dynamic> session) {
   };
 }
 
-String label(Map<String, dynamic> session) {
+String label(Map<String, dynamic> session, {Translator translate = tr}) {
   final activity = object(session['activity']);
-  if (activity['waiting'] == 'approval') return tr('approval');
-  if (activity['waiting'] == 'input') return tr('questionPending');
-  return runLabel(object(activity['run'])['status'] as String?);
+  if (activity['waiting'] == 'approval') return translate('approval');
+  if (activity['waiting'] == 'input') return translate('questionPending');
+  return runLabel(
+    object(activity['run'])['status'] as String?,
+    translate: translate,
+  );
 }
 
 StatusTone tone(Map<String, dynamic> session) {
@@ -56,13 +60,14 @@ StatusTone tone(Map<String, dynamic> session) {
   };
 }
 
-String runLabel(String? status) => tr(switch (status) {
-  'running' => 'running',
-  'stopping' => 'conversationStopping',
-  'queued' => 'conversationQueued',
-  'completed' => 'completed',
-  'cancelled' => 'stoppedStatus',
-  'interrupted' => 'conversationInterrupted',
-  'failed' => 'conversationFailedStatus',
-  _ => 'idle',
-});
+String runLabel(String? status, {Translator translate = tr}) =>
+    translate(switch (status) {
+      'running' => 'running',
+      'stopping' => 'conversationStopping',
+      'queued' => 'conversationQueued',
+      'completed' => 'completed',
+      'cancelled' => 'stoppedStatus',
+      'interrupted' => 'conversationInterrupted',
+      'failed' => 'conversationFailedStatus',
+      _ => 'idle',
+    });

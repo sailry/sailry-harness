@@ -54,14 +54,14 @@ class _ResourcesPageState extends State<ResourcesPage> {
   void _showPorts() {
     showAppSheet<void>(
       context,
-      tr('ports'),
+      context.tr('ports'),
       child: StatefulBuilder(
         builder: (context, update) => Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
             if (_closedPorts.contains(_workspaceKey))
-              Text(tr('portClosed'))
+              Text(context.tr('portClosed'))
             else ...[
               Surface(
                 child: Column(
@@ -72,14 +72,14 @@ class _ResourcesPageState extends State<ResourcesPage> {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 12),
-                    Text('${tr('portTarget')}: $_host :5173'),
-                    Text('${tr('localPort')}: 127.0.0.1:5173'),
+                    Text('${context.tr('portTarget')}: $_host :5173'),
+                    Text('${context.tr('localPort')}: 127.0.0.1:5173'),
                   ],
                 ),
               ),
               const SizedBox(height: 16),
               Text(
-                tr('portNote'),
+                context.tr('portNote'),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 16),
@@ -88,7 +88,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
                   setState(() => _closedPorts.add(_workspaceKey));
                   update(() {});
                 },
-                child: Text(tr('closePort')),
+                child: Text(context.tr('closePort')),
               ),
             ],
           ],
@@ -127,12 +127,12 @@ class _ResourcesPageState extends State<ResourcesPage> {
       ('link', 'ports', 'portsSub', _showPorts),
     ];
     return PageFrame(
-      title: tr('resources'),
+      title: context.tr('resources'),
       actions: [
         if (ModalRoute.canPopOf(context) != true)
           RoundButton(
             icon: 'server',
-            tooltip: '${tr('selectHost')}: $_host',
+            tooltip: '${context.tr('selectHost')}: $_host',
             onPressed: () => showHostPicker(
               context,
               selected: _host,
@@ -174,12 +174,12 @@ class _ResourcesPageState extends State<ResourcesPage> {
                           ),
                           const SizedBox(height: 22),
                           Text(
-                            tr(entry.$2),
+                            context.tr(entry.$2),
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            tr(entry.$3).replaceAll('Studio', _host),
+                            context.tr(entry.$3).replaceAll('Studio', _host),
                             style: Theme.of(context).textTheme.bodyMedium
                                 ?.copyWith(
                                   color: Theme.of(

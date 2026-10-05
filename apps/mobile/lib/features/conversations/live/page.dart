@@ -100,7 +100,9 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
         'read': true,
       });
     } catch (error) {
-      if (mounted) showToast(context, failureLabel(error));
+      if (mounted) {
+        showToast(context, failureLabel(error, translate: context.tr));
+      }
     }
   }
 
@@ -186,7 +188,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
 
   void _failure(Object error) {
     if (!mounted) return;
-    showToast(context, failureLabel(error));
+    showToast(context, failureLabel(error, translate: context.tr));
   }
 
   Future<void> _send() async {
@@ -269,7 +271,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
 
   void _queue() => showAppSheet(
     context,
-    tr('queue'),
+    context.tr('queue'),
     child: LiveQueue(view: _view, session: widget.sessionId, command: _command),
   );
 
@@ -300,7 +302,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
         )
         .firstOrNull;
     if (session == null) {
-      _failure(tr('conversationUnavailable'));
+      _failure(context.tr('conversationUnavailable'));
       return;
     }
     unawaited(
@@ -317,7 +319,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
 
   void _configuration() => showAppSheet(
     context,
-    tr('modelPicker'),
+    context.tr('modelPicker'),
     child: ConversationConfiguration(host: widget.host, session: _session),
   );
 
@@ -372,7 +374,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
             _pendingSend != null ||
             unavailable && _snapshot.isNotEmpty;
         return ConversationFrame(
-          title: text(_session['title'], tr('chat')),
+          title: text(_session['title'], context.tr('chat')),
           leading: delegated
               ? null
               : Align(
@@ -383,7 +385,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                     child: IconButton(
                       style: actionStyle,
                       icon: const AppIcon('settings', size: 18),
-                      tooltip: tr('modelPicker'),
+                      tooltip: context.tr('modelPicker'),
                       onPressed: _configuration,
                     ),
                   ),
@@ -399,7 +401,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                     key: const ValueKey('conversation-ports'),
                     style: actionStyle,
                     icon: const AppIcon('link', size: 18),
-                    tooltip: tr('ports'),
+                    tooltip: context.tr('ports'),
                     onPressed: () => pushPage(
                       context,
                       PortsPage(host: widget.host, session: widget.sessionId),
@@ -409,10 +411,10 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                     key: const ValueKey('conversation-info'),
                     style: actionStyle,
                     icon: const AppIcon('info', size: 18),
-                    tooltip: tr('conversationStats'),
+                    tooltip: context.tr('conversationStats'),
                     onPressed: () => showAppSheet(
                       context,
-                      tr('conversationStats'),
+                      context.tr('conversationStats'),
                       child: ValueListenableBuilder(
                         valueListenable: _view,
                         builder: (context, view, _) => ConversationStatistics(
@@ -424,13 +426,13 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                   IconButton(
                     style: actionStyle,
                     icon: const AppIcon('search', size: 18),
-                    tooltip: tr('messageSearch'),
+                    tooltip: context.tr('messageSearch'),
                     onPressed: connected ? _searchMessages : null,
                   ),
                   IconButton(
                     style: actionStyle,
                     icon: const AppIcon('folder', size: 18),
-                    tooltip: tr('resources'),
+                    tooltip: context.tr('resources'),
                     onPressed: () => pushPage(
                       context,
                       ResourcesPage(
@@ -450,26 +452,26 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                   SizedBox(height: ConversationFrame.contentInset(context)),
                 if (_historyPending != null)
                   MaterialBanner(
-                    content: Text(tr('conversationUnknown')),
+                    content: Text(context.tr('conversationUnknown')),
                     actions: [
                       TextButton(
                         onPressed: _historyBusy
                             ? null
                             : () => _historyCommand(_historyPending!.kind, {}),
-                        child: Text(tr('messageCheck')),
+                        child: Text(context.tr('messageCheck')),
                       ),
                     ],
                   ),
                 if (_backup != null)
                   MaterialBanner(
-                    content: Text(tr('messageHistoryUpdated')),
+                    content: Text(context.tr('messageHistoryUpdated')),
                     actions: [
                       TextButton(
                         onPressed: () => _openSession(_backup!),
-                        child: Text(tr('messageBackup')),
+                        child: Text(context.tr('messageBackup')),
                       ),
                       IconButton(
-                        tooltip: tr('close'),
+                        tooltip: context.tr('close'),
                         onPressed: () => setState(() => _backup = null),
                         icon: const AppIcon('close'),
                       ),
@@ -477,11 +479,11 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                   ),
                 if (_pendingSend != null)
                   MaterialBanner(
-                    content: Text(tr('conversationUnknown')),
+                    content: Text(context.tr('conversationUnknown')),
                     actions: [
                       TextButton(
                         onPressed: _sending || !connected ? null : _checkSend,
-                        child: Text(tr('conversationCheckResult')),
+                        child: Text(context.tr('conversationCheckResult')),
                       ),
                     ],
                   ),
@@ -515,7 +517,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                           child: loading
                               ? LoadingOverlay(
                                   loading: true,
-                                  label: tr('conversationLoading'),
+                                  label: context.tr('conversationLoading'),
                                   child: const SizedBox.expand(),
                                 )
                               : reconnecting
@@ -530,7 +532,9 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                                 )
                               : FailureState(
                                   icon: 'server',
-                                  message: tr('conversationUnavailable'),
+                                  message: context.tr(
+                                    'conversationUnavailable',
+                                  ),
                                   action: Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
@@ -539,7 +543,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                                       if (!_watching)
                                         FilledButton(
                                           onPressed: _retry,
-                                          child: Text(tr('retry')),
+                                          child: Text(context.tr('retry')),
                                         ),
                                     ],
                                   ),
@@ -555,7 +559,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                               hasScrollBody: false,
                               child: EmptyState(
                                 icon: 'chat',
-                                message: tr('conversationEmpty'),
+                                message: context.tr('conversationEmpty'),
                               ),
                             ),
                           ],
@@ -600,7 +604,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                                 Text(
                                   object(view['older_error'])['message']
                                           as String? ??
-                                      tr('conversationFailed'),
+                                      context.tr('conversationFailed'),
                                 ),
                               if (_page['next_before'] != null)
                                 TextButton(
@@ -613,7 +617,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                                             _failure(error);
                                           }
                                         },
-                                  child: Text(tr('conversationOlder')),
+                                  child: Text(context.tr('conversationOlder')),
                                 ),
                             ],
                           ),
@@ -632,11 +636,13 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                   ),
                   child: Row(
                     children: [
-                      Expanded(child: Text(tr('conversationChildReadonly'))),
+                      Expanded(
+                        child: Text(context.tr('conversationChildReadonly')),
+                      ),
                       if (_active.isNotEmpty)
                         FilledButton(
                           onPressed: connected ? _stop : null,
-                          child: Text(tr('stop')),
+                          child: Text(context.tr('stop')),
                         ),
                     ],
                   ),
@@ -680,11 +686,11 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                                 const SizedBox(width: 7),
                                 Expanded(
                                   child: Text(
-                                    '${tr('queueShort')}  ${objects(queue['items']).length}',
+                                    '${context.tr('queueShort')}  ${objects(queue['items']).length}',
                                   ),
                                 ),
                                 if (queue['paused'] == true)
-                                  Text(tr('pauseQueue')),
+                                  Text(context.tr('pauseQueue')),
                                 const AppIcon('chevron', size: 14),
                               ],
                             ),

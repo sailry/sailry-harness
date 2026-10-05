@@ -12,7 +12,7 @@ class HostState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => FailureState(
-    message: tr(added ? 'hostDisconnected' : 'hostConnectPrompt'),
+    message: context.tr(added ? 'hostDisconnected' : 'hostConnectPrompt'),
     action: action,
   );
 }

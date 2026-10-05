@@ -64,14 +64,16 @@ class DraftAttachments extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          name.isEmpty ? tr('conversationAttachment') : name,
+                          name.isEmpty
+                              ? context.tr('conversationAttachment')
+                              : name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),
                       IconButton(
-                        tooltip: tr('removeAttachment'),
+                        tooltip: context.tr('removeAttachment'),
                         icon: const AppIcon('close', size: 16),
                         onPressed: () => onRemove(item),
                       ),

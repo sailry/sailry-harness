@@ -13,14 +13,21 @@ bool commandFailed(Map<String, dynamic> result) =>
       _ => false,
     };
 
-String? commandStatus(Map<String, dynamic> result) {
+String? commandStatus(
+  Map<String, dynamic> result, {
+  Translator translate = tr,
+}) {
   final outcome = commandOutcome(result);
   return switch (outcome['kind']) {
-    'exited' => tr('toolExitCode').replaceAll('{code}', '${outcome['data']}'),
-    'signal' => tr('toolSignal').replaceAll('{signal}', '${outcome['data']}'),
-    'timed_out' => tr('toolTimedOut'),
-    'cancelled' => tr('toolCancelled'),
-    'unknown' => tr('toolOutcomeUnknown'),
+    'exited' => translate(
+      'toolExitCode',
+    ).replaceAll('{code}', '${outcome['data']}'),
+    'signal' => translate(
+      'toolSignal',
+    ).replaceAll('{signal}', '${outcome['data']}'),
+    'timed_out' => translate('toolTimedOut'),
+    'cancelled' => translate('toolCancelled'),
+    'unknown' => translate('toolOutcomeUnknown'),
     _ => null,
   };
 }

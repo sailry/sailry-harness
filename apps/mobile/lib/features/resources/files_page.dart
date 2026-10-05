@@ -51,7 +51,7 @@ class _FilesPageState extends State<FilesPage> {
   String _content(String path) =>
       _edits[_key(path)] ??
       switch (path.split('/').last) {
-        'README.md' => tr('markdownExample'),
+        'README.md' => context.tr('markdownExample'),
         'package.json' =>
           '{\n  "name": "$_project",\n  "private": true,\n  "scripts": {\n    "dev": "vite",\n    "test": "vitest"\n  }\n}',
         'Login.tsx' =>
@@ -71,7 +71,7 @@ class _FilesPageState extends State<FilesPage> {
     var query = '';
     final result = await showAppSheet<String>(
       context,
-      tr('searchFiles'),
+      context.tr('searchFiles'),
       child: StatefulBuilder(
         builder: (context, update) => Column(
           mainAxisSize: MainAxisSize.min,
@@ -79,7 +79,7 @@ class _FilesPageState extends State<FilesPage> {
             TextField(
               autofocus: true,
               decoration: InputDecoration(
-                hintText: tr('searchFiles'),
+                hintText: context.tr('searchFiles'),
                 prefixIcon: const Padding(
                   padding: EdgeInsets.all(12),
                   child: AppIcon('search'),
@@ -116,7 +116,7 @@ class _FilesPageState extends State<FilesPage> {
             Text(path, style: Theme.of(context).textTheme.bodySmall),
             if (_drafts.containsKey(fileKey))
               Text(
-                tr('unsaved'),
+                context.tr('unsaved'),
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.secondary,
                 ),
@@ -138,7 +138,7 @@ class _FilesPageState extends State<FilesPage> {
             FilledButton.icon(
               onPressed: () => Navigator.pop(context, true),
               icon: const AppIcon('code'),
-              label: Text(tr('edit')),
+              label: Text(context.tr('edit')),
             ),
           ],
         ),
@@ -147,7 +147,7 @@ class _FilesPageState extends State<FilesPage> {
     if (edit != true || !mounted) return;
     final value = await showAppSheet<String>(
       context,
-      tr('edit'),
+      context.tr('edit'),
       child: _FileEditor(
         path: path,
         content: _content(path),
@@ -184,11 +184,11 @@ class _FilesPageState extends State<FilesPage> {
         : _files.where((path) => path.startsWith('$_directory/')).toList();
     final colors = Theme.of(context).colorScheme;
     return PageFrame(
-      title: tr('files'),
+      title: context.tr('files'),
       actions: [
         RoundButton(
           icon: 'search',
-          tooltip: tr('searchFiles'),
+          tooltip: context.tr('searchFiles'),
           onPressed: _search,
         ),
       ],
@@ -295,16 +295,16 @@ class _FileEditorState extends State<_FileEditor> {
     final discard = await showAppDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(tr('unsaved')),
-        content: Text(tr('discardConfirm')),
+        title: Text(context.tr('unsaved')),
+        content: Text(context.tr('discardConfirm')),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text(tr('continueEdit')),
+            child: Text(context.tr('continueEdit')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text(tr('discard')),
+            child: Text(context.tr('discard')),
           ),
         ],
       ),
@@ -335,7 +335,7 @@ class _FileEditorState extends State<_FileEditor> {
           height: 1.6,
         ),
         decoration: InputDecoration(
-          labelText: tr('edit'),
+          labelText: context.tr('edit'),
           alignLabelWithHint: true,
         ),
       ),
@@ -345,14 +345,14 @@ class _FileEditorState extends State<_FileEditor> {
           Expanded(
             child: OutlinedButton(
               onPressed: _cancel,
-              child: Text(tr('cancel')),
+              child: Text(context.tr('cancel')),
             ),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: FilledButton(
               onPressed: () => Navigator.pop(context, _controller.text),
-              child: Text(tr('save')),
+              child: Text(context.tr('save')),
             ),
           ),
         ],

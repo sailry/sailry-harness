@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/strings.dart';
-import '../../l10n/conversations.dart';
 import '../../ui/kit.dart';
 import 'user_message.dart';
 
@@ -20,7 +19,7 @@ enum DemoPhase {
 }
 
 extension DemoPhaseLabel on DemoPhase {
-  String get label => tr('phase${name[0].toUpperCase()}${name.substring(1)}');
+  String get labelKey => 'phase${name[0].toUpperCase()}${name.substring(1)}';
   int get position => this == DemoPhase.failed ? 5 : index;
   String? get streamKey => switch (this) {
     DemoPhase.thinking => 'thoughtLive',
@@ -63,8 +62,8 @@ class ConversationTimeline extends StatelessWidget {
   final VoidCallback onQuestion;
   final VoidCallback onRetry;
 
-  String _text(String key, bool active) {
-    final text = tr(key);
+  String _text(BuildContext context, String key, bool active) {
+    final text = context.tr(key);
     if (!active) return text;
     return text.substring(0, chars.clamp(0, text.length));
   }
@@ -77,18 +76,18 @@ class ConversationTimeline extends StatelessWidget {
     Widget prose(String key) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Text(
-        tr(key),
+        context.tr(key),
         style: TextStyle(color: colors.onSurfaceVariant, height: 1.65),
       ),
     );
     Widget thought(String key, bool live) => TimelineDisclosure(
       key: ValueKey(key),
       icon: 'spark',
-      label: tr(live ? 'thinkingNow' : 'thought'),
+      label: context.tr(live ? 'thinkingNow' : 'thought'),
       initiallyExpanded: live,
       active: live && active,
       child: Text(
-        _text(key, live),
+        _text(context, key, live),
         style: TextStyle(color: colors.onSurfaceVariant, height: 1.6),
       ),
     );
@@ -103,7 +102,7 @@ class ConversationTimeline extends StatelessWidget {
     }) => TimelineDisclosure(
       key: ValueKey('$target-$result'),
       icon: icon,
-      label: tr(label),
+      label: context.tr(label),
       detail: target,
       active: live && active,
       failed: failed,
@@ -113,7 +112,7 @@ class ConversationTimeline extends StatelessWidget {
         children: [
           ?children,
           Text(
-            _text(result, live),
+            _text(context, result, live),
             style: TextStyle(
               color: failed ? colors.secondary : colors.onSurfaceVariant,
               height: 1.6,
@@ -128,11 +127,13 @@ class ConversationTimeline extends StatelessWidget {
         TimelineDisclosure(
           key: const ValueKey('work-main'),
           icon: 'task',
-          label: tr('workProcess'),
-          detail: tr('workSteps').replaceAll(
-            '{count}',
-            '${(position >= 1 ? 3 : 0) + (position >= 3 ? 1 : 0) + (position >= 5 && !denied ? 1 : 0) + failures}',
-          ),
+          label: context.tr('workProcess'),
+          detail: context
+              .tr('workSteps')
+              .replaceAll(
+                '{count}',
+                '${(position >= 1 ? 3 : 0) + (position >= 3 ? 1 : 0) + (position >= 5 && !denied ? 1 : 0) + failures}',
+              ),
           initiallyExpanded: position < 6,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -142,7 +143,7 @@ class ConversationTimeline extends StatelessWidget {
                 tool(
                   'file',
                   'toolReadLabel',
-                  tr('readGroup'),
+                  context.tr('readGroup'),
                   'readResult',
                   live: phase == DemoPhase.reading,
                   children: Column(
@@ -154,9 +155,9 @@ class ConversationTimeline extends StatelessWidget {
                       ])
                         TimelineDisclosure(
                           icon: 'file',
-                          label: tr('toolReadLabel'),
+                          label: context.tr('toolReadLabel'),
                           detail: path,
-                          child: Text(tr('readFileResult')),
+                          child: Text(context.tr('readFileResult')),
                         ),
                     ],
                   ),
@@ -165,20 +166,24 @@ class ConversationTimeline extends StatelessWidget {
                 prose('layoutFindings'),
                 TimelineDisclosure(
                   icon: 'chat',
-                  label: tr('questionRecord'),
-                  detail: tr(answered ? 'answerRecorded' : 'questionPending'),
+                  label: context.tr('questionRecord'),
+                  detail: context.tr(
+                    answered ? 'answerRecorded' : 'questionPending',
+                  ),
                   initiallyExpanded: !answered,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(tr('layoutQuestion')),
+                      Text(context.tr('layoutQuestion')),
                       const SizedBox(height: 8),
                       if (answered)
-                        Text(tr(wideButton ? 'wideButton' : 'keepButton'))
+                        Text(
+                          context.tr(wideButton ? 'wideButton' : 'keepButton'),
+                        )
                       else
                         TextButton(
                           onPressed: onQuestion,
-                          child: Text(tr('reply')),
+                          child: Text(context.tr('reply')),
                         ),
                     ],
                   ),
@@ -212,7 +217,7 @@ class ConversationTimeline extends StatelessWidget {
                         const SizedBox(width: 7),
                         Expanded(
                           child: Text(
-                            tr('changedFiles'),
+                            context.tr('changedFiles'),
                             style: TextStyle(color: colors.onSurfaceVariant),
                           ),
                         ),
@@ -228,7 +233,7 @@ class ConversationTimeline extends StatelessWidget {
                 TimelineDisclosure(
                   icon: 'shield',
                   label: 'pnpm test',
-                  detail: tr(
+                  detail: context.tr(
                     denied
                         ? 'denied'
                         : stopped
@@ -237,7 +242,7 @@ class ConversationTimeline extends StatelessWidget {
                         ? 'approved'
                         : 'awaiting',
                   ),
-                  child: Text(tr('approvalBody')),
+                  child: Text(context.tr('approvalBody')),
                 ),
               ],
               for (var attempt = 0; attempt < failures; attempt++)
@@ -270,13 +275,13 @@ class ConversationTimeline extends StatelessWidget {
             child: TextButton.icon(
               onPressed: onRetry,
               icon: const AppIcon('refresh', size: 16),
-              label: Text(conversationTr('retryTask')),
+              label: Text(context.tr('retryTask')),
             ),
           ),
         if (position >= 6 && !denied) ...[
           const SizedBox(height: 18),
           SelectableText(
-            _text('flowResult', phase == DemoPhase.reply),
+            _text(context, 'flowResult', phase == DemoPhase.reply),
             style: const TextStyle(height: 1.7),
           ),
         ],
@@ -284,7 +289,7 @@ class ConversationTimeline extends StatelessWidget {
           for (final text in followups) UserBubble(text: text),
           TimelineDisclosure(
             icon: 'task',
-            label: tr('workProcess'),
+            label: context.tr('workProcess'),
             initiallyExpanded: phase == DemoPhase.followup,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -304,7 +309,7 @@ class ConversationTimeline extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 16),
               child: Text(
-                tr('followupResult'),
+                context.tr('followupResult'),
                 style: const TextStyle(height: 1.7),
               ),
             ),
@@ -313,7 +318,7 @@ class ConversationTimeline extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 18),
             child: Text(
-              tr(
+              context.tr(
                 stopped
                     ? 'stoppedStatus'
                     : denied

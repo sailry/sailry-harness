@@ -48,9 +48,9 @@ class FileOpenFailure implements Exception {
   FileOpenFailure(this.result);
   final ResultType result;
 
-  String get message => tr(
-    result == ResultType.noAppToOpen ? 'fileNoApplication' : 'fileOpenFailed',
-  );
+  String get message => tr(messageKey);
+  String get messageKey =>
+      result == ResultType.noAppToOpen ? 'fileNoApplication' : 'fileOpenFailed';
 }
 
 Future<void> openFile(

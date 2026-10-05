@@ -8,8 +8,12 @@ import '../task_row.dart';
 import '../../../ui/theme.dart';
 import '../../terminal/terminal_page.dart';
 
-String terminalTitle(Map<String, dynamic> terminal) =>
-    text(terminal['title']).isEmpty ? tr('terminal') : text(terminal['title']);
+String terminalTitle(
+  Map<String, dynamic> terminal, {
+  Translator translate = tr,
+}) => text(terminal['title']).isEmpty
+    ? translate('terminal')
+    : text(terminal['title']);
 
 String terminalStatus(Map<String, dynamic> terminal) {
   final status = object(terminal['status']);
@@ -42,9 +46,9 @@ class TerminalTask extends StatelessWidget {
       child: TaskRow(
         key: ValueKey('terminal-task-${terminal['id']}'),
         icon: const AppIcon('terminal', size: 26),
-        title: terminalTitle(terminal),
-        preview: text(project?['name'], tr('terminal')),
-        status: tr(
+        title: terminalTitle(terminal, translate: context.tr),
+        preview: text(project?['name'], context.tr('terminal')),
+        status: context.tr(
           !host.connected
               ? 'offline'
               : failed
@@ -66,7 +70,7 @@ class TerminalTask extends StatelessWidget {
             hostId: host.id,
             terminalId: text(terminal['id']),
             worktreeId: terminal['worktree'] as String?,
-            title: terminalTitle(terminal),
+            title: terminalTitle(terminal, translate: context.tr),
           ),
         ),
       ),

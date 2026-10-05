@@ -39,7 +39,7 @@ class _QueueSheetState extends State<QueueSheet> {
     var draft = item.text;
     await showAppSheet(
       context,
-      tr('edit'),
+      context.tr('edit'),
       child: StatefulBuilder(
         builder: (context, update) => Column(
           mainAxisSize: MainAxisSize.min,
@@ -50,7 +50,7 @@ class _QueueSheetState extends State<QueueSheet> {
               minLines: 3,
               maxLines: 6,
               onChanged: (value) => update(() => draft = value),
-              decoration: InputDecoration(hintText: tr('describeTask')),
+              decoration: InputDecoration(hintText: context.tr('describeTask')),
             ),
             const SizedBox(height: 16),
             SizedBox(
@@ -63,7 +63,7 @@ class _QueueSheetState extends State<QueueSheet> {
                         widget.onChanged();
                         Navigator.pop(context);
                       },
-                child: Text(tr('save')),
+                child: Text(context.tr('save')),
               ),
             ),
           ],
@@ -84,7 +84,7 @@ class _QueueSheetState extends State<QueueSheet> {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 24),
               child: Text(
-                tr('queueEmpty'),
+                context.tr('queueEmpty'),
                 style: TextStyle(color: colors.onSurfaceVariant),
               ),
             ),
@@ -112,7 +112,10 @@ class _QueueSheetState extends State<QueueSheet> {
                               color: colors.onSecondaryContainer,
                             ),
                             const SizedBox(height: 4),
-                            Text(tr('edit'), overflow: TextOverflow.ellipsis),
+                            Text(
+                              context.tr('edit'),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ],
                         ),
                       ),
@@ -128,7 +131,10 @@ class _QueueSheetState extends State<QueueSheet> {
                           children: [
                             AppIcon('trash', size: 24, color: colors.onError),
                             const SizedBox(height: 4),
-                            Text(tr('delete'), overflow: TextOverflow.ellipsis),
+                            Text(
+                              context.tr('delete'),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ],
                         ),
                       ),
@@ -154,7 +160,7 @@ class _QueueSheetState extends State<QueueSheet> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                tr('moveUp'),
+                                context.tr('moveUp'),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ],
@@ -195,7 +201,9 @@ class _QueueSheetState extends State<QueueSheet> {
                       setState(() => _paused = !_paused);
                       widget.onPause(_paused);
                     },
-                    child: Text(tr(_paused ? 'resumeQueue' : 'pauseQueue')),
+                    child: Text(
+                      context.tr(_paused ? 'resumeQueue' : 'pauseQueue'),
+                    ),
                   ),
                 ),
                 if (!widget.busy) ...[
@@ -206,7 +214,7 @@ class _QueueSheetState extends State<QueueSheet> {
                         Navigator.pop(context);
                         widget.onSend();
                       },
-                      child: Text(tr('sendNext')),
+                      child: Text(context.tr('sendNext')),
                     ),
                   ),
                 ],

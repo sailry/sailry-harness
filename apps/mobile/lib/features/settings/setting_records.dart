@@ -15,12 +15,12 @@ Future<void> showSettingRecords(
   final key = GlobalKey<_RecordsState>();
   await showAppSheet(
     context,
-    tr(kind),
+    context.tr(kind),
     scroll: false,
     actions: [
       ListTile(
         leading: const AppIcon('plus'),
-        title: Text(tr('add')),
+        title: Text(context.tr('add')),
         onTap: () => key.currentState?.edit(),
       ),
     ],
@@ -76,7 +76,9 @@ class _RecordsState extends State<_Records> {
         });
       }
     } catch (error) {
-      if (mounted) setState(() => _error = failure(error));
+      if (mounted) {
+        setState(() => _error = failure(error, translate: context.tr));
+      }
     }
   }
 
@@ -88,14 +90,16 @@ class _RecordsState extends State<_Records> {
         });
         record = object(response['data']);
       } catch (error) {
-        if (mounted) setState(() => _error = failure(error));
+        if (mounted) {
+          setState(() => _error = failure(error, translate: context.tr));
+        }
         return;
       }
       if (!mounted) return;
     }
     final saved = await showAppSheet<bool>(
       context,
-      tr(record == null ? 'add' : 'edit'),
+      context.tr(record == null ? 'add' : 'edit'),
       child: RecordForm(
         host: widget.host,
         kind: widget.kind,
@@ -151,7 +155,11 @@ class _RecordsState extends State<_Records> {
       );
       if (mounted) await _load();
     } catch (error) {
-      if (mounted) setState(() => _error = failure(error, saving: true));
+      if (mounted) {
+        setState(
+          () => _error = failure(error, saving: true, translate: context.tr),
+        );
+      }
     } finally {
       if (mounted) setState(() => _pending = false);
     }
@@ -172,9 +180,12 @@ class _RecordsState extends State<_Records> {
         children: [
           settingsError(_error),
           if (_error != null)
-            TextButton(onPressed: _load, child: Text(tr('settingsRetry'))),
+            TextButton(
+              onPressed: _load,
+              child: Text(context.tr('settingsRetry')),
+            ),
           if (_records?.isEmpty == true)
-            EmptyState(icon: 'spark', message: tr('settingsEmpty')),
+            EmptyState(icon: 'spark', message: context.tr('settingsEmpty')),
           SlidableAutoCloseBehavior(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -205,7 +216,7 @@ class _RecordsState extends State<_Records> {
                                   backgroundColor:
                                       colors.surfaceContainerHighest,
                                   foregroundColor: colors.onSurface,
-                                  label: tr('edit'),
+                                  label: context.tr('edit'),
                                 ),
                                 SlidableAction(
                                   onPressed: _pending
@@ -213,7 +224,7 @@ class _RecordsState extends State<_Records> {
                                       : (_) => _remove(record),
                                   backgroundColor: colors.error,
                                   foregroundColor: colors.onError,
-                                  label: tr('delete'),
+                                  label: context.tr('delete'),
                                 ),
                               ],
                             ),

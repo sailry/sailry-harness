@@ -23,7 +23,11 @@ Widget contentImage(
     tree?['path'] as String?,
     directory: directory,
   );
-  if (path == null) return Text(tr('conversationImageFailed'));
+  if (path == null) {
+    return Builder(
+      builder: (context) => Text(context.tr('conversationImageFailed')),
+    );
+  }
   return AttachmentView.file(
     key: ValueKey('${host.id}:$worktree:$path'),
     host: host,

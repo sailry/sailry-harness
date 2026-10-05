@@ -101,12 +101,14 @@ class _UsagePageState extends State<UsagePage> {
               ? null
               : object(view['report']);
           _partial = host == null && view['complete'] == false;
-          _error = view['error'] == null ? null : tr('settingsLoadFailed');
+          _error = view['error'] == null
+              ? null
+              : context.tr('settingsLoadFailed');
         });
       }
     } catch (error) {
       if (mounted && generation == _generation) {
-        setState(() => _error = failure(error));
+        setState(() => _error = failure(error, translate: context.tr));
       }
     }
   }
@@ -116,13 +118,13 @@ class _UsagePageState extends State<UsagePage> {
     if (session == null) return;
     final result = await showAppSheet<String>(
       context,
-      tr('selectHost'),
+      context.tr('selectHost'),
       child: Builder(
         builder: (context) => Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              title: Text(tr('allHosts')),
+              title: Text(context.tr('allHosts')),
               onTap: () => Navigator.pop(context, ''),
             ),
             for (final host in session.hosts)
@@ -148,13 +150,13 @@ class _UsagePageState extends State<UsagePage> {
     if (session == null) return;
     final result = await showAppSheet<(String?, String?)>(
       context,
-      tr('filterProjects'),
+      context.tr('filterProjects'),
       child: Builder(
         builder: (context) => Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              title: Text(tr('allProjects')),
+              title: Text(context.tr('allProjects')),
               onTap: () => Navigator.pop(context, (_host, null)),
             ),
             for (final host in session.hosts.where(
@@ -206,29 +208,30 @@ class _UsagePageState extends State<UsagePage> {
         .toList();
     return PageFrame(
       loading: connected && _report == null && _error == null,
-      title: tr('usage'),
+      title: context.tr('usage'),
       failure: !connected
           ? HostState(added: added)
           : _error == null
           ? null
           : FailureState(icon: 'chart', message: _error!, onRetry: _load),
       empty: connected && _report != null && responses == 0 && _error == null
-          ? EmptyState(icon: 'chart', message: tr('usageEmpty'))
+          ? EmptyState(icon: 'chart', message: context.tr('usageEmpty'))
           : null,
       actions: [
         RoundButton(
           icon: 'server',
-          tooltip: '${tr('selectHost')}: ${host?.label ?? tr('allHosts')}',
+          tooltip:
+              '${context.tr('selectHost')}: ${host?.label ?? context.tr('allHosts')}',
           onPressed: added ? _pickHost : null,
         ),
         if (_partial && responses > 0)
           RoundButton(
             icon: 'info',
-            tooltip: tr('details'),
+            tooltip: context.tr('details'),
             onPressed: () => showAppSheet(
               context,
-              tr('usage'),
-              child: Text(tr('settingsUsagePartial')),
+              context.tr('usage'),
+              child: Text(context.tr('settingsUsagePartial')),
             ),
           ),
       ],
@@ -237,9 +240,9 @@ class _UsagePageState extends State<UsagePage> {
         children: [
           SelectorCard(
             title: string(project?['name']).isEmpty
-                ? tr('allProjects')
+                ? context.tr('allProjects')
                 : string(project?['name']),
-            subtitle: host?.label ?? tr('allHosts'),
+            subtitle: host?.label ?? context.tr('allHosts'),
             onTap: _pickProject,
           ),
           const SizedBox(height: 16),
@@ -249,7 +252,7 @@ class _UsagePageState extends State<UsagePage> {
                 Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: ChoiceChip(
-                    label: Text(tr(period)),
+                    label: Text(context.tr(period)),
                     selected: _period == period,
                     showCheckmark: false,
                     onSelected: (_) {
@@ -267,7 +270,7 @@ class _UsagePageState extends State<UsagePage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    tr('tokens'),
+                    context.tr('tokens'),
                     style: TextStyle(color: colors.onSurfaceVariant),
                   ),
                   const SizedBox(height: 8),
@@ -276,7 +279,7 @@ class _UsagePageState extends State<UsagePage> {
                         ? '${tokens.total}'
                         : responses == 0
                         ? '0'
-                        : tr('settingsUsageUnknown'),
+                        : context.tr('settingsUsageUnknown'),
                     key: const ValueKey('usage-total'),
                     style: const TextStyle(
                       fontSize: 48,
@@ -290,15 +293,15 @@ class _UsagePageState extends State<UsagePage> {
                       Expanded(
                         child: _Metric(
                           value: '$responses',
-                          label: tr('requests'),
+                          label: context.tr('requests'),
                         ),
                       ),
                       Expanded(
                         child: _Metric(
                           value: cost.isEmpty
-                              ? tr('settingsUsageUnknown')
+                              ? context.tr('settingsUsageUnknown')
                               : '\$${(integer(cost['usd_micros']) / 1000000).toStringAsFixed(4)}',
-                          label: tr('estimatedCost'),
+                          label: context.tr('estimatedCost'),
                         ),
                       ),
                     ],
@@ -314,7 +317,7 @@ class _UsagePageState extends State<UsagePage> {
                               weekly ? 'usage-weekly' : 'usage-daily',
                             ),
                             label: Text(
-                              tr(
+                              context.tr(
                                 weekly
                                     ? 'settingsUsageWeekly'
                                     : 'settingsUsageDaily',
@@ -342,14 +345,15 @@ class _UsagePageState extends State<UsagePage> {
                           children: [
                             Icon(Icons.circle, size: 8, color: item.$2),
                             const SizedBox(width: 4),
-                            Text(tr(item.$1)),
+                            Text(context.tr(item.$1)),
                           ],
                         ),
                     ],
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    tr('usageCoverage')
+                    context
+                        .tr('usageCoverage')
                         .replaceAll('{priced}', '${integer(cost['responses'])}')
                         .replaceAll('{total}', '$responses'),
                     style: TextStyle(
@@ -361,14 +365,20 @@ class _UsagePageState extends State<UsagePage> {
               ),
             ),
             const SizedBox(height: 24),
-            _SectionTitle(tr('activity'), detail: tr('settingsUtc')),
+            _SectionTitle(
+              context.tr('activity'),
+              detail: context.tr('settingsUtc'),
+            ),
             const SizedBox(height: 12),
             Surface(
               child: Column(
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [Text(tr('requests')), Text('$responses')],
+                    children: [
+                      Text(context.tr('requests')),
+                      Text('$responses'),
+                    ],
                   ),
                   const SizedBox(height: 18),
                   LayoutBuilder(
@@ -438,10 +448,10 @@ class _UsagePageState extends State<UsagePage> {
               ),
             ),
             const SizedBox(height: 24),
-            _SectionTitle(tr('modelUsage')),
+            _SectionTitle(context.tr('modelUsage')),
             const SizedBox(height: 12),
             if (groups.isEmpty)
-              EmptyState(icon: 'chart', message: tr('usageEmpty'))
+              EmptyState(icon: 'chart', message: context.tr('usageEmpty'))
             else
               Surface(
                 child: Column(
@@ -544,7 +554,7 @@ class _UsageBars extends StatelessWidget {
                 final bucket = buckets[group.x];
                 final tokens = bucket.tokens;
                 return BarTooltipItem(
-                  '${usageDate(bucket.start)}${bucket.end != bucket.start ? '–${usageDate(bucket.end)}' : ''} UTC\n${tokens == null ? tr('settingsUsageUnknown') : '${tr('settingsUsageCache')}: ${tokens.cache}\n${tr('settingsUsageInput')}: ${tokens.input}\n${tr('settingsUsageOutput')}: ${tokens.output}'}',
+                  '${usageDate(bucket.start)}${bucket.end != bucket.start ? '–${usageDate(bucket.end)}' : ''} UTC\n${tokens == null ? context.tr('settingsUsageUnknown') : '${context.tr('settingsUsageCache')}: ${tokens.cache}\n${context.tr('settingsUsageInput')}: ${tokens.input}\n${context.tr('settingsUsageOutput')}: ${tokens.output}'}',
                   TextStyle(color: colors.onInverseSurface),
                 );
               },
