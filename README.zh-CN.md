@@ -1,17 +1,17 @@
 <p align="center">
-  <img src="assets/branding/sailry-mark.svg" alt="Sailry" width="88" />
+  <img src="assets/branding/sailry-mark.svg" alt="Sailry Harness" width="88" />
 </p>
 
-<h1 align="center">Sailry</h1>
+<h1 align="center">Sailry Harness</h1>
 
 <p align="center">
   <a href="README.md">English</a> · 简体中文
 </p>
 
-<p align="center"><strong>日常工作的 AI 工作区</strong></p>
+<p align="center"><strong>原生、互联、插件优先的 AI 工作区</strong></p>
 
 <p align="center">
-  对话、文件与工具，放在一起，推进你的工作。
+  自选模型，连接设备，打造自己的工作区。
 </p>
 
 <p align="center">
@@ -22,8 +22,33 @@
 
 ![Sailry 工作区中的英文对话与一周计划](assets/readme/workspace.png)
 
-Sailry 把 AI 对话带到你的工作区。你可以从一个想法开始，把笔记整理成计划，
-浏览文件，或与智能体一起推进项目——在对话与工具之间切换时，工作上下文始终相连。
+Sailry Harness 将 AI 对话、智能体和工具带到同一个原生工作区。
+无论是研究、写作、处理文档，还是软件项目，都可以使用自己的模型服务，
+由本地或远程电脑执行工作。
+
+## Sailry Harness 的特色
+
+- **轻量原生桌面，非 Electron。** 使用 Rust 与 GPUI Kit 构建，通过 GPU 渲染原生控件，避免浏览器应用外壳的额外开销
+- **工作区互联互通。** 配对可信设备，回到同一个执行工作区、对话和会话配置，而不是复制聊天记录
+- **插件优先的扩展方式。** 插件可添加工具、原生面板、专属助手和工作区控件，技能与 MCP 则补充这一体系
+- **模型选择权在你手中。** 内置选项覆盖 14 个供应商品牌及服务，并支持四种常用 API 协议的自定义接口
+- **不止于聊天。** 文件、文档预览、浏览器、终端、Git、SSH 和数据库助手都可以放在对话旁
+- **自己掌控执行环境。** 在本地或自己的 Sailry Host 上运行智能体，选择工具权限，模型凭据保留在执行节点
+
+这些能力组合在一起，才是 Sailry Harness 的定位：原生桌面工作区、共享执行层，
+以及同时扩展工具和界面的插件体系。
+
+## 连接设备，继续原来的工作
+
+桌面端内置本地执行节点。如果文件、环境或长期运行的任务在另一台电脑上，
+可以连接运行 Sailry Host 的设备。配对建立信任，远程连接使用经过身份验证的加密传输。
+
+重新连接后，继续使用同一节点拥有的工作区和实际会话配置。
+只要执行节点仍在运行，控制端断开连接就不会停止已接收的工作。
+本地与远程工作使用同一套命令模型。
+
+Flutter 移动控制端直接连接选定节点，不需要桌面端充当网关。
+移动端仍在开发，当前尚未分发；可用的桌面安装包请查看[发布页面](https://github.com/sailry/sailry-harness/releases)。
 
 ## 从你的需求开始
 
@@ -38,20 +63,46 @@ Sailry 把 AI 对话带到你的工作区。你可以从一个想法开始，把
 
 ![Sailry 对话旁打开的英文发布简报](assets/readme/files.png)
 
-## 按你的方式工作
+## 插件不只是工具连接器
 
-- **选择模型。** 连接你偏好的模型服务，或兼容 OpenAI 的接口
-- **带上文件。** 使用自己的文件夹，直接浏览和预览文件
-- **添加工具。** 通过插件、技能和 MCP 连接扩展工作区
-- **保持掌控。** 选择何时允许智能体编辑文件或运行工具
-- **远程工作。** 在同一个桌面工作区中连接另一台电脑上的 Sailry Host
-- **集中上下文。** 对话、终端、文件和项目工具放在同一个地方
+从官方市场添加能力，或开发自己的插件。插件可以提供智能体工具、导航入口、
+资源面板、嵌入式助手、输入区操作，以及上下文和统计控件。
+桌面插件界面使用原生 GPUI Kit 组件，而不是另一套 HTML 界面。
+
+部分官方插件随应用打包，可离线安装。已安装插件可以独立于应用更新，
+本地与远程节点使用同一套获取流程。技能提供可复用的指令，MCP 连接外部工具；
+它们都不替代更完整的工作区插件体系。
 
 ![Sailry 的英文官方插件市场](assets/readme/plugins.png)
 
+## 自选供应商，不局限于单一生态
+
+当前添加供应商的界面覆盖 **14 个供应商品牌及服务**。
+这里将 OpenCode Go 与 Zen 计为同一个服务系列，而不是两家供应商。
+
+| 连接类型 | 内置选项 |
+| --- | --- |
+| 核心模型服务 | OpenAI、Anthropic、Google Gemini |
+| 10 个其他托管供应商 | xAI、DeepSeek、Qwen、Moonshot（Kimi）、Mistral、MiniMax、Doubao、Zhipu、Baidu、Cohere |
+| 多模型服务 | OpenCode Go 与 OpenCode Zen |
+| 自定义兼容接口 | OpenAI Responses、OpenAI Chat Completions、Anthropic Messages、Gemini generateContent |
+
+可以使用自己的密钥，配置兼容网关或本地模型接口，也可以在提供该选项时使用
+ChatGPT 登录。DeepSeek 使用专用适配器；OpenCode Go 与 Zen 根据所选模型的 API
+路由请求。可用模型、推理、多媒体和工具能力取决于选择的供应商与模型。
+
+## 原生基础，模块化架构
+
+Rust 与 GPUI Kit 构成桌面界面，ADK-Rust 负责智能体执行。
+执行、传输、共享客户端状态和界面各自有明确归属，因此 Desktop、Host 与 Mobile
+共享执行契约，而不是各自维护一套智能体引擎。具体边界请查看[架构说明](ARCHITECTURE.md)。
+
+原生渲染不需要为整个应用界面运行浏览器外壳。
+内嵌 WebView 用于浏览器面板中的网页内容，不负责渲染应用界面。
+
 ## 开始使用
 
-Sailry 正在积极开发中。请查看[发布页面](https://github.com/sailry/sailry-harness/releases)，
+Sailry Harness 正在积极开发中。请查看[发布页面](https://github.com/sailry/sailry-harness/releases)，
 获取可用的 macOS 版本；应用在 Mac App Store 之外分发。
 
 1. 根据你的 Mac 选择安装包：Apple 芯片或 Intel
@@ -61,7 +112,7 @@ Sailry 正在积极开发中。请查看[发布页面](https://github.com/sailry
 
 截图使用全新的英文示例工作区，其中的对话仅用于演示，不包含个人数据或之前的测试会话。
 
-## 一起完善 Sailry
+## 一起完善 Sailry Harness
 
 发现问题或有新的想法？欢迎[提交 Issue](https://github.com/sailry/sailry-harness/issues)。
 如果希望修改应用，请先阅读[贡献指南](CONTRIBUTING.md)。
@@ -77,6 +128,23 @@ Sailry 正在积极开发中。请查看[发布页面](https://github.com/sailry
 - [Host 与配对](services/pairing-relay/README.md)
 
 </details>
+
+## 致谢
+
+感谢让 Sailry Harness 成为可能的开源项目及其贡献者，特别是：
+
+- [GPUI Kit](https://github.com/longbridge/gpui-kit)（Longbridge）——桌面组件、主题和原生插件界面
+- [GPUI](https://gpui.rs/)（Zed 团队）——GPU 加速的桌面渲染
+- [ADK-Rust](https://github.com/zavora-ai/adk-rust)——智能体执行和模型集成
+- [iroh](https://github.com/n0-computer/iroh)——设备间的加密连接
+- [Ghostty](https://github.com/ghostty-org/ghostty)——内嵌终端渲染器和 Shell 集成
+- [Wry](https://github.com/tauri-apps/wry) 与 GPUI Kit 的 WebView 集成——内嵌浏览器面板
+- [rquickjs](https://github.com/DelSkayn/rquickjs) 与 [QuickJS](https://bellard.org/quickjs/)——无界面插件回调
+- [Flutter](https://github.com/flutter/flutter)——移动控制端
+
+也感谢这里使用的其他库、字体、图标和文档工具的维护者。
+署名和许可证声明保留在 [NOTICE](NOTICE)、[第三方声明](third_party_licenses/)
+及 `vendor/` 中。
 
 ## 许可证
 
