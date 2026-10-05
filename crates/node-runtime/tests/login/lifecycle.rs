@@ -36,7 +36,7 @@ async fn preserves_revocation_and_reconnects() {
         let reference = provider.credential.clone().unwrap();
         let (_, attempt) = begin(&fixture.client, provider).await;
         let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
-        server.wait_requests(6).await;
+        server.wait_requests(7).await;
         fixture
             .client
             .execute(fixture.client.prepare(Command::RevokeCredential {

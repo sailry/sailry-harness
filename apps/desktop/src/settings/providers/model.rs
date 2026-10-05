@@ -17,9 +17,6 @@ use gpui_kit::component::{
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-const DEFAULT_CONTEXT: u32 = 200_000;
-const DEFAULT_OUTPUT: u32 = 16_384;
-
 pub(super) struct Draft {
     pub key: usize,
     pub id: Entity<InputState>,
@@ -40,64 +37,20 @@ impl Draft {
         window: &mut Window,
         cx: &mut App,
     ) -> Self {
-        let reported_output = value.output.or(reference.and_then(|model| model.output));
-        let context = value
-            .context
-            .or(reference.and_then(|model| model.context))
-            .unwrap_or_else(|| DEFAULT_CONTEXT.max(reported_output.unwrap_or(0)));
-        let output = reported_output.unwrap_or(DEFAULT_OUTPUT.min(context));
-        let capabilities = value.capabilities.as_ref();
-        let reasoning = capabilities
-            .and_then(|value| value.reasoning)
-            .or(reference.and_then(|model| model.reasoning))
-            .unwrap_or(false);
-        let mut efforts = capabilities
-            .and_then(|value| value.efforts.clone())
-            .unwrap_or_else(|| {
-                reference
-                    .map(|model| model.efforts(preset.api(), output))
-                    .unwrap_or_default()
-            });
-        efforts.retain(|effort| *effort != Effort::Default);
-        let default_effort = Effort::initial(
-            &efforts,
-            capabilities
-                .and_then(|value| value.default_effort)
-                .unwrap_or(Effort::Default),
-        );
         let missing = completion::Missing::new(&value, reference);
+        let completed = value.configuration(reference, preset.api());
         let model = Model {
-            id: value.id,
-            context,
-            output,
-            vision: capabilities
-                .and_then(|value| value.vision)
-                .unwrap_or_else(|| {
-                    reference.is_some_and(|model| model.inputs.iter().any(|value| value == "image"))
-                }),
-            tools: capabilities
-                .and_then(|value| value.tools)
-                .unwrap_or_else(|| reference.is_some_and(|model| model.tools == Some(true))),
-            reasoning,
-            web_search: capabilities
-                .and_then(|value| value.web_search)
-                .unwrap_or(false),
-            generates: reference
-                .map(|model| {
-                    model
-                        .outputs
-                        .iter()
-                        .filter_map(|output| match output.as_str() {
-                            "image" => Some(sailry_protocol::media::Generation::Image),
-                            "video" => Some(sailry_protocol::media::Generation::Video),
-                            _ => None,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
-            efforts,
-            custom_efforts: false,
-            default_effort,
+            id: completed.id,
+            context: completed.context,
+            output: completed.output,
+            vision: completed.vision,
+            tools: completed.tools,
+            reasoning: completed.reasoning,
+            web_search: completed.web_search,
+            generates: completed.generates,
+            efforts: completed.efforts,
+            custom_efforts: completed.custom_efforts,
+            default_effort: completed.default_effort,
         };
         let mut draft = Self::new(key, model, window, cx);
         draft.missing = missing;

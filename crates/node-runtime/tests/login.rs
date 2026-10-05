@@ -24,6 +24,8 @@ mod execution;
 mod lifecycle;
 #[path = "login/responses.rs"]
 mod responses;
+#[path = "login/synchronization.rs"]
+mod synchronization;
 
 const REFRESH: &str = "isolated-refresh-secret";
 const GITHUB: &str = "isolated-github-secret";
@@ -101,6 +103,13 @@ fn access_token() -> String {
 
 fn standard(request: &discovery_support::Request) -> Reply {
     match request.path.as_str() {
+        path if path.starts_with("/models") => Reply::Json(catalog::models(
+            if request.headers.contains_key("chatgpt-account-id") {
+                Authentication::ChatGpt
+            } else {
+                Authentication::Copilot
+            },
+        )),
         "/api/accounts/deviceauth/usercode" => {
             assert_eq!(request.method, "POST");
             assert_eq!(
@@ -345,7 +354,7 @@ async fn persists_and_recovers() {
                     .await
                     .unwrap(),
             );
-            assert_eq!(server.requests.lock().unwrap().len(), 3);
+            assert_eq!(server.requests.lock().unwrap().len(), 4);
             let path = fixture.directory.path().join("node");
             drop(stream);
             fixture.controller.close().await.unwrap();
@@ -374,7 +383,7 @@ async fn persists_and_recovers() {
                     .code,
                 ErrorCode::NotFound
             );
-            assert_eq!(server.requests.lock().unwrap().len(), 3);
+            assert_eq!(server.requests.lock().unwrap().len(), 4);
             assert_eq!(
                 client
                     .execute(client.prepare(Command::ListProviders))

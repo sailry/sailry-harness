@@ -838,6 +838,7 @@ provider_login_code_expired: 已失效
 provider_login_starting: 正在连接
 provider_login_waiting: 等待授权
 provider_login_connected: 已连接
+provider_login_models_failed: 已连接，但模型暂不可用，请重试更新模型
 provider_login_cancelled: 已取消
 provider_login_expired: 登录已过期，请重试
 provider_login_failed: 登录失败，请重试

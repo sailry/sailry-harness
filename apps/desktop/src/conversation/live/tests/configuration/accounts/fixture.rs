@@ -19,6 +19,29 @@ pub(super) struct Fixture {
 
 impl Fixture {
     pub(super) fn new(remote: bool) -> Self {
+        Self::with_models(
+            remote,
+            vec![Model {
+                id: "fixture".into(),
+                context: 8192,
+                output: 512,
+                vision: false,
+                tools: false,
+                reasoning: false,
+                web_search: false,
+                generates: vec![],
+                efforts: vec![],
+                custom_efforts: false,
+                default_effort: Effort::Default,
+            }],
+        )
+    }
+
+    pub(super) fn empty(remote: bool) -> Self {
+        Self::with_models(remote, Vec::new())
+    }
+
+    fn with_models(remote: bool, models: Vec<Model>) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
         let source_server = runtime.block_on(provider_fixture::server(Arc::new(AtomicU8::new(1))));
@@ -59,19 +82,7 @@ impl Fixture {
         let client = Arc::new(Client::new(transport.clone()));
         let origin = Arc::new(Client::new(source.local()));
         let mut draft = provider_fixture::provider(Authentication::ChatGpt, ModelApi::Responses);
-        draft.models = vec![Model {
-            id: "fixture".into(),
-            context: 8192,
-            output: 512,
-            vision: false,
-            tools: false,
-            reasoning: false,
-            web_search: false,
-            generates: vec![],
-            efforts: vec![],
-            custom_efforts: false,
-            default_effort: Effort::Default,
-        }];
+        draft.models = models;
         let source_provider = runtime.block_on(provider_fixture::connect(&origin, draft.clone()));
         // Matching IDs and model names must remain distinct across Node catalogs.
         let provider = runtime.block_on(provider_fixture::connect(&client, draft));

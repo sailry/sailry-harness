@@ -1,5 +1,6 @@
 //! Device authorization shares durable admission and the Node's credential transaction owner.
 mod mcp;
+mod models;
 mod persistence;
 mod renewals;
 use super::{Job, database::Database};
@@ -7,7 +8,7 @@ use crate::providers::login::{Grant, Service};
 use futures::FutureExt;
 use sailry_link::{CancellationToken, Pending, Response, Subscription};
 use sailry_protocol::{
-    conversation::{Provider, login},
+    conversation::{Provider, discovery, login},
     *,
 };
 use std::{collections::BTreeMap, panic::AssertUnwindSafe};
@@ -36,8 +37,13 @@ pub(super) enum Progress {
     Finished {
         caller: NodeId,
         id: RequestId,
-        result: Result<Grant, Fault>,
+        result: Result<Authorized, Fault>,
     },
+}
+
+pub(super) struct Authorized {
+    grant: Grant,
+    models: Result<Vec<discovery::Model>, Fault>,
 }
 
 struct Entry {
@@ -55,6 +61,7 @@ pub(super) struct Worker {
     plugins: crate::plugins::Host,
     renewals: renewals::Renewals,
     service: Service,
+    discovery: crate::providers::Discovery,
     runtime: Handle,
     sender: mpsc::Sender<Job>,
     closed: CancellationToken,
@@ -63,6 +70,7 @@ pub(super) struct Worker {
 impl Worker {
     pub fn new(
         service: Service,
+        discovery: crate::providers::Discovery,
         plugins: crate::plugins::Host,
         sender: mpsc::Sender<Job>,
         closed: CancellationToken,
@@ -74,6 +82,7 @@ impl Worker {
             plugins,
             renewals: Default::default(),
             service,
+            discovery,
             runtime: Handle::current(),
             sender,
             closed,
@@ -192,9 +201,11 @@ impl Worker {
             attempt,
             revision: 1,
             state: login::State::Starting,
+            model_error: None,
         });
         let stop = self.closed.child_token();
         let authentication = provider.authentication;
+        let api = provider.api;
         self.entries.insert(
             (caller, request.id),
             Entry {
@@ -207,19 +218,31 @@ impl Worker {
         );
         self.pending += 1;
         let service = self.service.clone();
+        let discovery = self.discovery.clone();
         let sender = self.sender.clone();
         let id = request.id;
         self.runtime.spawn(async move {
-            let operation = service.authorize(
-                authentication,
-                |state| async {
-                    sender
-                        .send(Job::Login(Box::new(Progress::Prompt { caller, id, state })))
-                        .await
-                        .map_err(|_| super::unavailable())
-                },
-                &stop,
-            );
+            let operation = async {
+                let grant = service
+                    .authorize(
+                        authentication,
+                        |state| async {
+                            sender
+                                .send(Job::Login(Box::new(Progress::Prompt { caller, id, state })))
+                                .await
+                                .map_err(|_| super::unavailable())
+                        },
+                        &stop,
+                    )
+                    .await?;
+                let endpoint = grant.endpoint();
+                #[cfg(any(test, feature = "test-support"))]
+                let endpoint = service.model_endpoint.as_deref().unwrap_or(endpoint);
+                let models = discovery
+                    .authorized(api, endpoint, &grant, stop.clone())
+                    .await;
+                Ok(Authorized { grant, models })
+            };
             let result = AssertUnwindSafe(operation)
                 .catch_unwind()
                 .await
@@ -304,19 +327,23 @@ impl Worker {
                     entry.set(login::State::Cancelled);
                     return;
                 }
-                let result = result.and_then(|grant| {
+                let result = result.and_then(|authorized| {
                     persistence::save(
                         database,
                         &entry.provider,
                         entry.credential.as_ref(),
-                        grant,
+                        authorized,
                         events,
                     )
                 });
-                entry.set(match result {
-                    Ok(()) => login::State::Connected,
-                    Err(error) => login::State::Failed(error),
-                });
+                match result {
+                    Ok(model_error) => entry.updates.send_modify(|update| {
+                        update.revision += 1;
+                        update.state = login::State::Connected;
+                        update.model_error = model_error;
+                    }),
+                    Err(error) => entry.set(login::State::Failed(error)),
+                }
             }
         }
     }

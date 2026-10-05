@@ -284,7 +284,7 @@ async fn runs_tools_after_refresh() {
             assert!(history.contains("Authorized response"));
             assert!(history.contains("Isolated tool content"), "{history}");
             assert_eq!(exchanges.load(Ordering::SeqCst), 2);
-            assert_eq!(server.requests.lock().unwrap().len(), 6);
+            assert_eq!(server.requests.lock().unwrap().len(), 7);
             assert_eq!(
                 fixture.client.execute(request).await.unwrap(),
                 Output::QueuedTurn(turn)

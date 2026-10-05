@@ -83,7 +83,7 @@ fn refreshes_expired_codes(cx: &mut TestAppContext) {
                     .count(),
                 2
             );
-            tap(visual, "provider-login-cancel");
+            visual.update(|window, cx| assert!(!window.has_active_dialog(cx)));
             visual.update(|window, _| window.remove_window());
             fixture.close();
         }

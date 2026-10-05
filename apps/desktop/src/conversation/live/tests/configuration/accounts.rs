@@ -7,6 +7,88 @@ use std::sync::Mutex;
 mod fixture;
 use fixture::Fixture;
 
+#[gpui::test]
+fn selects_discovered_models(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let mut fixture = Fixture::empty(remote);
+        let (view, visual) = open_session(cx, fixture.binding.clone(), None);
+        wait(visual, |cx| {
+            view.read(cx).configured()
+                && view.read(cx).connected()
+                && view.read(cx).defaults.connected
+        });
+        assert_eq!(fixture.provider.models.len(), 2);
+        view.read_with(visual, |view, _| {
+            assert_eq!(
+                view.model_sources()
+                    .filter(|(node, _)| *node == fixture.target.id())
+                    .next()
+                    .unwrap()
+                    .1
+                    .models
+                    .len(),
+                2
+            );
+        });
+        assert_eq!(
+            view.read_with(visual, |view, _| view
+                .config
+                .as_ref()
+                .unwrap()
+                .model
+                .clone()),
+            "fixture"
+        );
+        let channel = view.read_with(visual, |view, _| {
+            view.provider_ids[&(fixture.target.id(), fixture.provider.id)]
+        });
+        open_models(visual);
+        let option = match channel {
+            0 => "composer-model-option-0-unknown",
+            1 => "composer-model-option-1-unknown",
+            _ => panic!("unexpected account channel"),
+        };
+        click(visual, option);
+        assert_eq!(
+            view.read_with(visual, |view, _| view
+                .config
+                .as_ref()
+                .unwrap()
+                .model
+                .clone()),
+            "unknown"
+        );
+        assert_eq!(
+            view.read_with(visual, |view, _| view.config_owner),
+            fixture.target.id()
+        );
+        assert!(
+            fixture
+                .target_server
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|request| !matches!(
+                    request.path.as_str(),
+                    "/responses" | "/chat/completions"
+                ))
+        );
+        visual.update(|window, _| window.remove_window());
+        drop(view);
+        fixture
+            .runtime
+            .block_on(fixture.source.take().unwrap().shutdown())
+            .unwrap();
+        fixture.runtime.block_on(fixture.target.shutdown()).unwrap();
+        fixture
+            .runtime
+            .block_on(fixture.controller.close())
+            .unwrap();
+    }
+}
+
 fn choose(visual: &mut VisualTestContext, view: &Entity<View>, node: NodeId, provider: ProviderId) {
     let option = view.read_with(visual, |view, _| {
         match view.provider_ids[&(node, provider)] {

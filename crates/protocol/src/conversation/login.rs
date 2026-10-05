@@ -13,6 +13,9 @@ pub struct Update {
     pub attempt: Attempt,
     pub revision: u64,
     pub state: State,
+    /// Sign-in can succeed even when its account model catalog is unavailable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_error: Option<Fault>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

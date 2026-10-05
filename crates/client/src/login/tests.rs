@@ -13,6 +13,7 @@ fn preserves_order_on_reconnect() {
             attempt: attempt.clone(),
             revision,
             state,
+            model_error: None,
         })
     };
     projection.reconnect(1).unwrap();
@@ -68,7 +69,8 @@ fn preserves_order_on_reconnect() {
                         provider: attempt.provider
                     },
                     revision: 6,
-                    state: login::State::Connected
+                    state: login::State::Connected,
+                    model_error: None,
                 })
             )
             .is_err()

@@ -302,7 +302,6 @@ fn retries_finished_attempts(cx: &mut TestAppContext) {
             assert_ne!(login.request.id, first);
             assert_eq!(login.error, None);
         });
-        tap(visual, "provider-login-cancel");
         visual.update(|window, cx| assert!(!window.has_active_dialog(cx)));
         assert_eq!(
             fixture

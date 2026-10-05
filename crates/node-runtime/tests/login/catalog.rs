@@ -8,7 +8,7 @@ fn command(provider: &Provider) -> Command {
     }))
 }
 
-fn models(authentication: Authentication) -> serde_json::Value {
+pub(super) fn models(authentication: Authentication) -> serde_json::Value {
     if authentication == Authentication::ChatGpt {
         json!({"models":[{
             "slug":"fixture", "context_window":4096, "input_modalities":["text","image"],
@@ -53,7 +53,14 @@ async fn shares_refresh() {
                     }
                 } else if request.path.starts_with("/models") {
                     if authentication == Authentication::Copilot {
-                        assert_eq!(request.headers["authorization"], "Bearer renewed-access");
+                        assert_eq!(
+                            request.headers["authorization"],
+                            if count.load(Ordering::SeqCst) > 1 {
+                                "Bearer renewed-access"
+                            } else {
+                                "Bearer isolated-copilot-secret"
+                            }
+                        );
                     }
                     Reply::Json(models(authentication))
                 } else {
@@ -70,7 +77,7 @@ async fn shares_refresh() {
                 let request = client.prepare(command(&provider));
                 jobs.push(tokio::spawn(async move { client.execute(request).await }));
             }
-            server.wait_requests(4).await;
+            server.wait_requests(5).await;
             assert_eq!(exchanges.load(Ordering::SeqCst), 2);
             release.notify_one();
             for job in jobs {
@@ -206,7 +213,7 @@ async fn reads_native_metadata() {
                     .iter()
                     .filter(|request| request.path.starts_with("/models"))
                     .count(),
-                2
+                3
             );
             fixture.close().await;
         }
@@ -223,8 +230,11 @@ async fn rejects_changed_accounts() {
             let counter = queries.clone();
             let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
                 if request.path.starts_with("/models") {
-                    counter.fetch_add(1, Ordering::SeqCst);
-                    Reply::Delayed(gate.clone(), models(Authentication::Copilot))
+                    if counter.fetch_add(1, Ordering::SeqCst) == 1 {
+                        Reply::Delayed(gate.clone(), models(Authentication::Copilot))
+                    } else {
+                        Reply::Json(models(Authentication::Copilot))
+                    }
                 } else {
                     standard(request)
                 }
@@ -236,8 +246,8 @@ async fn rejects_changed_accounts() {
             let client = fixture.client.clone();
             let request = client.prepare(command(&provider));
             let query = tokio::spawn(async move { client.execute(request).await });
-            server.wait_requests(4).await;
-            assert_eq!(queries.load(Ordering::SeqCst), 1);
+            server.wait_requests(5).await;
+            assert_eq!(queries.load(Ordering::SeqCst), 2);
             match mutation {
                 "revoke" => {
                     fixture
@@ -286,8 +296,9 @@ async fn rejects_changed_accounts() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bounds_and_cancels_queries() {
     for remote in [false, true] {
-        let server = Server::start_with_request(ModelApi::Anthropic, |request| {
-            if request.path.starts_with("/models") {
+        let queries = AtomicUsize::new(0);
+        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+            if request.path.starts_with("/models") && queries.fetch_add(1, Ordering::SeqCst) > 0 {
                 Reply::Hold
             } else {
                 standard(request)
@@ -303,7 +314,7 @@ async fn bounds_and_cancels_queries() {
             let request = client.prepare(command(&provider));
             jobs.push(tokio::spawn(async move { client.execute(request).await }));
         }
-        server.wait_requests(7).await;
+        server.wait_requests(8).await;
         assert_eq!(
             fixture
                 .client
@@ -326,7 +337,7 @@ async fn bounds_and_cancels_queries() {
         let client = fixture.client.clone();
         let request = client.prepare(command(&provider));
         let query = tokio::spawn(async move { client.execute(request).await });
-        server.wait_requests(8).await;
+        server.wait_requests(9).await;
         tokio::time::timeout(Duration::from_secs(5), fixture.node.shutdown())
             .await
             .unwrap()
@@ -379,7 +390,7 @@ async fn rejects_unsafe_responses() {
                 .unwrap_err();
             assert_eq!(error.code, code);
             no_secrets(&error);
-            assert_eq!(server.requests.lock().unwrap().len(), 4);
+            assert_eq!(server.requests.lock().unwrap().len(), 5);
             fixture.close().await;
         }
         assert!(target.requests.lock().unwrap().is_empty());

@@ -37,7 +37,7 @@ async fn retains_rotated_grants() {
         let (_, turn) = submit(&fixture.client, &session).await;
         finished(&fixture.client, &turn, Status::Completed).await;
         assert_eq!(count.load(Ordering::SeqCst), 3);
-        assert_eq!(server.requests.lock().unwrap().len(), 7);
+        assert_eq!(server.requests.lock().unwrap().len(), 8);
         fixture.close().await;
     }
 }
@@ -99,7 +99,7 @@ async fn refresh_survives_turn_cancellation() {
             let first = session(&fixture, &provider).await;
             let second = session(&fixture, &provider).await;
             let (_, stopped) = submit(&fixture.client, &first).await;
-            server.wait_requests(4).await;
+            server.wait_requests(5).await;
             let (_, waiting) = submit(&fixture.client, &second).await;
             fixture
                 .client
@@ -118,7 +118,7 @@ async fn refresh_survives_turn_cancellation() {
             let (_, turn) = submit(&fixture.client, &first).await;
             finished(&fixture.client, &turn, Status::Completed).await;
             assert_eq!(exchanges.load(Ordering::SeqCst), 2);
-            assert_eq!(server.requests.lock().unwrap().len(), 6);
+            assert_eq!(server.requests.lock().unwrap().len(), 7);
             fixture.close().await;
         }
     }
@@ -163,7 +163,7 @@ async fn preserves_uncertain_rotation() {
                 db.execute_batch("CREATE TRIGGER reject_refresh BEFORE UPDATE ON providers WHEN EXISTS(SELECT 1 FROM json_each(NEW.body,'$.authorizations') WHERE json_extract(value,'$.revision')=3) BEGIN SELECT RAISE(ABORT, 'isolated authentication write failure'); END;").unwrap();
             }
             let (_, turn) = submit(&fixture.client, &session).await;
-            server.wait_requests(4).await;
+            server.wait_requests(5).await;
             if mode != "shutdown" {
                 finished(&fixture.client, &turn, Status::Failed).await;
             }
@@ -211,7 +211,7 @@ async fn preserves_revocation_during_refresh() {
         let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
         let session = session(&fixture, &provider).await;
         let (_, turn) = submit(&fixture.client, &session).await;
-        server.wait_requests(4).await;
+        server.wait_requests(5).await;
         let reference = provider.credential.unwrap();
         fixture
             .client
@@ -233,7 +233,7 @@ async fn preserves_revocation_during_refresh() {
         };
         assert!(credentials[0].revoked);
         assert_eq!(credentials[0].revision, 3);
-        assert_eq!(server.requests.lock().unwrap().len(), 4);
+        assert_eq!(server.requests.lock().unwrap().len(), 5);
         fixture.close().await;
     }
 }
@@ -264,12 +264,12 @@ async fn admits_before_rotation() {
         db.execute_batch("CREATE TRIGGER reject_admission BEFORE UPDATE ON providers WHEN EXISTS(SELECT 1 FROM json_each(NEW.body,'$.authorizations') WHERE json_extract(value,'$.revision')=2) BEGIN SELECT RAISE(ABORT, 'isolated admission failure'); END;").unwrap();
         let (_, turn) = submit(&fixture.client, &session).await;
         finished(&fixture.client, &turn, Status::Failed).await;
-        assert_eq!(server.requests.lock().unwrap().len(), 3);
+        assert_eq!(server.requests.lock().unwrap().len(), 4);
         db.execute_batch("DROP TRIGGER reject_admission;").unwrap();
         drop(db);
         let (_, turn) = submit(&fixture.client, &session).await;
         finished(&fixture.client, &turn, Status::Completed).await;
-        assert_eq!(server.requests.lock().unwrap().len(), 5);
+        assert_eq!(server.requests.lock().unwrap().len(), 6);
         fixture.close().await;
     }
 }
@@ -309,7 +309,7 @@ async fn confines_generation_credentials() {
                 );
                 assert_eq!(
                     server.requests.lock().unwrap().len(),
-                    if redirect { 4 } else { 9 },
+                    if redirect { 5 } else { 10 },
                     "{authentication:?} {api:?}, remote={remote}, redirect={redirect}",
                 );
                 assert!(sink.requests.lock().unwrap().is_empty());

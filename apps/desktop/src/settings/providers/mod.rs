@@ -58,14 +58,11 @@ impl Workspace {
             let edit_owner = owner.clone();
             let remove_owner = owner.clone();
             let oauth_owner = owner.clone();
-            let login_label = tr(if real && channel.credential_configured {
+            let login_label = tr(if channel.credential_configured || channel.connected {
                 "provider_reconnect"
-            } else if channel.connected {
-                "provider_disconnect"
             } else {
                 "provider_connect"
             });
-            let disconnect_owner = owner.clone();
             let removal = self.provider_link.as_ref().and_then(|live| {
                 live.providers.get(&id).map(|provider| {
                     (
@@ -138,11 +135,7 @@ impl Workspace {
                             .debug_selector(move || format!("provider-login-{id}"))
                             .icon(
                                 Icon::default()
-                                    .path(if !real && channel.connected {
-                                        "reicon:arrows-action/logout"
-                                    } else {
-                                        "reicon:arrows-action/login"
-                                    })
+                                    .path("reicon:arrows-action/login")
                                     .text_color(cx.theme().success),
                             )
                             .tooltip(login_label.clone())
@@ -156,20 +149,6 @@ impl Workspace {
                             }),
                     )
                 })
-                .when(
-                    real && channel.preset.oauth() && channel.credential_configured,
-                    |row| {
-                        row.action(
-                            Button::new(("provider-logout", id))
-                                .disabled(busy)
-                                .debug_selector(move || format!("provider-logout-{id}"))
-                                .label(tr("provider_disconnect"))
-                                .on_click(move |_, window, cx| {
-                                    login::revoke::open(disconnect_owner.clone(), id, window, cx)
-                                }),
-                        )
-                    },
-                )
                 .action(
                     Button::new(("provider-edit", id))
                         .disabled(busy)
@@ -270,29 +249,11 @@ fn oauth(owner: Entity<Workspace>, id: usize, window: &mut Window, cx: &mut App)
         .channels
         .iter()
         .any(|c| c.id == id && c.connected);
-    if connected {
-        crate::prompts::confirm(
-            &tr("provider_disconnect"),
-            &tr("provider_oauth_preview"),
-            tr("provider_disconnect"),
-            window,
-            cx,
-            move |_, cx| {
-                owner.update(cx, |this, cx| {
-                    if let Some(channel) = this.providers.channels.iter_mut().find(|c| c.id == id) {
-                        channel.connected = false;
-                    }
-                    cx.notify();
-                })
-            },
-        );
-        return;
-    }
     window.open_dialog(cx, move |dialog, _, _| {
         let owner = owner.clone();
         dialog
             .form_title(tr(if connected {
-                "provider_disconnect"
+                "provider_reconnect"
             } else {
                 "provider_connect"
             }))
@@ -342,7 +303,7 @@ fn oauth(owner: Entity<Workspace>, id: usize, window: &mut Window, cx: &mut App)
                                     if let Some(channel) =
                                         this.providers.channels.iter_mut().find(|c| c.id == id)
                                     {
-                                        channel.connected = !connected;
+                                        channel.connected = true;
                                     }
                                     cx.notify();
                                 });

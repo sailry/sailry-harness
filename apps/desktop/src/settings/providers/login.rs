@@ -12,7 +12,6 @@ use sailry_protocol::{
     },
 };
 
-pub(super) mod revoke;
 mod view;
 #[cfg(test)]
 use super::authorization_support as support;
@@ -198,7 +197,20 @@ impl Login {
                         login.view = view;
                         match login.state() {
                             Some(State::Connected) => {
-                                login.report("provider_login_connected", window, cx);
+                                let key = if login
+                                    .view
+                                    .update
+                                    .as_ref()
+                                    .is_some_and(|update| update.model_error.is_some())
+                                {
+                                    "provider_login_models_failed"
+                                } else {
+                                    "provider_login_connected"
+                                };
+                                login.report(key, window, cx);
+                                login.closed = true;
+                                login.stop.cancel();
+                                window.close_dialog(cx);
                             }
                             Some(State::Cancelled) => {
                                 login.report("provider_login_cancelled", window, cx);
@@ -247,7 +259,9 @@ impl Login {
             return;
         }
         self.presented = Some(identity);
-        if key == "provider_login_connected" {
+        if key == "provider_login_models_failed" {
+            crate::feedback::error("", &tr(key), window, cx);
+        } else if key == "provider_login_connected" {
             crate::feedback::status(
                 window,
                 tr(key),

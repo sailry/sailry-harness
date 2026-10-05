@@ -14,6 +14,7 @@ use std::{
 
 mod expiration;
 mod recovery;
+mod synchronization;
 
 fn wait(cx: &mut VisualTestContext, predicate: impl Fn(&App) -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -239,37 +240,42 @@ fn authorization_lifecycle(cx: &mut TestAppContext) {
                 });
                 assert_eq!(window.notifications(cx), original);
             });
-            tap(visual, "provider-login-cancel");
             visual.update(|window, cx| assert!(!window.has_active_dialog(cx)));
-            tap(visual, "provider-logout-0");
-            settle_dialog(visual);
-            crate::prompts::tests::answer(visual, "settings_cancel");
+            assert!(login.read_with(visual, |login, _| login.closed));
+            assert!(visual.debug_bounds("provider-logout-0").is_none());
             let Output::Credentials(credentials) = fixture.execute(Command::ListCredentials) else {
                 panic!("credentials expected")
             };
             assert!(!credentials[0].revoked);
-            tap(visual, "provider-logout-0");
-            settle_dialog(visual);
-            crate::prompts::tests::answer(visual, "provider_disconnect");
-            wait(visual, |_| {
-                match fixture.execute(Command::ListCredentials) {
-                    Output::Credentials(credentials) => credentials[0].revoked,
-                    _ => false,
-                }
-            });
-            draw(visual);
-            let reference = fixture.provider().credential.unwrap();
+            let provider = fixture.provider();
+            assert_eq!(provider.models.len(), 2);
+            assert_eq!(provider.default_model, "fixture");
+            assert_eq!(
+                (provider.models[0].context, provider.models[0].output),
+                (16384, 1024)
+            );
+            assert_eq!(
+                provider.models[0].efforts,
+                [sailry_protocol::Effort::Low, sailry_protocol::Effort::High]
+            );
+            let reference = provider.credential.unwrap();
             assert_eq!(reference.id, credentials[0].id);
             assert!(!visual.has_pending_prompt());
             tap(visual, "provider-login-0");
             settle_dialog(visual);
-            wait(visual, |_| {
+            wait(visual, |cx| {
                 match fixture.execute(Command::ListCredentials) {
-                    Output::Credentials(credentials) => !credentials[0].revoked,
+                    Output::Credentials(credentials) => {
+                        credentials[0].revision == 2
+                            && !credentials[0].revoked
+                            && owner.read(cx).provider_link.as_ref().unwrap().providers[&0].revision
+                                == fixture.provider().revision
+                    }
                     _ => false,
                 }
             });
             assert_eq!(fixture.provider().credential.unwrap(), reference);
+            visual.update(|window, cx| assert!(!window.has_active_dialog(cx)));
             assert_eq!(
                 fixture
                     .server

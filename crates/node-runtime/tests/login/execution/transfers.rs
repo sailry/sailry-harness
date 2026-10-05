@@ -103,7 +103,7 @@ async fn rejects_rotating_grant_copies() {
             Output::Credentials(vec![])
         );
     }
-    assert_eq!(server.requests.lock().unwrap().len(), 3);
+    assert_eq!(server.requests.lock().unwrap().len(), 4);
     target.shutdown().await.unwrap();
     fixture.close().await;
 }

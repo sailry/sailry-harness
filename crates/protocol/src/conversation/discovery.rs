@@ -1,6 +1,7 @@
 use super::ModelApi;
 use crate::{CredentialRef, Effort, ProviderId, Secret};
 use serde::{Deserialize, Serialize};
+mod configuration;
 
 /// Discovery uses either a draft API-key connection or a saved Node revision.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

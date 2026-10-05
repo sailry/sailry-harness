@@ -287,6 +287,7 @@ impl Store {
         let mut resource_work = resources::Worker::new(ingress.clone());
         let mut logins = login::Worker::new(
             authorization,
+            ingress.discovery.clone(),
             plugins.clone(),
             ingress.sender.clone(),
             ingress.closed.clone(),
