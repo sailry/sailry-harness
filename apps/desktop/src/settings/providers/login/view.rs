@@ -23,7 +23,6 @@ impl Login {
                 )
                 .into_any_element();
         }
-        let done = self.closed || self.state().is_some_and(|state| !state.active());
         let retry = owner.clone();
         let footer = dialog::DialogFooter::new()
             .w_full()
@@ -70,11 +69,7 @@ impl Login {
                     .debug_selector(|| "provider-login-cancel".into())
                     .loading(self.cancelling && self.pending)
                     .disabled(self.cancelling && self.pending)
-                    .label(tr(if done {
-                        "close"
-                    } else {
-                        "provider_login_cancel"
-                    }))
+                    .label(tr("provider_login_cancel"))
                     .on_click(|_, window, cx| window.dispatch_action(Box::new(dialog::Cancel), cx)),
             );
         div()

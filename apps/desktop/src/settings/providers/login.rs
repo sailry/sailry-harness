@@ -54,7 +54,9 @@ pub(super) fn open(
             .on_close(move |_, _, cx| {
                 close.update(cx, |login, _| {
                     login.closed = true;
-                    login.stop.cancel();
+                    if !login.cancelling {
+                        login.stop.cancel();
+                    }
                 })
             })
             .child(login.clone())
@@ -110,7 +112,7 @@ impl Login {
     }
 
     fn begin(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.pending || self.closed {
+        if self.pending || (self.closed && !self.cancelling) {
             return;
         }
         if self.fresh {
@@ -136,11 +138,14 @@ impl Login {
             .binding
             .runtime
             .spawn(async move { client.execute(request).await });
+        // A dismissed dialog must still resolve admission before cancelling it.
+        let keep_alive = cx.entity();
         self.task = Some(cx.spawn_in(window, async move |owner, cx| {
+            let _keep_alive = keep_alive;
             let result = job.await;
             let _ = owner.update_in(cx, |login, window, cx| {
                 login.pending = false;
-                if login.closed {
+                if login.closed && !login.cancelling {
                     return;
                 }
                 match result {
@@ -166,9 +171,10 @@ impl Login {
                     if login.attempt.is_some() {
                         login.cancel(window, cx);
                     } else if login.fresh {
+                        login.cancelling = false;
                         login.closed = true;
                         login.error = None;
-                        login.report("provider_login_cancelled", window, cx);
+                        login.stop.cancel();
                     } else {
                         login.error = Some("provider_login_cancel_unknown");
                     }
@@ -191,7 +197,7 @@ impl Login {
                 let view = receiver.borrow_and_update().clone();
                 if owner
                     .update_in(cx, |login, window, cx| {
-                        if login.closed {
+                        if login.closed && !login.cancelling {
                             return;
                         }
                         login.view = view;
@@ -207,13 +213,20 @@ impl Login {
                                 } else {
                                     "provider_login_connected"
                                 };
+                                let visible = !login.closed;
                                 login.report(key, window, cx);
                                 login.closed = true;
                                 login.stop.cancel();
-                                window.close_dialog(cx);
+                                if visible {
+                                    window.close_dialog(cx);
+                                }
                             }
                             Some(State::Cancelled) => {
-                                login.report("provider_login_cancelled", window, cx);
+                                if !login.closed {
+                                    window.close_dialog(cx);
+                                }
+                                login.closed = true;
+                                login.stop.cancel();
                             }
                             _ => {}
                         }
@@ -275,7 +288,7 @@ impl Login {
     }
 
     fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if self.closed
+        if (self.closed && !self.cancelling)
             || self.state().is_some_and(|state| !state.active())
             || self.error == Some("provider_login_changed")
             || (self.attempt.is_none() && self.fresh)
@@ -285,13 +298,13 @@ impl Login {
         self.cancelling = true;
         if self.pending {
             cx.notify();
-            return false;
+            return true;
         }
         if self.attempt.is_none() {
             // Resolve the original admission before cancelling: independent Link
             // streams may otherwise deliver cancellation before a delayed begin.
             self.begin(window, cx);
-            return false;
+            return true;
         }
         self.pending = true;
         self.error = None;
@@ -301,11 +314,13 @@ impl Login {
             .binding
             .runtime
             .spawn(async move { client.execute(request).await });
+        let keep_alive = cx.entity();
         self.task = Some(cx.spawn_in(window, async move |owner, cx| {
+            let _keep_alive = keep_alive;
             let result = job.await;
-            let _ = owner.update_in(cx, |login, window, cx| {
+            let _ = owner.update_in(cx, |login, _, cx| {
                 login.pending = false;
-                if login.closed {
+                if login.closed && !login.cancelling {
                     return;
                 }
                 if login.state().is_some_and(|state| !state.active()) {
@@ -330,7 +345,7 @@ impl Login {
                     // the shared observer remains authoritative for login updates.
                     login.error = None;
                     login.closed = true;
-                    login.report("provider_login_cancelled", window, cx);
+                    login.cancelling = false;
                 } else {
                     login.error = Some("provider_login_cancel_unknown");
                 }
@@ -338,7 +353,7 @@ impl Login {
             });
         }));
         cx.notify();
-        false
+        true
     }
 }
 

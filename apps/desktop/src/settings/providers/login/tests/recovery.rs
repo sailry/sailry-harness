@@ -87,11 +87,12 @@ fn cancels_pending_admission(cx: &mut TestAppContext) {
         });
         let id = login.read_with(visual, |login, _| login.request.id);
         settle_dialog(visual);
+        visual.update(|window, cx| window.clear_notifications(cx));
+        crate::feedback::tests::settle(visual);
         tap(visual, "provider-login-cancel");
+        visual.update(|window, cx| assert!(!window.has_active_dialog(cx)));
         wait(visual, |cx| {
-            !login.read(cx).pending
-                && (login.read(cx).closed
-                    || matches!(login.read(cx).state(), Some(State::Cancelled)))
+            !login.read(cx).pending && !login.read(cx).cancelling
         });
         delayed.release.notify_one();
         fixture.runtime.block_on(async {
@@ -113,9 +114,14 @@ fn cancels_pending_admission(cx: &mut TestAppContext) {
             matches!(state, sailry_protocol::Update::ProviderLogin(update) if update.state == State::Cancelled)
         );
         assert_eq!(fixture.provider().credential, None);
-        tap(visual, "provider-login-cancel");
+        crate::feedback::tests::settle(visual);
         visual.update(|window, cx| {
             assert!(!window.has_active_dialog(cx));
+            assert!(window.notifications(cx).is_empty());
+            assert_eq!(
+                crate::feedback::tests::count(window, &tr("provider_login_cancelled"), cx),
+                0
+            );
             window.remove_window();
         });
         fixture.close();
@@ -222,13 +228,24 @@ fn retries_original_attempt(cx: &mut TestAppContext) {
             assert_eq!(login.error, None);
         });
         settle_dialog(visual);
+        visual.update(|window, cx| window.clear_notifications(cx));
+        crate::feedback::tests::settle(visual);
         visual.simulate_keystrokes("escape");
+        visual.update(|window, cx| assert!(!window.has_active_dialog(cx)));
         wait(visual, |cx| {
-            !login.read(cx).pending && matches!(login.read(cx).state(), Some(State::Cancelled))
+            !login.read(cx).pending && !login.read(cx).cancelling
         });
         assert_eq!(login.read_with(visual, |login, _| login.error), None);
-        tap(visual, "provider-login-cancel");
-        visual.update(|window, cx| assert!(!window.has_active_dialog(cx)));
+        assert_eq!(fixture.state(request.id), State::Cancelled);
+        crate::feedback::tests::settle(visual);
+        visual.update(|window, cx| {
+            assert!(!window.has_active_dialog(cx));
+            assert!(window.notifications(cx).is_empty());
+            assert_eq!(
+                crate::feedback::tests::count(window, &tr("provider_login_cancelled"), cx),
+                0
+            );
+        });
         let requests = loss.requests.lock().unwrap();
         let beginnings = requests
             .iter()

@@ -12,6 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod cancellation;
 mod expiration;
 mod recovery;
 mod synchronization;
@@ -117,6 +118,21 @@ impl Fixture {
         };
         providers[0].clone()
     }
+    fn state(&self, id: sailry_protocol::RequestId) -> State {
+        let client = Client::new(self.transport.clone());
+        match self.runtime.block_on(async {
+            client
+                .subscribe_login(id)
+                .await
+                .unwrap()
+                .next()
+                .await
+                .unwrap()
+        }) {
+            sailry_protocol::Update::ProviderLogin(update) => update.state,
+            _ => panic!("authorization update expected"),
+        }
+    }
     fn close(self) {
         self.runtime.block_on(self.controller.close()).unwrap();
         self.runtime.block_on(self.node.shutdown()).unwrap();
@@ -201,20 +217,28 @@ fn authorization_lifecycle(cx: &mut TestAppContext) {
                 visual.update(crate::feedback::tests::summary),
                 tr("content_copied")
             );
-            visual.simulate_keystrokes("escape");
+            visual.update(|window, cx| window.clear_notifications(cx));
+            crate::feedback::tests::settle(visual);
+            tap(visual, "provider-login-cancel");
+            visual.update(|window, cx| assert!(!window.has_active_dialog(cx)));
             wait(visual, |cx| {
-                login.read(cx).closed || matches!(login.read(cx).state(), Some(State::Cancelled))
+                !login.read(cx).pending && !login.read(cx).cancelling
             });
-            crate::feedback::tests::shown(visual);
             assert_eq!(
-                visual.update(crate::feedback::tests::summary),
-                tr("provider_login_cancelled")
+                fixture.state(login.read_with(visual, |login, _| login.request.id)),
+                State::Cancelled
             );
             draw(visual);
             assert!(visual.debug_bounds("provider-login-status").is_none());
-            // Cancellation acknowledgement leaves a stable completion surface.
-            tap(visual, "provider-login-cancel");
-            visual.update(|window, cx| assert!(!window.has_active_dialog(cx)));
+            assert!(visual.debug_bounds("provider-login-cancel").is_none());
+            crate::feedback::tests::settle(visual);
+            visual.update(|window, cx| {
+                assert!(window.notifications(cx).is_empty());
+                assert_eq!(
+                    crate::feedback::tests::count(window, &tr("provider_login_cancelled"), cx),
+                    0
+                );
+            });
             assert!(fixture.provider().credential.is_none());
             visual.update(|window, cx| window.clear_notifications(cx));
             fixture.mode.store(1, Ordering::SeqCst);
