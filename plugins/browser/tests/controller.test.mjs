@@ -130,15 +130,16 @@ test('profile import uses the selected opaque ID and reports verified counts', a
   const {view,cx,complete,notices} = await controller('settings',{
     readBrowserSettings:() => ({supported:true,enabled:true,persistent:persisted ?? true}),
     setBrowserPersistent:value => { persisted = value; },
-    listBrowserProfiles:async () => [{id:'profile-opaque',name:'Personal'}],
+    listBrowserProfiles:async () => [{id:'profile-other',name:'Work'},{id:'profile-opaque',name:'Personal'}],
     importBrowserProfile:async id => { importedId = id; return {count:8,skipped:2}; }
   });
   await complete(() => view.scan(cx));
-  assert.equal(view.profiles[0].id,'profile-opaque');
-  await complete(() => view.import(view.profiles[0],cx));
+  assert.equal(view.profiles[1].id,'profile-opaque');
+  assert.equal(importedId,undefined);
+  await complete(() => view.import(view.profiles[1],cx));
   assert.equal(importedId,'profile-opaque');
   assert.equal(view.profiles,null);
-  assert.equal(view.message,null);assert.equal(notices.length,1);assert.equal(notices[0].message,'Imported 8 cookies, skipped 2');assert.equal(notices[0].kind,'info');
+  assert.equal(Object.hasOwn(view,'message'),false);assert.equal(notices.length,1);assert.equal(notices[0].message,'Imported 8 cookies, skipped 2');assert.equal(notices[0].kind,'info');
   assert.equal(view.busy,false);
   view.persist(false,cx);
   assert.equal(persisted,false);
@@ -153,5 +154,5 @@ test('profile errors clear busy state and retain localized failure meaning', asy
   await complete(() => view.scan(cx));
   assert.equal(view.busy,false);
   assert.equal(view.profiles,null);
-  assert.equal(view.message,null);assert.equal(notices.length,1);assert.equal(notices[0].message,messages('en').browser_chrome_key_denied);assert.equal(notices[0].kind,'error');
+  assert.equal(Object.hasOwn(view,'message'),false);assert.equal(notices.length,1);assert.equal(notices[0].message,messages('en').browser_chrome_key_denied);assert.equal(notices[0].kind,'error');
 });
