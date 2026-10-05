@@ -313,7 +313,7 @@ jobs:
 
   checks:
     name: Checks passed
-    if: always()
+    if: ${{ !cancelled() }}
     needs: [source, rust, mobile, android, ios]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
