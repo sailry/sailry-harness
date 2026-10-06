@@ -1,0 +1,54 @@
+name: Release changelog
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-changelog
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Record published release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name }}
+      - name: Update changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, pathlib, subprocess
+          repo = os.environ['GITHUB_REPOSITORY']
+          branch = subprocess.check_output(['gh', 'api', f'repos/{repo}', '--jq', '.default_branch'], text=True).strip()
+          current = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/contents/CHANGELOG.md?ref={branch}']))
+          pathlib.Path('CHANGELOG.md').write_bytes(base64.b64decode(current['content']))
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'changelog-sha').write_text(current['sha'])
+          PY
+          python3 scripts/release-notes.py --tag "$RELEASE_TAG" \
+            --repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --notes "$RUNNER_TEMP/release-notes.md" --changelog CHANGELOG.md
+          python3 - <<'PY'
+          import base64, json, os, pathlib, subprocess
+          repo = os.environ['GITHUB_REPOSITORY']
+          stage = pathlib.Path(os.environ['RUNNER_TEMP'])
+          payload = {'message': f"docs: update changelog for {os.environ['RELEASE_TAG']}",
+                     'sha': (stage / 'changelog-sha').read_text(),
+                     'content': base64.b64encode(pathlib.Path('CHANGELOG.md').read_bytes()).decode()}
+          result = subprocess.run(['gh', 'api', '--method', 'PUT', f'repos/{repo}/contents/CHANGELOG.md', '--input', '-'],
+                                  input=json.dumps(payload), capture_output=True, text=True)
+          if result.returncode:
+              raise SystemExit('Updating CHANGELOG.md failed; inspect the workflow before retrying')
+          print('CHANGELOG.md updated on the default branch')
+          PY

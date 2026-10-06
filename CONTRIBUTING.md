@@ -109,7 +109,7 @@ actual prerequisites and results separately. Screenshots are not a default gate.
 public-source fixtures, packaged JavaScript tests and the pairing service.
 Pushes and pull requests run only these source checks; they do not establish native
 or platform acceptance. Manually dispatch `Checks` for a final committed candidate
-before tagging a release, and reuse verified results while their relevant inputs
+before publishing a release, and reuse verified results while their relevant inputs
 remain unchanged. Candidate validation and source checks have separate concurrency
 groups, so a routine push does not cancel a candidate run.
 
@@ -169,7 +169,15 @@ Flutter run do not establish iOS or Android device acceptance.
 [The release workflow](.github/workflows/release.yml) runs only when a `v*` tag is
 pushed. The tag must match `apps/desktop/Cargo.toml`, such as `v0.1.0` for version
 `0.1.0`; branch pushes, pull requests and manual dispatch do not build releases.
-Publish a tag only when you intend to make a formal release. iOS and App Store
+A tag starts signed packaging into a draft, which can run alongside candidate
+validation. It does not publish an unverified candidate. Publish the draft only
+after the required candidate checks and all signed packages pass:
+
+```sh
+gh release edit v0.1.0-alpha.1 --draft=false
+```
+
+This changes visibility without rebuilding the packages. iOS and App Store
 publication are not part of this workflow.
 
 Configure these repository secrets through GitHub's encrypted secret storage:
@@ -211,14 +219,16 @@ Distribution signs nested native code inside out with hardened runtime and secur
 timestamps, submits Desktop and Host for notarization, staples Desktop's ticket,
 and verifies Gatekeeper before creating archives. Standalone executables cannot
 carry stapled tickets. Both native builds must succeed before GitHub publishes
-their ZIP/TAR packages and checksums.
+their ZIP/TAR packages and checksums in a release draft.
 
 Release notes are generated from the immutable tag's Git commits since the
-previous version tag. The same entry is prepended to [`CHANGELOG.md`](CHANGELOG.md)
-on the default branch automatically after publication; existing entries are
-preserved. Publishing needs `contents: write` and permission to update that file
-on the default branch. A failed changelog update is reported as a failed workflow,
-even if the release was already published; inspect that outcome before retrying.
+previous version tag. Publishing the draft triggers the separate
+[changelog workflow](.github/workflows/changelog.yml), which prepends the same
+entry to [`CHANGELOG.md`](CHANGELOG.md) on the default branch and preserves existing
+entries. Draft creation does not update the public changelog. Changelog updates
+need `contents: write` and permission to update that file on the default branch.
+A failed changelog update is reported as a failed workflow, even if the release
+was already published; inspect that outcome before retrying.
 
 ## Public source and history
 

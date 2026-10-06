@@ -248,7 +248,7 @@ jobs:
           PY
 
   publish:
-    name: GitHub release
+    name: GitHub release draft
     if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: [build, android]
     runs-on: ubuntu-24.04
@@ -264,20 +264,12 @@ jobs:
           pattern: packages-*
           path: packages
           merge-multiple: true
-      - name: Verify archives and publish
+      - name: Verify archives and create draft
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           (cd packages && sha256sum --check SHA256SUMS-*)
-          python3 - <<'PY'
-          import base64, json, os, pathlib, subprocess
-          repo = os.environ['GITHUB_REPOSITORY']
-          branch = subprocess.check_output(['gh', 'api', f'repos/{repo}', '--jq', '.default_branch'], text=True).strip()
-          current = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/contents/CHANGELOG.md?ref={branch}']))
-          pathlib.Path('CHANGELOG.md').write_bytes(base64.b64decode(current['content']))
-          pathlib.Path(os.environ['RUNNER_TEMP'], 'changelog-sha').write_text(current['sha'])
-          PY
           python3 scripts/release-notes.py --tag "$GITHUB_REF_NAME" \
             --repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --notes "$RUNNER_TEMP/release-notes.md" --changelog CHANGELOG.md
@@ -287,21 +279,8 @@ jobs:
           import versions
           tag = os.environ['GITHUB_REF_NAME']
           assets = sorted(str(file) for file in pathlib.Path('packages').iterdir() if file.is_file())
-          subprocess.run(['gh', 'release', 'create', tag, *assets, '--verify-tag',
+          subprocess.run(['gh', 'release', 'create', tag, *assets, '--verify-tag', '--draft',
                           '--title', f'Sailry Harness {tag[1:]}',
                           '--notes-file', str(pathlib.Path(os.environ['RUNNER_TEMP'], 'release-notes.md')),
                           *versions.release_flags(tag[1:])], check=True)
-          PY
-          python3 - <<'PY'
-          import base64, json, os, pathlib, subprocess
-          repo = os.environ['GITHUB_REPOSITORY']
-          stage = pathlib.Path(os.environ['RUNNER_TEMP'])
-          payload = {'message': f"docs: update changelog for {os.environ['GITHUB_REF_NAME']}",
-                     'sha': (stage / 'changelog-sha').read_text(),
-                     'content': base64.b64encode(pathlib.Path('CHANGELOG.md').read_bytes()).decode()}
-          result = subprocess.run(['gh', 'api', '--method', 'PUT', f'repos/{repo}/contents/CHANGELOG.md', '--input', '-'],
-                                  input=json.dumps(payload), capture_output=True, text=True)
-          if result.returncode:
-              raise SystemExit('Release published, but updating CHANGELOG.md failed; inspect the workflow before retrying')
-          print('CHANGELOG.md updated on the default branch')
           PY

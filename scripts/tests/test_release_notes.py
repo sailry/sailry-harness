@@ -81,8 +81,22 @@ class ReleaseNotes(unittest.TestCase):
         self.assertNotIn("branches:", trigger)
         self.assertNotIn("pull_request", trigger)
         self.assertIn("--notes-file", workflow)
-        self.assertIn("contents/CHANGELOG.md", workflow)
         self.assertNotIn("--generate-notes", workflow)
+
+    def test_packaging_keeps_release_private(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        self.assertIn("'--verify-tag', '--draft'", workflow)
+        self.assertNotIn("contents/CHANGELOG.md", workflow)
+
+    def test_changelog_waits_for_publication(self):
+        workflow = (ROOT / ".github/workflows/changelog.yml").read_text()
+        trigger = workflow.split("permissions:", 1)[0]
+        self.assertIn("types: [published]", trigger)
+        self.assertNotIn("created", trigger)
+        self.assertIn("ref: ${{ github.event.release.tag_name }}", workflow)
+        self.assertIn("contents/CHANGELOG.md", workflow)
+        self.assertIn("--tag \"$RELEASE_TAG\"", workflow)
+        self.assertNotIn("release', 'create'", workflow)
 
     def test_publishes_both_platforms_with_distribution_signing(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
