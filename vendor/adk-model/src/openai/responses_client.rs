@@ -4,12 +4,16 @@ use super::config::{OpenAIReasoningEffort, OpenAIResponsesConfig, ReasoningSumma
 use super::responses_convert;
 use crate::retry::{RetryConfig, execute_with_retry, is_retryable_model_error};
 use adk_core::{
-    AdkError, Content, ErrorCategory, ErrorComponent, Llm, LlmRequest, LlmResponse,
-    LlmResponseStream, Part,
+    AdkError, ErrorCategory, ErrorComponent, Llm, LlmRequest, LlmResponse, LlmResponseStream,
 };
 use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::StreamExt;
+
+#[path = "responses_stream.rs"]
+mod stream;
+
+use stream::StreamState;
 
 /// Client for the OpenAI Responses API (`/responses` endpoint).
 ///
@@ -42,80 +46,6 @@ pub struct OpenAIResponsesClient {
     /// When `true`, relaxes strict OpenAI field validation and allows
     /// connecting to Open Responses-compatible endpoints without an OpenAI API key.
     open_responses_mode: bool,
-}
-
-#[derive(Default)]
-struct StreamPhases {
-    commentary: std::collections::HashSet<String>,
-    native_tools: bool,
-}
-
-impl StreamPhases {
-    fn commentary(
-        &mut self,
-        event: &async_openai::types::responses::ResponseStreamEvent,
-    ) -> Option<LlmResponse> {
-        use async_openai::types::responses::{MessagePhase, OutputItem, ResponseStreamEvent};
-        match event {
-            ResponseStreamEvent::ResponseOutputItemAdded(event) => {
-                if let OutputItem::Message(message) = &event.item
-                    && message.phase == Some(MessagePhase::Commentary)
-                {
-                    self.commentary.insert(message.id.clone());
-                }
-                None
-            }
-            ResponseStreamEvent::ResponseOutputTextDelta(event)
-                if self.commentary.contains(&event.item_id) =>
-            {
-                Some(LlmResponse {
-                    content: Some(Content {
-                        role: "model".into(),
-                        parts: vec![Part::ServerToolCall {
-                            server_tool_call: serde_json::json!({
-                                "type": "message", "role": "assistant", "id": event.item_id,
-                                "phase": "commentary", "status": "in_progress",
-                                "content": [{"type": "output_text", "text": event.delta, "annotations": []}]
-                            }),
-                        }],
-                    }),
-                    partial: true,
-                    turn_complete: false,
-                    ..Default::default()
-                })
-            }
-            _ => None,
-        }
-    }
-
-    fn complete(&self, mut response: LlmResponse) -> LlmResponse {
-        if self.commentary.is_empty() && !self.native_tools {
-            return completed_stream_response(response);
-        }
-        // The final native messages replace their streamed fragments in history.
-        response.provider_metadata.get_or_insert_with(|| serde_json::json!({}))["content_complete"] =
-            serde_json::json!(true);
-        response
-    }
-}
-
-fn completed_stream_response(full: LlmResponse) -> LlmResponse {
-    let trailing_parts = full
-        .content
-        .as_ref()
-        .map(|content| {
-            content
-                .parts
-                .iter()
-                .filter(|part| !matches!(part, Part::Text { .. } | Part::Thinking { .. }))
-                .cloned()
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let content = (!trailing_parts.is_empty())
-        .then_some(Content { role: "model".to_string(), parts: trailing_parts });
-
-    LlmResponse { content, partial: false, turn_complete: true, ..full }
 }
 
 impl OpenAIResponsesClient {
@@ -827,54 +757,23 @@ impl Llm for OpenAIResponsesClient {
                 })
                 .await?;
 
-            let mut phases = StreamPhases { native_tools, ..Default::default() };
+            let mut state = StreamState::new(native_tools);
             let response_stream = event_stream.filter_map(move |event_result| {
                 futures::future::ready(match event_result {
                     Ok(event) => {
-                        if let Some(response) = phases.commentary(&event) {
+                        if let Some(response) = state.partial(&event) {
                             return futures::future::ready(Some(Ok(response)));
                         }
                         use async_openai::types::responses::ResponseStreamEvent;
                         match event {
-                            ResponseStreamEvent::ResponseOutputTextDelta(evt) => {
-                                Some(Ok(LlmResponse {
-                                    content: Some(Content {
-                                        role: "model".to_string(),
-                                        parts: vec![Part::Text { text: evt.delta }],
-                                    }),
-                                    partial: true,
-                                    turn_complete: false,
-                                    ..Default::default()
-                                }))
-                            }
-
-                            ResponseStreamEvent::ResponseReasoningSummaryTextDelta(evt) => {
-                                Some(Ok(LlmResponse {
-                                    content: Some(Content {
-                                        role: "model".to_string(),
-                                        parts: vec![Part::Thinking {
-                                            thinking: evt.delta,
-                                            signature: None,
-                                        }],
-                                    }),
-                                    partial: true,
-                                    turn_complete: false,
-                                    ..Default::default()
-                                }))
-                            }
-
                             // ResponseCompleted carries the authoritative response with
-                            // correct function call names, usage, and finish reason.
-                            // We extract only function calls (text was already streamed
-                            // via delta events) and mark the turn complete.
+                            // final output, function calls, usage, and finish reason.
                             ResponseStreamEvent::ResponseCompleted(evt) => {
-                                let full = responses_convert::from_response(&evt.response);
-                                Some(Ok(phases.complete(full)))
+                                Some(Ok(state.complete(&evt.response)))
                             }
 
                             ResponseStreamEvent::ResponseIncomplete(evt) => {
-                                let full = responses_convert::from_response(&evt.response);
-                                Some(Ok(phases.complete(full)))
+                                Some(Ok(state.complete(&evt.response)))
                             }
 
                             ResponseStreamEvent::ResponseFailed(evt) => {
@@ -904,10 +803,7 @@ impl Llm for OpenAIResponsesClient {
 
                             // Lifecycle and native-tool events are stream activity even before
                             // text is available. Consumers may suppress empty partial output.
-                            _ => Some(Ok(LlmResponse {
-                                partial: true,
-                                ..Default::default()
-                            })),
+                            _ => Some(Ok(LlmResponse { partial: true, ..Default::default() })),
                         }
                     }
                     Err(e) => Some(Err(map_openai_error(e))),
@@ -953,10 +849,20 @@ impl Llm for OpenAIResponsesClient {
 mod tests {
     use super::*;
     use crate::openai::config::OpenAIResponsesConfig;
+    use adk_core::Part;
     use async_openai::error::{ApiError, ApiErrorResponse, OpenAIError};
     use serde_json::json;
 
     const FIRST_ARGUMENTS: &str = r#"{"path":"first.txt"}"#;
+
+    fn completed(output: serde_json::Value) -> async_openai::types::responses::Response {
+        serde_json::from_value(json!({
+            "id": "resp_test", "object": "response", "created_at": 0,
+            "model": "test-model", "status": "completed", "output": output
+        }))
+        .unwrap()
+    }
+
     fn stream_with_first_call() -> OpenResponsesStreamState {
         let mut state = OpenResponsesStreamState::default();
         state.normalize_event(&mut json!({"type":"response.output_item.added", "output_index":0,
@@ -968,35 +874,57 @@ mod tests {
         state
     }
     #[test]
-    fn commentary_is_delivered_and_replaced_by_final_content() {
-        let mut phases = StreamPhases::default();
+    fn commentary_replaces_native_fragments() {
+        let mut state = StreamState::default();
         let added = serde_json::from_value(serde_json::json!({
             "type":"response.output_item.added", "sequence_number":0, "output_index":0,
             "item":{"type":"message", "id":"msg", "role":"assistant", "status":"in_progress",
                     "phase":"commentary", "content":[]}
         }))
         .unwrap();
-        assert!(phases.commentary(&added).is_none());
+        assert!(state.partial(&added).is_none());
         let delta = serde_json::from_value(serde_json::json!({
             "type":"response.output_text.delta", "sequence_number":1, "item_id":"msg",
             "output_index":0, "content_index":0, "delta":"Checking", "logprobs":[]
         }))
         .unwrap();
-        let response = phases.commentary(&delta).unwrap();
+        let response = state.partial(&delta).unwrap();
         let Part::ServerToolCall { server_tool_call } = &response.content.unwrap().parts[0] else {
             panic!("native message expected");
         };
         assert_eq!(server_tool_call["phase"], "commentary");
         assert_eq!(server_tool_call["content"][0]["text"], "Checking");
-        let content =
-            Content { role: "model".into(), parts: vec![Part::Text { text: "Done".into() }] };
-        let final_response =
-            phases.complete(LlmResponse { content: Some(content.clone()), ..Default::default() });
+        let response = completed(json!([
+            {"type":"message", "id":"msg", "role":"assistant", "status":"completed",
+                "phase":"commentary", "content":[{"type":"output_text", "text":"Checking", "annotations":[]}]},
+            {"type":"message", "id":"answer", "role":"assistant", "status":"completed",
+                "content":[{"type":"output_text", "text":"Done", "annotations":[]}]}
+        ]));
+        let final_response = state.complete(&response);
         assert_eq!(
             serde_json::to_value(final_response.content).unwrap(),
-            serde_json::to_value(Some(content)).unwrap()
+            serde_json::to_value(responses_convert::from_response(&response).content).unwrap()
         );
         assert_eq!(final_response.provider_metadata.unwrap()["content_complete"], true);
+    }
+
+    #[test]
+    fn native_tools_keep_final_snapshot() {
+        let mut state = StreamState::new(true);
+        state.partial(
+            &serde_json::from_value(json!({
+                "type":"response.output_text.delta", "sequence_number":1, "item_id":"msg",
+                "output_index":0, "content_index":0, "delta":"Answer"
+            }))
+            .unwrap(),
+        );
+        let response = completed(json!([{
+            "type":"message", "id":"msg", "role":"assistant", "status":"completed",
+            "content":[{"type":"output_text", "text":"Answer", "annotations":[]}]
+        }]));
+        let final_response = state.complete(&response);
+        assert_eq!(final_response.provider_metadata.unwrap()["content_complete"], true);
+        assert_eq!(final_response.content.unwrap().parts, [Part::Text { text: "Answer".into() }]);
     }
 
     #[test]
@@ -1122,16 +1050,16 @@ mod tests {
     }
 
     #[test]
-    fn completed_stream_response_preserves_errors() {
-        let full = LlmResponse {
-            error_code: Some("model.openai_responses.invalid_tool_arguments".to_string()),
-            error_message: Some("invalid function arguments".to_string()),
-            ..Default::default()
-        };
-        let expected = LlmResponse { turn_complete: true, ..full.clone() };
+    fn final_arguments_preserve_errors() {
+        let response = completed(json!([{
+            "type":"function_call", "id":"fc", "call_id":"call", "name":"read_file",
+            "arguments":"{invalid", "status":"completed"
+        }]));
+        let expected = responses_convert::from_response(&response);
+        assert!(expected.error_code.is_some());
 
         assert_eq!(
-            serde_json::to_value(completed_stream_response(full)).unwrap(),
+            serde_json::to_value(StreamState::default().complete(&response)).unwrap(),
             serde_json::to_value(expected).unwrap()
         );
     }
@@ -1223,23 +1151,23 @@ mod tests {
     }
 
     #[test]
-    fn completed_stream_response_preserves_citations() {
-        let full = LlmResponse {
-            content: Some(Content::new("model").with_text("answer")),
-            citation_metadata: Some(adk_core::CitationMetadata {
-                citation_sources: vec![adk_core::CitationSource {
-                    uri: Some("https://example.test".to_string()),
-                    title: Some("Example".to_string()),
-                    start_index: Some(0),
-                    end_index: Some(6),
-                    license: None,
-                    publication_date: None,
-                }],
-            }),
-            ..Default::default()
-        };
-
-        let completed = completed_stream_response(full);
+    fn final_text_preserves_citations() {
+        let response = completed(json!([{
+            "type":"message", "id":"msg", "role":"assistant", "status":"completed",
+            "content":[{"type":"output_text", "text":"answer", "annotations":[{
+                "type":"url_citation", "url":"https://example.test", "title":"Example",
+                "start_index":0, "end_index":6
+            }]}]
+        }]));
+        let mut state = StreamState::default();
+        state.partial(
+            &serde_json::from_value(json!({
+                "type":"response.output_text.delta", "sequence_number":1, "item_id":"msg",
+                "output_index":0, "content_index":0, "delta":"answer"
+            }))
+            .unwrap(),
+        );
+        let completed = state.complete(&response);
 
         assert!(completed.content.is_none());
         assert_eq!(

@@ -22,8 +22,63 @@ fn completion(output: Value) -> Value {
     })
 }
 
+fn message(id: &str, content: Value) -> Value {
+    json!({
+        "type":"message", "id":id, "role":"assistant", "status":"completed", "content":content
+    })
+}
+
+fn text(text: &str) -> Value {
+    json!({"type":"output_text", "text":text, "annotations":[]})
+}
+
+fn delta(id: &str, output_index: u32, content_index: u32, text: &str) -> Value {
+    json!({
+        "type":"response.output_text.delta", "sequence_number":1, "item_id":id,
+        "output_index":output_index, "content_index":content_index, "delta":text
+    })
+}
+
+fn done(id: &str, output_index: u32, content_index: u32, text: &str) -> Value {
+    json!({
+        "type":"response.output_text.done", "sequence_number":2, "item_id":id,
+        "output_index":output_index, "content_index":content_index, "text":text, "logprobs":[]
+    })
+}
+
+fn text_parts(results: &[LlmResponse]) -> Vec<&str> {
+    results
+        .iter()
+        .filter_map(|response| response.content.as_ref())
+        .flat_map(|content| &content.parts)
+        .filter_map(|part| if let Part::Text { text } = part { Some(text.as_str()) } else { None })
+        .collect()
+}
+
 async fn responses(events: &[Value], open_responses_mode: bool, prefix: &str) -> Vec<LlmResponse> {
-    try_responses(events, open_responses_mode, prefix).await.expect("SSE events must deserialize")
+    let results = try_responses(events, open_responses_mode, prefix)
+        .await
+        .expect("SSE events must deserialize");
+    assert_eq!(results.iter().filter(|response| response.turn_complete).count(), 1);
+    results
+        .into_iter()
+        // Lifecycle activity is independent of these content/terminal assertions.
+        .filter(|response| !empty_activity(response))
+        .collect()
+}
+
+fn empty_activity(response: &LlmResponse) -> bool {
+    response.partial
+        && !response.turn_complete
+        && !response.interrupted
+        && response.content.is_none()
+        && response.error_code.is_none()
+        && response.error_message.is_none()
+        && response.usage_metadata.is_none()
+        && response.finish_reason.is_none()
+        && response.citation_metadata.is_none()
+        && response.provider_metadata.is_none()
+        && response.interaction_id.is_none()
 }
 
 async fn try_responses(
@@ -211,4 +266,660 @@ async fn compatible_stream_restores_only_the_matching_tools_arguments() {
             },
         ]
     );
+}
+
+mod text_recovery {
+    use super::*;
+
+    #[tokio::test]
+    async fn completed_text_without_deltas() {
+        for compatible in [false, true] {
+            let results = responses(
+                &[completion(json!([
+                    message("first", json!([text("First")])),
+                    message("second", json!([text("Second")]))
+                ]))],
+                compatible,
+                "",
+            )
+            .await;
+            assert_eq!(results.len(), 1);
+            assert_eq!(text_parts(&results), ["First", "Second"]);
+            assert!(!results[0].partial);
+            assert!(results[0].turn_complete);
+            assert_eq!(results[0].usage_metadata.as_ref().unwrap().total_token_count, 120);
+        }
+    }
+
+    #[tokio::test]
+    async fn done_text_without_completed_content() {
+        for compatible in [false, true] {
+            let results =
+                responses(&[done("msg", 0, 0, "Recovered"), completion(json!([]))], compatible, "")
+                    .await;
+            assert_eq!(text_parts(&results), ["Recovered"]);
+            assert!(results[0].partial);
+            assert!(results.last().unwrap().turn_complete);
+        }
+    }
+
+    #[tokio::test]
+    async fn partial_text_from_each_final_event() {
+        let item = message("msg", json!([text("前后")]));
+        for compatible in [false, true] {
+            for final_event in [
+                done("msg", 0, 0, "前后"),
+                json!({"type":"response.content_part.done", "sequence_number":2,
+                    "item_id":"msg", "output_index":0, "content_index":0, "part":text("前后")}),
+                json!({"type":"response.output_item.done", "sequence_number":2,
+                    "output_index":0, "item":item}),
+                completion(json!([item])),
+            ] {
+                let mut events = vec![delta("msg", 0, 0, "前")];
+                let terminal = final_event["type"] == "response.completed";
+                events.push(final_event);
+                if !terminal {
+                    events.push(completion(json!([item])));
+                }
+                let results = responses(&events, compatible, "").await;
+                assert_eq!(text_parts(&results), ["前", "后"]);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn repeated_final_events_do_not_duplicate() {
+        for compatible in [false, true] {
+            let item = message("msg", json!([text("Answer")]));
+            let results = responses(
+                &[
+                    delta("msg", 0, 0, "Answer"),
+                    done("msg", 0, 0, "Answer"),
+                    done("msg", 0, 0, "Answer"),
+                    json!({"type":"response.content_part.done", "sequence_number":3,
+                    "item_id":"msg", "output_index":0, "content_index":0, "part":text("Answer")}),
+                    json!({"type":"response.output_item.done", "sequence_number":4,
+                    "output_index":0, "item":item}),
+                    completion(json!([item])),
+                ],
+                compatible,
+                "",
+            )
+            .await;
+            assert_eq!(text_parts(&results), ["Answer"]);
+            assert!(results.last().unwrap().content.is_none());
+            assert_eq!(
+                results
+                    .last()
+                    .unwrap()
+                    .usage_metadata
+                    .as_ref()
+                    .unwrap()
+                    .cache_read_input_token_count,
+                Some(42)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn items_and_parts_are_independent() {
+        for compatible in [false, true] {
+            let first = message("first", json!([text("First"), text("Second")]));
+            let second = message("second", json!([text("Third")]));
+            let results = responses(
+                &[
+                    delta("first", 0, 0, "First"),
+                    json!({"type":"response.output_item.done", "sequence_number":2,
+                    "output_index":0, "item":first}),
+                    done("second", 1, 0, "Third"),
+                    completion(json!([first, second])),
+                ],
+                compatible,
+                "",
+            )
+            .await;
+            assert_eq!(text_parts(&results), ["First", "Second", "Third"]);
+        }
+    }
+
+    #[tokio::test]
+    async fn repeated_message_ids_remain_distinct() {
+        for compatible in [false, true] {
+            let results = responses(
+                &[
+                    delta("msg", 0, 0, "First"),
+                    completion(json!([
+                        message("msg", json!([text("First")])),
+                        message("msg", json!([text("Second")]))
+                    ])),
+                ],
+                compatible,
+                "",
+            )
+            .await;
+            assert_eq!(text_parts(&results), ["First", "Second"]);
+        }
+    }
+
+    #[tokio::test]
+    async fn corrected_text_replaces_prior_deltas() {
+        for compatible in [false, true] {
+            let results = responses(
+                &[
+                    delta("msg", 0, 0, "Draft"),
+                    done("msg", 0, 0, "Final"),
+                    completion(json!([message("msg", json!([text("Final")]))])),
+                ],
+                compatible,
+                "",
+            )
+            .await;
+            assert_eq!(text_parts(&results), ["Draft", "Final"]);
+            let final_response = results.last().unwrap();
+            assert_eq!(
+                final_response.provider_metadata.as_ref().unwrap()["content_complete"],
+                true
+            );
+            assert_eq!(
+                final_response.content.as_ref().unwrap().parts,
+                [Part::Text { text: "Final".into() }]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_empty_correction_clears_prior_text() {
+        for compatible in [false, true] {
+            let results = responses(
+                &[delta("msg", 0, 0, "Draft"), done("msg", 0, 0, ""), completion(json!([]))],
+                compatible,
+                "",
+            )
+            .await;
+            let final_response = results.last().unwrap();
+            assert_eq!(
+                final_response.provider_metadata.as_ref().unwrap()["content_complete"],
+                true
+            );
+            assert!(final_response.content.as_ref().unwrap().parts.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn done_correction_survives_omitted_completed_output() {
+        for compatible in [false, true] {
+            let results = responses(
+                &[delta("msg", 0, 0, "Draft"), done("msg", 0, 0, "Final"), completion(json!([]))],
+                compatible,
+                "",
+            )
+            .await;
+            let final_response = results.last().unwrap();
+            assert_eq!(
+                final_response.provider_metadata.as_ref().unwrap()["content_complete"],
+                true
+            );
+            assert_eq!(
+                final_response.content.as_ref().unwrap().parts,
+                [Part::Text { text: "Final".into() }]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_completed_empty_text_supersedes_done() {
+        for compatible in [false, true] {
+            let results = responses(
+                &[
+                    done("msg", 0, 0, "Draft"),
+                    completion(json!([message("msg", json!([text("")]))])),
+                ],
+                compatible,
+                "",
+            )
+            .await;
+            let final_response = results.last().unwrap();
+            assert_eq!(
+                final_response.provider_metadata.as_ref().unwrap()["content_complete"],
+                true
+            );
+            assert!(final_response.content.as_ref().unwrap().parts.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn unfinished_deltas_are_not_final_answers() {
+        for compatible in [false, true] {
+            let results =
+                responses(&[delta("msg", 0, 0, "Draft"), completion(json!([]))], compatible, "")
+                    .await;
+            let final_response = results.last().unwrap();
+            assert_eq!(
+                final_response.provider_metadata.as_ref().unwrap()["content_complete"],
+                true
+            );
+            assert!(final_response.content.as_ref().unwrap().parts.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn finalized_parts_drop_unfinished_deltas() {
+        for compatible in [false, true] {
+            let results = responses(
+                &[
+                    delta("msg", 0, 0, "Kept"),
+                    done("msg", 0, 0, "Kept"),
+                    delta("msg", 0, 1, "Draft"),
+                    completion(json!([])),
+                ],
+                compatible,
+                "",
+            )
+            .await;
+            let final_response = results.last().unwrap();
+            assert_eq!(
+                final_response.provider_metadata.as_ref().unwrap()["content_complete"],
+                true
+            );
+            assert_eq!(
+                final_response.content.as_ref().unwrap().parts,
+                [Part::Text { text: "Kept".into() }]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn empty_content_clears_prior_parts() {
+        for compatible in [false, true] {
+            for initial in [delta("msg", 0, 0, "Draft"), done("msg", 0, 0, "Draft")] {
+                let results = responses(
+                    &[initial, completion(json!([message("msg", json!([]))]))],
+                    compatible,
+                    "",
+                )
+                .await;
+                let final_response = results.last().unwrap();
+                assert_eq!(
+                    final_response.provider_metadata.as_ref().unwrap()["content_complete"],
+                    true
+                );
+                assert!(final_response.content.as_ref().unwrap().parts.is_empty());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_final_items_clear_unfinished_text() {
+        for compatible in [false, true] {
+            let results = responses(
+                &[
+                    delta("msg", 0, 0, "Draft"),
+                    completion(json!([{"type":"reasoning", "id":"rs", "summary":[
+                        {"type":"summary_text", "text":"Thinking"}
+                    ]}])),
+                ],
+                compatible,
+                "",
+            )
+            .await;
+            let final_response = results.last().unwrap();
+            assert_eq!(
+                final_response.provider_metadata.as_ref().unwrap()["content_complete"],
+                true
+            );
+            assert_eq!(
+                final_response.content.as_ref().unwrap().parts,
+                [Part::Thinking { thinking: "Thinking".into(), signature: None }]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn recovered_parts_keep_authoritative_order() {
+        for compatible in [false, true] {
+            for (initial, output) in [
+                (
+                    delta("msg", 0, 1, "Second"),
+                    json!([message("msg", json!([text("First"), text("Second")]))]),
+                ),
+                (
+                    delta("second", 1, 0, "Second"),
+                    json!([
+                        message("first", json!([text("First")])),
+                        message("second", json!([text("Second")]))
+                    ]),
+                ),
+            ] {
+                let results = responses(&[initial, completion(output)], compatible, "").await;
+                let final_response = results.last().unwrap();
+                assert_eq!(
+                    final_response.provider_metadata.as_ref().unwrap()["content_complete"],
+                    true
+                );
+                assert_eq!(
+                    final_response.content.as_ref().unwrap().parts,
+                    [Part::Text { text: "First".into() }, Part::Text { text: "Second".into() }]
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn late_suffix_keeps_authoritative_order() {
+        for compatible in [false, true] {
+            let results = responses(
+                &[
+                    delta("msg", 0, 0, "F"),
+                    delta("msg", 0, 1, "Second"),
+                    done("msg", 0, 0, "First"),
+                    completion(json!([message("msg", json!([text("First"), text("Second")]))])),
+                ],
+                compatible,
+                "",
+            )
+            .await;
+            let final_response = results.last().unwrap();
+            assert_eq!(
+                final_response.provider_metadata.as_ref().unwrap()["content_complete"],
+                true
+            );
+            assert_eq!(
+                final_response.content.as_ref().unwrap().parts,
+                [Part::Text { text: "First".into() }, Part::Text { text: "Second".into() }]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn delta_order_matches_final_content() {
+        for compatible in [false, true] {
+            for (mut events, output) in [
+                (
+                    vec![
+                        delta("msg", 0, 0, "F"),
+                        delta("msg", 0, 1, "Second"),
+                        delta("msg", 0, 0, "irst"),
+                    ],
+                    json!([message("msg", json!([text("First"), text("Second")]))]),
+                ),
+                (
+                    vec![delta("second", 1, 0, "Second"), delta("first", 0, 0, "First")],
+                    json!([
+                        message("first", json!([text("First")])),
+                        message("second", json!([text("Second")]))
+                    ]),
+                ),
+            ] {
+                events.push(completion(output));
+                let results = responses(&events, compatible, "").await;
+                let final_response = results.last().unwrap();
+                assert_eq!(
+                    final_response.provider_metadata.as_ref().unwrap()["content_complete"],
+                    true
+                );
+                assert_eq!(
+                    final_response.content.as_ref().unwrap().parts,
+                    [Part::Text { text: "First".into() }, Part::Text { text: "Second".into() }]
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn compatible_missing_ids_replace_fragments() {
+        let results = responses(
+            &[
+                delta("msg", 0, 0, "Answer"),
+                completion(
+                    json!([{"type":"message", "role":"assistant", "content":[text("Answer")]}]),
+                ),
+            ],
+            true,
+            "",
+        )
+        .await;
+        let final_response = results.last().unwrap();
+        assert_eq!(final_response.provider_metadata.as_ref().unwrap()["content_complete"], true);
+        assert_eq!(
+            final_response.content.as_ref().unwrap().parts,
+            [Part::Text { text: "Answer".into() }]
+        );
+    }
+
+    #[tokio::test]
+    async fn final_suffix_keeps_citation_offsets() {
+        for compatible in [false, true] {
+            let results = responses(&[
+                delta("msg", 0, 0, "First"),
+                completion(json!([message("msg", json!([{
+                    "type":"output_text", "text":"First tail", "annotations":[{
+                        "type":"url_citation", "url":"https://example.test", "title":"Example",
+                        "start_index":6, "end_index":10
+                    }]
+                }]))])),
+            ], compatible, "").await;
+            assert_eq!(text_parts(&results), ["First", " tail"]);
+            let citation =
+                &results.last().unwrap().citation_metadata.as_ref().unwrap().citation_sources[0];
+            assert_eq!(citation.start_index, Some(6));
+            assert_eq!(citation.end_index, Some(10));
+        }
+    }
+
+    #[tokio::test]
+    async fn incomplete_text_is_recovered() {
+        for compatible in [false, true] {
+            let mut final_event =
+                completion(json!([message("msg", json!([text("Partial answer")]))]));
+            final_event["type"] = "response.incomplete".into();
+            final_event["response"]["status"] = "incomplete".into();
+            final_event["response"]["incomplete_details"] = json!({"reason":"max_output_tokens"});
+            let results = responses(&[final_event], compatible, "").await;
+            assert_eq!(text_parts(&results), ["Partial answer"]);
+            assert!(results[0].turn_complete);
+            assert_eq!(results[0].finish_reason, Some(adk_core::FinishReason::MaxTokens));
+        }
+    }
+}
+
+mod refusal_recovery {
+    use super::*;
+
+    #[tokio::test]
+    async fn completed_refusal_is_visible() {
+        for compatible in [false, true] {
+            let results = responses(
+                &[completion(json!([message(
+                    "msg",
+                    json!([
+                        {"type":"refusal", "refusal":"I cannot help with that"}
+                    ])
+                )]))],
+                compatible,
+                "",
+            )
+            .await;
+            assert_eq!(text_parts(&results), ["I cannot help with that"]);
+            assert!(!results[0].partial);
+        }
+    }
+
+    #[tokio::test]
+    async fn repeated_refusal_payloads_emit_only_suffixes() {
+        for compatible in [false, true] {
+            let refusal = json!({"type":"refusal", "refusal":"I cannot help"});
+            let item = message("msg", json!([refusal]));
+            let results = responses(&[
+                json!({"type":"response.refusal.delta", "sequence_number":1,
+                    "item_id":"msg", "output_index":0, "content_index":0, "delta":"I cannot"}),
+                json!({"type":"response.refusal.done", "sequence_number":2,
+                    "item_id":"msg", "output_index":0, "content_index":0, "refusal":"I cannot help"}),
+                json!({"type":"response.content_part.done", "sequence_number":3,
+                    "item_id":"msg", "output_index":0, "content_index":0, "part":refusal}),
+                json!({"type":"response.output_item.done", "sequence_number":4,
+                    "output_index":0, "item":item}),
+                completion(json!([item])),
+            ], compatible, "").await;
+            assert_eq!(text_parts(&results), ["I cannot", " help"]);
+        }
+    }
+
+    #[tokio::test]
+    async fn following_text_keeps_citation_offsets() {
+        for compatible in [false, true] {
+            let results = responses(
+                &[completion(json!([message(
+                    "msg",
+                    json!([
+                        {"type":"refusal", "refusal":"Cannot"},
+                        {"type":"output_text", "text":"Details", "annotations":[{
+                            "type":"url_citation", "url":"https://example.test", "title":"Example",
+                            "start_index":0, "end_index":7
+                        }]}
+                    ])
+                )]))],
+                compatible,
+                "",
+            )
+            .await;
+            assert_eq!(text_parts(&results), ["Cannot", "Details"]);
+            let citation = &results[0].citation_metadata.as_ref().unwrap().citation_sources[0];
+            assert_eq!(citation.start_index, Some(6));
+            assert_eq!(citation.end_index, Some(13));
+        }
+    }
+}
+
+mod reasoning_recovery {
+    use super::*;
+
+    #[tokio::test]
+    async fn summaries_emit_only_unseen_text() {
+        for compatible in [false, true] {
+            let item = json!({"type":"reasoning", "id":"rs", "status":"completed", "summary":[
+                {"type":"summary_text", "text":"Thinking"},
+                {"type":"summary_text", "text":"More"}
+            ]});
+            let results = responses(
+                &[
+                    json!({"type":"response.reasoning_summary_text.delta", "sequence_number":1,
+                    "item_id":"rs", "output_index":0, "summary_index":0, "delta":"Think"}),
+                    json!({"type":"response.reasoning_summary_text.done", "sequence_number":2,
+                    "item_id":"rs", "output_index":0, "summary_index":0, "text":"Thinking"}),
+                    json!({"type":"response.reasoning_summary_part.done", "sequence_number":3,
+                    "item_id":"rs", "output_index":0, "summary_index":0,
+                    "part":{"type":"summary_text", "text":"Thinking"}}),
+                    json!({"type":"response.output_item.done", "sequence_number":4,
+                    "output_index":0, "item":item}),
+                    completion(json!([item, message("msg", json!([text("Answer")]))])),
+                ],
+                compatible,
+                "",
+            )
+            .await;
+            let thinking = results
+                .iter()
+                .filter_map(|response| response.content.as_ref())
+                .flat_map(|content| &content.parts)
+                .filter_map(|part| {
+                    if let Part::Thinking { thinking, .. } = part {
+                        Some(thinking.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(thinking, ["Think", "ing", "More"]);
+            assert_eq!(text_parts(&results), ["Answer"]);
+        }
+    }
+
+    #[tokio::test]
+    async fn completed_summary_without_deltas() {
+        for compatible in [false, true] {
+            let results = responses(&[completion(json!([
+                {"type":"reasoning", "id":"rs", "summary":[{"type":"summary_text", "text":"Thinking"}]},
+                message("msg", json!([text("Answer")]))
+            ]))], compatible, "").await;
+            assert_eq!(
+                results[0].content.as_ref().unwrap().parts,
+                [
+                    Part::Thinking { thinking: "Thinking".into(), signature: None },
+                    Part::Text { text: "Answer".into() }
+                ]
+            );
+        }
+    }
+}
+
+mod stream_activity {
+    use super::*;
+
+    #[tokio::test]
+    async fn keeps_empty_tool_activity() {
+        for compatible in [false, true] {
+            let item = json!({"type":"function_call", "id":"fc", "call_id":"call",
+                "name":"read_file", "arguments":r#"{"path":"first.txt"}"#, "status":"completed"});
+            let results = try_responses(
+                &[
+                    json!({"type":"response.output_item.added", "sequence_number":1,
+                    "output_index":0, "item":item}),
+                    json!({"type":"response.function_call_arguments.delta", "sequence_number":2,
+                    "output_index":0, "item_id":"fc", "delta":r#"{"path":"first.txt"}"#}),
+                    completion(json!([item])),
+                ],
+                compatible,
+                "",
+            )
+            .await
+            .unwrap();
+            assert_eq!(results.len(), 3);
+            assert!(empty_activity(&results[0]));
+            assert!(empty_activity(&results[1]));
+            assert!(results[2].turn_complete);
+            assert_eq!(
+                results[2].content.as_ref().unwrap().parts,
+                [Part::FunctionCall {
+                    id: Some("call".into()),
+                    name: "read_file".into(),
+                    args: json!({"path":"first.txt"}),
+                    thought_signature: None
+                }]
+            );
+        }
+    }
+}
+
+mod commentary_recovery {
+    use super::*;
+
+    #[tokio::test]
+    async fn omitted_output_groups_finalized_parts() {
+        for compatible in [false, true] {
+            let results = responses(&[
+                json!({"type":"response.output_item.added", "sequence_number":0, "output_index":0,
+                    "item":{"type":"message", "id":"msg", "role":"assistant", "status":"in_progress",
+                        "phase":"commentary", "content":[]}}),
+                delta("msg", 0, 0, "Check"), done("msg", 0, 0, "Checking"),
+                done("msg", 0, 1, "More"), completion(json!([])),
+            ], compatible, "").await;
+            let final_response = results.last().unwrap();
+            assert_eq!(
+                final_response.provider_metadata.as_ref().unwrap()["content_complete"],
+                true
+            );
+            let parts = &final_response.content.as_ref().unwrap().parts;
+            assert_eq!(parts.len(), 1);
+            let Part::ServerToolCall { server_tool_call } = &parts[0] else {
+                panic!("commentary remains a native message");
+            };
+            assert_eq!(
+                server_tool_call,
+                &json!({
+                    "type":"message", "id":"msg", "role":"assistant", "status":"completed", "phase":"commentary",
+                    "content":[text("Checking"), text("More")]
+                })
+            );
+        }
+    }
 }

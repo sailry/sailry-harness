@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 pub(super) use crate::agent_fixture as support;
 
 mod compaction;
+mod completion;
 mod configuration;
 mod context;
 mod files;

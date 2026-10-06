@@ -611,7 +611,13 @@ pub fn from_response(response: &Response) -> LlmResponse {
             continue;
         }
         for content in &message.content {
-            let OutputMessageContent::OutputText(text) = content else { continue };
+            let text = match content {
+                OutputMessageContent::OutputText(text) => text,
+                OutputMessageContent::Refusal(refusal) => {
+                    offset += refusal.refusal.chars().count();
+                    continue;
+                }
+            };
             let length = text.text.chars().count();
             for annotation in &text.annotations {
                 let Annotation::UrlCitation(citation) = annotation else { continue };
@@ -662,7 +668,7 @@ pub fn from_response(response: &Response) -> LlmResponse {
 
 /// Convert a single `OutputItem` to zero or more ADK `Part`s.
 ///
-/// - `Message` → `Part::Text` for each non-empty text content
+/// - `Message` → `Part::Text` for each non-empty text or refusal
 /// - `Reasoning` → `Part::Thinking` with concatenated summary text
 /// - `FunctionCall` → `Part::FunctionCall` with parsed JSON args
 /// - Other variants (WebSearchCall, FileSearchCall, etc.) → empty vec (handled in provider_metadata)
@@ -685,6 +691,9 @@ fn output_item_to_parts(item: &OutputItem) -> Result<Vec<Part>, String> {
             .filter_map(|c| match c {
                 OutputMessageContent::OutputText(t) if !t.text.is_empty() => {
                     Some(Part::Text { text: t.text.clone() })
+                }
+                OutputMessageContent::Refusal(r) if !r.refusal.is_empty() => {
+                    Some(Part::Text { text: r.refusal.clone() })
                 }
                 _ => None,
             })

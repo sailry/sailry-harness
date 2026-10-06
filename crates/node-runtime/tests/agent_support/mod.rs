@@ -61,6 +61,8 @@ enum Reply {
     },
     WebSearch(Option<Arc<tokio::sync::Notify>>),
     Phases(Option<(String, Value)>),
+    EmptyAfterTool,
+    EmptyResponse,
     Text {
         slow: bool,
     },
@@ -90,6 +92,14 @@ impl Server {
 
     pub async fn phases() -> Self {
         Self::serve(Reply::Phases(None)).await
+    }
+
+    pub async fn empty_after_tool() -> Self {
+        Self::serve(Reply::EmptyAfterTool).await
+    }
+
+    pub async fn empty_response() -> Self {
+        Self::serve(Reply::EmptyResponse).await
     }
 
     pub async fn staged(gates: Vec<Arc<tokio::sync::Notify>>) -> Self {
@@ -423,6 +433,10 @@ async fn respond(
         return terminal::respond(stream, &body, responses).await;
     }
     if responses {
+        if matches!(reply, Reply::EmptyAfterTool) {
+            records.lock().unwrap().push(body.clone());
+            return phases::respond_empty(stream, &body).await;
+        }
         if let Reply::Phases(tool) = reply {
             records.lock().unwrap().push(body.clone());
             return phases::respond(stream, &body, tool).await;
@@ -453,6 +467,8 @@ async fn respond(
         if matches!(reply, Reply::Reasoning) {
             event["response"]["output"] = json!([{"type":"reasoning", "id":"thinking-fixture", "summary":[
                 {"type":"summary_text","text":"Retained reasoning without a final answer"}]}]);
+        } else if matches!(reply, Reply::EmptyResponse) {
+            event["response"]["output"] = json!([]);
         }
         stream
             .write_all(format!("data: {event}\n\ndata: [DONE]\n\n").as_bytes())

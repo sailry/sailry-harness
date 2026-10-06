@@ -4,9 +4,22 @@ pub const COMMENTARY: &str = "**Creating JSON fixture**\n\n**";
 pub const ANSWER: &str = "The file was read";
 
 pub(super) async fn respond(
+    stream: TcpStream,
+    request: &Value,
+    tool: Option<(String, Value)>,
+) -> std::io::Result<()> {
+    reply(stream, request, tool, false).await
+}
+
+pub(super) async fn respond_empty(stream: TcpStream, request: &Value) -> std::io::Result<()> {
+    reply(stream, request, None, true).await
+}
+
+async fn reply(
     mut stream: TcpStream,
     request: &Value,
     tool: Option<(String, Value)>,
+    empty: bool,
 ) -> std::io::Result<()> {
     let returned = request["input"].as_array().is_some_and(|items| {
         items
@@ -21,7 +34,11 @@ pub(super) async fn respond(
     let message = json!({"type":"message", "id":"phase-message", "role":"assistant",
         "status":"completed", "phase":phase,
         "content":[{"type":"output_text", "text":text, "annotations":[]}]});
-    let mut output = vec![message.clone()];
+    let mut output = if empty && returned {
+        vec![]
+    } else {
+        vec![message.clone()]
+    };
     if !returned {
         let (name, arguments) = tool.unwrap_or_else(|| {
             (
@@ -44,12 +61,15 @@ pub(super) async fn respond(
     let mut added = message;
     added["content"] = json!([]);
     added["status"] = json!("in_progress");
-    let events = [
+    let mut events = vec![
         json!({"type":"response.output_item.added", "sequence_number":0, "output_index":0, "item":added}),
         json!({"type":"response.output_text.delta", "sequence_number":1,
             "item_id":"phase-message", "output_index":0, "content_index":0, "delta":text, "logprobs":[]}),
         json!({"type":"response.completed", "sequence_number":2, "response":response}),
     ];
+    if empty && returned {
+        events.drain(..2);
+    }
     for event in events {
         stream
             .write_all(format!("data: {event}\n\n").as_bytes())

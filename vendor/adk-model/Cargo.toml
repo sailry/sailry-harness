@@ -1,6 +1,7 @@
 # Source: https://github.com/dux-web/adk-rust/tree/b3e360bbf49ca39d49cccba182c0f7cb4d251970/adk-model
 # Local patch: retain Responses streaming with native tools, expose stream activity,
-# and preserve optional function parameters with explicit non-strict declarations.
+# recover final text/refusals without duplicating deltas, and preserve optional
+# function parameters with explicit non-strict declarations.
 
 [package]
 "name" = "adk-model"

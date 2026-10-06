@@ -1,4 +1,5 @@
 //! Product admission and lifecycle around ADK's only model/tool execution loop.
+mod answer;
 mod approval;
 pub(crate) mod attachments;
 mod catalog;
@@ -196,6 +197,7 @@ async fn execute_with(
     ));
     let capture_output = invocation.child.is_some();
     let planning = invocation.turn.config.mode == sailry_protocol::WorkMode::Plan;
+    let reviewing = planning && invocation.child.is_none();
     let mut instruction = prompt::instruction(
         invocation.turn.config.mode,
         invocation.turn.config.permission,
@@ -278,7 +280,7 @@ async fn execute_with(
                     turn: invocation.turn.id,
                     session: invocation.turn.session.to_string(),
                     stop: stop.clone(),
-                    planning: planning && invocation.child.is_none(),
+                    planning: reviewing,
                 })),
             ]);
             agent = agent
@@ -330,6 +332,7 @@ async fn execute_with(
         .map_err(model::error)?;
     let mut cancelled = false;
     let mut output = None;
+    let mut has_result = false;
     loop {
         let next = tokio::select! {
             biased;
@@ -358,6 +361,8 @@ async fn execute_with(
                         "model response was interrupted",
                     ));
                 }
+                answer::validate(&event)?;
+                has_result |= answer::present(&event) || (reviewing && answer::reviewed(&event));
                 if event.llm_response.partial {
                     ingress.partial(target, turn, event).await?;
                 } else if capture_output && let Some(content) = event.content() {
@@ -376,7 +381,15 @@ async fn execute_with(
                 }
             }
             Some(Err(error)) => return Err(model::error(error)),
-            None => return Ok(output),
+            None => {
+                if !cancelled && !stop.is_cancelled() && !has_result {
+                    return Err(Fault::new(
+                        ErrorCode::Unavailable,
+                        "Model returned no answer",
+                    ));
+                }
+                return Ok(output);
+            }
         }
     }
 }

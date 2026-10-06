@@ -6,6 +6,8 @@ mod anthropic_search;
 mod assistants;
 #[path = "native/cloud.rs"]
 mod cloud;
+#[path = "native/completion.rs"]
+mod completion;
 #[path = "native/function_tools.rs"]
 mod function_tools;
 #[path = "native/grounding.rs"]
