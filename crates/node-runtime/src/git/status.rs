@@ -1,7 +1,7 @@
 //! Bounded candidate scanning and classification adapted from sailry-code
 //! 67ae9fa0 sailry-git/src/action_read/status.rs (Apache-2.0).
 use super::{Control, fault, io_error, open, path, valid_path};
-use git2::{ObjectType, Oid, Repository, Status};
+use git2::{ObjectType, Oid, Repository, Status, StatusOptions};
 use sailry_protocol::*;
 use std::{collections::BTreeSet, path::Path};
 
@@ -59,24 +59,48 @@ pub(super) fn inspect(root: &Path, control: &Control) -> Result<GitStatus, Fault
         truncated: false,
     };
     scan_index(&repository, &mut scan, control)?;
-    scan_workdir(root, &mut scan, control)?;
+    scan_workdir(root, &repository, &mut scan, control)?;
     scan_head(&repository, &mut scan, control)?;
-    let mut entries = Vec::new();
+    // A single status pass avoids rebuilding HEAD/index comparisons for every file.
+    let mut options = StatusOptions::new();
+    options
+        .include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .include_ignored(false)
+        .include_unmodified(false)
+        .disable_pathspec_match(true)
+        .renames_head_to_index(false)
+        .renames_index_to_workdir(false);
+    let mut readable = 0;
     for value in &scan.paths {
         control.check()?;
         if super::check_entry(root, value).is_err() {
             scan.omitted_paths += 1;
+        } else {
+            options.pathspec(value);
+            readable += 1;
+        }
+    }
+    // An empty pathspec means the entire worktree, not an empty selection.
+    if readable == 0 {
+        options.pathspec(".git");
+    }
+    let statuses = repository.statuses(Some(&mut options)).map_err(fault)?;
+    let mut entries = Vec::new();
+    for candidate in statuses.iter() {
+        control.check()?;
+        let Some(value) = candidate
+            .path()
+            .ok()
+            .filter(|value| scan.paths.contains(*value))
+        else {
+            continue;
+        };
+        if super::check_entry(root, value).is_err() {
+            scan.omitted_paths += 1;
             continue;
         }
-        let status = match repository.status_file(Path::new(value)) {
-            Ok(status) => status,
-            Err(error) if error.code() == git2::ErrorCode::NotFound => {
-                scan.omitted_paths += 1;
-                continue;
-            }
-            Err(error) => return Err(fault(error)),
-        };
-        if let Some(entry) = classify(value.clone(), status) {
+        if let Some(entry) = classify(value.to_owned(), candidate.status()) {
             if entries.len() == MAX_GIT_ENTRIES {
                 scan.truncated = true;
                 scan.omitted_paths += 1;
@@ -127,7 +151,12 @@ impl Candidates {
 }
 
 // Retain directory capabilities while enumerating; never descend through symlinks.
-fn scan_workdir(root: &Path, scan: &mut Candidates, control: &Control) -> Result<(), Fault> {
+fn scan_workdir(
+    root: &Path,
+    repository: &Repository,
+    scan: &mut Candidates,
+    control: &Control,
+) -> Result<(), Fault> {
     let mut pending = vec![String::new()];
     while let Some(prefix) = pending.pop() {
         control.check()?;
@@ -158,6 +187,18 @@ fn scan_workdir(root: &Path, scan: &mut Candidates, control: &Control) -> Result
                 format!("{prefix}/{name}")
             };
             let kind = child.file_type().map_err(io_error)?;
+            // Tracked paths are retained from the index and HEAD even under an ignored directory.
+            let ignore_path = if kind.is_dir() {
+                format!("{value}/")
+            } else {
+                value.clone()
+            };
+            if repository
+                .status_should_ignore(Path::new(&ignore_path))
+                .map_err(fault)?
+            {
+                continue;
+            }
             if kind.is_dir() {
                 scan.scanned_entries += 1;
                 if valid_path(&value).is_ok() {
