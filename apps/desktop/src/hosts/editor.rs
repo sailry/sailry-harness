@@ -36,6 +36,10 @@ pub(crate) struct Editor {
 impl EventEmitter<Event> for Editor {}
 
 impl Editor {
+    pub(super) fn saved(&mut self, profile: Profile) {
+        self.original = profile;
+    }
+
     pub(crate) fn footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         gpui_kit::component::dialog::DialogFooter::new()
             .w_full()

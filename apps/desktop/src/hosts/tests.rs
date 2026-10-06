@@ -109,8 +109,117 @@ fn credentials_and_installation_trust(cx: &mut TestAppContext) {
         assert!(visual.debug_bounds("host-install-error").is_none());
         installer.read_with(visual, |view, cx| {
             assert!(view.profile.is_some());
+            assert!(view.form);
+            assert!(view.key.is_none());
             assert!(!view.editor.read(cx).locked);
         });
+        assert!(visual.debug_bounds("ssh-save").is_some());
+        assert!(visual.debug_bounds("ssh-field-1").is_some());
+        assert!(visual.debug_bounds("host-install-progress").is_none());
+    }
+    visual.update(|_, cx| installer.update(cx, |view, _| view.cancel()));
+    runtime.block_on(server.close());
+    runtime.block_on(node.shutdown()).unwrap();
+}
+
+#[gpui::test]
+fn connection_failure_preserves_form_and_retry(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
+    let node = runtime
+        .block_on(sailry_node_runtime::Node::start(
+            directory.path().join("node"),
+        ))
+        .unwrap();
+    let server = runtime.block_on(server::Server::start(directory.path().into(), 64));
+    let services = Services {
+        runtime: runtime.clone(),
+        link: node.link(),
+        local: node.local(),
+        relay_enabled: false,
+    };
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+    });
+    let mut installer = None;
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Installer::new(services, window, cx));
+        installer = Some(entity.clone());
+        Root::new(cx.new(|_| Frame(entity)), window, cx)
+    });
+    let installer = installer.unwrap();
+    visual.update(|window, cx| {
+        installer.read(cx).editor.clone().update(cx, |editor, cx| {
+            for (field, value) in editor.fields.iter().zip([
+                "Test host".to_string(),
+                "127.0.0.1".into(),
+                server.port.to_string(),
+                "fixture".into(),
+            ]) {
+                field.update(cx, |input, cx| input.set_value(value, window, cx));
+            }
+            editor.secret.update(cx, |input, cx| {
+                input.set_value("incorrect-fixture-password", window, cx)
+            });
+        });
+        window.draw(cx).clear(cx);
+    });
+    let save = visual.debug_bounds("ssh-save").unwrap().center();
+    visual.simulate_click(save, Modifiers::default());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        visual.run_until_parked();
+        if installer.read_with(visual, |view, _| view.key.is_some()) {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let id = installer.read_with(visual, |view, _| view.profile.as_ref().unwrap().id);
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let trust = visual.debug_bounds("host-install-trust").unwrap().center();
+    visual.simulate_click(trust, Modifiers::default());
+    for attempt in 0..2 {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            visual.run_until_parked();
+            if installer.read_with(visual, |view, _| view.error.is_some()) {
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        crate::feedback::tests::shown(visual);
+        crate::feedback::tests::settle(visual);
+        assert_eq!(
+            visual.update(crate::feedback::tests::summary),
+            tr("host_install_failed")
+        );
+        installer.read_with(visual, |view, cx| {
+            assert_eq!(
+                view.error.as_ref().unwrap().code,
+                ErrorCode::PermissionDenied
+            );
+            assert!(view.form);
+            assert!(view.request.is_none());
+            assert!(view.key.is_none());
+            let profile = view.profile.as_ref().unwrap();
+            assert_eq!(profile.id, id);
+            let editor = view.editor.read(cx);
+            assert!(!editor.locked);
+            assert_eq!(editor.fields[1].read(cx).value(), "127.0.0.1");
+            assert_eq!(editor.secret.read(cx).value(), "incorrect-fixture-password");
+        });
+        assert!(server.commands.lock().unwrap().is_empty());
+        assert!(visual.debug_bounds("host-install-progress").is_none());
+        assert!(visual.debug_bounds("host-install-error").is_none());
+        assert!(visual.debug_bounds("ssh-save").is_some());
+        if attempt == 0 {
+            let save = visual.debug_bounds("ssh-save").unwrap().center();
+            visual.simulate_click(save, Modifiers::default());
+        }
     }
     visual.update(|_, cx| installer.update(cx, |view, _| view.cancel()));
     runtime.block_on(server.close());

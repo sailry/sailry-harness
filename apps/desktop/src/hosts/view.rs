@@ -11,11 +11,7 @@ impl Installer {
             .w_full()
             .child(
                 Button::new("host-install-cancel")
-                    .label(tr(if self.error.is_some() {
-                        "close"
-                    } else {
-                        "settings_cancel"
-                    }))
+                    .label(tr("settings_cancel"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.cancel();
                         cx.emit(DismissEvent);
@@ -24,6 +20,7 @@ impl Installer {
             .when(self.key.is_some(), |footer| {
                 footer.child(
                     Button::new("host-install-trust")
+                        .debug_selector(|| "host-install-trust".into())
                         .primary()
                         .label(tr("ssh_trust"))
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -44,27 +41,6 @@ impl Installer {
 impl Render for Installer {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let body = v_flex().pt_4().min_w_0().gap_3();
-        if let Some(error) = &self.error {
-            let detail = error.message.clone();
-            return body
-                .when(self.form, |body| body.child(self.editor.clone()))
-                .child(
-                    Button::new("host-install-error")
-                        .ghost()
-                        .label(tr("ssh_details"))
-                        .on_click(move |_, window, cx| {
-                            window.open_dialog(cx, {
-                                let detail = detail.clone();
-                                move |dialog, _, _| {
-                                    dialog
-                                        .form_title(tr("ssh_details"))
-                                        .child(div().whitespace_normal().child(detail.clone()))
-                                }
-                            });
-                        }),
-                )
-                .into_any_element();
-        }
         if self.form {
             return body.child(self.editor.clone()).into_any_element();
         }

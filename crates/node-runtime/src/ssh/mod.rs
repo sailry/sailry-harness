@@ -107,7 +107,7 @@ pub(crate) async fn connect(
                 changed: profile.host_key.is_some(),
             });
         }
-        Err(_) => return Err(unavailable("SSH connection failed")),
+        Err(error) => return Err(unavailable(&format!("SSH connection failed: {error}"))),
     };
     let authenticated = tokio::select! {
         _ = stop.cancelled() => Err(cancelled()),

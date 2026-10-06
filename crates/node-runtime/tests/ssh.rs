@@ -80,6 +80,33 @@ fn run(profile: &Profile, command: &str) -> Command {
 }
 
 #[tokio::test]
+#[ignore = "Requires SAILRY_TEST_SSH_HOST; performs only an unauthenticated handshake"]
+async fn external_host_key() {
+    struct Verifier;
+    impl russh::client::Handler for Verifier {
+        type Error = russh::Error;
+        async fn check_server_key(
+            &mut self,
+            _: &russh::keys::PublicKey,
+        ) -> Result<bool, Self::Error> {
+            Ok(false)
+        }
+    }
+    let host = std::env::var("SAILRY_TEST_SSH_HOST").expect("SSH test host required");
+    let result = tokio::time::timeout(
+        Duration::from_secs(30),
+        russh::client::connect(Default::default(), (host.as_str(), 22), Verifier),
+    )
+    .await
+    .expect("SSH handshake timed out");
+    match result {
+        Err(russh::Error::UnknownKey) => {}
+        Err(error) => panic!("SSH handshake failed: {error:?}"),
+        Ok(_) => panic!("Untrusted host key was accepted"),
+    }
+}
+
+#[tokio::test]
 async fn preserves_authenticated_ownership() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
@@ -225,6 +252,52 @@ async fn preserves_authenticated_ownership() {
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
         server.close().await;
+    }
+}
+
+#[tokio::test]
+async fn connection_failure_includes_cause() {
+    for remote in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let controller =
+            Link::controller(directory.path().join("controller"), NetworkScope::default())
+                .await
+                .unwrap();
+        let invitation = node.link().invite().unwrap();
+        let address = controller.handle().pair(invitation.ticket()).await.unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(address)
+        } else {
+            node.local()
+        });
+        let profile = save(
+            &client,
+            profile(port),
+            Some(Credential::Password {
+                password: Secret::new("isolated-ssh-password".into()),
+            }),
+        )
+        .await;
+        let error = client
+            .execute(client.prepare(Command::CheckSsh {
+                profile: profile.id,
+                expected_revision: profile.revision,
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::Unavailable);
+        let cause = error
+            .message
+            .strip_prefix("SSH connection failed: ")
+            .unwrap();
+        assert!(!cause.is_empty());
+        assert!(!error.message.contains("isolated-ssh-password"));
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
     }
 }
 

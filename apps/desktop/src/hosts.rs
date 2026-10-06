@@ -166,6 +166,9 @@ impl Installer {
         self.polling = None;
         match result {
             Ok(Output::SshProfile(profile)) => {
+                self.editor.update(cx, |editor, _| {
+                    editor.saved(profile.clone());
+                });
                 let command = if trusted {
                     Command::InstallHost {
                         profile: profile.id,
@@ -178,14 +181,16 @@ impl Installer {
                     }
                 };
                 self.profile = Some(profile);
-                self.form = false;
                 self.execute(command, window, cx);
             }
             Ok(Output::SshOutcome(Outcome::HostKeyRequired { key, changed })) => {
+                self.form = false;
                 self.key = Some(key);
                 self.changed = changed;
             }
             Ok(Output::SshOutcome(Outcome::Connected)) => {
+                self.form = false;
+                self.progress = InstallProgress::Connecting;
                 let profile = self.profile.as_ref().unwrap();
                 self.execute(
                     Command::InstallHost {
@@ -207,20 +212,26 @@ impl Installer {
                 cx.emit(DismissEvent);
             }
             Err(error) => {
-                self.error = Some(error);
-                self.editor.update(cx, |editor, cx| {
-                    editor.locked = false;
-                    cx.notify();
-                });
+                self.failed(error, cx);
             }
             _ => {
-                self.error = Some(Fault::new(
-                    ErrorCode::Internal,
-                    "Unexpected host installation result",
-                ))
+                self.failed(
+                    Fault::new(ErrorCode::Internal, "Unexpected host installation result"),
+                    cx,
+                );
             }
         }
         cx.notify();
+    }
+    fn failed(&mut self, error: Fault, cx: &mut Context<Self>) {
+        self.error = Some(error);
+        self.form = true;
+        self.key = None;
+        self.changed = false;
+        self.editor.update(cx, |editor, cx| {
+            editor.locked = false;
+            cx.notify();
+        });
     }
     fn poll(&mut self, cx: &mut Context<Self>) {
         let id = self.request.as_ref().unwrap().id;
