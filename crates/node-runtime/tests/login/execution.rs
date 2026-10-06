@@ -77,7 +77,12 @@ fn generation_for(
     if authentication == Authentication::ChatGpt {
         assert_eq!(api, ModelApi::Responses);
         assert_eq!(request.headers["chatgpt-account-id"], "fixture-account");
-        assert_eq!(request.headers["originator"], "codex_cli_rs");
+        let originator = if request.headers["user-agent"].starts_with("codex-tui/") {
+            "codex-tui"
+        } else {
+            "codex_cli_rs"
+        };
+        assert_eq!(request.headers["originator"], originator);
         assert!(
             request.headers["version"]
                 .split('.')
@@ -379,6 +384,87 @@ async fn runs_tools_from_minimal_catalog() {
         assert!(history.contains("Isolated tool content"), "{history}");
         assert!(history.contains("Authorized response"), "{history}");
         assert_eq!(server.requests.lock().unwrap().len(), 6);
+        fixture.close().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn continues_after_omitted_terminal_calls() {
+    for remote in [false, true] {
+        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+            if request.path != "/responses" {
+                return standard(request);
+            }
+            let Reply::Raw(mut reply) = generation(request, Authentication::ChatGpt, true) else {
+                panic!("stream expected")
+            };
+            let start = reply.find("data: ").unwrap() + "data: ".len();
+            let end = reply[start..].find('\n').unwrap() + start;
+            let mut completed: serde_json::Value =
+                serde_json::from_str(&reply[start..end]).unwrap();
+            if completed["response"]["output"][0]["type"] == "function_call" {
+                let item = completed["response"]["output"][0].take();
+                completed["response"]["output"] = json!([]);
+                let done = json!({"type":"response.output_item.done", "sequence_number":0,
+                    "output_index":0, "item":item});
+                reply.replace_range(start..end, &format!("{done}\n\ndata: {completed}"));
+            }
+            Reply::Raw(reply)
+        })
+        .await;
+        let fixture = Fixture::new(remote, &server).await;
+        let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
+        let session = session(&fixture, &provider).await;
+        let (_, turn) = submit(&fixture.client, &session).await;
+        let page = finished(&fixture.client, &turn, Status::Completed).await;
+        let history = serde_json::to_string(&page).unwrap();
+        assert!(history.contains("Isolated tool content"), "{history}");
+        assert!(history.contains("Authorized response"), "{history}");
+        fixture.close().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reports_account_model_rejection() {
+    for remote in [false, true] {
+        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+            if request.path == "/responses" {
+                let body = json!({"detail":"Selected model is not supported for this account"});
+                Reply::Raw(format!("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}"))
+            } else {
+                standard(request)
+            }
+        }).await;
+        let fixture = Fixture::new(remote, &server).await;
+        let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
+        let session = session(&fixture, &provider).await;
+        let (_, turn) = submit(&fixture.client, &session).await;
+        let page = finished(&fixture.client, &turn, Status::Failed).await;
+        let error = page
+            .runs
+            .iter()
+            .find(|run| run.turn == turn.id)
+            .unwrap()
+            .error
+            .as_ref()
+            .unwrap();
+        assert!(
+            error
+                .message
+                .contains("model.openai_responses.invalid_request")
+        );
+        assert!(error.message.contains("HTTP 400"));
+        assert!(!error.message.contains("model.openai_responses.parse"));
+        assert_eq!(
+            server
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|request| request.path == "/responses")
+                .count(),
+            1
+        );
         fixture.close().await;
     }
 }

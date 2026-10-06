@@ -336,6 +336,9 @@ async fn normalize_responses_response(
 ) -> Result<reqwest_openai::Response, async_openai::error::OpenAIError> {
     use reqwest_openai::ResponseBuilderExt;
 
+    if open_responses_mode && !response.status().is_success() {
+        return normalize_error_response(response).await;
+    }
     if (!uses_max_reasoning && !open_responses_mode) || !response.status().is_success() {
         return Ok(response);
     }
@@ -407,6 +410,42 @@ async fn normalize_responses_response(
                 ))
             },
         )?;
+    *rebuilt.headers_mut() = headers;
+    Ok(reqwest_openai::Response::from(rebuilt))
+}
+
+async fn normalize_error_response(
+    response: reqwest_openai::Response,
+) -> Result<reqwest_openai::Response, async_openai::error::OpenAIError> {
+    use async_openai::error::{ApiError, ApiErrorResponse, OpenAIError};
+    use reqwest_openai::ResponseBuilderExt;
+
+    let status = response.status();
+    let version = response.version();
+    let url = response.url().clone();
+    let headers = response.headers().clone();
+    let bytes = response.bytes().await.map_err(OpenAIError::Reqwest)?;
+    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes)
+        && value.get("error").is_none()
+        && let Some(detail) = value.get("detail").and_then(serde_json::Value::as_str)
+    {
+        // ChatGPT errors use a top-level detail rather than OpenAI's error envelope.
+        return Err(OpenAIError::ApiError(ApiErrorResponse {
+            status_code: status,
+            api_error: ApiError {
+                message: detail.to_owned(),
+                r#type: None,
+                param: None,
+                code: None,
+            },
+        }));
+    }
+    let mut rebuilt = http::Response::builder()
+        .status(status)
+        .version(version)
+        .url(url)
+        .body(reqwest_openai::Body::from(bytes))
+        .map_err(|_| OpenAIError::InvalidArgument("failed to rebuild Responses error".into()))?;
     *rebuilt.headers_mut() = headers;
     Ok(reqwest_openai::Response::from(rebuilt))
 }

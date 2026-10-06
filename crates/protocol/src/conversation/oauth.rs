@@ -4,6 +4,7 @@ use crate::{Authentication, ErrorCode, Fault};
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_CATALOG_VERSION: &str = "0.160.0";
+pub const DEFAULT_CODEX_USER_AGENT: &str = "codex-tui/0.160.0 (Sailry/0.1)";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -26,7 +27,7 @@ impl Options {
         match authentication {
             Authentication::ChatGpt => Some(Self::ChatGpt {
                 catalog_version: Some(DEFAULT_CATALOG_VERSION.into()),
-                user_agent: "Sailry/0.1".into(),
+                user_agent: DEFAULT_CODEX_USER_AGENT.into(),
             }),
             Authentication::Copilot => Some(Self::Copilot {
                 user_agent: "Sailry/0.1".into(),
@@ -92,6 +93,18 @@ impl Options {
             Self::ChatGpt { user_agent, .. } | Self::Copilot { user_agent, .. } => user_agent,
         }
     }
+
+    /// Keep the Codex originator consistent with an explicitly selected client identity.
+    pub fn originator(&self) -> Option<&str> {
+        let Self::ChatGpt { user_agent, .. } = self else {
+            return None;
+        };
+        let name = user_agent.split_once('/').map(|(name, _)| name);
+        match name {
+            Some("codex-tui" | "codex_cli_rs" | "codex_vscode") => name,
+            _ => Some("codex_cli_rs"),
+        }
+    }
 }
 
 fn invalid(message: &'static str) -> Fault {
@@ -101,6 +114,31 @@ fn invalid(message: &'static str) -> Fault {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn matches_codex_originators() {
+        let mut options = Options::defaults(Authentication::ChatGpt).unwrap();
+        assert_eq!(options.originator(), Some("codex-tui"));
+        for (agent, expected) in [
+            ("codex_cli_rs/0.160.1", "codex_cli_rs"),
+            ("codex-tui/0.160.1", "codex-tui"),
+            ("codex_vscode/0.160.1", "codex_vscode"),
+            ("Custom/1", "codex_cli_rs"),
+            ("codex-tui-other/1", "codex_cli_rs"),
+        ] {
+            let Options::ChatGpt { user_agent, .. } = &mut options else {
+                unreachable!()
+            };
+            *user_agent = agent.into();
+            assert_eq!(options.originator(), Some(expected));
+        }
+        assert_eq!(
+            Options::defaults(Authentication::Copilot)
+                .unwrap()
+                .originator(),
+            None
+        );
+    }
 
     #[test]
     fn defaults_match_supported_apis() {

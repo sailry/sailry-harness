@@ -10,6 +10,10 @@ integration branch also preserves the existing Google Search entry point,
 grounding part index and Anthropic request-size error extensions used by Sailry.
 These extensions are not part of that upstream PR's stable API changes.
 
+Sailry's local `vendor/adk-model` patch recovers finalized Responses output items
+when the terminal event omits them, preserving tool calls and reasoning history.
+It also maps ChatGPT's HTTP error details without losing the upstream status.
+
 ADK's Apache-2.0 copyright notice is retained in [adk-LICENSE](adk-LICENSE).
 The Gemini client's original MIT notice, Copyright (c) 2025 Michael Yang,
 is retained in [adk-gemini-LICENSE](adk-gemini-LICENSE).

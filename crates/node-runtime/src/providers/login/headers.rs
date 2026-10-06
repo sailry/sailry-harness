@@ -32,7 +32,15 @@ impl Grant {
                     .map_err(|_| invalid("authorization account is invalid"))?;
                 account.set_sensitive(true);
                 headers.insert("chatgpt-account-id", account);
-                headers.insert("originator", HeaderValue::from_static("codex_cli_rs"));
+                headers.insert(
+                    "originator",
+                    HeaderValue::from_str(
+                        options
+                            .originator()
+                            .ok_or_else(|| invalid("originator is missing"))?,
+                    )
+                    .map_err(|_| invalid("originator is invalid"))?,
+                );
                 headers.insert(
                     "version",
                     HeaderValue::from_str(

@@ -80,7 +80,7 @@ mod tests {
         };
         let mut captured = provider.clone();
         capture(&mut captured).unwrap();
-        assert_eq!(captured.oauth, Options::defaults(Authentication::ChatGpt));
+        assert_eq!(captured.oauth.as_ref().unwrap().user_agent(), "Sailry/0.1");
         let Some(Options::ChatGpt {
             catalog_version, ..
         }) = captured.oauth

@@ -17,7 +17,7 @@ pub(super) fn account_models(
         let version = sailry_protocol::conversation::oauth::DEFAULT_CATALOG_VERSION;
         assert_eq!(request.path, format!("/models?client_version={version}"));
         assert_eq!(request.headers["version"], version);
-        assert_eq!(request.headers["originator"], "codex_cli_rs");
+        assert_eq!(request.headers["originator"], "codex-tui");
         assert_eq!(request.headers["chatgpt-account-id"], "fixture-account");
     }
     models(authentication)
@@ -176,13 +176,14 @@ async fn shares_refresh() {
 fn catalog(request: &discovery_support::Request, authentication: Authentication) -> Reply {
     assert_eq!(request.method, "GET");
     assert!(request.body.is_empty());
-    assert_eq!(request.headers["user-agent"], "Sailry/0.1");
+    let options = sailry_protocol::conversation::oauth::Options::defaults(authentication).unwrap();
+    assert_eq!(request.headers["user-agent"], options.user_agent());
     if authentication == Authentication::ChatGpt {
         let version = sailry_protocol::conversation::oauth::DEFAULT_CATALOG_VERSION;
         assert_eq!(request.path, format!("/models?client_version={version}"));
         assert!(request.headers["authorization"].starts_with("Bearer e30."));
         assert_eq!(request.headers["chatgpt-account-id"], "fixture-account");
-        assert_eq!(request.headers["originator"], "codex_cli_rs");
+        assert_eq!(request.headers["originator"], "codex-tui");
         assert_eq!(request.headers["version"], version);
     } else {
         assert_eq!(request.path, "/models");

@@ -81,6 +81,108 @@ fn empty_activity(response: &LlmResponse) -> bool {
         && response.interaction_id.is_none()
 }
 
+mod http_errors {
+    use super::*;
+
+    #[tokio::test]
+    async fn preserves_detail_and_status() {
+        for status in [400, 401, 429, 503] {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/responses"))
+                .respond_with(
+                    ResponseTemplate::new(status)
+                        .set_body_json(json!({"detail":"Selected model is not supported"})),
+                )
+                .expect(1)
+                .mount(&server)
+                .await;
+            let client = OpenAIResponsesClient::new(
+                OpenAIResponsesConfig::new("test-key", "test-model")
+                    .with_base_url(server.uri())
+                    .with_open_responses_mode(true),
+            )
+            .unwrap()
+            .with_retry_config(adk_model::retry::RetryConfig::disabled());
+            let request =
+                LlmRequest::new("test-model", vec![Content::new("user").with_text("test")]);
+            let result = match client.generate_content(request, true).await {
+                Ok(stream) => stream.try_collect::<Vec<_>>().await,
+                Err(error) => Err(error),
+            };
+            let error = result.unwrap_err();
+            assert_eq!(error.details.upstream_status_code, Some(status));
+            assert!(error.to_string().contains("Selected model is not supported"));
+            assert_ne!(error.code, "model.openai_responses.parse");
+        }
+    }
+}
+
+mod omitted_output {
+    use super::*;
+
+    #[tokio::test]
+    async fn recovers_completed_calls_once() {
+        for compatible in [false, true] {
+            let item = json!({"type":"function_call", "id":"fc_a", "call_id":"call_a",
+                "name":"read_file", "arguments":r#"{"path":"first.txt"}"#, "status":"completed"});
+            let results = responses(
+                &[
+                    json!({"type":"response.output_item.done", "sequence_number":1,
+                    "output_index":0, "item":item}),
+                    json!({"type":"response.output_item.done", "sequence_number":2,
+                    "output_index":0, "item":item}),
+                    completion(json!([])),
+                ],
+                compatible,
+                "",
+            )
+            .await;
+            let terminal = results.last().unwrap();
+            assert_eq!(terminal.provider_metadata.as_ref().unwrap()["content_complete"], true);
+            assert_eq!(
+                terminal.content.as_ref().unwrap().parts,
+                [Part::FunctionCall {
+                    id: Some("call_a".into()),
+                    name: "read_file".into(),
+                    args: json!({"path":"first.txt"}),
+                    thought_signature: None,
+                }]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn preserves_explicit_terminal_output() {
+        for compatible in [false, true] {
+            let item = json!({"type":"function_call", "id":"fc_a", "call_id":"call_a",
+                "name":"read_file", "arguments":"{}", "status":"completed"});
+            let results = responses(
+                &[
+                    json!({"type":"response.output_item.done", "sequence_number":1,
+                    "output_index":0, "item":item}),
+                    completion(json!([message("answer", json!([text("No tool needed")]))])),
+                ],
+                compatible,
+                "",
+            )
+            .await;
+            assert_eq!(text_parts(&results), ["No tool needed"]);
+            assert!(
+                !results
+                    .last()
+                    .unwrap()
+                    .content
+                    .as_ref()
+                    .unwrap()
+                    .parts
+                    .iter()
+                    .any(|part| matches!(part, Part::FunctionCall { .. }))
+            );
+        }
+    }
+}
+
 async fn try_responses(
     events: &[Value],
     open_responses_mode: bool,

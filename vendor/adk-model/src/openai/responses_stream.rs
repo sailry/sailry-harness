@@ -35,6 +35,7 @@ impl TextKey {
 pub(super) struct StreamState {
     emitted: BTreeMap<TextKey, String>,
     finalized: BTreeMap<TextKey, String>,
+    finalized_items: BTreeMap<u32, OutputItem>,
     commentary: HashSet<(u32, String)>,
     native_tools: bool,
     corrected: bool,
@@ -140,6 +141,7 @@ impl StreamState {
                 self.done(key, &text.text, &mut parts);
             }
             ResponseOutputItemDone(event) => {
+                self.finalized_items.insert(event.output_index, event.item.clone());
                 self.record_phase(event.output_index, &event.item);
                 let mut item = event.item.clone();
                 self.trim_item(event.output_index, &mut item, &mut parts);
@@ -154,7 +156,14 @@ impl StreamState {
     }
 
     pub(super) fn complete(&mut self, response: &Response) -> LlmResponse {
-        let mut full = responses_convert::from_response(response);
+        let mut response = response.clone();
+        let recovered = response.output.is_empty() && !self.finalized_items.is_empty();
+        if recovered {
+            // Codex can omit terminal output after emitting authoritative done items.
+            // Recover the whole items, including calls and reasoning, not only text.
+            response.output = self.finalized_items.values().cloned().collect();
+        }
+        let mut full = responses_convert::from_response(&response);
         let mut unseen = response.clone();
         let mut final_keys = BTreeSet::new();
         for (output_index, item) in unseen.output.iter_mut().enumerate() {
@@ -166,6 +175,7 @@ impl StreamState {
         let removed = !omitted && self.emitted.keys().any(|key| !final_keys.contains(key));
         let unfinished = self.emitted.keys().any(|key| !self.finalized.contains_key(key));
         if self.corrected
+            || recovered
             || removed
             || unfinished
             || self.native_tools
@@ -232,7 +242,9 @@ impl StreamState {
         let mut parts: Vec<Part> = Vec::new();
         let mut messages: BTreeMap<(u32, String), usize> = BTreeMap::new();
         for (key, text) in &self.finalized {
-            let Some(part) = self.part(key, text, "completed") else { continue };
+            let Some(part) = self.part(key, text, "completed") else {
+                continue;
+            };
             if let Part::ServerToolCall { server_tool_call } = &part {
                 let identity = (key.output_index, key.item_id.clone());
                 if let Some(index) = messages.get(&identity) {
