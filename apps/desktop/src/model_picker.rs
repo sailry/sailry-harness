@@ -106,7 +106,7 @@ impl Picker {
                         } else {
                             vec![]
                         },
-                        label: model.id.clone(),
+                        label: model.label().to_owned(),
                         id: model.id,
                         effort: sailry_protocol::Effort::initial(
                             &model.efforts,

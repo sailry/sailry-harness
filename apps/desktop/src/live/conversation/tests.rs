@@ -82,6 +82,7 @@ fn preserves_drafts(cx: &mut TestAppContext) {
             default_model: "fixture-model".into(),
             models: vec![Model {
                 id: "fixture-model".into(),
+                display_name: None,
                 context: 4096,
                 output: 128,
                 vision: false,

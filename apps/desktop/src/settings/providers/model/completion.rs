@@ -62,6 +62,9 @@ impl Draft {
             self.key,
             discovery::Model {
                 id: current.id.clone(),
+                display_name: native
+                    .and_then(|model| model.display_name.clone())
+                    .or(current.display_name.clone()),
                 context: if self.missing.context {
                     native.and_then(|value| value.context)
                 } else {

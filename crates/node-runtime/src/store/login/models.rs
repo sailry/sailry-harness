@@ -49,7 +49,13 @@ pub(super) fn seed(
     }
     provider.models = models
         .iter()
-        .map(|model| model.configuration(references.get(&model.id), provider.api))
+        .map(|model| {
+            model.configuration(
+                references.get(&model.id),
+                provider.api,
+                provider.authentication,
+            )
+        })
         .collect();
     if !provider
         .models

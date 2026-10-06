@@ -18,6 +18,12 @@ impl Drop for Probe {
 
 impl Editor {
     pub(super) fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(login) = self.authorization.take() {
+            login.update(cx, |login, cx| {
+                login.cancel(window, cx);
+            });
+        }
+        self._authorization = None;
         self.closed = true;
         self.probe = None;
         self.request = None;
@@ -93,6 +99,7 @@ impl Editor {
             .iter()
             .map(|(_, model)| discovery::Model {
                 id: model.id.clone(),
+                display_name: model.display_name.clone(),
                 context: None,
                 output: None,
                 capabilities: None,

@@ -16,6 +16,7 @@ pub(super) async fn session(client: &Client, worktree: WorktreeId) -> Session {
         credential: None,
         models: vec![Model {
             id: "fixture".into(),
+            display_name: None,
             context: 128,
             output: 32,
             vision: false,

@@ -59,6 +59,7 @@ async fn independent_resume() {
         let (_, mut provider) = configured(&origin, &selected.endpoint, &root).await;
         provider.models.push(Model {
             id: "fixture-a".into(),
+            display_name: None,
             context: 128,
             output: 32,
             vision: false,

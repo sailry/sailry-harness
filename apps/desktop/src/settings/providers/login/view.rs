@@ -1,9 +1,13 @@
-//! The native device-login dialog keeps presentation separate from admission and recovery.
+//! Provider authorization controls keep presentation separate from admission and recovery.
 use super::*;
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
 
 impl Login {
-    pub(super) fn footer(&self, owner: &Entity<Self>, _: &App) -> AnyElement {
+    pub(in crate::settings::providers) fn footer(
+        &self,
+        owner: &Entity<Self>,
+        _: &App,
+    ) -> AnyElement {
         if self.expired() {
             let refresh = owner.clone();
             return div()
@@ -24,6 +28,7 @@ impl Login {
                 .into_any_element();
         }
         let retry = owner.clone();
+        let cancel = owner.clone();
         let footer = dialog::DialogFooter::new()
             .w_full()
             .justify_end()
@@ -31,11 +36,17 @@ impl Login {
             .when_some(
                 self.state().filter(|_| !self.closed && !self.cancelling),
                 |row, state| {
-                    if let State::Pending {
-                        verification_url, ..
-                    } = state
-                    {
-                        let url = verification_url.clone();
+                    let url = match state {
+                        State::Pending {
+                            verification_url, ..
+                        } => Some(verification_url),
+                        State::Browser {
+                            authorization_url, ..
+                        } => Some(authorization_url),
+                        _ => None,
+                    };
+                    if let Some(url) = url {
+                        let url = url.clone();
                         row.child(
                             Button::new("provider-login-open")
                                 .primary()
@@ -70,7 +81,15 @@ impl Login {
                     .loading(self.cancelling && self.pending)
                     .disabled(self.cancelling && self.pending)
                     .label(tr("provider_login_cancel"))
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(dialog::Cancel), cx)),
+                    .on_click(move |_, window, cx| {
+                        if cancel.read(cx).embedded {
+                            cancel.update(cx, |login, cx| {
+                                login.cancel(window, cx);
+                            });
+                        } else {
+                            window.dispatch_action(Box::new(dialog::Cancel), cx);
+                        }
+                    }),
             );
         div()
             .debug_selector(|| "provider-login-footer".into())
@@ -103,15 +122,23 @@ impl Render for Login {
                         .label(tr("provider_login_code_expired")),
                 )
             })
-            .when(active && self.pending && self.state().is_none(), |body| {
-                body.child(
-                    h_flex()
-                        .w_full()
-                        .h(rems(6.))
-                        .justify_center()
-                        .child(spinner::Spinner::new()),
-                )
-            })
+            .when(
+                active
+                    && ((self.pending && self.state().is_none())
+                        || matches!(
+                            self.state(),
+                            Some(State::Starting | State::Browser { .. } | State::Exchanging)
+                        )),
+                |body| {
+                    body.child(
+                        h_flex()
+                            .w_full()
+                            .h(rems(6.))
+                            .justify_center()
+                            .child(spinner::Spinner::new()),
+                    )
+                },
+            )
             .when_some(self.state().filter(|_| active), |body, state| {
                 if let State::Pending { user_code, .. } = state {
                     let code = user_code.clone();

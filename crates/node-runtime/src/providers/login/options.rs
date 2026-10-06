@@ -28,14 +28,7 @@ pub(super) fn validate(
 ) -> Result<(), Fault> {
     options.validate(authentication, api)?;
     let fields = match options {
-        Options::ChatGpt {
-            catalog_version,
-            user_agent,
-        } => {
-            semver::Version::parse(catalog_version)
-                .map_err(|_| invalid("OAuth catalog version is invalid"))?;
-            vec![user_agent.as_str()]
-        }
+        Options::ChatGpt { user_agent } => vec![user_agent.as_str()],
         Options::Copilot {
             user_agent,
             editor_version,

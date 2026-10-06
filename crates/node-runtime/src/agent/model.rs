@@ -126,7 +126,6 @@ pub(super) async fn configured(
             ingress: ingress.clone(),
             provider: provider.clone(),
             config: config.clone(),
-            session,
             delegated,
             effort,
             stop: stop.clone(),

@@ -1,5 +1,5 @@
 use super::{Model, ModelApi};
-use crate::{Effort, conversation::catalog, media::Generation};
+use crate::{Authentication, Effort, conversation::catalog, media::Generation};
 
 const DEFAULT_CONTEXT: u32 = 200_000;
 const DEFAULT_OUTPUT: u32 = 16_384;
@@ -11,6 +11,7 @@ impl Model {
         &self,
         reference: Option<&catalog::Model>,
         api: ModelApi,
+        authentication: Authentication,
     ) -> crate::conversation::Model {
         let reported_output = self.output.or(reference.and_then(|model| model.output));
         let context = self
@@ -35,6 +36,7 @@ impl Model {
         );
         crate::conversation::Model {
             id: self.id.clone(),
+            display_name: self.display_name.clone(),
             context,
             output,
             vision: capabilities
@@ -44,7 +46,10 @@ impl Model {
                 }),
             tools: capabilities
                 .and_then(|value| value.tools)
-                .unwrap_or_else(|| reference.is_some_and(|model| model.tools == Some(true))),
+                .or(reference.and_then(|model| model.tools))
+                // SIWC supports local function/custom tools even when its account
+                // catalog does not report per-model capability metadata.
+                .unwrap_or(authentication == Authentication::ChatGpt),
             reasoning: capabilities
                 .and_then(|value| value.reasoning)
                 .or(reference.and_then(|model| model.reasoning))
@@ -71,3 +76,6 @@ impl Model {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

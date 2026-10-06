@@ -1,8 +1,12 @@
-use super::{Workspace, live::Binding};
+#[cfg(test)]
+use super::Workspace;
+use super::live::Binding;
+#[cfg(test)]
 use crate::theme::DialogStyle as _;
 use crate::tr;
 use gpui_kit::{component::*, prelude::FluentBuilder, *};
 use sailry_client::login::View;
+use sailry_client::oauth::Callback;
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     Command, ErrorCode, Fault, Output, Request,
@@ -12,12 +16,14 @@ use sailry_protocol::{
     },
 };
 
+mod browser;
 mod view;
 #[cfg(test)]
 use super::authorization_support as support;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
 pub(super) fn binding(
     owner: &Entity<Workspace>,
     id: usize,
@@ -27,6 +33,7 @@ pub(super) fn binding(
     Some((live.binding.clone(), live.providers.get(&id)?.clone()))
 }
 
+#[cfg(test)]
 pub(super) fn open(
     owner: Entity<Workspace>,
     id: usize,
@@ -56,6 +63,8 @@ pub(super) fn open(
                     login.closed = true;
                     if !login.cancelling {
                         login.stop.cancel();
+                        login.callback_stop.cancel();
+                        login.callback = None;
                     }
                 })
             })
@@ -81,6 +90,35 @@ pub(super) struct Login {
     stop: CancellationToken,
     task: Option<Task<()>>,
     observer: Option<Task<()>>,
+    callback: Option<Callback>,
+    callback_stop: CancellationToken,
+    completion: Option<Request>,
+    receiver: Option<Task<()>>,
+    embedded: bool,
+}
+
+pub(super) enum Event {
+    Connected,
+}
+
+impl EventEmitter<Event> for Login {}
+
+pub(super) fn embedded(
+    binding: Binding,
+    provider: Provider,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<Login> {
+    let login = cx.new(|cx| {
+        let mut login = Login::new(binding, provider);
+        login.embedded = true;
+        login.begin(window, cx);
+        login
+    });
+    login.update(cx, |_, cx| {
+        crate::feedback::observe(window, cx, |login, _| login.error.into_iter().collect());
+    });
+    login
 }
 
 impl Login {
@@ -88,6 +126,7 @@ impl Login {
         let request = binding.client.prepare(Command::BeginProviderLogin {
             provider: provider.id,
             expected_revision: provider.revision,
+            redirect: None,
         });
         let cancellation = binding.client.prepare(Command::CancelProviderLogin {
             attempt: request.id,
@@ -104,10 +143,15 @@ impl Login {
             closed: false,
             error: None,
             presented: None,
-            fresh: false,
+            fresh: true,
             stop: CancellationToken::new(),
             task: None,
             observer: None,
+            callback: None,
+            callback_stop: CancellationToken::new(),
+            completion: None,
+            receiver: None,
+            embedded: false,
         }
     }
 
@@ -115,15 +159,38 @@ impl Login {
         if self.pending || (self.closed && !self.cancelling) {
             return;
         }
+        if self.completion.is_some() && !self.fresh && !self.cancelling {
+            self.complete(window, cx);
+            return;
+        }
         if self.fresh {
+            let callback =
+                if self.provider.authentication == sailry_protocol::Authentication::ChatGpt {
+                    match Callback::bind("/auth/callback") {
+                        Ok(callback) => Some(callback),
+                        Err(_) => {
+                            self.error = Some("provider_login_failed");
+                            cx.notify();
+                            return;
+                        }
+                    }
+                } else {
+                    None
+                };
             self.attempt = None;
             self.request = self.binding.client.prepare(Command::BeginProviderLogin {
                 provider: self.provider.id,
                 expected_revision: self.provider.revision,
+                redirect: callback.as_ref().map(|callback| callback.redirect.clone()),
             });
             self.cancellation = self.binding.client.prepare(Command::CancelProviderLogin {
                 attempt: self.request.id,
             });
+            self.callback = callback;
+            self.callback_stop.cancel();
+            self.callback_stop = CancellationToken::new();
+            self.receiver = None;
+            self.completion = None;
             self.fresh = false;
         }
         self.stop.cancel();
@@ -175,6 +242,8 @@ impl Login {
                         login.closed = true;
                         login.error = None;
                         login.stop.cancel();
+                        login.callback_stop.cancel();
+                        login.callback = None;
                     } else {
                         login.error = Some("provider_login_cancel_unknown");
                     }
@@ -201,8 +270,14 @@ impl Login {
                             return;
                         }
                         login.view = view;
-                        match login.state() {
+                        match login.state().cloned() {
+                            Some(State::Browser {
+                                authorization_url, ..
+                            }) if !login.cancelling => {
+                                login.receive(authorization_url, window, cx);
+                            }
                             Some(State::Connected) => {
+                                login.completion = None;
                                 let key = if login
                                     .view
                                     .update
@@ -217,16 +292,22 @@ impl Login {
                                 login.report(key, window, cx);
                                 login.closed = true;
                                 login.stop.cancel();
-                                if visible {
+                                login.callback_stop.cancel();
+                                login.callback = None;
+                                cx.emit(Event::Connected);
+                                if visible && !login.embedded {
                                     window.close_dialog(cx);
                                 }
                             }
                             Some(State::Cancelled) => {
-                                if !login.closed {
+                                login.completion = None;
+                                if !login.closed && !login.embedded {
                                     window.close_dialog(cx);
                                 }
                                 login.closed = true;
                                 login.stop.cancel();
+                                login.callback_stop.cancel();
+                                login.callback = None;
                             }
                             _ => {}
                         }
@@ -239,8 +320,13 @@ impl Login {
                             login.error = None;
                         }
                         if let Some(State::Failed(error)) = login.state() {
-                            login.error = Some(error_key(error));
+                            let key = error_key(error);
+                            login.completion = None;
+                            login.error = Some(key);
                             login.fresh = true;
+                            login.stop.cancel();
+                            login.callback_stop.cancel();
+                            login.callback = None;
                         } else if let Some(error) = &login.view.error {
                             login.error = Some(error_key(error));
                             login.fresh = error.code == ErrorCode::NotFound;
@@ -258,8 +344,26 @@ impl Login {
         }));
     }
 
-    fn state(&self) -> Option<&State> {
+    pub(super) fn state(&self) -> Option<&State> {
         self.view.update.as_ref().map(|update| &update.state)
+    }
+
+    #[cfg(test)]
+    pub(super) fn attempt_id(&self) -> sailry_protocol::RequestId {
+        self.request.id
+    }
+
+    #[cfg(test)]
+    pub(super) fn pending(&self) -> bool {
+        self.pending
+    }
+
+    pub(super) fn active(&self) -> bool {
+        !self.closed && (self.pending || self.cancelling || self.state().is_some_and(State::active))
+    }
+
+    pub(super) fn finished(&self) -> bool {
+        self.closed
     }
 
     fn expired(&self) -> bool {
@@ -287,14 +391,24 @@ impl Login {
         }
     }
 
-    fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    pub(super) fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if (self.closed && !self.cancelling)
             || self.state().is_some_and(|state| !state.active())
             || self.error == Some("provider_login_changed")
             || (self.attempt.is_none() && self.fresh)
         {
+            self.closed = true;
+            self.cancelling = false;
+            self.error = None;
+            self.stop.cancel();
+            self.callback_stop.cancel();
+            self.callback = None;
+            self.completion = None;
+            cx.notify();
             return true;
         }
+        self.callback_stop.cancel();
+        self.callback = None;
         self.cancelling = true;
         if self.pending {
             cx.notify();
@@ -341,6 +455,8 @@ impl Login {
                 };
                 if cancelled {
                     login.stop.cancel();
+                    login.callback_stop.cancel();
+                    login.callback = None;
                     // Presentation completion of the explicit cancel command;
                     // the shared observer remains authoritative for login updates.
                     login.error = None;
@@ -360,6 +476,7 @@ impl Login {
 impl Drop for Login {
     fn drop(&mut self) {
         self.stop.cancel();
+        self.callback_stop.cancel();
     }
 }
 

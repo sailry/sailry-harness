@@ -176,6 +176,7 @@ pub(in crate::store) fn import(
                     id,
                     provider: provider.id,
                     authentication: provider.authentication,
+                    account_label: None,
                     revision: 0,
                     expires_at_ms: credential.expires_at_ms,
                     revoked: false,

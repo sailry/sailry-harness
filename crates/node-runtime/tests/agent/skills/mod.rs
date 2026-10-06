@@ -104,6 +104,7 @@ async fn fixture(
     disable_tools(&client, &["browser", "media"]).await;
     provider.models = vec![Model {
         id: "fixture-a".into(),
+        display_name: None,
         context: 128000,
         output: 2048,
         vision: false,

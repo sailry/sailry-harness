@@ -38,9 +38,10 @@ impl Draft {
         cx: &mut App,
     ) -> Self {
         let missing = completion::Missing::new(&value, reference);
-        let completed = value.configuration(reference, preset.api());
+        let completed = value.configuration(reference, preset.api(), preset.authentication());
         let model = Model {
             id: completed.id,
+            display_name: completed.display_name,
             context: completed.context,
             output: completed.output,
             vision: completed.vision,
@@ -97,6 +98,11 @@ impl Draft {
             return Err("provider_limits_invalid");
         }
         let mut model = Model {
+            display_name: self
+                .model
+                .display_name
+                .clone()
+                .filter(|_| id == self.model.id),
             id,
             context,
             output,
@@ -114,7 +120,12 @@ impl Editor {
     pub fn render_model(&self, index: usize, cx: &mut Context<Self>) -> AnyElement {
         let draft = &self.models[index];
         let key = draft.key;
-        let title = draft.id.read(cx).value();
+        let id = draft.id.read(cx).value();
+        let title = if id.as_ref() == draft.model.id {
+            SharedString::from(draft.model.label())
+        } else {
+            id
+        };
         let title = if title.is_empty() {
             tr("provider_new_model")
         } else {

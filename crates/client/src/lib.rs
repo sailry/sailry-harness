@@ -8,6 +8,7 @@ pub mod git;
 pub mod host;
 pub mod login;
 pub mod mcp_login;
+pub mod oauth;
 mod outcomes;
 pub mod ports;
 mod projection;

@@ -477,6 +477,7 @@ mod tests {
                 default_model: "fixture".into(),
                 models: vec![Model {
                     id: "fixture".into(),
+                    display_name: None,
                     context: 4096,
                     output: 2048,
                     vision: false,

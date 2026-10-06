@@ -50,6 +50,28 @@ fn settle_dialog(cx: &mut VisualTestContext) {
     draw(cx);
 }
 
+fn authorize_browser(login: &Entity<Login>, fixture: &Fixture, visual: &mut VisualTestContext) {
+    wait(visual, |cx| {
+        matches!(login.read(cx).state(), Some(State::Browser { .. }))
+    });
+    let authorization = login.read_with(visual, |login, _| {
+        let Some(State::Browser {
+            authorization_url, ..
+        }) = login.state()
+        else {
+            panic!("browser authorization expected")
+        };
+        authorization_url.clone()
+    });
+    fixture.runtime.block_on(async {
+        reqwest::get(support::callback(&authorization).expose())
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+    });
+}
+
 struct Surface(Entity<Workspace>);
 impl Render for Surface {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
@@ -144,7 +166,6 @@ fn authorization_lifecycle(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     cx.update(gpui_kit::init);
     for (authentication, api) in [
-        (Authentication::ChatGpt, ModelApi::Responses),
         (Authentication::Copilot, ModelApi::Responses),
         (Authentication::Copilot, ModelApi::ChatCompletions),
     ] {
@@ -182,10 +203,7 @@ fn authorization_lifecycle(cx: &mut TestAppContext) {
                     .abs()
                     < px(1.)
             );
-            assert_eq!(
-                visual.debug_bounds("provider-login-0").unwrap().size,
-                visual.debug_bounds("provider-edit-0").unwrap().size
-            );
+            assert!(visual.debug_bounds("provider-login-0").is_none());
             let login = visual.update(|window, cx| open(owner.clone(), 0, window, cx).unwrap());
             settle_dialog(visual);
             wait(visual, |cx| {
@@ -285,7 +303,7 @@ fn authorization_lifecycle(cx: &mut TestAppContext) {
             let reference = provider.credential.unwrap();
             assert_eq!(reference.id, credentials[0].id);
             assert!(!visual.has_pending_prompt());
-            tap(visual, "provider-login-0");
+            let reconnect = visual.update(|window, cx| open(owner.clone(), 0, window, cx).unwrap());
             settle_dialog(visual);
             wait(visual, |cx| {
                 match fixture.execute(Command::ListCredentials) {
@@ -299,6 +317,7 @@ fn authorization_lifecycle(cx: &mut TestAppContext) {
                 }
             });
             assert_eq!(fixture.provider().credential.unwrap(), reference);
+            assert!(reconnect.read_with(visual, |login, _| login.closed));
             visual.update(|window, cx| assert!(!window.has_active_dialog(cx)));
             assert_eq!(
                 fixture
@@ -307,10 +326,7 @@ fn authorization_lifecycle(cx: &mut TestAppContext) {
                     .lock()
                     .unwrap()
                     .iter()
-                    .filter(|request| matches!(
-                        request.path.as_str(),
-                        "/api/accounts/deviceauth/usercode" | "/login/device/code"
-                    ))
+                    .filter(|request| request.path == "/login/device/code")
                     .count(),
                 3
             );

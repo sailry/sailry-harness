@@ -69,6 +69,7 @@ impl Fixture {
         session.config.effort = effort;
         provider.models.push(Model {
             id: "fixture-a".into(),
+            display_name: None,
             context: 2048,
             output: 512,
             vision: true,

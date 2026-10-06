@@ -35,6 +35,7 @@ async fn configure_api(client: &Client, endpoint: String, api: conversation::Mod
         default_model: "fixture".into(),
         models: vec![conversation::Model {
             id: "fixture".into(),
+            display_name: None,
             context: 128_000,
             output: 4096,
             vision: false,

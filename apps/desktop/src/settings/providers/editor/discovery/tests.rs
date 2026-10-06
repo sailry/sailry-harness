@@ -280,6 +280,7 @@ fn refreshes_saved_drafts(cx: &mut TestAppContext) {
                 default_model: "known".into(),
                 models: vec![Model {
                     id: "known".into(),
+                    display_name: None,
                     context: 1024,
                     output: 64,
                     vision: false,

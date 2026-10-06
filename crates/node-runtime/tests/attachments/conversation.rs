@@ -52,6 +52,7 @@ async fn session(
         credential: None,
         models: vec![Model {
             id: "fixture".into(),
+            display_name: None,
             context: 128000,
             output: 64,
             vision: true,

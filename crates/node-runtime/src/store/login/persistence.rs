@@ -31,6 +31,7 @@ pub(super) fn save(
         id: credential.map_or_else(CredentialId::new, |value| value.id),
         provider: provider.id,
         authentication: provider.authentication,
+        account_label: None,
         revision: credential.map_or(0, |value| value.revision),
         expires_at_ms: None,
         revoked: false,

@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 pub(super) fn model(id: &str) -> Model {
     Model {
         id: id.into(),
+        display_name: None,
         context: 16000,
         output: 2048,
         vision: false,

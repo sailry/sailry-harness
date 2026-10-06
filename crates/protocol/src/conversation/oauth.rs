@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Options {
     ChatGpt {
-        catalog_version: String,
         user_agent: String,
     },
     Copilot {
@@ -21,8 +20,6 @@ impl Options {
     pub fn defaults(authentication: Authentication) -> Option<Self> {
         match authentication {
             Authentication::ChatGpt => Some(Self::ChatGpt {
-                // Reviewed Codex catalog baseline, independent of Sailry's version.
-                catalog_version: "0.160.0".into(),
                 user_agent: "Sailry/0.1".into(),
             }),
             Authentication::Copilot => Some(Self::Copilot {
@@ -34,17 +31,12 @@ impl Options {
         }
     }
 
-    /// Wire checks only; the execution Node also validates HTTP values and versions.
+    /// Wire checks only; the execution Node also validates HTTP values.
     pub fn validate(&self, authentication: Authentication, api: ModelApi) -> Result<(), Fault> {
         let fields: &[&str] = match (self, authentication, api) {
-            (
-                Self::ChatGpt {
-                    catalog_version,
-                    user_agent,
-                },
-                Authentication::ChatGpt,
-                ModelApi::Responses,
-            ) => &[catalog_version, user_agent],
+            (Self::ChatGpt { user_agent }, Authentication::ChatGpt, ModelApi::Responses) => {
+                &[user_agent]
+            }
             (
                 Self::Copilot {
                     user_agent,

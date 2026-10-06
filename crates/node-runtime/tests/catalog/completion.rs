@@ -16,6 +16,7 @@ fn provider() -> Provider {
         default_model: "gpt-5.6-luna".into(),
         models: vec![Model {
             id: "gpt-5.6-luna".into(),
+            display_name: None,
             context: 200_000,
             output: 8192,
             vision: false,

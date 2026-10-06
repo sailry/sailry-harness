@@ -57,6 +57,7 @@ async fn survives_without_projects() {
             default_model: "fixture-a".into(),
             models: vec![Model {
                 id: "fixture-a".into(),
+                display_name: None,
                 context: 16000,
                 output: 2048,
                 vision: false,

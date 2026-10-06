@@ -5,7 +5,6 @@ use sailry_protocol::conversation::oauth::Options;
 pub(super) struct Fields {
     expanded: bool,
     focus: FocusHandle,
-    catalog_version: Entity<InputState>,
     user_agent: Entity<InputState>,
     editor_version: Entity<InputState>,
     editor_plugin_version: Entity<InputState>,
@@ -21,29 +20,20 @@ impl Fields {
         let options = options
             .cloned()
             .or_else(|| Options::defaults(preset.authentication()));
-        let (catalog_version, user_agent, editor_version, editor_plugin_version) = match options {
-            Some(Options::ChatGpt {
-                catalog_version,
-                user_agent,
-            }) => (catalog_version, user_agent, String::new(), String::new()),
+        let (user_agent, editor_version, editor_plugin_version) = match options {
+            Some(Options::ChatGpt { user_agent }) => (user_agent, String::new(), String::new()),
             Some(Options::Copilot {
                 user_agent,
                 editor_version,
                 editor_plugin_version,
-            }) => (
-                String::new(),
-                user_agent,
-                editor_version,
-                editor_plugin_version,
-            ),
-            None => (String::new(), String::new(), String::new(), String::new()),
+            }) => (user_agent, editor_version, editor_plugin_version),
+            None => (String::new(), String::new(), String::new()),
         };
         let focus = cx.focus_handle().tab_stop(true).tab_index(0);
         let mut input = |value| cx.new(|cx| InputState::new(window, cx).default_value(value));
         Self {
             expanded: false,
             focus,
-            catalog_version: input(catalog_version),
             user_agent: input(user_agent),
             editor_version: input(editor_version),
             editor_plugin_version: input(editor_plugin_version),
@@ -54,7 +44,6 @@ impl Fields {
         let read = |input: &Entity<InputState>| input.read(cx).value().trim().to_owned();
         let options = match preset {
             Preset::ChatGpt => Options::ChatGpt {
-                catalog_version: read(&self.catalog_version),
                 user_agent: read(&self.user_agent),
             },
             Preset::Copilot | Preset::CopilotResponses => Options::Copilot {
@@ -74,18 +63,11 @@ impl Fields {
 impl Editor {
     pub(super) fn oauth_form(&self, window: &Window, cx: &Context<Self>) -> impl IntoElement {
         let fields: &[(&str, &str, &Entity<InputState>)] = match self.preset {
-            Preset::ChatGpt => &[
-                (
-                    "provider_oauth_catalog_version",
-                    "provider-oauth-catalog-version",
-                    &self.oauth.catalog_version,
-                ),
-                (
-                    "provider_oauth_user_agent",
-                    "provider-oauth-user-agent",
-                    &self.oauth.user_agent,
-                ),
-            ],
+            Preset::ChatGpt => &[(
+                "provider_oauth_user_agent",
+                "provider-oauth-user-agent",
+                &self.oauth.user_agent,
+            )],
             Preset::Copilot | Preset::CopilotResponses => &[
                 (
                     "provider_oauth_user_agent",

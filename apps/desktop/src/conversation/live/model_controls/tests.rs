@@ -26,11 +26,14 @@ fn selects_models_and_levels(cx: &mut TestAppContext) {
             panic!("snapshot expected")
         };
         let mut provider = snapshot.providers[0].clone();
+        provider.models[0].display_name = Some("Readable fixture name".into());
         let mut alternate = provider.models[0].clone();
         alternate.id = "alternate-model".into();
+        alternate.display_name = Some("Readable alternate name".into());
         provider.models.push(alternate);
         let mut unsupported = provider.models[0].clone();
         unsupported.id = "no-reasoning".into();
+        unsupported.display_name = None;
         unsupported.reasoning = false;
         unsupported.efforts = vec![Effort::Default];
         unsupported.default_effort = Effort::Default;
@@ -43,6 +46,10 @@ fn selects_models_and_levels(cx: &mut TestAppContext) {
         wait(visual, |cx| {
             view.read(cx).connected() && view.read(cx).configured()
         });
+        assert_eq!(
+            view.read_with(visual, |view, _| view.model_label()),
+            "Readable fixture name"
+        );
         tap(visual, "live-chat-model");
         let compact = visual.debug_bounds("model-controls").unwrap();
         assert!(visual.debug_bounds("model-effort-flow").is_some());
@@ -169,6 +176,10 @@ fn selects_models_and_levels(cx: &mut TestAppContext) {
             !view.read(cx).busy()
                 && view.read(cx).session.as_ref().unwrap().config.model == "alternate-model"
         });
+        assert_eq!(
+            view.read_with(visual, |view, _| view.model_label()),
+            "Readable alternate name"
+        );
         assert!(view.read_with(visual, |view, cx| view.model_controls.read(cx).models));
         assert!(visual.debug_bounds("composer-model-picker").is_some());
         tap(visual, "composer-model-effort");

@@ -26,6 +26,7 @@ pub(super) async fn provider(client: &Client, endpoint: &str, model: &str) -> Pr
                 default_model: model.into(),
                 models: vec![Model {
                     id: model.into(),
+                    display_name: None,
                     context: 4096,
                     output: 128,
                     vision: false,

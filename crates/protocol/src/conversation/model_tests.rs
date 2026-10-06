@@ -29,3 +29,20 @@ fn identity_and_capacity_remain_required() {
         assert!(serde_json::from_value::<Model>(malformed).is_err());
     }
 }
+
+#[test]
+fn display_name_does_not_change_execution_identity() {
+    let model: Model = serde_json::from_value(json!({
+        "id": "gpt-6.1-sol",
+        "display_name": "GPT-6.1 Sol",
+        "context": 4096,
+        "output": 1024,
+    }))
+    .unwrap();
+    assert_eq!(model.id, "gpt-6.1-sol");
+    assert_eq!(model.display_name.as_deref(), Some("GPT-6.1 Sol"));
+    assert_eq!(
+        serde_json::to_value(model).unwrap()["display_name"],
+        "GPT-6.1 Sol"
+    );
+}

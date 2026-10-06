@@ -87,11 +87,11 @@ async fn keeps_captured_headers_through_restart_and_refresh() {
                         super::super::oauth::headers(request, &expected);
                     }
                     let fresh = count.fetch_add(1, Ordering::SeqCst) > 0;
-                    Reply::Json(exchanged(authentication, fresh))
+                    Reply::Json(exchanged(request, authentication, fresh))
                 } else if request.path.starts_with("/models") {
                     super::super::oauth::headers(request, &expected);
                     if authentication == Authentication::ChatGpt {
-                        assert_eq!(request.path, "/models?client_version=0.161.0");
+                        assert_eq!(request.path, "/models");
                     }
                     Reply::Json(catalog::models(authentication))
                 } else if matches!(request.path.as_str(), "/responses" | "/chat/completions") {

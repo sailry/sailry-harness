@@ -20,6 +20,7 @@ fn preserves_manual_models(cx: &mut TestAppContext) {
             fixture.execute(Command::RefreshModelCatalog);
             let manual = super::super::super::super::data::Model {
                 id: "known".into(),
+                display_name: None,
                 context: 65536,
                 output: 2048,
                 vision: false,

@@ -15,7 +15,7 @@ impl Editor {
             Preset::OpenAi => "https://api.openai.com/v1".into(),
             Preset::OpenCodeGo => "https://opencode.ai/zen/go/v1".into(),
             Preset::OpenCodeZen => "https://opencode.ai/zen/v1".into(),
-            Preset::ChatGpt => "https://chatgpt.com/backend-api/codex".into(),
+            Preset::ChatGpt => "https://api.openai.com/v1".into(),
             Preset::Copilot | Preset::CopilotResponses => "https://api.githubcopilot.com".into(),
             Preset::Hosted(vendor) => vendor.endpoint().into(),
             Preset::Bedrock | Preset::BedrockIam | Preset::Vertex | Preset::VertexAdc
@@ -36,6 +36,10 @@ impl Editor {
     }
 
     pub(super) fn save_live(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.persist(false, window, cx);
+    }
+
+    pub(super) fn persist(&mut self, authorize: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.pending || self.closed {
             return;
         }
@@ -121,8 +125,9 @@ impl Editor {
                     return;
                 }
                 match result {
-                    Ok(Ok(Output::Provider(_))) => {
+                    Ok(Ok(Output::Provider(provider))) => {
                         editor.request = None;
+                        editor.provider = Some(provider.clone());
                         editor.owner.update(cx, |owner, cx| {
                             if owner.provider_link.as_ref().is_some_and(|live| {
                                 live.binding.client.target()
@@ -132,8 +137,12 @@ impl Editor {
                                 cx.notify();
                             }
                         });
-                        editor.close(window, cx);
-                        window.close_dialog(cx);
+                        if authorize {
+                            editor.start_authorization(provider, window, cx);
+                        } else {
+                            editor.close(window, cx);
+                            window.close_dialog(cx);
+                        }
                     }
                     Ok(Err(error)) => {
                         editor.report_error(super::super::live::error_key(&error), window, cx)

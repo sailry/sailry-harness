@@ -361,6 +361,7 @@ impl Fixture {
             default_model: "fixture".into(),
             models: vec![sailry_protocol::conversation::Model {
                 id: "fixture".into(),
+                display_name: None,
                 context: 4096,
                 output: 128,
                 vision: false,

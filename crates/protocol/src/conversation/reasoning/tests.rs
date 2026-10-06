@@ -59,6 +59,7 @@ fn enforces_native_bounds_and_choices() {
         );
     }
     let mut model = Model {
+        display_name: None,
         id: "fixture".into(),
         context: 8192,
         output: 4096,

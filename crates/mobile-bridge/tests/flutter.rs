@@ -344,6 +344,7 @@ async fn configure(client: &Client, endpoint: &str) {
                 credential: None,
                 models: vec![Model {
                     id: MODEL.into(),
+                    display_name: None,
                     context: 4096,
                     output: 128,
                     vision: false,

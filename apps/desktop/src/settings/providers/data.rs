@@ -331,6 +331,7 @@ impl Preset {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Model {
     pub id: String,
+    pub display_name: Option<String>,
     pub context: u32,
     pub output: u32,
     pub vision: bool,
@@ -344,9 +345,17 @@ pub struct Model {
 }
 
 impl Model {
+    pub fn label(&self) -> &str {
+        self.display_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or(&self.id)
+    }
+
     pub fn example(id: &str) -> Self {
         Self {
             id: id.into(),
+            display_name: None,
             context: 128_000,
             output: 16_384,
             vision: true,

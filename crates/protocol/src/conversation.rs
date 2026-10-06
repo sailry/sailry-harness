@@ -91,6 +91,8 @@ pub struct Provider {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Model {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     pub context: u32,
     pub output: u32,
     #[serde(default)]

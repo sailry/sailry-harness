@@ -4,26 +4,28 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[path = "execution/oauth.rs"]
 mod oauth;
 #[path = "execution/renewals.rs"]
-mod renewals;
+pub(super) mod renewals;
 #[path = "execution/transfers.rs"]
 mod transfers;
 
 const ROTATED: &str = "isolated-rotated-refresh";
 
-fn token(expires: u64) -> String {
-    format!("e30.{}.fixture", URL_SAFE_NO_PAD.encode(json!({"exp":expires,"https://api.openai.com/auth":{"chatgpt_account_id":"fixture-account"}}).to_string()))
-}
-
-pub(super) fn exchanged(authentication: Authentication, fresh: bool) -> serde_json::Value {
+pub(super) fn exchanged(
+    request: &discovery_support::Request,
+    authentication: Authentication,
+    fresh: bool,
+) -> serde_json::Value {
     let expires = if fresh {
         future_expiry()
     } else {
         future_expiry() - 3570
     };
     match authentication {
-        Authentication::ChatGpt => {
-            json!({"access_token":token(expires),"refresh_token": if fresh {ROTATED} else {REFRESH}})
-        }
+        Authentication::ChatGpt => identity::tokens(
+            request,
+            if fresh { 3600 } else { 30 },
+            if fresh { ROTATED } else { REFRESH },
+        ),
         Authentication::Copilot => {
             json!({"token": if fresh {"renewed-access"} else {ACCESS},"expires_at":expires,"endpoints":{"api":"https://api.individual.githubcopilot.com"}})
         }
@@ -32,7 +34,7 @@ pub(super) fn exchanged(authentication: Authentication, fresh: bool) -> serde_js
 }
 
 fn exchange(request: &discovery_support::Request) -> bool {
-    request.path == "/oauth/token" || request.path == "/copilot_internal/v2/token"
+    request.path == "/api/accounts/oauth/token" || request.path == "/copilot_internal/v2/token"
 }
 
 fn generation(
@@ -40,8 +42,17 @@ fn generation(
     authentication: Authentication,
     tools: bool,
 ) -> Reply {
+    generation_for(request, authentication, tools, "fixture")
+}
+
+fn generation_for(
+    request: &discovery_support::Request,
+    authentication: Authentication,
+    tools: bool,
+    model: &str,
+) -> Reply {
     let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
-    assert_eq!(body["model"], "fixture");
+    assert_eq!(body["model"], model);
     assert_eq!(body["stream"], true);
     assert!(!request.body.contains(REFRESH));
     assert!(!request.body.contains(GITHUB));
@@ -65,12 +76,37 @@ fn generation(
     };
     if authentication == Authentication::ChatGpt {
         assert_eq!(api, ModelApi::Responses);
-        assert_eq!(request.headers["chatgpt-account-id"], "fixture-account");
-        assert_eq!(request.headers["originator"], "sailry");
-        assert!(request.headers["session_id"].parse::<SessionId>().is_ok());
-        assert!(request.headers["authorization"].starts_with("Bearer e30."));
+        assert!(!request.headers.contains_key("chatgpt-account-id"));
+        assert!(!request.headers.contains_key("originator"));
+        assert!(!request.headers.contains_key("session_id"));
+        assert_eq!(
+            request.headers["authorization"],
+            "Bearer isolated-chatgpt-access"
+        );
         assert_eq!(body["store"], false);
-        assert!(body["instructions"].is_string());
+        if let Some(instructions) = body.get("instructions") {
+            assert!(instructions.is_string());
+        }
+        assert!(
+            body["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item["role"] != "system")
+        );
+        let namespaces = body["tools"].as_array().unwrap();
+        assert!(namespaces.iter().all(|tool| tool["type"] == "namespace"));
+        assert!(namespaces.iter().any(|tool| {
+            tool["name"] == "sailry"
+                && tool["tools"]
+                    .as_array()
+                    .is_some_and(|tools| !tools.is_empty())
+        }));
+        for item in body["input"].as_array().unwrap() {
+            if item["type"] == "function_call" {
+                assert_eq!(item["namespace"], "sailry");
+            }
+        }
         assert!(
             body["include"]
                 .as_array()
@@ -92,11 +128,11 @@ fn generation(
     let tool = format!("plugin_{}_read_file", &digest[..16]);
     let event = if api == ModelApi::Responses {
         let output = if call {
-            json!([{"type":"function_call","id":"item-fixture","call_id":"call-fixture","name":tool,"arguments":"{\"path\":\"fixture.txt\"}","status":"completed"}])
+            json!([{"type":"function_call","id":"item-fixture","call_id":"call-fixture","namespace":"sailry","name":tool,"arguments":"{\"path\":\"fixture.txt\"}","status":"completed"}])
         } else {
             json!([{"type":"message","id":"message-fixture","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Authorized response","annotations":[]}]}])
         };
-        let completed = json!({"type":"response.completed","sequence_number":1,"response":{"id":"response-fixture","object":"response","created_at":1,"status":"completed","model":"fixture","output":output}});
+        let completed = json!({"type":"response.completed","sequence_number":1,"response":{"id":"response-fixture","object":"response","created_at":1,"status":"completed","model":model,"output":output}});
         if call {
             format!("data: {completed}\n\n")
         } else {
@@ -109,8 +145,8 @@ fn generation(
         } else {
             json!({"role":"assistant","content":"Authorized response"})
         };
-        let first = json!({"id":"completion-fixture","object":"chat.completion.chunk","created":1,"model":"fixture","choices":[{"index":0,"delta":delta,"finish_reason":null}]});
-        let last = json!({"id":"completion-fixture","object":"chat.completion.chunk","created":1,"model":"fixture","choices":[{"index":0,"delta":{},"finish_reason":if call {"tool_calls"} else {"stop"}}]});
+        let first = json!({"id":"completion-fixture","object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":delta,"finish_reason":null}]});
+        let last = json!({"id":"completion-fixture","object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":{},"finish_reason":if call {"tool_calls"} else {"stop"}}]});
         format!("data: {first}\n\ndata: {last}\n\n")
     };
     Reply::Raw(format!(
@@ -136,6 +172,7 @@ async fn configured(
     provider.oauth = options;
     provider.models = vec![sailry_protocol::conversation::Model {
         id: "fixture".into(),
+        display_name: None,
         context: 8192,
         output: 512,
         vision: true,
@@ -203,7 +240,7 @@ async fn session(fixture: &Fixture, provider: &Provider) -> Session {
                 assistant: None,
                 resource: None,
                 provider: provider.id,
-                model: "fixture".into(),
+                model: provider.models[0].id.clone(),
                 effort: Effort::Default,
                 mode: sailry_protocol::WorkMode::Code,
                 permission: Permission::Ask,
@@ -288,7 +325,7 @@ async fn runs_tools_after_refresh() {
                         assert!(request.body.contains("grant_type=refresh_token"));
                         assert!(request.body.contains(REFRESH));
                     }
-                    Reply::Json(exchanged(authentication, fresh))
+                    Reply::Json(exchanged(request, authentication, fresh))
                 } else if matches!(request.path.as_str(), "/responses" | "/chat/completions") {
                     generation(request, authentication, true)
                 } else {
@@ -312,5 +349,52 @@ async fn runs_tools_after_refresh() {
             );
             fixture.close().await;
         }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runs_tools_from_minimal_catalog() {
+    for remote in [false, true] {
+        let server = Server::start_with_request(ModelApi::Anthropic, |request| {
+            match request.path.as_str() {
+                "/models" => Reply::Json(json!({"models":[{
+                    "slug":"gpt-6.1-sol", "display_name":"GPT-6.1 Sol", "visibility":"list"
+                }]})),
+                "/responses" => {
+                    generation_for(request, Authentication::ChatGpt, true, "gpt-6.1-sol")
+                }
+                _ => standard(request),
+            }
+        })
+        .await;
+        let fixture = Fixture::new(remote, &server).await;
+        let provider = provider(&fixture.client, Authentication::ChatGpt).await;
+        let (_, attempt) = begin(&fixture.client, &provider).await;
+        let mut updates = fixture.client.subscribe_login(attempt.id).await.unwrap();
+        assert_eq!(terminal(&mut updates).await.state, login::State::Connected);
+        let Output::Providers(providers) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ListProviders))
+            .await
+            .unwrap()
+        else {
+            panic!("providers expected")
+        };
+        let provider = &providers[0];
+        assert_eq!(provider.models.len(), 1);
+        assert_eq!(provider.models[0].id, "gpt-6.1-sol");
+        assert_eq!(
+            provider.models[0].display_name.as_deref(),
+            Some("GPT-6.1 Sol")
+        );
+        assert!(provider.models[0].tools);
+        let session = session(&fixture, provider).await;
+        let (_, turn) = submit(&fixture.client, &session).await;
+        let page = finished(&fixture.client, &turn, Status::Completed).await;
+        let history = serde_json::to_string(&page).unwrap();
+        assert!(history.contains("Isolated tool content"), "{history}");
+        assert!(history.contains("Authorized response"), "{history}");
+        assert_eq!(server.requests.lock().unwrap().len(), 6);
+        fixture.close().await;
     }
 }

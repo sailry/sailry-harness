@@ -26,6 +26,7 @@ mod discovery;
 mod kind;
 #[cfg(test)]
 use super::discovery_server;
+mod authorization;
 mod live;
 mod oauth;
 
@@ -55,6 +56,10 @@ pub(super) struct Editor {
     task: Option<Task<()>>,
     probe: Option<discovery::Probe>,
     scroll: ScrollHandle,
+    authorization: Option<Entity<super::login::Login>>,
+    _authorization: Option<Subscription>,
+    account_label: Option<SharedString>,
+    account_task: Option<Task<()>>,
 }
 
 pub(super) fn open(
@@ -114,7 +119,7 @@ pub(super) fn open(
                             } else {
                                 "settings_save_preview"
                             }))
-                            .disabled(editor.read(cx).pending)
+                            .disabled(editor.read(cx).pending || editor.read(cx).authorizing(cx))
                             .on_click(move |_, window, cx| {
                                 save.update(cx, |editor, cx| editor.save(window, cx))
                             }),
@@ -212,6 +217,10 @@ impl Editor {
             task: None,
             probe: None,
             scroll: ScrollHandle::new(),
+            authorization: None,
+            _authorization: None,
+            account_label: None,
+            account_task: None,
             name: cx.new(|cx| {
                 InputState::new(window, cx)
                     .default_value(name)
@@ -227,6 +236,7 @@ impl Editor {
             error: None,
         };
         editor.load_key(window, cx);
+        editor.load_account(window, cx);
         editor
     }
 
@@ -263,6 +273,7 @@ impl Editor {
             self.next_model,
             sailry_protocol::conversation::discovery::Model {
                 id: String::new(),
+                display_name: None,
                 context: None,
                 output: None,
                 capabilities: None,
@@ -327,6 +338,9 @@ impl Editor {
     }
 
     pub fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.authorizing(cx) {
+            return;
+        }
         if self.binding.is_some() {
             self.save_live(window, cx);
             return;
@@ -493,6 +507,7 @@ impl Render for Editor {
                 )
             })
             .child(form)
+            .when(preset.oauth(), |body| body.child(self.authorization(cx)))
             .when(preset.oauth(), |body| {
                 body.child(self.oauth_form(window, cx))
             })
@@ -505,7 +520,7 @@ impl Render for Editor {
                     )
                 },
             )
-            .when(preset.oauth() && (!real || !self.configured), |this| {
+            .when(preset.oauth() && !real, |this| {
                 this.child(
                     div()
                         .id("provider-oauth-note")
@@ -523,6 +538,7 @@ impl Render for Editor {
                             .loading(self.probe.is_some())
                             .disabled(
                                 self.pending
+                                    || self.authorizing(cx)
                                     || self.probe.is_some()
                                     || (real && preset.oauth() && !self.configured),
                             )

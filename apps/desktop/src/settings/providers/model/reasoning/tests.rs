@@ -155,6 +155,7 @@ fn preserves_custom_refresh(cx: &mut TestAppContext) {
         let mut reopened = Draft::new(0, saved.clone(), window, cx);
         let native = sailry_protocol::conversation::discovery::Model {
             id: "fixture".into(),
+            display_name: None,
             context: None,
             output: None,
             capabilities: Some(sailry_protocol::conversation::discovery::Capabilities {

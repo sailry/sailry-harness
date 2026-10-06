@@ -38,15 +38,31 @@ impl Saved {
         Ok(())
     }
 
-    fn metadata(&self, provider: ProviderId, id: CredentialId) -> Credential {
-        Credential {
+    fn metadata(&self, provider: ProviderId, id: CredentialId) -> Result<Credential, Fault> {
+        let account_label = if self.authentication == Authentication::ChatGpt {
+            self.key
+                .as_ref()
+                .map(|key| {
+                    let crate::providers::login::Grant::ChatGpt { email, subject, .. } =
+                        crate::providers::login::Grant::decode(self.authentication, key)?
+                    else {
+                        unreachable!()
+                    };
+                    Ok::<_, Fault>(email.unwrap_or(subject))
+                })
+                .transpose()?
+        } else {
+            None
+        };
+        Ok(Credential {
             id,
             provider,
             authentication: self.authentication,
+            account_label,
             revision: self.revision,
             expires_at_ms: self.expires_at_ms,
             revoked: self.key.is_none(),
-        }
+        })
     }
 }
 
@@ -80,12 +96,9 @@ pub(in crate::store) fn execute(db: &Connection, command: &Command) -> Result<Ou
         Command::ListCredentials => {
             let mut credentials = Vec::new();
             for stored in configuration::all(db)? {
-                credentials.extend(
-                    stored
-                        .authorizations
-                        .iter()
-                        .map(|(id, value)| value.metadata(stored.id, *id)),
-                );
+                for (id, value) in &stored.authorizations {
+                    credentials.push(value.metadata(stored.id, *id)?);
+                }
             }
             credentials.sort_by_key(|value| value.id);
             Ok(Output::Credentials(credentials))
@@ -102,6 +115,7 @@ pub(in crate::store) fn execute(db: &Connection, command: &Command) -> Result<Ou
                 id: *id,
                 provider: *provider,
                 authentication: Authentication::ApiKey,
+                account_label: None,
                 revision: *expected_revision,
                 expires_at_ms: *expires_at_ms,
                 revoked: false,
@@ -117,7 +131,7 @@ pub(in crate::store) fn execute(db: &Connection, command: &Command) -> Result<Ou
             let value = stored.authorizations.get_mut(id).ok_or_else(missing)?;
             value.revision = revision(value.revision, *expected_revision)?;
             value.key = None;
-            let metadata = value.metadata(stored.id, *id);
+            let metadata = value.metadata(stored.id, *id)?;
             configuration::save(db, &stored)?;
             Ok(Output::Credential(metadata))
         }
@@ -176,17 +190,16 @@ pub(in crate::store) fn put(
     value.revoked = false;
     let mut stored =
         configuration::load(db, value.provider)?.unwrap_or_else(|| Stored::draft(value.provider));
-    stored.authorizations.insert(
-        value.id,
-        Saved {
-            authentication: value.authentication,
-            revision: value.revision,
-            key: Some(secret.clone()),
-            expires_at_ms: value.expires_at_ms,
-        },
-    );
+    let saved = Saved {
+        authentication: value.authentication,
+        revision: value.revision,
+        key: Some(secret.clone()),
+        expires_at_ms: value.expires_at_ms,
+    };
+    let metadata = saved.metadata(value.provider, value.id)?;
+    stored.authorizations.insert(value.id, saved);
     configuration::save(db, &stored)?;
-    Ok(value)
+    Ok(metadata)
 }
 
 pub(in crate::store) fn validate_authentication(
@@ -225,7 +238,7 @@ pub(in crate::store) fn get(
                 .authorizations
                 .get(&id)
                 .map(|value| value.metadata(stored.id, id))
-                .ok_or_else(missing)
+                .unwrap_or_else(|| Err(missing()))
         })
         .transpose()
 }
@@ -238,7 +251,7 @@ pub(in crate::store) fn resolve(
 ) -> Result<(Credential, Secret), Fault> {
     let stored = configuration::find(db, id)?.ok_or_else(missing)?;
     let saved = stored.authorizations.get(&id).ok_or_else(missing)?;
-    let metadata = saved.metadata(stored.id, id);
+    let metadata = saved.metadata(stored.id, id)?;
     validate_metadata(&metadata, provider)?;
     if metadata.authentication != authentication {
         return Err(Fault::new(

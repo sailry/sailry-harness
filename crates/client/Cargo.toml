@@ -12,6 +12,7 @@ tokio.workspace = true
 serde = { workspace = true, features = ["rc"] }
 serde_json.workspace = true
 blake3.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true

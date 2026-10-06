@@ -57,6 +57,7 @@ impl Fixture {
                         .into_iter()
                         .map(|id| Model {
                             id: id.into(),
+                            display_name: None,
                             context: 16000,
                             output: 2048,
                             vision: id == "vision",

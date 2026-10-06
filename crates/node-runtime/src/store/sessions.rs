@@ -199,6 +199,7 @@ pub(super) fn import(
                 id,
                 provider: provider.id,
                 authentication: provider.authentication,
+                account_label: None,
                 revision: 0,
                 expires_at_ms: bundle.expires_at_ms,
                 revoked: false,

@@ -179,7 +179,7 @@ fn preserves_target_and_draft(cx: &mut TestAppContext) {
         (
             Preset::ChatGpt,
             ModelApi::Responses,
-            "https://chatgpt.com/backend-api/codex",
+            "https://api.openai.com/v1",
         ),
         (
             Preset::Copilot,

@@ -95,6 +95,7 @@ pub(super) fn provider(endpoint: &str, name: &str) -> Provider {
         default_model: name.into(),
         models: vec![Model {
             id: name.into(),
+            display_name: None,
             context: 4096,
             output: 128,
             vision: false,

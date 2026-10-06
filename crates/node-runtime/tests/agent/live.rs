@@ -39,6 +39,7 @@ async fn completes_file_task() {
         provider.default_model = source.model.clone();
         provider.models = vec![Model {
             id: source.model.clone(),
+            display_name: None,
             context: 128000,
             output: 8192,
             vision: false,

@@ -134,12 +134,14 @@ async fn discovers_without_persistence() {
                 vec![
                     discovery::Model {
                         id: "known".into(),
+                        display_name: None,
                         context: Some(4096),
                         output: Some(64),
                         capabilities: None,
                     },
                     discovery::Model {
                         id: "unknown".into(),
+                        display_name: None,
                         context: None,
                         output: None,
                         capabilities: None,
@@ -162,6 +164,7 @@ async fn discovers_without_persistence() {
                     .into_iter()
                     .map(|id| Model {
                         id: id.into(),
+                        display_name: None,
                         context: 256,
                         output: 128,
                         vision: false,

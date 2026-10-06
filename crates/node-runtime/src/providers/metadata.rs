@@ -62,6 +62,7 @@ pub(super) fn parse(api: ModelApi, value: &Value) -> Result<Page, Fault> {
         };
         models.push(discovery::Model {
             id: id.to_owned(),
+            display_name: None,
             context,
             output,
             capabilities: capabilities(entry)?,

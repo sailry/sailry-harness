@@ -33,8 +33,12 @@ fn selection_and_filters(cx: &mut TestAppContext) {
             model: "fixture".into(),
         })
     };
+    let mut channels = channels;
+    channels[0].models[0].display_name = Some("Readable model name".into());
     picker.update(cx, |picker, cx| {
         picker.set(channels.clone(), selection(0), cx);
+        assert_eq!(picker.channels[0].models[0].id, "fixture");
+        assert_eq!(picker.channels[0].models[0].label, "Readable model name");
         assert_eq!(picker.family, Some(ModelCategory::OpenAi));
         picker.family = Some(ModelCategory::Anthropic);
         picker.set(channels.clone(), selection(0), cx);

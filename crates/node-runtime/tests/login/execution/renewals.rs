@@ -1,6 +1,63 @@
 use super::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn refreshes_expired_access_after_restart() {
+    for remote in [false, true] {
+        let exchanges = Arc::new(AtomicUsize::new(0));
+        let count = exchanges.clone();
+        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+            if exchange(request) {
+                count.fetch_add(1, Ordering::SeqCst);
+                Reply::Json(exchanged(request, Authentication::ChatGpt, true))
+            } else if request.path == "/responses" {
+                generation(request, Authentication::ChatGpt, false)
+            } else {
+                standard(request)
+            }
+        })
+        .await;
+        let fixture = Fixture::new(remote, &server).await;
+        let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
+        let session = session(&fixture, &provider).await;
+        let reference = provider.credential.as_ref().unwrap();
+        let db = rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
+            .unwrap();
+        let mut body: serde_json::Value = serde_json::from_str(
+            &db.query_row::<String, _, _>(
+                "SELECT CAST(body AS TEXT) FROM providers WHERE id=?1",
+                [provider.id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let saved = &mut body["authorizations"][reference.id.to_string()];
+        assert!(saved["expires_at_ms"].is_null());
+        let mut grant: serde_json::Value =
+            serde_json::from_str(saved["key"].as_str().unwrap()).unwrap();
+        grant["expires_at_ms"] = json!((future_expiry() - 3601) * 1000);
+        saved["key"] = json!(grant.to_string());
+        db.execute(
+            "UPDATE providers SET body=?1 WHERE id=?2",
+            rusqlite::params![serde_json::to_vec(&body).unwrap(), provider.id.to_string()],
+        )
+        .unwrap();
+        drop(db);
+        let fixture = restart(fixture, &server, remote).await;
+        let (_, turn) = submit(&fixture.client, &session).await;
+        finished(&fixture.client, &turn, Status::Completed).await;
+        assert_eq!(exchanges.load(Ordering::SeqCst), 2);
+        assert_eq!(server.requests.lock().unwrap().len(), 6);
+        let fixture = restart(fixture, &server, remote).await;
+        let (_, turn) = submit(&fixture.client, &session).await;
+        finished(&fixture.client, &turn, Status::Completed).await;
+        assert_eq!(exchanges.load(Ordering::SeqCst), 2);
+        assert_eq!(server.requests.lock().unwrap().len(), 7);
+        fixture.close().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn retains_rotated_grants() {
     for remote in [false, true] {
         let count = Arc::new(AtomicUsize::new(0));
@@ -11,14 +68,12 @@ async fn retains_rotated_grants() {
                 if index == 2 {
                     assert!(request.body.contains(ROTATED));
                     assert!(!request.body.contains(REFRESH));
-                    // Some refresh responses omit an unchanged refresh token and account claim.
-                    let access = format!(
-                        "e30.{}.fixture",
-                        URL_SAFE_NO_PAD.encode(json!({"exp":future_expiry()}).to_string())
-                    );
-                    Reply::Json(json!({"access_token":access}))
+                    // Refresh rotates both tokens while identity and scopes may be omitted.
+                    let mut value = exchanged(request, Authentication::ChatGpt, true);
+                    value.as_object_mut().unwrap().remove("scope");
+                    Reply::Json(value)
                 } else {
-                    let mut value = exchanged(Authentication::ChatGpt, false);
+                    let mut value = exchanged(request, Authentication::ChatGpt, false);
                     if index == 1 {
                         value["refresh_token"] = json!(ROTATED);
                     }
@@ -42,7 +97,7 @@ async fn retains_rotated_grants() {
     }
 }
 
-pub(super) async fn restart(fixture: Fixture, server: &Server, remote: bool) -> Fixture {
+pub(in super::super) async fn restart(fixture: Fixture, server: &Server, remote: bool) -> Fixture {
     let Fixture {
         directory,
         node,
@@ -83,9 +138,9 @@ async fn refresh_survives_turn_cancellation() {
                 if exchange(request) {
                     let fresh = count.fetch_add(1, Ordering::SeqCst) > 0;
                     if fresh {
-                        Reply::Delayed(ready.clone(), exchanged(authentication, true))
+                        Reply::Delayed(ready.clone(), exchanged(request, authentication, true))
                     } else {
-                        Reply::Json(exchanged(authentication, false))
+                        Reply::Json(exchanged(request, authentication, false))
                     }
                 } else if request.path == "/responses" {
                     generation(request, authentication, false)
@@ -137,16 +192,17 @@ async fn preserves_uncertain_rotation() {
             let target = sink.endpoint.clone();
             let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
                 if exchange(request) {
-                    if count.fetch_add(1, Ordering::SeqCst) == 0 { return Reply::Json(exchanged(Authentication::ChatGpt, false)); }
+                    if count.fetch_add(1, Ordering::SeqCst) == 0 { return Reply::Json(exchanged(request, Authentication::ChatGpt, false)); }
                     match mode {
                         "http" => Reply::Raw(format!("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n{REFRESH}")),
                         "redirect" => Reply::Raw(format!("HTTP/1.1 307 Temporary Redirect\r\nLocation: {target}/stolen\r\nContent-Length: 0\r\n\r\n")),
                         "account" => {
-                            let mut value = exchanged(Authentication::ChatGpt, true);
-                            value["access_token"] = json!(format!("e30.{}.fixture", URL_SAFE_NO_PAD.encode(json!({"exp":future_expiry(),"https://api.openai.com/auth":{"chatgpt_account_id":"another-account"}}).to_string())));
+                            let mut value = exchanged(request, Authentication::ChatGpt, true);
+                            value["id_token"] = json!(identity::signed(&json!({"iss":identity::issuer(request),
+                                "aud":identity::CLIENT,"sub":"another-subject","iat":future_expiry()-3600,"exp":future_expiry()})));
                             Reply::Json(value)
                         }
-                        "save" => Reply::Json(exchanged(Authentication::ChatGpt, true)),
+                        "save" => Reply::Json(exchanged(request, Authentication::ChatGpt, true)),
                         "shutdown" => Reply::Hold,
                         _ => unreachable!(),
                     }
@@ -198,9 +254,12 @@ async fn preserves_revocation_during_refresh() {
         let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
             if exchange(request) {
                 if count.fetch_add(1, Ordering::SeqCst) == 0 {
-                    Reply::Json(exchanged(Authentication::ChatGpt, false))
+                    Reply::Json(exchanged(request, Authentication::ChatGpt, false))
                 } else {
-                    Reply::Delayed(ready.clone(), exchanged(Authentication::ChatGpt, true))
+                    Reply::Delayed(
+                        ready.clone(),
+                        exchanged(request, Authentication::ChatGpt, true),
+                    )
                 }
             } else {
                 standard(request)
@@ -245,6 +304,7 @@ async fn admits_before_rotation() {
         let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
             if exchange(request) {
                 Reply::Json(exchanged(
+                    request,
                     Authentication::ChatGpt,
                     count.fetch_add(1, Ordering::SeqCst) > 0,
                 ))
@@ -289,7 +349,7 @@ async fn confines_generation_credentials() {
                 .await;
                 let target = sink.endpoint.clone();
                 let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-                    if exchange(request) { Reply::Json(exchanged(authentication, true)) }
+                    if exchange(request) { Reply::Json(exchanged(request, authentication, true)) }
                     else if matches!(request.path.as_str(), "/responses" | "/chat/completions") {
                         if redirect { Reply::Raw(format!("HTTP/1.1 307 Temporary Redirect\r\nLocation: {target}/stolen\r\nContent-Length: 0\r\n\r\n")) }
                         else {

@@ -33,6 +33,7 @@ async fn provider(client: &Client, secret: Option<&str>) -> Provider {
                 credential: None,
                 models: vec![Model {
                     id: "fixture".into(),
+                    display_name: None,
                     context: 128,
                     output: 32,
                     vision: false,

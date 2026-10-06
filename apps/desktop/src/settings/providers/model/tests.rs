@@ -27,6 +27,7 @@ fn default_capabilities(cx: &mut TestAppContext) {
                 0,
                 discovery::Model {
                     id: "fixture".into(),
+                    display_name: None,
                     context,
                     output,
                     capabilities: None,
@@ -45,6 +46,7 @@ fn default_capabilities(cx: &mut TestAppContext) {
             0,
             discovery::Model {
                 id: "fixture".into(),
+                display_name: None,
                 context: Some(2048),
                 output: Some(4096),
                 capabilities: None,
@@ -55,6 +57,39 @@ fn default_capabilities(cx: &mut TestAppContext) {
             cx,
         );
         assert_eq!(draft.value(cx).unwrap_err(), "provider_limits_invalid");
+    });
+}
+
+#[gpui::test]
+fn keeps_display_name_separate_from_id(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (_, visual) = cx.add_window_view(|_, _| View);
+    visual.update(|window, cx| {
+        let draft = Draft::discovered(
+            0,
+            discovery::Model {
+                id: "execution-id".into(),
+                display_name: Some("Readable name".into()),
+                context: None,
+                output: None,
+                capabilities: None,
+            },
+            None,
+            Preset::ChatGpt,
+            window,
+            cx,
+        );
+        let saved = draft.value(cx).unwrap();
+        assert_eq!(saved.id, "execution-id");
+        assert_eq!(saved.label(), "Readable name");
+        assert!(saved.tools);
+        draft
+            .id
+            .update(cx, |input, cx| input.set_value("another-id", window, cx));
+        let edited = draft.value(cx).unwrap();
+        assert_eq!(edited.id, "another-id");
+        assert_eq!(edited.display_name, None);
+        assert_eq!(edited.label(), "another-id");
     });
 }
 
@@ -76,6 +111,7 @@ fn explicit_metadata_precedence(cx: &mut TestAppContext) {
         };
         let discovered = discovery::Model {
             id: "fixture".into(),
+            display_name: None,
             context: Some(4096),
             output: None,
             capabilities: None,

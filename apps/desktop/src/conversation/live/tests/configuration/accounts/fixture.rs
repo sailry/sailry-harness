@@ -23,6 +23,7 @@ impl Fixture {
             remote,
             vec![Model {
                 id: "fixture".into(),
+                display_name: None,
                 context: 8192,
                 output: 512,
                 vision: false,

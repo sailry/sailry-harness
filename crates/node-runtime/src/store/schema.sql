@@ -3,6 +3,14 @@ CREATE TABLE IF NOT EXISTS node (
     identity BLOB NOT NULL CHECK(length(identity)=32),
     plugin_defaults INTEGER NOT NULL DEFAULT 0 CHECK(plugin_defaults IN (0,1))
 );
+CREATE TABLE IF NOT EXISTS oauth_hosts (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    host_id TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS oauth_registrations (
+    provider TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS requests (
     caller BLOB NOT NULL,
     id TEXT NOT NULL,

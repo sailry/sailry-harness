@@ -28,6 +28,7 @@ async fn requires_explicit_models() {
             default_model: "explicit-model".into(),
             models: vec![Model {
                 id: "explicit-model".into(),
+                display_name: None,
                 context: 4096,
                 output: 2048,
                 vision: false,

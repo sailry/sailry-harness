@@ -31,6 +31,7 @@ fn draft(window: &mut Window, cx: &mut App) -> Draft {
         0,
         discovery::Model {
             id: "fixture".into(),
+            display_name: None,
             context: None,
             output: None,
             capabilities: None,
@@ -124,6 +125,7 @@ fn keeps_reported_limits(cx: &mut TestAppContext) {
             0,
             discovery::Model {
                 id: "fixture".into(),
+                display_name: None,
                 context: Some(400_000),
                 output: Some(16_384),
                 capabilities: Some(discovery::Capabilities {
@@ -159,6 +161,7 @@ fn fills_native_gaps(cx: &mut TestAppContext) {
         draft.advanced = true;
         let native = discovery::Model {
             id: "fixture".into(),
+            display_name: None,
             context: Some(4096),
             output: Some(128),
             capabilities: Some(discovery::Capabilities {
@@ -250,6 +253,7 @@ fn native_efforts_override_reference(cx: &mut TestAppContext) {
         let mut draft = draft(window, cx);
         let native = discovery::Model {
             id: "fixture".into(),
+            display_name: None,
             context: None,
             output: None,
             capabilities: Some(discovery::Capabilities {

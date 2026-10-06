@@ -31,6 +31,7 @@ async fn atomic_save() {
         let (session, mut provider) = configured(&client, &server.endpoint, &root).await;
         provider.models.push(Model {
             id: "fixture-a".into(),
+            display_name: None,
             context: 128,
             output: 32,
             vision: false,

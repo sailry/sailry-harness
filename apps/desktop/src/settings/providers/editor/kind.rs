@@ -31,7 +31,7 @@ impl Editor {
     pub(super) fn kind_control(&self, cx: &Context<Self>) -> impl IntoElement {
         let preset = self.preset;
         let owner = cx.entity();
-        let disabled = self.editing.is_some() || self.pending;
+        let disabled = self.editing.is_some() || self.provider.is_some() || self.pending;
         let button = Button::new("provider-type")
             .debug_selector(|| "provider-type".into())
             .w_full()
@@ -60,7 +60,7 @@ impl Editor {
                         .label(tr(preset.protocol_key()))
                         .accessibility_label(tr("provider_api"))
                         .dropdown_caret(true)
-                        .disabled(self.editing.is_some() || self.pending)
+                        .disabled(self.editing.is_some() || self.provider.is_some() || self.pending)
                         .dropdown_menu(move |menu, _, _| {
                             preset.protocols().iter().fold(menu, |menu, &p| {
                                 let owner = owner.clone();

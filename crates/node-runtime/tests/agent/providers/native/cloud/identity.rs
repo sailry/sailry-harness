@@ -147,6 +147,7 @@ async fn uses_execution_host_identity() {
         let request = fixture.client.prepare(Command::BeginProviderLogin {
             provider: provider.id,
             expected_revision: provider.revision,
+            redirect: None,
         });
         assert!(fixture.client.execute(request).await.is_err());
         assert_eq!(server.requests.lock().unwrap().len(), 1);

@@ -1,4 +1,4 @@
-//! Account-scoped catalogs. Protocol references are recorded in provider-authorization.md.
+//! Account-scoped catalogs, including the public Sign in with ChatGPT model list.
 use super::*;
 use sailry_protocol::{Authentication, Effort};
 use serde_json::Value;
@@ -26,16 +26,7 @@ async fn fetch(
     url.set_path(&format!("{}/models", url.path().trim_end_matches('/')));
     let mut headers = grant.headers(options)?;
     match grant.authentication() {
-        Authentication::ChatGpt => {
-            let sailry_protocol::conversation::oauth::Options::ChatGpt {
-                catalog_version, ..
-            } = options
-            else {
-                return Err(invalid("OAuth settings do not match the authorization"));
-            };
-            url.query_pairs_mut()
-                .append_pair("client_version", catalog_version);
-        }
+        Authentication::ChatGpt => {}
         Authentication::Copilot => {
             headers.insert(
                 "openai-intent",
@@ -80,8 +71,12 @@ fn parse(
     if entries.len() > MODEL_LIMIT {
         return Err(unavailable("provider model list exceeds its limit"));
     }
-    let mut models = BTreeMap::new();
+    let mut models = Vec::<discovery::Model>::new();
+    let mut indices = BTreeMap::<String, usize>::new();
     for entry in entries {
+        if chatgpt && entry["visibility"] != "list" {
+            continue;
+        }
         if !chatgpt && !supports(entry, api)? {
             continue;
         }
@@ -149,18 +144,38 @@ fn parse(
         }
         let model = discovery::Model {
             id: id.into(),
+            display_name: if chatgpt {
+                Some(
+                    entry["display_name"]
+                        .as_str()
+                        .filter(|value| {
+                            !value.trim().is_empty()
+                                && value.len() <= 256
+                                && !value.chars().any(char::is_control)
+                        })
+                        .ok_or_else(|| unavailable("provider model display name is invalid"))?
+                        .to_owned(),
+                )
+            } else {
+                None
+            },
             context,
             output,
             capabilities: Some(capabilities),
         };
-        if models
-            .insert(id.to_owned(), model.clone())
-            .is_some_and(|old| old != model)
-        {
-            return Err(unavailable("provider returned conflicting model metadata"));
+        if let Some(index) = indices.get(id) {
+            if models[*index] != model {
+                return Err(unavailable("provider returned conflicting model metadata"));
+            }
+        } else {
+            indices.insert(id.to_owned(), models.len());
+            models.push(model);
         }
     }
-    Ok(models.into_values().collect())
+    if !chatgpt {
+        models.sort_by(|left, right| left.id.cmp(&right.id));
+    }
+    Ok(models)
 }
 
 fn supports(entry: &Value, api: ModelApi) -> Result<bool, Fault> {

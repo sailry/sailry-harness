@@ -45,7 +45,7 @@ impl Shell {
     pub(super) fn composer_model(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let label = self
             .selected_model(cx)
-            .map(|(_, model)| model.id.into())
+            .map(|(_, model)| model.label().to_owned().into())
             .unwrap_or_else(|| tr("composer_select_model"));
         let picker = self.model_picker.clone();
         let selected = self.selected_model(cx).map(|(channel, model)| Selection {

@@ -27,12 +27,13 @@ impl Grant {
                 .map_err(|_| invalid("OAuth header value is invalid"))?,
         );
         match (self, options) {
-            (Self::ChatGpt { account_id, .. }, Options::ChatGpt { .. }) => {
-                let mut account = HeaderValue::from_str(account_id)
-                    .map_err(|_| invalid("authorization account is invalid"))?;
-                account.set_sensitive(true);
-                headers.insert("chatgpt-account-id", account);
-                headers.insert("originator", HeaderValue::from_static("sailry"));
+            (Self::ChatGpt { .. }, Options::ChatGpt { .. }) => {
+                if !self.plan_enabled() {
+                    return Err(Fault::new(
+                        ErrorCode::NotConfigured,
+                        "ChatGPT plan use is not enabled",
+                    ));
+                }
             }
             (
                 Self::Copilot { .. },

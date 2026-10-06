@@ -6,6 +6,7 @@ pub(super) async fn prepare(client: &Client, server: &Server, root: &std::path::
     provider.default_model = "fixture-a".into();
     provider.models = vec![Model {
         id: "fixture-a".into(),
+        display_name: None,
         context: 16000,
         output: 2048,
         vision: false,

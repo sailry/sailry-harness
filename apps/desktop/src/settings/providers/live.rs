@@ -284,6 +284,7 @@ pub(crate) fn channel(id: usize, provider: &Provider) -> Channel {
             .iter()
             .map(|model| Model {
                 id: model.id.clone(),
+                display_name: model.display_name.clone(),
                 context: model.context,
                 output: model.output,
                 vision: model.vision,
@@ -302,6 +303,7 @@ pub(crate) fn channel(id: usize, provider: &Provider) -> Channel {
 pub(super) fn model(model: &Model) -> sailry_protocol::conversation::Model {
     sailry_protocol::conversation::Model {
         id: model.id.clone(),
+        display_name: model.display_name.clone(),
         context: model.context,
         output: model.output,
         vision: model.vision,

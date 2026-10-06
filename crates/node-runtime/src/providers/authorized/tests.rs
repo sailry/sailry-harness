@@ -4,20 +4,49 @@ use serde_json::json;
 #[test]
 fn preserves_native_metadata() {
     let models = parse(Authentication::ChatGpt, ModelApi::Responses, &json!({"models":[
-        {"slug":"known","context_window":4096,"max_output_tokens":128,"input_modalities":["text","image"],"supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}],"default_reasoning_level":"high"},
-        {"slug":"future","supported_reasoning_levels":[{"effort":"new-native"}],"default_reasoning_level":"new-native"}
+        {"slug":"known","visibility":"list","display_name":"Known model","context_window":4096,"max_output_tokens":128,"input_modalities":["text","image"],"supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}],"default_reasoning_level":"high"},
+        {"slug":"future","visibility":"list","display_name":"Future model","supported_reasoning_levels":[{"effort":"new-native"}],"default_reasoning_level":"new-native"}
     ]})).unwrap();
-    assert_eq!(models[0].context, None);
-    let future = models[0].capabilities.as_ref().unwrap();
+    assert_eq!(models[0].id, "known");
+    assert_eq!(models[0].display_name.as_deref(), Some("Known model"));
+    assert_eq!(models[1].context, None);
+    let future = models[1].capabilities.as_ref().unwrap();
     assert_eq!(future.reasoning, Some(true));
     assert_eq!(future.efforts, Some(vec![]));
     assert_eq!(future.default_effort, None);
-    assert_eq!(models[1].context, Some(4096));
-    let known = models[1].capabilities.as_ref().unwrap();
+    assert_eq!(models[0].context, Some(4096));
+    let known = models[0].capabilities.as_ref().unwrap();
     assert_eq!(known.vision, Some(true));
     assert_eq!(known.tools, None);
     assert_eq!(known.efforts, Some(vec![Effort::Low, Effort::High]));
     assert_eq!(known.default_effort, Some(Effort::High));
+}
+
+#[test]
+fn keeps_visible_order() {
+    let models = parse(
+        Authentication::ChatGpt,
+        ModelApi::Responses,
+        &json!({"models":[
+            {"slug":"gpt-6.1-sol","display_name":"GPT-6.1 Sol","visibility":"list"},
+            {"slug":"hidden","visibility":"hide","context_window":false},
+            {"slug":"a-second","display_name":"Second","visibility":"list"},
+            {"slug":"unlisted"},
+            {"slug":"gpt-6.1-sol","display_name":"GPT-6.1 Sol","visibility":"list"}
+        ]}),
+    )
+    .unwrap();
+    assert_eq!(
+        models
+            .iter()
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>(),
+        ["gpt-6.1-sol", "a-second"]
+    );
+    assert_eq!(models[0].display_name.as_deref(), Some("GPT-6.1 Sol"));
+    assert_eq!(models[0].context, None);
+    assert_eq!(models[0].output, None);
+    assert_eq!(models[0].capabilities.as_ref().unwrap().tools, None);
 }
 
 #[test]
@@ -49,11 +78,14 @@ fn separates_copilot_surfaces() {
 #[test]
 fn rejects_conflicting_metadata() {
     for value in [
-        json!({"models":[{"slug":"same","context_window":2},{"slug":"same","context_window":4}]}),
-        json!({"models":[{"slug":"bad","context_window":2,"max_output_tokens":4}]}),
-        json!({"models":[{"slug":"bad","supported_reasoning_levels":[{"effort":"high"},{"effort":"high"}]}]}),
-        json!({"models":[{"slug":"bad","supported_reasoning_levels":[{"effort":"high"}],"default_reasoning_level":"low"}]}),
-        json!({"models":[{"slug":"bad","input_modalities":[false]}]}),
+        json!({"models":[{"slug":"same","display_name":"Same","visibility":"list","context_window":2},{"slug":"same","display_name":"Same","visibility":"list","context_window":4}]}),
+        json!({"models":[{"slug":"same","display_name":"First","visibility":"list"},{"slug":"same","display_name":"Second","visibility":"list"}]}),
+        json!({"models":[{"slug":"bad","display_name":"Bad","visibility":"list","context_window":2,"max_output_tokens":4}]}),
+        json!({"models":[{"slug":"bad","display_name":"Bad","visibility":"list","supported_reasoning_levels":[{"effort":"high"},{"effort":"high"}]}]}),
+        json!({"models":[{"slug":"bad","display_name":"Bad","visibility":"list","supported_reasoning_levels":[{"effort":"high"}],"default_reasoning_level":"low"}]}),
+        json!({"models":[{"slug":"bad","display_name":"Bad","visibility":"list","input_modalities":[false]}]}),
+        json!({"models":[{"slug":"bad","display_name":"","visibility":"list"}]}),
+        json!({"models":[{"slug":"bad","visibility":"list"}]}),
     ] {
         assert!(parse(Authentication::ChatGpt, ModelApi::Responses, &value).is_err());
     }

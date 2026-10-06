@@ -3,6 +3,7 @@ use crate::settings::providers::Binding;
 use crate::theme::DialogStyle as _;
 use gpui_kit::component::input::{Input, InputState};
 use sailry_client::mcp_login::View;
+use sailry_client::oauth as callback;
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     Command, Output, Request,
@@ -11,7 +12,6 @@ use sailry_protocol::{
         authorization::{Attempt, State},
     },
 };
-mod callback;
 #[cfg(test)]
 #[path = "../../../../../crates/node-runtime/tests/support/mcp_oauth.rs"]
 #[allow(dead_code)]
@@ -119,7 +119,7 @@ impl Login {
         if self.pending || self.active() || self.request.is_some() {
             return;
         }
-        let callback = match callback::Callback::bind() {
+        let callback = match callback::Callback::bind("/callback") {
             Ok(callback) => callback,
             Err(_) => {
                 self.error = Some("mcp_oauth_callback_failed");

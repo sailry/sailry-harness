@@ -8,16 +8,19 @@ use tokio::{
 };
 use url::Url;
 
-pub(super) struct Callback {
+pub struct Callback {
     listener: Listener,
     pub redirect: String,
 }
 
 impl Callback {
-    pub fn bind() -> Result<Self, Fault> {
+    pub fn bind(path: &str) -> Result<Self, Fault> {
+        if !path.starts_with('/') || path.contains(['?', '#']) {
+            return Err(failed("invalid callback path"));
+        }
         let listener = Listener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).map_err(failed)?;
         listener.set_nonblocking(true).map_err(failed)?;
-        let redirect = format!("http://{}/callback", listener.local_addr().map_err(failed)?);
+        let redirect = format!("http://{}{path}", listener.local_addr().map_err(failed)?);
         Ok(Self { listener, redirect })
     }
 
@@ -39,11 +42,11 @@ impl Callback {
         let listener = TcpListener::from_std(self.listener).map_err(failed)?;
         loop {
             let (stream, _) = tokio::select! {
-                _ = stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "MCP callback listener closed")),
+                _ = stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "OAuth callback listener closed")),
                 result = listener.accept() => result.map_err(failed)?,
             };
             let result = tokio::select! {
-                _ = stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "MCP callback listener closed")),
+                _ = stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "OAuth callback listener closed")),
                 result = tokio::time::timeout(Duration::from_secs(3), request(stream, &self.redirect, state, &text)) => result,
             };
             if let Ok(Ok(Some(callback))) = result {
@@ -80,7 +83,7 @@ async fn request(
         .map(|(_, value)| value.into_owned())
         .collect();
     let valid = method == Some("GET")
-        && target.starts_with("/callback?")
+        && target.starts_with(&format!("{}?", expected.path()))
         && callback.origin() == expected.origin()
         && callback.path() == expected.path()
         && callback.fragment().is_none()
@@ -94,6 +97,10 @@ async fn request(
 fn failed(_: impl std::fmt::Display) -> Fault {
     Fault::new(
         ErrorCode::Unavailable,
-        "MCP callback listener is unavailable",
+        "OAuth callback listener is unavailable",
     )
 }
+
+#[cfg(test)]
+#[path = "oauth/tests.rs"]
+mod tests;

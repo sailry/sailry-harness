@@ -14,6 +14,24 @@ mod tests;
 mod track;
 
 impl View {
+    fn model_label(&self) -> SharedString {
+        let Some(config) = &self.config else {
+            return tr("composer_select_model");
+        };
+        self.providers()
+            .find(|provider| provider.id == config.provider)
+            .and_then(|provider| {
+                provider
+                    .models
+                    .iter()
+                    .find(|model| model.id == config.model)
+            })
+            .and_then(|model| model.display_name.clone())
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| config.model.clone())
+            .into()
+    }
+
     fn sync_model_controls(&self, cx: &mut Context<Self>) -> bool {
         let selected = self.config.as_ref().and_then(|config| {
             Some(super::super::models::Selection {
@@ -62,10 +80,7 @@ impl View {
             })
             .collect::<Vec<_>>();
         let choices = self.available_efforts();
-        let model = self.config.as_ref().map_or_else(
-            || tr("composer_select_model"),
-            |config| config.model.clone().into(),
-        );
+        let model = self.model_label();
         let effort = self
             .config
             .as_ref()
@@ -124,10 +139,7 @@ impl View {
 
     pub(super) fn model_menu(&self, cx: &mut Context<Self>) -> AnyElement {
         let available = self.sync_model_controls(cx);
-        let model = self.config.as_ref().map_or_else(
-            || tr("composer_select_model"),
-            |config| config.model.clone().into(),
-        );
+        let model = self.model_label();
         let effort = self
             .config
             .as_ref()
