@@ -16,6 +16,8 @@ impl Render for Frame {
 #[gpui::test]
 fn process_confirmations(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
+    // Keep the established single-line label baseline independent of other tests.
+    rust_i18n::set_locale("zh-CN");
     let directory = tempfile::tempdir().unwrap();
     let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
     let local = runtime
@@ -31,6 +33,7 @@ fn process_confirmations(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::theme::init(cx);
+        cx.set_reduce_motion(true);
     });
     for (node, transport) in [
         (&local, local.local()),

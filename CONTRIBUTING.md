@@ -66,6 +66,9 @@ just test-ui        # Desktop behavior and Kit interaction tests
 Select checks from affected behavior and dependency boundaries. Reuse passing
 results while their inputs remain unchanged. Explain which tests ran and any
 coverage gap; do not describe a fixture or compile check as live acceptance.
+Keep Cargo's default incremental compilation enabled for local development;
+the CI-only environment overrides are not local build settings. Run the affected
+tests first, not the complete platform matrix for each edit.
 
 ## Test conventions
 
@@ -104,14 +107,22 @@ actual prerequisites and results separately. Screenshots are not a default gate.
 
 [GitHub Actions](.github/workflows/ci.yml) checks concise names, workflow and script syntax,
 public-source fixtures, packaged JavaScript tests and the pairing service.
-Both macOS architectures run strict Rust checks, backend local/remote integration,
+Pushes and pull requests run only these source checks; they do not establish native
+or platform acceptance. Manually dispatch `Checks` for a final committed candidate
+before tagging a release, and reuse verified results while their relevant inputs
+remain unchanged. Candidate validation and source checks have separate concurrency
+groups, so a routine push does not cancel a candidate run.
+
+Candidate validation runs strict Rust checks on both macOS architectures, backend local/remote integration,
 desktop Kit interactions and binary builds with an explicit Xcode SDK.
 Mobile checks include Flutter analysis and widget tests, native Dart FFI contracts
 and Flutter against an isolated real remote Node. Android builds an ARM64 release
 APK and checks its native libraries; iOS builds an unsigned application. Both
 mobile builds check the Rust dependency boundary. Actions and toolchains are
-pinned; Rust and Flutter use committed lockfiles. `Checks passed` requires every
-job to succeed, including both Desktop architectures.
+pinned; Rust and Flutter use committed lockfiles. `Checks passed` requires the
+source job to succeed on ordinary pushes, with native jobs skipped; a manually
+dispatched candidate requires every job to succeed, including both Desktop
+architectures. Signed release packaging remains tag-only.
 
 Node integration features share eight compiled suites instead of linking a
 binary per feature. Keep feature files focused and register new files in the
@@ -123,17 +134,26 @@ test executables still need linking. Cache statistics are recorded in each run.
 Checks omit debug information and preserve the workspace's optimization settings,
 including the GPUI hot-path overrides. Development and release profiles are unchanged.
 Compilation and execution are separate steps; compilation timings are uploaded
-for both Desktop architectures. Desktop tests remain serial for native UI state.
+for both Desktop architectures. The pinned nextest runner executes each Desktop
+and backend test in its own process, isolating locale and GPUI test-platform
+state without compiling a binary per test. Desktop runs two tests concurrently;
+failures are not retried. Unit tests run before compiling the application binary,
+so a behavior failure does not wait for a redundant production build. The process
+lifecycle suite runs after the binary build. JUnit reports remain separate and
+include individual test durations.
 Lint, backend and Desktop checks run in parallel on each architecture rather than
 adding their cold compilation times together. Backend and Desktop share their
 dependency cache, with Desktop as its sole producer; Mobile reuses the ARM cache.
-Lint uses a separate metadata cache. Downloaded speech libraries are cached
+Lint caches sources rather than another large target archive; sccache caches
+eligible library metadata. Downloaded speech libraries are cached
 separately and saved after preparation, before subsequent checks or target cleanup.
 Desktop compilation uses one Cargo job on both architectures to avoid overlapping
 large main and test targets. Other ARM Rust steps use one job; Intel uses two.
 These CLI limits preserve the shared dependency cache identity. Backend tests run
-four fixtures concurrently on ARM and two on Intel to bound real-Node fixture
-contention. Desktop interactions remain serial.
+four isolated processes concurrently on ARM and two on Intel to bound real-Node
+fixture contention. Documentation tests remain separate. The isolated database
+step selects the already-built database suite using the same backend package
+graph, avoiding a second compilation with different feature unification.
 
 CI does not supply model credentials, production profiles or OS permissions.
 Live-service and device tests stay opt-in. The ordinary Flutter suite skips its

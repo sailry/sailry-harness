@@ -178,6 +178,8 @@ fn browsing_preserves_drafts(cx: &mut TestAppContext) {
 #[gpui::test]
 fn opens_image_preview_and_returns_to_inventory(cx: &mut TestAppContext) {
     init(cx);
+    // Kit dialog entrances use wall time, not the fixture's executor clock.
+    cx.update(|cx| cx.set_reduce_motion(true));
     for remote in [false, true] {
         let fixture = Fixture::with_server(remote, |runtime| {
             runtime.block_on(crate::agent_fixture::Server::markdown(
@@ -197,16 +199,19 @@ fn opens_image_preview_and_returns_to_inventory(cx: &mut TestAppContext) {
             format!("asset-{}-0", panel.groups[0].sequence)
         });
         tap(visual, Box::leak(selector.into_boxed_str()));
+        assert!(visual.debug_bounds("attachment-image-preview").is_some());
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             wait(visual, |_| true);
             if visual.debug_bounds("image-lightbox-image").is_some() {
                 break;
             }
-            assert!(Instant::now() < deadline, "image preview load deadline");
+            assert!(
+                Instant::now() < deadline,
+                "image preview load deadline (remote={remote})"
+            );
             std::thread::sleep(Duration::from_millis(10));
         }
-        assert!(visual.debug_bounds("attachment-image-preview").is_some());
         visual.update(|window, cx| window.close_dialog(cx));
         wait(visual, |cx| panel.read(cx).open);
         assert!(visual.debug_bounds("asset-panel").is_some());

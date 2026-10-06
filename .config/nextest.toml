@@ -1,0 +1,25 @@
+[profile.ci]
+# Each test gets a fresh process, including its locale and GPUI test platform.
+test-threads = 2
+retries = 0
+fail-fast = false
+
+[profile.ci.junit]
+path = "junit.xml"
+
+# Keep database results separate from the ordinary backend report.
+[profile.databases]
+test-threads = 1
+retries = 0
+fail-fast = false
+
+[profile.databases.junit]
+path = "junit.xml"
+
+[profile.lifecycle]
+test-threads = 1
+retries = 0
+fail-fast = false
+
+[profile.lifecycle.junit]
+path = "junit.xml"
