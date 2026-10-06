@@ -4,4 +4,6 @@ The native Ghostty revision remains ab0b9da9e88fcb4b0533a1854e84628f663930af. `p
 
 `patches/title-stack.patch` connects the embedded stream handler to xterm title save/restore, including indexed slots and reset cleanup. The pinned handler otherwise silently discards these operations.
 
-Regression coverage is in the Node terminal VT tests, desktop title propagation tests, and real local/remote zsh resize test. The remaining bindings and build configuration are unchanged upstream code.
+GNU Linux builds explicitly select the glibc 2.28 target, including native builds, so Zig does not inherit a newer runner libc than the Host distribution linker supports. Other native targets keep host detection. Focused build-script tests cover both Linux architectures and native/cross target selection.
+
+Regression coverage is in the Node terminal VT tests, desktop title propagation tests, and real local/remote zsh resize test. The remaining bindings are unchanged upstream code.

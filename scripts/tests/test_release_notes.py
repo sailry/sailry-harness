@@ -132,6 +132,19 @@ class ReleaseNotes(unittest.TestCase):
         self.assertNotIn("needs: [build", publisher)
         self.assertIn("SHA256SUMS-installer", publisher)
 
+    def test_native_builds_install_pinned_zig(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        for job, following, build in (
+            ("build", "host", "Build native Desktop and standalone Host"),
+            ("host", "android", "Build one Host architecture"),
+        ):
+            with self.subTest(job=job):
+                steps = workflow.split(f"  {job}:\n", 1)[1].split(f"  {following}:\n", 1)[0]
+                setup = steps.split("mlugg/setup-zig@", 1)[1].split("      - ", 1)[0]
+                self.assertIn("8d6198c65fb0feaa111df26e6b467fea8345e46f", setup)
+                self.assertIn("version: '0.16.0'", setup)
+                self.assertLess(steps.index("mlugg/setup-zig@"), steps.index(build))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -168,11 +168,8 @@ fn build_vendored(link_mode: LinkMode) {
             .arg(&zig_global_cache_dir);
     }
 
-    // Only pass -Dtarget when cross-compiling. For native builds, let zig
-    // auto-detect the host (matches how ghostty's own CMakeLists.txt works).
-    if target != host {
-        let zig_target = zig_target(&target);
-        build.arg(format!("-Dtarget={zig_target}"));
+    if let Some(target) = build_target(&target, &host) {
+        build.arg(format!("-Dtarget={target}"));
     }
 
     run(build, "zig build");
@@ -384,11 +381,16 @@ fn library_search_dirs(target: &str, install_prefix: &Path) -> Vec<PathBuf> {
     dirs
 }
 
-fn zig_target(target: &str) -> String {
+fn build_target(target: &str, host: &str) -> Option<String> {
+    // Native Linux runners can have newer libc than Sailry's distribution baseline.
+    // Keep Ghostty's libc requirements aligned with the Rust linker on every GNU build.
+    if target == host && !target.ends_with("-linux-gnu") {
+        return None;
+    }
     let value = match target {
-        "x86_64-unknown-linux-gnu" => "x86_64-linux-gnu",
+        "x86_64-unknown-linux-gnu" => "x86_64-linux-gnu.2.28",
         "x86_64-unknown-linux-musl" => "x86_64-linux-musl",
-        "aarch64-unknown-linux-gnu" => "aarch64-linux-gnu",
+        "aarch64-unknown-linux-gnu" => "aarch64-linux-gnu.2.28",
         "aarch64-unknown-linux-musl" => "aarch64-linux-musl",
         "aarch64-apple-darwin" => "aarch64-macos-none",
         "x86_64-apple-darwin" => "x86_64-macos-none",
@@ -400,7 +402,54 @@ fn zig_target(target: &str) -> String {
         "x86_64-linux-android" => "x86_64-linux-android",
         other => panic!("unsupported Rust target for vendored build: {other}"),
     };
-    value.to_owned()
+    Some(value.to_owned())
+}
+
+#[cfg(test)]
+mod targets {
+    use super::build_target;
+
+    #[test]
+    fn native_linux_uses_baseline() {
+        for (target, expected) in [
+            ("x86_64-unknown-linux-gnu", "x86_64-linux-gnu.2.28"),
+            ("aarch64-unknown-linux-gnu", "aarch64-linux-gnu.2.28"),
+        ] {
+            assert_eq!(build_target(target, target).as_deref(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn cross_linux_uses_baseline() {
+        for (target, expected) in [
+            ("x86_64-unknown-linux-gnu", "x86_64-linux-gnu.2.28"),
+            ("aarch64-unknown-linux-gnu", "aarch64-linux-gnu.2.28"),
+        ] {
+            assert_eq!(
+                build_target(target, "aarch64-apple-darwin").as_deref(),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn native_macos_keeps_detection() {
+        for target in ["aarch64-apple-darwin", "x86_64-apple-darwin"] {
+            assert_eq!(build_target(target, target), None);
+        }
+    }
+
+    #[test]
+    fn other_cross_targets_keep_mapping() {
+        assert_eq!(
+            build_target("x86_64-unknown-linux-musl", "aarch64-apple-darwin").as_deref(),
+            Some("x86_64-linux-musl")
+        );
+        assert_eq!(
+            build_target("x86_64-apple-darwin", "aarch64-apple-darwin").as_deref(),
+            Some("x86_64-macos-none")
+        );
+    }
 }
 
 // Focused Sailry patches against Ghostty ab0b9da9.
