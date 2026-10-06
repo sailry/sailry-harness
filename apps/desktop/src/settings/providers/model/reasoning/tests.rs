@@ -25,6 +25,45 @@ fn valid(draft: &Draft, api: ModelApi, cx: &App) -> bool {
 }
 
 #[gpui::test]
+fn preserves_raw_values_in_chinese(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (_, visual) = cx.add_window_view(|_, _| View);
+    let before = rust_i18n::locale().to_string();
+    rust_i18n::set_locale("zh-CN");
+    visual.update(|window, cx| {
+        let mut model = Model::example("fixture");
+        model.efforts = vec![
+            Effort::Disabled,
+            Effort::Minimal,
+            Effort::Low,
+            Effort::Medium,
+            Effort::High,
+            Effort::XHigh,
+            Effort::Max,
+            Effort::Budget(-1),
+            Effort::Budget(1024),
+        ];
+        model.default_effort = Effort::High;
+        let draft = Draft::new(0, model.clone(), window, cx);
+        let values: Vec<_> = draft
+            .efforts
+            .entries
+            .iter()
+            .map(|row| row.input.read(cx).value().to_string())
+            .collect();
+        assert_eq!(
+            values,
+            [
+                "none", "minimal", "low", "medium", "high", "xhigh", "max", "-1", "1024"
+            ]
+        );
+        let saved = draft.value(cx);
+        rust_i18n::set_locale(&before);
+        assert_eq!(saved.unwrap(), model);
+    });
+}
+
+#[gpui::test]
 fn edits_and_defaults(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let (_, visual) = cx.add_window_view(|_, _| View);

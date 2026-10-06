@@ -34,6 +34,21 @@ fn parse(value: &str) -> Result<Effort, &'static str> {
     Ok(effort)
 }
 
+fn value(effort: Effort) -> String {
+    match effort {
+        Effort::Default => "default",
+        Effort::Disabled => "none",
+        Effort::Minimal => "minimal",
+        Effort::Low => "low",
+        Effort::Medium => "medium",
+        Effort::High => "high",
+        Effort::XHigh => "xhigh",
+        Effort::Max => "max",
+        Effort::Budget(tokens) => return tokens.to_string(),
+    }
+    .into()
+}
+
 impl Rows {
     pub(super) fn new(model: &Model, window: &mut Window, cx: &mut App) -> Self {
         let entries = model
@@ -41,10 +56,7 @@ impl Rows {
             .iter()
             .enumerate()
             .map(|(key, &effort)| {
-                let value = match effort {
-                    Effort::Budget(tokens) => tokens.to_string(),
-                    _ => crate::reasoning::label(effort).to_string(),
-                };
+                let value = value(effort);
                 Row {
                     key,
                     input: cx.new(|cx| {

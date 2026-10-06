@@ -42,10 +42,12 @@ impl View {
                         .min_w_0()
                         .w_full()
                         .max_w(px(crate::conversation::layout::USER_MESSAGE_WIDTH))
+                        .debug_selector(move || format!("live-user-attachments-{turn}"))
                         .child(super::attachments::source_links(
                             attachments,
                             &self.binding,
                             &self.images,
+                            MessageAlignment::End,
                             cx,
                         )),
                 )

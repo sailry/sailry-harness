@@ -6,6 +6,7 @@ use gpui_kit::component::{
         AttachmentGroup, AttachmentMedia, AttachmentStatus, AttachmentTitle,
     },
     button::{Button, ButtonVariants},
+    message::MessageAlignment,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 
@@ -187,6 +188,7 @@ pub(in crate::conversation::live) fn links(
         attachments.iter().map(ImageSource::from).collect(),
         binding,
         images,
+        MessageAlignment::Start,
         cx,
     )
 }
@@ -208,6 +210,7 @@ pub(in crate::conversation::live) fn image_links(
             .collect(),
         binding,
         images,
+        MessageAlignment::Start,
         cx,
     )
 }
@@ -216,6 +219,7 @@ pub(in crate::conversation::live) fn source_links(
     sources: Vec<ImageSource>,
     binding: &Binding,
     images: &Entity<Images>,
+    alignment: MessageAlignment,
     cx: &App,
 ) -> AnyElement {
     let (gallery, files): (Vec<_>, Vec<_>) = sources
@@ -230,6 +234,9 @@ pub(in crate::conversation::live) fn source_links(
             content.child(
                 AttachmentGroup::new(format!("message-files-{id}"))
                     .flex_wrap()
+                    .when(alignment == MessageAlignment::End, |group| {
+                        group.justify_end()
+                    })
                     .children(
                         files
                             .into_iter()
@@ -242,6 +249,9 @@ pub(in crate::conversation::live) fn source_links(
             content.child(
                 AttachmentGroup::new(format!("message-images-{id}"))
                     .flex_wrap()
+                    .when(alignment == MessageAlignment::End, |group| {
+                        group.justify_end()
+                    })
                     .children(gallery.iter().enumerate().map(|(index, source)| {
                         let selector = format!("image-card-{}", source.id());
                         div()
