@@ -1,7 +1,7 @@
 set dotenv-path := ".runtime/dev.env"
 
-desktop data_dir=env_var_or_default("SAILRY_DESKTOP_DATA_DIR", justfile_directory() / ".runtime/desktop"):
-    bash scripts/run-desktop.sh --data-dir {{quote(data_dir)}}
+desktop data_dir=env_var_or_default("SAILRY_DESKTOP_DATA_DIR", ""):
+    if test -n {{quote(data_dir)}}; then bash scripts/run-desktop.sh --data-dir {{quote(data_dir)}}; else bash scripts/run-desktop.sh; fi
 
 preview:
     bash scripts/run-desktop.sh --preview

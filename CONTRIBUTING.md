@@ -25,7 +25,9 @@ just desktop
 ```
 
 `just desktop` builds an application bundle on macOS without bundling Python or
-document script libraries. Its default profile is `.runtime/desktop`.
+document script libraries. It uses the same `~/.sailry` profile as the installed
+app. `SAILRY_DESKTOP_DATA_DIR` or an explicit recipe argument selects another
+profile; the argument takes precedence.
 An available Apple Development signing identity
 keeps the development app's OS permission identity stable; otherwise signing is ad hoc.
 
@@ -36,7 +38,8 @@ just preview
 ```
 
 Direct Desktop and Host binaries default to `~/.sailry`; one running Node may own
-a profile. Profiles contain Node storage, protected credentials, plugin packages,
+a profile. Close the installed app before running `just desktop` with that profile.
+Profiles contain Node storage, protected credentials, plugin packages,
 plugin data, and attachments. Projects remain at their registered paths. Remote
 execution data stays on the execution Node. Incompatible development profiles are
 reported without conversion, reset, or deletion.
