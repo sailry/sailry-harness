@@ -97,7 +97,7 @@ impl Editor {
             .binding
             .clone()
             .expect("authorization has a Node binding");
-        let login = super::super::login::embedded(binding, provider, window, cx);
+        let login = super::super::login::open_for(binding, provider, window, cx);
         self._authorization = Some(cx.subscribe_in(
             &login,
             window,
@@ -193,11 +193,7 @@ impl Editor {
     }
 
     pub(super) fn authorization(&self, cx: &Context<Self>) -> AnyElement {
-        let login = self
-            .authorization
-            .as_ref()
-            .filter(|login| !login.read(cx).finished());
-        v_flex()
+        h_flex()
             .id("provider-authorization")
             .debug_selector(|| "provider-authorization".into())
             .w_full()
@@ -210,25 +206,19 @@ impl Editor {
                         .child(label),
                 )
             })
-            .when_some(login, |body, login| {
-                body.child(login.clone())
-                    .child(login.read(cx).footer(login, cx))
-            })
-            .when(login.is_none(), |body| {
-                body.child(
-                    Button::new("provider-connect")
-                        .debug_selector(|| "provider-connect".into())
-                        .label(tr(if self.configured {
-                            "provider_reconnect"
-                        } else if self.preset == Preset::ChatGpt {
-                            "provider_continue_chatgpt"
-                        } else {
-                            "provider_connect"
-                        }))
-                        .disabled(self.pending || self.binding.is_none())
-                        .on_click(cx.listener(|editor, _, window, cx| editor.connect(window, cx))),
-                )
-            })
+            .child(
+                Button::new("provider-connect")
+                    .debug_selector(|| "provider-connect".into())
+                    .label(tr(if self.configured {
+                        "provider_reconnect"
+                    } else if self.preset == Preset::ChatGpt {
+                        "provider_continue_chatgpt"
+                    } else {
+                        "provider_connect"
+                    }))
+                    .disabled(self.pending || self.authorizing(cx) || self.binding.is_none())
+                    .on_click(cx.listener(|editor, _, window, cx| editor.connect(window, cx))),
+            )
             .into_any_element()
     }
 }

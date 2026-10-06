@@ -1,7 +1,5 @@
-#[cfg(test)]
 use super::Workspace;
 use super::live::Binding;
-#[cfg(test)]
 use crate::theme::DialogStyle as _;
 use crate::tr;
 use gpui_kit::{component::*, prelude::FluentBuilder, *};
@@ -23,17 +21,11 @@ use super::authorization_support as support;
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-pub(super) fn binding(
-    owner: &Entity<Workspace>,
-    id: usize,
-    cx: &App,
-) -> Option<(Binding, Provider)> {
+fn binding(owner: &Entity<Workspace>, id: usize, cx: &App) -> Option<(Binding, Provider)> {
     let live = owner.read(cx).provider_link.as_ref()?;
     Some((live.binding.clone(), live.providers.get(&id)?.clone()))
 }
 
-#[cfg(test)]
 pub(super) fn open(
     owner: Entity<Workspace>,
     id: usize,
@@ -41,6 +33,15 @@ pub(super) fn open(
     cx: &mut App,
 ) -> Option<Entity<Login>> {
     let (binding, provider) = binding(&owner, id, cx)?;
+    Some(open_for(binding, provider, window, cx))
+}
+
+pub(super) fn open_for(
+    binding: Binding,
+    provider: Provider,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<Login> {
     let login = cx.new(|cx| {
         let mut login = Login::new(binding, provider);
         login.begin(window, cx);
@@ -71,7 +72,7 @@ pub(super) fn open(
             .child(login.clone())
             .footer(login.read(cx).footer(&login, cx))
     });
-    Some(result)
+    result
 }
 
 pub(super) struct Login {
@@ -94,7 +95,7 @@ pub(super) struct Login {
     callback_stop: CancellationToken,
     completion: Option<Request>,
     receiver: Option<Task<()>>,
-    embedded: bool,
+    opened: Option<sailry_protocol::RequestId>,
 }
 
 pub(super) enum Event {
@@ -102,24 +103,6 @@ pub(super) enum Event {
 }
 
 impl EventEmitter<Event> for Login {}
-
-pub(super) fn embedded(
-    binding: Binding,
-    provider: Provider,
-    window: &mut Window,
-    cx: &mut App,
-) -> Entity<Login> {
-    let login = cx.new(|cx| {
-        let mut login = Login::new(binding, provider);
-        login.embedded = true;
-        login.begin(window, cx);
-        login
-    });
-    login.update(cx, |_, cx| {
-        crate::feedback::observe(window, cx, |login, _| login.error.into_iter().collect());
-    });
-    login
-}
 
 impl Login {
     fn new(binding: Binding, provider: Provider) -> Self {
@@ -151,7 +134,7 @@ impl Login {
             callback_stop: CancellationToken::new(),
             completion: None,
             receiver: None,
-            embedded: false,
+            opened: None,
         }
     }
 
@@ -274,7 +257,13 @@ impl Login {
                             Some(State::Browser {
                                 authorization_url, ..
                             }) if !login.cancelling => {
-                                login.receive(authorization_url, window, cx);
+                                login.receive(authorization_url.clone(), window, cx);
+                                login.open_browser(&authorization_url, cx);
+                            }
+                            Some(State::Pending {
+                                verification_url, ..
+                            }) if !login.cancelling => {
+                                login.open_browser(&verification_url, cx);
                             }
                             Some(State::Connected) => {
                                 login.completion = None;
@@ -295,13 +284,13 @@ impl Login {
                                 login.callback_stop.cancel();
                                 login.callback = None;
                                 cx.emit(Event::Connected);
-                                if visible && !login.embedded {
+                                if visible {
                                     window.close_dialog(cx);
                                 }
                             }
                             Some(State::Cancelled) => {
                                 login.completion = None;
-                                if !login.closed && !login.embedded {
+                                if !login.closed {
                                     window.close_dialog(cx);
                                 }
                                 login.closed = true;
@@ -348,6 +337,14 @@ impl Login {
         self.view.update.as_ref().map(|update| &update.state)
     }
 
+    fn open_browser(&mut self, url: &str, cx: &mut App) {
+        if self.opened == Some(self.request.id) {
+            return;
+        }
+        self.opened = Some(self.request.id);
+        cx.open_url(url);
+    }
+
     #[cfg(test)]
     pub(super) fn attempt_id(&self) -> sailry_protocol::RequestId {
         self.request.id
@@ -362,6 +359,7 @@ impl Login {
         !self.closed && (self.pending || self.cancelling || self.state().is_some_and(State::active))
     }
 
+    #[cfg(test)]
     pub(super) fn finished(&self) -> bool {
         self.closed
     }

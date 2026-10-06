@@ -187,16 +187,28 @@ fn english_names() {
         .map(|family| family.key())
         .chain(Preset::all().map(|preset| preset.key()));
     for key in keys {
-        let label = tr(key);
+        let label = rust_i18n::t!(key, locale = "en");
         assert!(label.is_ascii(), "provider name must remain English: {key}");
         assert_ne!(label.as_ref(), key, "missing provider name: {key}");
+    }
+    for locale in [
+        "en", "zh-CN", "zh-TW", "ja", "ko", "fr", "de", "es", "pt-BR", "ru",
+    ] {
+        for preset in Preset::all() {
+            let key = preset.key();
+            assert_eq!(
+                rust_i18n::t!(key, locale = locale),
+                rust_i18n::t!(key, locale = "en"),
+                "provider type name must remain English: {locale}: {key}"
+            );
+        }
     }
     for (preset, label) in [
         (Preset::CompatibleResponses, "OpenAI Compatible"),
         (Preset::CompatibleAnthropic, "Anthropic Compatible"),
         (Preset::CompatibleGemini, "Gemini Compatible"),
     ] {
-        assert_eq!(tr(preset.key()).as_ref(), label);
+        assert_eq!(rust_i18n::t!(preset.key(), locale = "en").as_ref(), label);
     }
 }
 

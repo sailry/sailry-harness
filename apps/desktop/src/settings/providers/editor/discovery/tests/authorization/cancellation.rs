@@ -80,14 +80,11 @@ fn cancels_browser_without_losing_drafts(cx: &mut TestAppContext) {
                     matches!(login.read(cx).state(), Some(login::State::Failed(_)))
                 });
             }
-            tap(
-                visual,
-                if close_editor {
-                    "provider-cancel"
-                } else {
-                    "provider-login-cancel"
-                },
-            );
+            tap(visual, "provider-login-cancel");
+            if close_editor {
+                settle(visual);
+                tap(visual, "provider-cancel");
+            }
             wait(visual, |cx| login.read(cx).finished());
             if close_editor {
                 assert!(editor.read_with(visual, |editor, _| editor.closed));

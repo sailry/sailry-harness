@@ -12,6 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod browser;
 mod cancellation;
 mod expiration;
 mod recovery;
@@ -203,7 +204,7 @@ fn authorization_lifecycle(cx: &mut TestAppContext) {
                     .abs()
                     < px(1.)
             );
-            assert!(visual.debug_bounds("provider-login-0").is_none());
+            assert!(visual.debug_bounds("provider-login-0").is_some());
             let login = visual.update(|window, cx| open(owner.clone(), 0, window, cx).unwrap());
             settle_dialog(visual);
             wait(visual, |cx| {

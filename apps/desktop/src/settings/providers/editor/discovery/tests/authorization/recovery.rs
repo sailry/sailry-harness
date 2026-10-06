@@ -239,6 +239,8 @@ fn closes_while_callback_admission_is_pending(cx: &mut TestAppContext) {
                     .read(cx)
                     .pending()
         });
+        tap(visual, "provider-login-cancel");
+        settle(visual);
         tap(visual, "provider-cancel");
         assert!(editor.read_with(visual, |editor, _| editor.closed
             && editor.authorization.is_none()));

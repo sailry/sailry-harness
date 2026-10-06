@@ -55,6 +55,20 @@ impl Workspace {
             .filter(|channel| channel.preset.category() == category);
         for channel in matching {
             let id = channel.id;
+            let authorization = (real && channel.preset.oauth()).then(|| {
+                let owner = owner.clone();
+                Button::new(("provider-login", id))
+                    .ghost()
+                    .small()
+                    .disabled(busy)
+                    .debug_selector(move || format!("provider-login-{id}"))
+                    .icon(IconName::CircleUser)
+                    .tooltip(tr("provider_connect"))
+                    .accessibility_label(tr("provider_connect"))
+                    .on_click(move |_, window, cx| {
+                        login::open(owner.clone(), id, window, cx);
+                    })
+            });
             let edit_owner = owner.clone();
             let remove_owner = owner.clone();
             let removal = self.provider_link.as_ref().and_then(|live| {
@@ -69,73 +83,76 @@ impl Workspace {
                 })
             });
             rows = rows.child(
-                Entry::new(format!("provider-{id}"), list::content(channel, real, cx))
-                    .control(
-                        Switch::new(("provider-enabled", id))
-                            .disabled(busy)
-                            .checked(channel.enabled)
-                            .accessibility_label(tr("provider_enabled"))
-                            .on_click(cx.listener(move |this, enabled, _, cx| {
-                                if this.provider_link.is_some() {
-                                    this.provider_action(id, false, *enabled, cx);
-                                    return;
-                                }
-                                if let Some(channel) =
-                                    this.providers.channels.iter_mut().find(|c| c.id == id)
-                                {
-                                    channel.enabled = *enabled;
-                                }
-                                cx.notify();
-                            })),
-                    )
-                    .action(
-                        Button::new(("provider-edit", id))
-                            .disabled(busy)
-                            .debug_selector(move || format!("provider-edit-{id}"))
-                            .icon(IconName::Settings2)
-                            .tooltip(tr("settings_edit"))
-                            .accessibility_label(tr("settings_edit"))
-                            .on_click(move |_, window, cx| {
-                                editor::open(edit_owner.clone(), Some(id), window, cx);
-                            }),
-                    )
-                    .action(
-                        Button::new(("provider-delete", id))
-                            .disabled(busy)
-                            .debug_selector(move || format!("provider-delete-{id}"))
-                            .icon(IconName::CircleX)
-                            .tooltip(tr("settings_delete"))
-                            .accessibility_label(tr("settings_delete"))
-                            .on_click(move |_, window, cx| {
-                                let owner = remove_owner.clone();
-                                let removal = removal.clone();
-                                crate::prompts::confirm(
-                                    &tr("provider_delete_title"),
-                                    &tr(if real {
-                                        "provider_remove_effect"
-                                    } else {
-                                        "settings_remove_preview"
-                                    }),
-                                    tr("settings_delete"),
-                                    window,
-                                    cx,
-                                    move |_, cx| {
-                                        owner.update(cx, |this, cx| {
-                                            if let Some((binding, command)) = &removal {
-                                                this.submit_provider(
-                                                    binding.clone(),
-                                                    command.clone(),
-                                                    cx,
-                                                );
-                                            } else {
-                                                this.providers.remove(id);
-                                            }
-                                            cx.notify();
-                                        })
-                                    },
-                                );
-                            }),
-                    ),
+                Entry::new(
+                    format!("provider-{id}"),
+                    list::content(channel, real, authorization, cx),
+                )
+                .control(
+                    Switch::new(("provider-enabled", id))
+                        .disabled(busy)
+                        .checked(channel.enabled)
+                        .accessibility_label(tr("provider_enabled"))
+                        .on_click(cx.listener(move |this, enabled, _, cx| {
+                            if this.provider_link.is_some() {
+                                this.provider_action(id, false, *enabled, cx);
+                                return;
+                            }
+                            if let Some(channel) =
+                                this.providers.channels.iter_mut().find(|c| c.id == id)
+                            {
+                                channel.enabled = *enabled;
+                            }
+                            cx.notify();
+                        })),
+                )
+                .action(
+                    Button::new(("provider-edit", id))
+                        .disabled(busy)
+                        .debug_selector(move || format!("provider-edit-{id}"))
+                        .icon(IconName::Settings2)
+                        .tooltip(tr("settings_edit"))
+                        .accessibility_label(tr("settings_edit"))
+                        .on_click(move |_, window, cx| {
+                            editor::open(edit_owner.clone(), Some(id), window, cx);
+                        }),
+                )
+                .action(
+                    Button::new(("provider-delete", id))
+                        .disabled(busy)
+                        .debug_selector(move || format!("provider-delete-{id}"))
+                        .icon(IconName::CircleX)
+                        .tooltip(tr("settings_delete"))
+                        .accessibility_label(tr("settings_delete"))
+                        .on_click(move |_, window, cx| {
+                            let owner = remove_owner.clone();
+                            let removal = removal.clone();
+                            crate::prompts::confirm(
+                                &tr("provider_delete_title"),
+                                &tr(if real {
+                                    "provider_remove_effect"
+                                } else {
+                                    "settings_remove_preview"
+                                }),
+                                tr("settings_delete"),
+                                window,
+                                cx,
+                                move |_, cx| {
+                                    owner.update(cx, |this, cx| {
+                                        if let Some((binding, command)) = &removal {
+                                            this.submit_provider(
+                                                binding.clone(),
+                                                command.clone(),
+                                                cx,
+                                            );
+                                        } else {
+                                            this.providers.remove(id);
+                                        }
+                                        cx.notify();
+                                    })
+                                },
+                            );
+                        }),
+                ),
             );
         }
         v_flex()

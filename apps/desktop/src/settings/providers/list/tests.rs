@@ -4,6 +4,8 @@ use sailry_client::Client;
 use sailry_protocol::{Authentication, Command, Output, ProviderId, conversation::ModelApi};
 use std::time::{Duration, Instant};
 
+mod login;
+
 fn draw(cx: &mut VisualTestContext) {
     cx.run_until_parked();
     cx.update(|window, cx| window.draw(cx).clear(cx));
@@ -189,21 +191,23 @@ fn aligns_usage_and_keeps_actions(cx: &mut TestAppContext) {
         let usage = visual.debug_bounds("provider-usage-0").unwrap();
         let slot = visual.debug_bounds("provider-plan-0").unwrap();
         assert_eq!(usage.size.height, slot.size.height);
-        for (login, edit, delete, control) in [
+        for (id, login, edit, delete, control) in [
             (
+                0,
                 "provider-login-0",
                 "provider-edit-0",
                 "provider-delete-0",
                 "provider-0-control",
             ),
             (
+                1,
                 "provider-login-1",
                 "provider-edit-1",
                 "provider-delete-1",
                 "provider-1-control",
             ),
         ] {
-            assert!(visual.debug_bounds(login).is_none());
+            assert_eq!(visual.debug_bounds(login).is_some(), id == chatgpt_id);
             assert!(visual.debug_bounds(edit).is_some());
             assert!(visual.debug_bounds(delete).is_some());
             assert!(visual.debug_bounds(control).is_some());

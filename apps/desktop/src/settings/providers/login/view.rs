@@ -28,7 +28,6 @@ impl Login {
                 .into_any_element();
         }
         let retry = owner.clone();
-        let cancel = owner.clone();
         let footer = dialog::DialogFooter::new()
             .w_full()
             .justify_end()
@@ -82,13 +81,7 @@ impl Login {
                     .disabled(self.cancelling && self.pending)
                     .label(tr("provider_login_cancel"))
                     .on_click(move |_, window, cx| {
-                        if cancel.read(cx).embedded {
-                            cancel.update(cx, |login, cx| {
-                                login.cancel(window, cx);
-                            });
-                        } else {
-                            window.dispatch_action(Box::new(dialog::Cancel), cx);
-                        }
+                        window.dispatch_action(Box::new(dialog::Cancel), cx);
                     }),
             );
         div()
@@ -124,18 +117,30 @@ impl Render for Login {
             })
             .when(
                 active
-                    && ((self.pending && self.state().is_none())
-                        || matches!(
-                            self.state(),
-                            Some(State::Starting | State::Browser { .. } | State::Exchanging)
-                        )),
+                    && (self.pending
+                        || matches!(self.state(), Some(State::Starting | State::Exchanging))),
                 |body| {
                     body.child(
                         h_flex()
+                            .debug_selector(|| "provider-login-loading".into())
                             .w_full()
-                            .h(rems(6.))
-                            .justify_center()
-                            .child(spinner::Spinner::new()),
+                            .gap_2()
+                            .py_2()
+                            .child(spinner::Spinner::new().small())
+                            .child(tr("provider_login_starting")),
+                    )
+                },
+            )
+            .when(
+                active && !self.pending && matches!(self.state(), Some(State::Browser { .. })),
+                |body| {
+                    body.child(
+                        h_flex()
+                            .debug_selector(|| "provider-login-waiting".into())
+                            .gap_2()
+                            .py_2()
+                            .child(Icon::new(IconName::ExternalLink).small())
+                            .child(tr("provider_login_waiting")),
                     )
                 },
             )
