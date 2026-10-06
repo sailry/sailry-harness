@@ -464,7 +464,6 @@ pub(super) fn execute(
             None,
         )),
         Command::BeginProviderLogin { .. }
-        | Command::CompleteProviderLogin { .. }
         | Command::CancelProviderLogin { .. }
         | Command::BeginMcpLogin { .. }
         | Command::CompleteMcpLogin { .. }

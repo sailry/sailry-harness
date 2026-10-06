@@ -207,12 +207,7 @@ impl Fixture {
             access: Secret::new("isolated-quota-access".into()),
             refresh: Secret::new("isolated-quota-refresh".into()),
             expires_at_ms: 4_000_000_000_000,
-            earliest_refresh_at: None,
-            client_id: "quota-fixture".into(),
-            subject: "quota-subject".into(),
-            email: None,
-            id_token: Secret::new("isolated-quota-identity".into()),
-            scopes: vec!["resource.invoke".into(), "chatgpt.tokens.use.direct".into()],
+            account_id: "quota-fixture".into(),
             renewal_pending: false,
         }
         .encode()

@@ -10,8 +10,6 @@ use std::sync::{
 
 use crate::discovery_fixture::Reply;
 pub(crate) use crate::discovery_fixture::Server;
-mod identity;
-pub(crate) use identity::callback;
 
 pub(crate) async fn server(mode: Arc<AtomicU8>) -> Server {
     start(mode, None).await
@@ -30,19 +28,23 @@ async fn start(mode: Arc<AtomicU8>, gate: Option<Arc<tokio::sync::Notify>>) -> S
             return Reply::Raw("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into());
         }
         match request.path.as_str() {
-            "/.well-known/openid-configuration" => Reply::Json(json!({"issuer":identity::issuer(request),"jwks_uri":format!("{}/.well-known/jwks.json",identity::issuer(request))})),
-            "/.well-known/jwks.json" => Reply::Json(identity::keys()),
             path if path.starts_with("/models") && mode.load(Ordering::SeqCst) == 5 => Reply::Raw("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into()),
             path if path.starts_with("/models") && mode.load(Ordering::SeqCst) == 3 => match &gate {
-                Some(gate) => Reply::Delayed(gate.clone(), models(!request.headers.contains_key("editor-version"))),
+                Some(gate) => Reply::Delayed(gate.clone(), models(request.headers.contains_key("chatgpt-account-id"))),
                 None => Reply::Hold,
             },
-            path if path.starts_with("/models") && mode.load(Ordering::SeqCst) == 6 => Reply::Json(if request.headers.contains_key("editor-version") { json!({"data":[]}) } else { json!({"models":[]}) }),
-            path if path.starts_with("/models") => Reply::Json(models(!request.headers.contains_key("editor-version"))),
+            path if path.starts_with("/models") && mode.load(Ordering::SeqCst) == 6 => Reply::Json(if request.headers.contains_key("chatgpt-account-id") { json!({"models":[]}) } else { json!({"data":[]}) }),
+            path if path.starts_with("/models") => Reply::Json(models(request.headers.contains_key("chatgpt-account-id"))),
+            "/api/accounts/deviceauth/usercode" => Reply::Json(json!({"device_auth_id":"desktop-device-secret","user_code":"SAIL-1234","interval":1})),
             "/login/device/code" => Reply::Json(json!({"device_code":"desktop-device-secret","user_code":"SAIL-1234","verification_uri":"https://github.com/login/device","interval":1,"expires_in":900})),
             "/login/oauth/access_token" if mode.load(Ordering::SeqCst) == 4 => Reply::Json(json!({"error":"expired_token"})),
-            "/api/accounts/oauth/token" | "/login/oauth/access_token" if mode.load(Ordering::SeqCst) == 0 => Reply::Hold,
-            "/api/accounts/oauth/token" => Reply::Json(identity::tokens(request)),
+            "/api/accounts/deviceauth/token" | "/login/oauth/access_token" if mode.load(Ordering::SeqCst) == 0 => Reply::Hold,
+            "/api/accounts/deviceauth/token" => Reply::Json(json!({"authorization_code":"desktop-code-secret","code_verifier":"desktop-verifier-secret"})),
+            "/oauth/token" => {
+                // Synthetic JWT: expiry 4102444800 and account desktop-fixture.
+                let token = "e30.eyJleHAiOjQxMDI0NDQ4MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJkZXNrdG9wLWZpeHR1cmUifX0K.fixture";
+                Reply::Json(json!({"access_token":token,"refresh_token":"desktop-refresh-secret"}))
+            }
             "/login/oauth/access_token" => Reply::Json(json!({"access_token":"desktop-github-secret"})),
             "/copilot_internal/v2/token" => Reply::Json(json!({"token":"desktop-copilot-secret","expires_at":4102444800_u64})),
             "/responses" => response(),
@@ -54,9 +56,9 @@ async fn start(mode: Arc<AtomicU8>, gate: Option<Arc<tokio::sync::Notify>>) -> S
 fn models(chatgpt: bool) -> serde_json::Value {
     if chatgpt {
         json!({"models":[
-            {"slug":"fixture", "display_name":"Fixture model", "visibility":"list", "context_window":16384,"max_output_tokens":1024,
+            {"slug":"fixture", "display_name":"Fixture model", "context_window":16384,"max_output_tokens":1024,
                 "input_modalities":["text","image"],"supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}],"default_reasoning_level":"high"},
-            {"slug":"unknown", "display_name":"Unknown model", "visibility":"list", "context_window":32768}
+            {"slug":"unknown", "display_name":"Unknown model", "context_window":32768}
         ]})
     } else {
         json!({"data":[
@@ -84,7 +86,7 @@ pub(crate) fn provider(authentication: Authentication, api: ModelApi) -> Provide
         api,
         authentication,
         endpoint: if authentication == Authentication::ChatGpt {
-            "https://api.openai.com/v1"
+            "https://chatgpt.com/backend-api/codex"
         } else {
             "https://api.githubcopilot.com"
         }
@@ -119,14 +121,10 @@ pub(crate) async fn connect(client: &sailry_client::Client, provider: Provider) 
         panic!("provider expected")
     };
     let Output::ProviderLogin(attempt) = client
-        .execute(
-            client.prepare(Command::BeginProviderLogin {
-                provider: provider.id,
-                expected_revision: provider.revision,
-                redirect: (provider.authentication == Authentication::ChatGpt)
-                    .then(|| "http://127.0.0.1:54321/auth/callback".into()),
-            }),
-        )
+        .execute(client.prepare(Command::BeginProviderLogin {
+            provider: provider.id,
+            expected_revision: provider.revision,
+        }))
         .await
         .unwrap()
     else {
@@ -138,18 +136,6 @@ pub(crate) async fn connect(client: &sailry_client::Client, provider: Provider) 
             let Update::ProviderLogin(update) = stream.next().await.unwrap() else {
                 panic!("login update expected")
             };
-            if let login::State::Browser {
-                authorization_url, ..
-            } = &update.state
-            {
-                client
-                    .execute(client.prepare(Command::CompleteProviderLogin {
-                        attempt: attempt.id,
-                        callback: callback(authorization_url),
-                    }))
-                    .await
-                    .unwrap();
-            }
             if !update.state.active() {
                 assert_eq!(update.state, login::State::Connected);
                 break;

@@ -749,6 +749,7 @@ provider_empty: "このカテゴリにはプロバイダがありません。プ
 provider_connect: "アカウントを接続"
 provider_continue_chatgpt: "ChatGPT で続行"
 provider_reconnect: "もう一度ログイン"
+provider_login_code_placeholder: "デバイスコード"
 provider_login_copy: "コードコピー"
 provider_login_authorize: "認証"
 provider_login_refresh: "更新"

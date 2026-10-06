@@ -118,7 +118,7 @@ fn aligns_usage_and_keeps_actions(cx: &mut TestAppContext) {
         chatgpt.name = "ChatGPT fixture".into();
         chatgpt.api = ModelApi::Responses;
         chatgpt.authentication = Authentication::ChatGpt;
-        chatgpt.endpoint = "https://api.openai.com/v1".into();
+        chatgpt.endpoint = "https://chatgpt.com/backend-api/codex".into();
         let Output::Provider(chatgpt) = fixture
             .runtime
             .block_on(client.execute(client.prepare(Command::PutProvider {
@@ -134,6 +134,7 @@ fn aligns_usage_and_keeps_actions(cx: &mut TestAppContext) {
         keyed.revision = 0;
         keyed.name = "API-key fixture".into();
         keyed.authentication = Authentication::ApiKey;
+        keyed.endpoint = "https://api.openai.com/v1".into();
         fixture
             .runtime
             .block_on(client.execute(client.prepare(Command::PutProvider {

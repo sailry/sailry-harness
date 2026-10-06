@@ -68,9 +68,9 @@ async fn retains_rotated_grants() {
                 if index == 2 {
                     assert!(request.body.contains(ROTATED));
                     assert!(!request.body.contains(REFRESH));
-                    // Refresh rotates both tokens while identity and scopes may be omitted.
+                    // Refresh rotates tokens without changing the account binding.
                     let mut value = exchanged(request, Authentication::ChatGpt, true);
-                    value.as_object_mut().unwrap().remove("scope");
+                    value.as_object_mut().unwrap().remove("id_token");
                     Reply::Json(value)
                 } else {
                     let mut value = exchanged(request, Authentication::ChatGpt, false);
@@ -198,8 +198,7 @@ async fn preserves_uncertain_rotation() {
                         "redirect" => Reply::Raw(format!("HTTP/1.1 307 Temporary Redirect\r\nLocation: {target}/stolen\r\nContent-Length: 0\r\n\r\n")),
                         "account" => {
                             let mut value = exchanged(request, Authentication::ChatGpt, true);
-                            value["id_token"] = json!(identity::signed(&json!({"iss":identity::issuer(request),
-                                "aud":identity::CLIENT,"sub":"another-subject","iat":future_expiry()-3600,"exp":future_expiry()})));
+                            value["access_token"] = json!(format!("e30.{}.fixture", URL_SAFE_NO_PAD.encode(json!({"exp":future_expiry(),"https://api.openai.com/auth":{"chatgpt_account_id":"another-account"}}).to_string())));
                             Reply::Json(value)
                         }
                         "save" => Reply::Json(exchanged(request, Authentication::ChatGpt, true)),

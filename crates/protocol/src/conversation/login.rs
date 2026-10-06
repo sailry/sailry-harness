@@ -1,4 +1,4 @@
-//! Transient authorization state; access and refresh tokens stay on the Node.
+//! Transient device authorization state; access and refresh tokens stay on the Node.
 use crate::{Fault, ProviderId, RequestId};
 use serde::{Deserialize, Serialize};
 
@@ -27,11 +27,6 @@ pub enum State {
         user_code: String,
         expires_at_ms: u64,
     },
-    Browser {
-        authorization_url: String,
-        expires_at_ms: u64,
-    },
-    Exchanging,
     Connected,
     Cancelled,
     Failed(Fault),
@@ -39,9 +34,6 @@ pub enum State {
 
 impl State {
     pub fn active(&self) -> bool {
-        matches!(
-            self,
-            Self::Starting | Self::Pending { .. } | Self::Browser { .. } | Self::Exchanging
-        )
+        matches!(self, Self::Starting | Self::Pending { .. })
     }
 }

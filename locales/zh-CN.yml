@@ -844,6 +844,7 @@ provider_empty: 此分类还没有渠道，点击添加创建示例配置
 provider_connect: 连接账号
 provider_continue_chatgpt: 使用 ChatGPT 继续
 provider_reconnect: 重新登录
+provider_login_code_placeholder: "设备码"
 provider_login_copy: 复制验证码
 provider_login_authorize: 授权
 provider_login_refresh: 刷新

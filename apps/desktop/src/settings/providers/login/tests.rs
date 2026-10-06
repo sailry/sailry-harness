@@ -12,8 +12,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-mod browser;
 mod cancellation;
+mod device;
 mod expiration;
 mod recovery;
 mod synchronization;
@@ -51,25 +51,9 @@ fn settle_dialog(cx: &mut VisualTestContext) {
     draw(cx);
 }
 
-fn authorize_browser(login: &Entity<Login>, fixture: &Fixture, visual: &mut VisualTestContext) {
+fn authorize_pending(login: &Entity<Login>, _fixture: &Fixture, visual: &mut VisualTestContext) {
     wait(visual, |cx| {
-        matches!(login.read(cx).state(), Some(State::Browser { .. }))
-    });
-    let authorization = login.read_with(visual, |login, _| {
-        let Some(State::Browser {
-            authorization_url, ..
-        }) = login.state()
-        else {
-            panic!("browser authorization expected")
-        };
-        authorization_url.clone()
-    });
-    fixture.runtime.block_on(async {
-        reqwest::get(support::callback(&authorization).expose())
-            .await
-            .unwrap()
-            .error_for_status()
-            .unwrap();
+        matches!(login.read(cx).state(), Some(State::Pending { .. }))
     });
 }
 

@@ -749,6 +749,7 @@ provider_empty: "В этой категории нет поставщиков; �
 provider_connect: "Подключить учетную запись"
 provider_continue_chatgpt: "Продолжить с ChatGPT"
 provider_reconnect: "Войти снова"
+provider_login_code_placeholder: "Код устройства"
 provider_login_copy: "Копирование кода"
 provider_login_authorize: "Авторизовать"
 provider_login_refresh: "Обновить"

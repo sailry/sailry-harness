@@ -129,21 +129,6 @@ fn reconnects_revoked_accounts(cx: &mut TestAppContext) {
             settle(visual);
             let before = recorded.commands.lock().unwrap().len();
             tap(visual, "provider-login-0");
-            if preset == Preset::ChatGpt {
-                let deadline = Instant::now() + Duration::from_secs(10);
-                while visual.debug_bounds("provider-login-waiting").is_none() {
-                    settle(visual);
-                    assert!(Instant::now() < deadline, "browser readiness deadline");
-                }
-                let authorization = visual.opened_url().unwrap();
-                fixture.runtime.block_on(async {
-                    reqwest::get(support::callback(&authorization).expose())
-                        .await
-                        .unwrap()
-                        .error_for_status()
-                        .unwrap();
-                });
-            }
             wait(visual, |cx| {
                 owner.read(cx).providers.channels[0].credential_configured
                     && owner.read(cx).provider_link.as_ref().unwrap().providers[&0].revision

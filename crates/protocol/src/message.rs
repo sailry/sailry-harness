@@ -445,11 +445,6 @@ pub enum Command {
     BeginProviderLogin {
         provider: ProviderId,
         expected_revision: u64,
-        redirect: Option<String>,
-    },
-    CompleteProviderLogin {
-        attempt: RequestId,
-        callback: Secret,
     },
     CancelProviderLogin {
         attempt: RequestId,

@@ -4,12 +4,14 @@ use crate::providers::login::Grant;
 use adk_core::{AdkError, LlmRequest, LlmResponseStream, Part};
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue};
+use sailry_protocol::SessionId;
 use serde_json::{Value, json};
 
 pub(super) struct Model {
     pub(super) ingress: Arc<Ingress>,
     pub(super) provider: Provider,
     pub(super) config: SessionConfig,
+    pub(super) session: SessionId,
     pub(super) delegated: bool,
     pub(super) effort: Effort,
     pub(super) stop: CancellationToken,
@@ -54,8 +56,11 @@ impl Llm for Model {
         let base = grant.headers(&options).map_err(failure)?;
         let (access, adapter, stream) = match grant {
             Grant::ChatGpt { access, .. } => {
+                let session =
+                    HeaderValue::from_str(&self.session.to_string()).map_err(|_| invalid())?;
                 let adapter: RequestAdapter = Arc::new(move |body, headers| {
                     headers.extend(base.clone());
+                    headers.insert("session_id", session.clone());
                     chatgpt(body)
                 });
                 (access, adapter, true)
@@ -103,34 +108,14 @@ impl Llm for Model {
 
 fn chatgpt(body: &mut Value) -> Result<(), AdkError> {
     let fields = body.as_object_mut().ok_or_else(invalid)?;
-    // Sign in with ChatGPT uses streamed, stateless public Responses requests.
+    // This endpoint only accepts streamed, stateless Responses requests.
     if fields.get("stream") != Some(&Value::Bool(true)) {
         return Err(invalid());
     }
     fields.insert("store".into(), Value::Bool(false));
-    let input = fields
-        .get_mut("input")
-        .and_then(Value::as_array_mut)
-        .ok_or_else(invalid)?;
-    for item in input {
-        if item["role"] == "system" {
-            item.as_object_mut()
-                .ok_or_else(invalid)?
-                .insert("role".into(), json!("developer"));
-        }
-        if matches!(
-            item.get("type").and_then(Value::as_str),
-            Some("function_call" | "custom_tool_call")
-        ) && item.get("namespace").is_none_or(Value::is_null)
-        {
-            item.as_object_mut()
-                .ok_or_else(invalid)?
-                .insert("namespace".into(), json!("sailry"));
-        }
-    }
-    if let Some(tools) = fields.get_mut("tools") {
-        namespace(tools.as_array_mut().ok_or_else(invalid)?)?;
-    }
+    fields
+        .entry("instructions")
+        .or_insert_with(|| Value::String(String::new()));
     let include = fields
         .entry("include")
         .or_insert_with(|| json!([]))
@@ -143,48 +128,17 @@ fn chatgpt(body: &mut Value) -> Result<(), AdkError> {
         include.push(json!("reasoning.encrypted_content"));
     }
     for key in [
-        "background",
-        "conversation",
         "max_output_tokens",
-        "max_tool_calls",
-        "metadata",
-        "moderation",
-        "multi_agent",
-        "prompt",
-        "prompt_cache_retention",
-        "safety_identifier",
         "temperature",
-        "top_logprobs",
         "top_p",
-        "truncation",
+        "background",
+        "metadata",
+        "parallel_tool_calls",
+        "service_tier",
+        "text",
         "user",
-        "previous_response_id",
     ] {
         fields.remove(key);
-    }
-    Ok(())
-}
-
-fn namespace(tools: &mut Vec<Value>) -> Result<(), AdkError> {
-    let mut local = Vec::new();
-    for tool in std::mem::take(tools) {
-        match tool.get("type").and_then(Value::as_str) {
-            Some("function" | "custom") => local.push(tool),
-            Some("namespace" | "web_search" | "web_search_preview") => tools.push(tool),
-            _ => {
-                return Err(AdkError::model(
-                    "tool is not supported with ChatGPT plan use",
-                ));
-            }
-        }
-    }
-    if !local.is_empty() {
-        tools.push(json!({
-            "type": "namespace",
-            "name": "sailry",
-            "description": "Sailry tools",
-            "tools": local,
-        }));
     }
     Ok(())
 }

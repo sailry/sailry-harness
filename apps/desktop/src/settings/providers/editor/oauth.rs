@@ -6,6 +6,7 @@ pub(super) struct Fields {
     expanded: bool,
     focus: FocusHandle,
     user_agent: Entity<InputState>,
+    catalog_version: Entity<InputState>,
     editor_version: Entity<InputState>,
     editor_plugin_version: Entity<InputState>,
 }
@@ -20,8 +21,13 @@ impl Fields {
         let options = options
             .cloned()
             .or_else(|| Options::defaults(preset.authentication()));
+        let catalog_version = options
+            .as_ref()
+            .and_then(Options::catalog_version)
+            .unwrap_or_default()
+            .to_owned();
         let (user_agent, editor_version, editor_plugin_version) = match options {
-            Some(Options::ChatGpt { user_agent }) => (user_agent, String::new(), String::new()),
+            Some(Options::ChatGpt { user_agent, .. }) => (user_agent, String::new(), String::new()),
             Some(Options::Copilot {
                 user_agent,
                 editor_version,
@@ -35,6 +41,7 @@ impl Fields {
             expanded: false,
             focus,
             user_agent: input(user_agent),
+            catalog_version: input(catalog_version),
             editor_version: input(editor_version),
             editor_plugin_version: input(editor_plugin_version),
         }
@@ -44,6 +51,7 @@ impl Fields {
         let read = |input: &Entity<InputState>| input.read(cx).value().trim().to_owned();
         let options = match preset {
             Preset::ChatGpt => Options::ChatGpt {
+                catalog_version: Some(read(&self.catalog_version)),
                 user_agent: read(&self.user_agent),
             },
             Preset::Copilot | Preset::CopilotResponses => Options::Copilot {
@@ -63,11 +71,18 @@ impl Fields {
 impl Editor {
     pub(super) fn oauth_form(&self, window: &Window, cx: &Context<Self>) -> impl IntoElement {
         let fields: &[(&str, &str, &Entity<InputState>)] = match self.preset {
-            Preset::ChatGpt => &[(
-                "provider_oauth_user_agent",
-                "provider-oauth-user-agent",
-                &self.oauth.user_agent,
-            )],
+            Preset::ChatGpt => &[
+                (
+                    "provider_oauth_catalog_version",
+                    "provider-oauth-catalog-version",
+                    &self.oauth.catalog_version,
+                ),
+                (
+                    "provider_oauth_user_agent",
+                    "provider-oauth-user-agent",
+                    &self.oauth.user_agent,
+                ),
+            ],
             Preset::Copilot | Preset::CopilotResponses => &[
                 (
                     "provider_oauth_user_agent",

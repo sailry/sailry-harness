@@ -39,10 +39,7 @@ async fn rejects_rotating_grant_copies() {
         fixture.client.execute(request).await.unwrap_err().code,
         ErrorCode::NotConfigured
     );
-    let grant = Secret::new(json!({"kind":"chat_gpt","access":access_token(),"refresh":REFRESH,
-        "client_id":identity::CLIENT,"subject":"isolated-chatgpt-subject","email":"user@example.com",
-        "id_token":"isolated-retained-id-token","scopes":identity::SCOPES.split_ascii_whitespace().collect::<Vec<_>>(),
-        "expires_at_ms":future_expiry()*1000,"earliest_refresh_at":null,"renewal_pending":false}).to_string());
+    let grant = Secret::new(json!({"kind":"chat_gpt","access":access_token(),"refresh":REFRESH,"account_id":"fixture-account","expires_at_ms":future_expiry()*1000,"renewal_pending":false}).to_string());
     for role in [false, true] {
         let mut bundle = SessionImport {
             source: fixture.node.id(),

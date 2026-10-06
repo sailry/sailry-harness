@@ -1,8 +1,7 @@
-//! Provider authorization shares durable admission and the Node's credential transaction owner.
+//! Device authorization shares durable admission and the Node's credential transaction owner.
 mod mcp;
 mod models;
 mod persistence;
-mod registration;
 mod renewals;
 use super::{Job, database::Database};
 use crate::providers::login::{Grant, Service};
@@ -27,12 +26,6 @@ pub(super) struct Operation {
 
 pub(super) enum Progress {
     Mcp(mcp::Progress),
-    Registered {
-        caller: NodeId,
-        id: RequestId,
-        client_id: String,
-        reply: oneshot::Sender<Result<(), Fault>>,
-    },
     Renewed {
         id: CredentialId,
         result: Result<Grant, Fault>,
@@ -59,7 +52,6 @@ struct Entry {
     credential: Option<Credential>,
     updates: watch::Sender<login::Update>,
     stop: CancellationToken,
-    callback: Option<oneshot::Sender<Secret>>,
     finished: bool,
 }
 
@@ -119,10 +111,6 @@ impl Worker {
                 self.mcp_command(database, caller, &request, events)
             }
             Command::BeginProviderLogin { .. } => self.begin(database, caller, &request, events),
-            Command::CompleteProviderLogin {
-                attempt,
-                ref callback,
-            } => self.complete(database, caller, &request, attempt, callback, events),
             Command::CancelProviderLogin { attempt } => {
                 self.cancel(database, caller, &request, attempt, events)
             }
@@ -141,7 +129,6 @@ impl Worker {
         let Command::BeginProviderLogin {
             provider,
             expected_revision,
-            ref redirect,
         } = request.command
         else {
             unreachable!()
@@ -159,7 +146,7 @@ impl Worker {
             ) {
                 return Err(Fault::new(
                     ErrorCode::InvalidRequest,
-                    "provider does not use browser authorization",
+                    "provider does not use device authorization",
                 ));
             }
             if self
@@ -187,15 +174,9 @@ impl Worker {
                 .transpose()?
                 .flatten();
             let options = crate::providers::login::effective(&provider)?;
-            let context = registration::prepare(
-                database,
-                &provider,
-                credential.as_ref(),
-                redirect.as_deref(),
-            )?;
-            Ok((provider, credential, options, context))
+            Ok((provider, credential, options))
         })();
-        let (provider, credential, options, context) = match prepared {
+        let (provider, credential, options) = match prepared {
             Ok(value) => value,
             Err(error) => return database.finish_external(caller, request, Err(error), events),
         };
@@ -230,30 +211,6 @@ impl Worker {
         let stop = self.closed.child_token();
         let authentication = provider.authentication;
         let api = provider.api;
-        let (authorization, callback) = match context {
-            Some(registration::Prepared {
-                authorization,
-                callback,
-                registered,
-            }) => {
-                let sender = self.sender.clone();
-                let id = request.id;
-                self.runtime.spawn(async move {
-                    if let Ok((client_id, reply)) = registered.await {
-                        let _ = sender
-                            .send(Job::Login(Box::new(Progress::Registered {
-                                caller,
-                                id,
-                                client_id,
-                                reply,
-                            })))
-                            .await;
-                    }
-                });
-                (Some(authorization), Some(callback))
-            }
-            None => (None, None),
-        };
         self.entries.insert(
             (caller, request.id),
             Entry {
@@ -261,7 +218,6 @@ impl Worker {
                 credential,
                 updates,
                 stop: stop.clone(),
-                callback,
                 finished: false,
             },
         );
@@ -276,7 +232,6 @@ impl Worker {
                     .authorize(
                         authentication,
                         &options,
-                        authorization,
                         |state| async {
                             sender
                                 .send(Job::Login(Box::new(Progress::Prompt { caller, id, state })))
@@ -309,50 +264,6 @@ impl Worker {
         Ok(output)
     }
 
-    fn complete(
-        &mut self,
-        database: &mut Database,
-        caller: NodeId,
-        request: &Request,
-        id: RequestId,
-        callback: &Secret,
-        events: &broadcast::Sender<EventEnvelope>,
-    ) -> Response {
-        let result = self
-            .entries
-            .get(&(caller, id))
-            .ok_or_else(missing)
-            .and_then(|entry| {
-                if !matches!(entry.updates.borrow().state, login::State::Browser { .. })
-                    || entry.callback.is_none()
-                {
-                    return Err(Fault::new(
-                        ErrorCode::Conflict,
-                        "provider authorization is not awaiting a callback",
-                    ));
-                }
-                if callback.expose().len() > 16 * 1024
-                    || callback.expose().chars().any(char::is_control)
-                {
-                    return Err(Fault::new(
-                        ErrorCode::InvalidRequest,
-                        "authorization callback is invalid",
-                    ));
-                }
-                Ok(Output::ProviderLogin(
-                    entry.updates.borrow().attempt.clone(),
-                ))
-            });
-        let output = database.finish_external(caller, request, result, events)?;
-        if let Some(entry) = self.entries.get_mut(&(caller, id))
-            && let Some(sender) = entry.callback.take()
-        {
-            let _ = sender.send(callback.clone());
-            entry.set(login::State::Exchanging);
-        }
-        Ok(output)
-    }
-
     fn cancel(
         &mut self,
         database: &mut Database,
@@ -380,7 +291,6 @@ impl Worker {
         let output = database.finish_external(caller, request, output, events)?;
         if let Some(entry) = self.entries.get_mut(&(caller, id)) {
             entry.stop.cancel();
-            entry.callback.take();
             entry.set(login::State::Cancelled);
         }
         Ok(output)
@@ -394,23 +304,6 @@ impl Worker {
     ) {
         match progress {
             Progress::Mcp(progress) => self.mcp_progress(database, progress, events),
-            Progress::Registered {
-                caller,
-                id,
-                client_id,
-                reply,
-            } => {
-                let result = self.entries.get(&(caller, id)).ok_or_else(missing).and_then(|entry| {
-                    if entry.stop.is_cancelled() {
-                        return Err(Fault::new(ErrorCode::Cancelled, "provider authorization was cancelled"));
-                    }
-                    database.connection.execute(
-                        "INSERT INTO oauth_registrations(provider,client_id) VALUES(?1,?2) ON CONFLICT(provider) DO UPDATE SET client_id=excluded.client_id",
-                        rusqlite::params![entry.provider.id.to_string(), client_id],
-                    ).map(|_| ()).map_err(super::database::storage_error)
-                });
-                let _ = reply.send(result);
-            }
             Progress::Renewed { id, result } => {
                 if self.renewals.finish(database, id, result, events) {
                     self.pending -= 1;
@@ -432,7 +325,6 @@ impl Worker {
                     return;
                 }
                 entry.finished = true;
-                entry.callback.take();
                 self.pending -= 1;
                 if !entry.updates.borrow().state.active() {
                     return;

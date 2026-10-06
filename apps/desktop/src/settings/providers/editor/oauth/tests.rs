@@ -91,7 +91,7 @@ fn preserves_keyboard_and_vendor_defaults(cx: &mut TestAppContext) {
     assert!(
         visual
             .debug_bounds("provider-oauth-catalog-version")
-            .is_none()
+            .is_some()
     );
     assert!(visual.debug_bounds("provider-oauth-user-agent").is_some());
     visual.update(|window, cx| {

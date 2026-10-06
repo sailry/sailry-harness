@@ -13,7 +13,7 @@ mod transfers;
 const ROTATED: &str = "isolated-rotated-refresh";
 
 pub(super) fn exchanged(
-    request: &discovery_support::Request,
+    _request: &discovery_support::Request,
     authentication: Authentication,
     fresh: bool,
 ) -> serde_json::Value {
@@ -23,11 +23,9 @@ pub(super) fn exchanged(
         future_expiry() - 3570
     };
     match authentication {
-        Authentication::ChatGpt => identity::tokens(
-            request,
-            if fresh { 3600 } else { 30 },
-            if fresh { ROTATED } else { REFRESH },
-        ),
+        Authentication::ChatGpt => {
+            json!({"access_token":format!("e30.{}.fixture", URL_SAFE_NO_PAD.encode(json!({"exp":expires,"https://api.openai.com/auth":{"chatgpt_account_id":"fixture-account"}}).to_string())), "refresh_token":if fresh {ROTATED} else {REFRESH}})
+        }
         Authentication::Copilot => {
             json!({"token": if fresh {"renewed-access"} else {ACCESS},"expires_at":expires,"endpoints":{"api":"https://api.individual.githubcopilot.com"}})
         }
@@ -36,7 +34,7 @@ pub(super) fn exchanged(
 }
 
 fn exchange(request: &discovery_support::Request) -> bool {
-    request.path == "/api/accounts/oauth/token" || request.path == "/copilot_internal/v2/token"
+    request.path == "/oauth/token" || request.path == "/copilot_internal/v2/token"
 }
 
 fn generation(
@@ -78,37 +76,20 @@ fn generation_for(
     };
     if authentication == Authentication::ChatGpt {
         assert_eq!(api, ModelApi::Responses);
-        assert!(!request.headers.contains_key("chatgpt-account-id"));
-        assert!(!request.headers.contains_key("originator"));
-        assert!(!request.headers.contains_key("session_id"));
-        assert_eq!(
-            request.headers["authorization"],
-            "Bearer isolated-chatgpt-access"
-        );
-        assert_eq!(body["store"], false);
-        if let Some(instructions) = body.get("instructions") {
-            assert!(instructions.is_string());
-        }
+        assert_eq!(request.headers["chatgpt-account-id"], "fixture-account");
+        assert_eq!(request.headers["originator"], "codex_cli_rs");
         assert!(
-            body["input"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|item| item["role"] != "system")
+            request.headers["version"]
+                .split('.')
+                .all(|part| part.parse::<u32>().is_ok())
         );
-        let namespaces = body["tools"].as_array().unwrap();
-        assert!(namespaces.iter().all(|tool| tool["type"] == "namespace"));
-        assert!(namespaces.iter().any(|tool| {
-            tool["name"] == "sailry"
-                && tool["tools"]
-                    .as_array()
-                    .is_some_and(|tools| !tools.is_empty())
-        }));
-        for item in body["input"].as_array().unwrap() {
-            if item["type"] == "function_call" {
-                assert_eq!(item["namespace"], "sailry");
-            }
-        }
+        assert!(request.headers["session_id"].parse::<SessionId>().is_ok());
+        assert!(request.headers["authorization"].starts_with("Bearer e30."));
+        assert_eq!(body["store"], false);
+        assert!(body["instructions"].is_string());
+        let tools = body["tools"].as_array().unwrap();
+        assert!(!tools.is_empty());
+        assert!(tools.iter().all(|tool| tool["type"] == "function"));
         assert!(
             body["include"]
                 .as_array()
@@ -130,7 +111,7 @@ fn generation_for(
     let tool = format!("plugin_{}_read_file", &digest[..16]);
     let event = if api == ModelApi::Responses {
         let output = if call {
-            json!([{"type":"function_call","id":"item-fixture","call_id":"call-fixture","namespace":"sailry","name":tool,"arguments":"{\"path\":\"fixture.txt\"}","status":"completed"}])
+            json!([{"type":"function_call","id":"item-fixture","call_id":"call-fixture","name":tool,"arguments":"{\"path\":\"fixture.txt\"}","status":"completed"}])
         } else {
             json!([{"type":"message","id":"message-fixture","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Authorized response","annotations":[]}]}])
         };
@@ -357,16 +338,17 @@ async fn runs_tools_after_refresh() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn runs_tools_from_minimal_catalog() {
     for remote in [false, true] {
-        let server = Server::start_with_request(ModelApi::Anthropic, |request| {
-            match request.path.as_str() {
-                "/models" => Reply::Json(json!({"models":[{
-                    "slug":"gpt-6.1-sol", "display_name":"GPT-6.1 Sol", "visibility":"list"
-                }]})),
-                "/responses" => {
-                    generation_for(request, Authentication::ChatGpt, true, "gpt-6.1-sol")
-                }
-                _ => standard(request),
-            }
+        let catalog =
+            json!({"models":[{"slug":"catalog-fixture","display_name":"Catalog fixture"}]});
+        let returned = catalog["models"][0].clone();
+        let expected = returned["slug"].as_str().unwrap().to_owned();
+        let server = Server::start_with_request(ModelApi::Anthropic, move |request| match request
+            .path
+            .as_str()
+        {
+            path if path.starts_with("/models") => Reply::Json(catalog.clone()),
+            "/responses" => generation_for(request, Authentication::ChatGpt, true, &expected),
+            _ => standard(request),
         })
         .await;
         let fixture = Fixture::new(remote, &server).await;
@@ -384,10 +366,10 @@ async fn runs_tools_from_minimal_catalog() {
         };
         let provider = &providers[0];
         assert_eq!(provider.models.len(), 1);
-        assert_eq!(provider.models[0].id, "gpt-6.1-sol");
+        assert_eq!(provider.models[0].id, returned["slug"].as_str().unwrap());
         assert_eq!(
             provider.models[0].display_name.as_deref(),
-            Some("GPT-6.1 Sol")
+            returned["display_name"].as_str()
         );
         assert!(provider.models[0].tools);
         let session = session(&fixture, provider).await;

@@ -13,18 +13,23 @@ pub(super) fn account_models(
     request: &discovery_support::Request,
     authentication: Authentication,
 ) -> serde_json::Value {
-    assert_eq!(request.path, "/models");
+    if authentication == Authentication::ChatGpt {
+        let version = sailry_protocol::conversation::oauth::DEFAULT_CATALOG_VERSION;
+        assert_eq!(request.path, format!("/models?client_version={version}"));
+        assert_eq!(request.headers["version"], version);
+        assert_eq!(request.headers["originator"], "codex_cli_rs");
+        assert_eq!(request.headers["chatgpt-account-id"], "fixture-account");
+    }
     models(authentication)
 }
 
 pub(super) fn models(authentication: Authentication) -> serde_json::Value {
     if authentication == Authentication::ChatGpt {
         json!({"models":[{
-            "slug":"fixture", "display_name":"Fixture", "visibility":"list", "context_window":4096, "input_modalities":["text","image"],
+            "slug":"fixture", "display_name":"Fixture", "context_window":4096, "input_modalities":["text","image"],
             "supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}],
             "default_reasoning_level":"high"
-        }, {"slug":"unknown","display_name":"Unknown","visibility":"list"},
-        {"slug":"hidden","display_name":"Hidden","visibility":"hidden"}]})
+        }, {"slug":"unknown","display_name":"Unknown"}]})
     } else {
         json!({"data":[{
             "id":"fixture", "supported_endpoints":["/responses","/chat/completions"],
@@ -37,7 +42,7 @@ pub(super) fn models(authentication: Authentication) -> serde_json::Value {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn uses_public_catalog_without_client_version() {
+async fn uses_compatibility_version() {
     for remote in [false, true] {
         let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
         let fixture = Fixture::new(remote, &server).await;
@@ -76,7 +81,7 @@ async fn uses_public_catalog_without_client_version() {
                 .lock()
                 .unwrap()
                 .iter()
-                .filter(|request| request.path == "/models")
+                .filter(|request| request.path.starts_with("/models?client_version="))
                 .count(),
             2
         );
@@ -95,7 +100,7 @@ async fn shares_refresh() {
             let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
                 if matches!(
                     request.path.as_str(),
-                    "/api/accounts/oauth/token" | "/copilot_internal/v2/token"
+                    "/oauth/token" | "/copilot_internal/v2/token"
                 ) {
                     let fresh = count.fetch_add(1, Ordering::SeqCst) > 0;
                     if fresh {
@@ -173,13 +178,12 @@ fn catalog(request: &discovery_support::Request, authentication: Authentication)
     assert!(request.body.is_empty());
     assert_eq!(request.headers["user-agent"], "Sailry/0.1");
     if authentication == Authentication::ChatGpt {
-        assert_eq!(request.path, "/models");
-        assert_eq!(
-            request.headers["authorization"],
-            "Bearer isolated-chatgpt-access"
-        );
-        assert!(!request.headers.contains_key("chatgpt-account-id"));
-        assert!(!request.headers.contains_key("originator"));
+        let version = sailry_protocol::conversation::oauth::DEFAULT_CATALOG_VERSION;
+        assert_eq!(request.path, format!("/models?client_version={version}"));
+        assert!(request.headers["authorization"].starts_with("Bearer e30."));
+        assert_eq!(request.headers["chatgpt-account-id"], "fixture-account");
+        assert_eq!(request.headers["originator"], "codex_cli_rs");
+        assert_eq!(request.headers["version"], version);
     } else {
         assert_eq!(request.path, "/models");
         assert_eq!(request.headers["authorization"], format!("Bearer {ACCESS}"));

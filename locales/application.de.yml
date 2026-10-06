@@ -749,6 +749,7 @@ provider_empty: "Keine Anbieter in dieser Kategorie; eine Vorschaukonfiguration 
 provider_connect: "Konto verbinden"
 provider_continue_chatgpt: "Mit ChatGPT fortfahren"
 provider_reconnect: "Erneut anmelden"
+provider_login_code_placeholder: "Gerätecode"
 provider_login_copy: "Code kopieren"
 provider_login_authorize: "Autorisieren"
 provider_login_refresh: "Aktualisieren"

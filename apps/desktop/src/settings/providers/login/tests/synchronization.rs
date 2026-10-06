@@ -37,7 +37,7 @@ fn closes_on_catalog_failure(cx: &mut TestAppContext) {
                 wait(visual, |cx| owner.read(cx).providers.channels.len() == 1);
                 let login = visual.update(|window, cx| open(owner.clone(), 0, window, cx).unwrap());
                 if authentication == Authentication::ChatGpt {
-                    authorize_browser(&login, &fixture, visual);
+                    authorize_pending(&login, &fixture, visual);
                 }
                 wait(visual, |cx| login.read(cx).closed);
                 login.read_with(visual, |login, _| {
@@ -78,7 +78,7 @@ fn closes_on_catalog_failure(cx: &mut TestAppContext) {
                 let reconnect =
                     visual.update(|window, cx| open(owner.clone(), 0, window, cx).unwrap());
                 if authentication == Authentication::ChatGpt {
-                    authorize_browser(&reconnect, &fixture, visual);
+                    authorize_pending(&reconnect, &fixture, visual);
                 }
                 wait(visual, |cx| {
                     owner.read(cx).providers.channels[0].models.len() == 2
