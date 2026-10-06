@@ -44,6 +44,8 @@ fn tap(cx: &mut VisualTestContext, selector: &'static str) {
 mod advanced;
 #[path = "authorization/cancellation.rs"]
 mod cancellation;
+#[path = "authorization/reconnection.rs"]
+mod reconnection;
 #[path = "authorization/recovery.rs"]
 mod recovery;
 

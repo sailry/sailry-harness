@@ -145,7 +145,17 @@ impl Editor {
                         }
                     }
                     Ok(Err(error)) => {
-                        editor.report_error(super::super::live::error_key(&error), window, cx)
+                        let key = if editor.preset.oauth()
+                            && matches!(
+                                error.code,
+                                sailry_protocol::ErrorCode::PermissionDenied
+                                    | sailry_protocol::ErrorCode::NotConfigured
+                            ) {
+                            "provider_account_unavailable"
+                        } else {
+                            super::super::live::error_key(&error)
+                        };
+                        editor.report_error(key, window, cx)
                     }
                     _ => editor.report_error("provider_save_unknown", window, cx),
                 }

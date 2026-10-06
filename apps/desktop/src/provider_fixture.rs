@@ -30,7 +30,7 @@ async fn start(mode: Arc<AtomicU8>, gate: Option<Arc<tokio::sync::Notify>>) -> S
             return Reply::Raw("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into());
         }
         match request.path.as_str() {
-            "/.well-known/openid-configuration" => Reply::Json(json!({"issuer":identity::issuer(&request),"jwks_uri":format!("{}/.well-known/jwks.json",identity::issuer(&request))})),
+            "/.well-known/openid-configuration" => Reply::Json(json!({"issuer":identity::issuer(request),"jwks_uri":format!("{}/.well-known/jwks.json",identity::issuer(request))})),
             "/.well-known/jwks.json" => Reply::Json(identity::keys()),
             path if path.starts_with("/models") && mode.load(Ordering::SeqCst) == 5 => Reply::Raw("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into()),
             path if path.starts_with("/models") && mode.load(Ordering::SeqCst) == 3 => match &gate {
@@ -42,7 +42,7 @@ async fn start(mode: Arc<AtomicU8>, gate: Option<Arc<tokio::sync::Notify>>) -> S
             "/login/device/code" => Reply::Json(json!({"device_code":"desktop-device-secret","user_code":"SAIL-1234","verification_uri":"https://github.com/login/device","interval":1,"expires_in":900})),
             "/login/oauth/access_token" if mode.load(Ordering::SeqCst) == 4 => Reply::Json(json!({"error":"expired_token"})),
             "/api/accounts/oauth/token" | "/login/oauth/access_token" if mode.load(Ordering::SeqCst) == 0 => Reply::Hold,
-            "/api/accounts/oauth/token" => Reply::Json(identity::tokens(&request)),
+            "/api/accounts/oauth/token" => Reply::Json(identity::tokens(request)),
             "/login/oauth/access_token" => Reply::Json(json!({"access_token":"desktop-github-secret"})),
             "/copilot_internal/v2/token" => Reply::Json(json!({"token":"desktop-copilot-secret","expires_at":4102444800_u64})),
             "/responses" => response(),

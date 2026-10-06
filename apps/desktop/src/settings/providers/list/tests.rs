@@ -56,7 +56,7 @@ fn keeps_preview_passive(cx: &mut TestAppContext) {
     assert_eq!(tr("provider_usage_unknown").as_ref(), "—");
     assert!(visual.debug_bounds("provider-5h-progress-0").is_none());
     assert!(visual.debug_bounds("provider-7d-progress-0").is_none());
-    tap(visual, "provider-manage-usage-0");
+    assert!(visual.debug_bounds("provider-manage-usage-0").is_none());
     assert!(visual.opened_url().is_none());
     assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
     assert!(!visual.did_prompt_for_paths());
@@ -183,15 +183,12 @@ fn aligns_usage_and_keeps_actions(cx: &mut TestAppContext) {
             assert_eq!(first.left(), second.left());
             assert_eq!(first.size.width, second.size.width);
         }
-        assert!(
-            visual
-                .debug_bounds(if keyed_id == 0 {
-                    "provider-manage-usage-0"
-                } else {
-                    "provider-manage-usage-1"
-                })
-                .is_none()
-        );
+        for selector in ["provider-manage-usage-0", "provider-manage-usage-1"] {
+            assert!(visual.debug_bounds(selector).is_none());
+        }
+        let usage = visual.debug_bounds("provider-usage-0").unwrap();
+        let slot = visual.debug_bounds("provider-plan-0").unwrap();
+        assert_eq!(usage.size.height, slot.size.height);
         for (login, edit, delete, control) in [
             (
                 "provider-login-0",
@@ -211,15 +208,7 @@ fn aligns_usage_and_keeps_actions(cx: &mut TestAppContext) {
             assert!(visual.debug_bounds(delete).is_some());
             assert!(visual.debug_bounds(control).is_some());
         }
-        tap(
-            visual,
-            if chatgpt_id == 0 {
-                "provider-manage-usage-0"
-            } else {
-                "provider-manage-usage-1"
-            },
-        );
-        assert_eq!(visual.opened_url().as_deref(), Some(USAGE_URL));
+        assert!(visual.opened_url().is_none());
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
         tap(
             visual,

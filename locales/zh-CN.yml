@@ -839,7 +839,6 @@ provider_usage_5h: "5小时"
 provider_usage_7d: "7天"
 provider_usage_unknown: "—"
 provider_quota_remaining: "%{window}剩余"
-provider_manage_usage: "管理用量"
 provider_enabled: 启用渠道
 provider_empty: 此分类还没有渠道，点击添加创建示例配置
 provider_connect: 连接账号

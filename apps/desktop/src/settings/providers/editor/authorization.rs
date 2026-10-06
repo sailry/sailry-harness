@@ -1,4 +1,4 @@
-//! Authorization saves the captured provider while preserving the open editor's drafts.
+//! Reconnect saved accounts without applying editor drafts; new accounts are saved first.
 use super::*;
 use sailry_protocol::{Command, Output, conversation::Provider};
 
@@ -73,6 +73,15 @@ impl Editor {
 
     fn connect(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.binding.is_none() || self.pending || self.closed || self.authorizing(cx) {
+            return;
+        }
+        if let Some(provider) = self.provider.clone().filter(|provider| {
+            provider.authentication == self.preset.authentication()
+                && provider.api == self.preset.api()
+        }) {
+            self.probe = None;
+            self.error = None;
+            self.start_authorization(provider, window, cx);
             return;
         }
         self.persist(true, window, cx);
@@ -161,8 +170,7 @@ impl Editor {
     }
 
     fn accept_provider(&mut self, provider: Provider, window: &mut Window, cx: &mut Context<Self>) {
-        self.configured = provider.credential.is_some();
-        if self.models.is_empty() {
+        if self.models.is_empty() && !self.configured {
             let channel = super::super::live::channel(0, &provider);
             self.models = channel
                 .models
@@ -177,6 +185,7 @@ impl Editor {
                 .unwrap_or(0);
             self.next_model = self.models.len();
         }
+        self.configured = provider.credential.is_some();
         self.provider = Some(provider);
         self.error = None;
         self.load_account(window, cx);
