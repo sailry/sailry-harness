@@ -7,8 +7,7 @@ cd "$task_root"
 task_native="$(rustc -vV | awk '/^host: / {print $2}')"
 task_target="${CARGO_TARGET_DIR:-$task_root/target}"
 python3 "$task_root/scripts/prepare-office-runtime.py" --target "$task_native" \
-  --output "$task_target/debug/office-runtime" \
-  --archive "$task_root/target/host-artifacts/$task_native/office-runtime.tar.gz"
+  --output "$task_target/debug/office-runtime"
 
 if test "$(uname -s)" != Darwin; then
   exec cargo run --locked -p sailry-desktop -- "$@"
@@ -28,7 +27,7 @@ if test "$task_identity" = -; then
 fi
 
 # UNUserNotificationCenter requires a real application bundle, including in development.
-cargo build --locked -p sailry-desktop -p sailry-host
+cargo build --locked -p sailry-desktop
 task_target="${CARGO_TARGET_DIR:-$task_root/target}"
 task_build="$task_target/debug"
 task_app="$task_build/Sailry.app"
@@ -37,14 +36,9 @@ if test -d "$task_app/Contents/Resources/office-runtime"; then
   rm -rf "$task_app/Contents/Resources/office-runtime"
 fi
 cp -R "$task_build/office-runtime" "$task_app/Contents/Resources/office-runtime"
-if test -d "$task_root/target/host-artifacts"; then
-  cp -R "$task_root/target/host-artifacts/." "$task_app/Contents/Resources/hosts/"
+if test -d "$task_app/Contents/Resources/hosts"; then
+  rm -rf "$task_app/Contents/Resources/hosts"
 fi
-task_native="$(rustc -vV | awk '/^host: / {print $2}')"
-mkdir -p "$task_app/Contents/Resources/hosts/$task_native"
-cp "$task_build/sailry-host" "$task_app/Contents/Resources/hosts/$task_native/sailry-host"
-strip -S "$task_app/Contents/Resources/hosts/$task_native/sailry-host"
-codesign --force --timestamp=none --sign "$task_identity" "$task_app/Contents/Resources/hosts/$task_native/sailry-host"
 cp "$task_build/sailry-desktop" "$task_app/Contents/MacOS/sailry-desktop.next"
 mv "$task_app/Contents/MacOS/sailry-desktop.next" "$task_app/Contents/MacOS/sailry-desktop"
 cp "$task_root/apps/desktop/macos/Info.plist" "$task_app/Contents/Info.plist"

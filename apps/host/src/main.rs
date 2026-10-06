@@ -2,6 +2,8 @@ mod bootstrap;
 #[cfg(target_os = "macos")]
 #[path = "../../../crates/node-runtime/src/computer/worker_host/mod.rs"]
 mod computer_worker;
+#[cfg(unix)]
+mod control;
 mod options;
 mod pairing;
 
@@ -28,7 +30,19 @@ fn main() -> std::process::ExitCode {
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let Some(options) = options::parse(std::env::args_os().skip(1))? else {
+    let arguments: Vec<_> = std::env::args_os().skip(1).collect();
+    if arguments.as_slice() == ["--version"] || arguments.as_slice() == ["version"] {
+        println!("Sailry Host {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    #[cfg(unix)]
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "share")
+    {
+        return control::share(arguments.into_iter().skip(1)).await;
+    }
+    let Some(options) = options::parse(arguments.into_iter())? else {
         return Ok(());
     };
     // Install handlers before opening a profile or announcing readiness.
@@ -52,6 +66,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err(error.into());
     }
     node.observe().probe().await?;
+    let stop = sailry_link::CancellationToken::new();
+    #[cfg(unix)]
+    let control = match control::listen(&options.data_dir) {
+        Ok(listener) => listener,
+        Err(error) => {
+            node.shutdown().await?;
+            return Err(error.into());
+        }
+    };
+    #[cfg(unix)]
+    let control = tokio::spawn(control::serve(control, node.link(), stop.clone()));
     println!(
         "Node ready: {} (only paired peers are authorized)",
         node.profile().display()
@@ -60,7 +85,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         "Link address: {}",
         serde_json::to_string(&node.link().address())?
     );
-    let stop = sailry_link::CancellationToken::new();
     let bootstrap = options.bootstrap.then(|| {
         let path = options.data_dir.join("bootstrap.ticket");
         let link = node.link();
@@ -82,6 +106,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(unix))]
     tokio::signal::ctrl_c().await?;
     stop.cancel();
+    #[cfg(unix)]
+    {
+        let _ = control.await;
+        std::fs::remove_file(options.data_dir.join("control.sock"))?;
+    }
     if let Some(sharing) = sharing {
         let _ = sharing.await;
     }

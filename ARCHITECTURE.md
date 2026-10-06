@@ -160,9 +160,21 @@ machine. UI preview data is isolated from execution and user profiles.
 Desktop bundles presentation and a local Node. Host deploys the same Node as a
 headless process, using a private profile and explicit network/pairing options.
 Only one process may own that profile. Pairing is opt-in for Host; established
-peer trust survives restart. The macOS launchd helper generates a user-service
-configuration but does not install or start it implicitly. Service lifecycle and
-local verification are documented in the [pairing guide](services/pairing-relay/README.md#run-and-verify).
+peer trust survives restart. Host release archives are independent from Desktop;
+the official installer verifies versioned assets and starts systemd or launchd.
+Desktop's Add Host command invokes that installer through Node-owned SSH, then
+pairs through a private bootstrap ticket. It never uploads a bundled Host or
+overwrites an existing profile. Desktop still includes its own local Node and
+Office runtime.
+
+The `sailry` management command controls the installed service. Sharing uses a
+profile-private Unix socket to request an invitation from the running Host; the
+management process does not open another Node or persistence owner. The socket
+uses a v1 control envelope and owner-only access. Disconnecting the sharing
+command cancels that invitation without revoking already established peer trust.
+The lower-level macOS launchd helper still only generates a service definition.
+Service lifecycle and local verification are also documented in the
+[pairing guide](services/pairing-relay/README.md#run-and-verify).
 
 Shutdown cancels invitations and releases shared runtime resources through Node's
 lifecycle. A disconnected client is not a shutdown signal. Restore reads durable

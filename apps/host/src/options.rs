@@ -20,7 +20,7 @@ pub(crate) fn parse(args: impl Iterator<Item = OsString>) -> Result<Option<Optio
             return Err("--help cannot be combined with other options".into());
         }
         println!(
-            "Usage: sailry-host [--data-dir <absolute private directory>] [--bind <IP:port> | --internet | --relay <HTTPS URL> ...] [--pairing-service <HTTPS origin> | --bootstrap]\nDefaults to ~/.sailry and loopback. No interactive Agent.\nPairing is opt-in: prints a private PIN, refreshes every 60 seconds until paired or stopped."
+            "Usage: sailry-host [--data-dir <absolute private directory>] [--bind <IP:port> | --internet | --relay <HTTPS URL> ...] [--pairing-service <HTTPS origin> | --bootstrap]\n       sailry-host --version\n       sailry-host share [--data-dir <profile>] [--pairing-service <HTTPS origin>]\nDefaults to ~/.sailry and loopback. No interactive Agent.\nPairing is opt-in: prints a private PIN, refreshes every 60 seconds until paired or stopped."
         );
         return Ok(None);
     }

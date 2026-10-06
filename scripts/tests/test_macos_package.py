@@ -3,7 +3,6 @@
 import importlib.util
 import json
 from pathlib import Path
-import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -11,8 +10,8 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def load(name):
-    spec = importlib.util.spec_from_file_location(name, ROOT / f"scripts/package/{name}-macos.py")
+def load(name, filename=None):
+    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts/package" / (filename or f"{name}-macos.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -20,6 +19,7 @@ def load(name):
 
 signing = load("sign")
 notary = load("notarize")
+dmg = load("dmg", "dmg.py")
 
 
 class CodeSigning(unittest.TestCase):
@@ -33,18 +33,17 @@ class CodeSigning(unittest.TestCase):
             (root / "link").symlink_to("program")
             self.assertEqual(signing.mach_objects(root), [root / "nested/lib.so", root / "program"])
 
-    def test_signs_inside_out_and_repackages_interpreter(self):
+    def test_signs_separate_host_and_reuses_signed_interpreter(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             app = root / "Sailry.app"
             resources = app / "Contents/Resources"
             office = resources / "office-runtime"
-            native = resources / "hosts/aarch64-apple-darwin"
             main = app / "Contents/MacOS/sailry-desktop"
             python = office / "python/bin/python3.12"
             host = root / "host"
             host.mkdir()
-            for path in (main, python, native / "sailry-host"):
+            for path in (main, python, host / "sailry-host"):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"\xcf\xfa\xed\xfe" + b"fixture")
             (python.parent / "python3").symlink_to("python3.12")
@@ -56,17 +55,17 @@ class CodeSigning(unittest.TestCase):
                     patch.object(signing, "verify") as verify:
                 signing.sign(app, host, "aarch64-apple-darwin", "Fixture identity", "FIXTURE", root / "keychain")
             calls = [call.args for call in run.call_args_list]
-            self.assertEqual(calls[-1][-1], app)
+            self.assertEqual(calls[-2][-1], app)
+            self.assertEqual(calls[-1][-1], host / "sailry-host")
             self.assertTrue(all("--deep" not in call for call in calls))
             self.assertTrue(all("--timestamp" in call and "runtime" in call for call in calls))
             self.assertTrue(all("--keychain" in call for call in calls))
-            self.assertIn("--entitlements", calls[-1])
-            with tarfile.open(native / "office-runtime.tar.gz") as archive:
-                self.assertEqual(archive.extractfile("office-runtime/python/bin/python3.12").read(), python.read_bytes())
+            self.assertIn("--entitlements", calls[-2])
+            self.assertFalse((resources / "hosts").exists())
             self.assertEqual((host / "office-runtime/python/bin/python3.12").read_bytes(), python.read_bytes())
             self.assertEqual((host / "office-runtime/python/bin/python3").readlink(), Path("python3.12"))
-            self.assertEqual((host / "sailry-host").read_bytes(), (native / "sailry-host").read_bytes())
             verify.assert_any_call(app, "FIXTURE", deep=True)
+            verify.assert_any_call(host / "sailry-host", "FIXTURE")
 
     def test_rejects_wrong_team_and_incomplete_metadata(self):
         for metadata in ("TeamIdentifier=OTHER\nflags=0x10000(runtime)\nTimestamp=now\n",
@@ -84,6 +83,22 @@ class CodeSigning(unittest.TestCase):
 
 
 class Notarization(unittest.TestCase):
+    def test_staples_and_verifies_distribution_disk_image(self):
+        image = Path("Sailry.dmg")
+        with patch.object(notary, "run") as run, patch.object(notary, "submit") as submit:
+            notary.notarize_disk_image(image, ["--key", "fixture.p8"])
+        submit.assert_called_once_with(image, ["--key", "fixture.p8"])
+        self.assertEqual([call.args[1:3] for call in run.call_args_list], [
+            ("stapler", "staple"), ("stapler", "validate"), ("--verify", "--strict"),
+            ("--assess", "--type"), ("verify", image),
+        ])
+        self.assertIn("context:primary-signature", run.call_args_list[-2].args)
+
+    def test_disk_image_failure_does_not_staple(self):
+        with patch.object(notary, "run") as run, patch.object(notary, "submit", side_effect=RuntimeError("Service unavailable")):
+            with self.assertRaises(RuntimeError):
+                notary.notarize_disk_image(Path("Sailry.dmg"), [])
+        run.assert_not_called()
     def test_requires_acceptance(self):
         for status in ("Invalid", "In Progress", None):
             with self.subTest(status=status), patch.object(notary, "run", return_value=json.dumps({"status": status})):
@@ -114,6 +129,41 @@ class Notarization(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 notary.notarize(Path("Sailry.app"), Path("host"), [])
         self.assertEqual(run.call_count, 1)
+
+
+class DiskImage(unittest.TestCase):
+    def test_contains_the_app_and_applications_link(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app = root / "Sailry.app"
+            app.mkdir()
+            (app / "fixture").write_bytes(b"fixture")
+            output = root / "Sailry.dmg"
+            def command(*arguments):
+                if arguments[1] == "create":
+                    stage = Path(arguments[arguments.index("-srcfolder") + 1])
+                    self.assertEqual((stage / "Applications").readlink(), Path("/Applications"))
+                    self.assertEqual((stage / "Sailry.app/fixture").read_bytes(), b"fixture")
+                    output.write_bytes(b"disk image fixture")
+            with patch.object(dmg, "run", side_effect=command) as run:
+                dmg.create(app, output)
+            self.assertEqual(run.call_args_list[-1].args, ("hdiutil", "verify", output))
+            self.assertEqual((app / "fixture").read_bytes(), b"fixture")
+            with self.assertRaises(ValueError):
+                dmg.create(app, output)
+
+    def test_distribution_image_is_signed_before_verification(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app = root / "Sailry.app"
+            app.mkdir()
+            with patch.object(dmg, "run") as run, patch.dict(dmg.os.environ, {"APPLE_SIGNING_IDENTITY":"Fixture identity", "APPLE_SIGNING_KEYCHAIN":"Fixture keychain"}):
+                dmg.create(app, root / "Sailry.dmg", "developer-id")
+            calls = [call.args for call in run.call_args_list]
+            self.assertEqual([call[0] for call in calls], ["hdiutil", "codesign", "codesign", "hdiutil"])
+            self.assertIn("--timestamp", calls[1])
+            self.assertIn("ai.sailry.disk-image", calls[1])
+            self.assertIn("--keychain", calls[1])
 
 
 if __name__ == "__main__":

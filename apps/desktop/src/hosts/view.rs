@@ -84,15 +84,11 @@ impl Render for Installer {
                 )
                 .into_any_element();
         }
-        let (label, percent) = match self.progress {
-            InstallProgress::Connecting => ("connection_connecting", 5.),
-            InstallProgress::Detecting => ("host_install_detecting", 10.),
-            InstallProgress::Uploading { sent, total } => (
-                "host_install_uploading",
-                10. + 65. * sent as f32 / total.max(1) as f32,
-            ),
-            InstallProgress::Installing => ("host_install_starting", 80.),
-            InstallProgress::Pairing => ("host_install_pairing", 95.),
+        let label = match self.progress {
+            InstallProgress::Connecting => "connection_connecting",
+            InstallProgress::Detecting => "host_install_detecting",
+            InstallProgress::Installing => "host_install_installing",
+            InstallProgress::Pairing => "host_install_pairing",
         };
         body.py_6()
             .items_center()
@@ -103,7 +99,11 @@ impl Render for Installer {
                 div()
                     .w_full()
                     .debug_selector(|| "host-install-progress".into())
-                    .child(Progress::new("host-install-progress").value(percent)),
+                    .child(
+                        Progress::new("host-install-progress")
+                            .loading(true)
+                            .accessibility_label(tr(label)),
+                    ),
             )
             .into_any_element()
     }

@@ -111,7 +111,6 @@ pub struct Transfer {
 pub enum InstallProgress {
     Connecting,
     Detecting,
-    Uploading { sent: u64, total: u64 },
     Installing,
     Pairing,
 }

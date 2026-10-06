@@ -87,16 +87,6 @@ pub(super) fn bundle(root: &Path, release: &Release) {
     let resources = root.join("Contents/Resources");
     fs::create_dir_all(root.join("Contents/MacOS")).unwrap();
     fs::create_dir_all(resources.join("office-runtime/python/bin")).unwrap();
-    for target in ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"] {
-        let hosts = resources.join("hosts").join(target);
-        fs::create_dir_all(&hosts).unwrap();
-        fs::write(hosts.join("sailry-host"), b"isolated Host fixture").unwrap();
-        fs::write(
-            hosts.join("office-runtime.tar.gz"),
-            b"isolated runtime fixture",
-        )
-        .unwrap();
-    }
     fs::write(resources.join("build.json"), serde_json::to_vec(&serde_json::json!({"version":1,"target":release.target,"application_version":release.version})).unwrap()).unwrap();
     fs::write(resources.join("office-runtime/runtime.json"), serde_json::to_vec(&serde_json::json!({"version":1,"target":release.target,"executable":"python/bin/python3.12"})).unwrap()).unwrap();
     fs::write(root.join("Contents/Info.plist"), format!("<?xml version=\"1.0\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>ai.sailry.desktop</string><key>CFBundleExecutable</key><string>sailry-desktop</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>{}</string><key>LSMinimumSystemVersion</key><string>{}</string></dict></plist>", release.version, release.minimum_system)).unwrap();

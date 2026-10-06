@@ -85,15 +85,6 @@ foreach ($task_notice in @('dependencies.json', 'source-notices')) {
         throw 'Provide complete license collector output through -LicensesDirectory'
     }
 }
-$task_hosts = Join-Path $task_root 'target/host-artifacts'
-Assert-OrdinaryTree $task_hosts
-foreach ($task_linux in @('x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu')) {
-    foreach ($task_resource in @('sailry-host', 'office-runtime.tar.gz')) {
-        if (-not (Test-Path -LiteralPath (Join-Path $task_hosts "$task_linux/$task_resource") -PathType Leaf)) {
-            throw 'Prepare bundled Linux hosts with scripts/build-hosts.sh before packaging'
-        }
-    }
-}
 $task_manifest = Get-Content -LiteralPath (Join-Path $task_root 'apps/desktop/Cargo.toml') -Raw
 $task_version_match = [regex]::Match($task_manifest, '(?m)^version = "([^"]+)"$')
 if (-not $task_version_match.Success) { throw 'Cannot read the Desktop application version' }
@@ -128,7 +119,6 @@ foreach ($task_directory in @($task_build) + $DependencyDirectories) {
     }
 }
 Copy-Item -LiteralPath $OfficeRuntimeDirectory -Destination (Join-Path $task_app 'office-runtime') -Recurse
-Copy-Item -LiteralPath $task_hosts -Destination (Join-Path $task_app 'hosts') -Recurse
 Copy-Item -LiteralPath $LicensesDirectory -Destination (Join-Path $task_app 'licenses') -Recurse
 Copy-Item -LiteralPath (Join-Path $task_root 'Cargo.lock') -Destination $task_app
 $task_build_info = [ordered]@{

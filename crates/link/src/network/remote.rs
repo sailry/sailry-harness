@@ -84,8 +84,14 @@ impl Transport for Remote {
             let core = self.core.clone();
             self.core
                 .spawn(Box::pin(async move {
-                    let response = match core.wait(frame::read::<Reply>(&mut recv)).await {
-                        Ok(Ok(Reply::Completed(result))) => *result,
+                    // Receipt confirms admission, not a business-operation deadline.
+                    let reply = tokio::select! {
+                        biased;
+                        _ = core.stop.cancelled() => None,
+                        reply = frame::read::<Reply>(&mut recv) => Some(reply),
+                    };
+                    let response = match reply {
+                        Some(Ok(Reply::Completed(result))) => *result,
                         _ => Err(Fault::new(
                             ErrorCode::OutcomeUnknown,
                             "completion unavailable; retry with the same request identifier",

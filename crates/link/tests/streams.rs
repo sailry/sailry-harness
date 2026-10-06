@@ -45,6 +45,7 @@ struct Echo {
     preparing: tokio::sync::Semaphore,
     cancelled: tokio::sync::Semaphore,
     release: tokio::sync::Semaphore,
+    completions: Mutex<Vec<tokio::sync::oneshot::Sender<Response>>>,
 }
 impl Handler for Echo {
     fn open(&self, caller: NodeId, resource: StreamId) -> Pending<'_, Result<Stream, Fault>> {
@@ -68,6 +69,17 @@ impl Handler for Echo {
     }
     fn dispatch(&self, _: NodeId, request: Request) -> Pending<'_, Result<Admission, Fault>> {
         Box::pin(async move {
+            if matches!(request.command, Command::InstallHost { .. }) {
+                let (sender, completion) = tokio::sync::oneshot::channel();
+                self.completions.lock().unwrap().push(sender);
+                return Ok(Admission {
+                    receipt: Receipt {
+                        id: request.id,
+                        durable: true,
+                    },
+                    completion,
+                });
+            }
             if matches!(
                 request.command,
                 Command::InspectHost | Command::RegisterProject { .. }
@@ -131,6 +143,7 @@ impl Fixture {
             preparing: tokio::sync::Semaphore::new(0),
             cancelled: tokio::sync::Semaphore::new(0),
             release: tokio::sync::Semaphore::new(0),
+            completions: Mutex::new(vec![]),
         });
         let controller = Link::bind(
             &controller,

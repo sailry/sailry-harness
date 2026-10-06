@@ -166,9 +166,10 @@ Flutter run do not establish iOS or Android device acceptance.
 
 ## macOS releases
 
-[The release workflow](.github/workflows/release.yml) runs only when a `v*` tag is
-pushed. The tag must match `apps/desktop/Cargo.toml`, such as `v0.1.0` for version
-`0.1.0`; branch pushes, pull requests and manual dispatch do not build releases.
+[The release workflow](.github/workflows/release.yml) runs when a `v*` tag is
+pushed. Manual dispatch can select `host`, `desktop`, `android` or `all`, but must
+also run from a version tag. The tag must match every application's version,
+such as `v0.1.0` for version `0.1.0`; branch pushes and pull requests do not build releases.
 A tag starts signed packaging into a draft, which can run alongside candidate
 validation. It does not publish an unverified candidate. Publish the draft only
 after the required candidate checks and all signed packages pass:
@@ -194,18 +195,21 @@ logs; the workflow imports them into a temporary keychain and removes its key
 files after packaging. The Apple account must have accepted current agreements
 and the API key must have notarization access.
 
-Apple silicon and Intel runners build separate native Desktop/Host packages.
-Each Desktop bundle includes both Linux Host architectures and pinned Office
-runtimes. Linux link inputs are checksum-pinned in
+Apple silicon and Intel runners build native Desktop DMGs, updater ZIPs and
+standalone macOS Host archives. Desktop contains only its own Office runtime,
+not remote Host binaries. Independent Linux amd64 and arm64 runners each build
+one Host architecture, with glibc 2.28 targeting and a pinned Office runtime.
+Linux link inputs are checksum-pinned in
 [`linux-sysroot.lock.json`](scripts/package/linux-sysroot.lock.json); the build
 does not install cross-compilation packages into the host system.
 
-For local verification, build Desktop and the bundled Hosts, then package into a
+For local verification, build native Desktop and Host, then package into a
 fresh `dist/` directory:
 
 ```sh
 cargo build --locked --release -p sailry-desktop -p sailry-host
-bash scripts/build-hosts.sh release
+python3 scripts/prepare-office-runtime.py --target "$(rustc -vV | awk '/^host: / {print $2}')" \
+  --output "target/office-runtimes/$(rustc -vV | awk '/^host: / {print $2}')/office-runtime"
 SAILRY_SIGNING=developer-id SAILRY_NOTARIZE=1 bash scripts/package-macos.sh release
 ```
 
@@ -218,8 +222,28 @@ creates an ad hoc development package, not a notarized release.
 Distribution signs nested native code inside out with hardened runtime and secure
 timestamps, submits Desktop and Host for notarization, staples Desktop's ticket,
 and verifies Gatekeeper before creating archives. Standalone executables cannot
-carry stapled tickets. Both native builds must succeed before GitHub publishes
-their ZIP/TAR packages and checksums in a release draft.
+carry stapled tickets. The DMG is separately signed, notarized, stapled and checked
+before distribution. Platform publishers attach verified assets to the same draft;
+the Linux Host publisher does not wait for Desktop or Android. They never overwrite
+public releases or existing assets. Review all required platform and candidate
+checks before publishing a full-product draft.
+
+To build and package one Linux Host locally, install the pinned Zig 0.16.0,
+cargo-zigbuild 0.23.4 and uv 0.10.9 tools plus LLVM ar/strip, then run:
+
+```sh
+rustup target add x86_64-unknown-linux-gnu
+bash scripts/build-host.sh release x86_64-unknown-linux-gnu
+bash scripts/package-host.sh release x86_64-unknown-linux-gnu
+```
+
+Use `aarch64-unknown-linux-gnu` for arm64. Native Linux runners additionally execute
+`scripts/check-host.py` against the packaged binary to verify headless startup,
+exclusive profile ownership and shutdown. Building on macOS does not establish
+Linux runtime acceptance. After packaging, Linux runners also exercise the real
+systemd installer, service controls and profile-preserving update with an isolated
+home and exact package bytes. Installer fixtures replace downloads, not the
+service manager or Host process; pairing acceptance remains separate.
 
 Release notes are generated from the immutable tag's Git commits since the
 previous version tag. Publishing the draft triggers the separate

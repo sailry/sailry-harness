@@ -73,19 +73,24 @@ class ReleaseNotes(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError):
             notes.generate(self.root, "v0.1.0", REPOSITORY, "2026-10-05")
 
-    def test_workflow_only_builds_for_version_tags(self):
+    def test_manual_and_automatic_builds_require_version_tags(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         trigger = workflow.split("permissions:", 1)[0]
         self.assertIn("tags: ['v*']", trigger)
-        self.assertNotIn("workflow_dispatch", trigger)
+        self.assertIn("workflow_dispatch", trigger)
+        self.assertIn("options: [all, host, desktop, android]", trigger)
+        self.assertIn('test "$GITHUB_REF_TYPE" = tag', workflow)
         self.assertNotIn("branches:", trigger)
         self.assertNotIn("pull_request", trigger)
-        self.assertIn("--notes-file", workflow)
+        publisher = (ROOT / "scripts/publish-packages.py").read_text()
+        self.assertIn("--notes-file", publisher)
         self.assertNotIn("--generate-notes", workflow)
 
     def test_packaging_keeps_release_private(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        self.assertIn("'--verify-tag', '--draft'", workflow)
+        publisher = (ROOT / "scripts/publish-packages.py").read_text()
+        self.assertIn('"--verify-tag", "--draft"', publisher)
+        self.assertIn("scripts/publish-packages.py", workflow)
         self.assertNotIn("contents/CHANGELOG.md", workflow)
 
     def test_changelog_waits_for_publication(self):
@@ -103,9 +108,29 @@ class ReleaseNotes(unittest.TestCase):
         self.assertIn("needs: [build, android]", workflow)
         self.assertIn("SAILRY_ANDROID_RELEASE: '1'", workflow)
         self.assertIn("--certificate", workflow)
-        self.assertIn("versions.release_flags(tag[1:])", workflow)
-        self.assertIn("Sailry Harness", workflow)
+        publisher = (ROOT / "scripts/publish-packages.py").read_text()
+        self.assertIn("versions.release_flags(tag[1:])", publisher)
+        self.assertIn("Sailry Harness", publisher)
         self.assertNotIn("build apk --release --no-pub", workflow)
+
+    def test_linux_host_publication_is_independent(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        desktop = workflow.split("  build:\n", 1)[1].split("  host:\n", 1)[0]
+        host = workflow.split("  host:\n", 1)[1].split("  android:\n", 1)[0]
+        publisher = workflow.split("  publish-host:\n", 1)[1]
+        self.assertNotIn("scripts/build-hosts.sh", desktop)
+        self.assertNotIn("cargo-zigbuild", desktop)
+        self.assertIn("*.dmg", desktop)
+        self.assertIn("ubuntu-24.04-arm", host)
+        self.assertIn("x86_64-unknown-linux-gnu", host)
+        self.assertIn("aarch64-unknown-linux-gnu", host)
+        self.assertIn("scripts/build-host.sh release", host)
+        self.assertIn("scripts/check-host.py", host)
+        self.assertIn("scripts/check-host-install.py", host)
+        self.assertNotIn("scripts/check-host-install.py", desktop)
+        self.assertIn("needs: host", publisher)
+        self.assertNotIn("needs: [build", publisher)
+        self.assertIn("SHA256SUMS-installer", publisher)
 
 
 if __name__ == "__main__":

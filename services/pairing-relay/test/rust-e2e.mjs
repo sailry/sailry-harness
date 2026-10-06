@@ -21,7 +21,7 @@ if (edgeone) {
   start = (await import(pathToFileURL(outfile).href)).start;
 }
 try {
-for (const test of host ? ["short_code_pairs_a_headless_process"] : desktop ? ["sharing_lifecycle"] : ["exchanges_code_and_authenticates_peer", "stops_sharing_after_pairing"]) {
+for (const test of host ? ["short_code_pairs_a_headless_process", "sharing_controls_the_existing_headless_node"] : desktop ? ["sharing_lifecycle"] : ["exchanges_code_and_authenticates_peer", "stops_sharing_after_pairing"]) {
 const worker = edgeone ? await start() : new Miniflare({ modules: true, script: output.outputFiles[0].text,
   host: "127.0.0.1", port: 0, compatibilityDate: "2025-01-01",
   durableObjects: { CODES: { className: "PairingCodes", useSQLite: true } } });

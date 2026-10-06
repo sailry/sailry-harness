@@ -29,6 +29,24 @@ fn files(root: &Path, directory: &Path, output: &mut String) {
 }
 
 fn main() {
+    let manifest = Path::new("../../apps/host/Cargo.toml");
+    println!("cargo:rerun-if-changed={}", manifest.display());
+    let content = fs::read_to_string(manifest).unwrap();
+    let version = content
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("version = \"")
+                .and_then(|value| value.strip_suffix('"'))
+        })
+        .expect("Host must declare its release version");
+    assert!(
+        !version.is_empty()
+            && version.chars().all(
+                |character| character.is_ascii_alphanumeric() || matches!(character, '.' | '-')
+            ),
+        "invalid Host release version"
+    );
+    println!("cargo:rustc-env=SAILRY_HOST_VERSION={version}");
     let root = Path::new("../../plugins");
     assert!(
         root.join("catalog.json").is_file(),

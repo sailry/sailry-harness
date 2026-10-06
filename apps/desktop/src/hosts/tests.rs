@@ -86,10 +86,7 @@ fn credentials_and_installation_trust(cx: &mut TestAppContext) {
     visual.update(|window, cx| {
         installer.update(cx, |view, cx| {
             view.key = None;
-            view.progress = InstallProgress::Uploading {
-                sent: 50,
-                total: 100,
-            };
+            view.progress = InstallProgress::Installing;
             cx.notify();
         });
         window.draw(cx).clear(cx);

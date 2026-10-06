@@ -3,6 +3,14 @@ name: Release packages
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      component:
+        description: 'Build from a version tag'
+        type: choice
+        required: true
+        default: all
+        options: [all, host, desktop, android]
 
 permissions:
   contents: read
@@ -17,8 +25,23 @@ env:
   CARGO_BUILD_JOBS: '2'
 
 jobs:
+  version:
+    name: Verify immutable release tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+      - name: Require a matching version tag
+        run: |
+          test "$GITHUB_REF_TYPE" = tag
+          python3 scripts/package/versions.py --tag "$GITHUB_REF_NAME"
+
   build:
     name: Signed ${{ matrix.target }}
+    needs: version
+    if: github.event_name == 'push' || inputs.component == 'all' || inputs.component == 'desktop'
     strategy:
       fail-fast: false
       matrix:
@@ -42,44 +65,72 @@ jobs:
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.12'
-      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: '0.16.0'
-          use-cache: false
       - name: Verify target and release version
         env:
           PACKAGE_TARGET: ${{ matrix.target }}
         run: |
           test "$(rustc -vV | awk '/^host: / {print $2}')" = "$PACKAGE_TARGET"
           python3 scripts/package/versions.py --tag "$GITHUB_REF_NAME"
-      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      - name: Restore native release cache
+        id: native-cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target/release
             target/sherpa-onnx-prebuilt
-            target/host-cross
-            target/host-sysroots
-            target/tooling
             target/office-runtimes
           key: packages-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'crates/node-runtime/src/office/runtime/requirements.lock', 'scripts/package/linux-sysroot.lock.json') }}-${{ github.sha }}
           restore-keys: |
             packages-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'crates/node-runtime/src/office/runtime/requirements.lock', 'scripts/package/linux-sysroot.lock.json') }}-
+      - name: Verify distribution signing configuration
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ vars.APPLE_API_ISSUER_ID }}
+        run: |
+          python3 - <<'PY'
+          import os
+          names = ('APPLE_CERTIFICATE_P12', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_API_PRIVATE_KEY',
+                   'APPLE_SIGNING_IDENTITY', 'APPLE_TEAM_ID', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER_ID')
+          if not all(os.environ.get(name) for name in names):
+              raise SystemExit('The macOS distribution signing configuration is incomplete')
+          PY
       - name: Build prerequisites
         run: |
           brew install llvm@21 ripgrep
           python3 -m pip install --disable-pip-version-check uv==0.10.9
-          rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
-          if ! test -x target/tooling/bin/cargo-zigbuild; then
-            cargo install cargo-zigbuild --version 0.23.4 --locked --root target/tooling
-          fi
       - name: Packaging fixtures
         run: python3 -m unittest discover -s scripts/tests -v
-      - name: Build Desktop and bundled Hosts
+      - name: Build native Desktop and standalone Host
         run: |
-          cargo build --locked --release -p sailry-desktop -p sailry-host
-          bash scripts/build-hosts.sh release
+          cargo build --locked --release --timings -p sailry-desktop -p sailry-host
+          python3 scripts/prepare-office-runtime.py --target '${{ matrix.target }}' \
+            --output 'target/office-runtimes/${{ matrix.target }}/office-runtime'
+      - name: Save compilation before signing
+        if: always() && steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/release
+            target/sherpa-onnx-prebuilt
+            target/office-runtimes
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
+      - name: Compilation timings
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: timings-${{ matrix.target }}
+          path: target/cargo-timings/*.html
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Import signing credentials
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
@@ -134,6 +185,7 @@ jobs:
           name: packages-${{ matrix.target }}
           path: |
             ${{ steps.package.outputs.directory }}/*.zip
+            ${{ steps.package.outputs.directory }}/*.dmg
             ${{ steps.package.outputs.directory }}/*.tar.gz
             ${{ steps.package.outputs.directory }}/SHA256SUMS-*
           if-no-files-found: error
@@ -151,8 +203,80 @@ jobs:
               (stage / name).unlink(missing_ok=True)
           PY
 
+  host:
+    name: Linux Host ${{ matrix.target }}
+    needs: version
+    if: github.event_name == 'push' || inputs.component == 'all' || inputs.component == 'host'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: '0.16.0'
+          use-cache: false
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/host-cross
+            target/host-sysroots
+            target/tooling
+            target/office-runtimes
+          key: host-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'crates/node-runtime/src/office/runtime/requirements.lock', 'scripts/package/linux-sysroot.lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            host-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'crates/node-runtime/src/office/runtime/requirements.lock', 'scripts/package/linux-sysroot.lock.json') }}-
+      - name: Host prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes llvm pkg-config ripgrep jq libx11-6 libxi6
+          python3 -m pip install --disable-pip-version-check uv==0.10.9
+          rustup target add '${{ matrix.target }}'
+          if ! test -x target/tooling/bin/cargo-zigbuild; then
+            cargo install cargo-zigbuild --version 0.23.4 --locked --root target/tooling
+          fi
+      - name: Build one Host architecture
+        run: bash scripts/build-host.sh release '${{ matrix.target }}'
+      - name: Verify headless startup and shutdown
+        run: python3 scripts/check-host.py 'target/host-artifacts/${{ matrix.target }}/sailry-host'
+      - name: Package standalone Host
+        id: package
+        run: |
+          set -o pipefail
+          bash scripts/package-host.sh release '${{ matrix.target }}' | tee "$RUNNER_TEMP/host-package.log"
+          task_package="$(sed -n 's/^Host package: //p' "$RUNNER_TEMP/host-package.log")"
+          test -d "$task_package"
+          printf 'directory=%s\n' "$task_package" >> "$GITHUB_OUTPUT"
+      - name: Verify installation and systemd lifecycle
+        run: sudo python3 scripts/check-host-install.py '${{ steps.package.outputs.directory }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: host-${{ matrix.target }}
+          path: |
+            ${{ steps.package.outputs.directory }}/*.tar.gz
+            ${{ steps.package.outputs.directory }}/SHA256SUMS-*
+          if-no-files-found: error
+          retention-days: 14
+
   android:
     name: Signed Android ARM64
+    needs: version
+    if: github.event_name == 'push' || inputs.component == 'all' || inputs.component == 'android'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -249,7 +373,7 @@ jobs:
 
   publish:
     name: GitHub release draft
-    if: github.event_name == 'push' && github.ref_type == 'tag'
+    if: always() && !cancelled() && (needs.build.result == 'success' || needs.android.result == 'success')
     needs: [build, android]
     runs-on: ubuntu-24.04
     permissions:
@@ -273,14 +397,35 @@ jobs:
           python3 scripts/release-notes.py --tag "$GITHUB_REF_NAME" \
             --repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --notes "$RUNNER_TEMP/release-notes.md" --changelog CHANGELOG.md
-          python3 - <<'PY'
-          import os, pathlib, subprocess, sys
-          sys.path.insert(0, 'scripts/package')
-          import versions
-          tag = os.environ['GITHUB_REF_NAME']
-          assets = sorted(str(file) for file in pathlib.Path('packages').iterdir() if file.is_file())
-          subprocess.run(['gh', 'release', 'create', tag, *assets, '--verify-tag', '--draft',
-                          '--title', f'Sailry Harness {tag[1:]}',
-                          '--notes-file', str(pathlib.Path(os.environ['RUNNER_TEMP'], 'release-notes.md')),
-                          *versions.release_flags(tag[1:])], check=True)
-          PY
+          python3 scripts/publish-packages.py --tag "$GITHUB_REF_NAME" \
+            --notes "$RUNNER_TEMP/release-notes.md" --directory packages
+
+  publish-host:
+    name: Independent Host release draft
+    needs: host
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: host-*
+          path: packages
+          merge-multiple: true
+      - name: Verify Host archives and stage installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          (cd packages && sha256sum --check SHA256SUMS-*)
+          cp scripts/install-host.sh packages/install-host.sh
+          (cd packages && sha256sum install-host.sh > SHA256SUMS-installer)
+          python3 scripts/release-notes.py --tag "$GITHUB_REF_NAME" \
+            --repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --notes "$RUNNER_TEMP/release-notes.md" --changelog CHANGELOG.md
+          python3 scripts/publish-packages.py --tag "$GITHUB_REF_NAME" \
+            --notes "$RUNNER_TEMP/release-notes.md" --directory packages

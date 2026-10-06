@@ -43,10 +43,7 @@ fn extracts_complete_signed_bundle() {
         root.join("Contents/Resources/office-runtime/python/bin/python3.12")
             .is_file()
     );
-    assert!(
-        root.join("Contents/Resources/hosts/aarch64-unknown-linux-gnu/sailry-host")
-            .is_file()
-    );
+    assert!(!root.join("Contents/Resources/hosts").exists());
 }
 
 #[cfg(target_os = "macos")]

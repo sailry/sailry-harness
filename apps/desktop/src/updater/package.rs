@@ -168,24 +168,6 @@ pub(super) fn validate(root: &Path, release: &Release) -> Result<()> {
     }
     let python = confined(root, &runtime_root.join(&runtime.executable))?;
     verify_executable(&python, &release.target)?;
-    let hosts = confined(root, &resources.join("hosts"))?;
-    if !hosts.is_dir() {
-        return Err(Failure::new(
-            "updates_package_invalid",
-            "the update has no bundled Host resources",
-        ));
-    }
-    for target in ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"] {
-        for name in ["sailry-host", "office-runtime.tar.gz"] {
-            let artifact = confined(root, &hosts.join(target).join(name))?;
-            if !artifact.is_file() || fs::metadata(&artifact).map_err(Failure::io)?.len() == 0 {
-                return Err(Failure::new(
-                    "updates_package_invalid",
-                    "a bundled Host artifact is missing",
-                ));
-            }
-        }
-    }
     if macos {
         validate_plist(root, release)?;
         #[cfg(target_os = "macos")]

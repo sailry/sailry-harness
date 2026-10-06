@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import tarfile
 
 ROOT = Path(__file__).resolve().parents[2]
 MAGIC = {
@@ -46,8 +45,7 @@ def verify(path, team, deep=False):
 def sign(app, host, target, identity, team, keychain=None):
     resources = app / "Contents/Resources"
     office = resources / "office-runtime"
-    native = resources / "hosts" / target
-    if not app.is_dir() or not office.is_dir() or not (native / "sailry-host").is_file():
+    if not app.is_dir() or not office.is_dir() or not (host / "sailry-host").is_file():
         raise RuntimeError("Expected a complete Sailry application package")
     options = ["--force", "--sign", identity, "--timestamp", "--options", "runtime"]
     if keychain:
@@ -58,14 +56,11 @@ def sign(app, host, target, identity, team, keychain=None):
     for path in objects:
         run("codesign", *options, path)
         verify(path, team)
-    # SSH deployment must extract the same signed interpreter, not the unsigned input.
-    with tarfile.open(native / "office-runtime.tar.gz", "w:gz") as archive:
-        archive.add(office, arcname="office-runtime")
     run("codesign", *options, "--entitlements", ROOT / "apps/desktop/macos/entitlements.plist", app)
     verify(app, team, deep=True)
-    # The standalone Host package contains exactly the signed code inside the app.
-    shutil.copy2(native / "sailry-host", host / "sailry-host")
+    # Host is a separate release asset, never a remote deployment payload inside Desktop.
     shutil.copytree(office, host / "office-runtime", symlinks=True)
+    run("codesign", *options, host / "sailry-host")
     verify(host / "sailry-host", team)
     print(f"Developer ID signing verified: {len(objects)} Mach-O files and Sailry.app")
 

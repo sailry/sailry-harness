@@ -12,6 +12,15 @@ pub(super) async fn run(
     let mut child = tokio::process::Command::new("sh")
         .arg("-c")
         .arg(command)
+        .env("HOME", &root)
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                root.join(".fixture/bin").display(),
+                std::env::var("PATH").unwrap()
+            ),
+        )
         .current_dir(root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

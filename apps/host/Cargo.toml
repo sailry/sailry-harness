@@ -9,7 +9,7 @@ license.workspace = true
 sailry-node-runtime.workspace = true
 sailry-link.workspace = true
 sailry-protocol.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["net"] }
 serde_json.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]

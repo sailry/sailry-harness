@@ -57,6 +57,60 @@ A Flutter mobile controller connects directly to the selected Node without using
 Desktop as a gateway. Android is supported; iOS is in testing. Mobile controls
 work on the connected Node rather than running a separate local agent engine.
 
+## Install Desktop or Host
+
+Download the macOS **DMG** for Apple silicon or Intel from
+[Releases](https://github.com/sailry/sailry-harness/releases), then drag Sailry to
+Applications. ZIP assets serve the desktop's automatic updater.
+
+Linux Host is a separate release asset for **amd64** and **arm64**, including its
+Office runtime. It requires systemd, glibc 2.28 or newer, and the X11/XInput client
+libraries (`libX11.so.6` and `libXi.so.6`); no desktop session is needed for
+headless tasks. On a minimal Debian or Ubuntu server, install those libraries
+with `sudo apt-get install libx11-6 libxi6`. Install a published version without
+building Rust:
+
+```sh
+curl -fsSL https://github.com/sailry/sailry-harness/releases/download/v0.1.0-alpha.1/install-host.sh | bash -s -- --version 0.1.0-alpha.1
+```
+
+The installer verifies the archive's release checksum and starts a persistent
+service. Run it as the account that should own the Host; root uses a system
+service, other accounts use a user service with lingering enabled. Enabling
+lingering may require administrator access. Existing Host files and profiles are
+not overwritten.
+
+```sh
+sailry version
+sailry start
+sailry stop
+sailry restart
+sailry status
+sailry share
+sailry update
+sailry update --version 0.1.0-alpha.1
+```
+
+`share` asks the running Host for a private pairing PIN; it does not start another
+Node. Keep the command running until pairing completes, or press Ctrl-C to cancel.
+`update` downloads a published version, preserves `~/.sailry-host`, and restarts
+the same service. Previous program files remain in a reported backup directory.
+Without `--version`, installation and updates select the newest published
+release, including previews. A failed startup leaves the profile unchanged.
+
+For non-root installations, add `~/.local/bin` to PATH if needed:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Desktop's **Add Host** flow uses SSH to run the same official installer, pinned
+to the desktop's release version, then automatically pairs with the service.
+It verifies the installer and archive checksums; remote Host binaries are not
+bundled inside Desktop. For an existing Host, use `sailry share` and pair instead
+of installing again. Draft release assets are unavailable to this installer until
+the release is published.
+
 ## Start with what you need
 
 | Make sense of things | Create something useful | Work on a project |

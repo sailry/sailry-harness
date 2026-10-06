@@ -2177,8 +2177,7 @@ db_log: SQL 日志
 host_add: 添加主机
 host_install: 安装并连接
 host_install_detecting: 检查主机
-host_install_uploading: 上传主机程序
-host_install_starting: 启动主机服务
+host_install_installing: 安装主机服务
 host_install_pairing: 正在配对
 host_install_failed: 添加失败
 host_added: 主机已添加
