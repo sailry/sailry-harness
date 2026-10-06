@@ -1,6 +1,10 @@
 //! Refresh is Node-owned maintenance: a stopped turn drops observation, not the token write.
 use super::*;
-use crate::store::{Ingress, providers::authentication};
+use crate::store::{
+    Ingress,
+    database::{record, storage_error},
+    providers::{authentication, quota},
+};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Default)]
@@ -8,9 +12,15 @@ pub(super) struct Renewals {
     pending: BTreeMap<CredentialId, PendingGrant>,
 }
 
+#[derive(Clone)]
+pub(crate) struct Authorization {
+    pub(crate) grant: Grant,
+    pub(crate) credential: Credential,
+}
+
 struct PendingGrant {
     expected: Credential,
-    waiting: Vec<oneshot::Sender<Result<Grant, Fault>>>,
+    waiting: Vec<oneshot::Sender<Result<Authorization, Fault>>>,
 }
 
 impl Worker {
@@ -21,12 +31,16 @@ impl Worker {
         provider: ProviderId,
         authentication: Authentication,
         options: sailry_protocol::conversation::oauth::Options,
-        reply: oneshot::Sender<Result<Grant, Fault>>,
+        reply: oneshot::Sender<Result<Authorization, Fault>>,
     ) {
-        let Some((id, grant)) =
-            self.renewals
-                .begin(database, reference, provider, authentication, reply)
-        else {
+        let Some((id, grant)) = self.renewals.begin(
+            database,
+            reference,
+            provider,
+            authentication,
+            reply,
+            &self.events,
+        ) else {
             return;
         };
         self.pending += 1;
@@ -52,7 +66,8 @@ impl Renewals {
         reference: CredentialRef,
         provider: ProviderId,
         authentication: Authentication,
-        reply: oneshot::Sender<Result<Grant, Fault>>,
+        reply: oneshot::Sender<Result<Authorization, Fault>>,
+        events: &broadcast::Sender<EventEnvelope>,
     ) -> Option<(CredentialId, Grant)> {
         let prepared = (|| {
             let (metadata, secret) = database.credential(&reference, provider, authentication)?;
@@ -91,7 +106,10 @@ impl Renewals {
             return None;
         }
         if grant.expires_at_ms() > now.saturating_add(60_000) {
-            let _ = reply.send(Ok(grant));
+            let _ = reply.send(Ok(Authorization {
+                grant,
+                credential: metadata,
+            }));
             return None;
         }
         if self.pending.len() >= 4 {
@@ -109,7 +127,7 @@ impl Renewals {
         let saved = if grant.renewal_pending() {
             grant
                 .encode()
-                .and_then(|secret| authentication::put(&database.connection, metadata, &secret))
+                .and_then(|secret| save(database, metadata, &secret, events))
         } else {
             Ok(metadata)
         };
@@ -133,9 +151,10 @@ impl Renewals {
 
     pub(super) fn finish(
         &mut self,
-        database: &Database,
+        database: &mut Database,
         id: CredentialId,
         result: Result<Grant, Fault>,
+        events: &broadcast::Sender<EventEnvelope>,
     ) -> bool {
         let Some(pending) = self.pending.remove(&id) else {
             return false;
@@ -144,8 +163,8 @@ impl Renewals {
             if authentication::get(&database.connection, id)?.as_ref() != Some(&pending.expected) {
                 return Err(changed());
             }
-            authentication::put(&database.connection, pending.expected, &grant.encode()?)?;
-            Ok(grant)
+            let credential = save(database, pending.expected, &grant.encode()?, events)?;
+            Ok(Authorization { grant, credential })
         });
         for reply in pending.waiting {
             let _ = reply.send(result.clone());
@@ -162,7 +181,7 @@ impl Ingress {
         authentication: Authentication,
         options: &sailry_protocol::conversation::oauth::Options,
         stop: &CancellationToken,
-    ) -> Result<Grant, Fault> {
+    ) -> Result<Authorization, Fault> {
         let (reply, response) = oneshot::channel();
         self.sender
             .try_send(Job::Authorization {
@@ -180,6 +199,24 @@ impl Ingress {
             result = response => result.map_err(|_| super::super::unavailable())?,
         }
     }
+}
+
+fn save(
+    database: &mut Database,
+    credential: Credential,
+    secret: &Secret,
+    events: &broadcast::Sender<EventEnvelope>,
+) -> Result<Credential, Fault> {
+    let node = database.node;
+    let transaction = database.connection.transaction().map_err(storage_error)?;
+    let credential = authentication::put(&transaction, credential, secret)?;
+    let changes = quota::reconcile(&transaction, node)?;
+    let envelopes = record(&transaction, node, changes)?;
+    transaction.commit().map_err(storage_error)?;
+    for envelope in envelopes {
+        let _ = events.send(envelope);
+    }
+    Ok(credential)
 }
 
 fn changed() -> Fault {

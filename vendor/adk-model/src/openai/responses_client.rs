@@ -46,6 +46,9 @@ pub struct OpenAIResponsesClient {
     /// When `true`, relaxes strict OpenAI field validation and allows
     /// connecting to Open Responses-compatible endpoints without an OpenAI API key.
     open_responses_mode: bool,
+    responses_http: reqwest_openai::Client,
+    request_adapter: Option<super::RequestAdapter>,
+    response_observer: Option<super::ResponseObserver>,
 }
 
 impl OpenAIResponsesClient {
@@ -113,7 +116,18 @@ impl OpenAIResponsesClient {
         let uses_max_reasoning = matches!(reasoning_effort, Some(OpenAIReasoningEffort::Max));
         // ADK owns retry policy. async-openai's default executor has another
         // retry layer, including when this model's retries are disabled.
-        let client = with_transport(client, uses_max_reasoning, open_responses_mode, None)?;
+        let responses_http = reqwest_openai::Client::builder()
+            .redirect(reqwest_openai::redirect::Policy::none())
+            .build()
+            .map_err(|_| AdkError::model("failed to initialize Responses HTTP transport"))?;
+        let client = with_transport(
+            client,
+            responses_http.clone(),
+            uses_max_reasoning,
+            open_responses_mode,
+            None,
+            None,
+        );
 
         let base_url =
             config.base_url.clone().unwrap_or_else(|| "https://api.openai.com/v1".to_string());
@@ -128,6 +142,9 @@ impl OpenAIResponsesClient {
             api_key: config.api_key,
             base_url,
             open_responses_mode,
+            responses_http,
+            request_adapter: None,
+            response_observer: None,
         })
     }
 
@@ -141,9 +158,18 @@ impl OpenAIResponsesClient {
     pub fn with_default_headers(mut self, headers: http::HeaderMap) -> Result<Self, AdkError> {
         let http = reqwest_openai::Client::builder()
             .default_headers(headers.clone())
+            .redirect(reqwest_openai::redirect::Policy::none())
             .build()
             .map_err(|_| AdkError::model("failed to initialize Responses HTTP client"))?;
-        self.client = self.client.with_http_client(http);
+        self.responses_http = http;
+        self.client = with_transport(
+            self.client,
+            self.responses_http.clone(),
+            matches!(self.reasoning_effort, Some(OpenAIReasoningEffort::Max)),
+            self.open_responses_mode,
+            self.request_adapter.clone(),
+            self.response_observer.clone(),
+        );
         self.http = reqwest::Client::builder()
             .default_headers(headers)
             .build()
@@ -163,12 +189,32 @@ impl OpenAIResponsesClient {
         mut self,
         adapter: super::RequestAdapter,
     ) -> Result<Self, AdkError> {
+        self.request_adapter = Some(adapter);
         self.client = with_transport(
             self.client,
+            self.responses_http.clone(),
             matches!(self.reasoning_effort, Some(OpenAIReasoningEffort::Max)),
             self.open_responses_mode,
-            Some(adapter),
-        )?;
+            self.request_adapter.clone(),
+            self.response_observer.clone(),
+        );
+        Ok(self)
+    }
+
+    /// Observe Responses HTTP headers without consuming the body or adding retries.
+    pub fn with_response_observer(
+        mut self,
+        observer: super::ResponseObserver,
+    ) -> Result<Self, AdkError> {
+        self.response_observer = Some(observer);
+        self.client = with_transport(
+            self.client,
+            self.responses_http.clone(),
+            matches!(self.reasoning_effort, Some(OpenAIReasoningEffort::Max)),
+            self.open_responses_mode,
+            self.request_adapter.clone(),
+            self.response_observer.clone(),
+        );
         Ok(self)
     }
 
@@ -215,22 +261,21 @@ impl OpenAIResponsesClient {
 
 fn with_transport(
     client: async_openai::Client<async_openai::config::OpenAIConfig>,
+    http: reqwest_openai::Client,
     uses_max_reasoning: bool,
     open_responses_mode: bool,
     adapter: Option<super::RequestAdapter>,
-) -> Result<async_openai::Client<async_openai::config::OpenAIConfig>, AdkError> {
+    observer: Option<super::ResponseObserver>,
+) -> async_openai::Client<async_openai::config::OpenAIConfig> {
     use async_openai::error::OpenAIError;
     use async_openai::middleware::{HttpRequestFactory, ReqwestService};
     use tower::ServiceExt;
 
-    let http = reqwest_openai::Client::builder()
-        .redirect(reqwest_openai::redirect::Policy::none())
-        .build()
-        .map_err(|_| AdkError::model("failed to initialize Responses HTTP transport"))?;
     let transport = ReqwestService::new(http);
     let service = tower::service_fn(move |factory: HttpRequestFactory| {
         let transport = transport.clone();
         let adapter = adapter.clone();
+        let observer = observer.clone();
         async move {
             let original = factory.clone();
             let rewritten = HttpRequestFactory::new(move || {
@@ -272,11 +317,16 @@ fn with_transport(
                 }
             });
             let response = transport.oneshot(rewritten).await?;
+            if response.url().path().ends_with("/responses")
+                && let Some(observer) = observer
+            {
+                observer(response.headers());
+            }
             normalize_responses_response(response, uses_max_reasoning, open_responses_mode).await
         }
     });
 
-    Ok(client.with_http_service(service))
+    client.with_http_service(service)
 }
 
 async fn normalize_responses_response(

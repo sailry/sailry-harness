@@ -3,6 +3,7 @@ pub(in crate::store) mod authentication;
 pub(super) mod catalog;
 pub(in crate::store) mod completion;
 pub(in crate::store) mod configuration;
+pub(in crate::store) mod quota;
 pub(in crate::store) use configuration::{Stored, validate_stored};
 use sailry_link::Admission;
 use sailry_protocol::{
@@ -133,7 +134,8 @@ impl Ingress {
                     &options,
                     &self.closed,
                 )
-                .await?;
+                .await?
+                .grant;
             let endpoint = grant.endpoint();
             #[cfg(any(test, feature = "test-support"))]
             let endpoint = self.authorization_endpoint.as_deref().unwrap_or(endpoint);

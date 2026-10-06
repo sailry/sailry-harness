@@ -59,6 +59,7 @@ impl Media {
             credential.as_ref().map_or("", |secret| secret.expose()),
             config.effort,
             None,
+            None,
         )?;
         let mut content = Content::new("user").with_text(prompt);
         content.parts.push(Part::InlineData {

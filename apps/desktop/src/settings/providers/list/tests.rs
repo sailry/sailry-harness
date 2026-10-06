@@ -54,10 +54,51 @@ fn keeps_preview_passive(cx: &mut TestAppContext) {
         assert!(visual.debug_bounds(field).is_some());
     }
     assert_eq!(tr("provider_usage_unknown").as_ref(), "—");
+    assert!(visual.debug_bounds("provider-5h-progress-0").is_none());
+    assert!(visual.debug_bounds("provider-7d-progress-0").is_none());
     tap(visual, "provider-manage-usage-0");
     assert!(visual.opened_url().is_none());
     assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
     assert!(!visual.did_prompt_for_paths());
+}
+
+#[test]
+fn uses_observed_remaining_and_expiry() {
+    for (used, remaining_value, percentage) in [
+        (0, 10000, "100"),
+        (4250, 5750, "57.5"),
+        (4255, 5745, "57.45"),
+        (10000, 0, "0"),
+        (10050, 0, "0"),
+    ] {
+        let window = Window {
+            used_basis_points: used,
+            reset_at_ms: Some(200),
+        };
+        assert_eq!(remaining(Some(&window), 199), Some(remaining_value));
+        assert_eq!(percent(remaining_value), percentage);
+        assert_eq!(remaining(Some(&window), 200), None);
+        assert_eq!(remaining(Some(&window), 201), None);
+    }
+    assert_eq!(remaining(None, 100), None);
+    assert_eq!(
+        remaining(
+            Some(&Window {
+                used_basis_points: 4250,
+                reset_at_ms: None
+            }),
+            u64::MAX
+        ),
+        Some(5750)
+    );
+    assert_eq!(
+        remaining_label("provider_usage_5h").as_ref(),
+        "5h remaining"
+    );
+    assert_eq!(
+        remaining_label("provider_usage_7d").as_ref(),
+        "7d remaining"
+    );
 }
 
 #[gpui::test]

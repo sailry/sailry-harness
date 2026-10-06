@@ -1,5 +1,7 @@
 use super::*;
 use gpui_kit::base::Link;
+use gpui_kit::component::progress::Progress;
+use sailry_protocol::conversation::quota::Window;
 
 const USAGE_URL: &str = "https://chatgpt.com/settings/usage";
 
@@ -54,8 +56,10 @@ fn usage(channel: &Channel, real: bool, cx: &App) -> AnyElement {
     let id = channel.id;
     let link = cx.theme().link;
     let accent = cx.theme().accent;
-    // No verified quota snapshot is available for this SIWC integration. Keep
-    // the slot stable without presenting missing account data as sample usage.
+    let now = super::live::quota::now();
+    let quota = (real && channel.preset == Preset::ChatGpt)
+        .then_some(channel.quota.as_ref())
+        .flatten();
     v_flex()
         .debug_selector(move || format!("provider-usage-{id}"))
         .w_48()
@@ -64,11 +68,20 @@ fn usage(channel: &Channel, real: bool, cx: &App) -> AnyElement {
         .child(
             h_flex().w_full().gap_2().children(
                 [
-                    ("plan", "provider_plan"),
-                    ("5h", "provider_usage_5h"),
-                    ("7d", "provider_usage_7d"),
+                    ("plan", "provider_plan", None),
+                    (
+                        "5h",
+                        "provider_usage_5h",
+                        quota.and_then(|quota| quota.five_hour.as_ref()),
+                    ),
+                    (
+                        "7d",
+                        "provider_usage_7d",
+                        quota.and_then(|quota| quota.seven_day.as_ref()),
+                    ),
                 ]
-                .map(|(name, label)| {
+                .map(|(name, label, window)| {
+                    let remaining = remaining(window, now);
                     v_flex()
                         .debug_selector(move || format!("provider-{name}-{id}"))
                         .flex_1()
@@ -83,8 +96,29 @@ fn usage(channel: &Channel, real: bool, cx: &App) -> AnyElement {
                         .child(
                             div()
                                 .debug_selector(move || format!("provider-{name}-value-{id}"))
-                                .child(tr("provider_usage_unknown")),
+                                .child(remaining.map_or_else(
+                                    || tr("provider_usage_unknown").to_string(),
+                                    |value| format!("{}%", percent(value)),
+                                )),
                         )
+                        .child(div().w_full().h_1().when_some(remaining, |row, value| {
+                            row.child(
+                                div()
+                                    .debug_selector(move || {
+                                        format!("provider-{name}-progress-{id}")
+                                    })
+                                    .w_full()
+                                    .child(
+                                        Progress::new((
+                                            SharedString::from(format!("provider-{name}-progress")),
+                                            id,
+                                        ))
+                                        .xsmall()
+                                        .value(value as f32 / 100.)
+                                        .accessibility_label(remaining_label(label)),
+                                    ),
+                            )
+                        }))
                 }),
             ),
         )
@@ -114,6 +148,30 @@ fn usage(channel: &Channel, real: bool, cx: &App) -> AnyElement {
                 }),
         )
         .into_any_element()
+}
+
+fn remaining(window: Option<&Window>, now_ms: u64) -> Option<u32> {
+    window
+        .filter(|window| window.available_at(now_ms))
+        .map(Window::remaining_basis_points)
+}
+
+fn percent(basis_points: u32) -> String {
+    let whole = basis_points / 100;
+    let fraction = basis_points % 100;
+    if fraction == 0 {
+        whole.to_string()
+    } else if fraction % 10 == 0 {
+        format!("{whole}.{}", fraction / 10)
+    } else {
+        format!("{whole}.{fraction:02}")
+    }
+}
+
+fn remaining_label(window: &'static str) -> SharedString {
+    rust_i18n::t!("provider_quota_remaining", window = tr(window))
+        .to_string()
+        .into()
 }
 
 #[cfg(test)]

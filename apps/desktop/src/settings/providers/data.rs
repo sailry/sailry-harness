@@ -378,6 +378,7 @@ impl Model {
 pub struct Channel {
     pub options: Option<sailry_protocol::conversation::cloud::Options>,
     pub oauth: Option<sailry_protocol::conversation::oauth::Options>,
+    pub quota: Option<sailry_protocol::conversation::quota::Snapshot>,
     pub id: usize,
     pub name: String,
     pub preset: Preset,
@@ -403,6 +404,7 @@ impl Default for Store {
             channels: vec![Channel {
                 options: None,
                 oauth: None,
+                quota: None,
                 id: 0,
                 name: crate::tr("settings_sample_provider").to_string(),
                 preset: Preset::OpenAi,

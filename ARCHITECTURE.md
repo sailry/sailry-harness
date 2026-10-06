@@ -84,8 +84,11 @@ ADK-Rust is the agent execution engine. Node integrates Runner and SessionServic
 with one authoritative durable event history. Client and UI projections are
 rebuildable derivatives, not additional history writers or runners. Usage reports
 cover Sailry's own canonical events; Client aggregates reports across Nodes while
-keeping source identity and completeness explicit. External tool histories,
-account quotas and third-party billing are outside that boundary.
+keeping source identity and completeness explicit. Provider settings may separately
+display quota observations returned by Sailry's own authenticated model requests;
+missing or expired observations remain unknown. These observations are not session
+usage statistics. External tool histories, separate account-quota queries and
+third-party billing are outside that boundary.
 
 ## Runtime behavior
 

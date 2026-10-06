@@ -1,4 +1,4 @@
-//! Request customization at the HTTP boundary.
+//! Request customization and response observation at the HTTP boundary.
 
 /// Applies provider-specific JSON fields and headers before a generation request.
 ///
@@ -23,3 +23,9 @@ pub type RequestAdapter = std::sync::Arc<
         + Send
         + Sync,
 >;
+
+/// Observes response headers before status handling or body consumption.
+///
+/// The callback receives headers for every Responses generation attempt, including
+/// unsuccessful statuses. It must not perform I/O or retain sensitive headers.
+pub type ResponseObserver = std::sync::Arc<dyn Fn(&http::HeaderMap) + Send + Sync>;

@@ -961,6 +961,7 @@ fn snapshot(db: &Connection, node: NodeId) -> Result<Snapshot, Fault> {
         terminal_settings_revision: super::terminals::settings::read(db)?.revision,
         media_settings: super::media::read(db)?,
         providers: super::agent::providers(db)?,
+        provider_quotas: super::providers::quota::list(db, node)?,
         model_catalog: super::providers::catalog::status(db)?,
         roles: super::roles::list(db)?,
         ssh: super::ssh::list(db)?,

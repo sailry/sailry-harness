@@ -12,6 +12,8 @@ use sailry_protocol::{
 };
 use std::{collections::BTreeMap, sync::Arc};
 
+pub(super) mod quota;
+
 #[derive(Clone)]
 pub(in crate::settings) struct Binding {
     pub client: Arc<Client>,
@@ -30,6 +32,8 @@ pub(in crate::settings) struct Live {
     pub catalog: super::catalog::State,
     stop: CancellationToken,
     _task: Task<()>,
+    quota_reset: Option<u64>,
+    quota_clock: Option<Task<()>>,
 }
 
 impl Drop for Live {
@@ -102,6 +106,8 @@ impl Workspace {
             catalog: Default::default(),
             stop,
             _task: task,
+            quota_reset: None,
+            quota_clock: None,
         });
         cx.notify();
     }
@@ -111,6 +117,13 @@ impl Workspace {
             return;
         };
         if live.binding.client.target() != node {
+            return;
+        }
+        if view
+            .snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.node != node)
+        {
             return;
         }
         let refresh =
@@ -133,7 +146,19 @@ impl Workspace {
             self.providers.channels = live
                 .providers
                 .iter()
-                .map(|(&id, provider)| channel(id, provider))
+                .map(|(&id, provider)| {
+                    let mut channel = channel(id, provider);
+                    channel.quota = snapshot
+                        .provider_quotas
+                        .iter()
+                        .find(|quota| {
+                            quota.provider == provider.id
+                                && quota.credential.node == node
+                                && provider.credential.as_ref() == Some(&quota.credential)
+                        })
+                        .cloned();
+                    channel
+                })
                 .collect();
             self.providers
                 .channels
@@ -144,6 +169,7 @@ impl Workspace {
         if refresh {
             self.refresh_catalog(cx);
         }
+        quota::refresh(self, cx);
         cx.notify();
     }
 
@@ -232,6 +258,7 @@ pub(crate) fn channel(id: usize, provider: &Provider) -> Channel {
     Channel {
         options: provider.options.clone(),
         oauth: provider.oauth.clone(),
+        quota: None,
         id,
         name: provider.name.clone(),
         preset: match (provider.authentication, provider.api) {

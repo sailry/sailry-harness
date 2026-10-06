@@ -687,6 +687,12 @@ impl Database {
             )
             .map(|(output, event)| (output, event.into_iter().collect()))
         };
+        let outcome = outcome.and_then(|(output, mut changes)| {
+            if super::providers::quota::affected(&request.command) {
+                changes.extend(super::providers::quota::reconcile(&transaction, self.node)?);
+            }
+            Ok((output, changes))
+        });
         let (mut result, changes) = match outcome {
             Ok((output, changes)) => (Ok(output), changes),
             Err(error) => {
@@ -699,17 +705,7 @@ impl Database {
         transaction
             .execute_batch("RELEASE command")
             .map_err(storage_error)?;
-        let mut envelopes = Vec::with_capacity(changes.len());
-        for event in changes {
-            transaction
-                .execute("INSERT INTO events(body) VALUES(?1)", [encode(&event)?])
-                .map_err(storage_error)?;
-            envelopes.push(EventEnvelope {
-                node: self.node,
-                cursor: transaction.last_insert_rowid() as u64,
-                event,
-            });
-        }
+        let envelopes = record(&transaction, self.node, changes)?;
         if request.command.durable() {
             transaction
                 .execute(
@@ -824,6 +820,24 @@ impl Database {
             }
         }
     }
+}
+
+pub(super) fn record(
+    db: &Connection,
+    node: NodeId,
+    changes: Vec<Event>,
+) -> Result<Vec<EventEnvelope>, Fault> {
+    let mut envelopes = Vec::with_capacity(changes.len());
+    for event in changes {
+        db.execute("INSERT INTO events(body) VALUES(?1)", [encode(&event)?])
+            .map_err(storage_error)?;
+        envelopes.push(EventEnvelope {
+            node,
+            cursor: db.last_insert_rowid() as u64,
+            event,
+        });
+    }
+    Ok(envelopes)
 }
 
 pub(super) fn encode(value: &impl serde::Serialize) -> Result<Vec<u8>, Fault> {

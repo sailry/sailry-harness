@@ -33,10 +33,10 @@ impl Llm for Model {
             ))
         })?;
         let options = crate::providers::login::effective(&self.provider).map_err(failure)?;
-        let grant = self
+        let authorized = self
             .ingress
             .authorization(
-                reference,
+                reference.clone(),
                 self.provider.id,
                 self.provider.authentication,
                 &options,
@@ -44,6 +44,11 @@ impl Llm for Model {
             )
             .await
             .map_err(failure)?;
+        let observer = matches!(&authorized.grant, Grant::ChatGpt { .. }).then(|| {
+            self.ingress
+                .quota_observer(self.provider.id, reference, authorized.credential.revision)
+        });
+        let grant = authorized.grant;
         let mut provider = self.provider.clone();
         provider.endpoint = grant.endpoint().to_owned();
         let base = grant.headers(&options).map_err(failure)?;
@@ -89,6 +94,7 @@ impl Llm for Model {
             access.expose(),
             self.effort,
             Some(adapter),
+            observer,
         )
         .map_err(failure)?;
         model.generate_content(request, stream).await

@@ -428,6 +428,7 @@ impl Editor {
         Ok(Channel {
             options: self.cloud.options(self.preset, cx)?,
             oauth: self.oauth.options(self.preset, cx)?,
+            quota: None,
             id: self.editing.unwrap_or(0),
             name,
             preset: self.preset,

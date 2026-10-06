@@ -2,6 +2,7 @@ use super::*;
 use sailry_protocol::{Defaults, EventEnvelope};
 mod notifications;
 mod plugins;
+mod quotas;
 mod roles;
 mod sessions;
 
@@ -20,6 +21,7 @@ fn snapshot(cursor: u64) -> Snapshot {
         terminal_settings_revision: 0,
         media_settings: Default::default(),
         providers: vec![],
+        provider_quotas: vec![],
         model_catalog: Default::default(),
         roles: vec![],
         ssh: vec![],

@@ -3,6 +3,8 @@ use sailry_protocol::conversation::{Page, Status};
 use std::sync::atomic::{AtomicUsize, Ordering};
 #[path = "execution/oauth.rs"]
 mod oauth;
+#[path = "execution/quota.rs"]
+mod quota;
 #[path = "execution/renewals.rs"]
 pub(super) mod renewals;
 #[path = "execution/transfers.rs"]

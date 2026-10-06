@@ -7,6 +7,7 @@ mod renewals;
 use super::{Job, database::Database};
 use crate::providers::login::{Grant, Service};
 use futures::FutureExt;
+pub(crate) use renewals::Authorization;
 use sailry_link::{CancellationToken, Pending, Response, Subscription};
 use sailry_protocol::{
     conversation::{Provider, discovery, login},
@@ -72,6 +73,7 @@ pub(super) struct Worker {
     discovery: crate::providers::Discovery,
     runtime: Handle,
     sender: mpsc::Sender<Job>,
+    events: broadcast::Sender<EventEnvelope>,
     closed: CancellationToken,
 }
 
@@ -82,6 +84,7 @@ impl Worker {
         plugins: crate::plugins::Host,
         sender: mpsc::Sender<Job>,
         closed: CancellationToken,
+        events: broadcast::Sender<EventEnvelope>,
     ) -> Self {
         Self {
             pending: 0,
@@ -93,6 +96,7 @@ impl Worker {
             discovery,
             runtime: Handle::current(),
             sender,
+            events,
             closed,
         }
     }
@@ -408,7 +412,7 @@ impl Worker {
                 let _ = reply.send(result);
             }
             Progress::Renewed { id, result } => {
-                if self.renewals.finish(database, id, result) {
+                if self.renewals.finish(database, id, result, events) {
                     self.pending -= 1;
                 }
             }

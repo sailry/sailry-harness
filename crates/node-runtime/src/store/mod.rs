@@ -61,8 +61,9 @@ enum Job {
         provider: sailry_protocol::ProviderId,
         authentication: sailry_protocol::Authentication,
         options: sailry_protocol::conversation::oauth::Options,
-        reply: oneshot::Sender<Result<crate::providers::login::Grant, Fault>>,
+        reply: oneshot::Sender<Result<login::Authorization, Fault>>,
     },
+    ProviderQuota(providers::quota::Observation),
     Login(Box<login::Progress>),
     SubscribeLogin {
         caller: NodeId,
@@ -292,6 +293,7 @@ impl Store {
             plugins.clone(),
             ingress.sender.clone(),
             ingress.closed.clone(),
+            events.clone(),
         );
         let mut ssh = ssh::worker::Worker::new(
             ingress.transfers.clone(),
@@ -571,6 +573,9 @@ impl Store {
                         }
                         Job::Login(progress) => {
                             logins.progress(&mut database, *progress, &events);
+                        }
+                        Job::ProviderQuota(observation) => {
+                            let _ = providers::quota::observe(&mut database, observation, &events);
                         }
                         Job::McpCredentials(operation) => mcp::execute(&mut database, operation),
                         Job::SubscribeLogin {

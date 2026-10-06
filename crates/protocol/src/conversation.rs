@@ -7,6 +7,7 @@ pub mod login;
 pub mod oauth;
 pub mod progress;
 pub mod question;
+pub mod quota;
 pub mod reasoning;
 pub mod reference;
 pub mod search;

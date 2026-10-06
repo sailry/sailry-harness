@@ -13,6 +13,7 @@ pub(in crate::store) struct Stored {
     pub(super) provider: Option<Provider>,
     pub(super) listed: bool,
     pub(super) authorizations: BTreeMap<CredentialId, Saved>,
+    pub(super) quota: Option<sailry_protocol::conversation::quota::Snapshot>,
 }
 
 impl Stored {
@@ -22,6 +23,7 @@ impl Stored {
             provider: None,
             listed: false,
             authorizations: BTreeMap::new(),
+            quota: None,
         }
     }
 
@@ -37,6 +39,9 @@ impl Stored {
         }
         for value in self.authorizations.values() {
             value.validate()?;
+        }
+        if let Some(quota) = &self.quota {
+            super::quota::validate(self.id, quota)?;
         }
         Ok(())
     }

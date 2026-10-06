@@ -42,7 +42,7 @@ pub use config::{
 };
 #[cfg(feature = "openai-conversations")]
 pub use conversations::ConversationsClient;
-pub use request::RequestAdapter;
+pub use request::{RequestAdapter, ResponseObserver};
 pub use responses_client::OpenAIResponsesClient;
 pub use schema_adapter::{OpenAiSchemaAdapter, OpenAiStrictSchemaAdapter};
 #[cfg(feature = "openai-ws")]

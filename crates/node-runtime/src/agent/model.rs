@@ -11,7 +11,10 @@ use adk_model::{
     anthropic::{AnthropicClient, AnthropicConfig},
     deepseek::{DeepSeekClient, DeepSeekConfig},
     gemini::GeminiModel,
-    openai::{OpenAIResponsesClient, OpenAIResponsesConfig, ReasoningSummary, RequestAdapter},
+    openai::{
+        OpenAIResponsesClient, OpenAIResponsesConfig, ReasoningSummary, RequestAdapter,
+        ResponseObserver,
+    },
     openai_compatible::{OpenAICompatible, OpenAICompatibleConfig},
     retry::RetryConfig,
 };
@@ -111,7 +114,7 @@ pub(super) async fn configured(
         if matches!(provider.api, ModelApi::OpenCodeGo | ModelApi::OpenCodeZen) {
             opencode::build(provider, config, key, effort, session)?
         } else {
-            native(provider, config, key, effort, None)?
+            native(provider, config, key, effort, None, None)?
         }
     } else if provider.authentication == Authentication::Host {
         tokio::select! {
@@ -140,6 +143,7 @@ pub(super) fn native(
     key: &str,
     effort: Effort,
     adapter: Option<RequestAdapter>,
+    observer: Option<ResponseObserver>,
 ) -> Result<Arc<dyn Llm>, Fault> {
     let inner: Arc<dyn Llm> = match provider.api {
         ModelApi::OpenCodeGo | ModelApi::OpenCodeZen => {
@@ -198,6 +202,9 @@ pub(super) fn native(
                 .with_retry_config(RetryConfig::disabled());
             if let Some(adapter) = adapter {
                 client = client.with_request_adapter(adapter).map_err(error)?;
+            }
+            if let Some(observer) = observer {
+                client = client.with_response_observer(observer).map_err(error)?;
             }
             Arc::new(client)
         }

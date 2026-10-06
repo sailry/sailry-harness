@@ -1,5 +1,5 @@
 use super::*;
-use crate::store::database::{encode, storage_error};
+use crate::store::database::{record, storage_error};
 
 pub(super) fn save(
     database: &mut Database,
@@ -67,16 +67,15 @@ pub(super) fn save(
         &provider,
         expected.revision,
     )?;
-    let event = Event::ProviderChanged(provider);
-    transaction
-        .execute("INSERT INTO events(body) VALUES(?1)", [encode(&event)?])
-        .map_err(storage_error)?;
-    let envelope = EventEnvelope {
-        node: database.node,
-        cursor: transaction.last_insert_rowid() as u64,
-        event,
-    };
+    let mut changes = vec![Event::ProviderChanged(provider)];
+    changes.extend(crate::store::providers::quota::reconcile(
+        &transaction,
+        database.node,
+    )?);
+    let envelopes = record(&transaction, database.node, changes)?;
     transaction.commit().map_err(storage_error)?;
-    let _ = events.send(envelope);
+    for envelope in envelopes {
+        let _ = events.send(envelope);
+    }
     Ok(model_error)
 }

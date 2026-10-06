@@ -7,6 +7,7 @@ pub enum Apply {
     Recover,
 }
 
+mod quotas;
 #[cfg(test)]
 mod tests;
 
@@ -64,7 +65,7 @@ impl Projection {
                 self.recovery = true;
                 Ok(Apply::Recover)
             }
-            Update::Snapshot(snapshot) => {
+            Update::Snapshot(mut snapshot) => {
                 self.check_target(snapshot.node)?;
                 if self
                     .snapshot
@@ -73,6 +74,7 @@ impl Projection {
                 {
                     return Ok(Apply::Ignored);
                 }
+                quotas::retain(&mut snapshot);
                 self.snapshot = Some(snapshot);
                 self.recovery = false;
                 Ok(Apply::Applied)
@@ -143,10 +145,17 @@ impl Projection {
                     Event::ProviderChanged(provider) => {
                         snapshot.providers.retain(|item| item.id != provider.id);
                         snapshot.providers.push(provider);
+                        quotas::retain(snapshot);
+                    }
+                    Event::ProviderQuotaChanged { provider, quota } => {
+                        quotas::apply(snapshot, provider, quota);
                     }
                     Event::ModelCatalogChanged(status) => snapshot.model_catalog = status,
                     Event::ProviderRemoved { id } => {
-                        snapshot.providers.retain(|item| item.id != id)
+                        snapshot.providers.retain(|item| item.id != id);
+                        snapshot
+                            .provider_quotas
+                            .retain(|quota| quota.provider != id);
                     }
                     Event::ConversationChanged { session, activity } => {
                         if let Some(session) =

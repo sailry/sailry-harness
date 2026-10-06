@@ -1226,6 +1226,7 @@ pub struct Snapshot {
     pub terminal_settings_revision: u64,
     pub media_settings: crate::media::Settings,
     pub providers: Vec<crate::conversation::Provider>,
+    pub provider_quotas: Vec<crate::conversation::quota::Snapshot>,
     pub model_catalog: crate::conversation::catalog::Status,
     pub roles: Vec<crate::role::Profile>,
     pub ssh: Vec<crate::ssh::Profile>,
@@ -1511,6 +1512,10 @@ pub enum Event {
         id: crate::RoleId,
     },
     ProviderChanged(crate::conversation::Provider),
+    ProviderQuotaChanged {
+        provider: ProviderId,
+        quota: Option<crate::conversation::quota::Snapshot>,
+    },
     ModelCatalogChanged(crate::conversation::catalog::Status),
     ProviderRemoved {
         id: crate::ProviderId,
