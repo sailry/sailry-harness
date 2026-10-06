@@ -462,13 +462,6 @@ fn finishes_scores_and_redeals(cx: &mut TestAppContext) {
     }
 }
 
-fn click_game(visual: &mut VisualTestContext, x: f32, y: f32) {
-    visual.update(|window, cx| window.draw(cx).clear(cx));
-    let panel = visual.debug_bounds("plugin-panel").unwrap();
-    visual.simulate_click(panel.origin + point(px(x), px(y)), Modifiers::default());
-    visual.run_until_parked();
-}
-
 fn assert_player_strip(visual: &mut VisualTestContext, portraits: &[&'static str]) {
     visual.update(|window, cx| window.draw(cx).clear(cx));
     let bounds: Vec<_> = portraits
