@@ -191,13 +191,15 @@ fn aligns_usage_and_keeps_actions(cx: &mut TestAppContext) {
         let usage = visual.debug_bounds("provider-usage-0").unwrap();
         let slot = visual.debug_bounds("provider-plan-0").unwrap();
         assert_eq!(usage.size.height, slot.size.height);
-        for (id, login, edit, delete, control) in [
+        for (id, login, edit, delete, control, content, actions) in [
             (
                 0,
                 "provider-login-0",
                 "provider-edit-0",
                 "provider-delete-0",
                 "provider-0-control",
+                "provider-0-content",
+                "provider-0-actions",
             ),
             (
                 1,
@@ -205,12 +207,36 @@ fn aligns_usage_and_keeps_actions(cx: &mut TestAppContext) {
                 "provider-edit-1",
                 "provider-delete-1",
                 "provider-1-control",
+                "provider-1-content",
+                "provider-1-actions",
             ),
         ] {
             assert_eq!(visual.debug_bounds(login).is_some(), id == chatgpt_id);
-            assert!(visual.debug_bounds(edit).is_some());
-            assert!(visual.debug_bounds(delete).is_some());
-            assert!(visual.debug_bounds(control).is_some());
+            let content = visual.debug_bounds(content).unwrap();
+            let actions = visual.debug_bounds(actions).unwrap();
+            let edit = visual.debug_bounds(edit).unwrap();
+            let delete = visual.debug_bounds(delete).unwrap();
+            let control = visual.debug_bounds(control).unwrap();
+            assert!(actions.contains(&edit.center()));
+            assert!(actions.contains(&delete.center()));
+            assert!(edit.right() < delete.left());
+            if let Some(login) = visual.debug_bounds(login) {
+                assert!(actions.contains(&login.center()));
+                assert!(!content.contains(&login.center()));
+                assert!(control.right() < login.left());
+                assert!(login.right() < edit.left());
+                assert_eq!(login.center().y, edit.center().y);
+                assert_eq!(login.size, edit.size);
+            }
+        }
+        for (first, second) in [
+            ("provider-edit-0", "provider-edit-1"),
+            ("provider-delete-0", "provider-delete-1"),
+        ] {
+            assert_eq!(
+                visual.debug_bounds(first).unwrap().left(),
+                visual.debug_bounds(second).unwrap().left()
+            );
         }
         assert!(visual.opened_url().is_none());
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));

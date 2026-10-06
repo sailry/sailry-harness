@@ -2,12 +2,7 @@ use super::*;
 use gpui_kit::component::progress::Progress;
 use sailry_protocol::conversation::quota::Window;
 
-pub(super) fn content(
-    channel: &Channel,
-    real: bool,
-    authorization: Option<Button>,
-    cx: &App,
-) -> AnyElement {
+pub(super) fn content(channel: &Channel, real: bool, cx: &App) -> AnyElement {
     let id = channel.id;
     h_flex()
         .w_full()
@@ -24,8 +19,7 @@ pub(super) fn content(
                         .min_w_0()
                         .min_h_6()
                         .gap_1()
-                        .child(div().min_w_0().truncate().child(channel.name.clone()))
-                        .when_some(authorization, |row, button| row.child(button)),
+                        .child(div().min_w_0().truncate().child(channel.name.clone())),
                 )
                 .child(
                     h_flex()
