@@ -77,41 +77,7 @@ fn settle_models(cx: &mut VisualTestContext) {
 }
 
 pub(super) fn click(cx: &mut VisualTestContext, selector: &'static str) {
-    if matches!(
-        selector,
-        "chat-retry"
-            | "chat-sync-retry"
-            | "live-approval-retry"
-            | "queue-retry"
-            | "live-search-retry"
-            | "live-load-older"
-    ) {
-        crate::feedback::tests::settle(cx);
-    }
-    cx.update(|window, cx| {
-        window.refresh();
-        window.draw(cx).clear(cx);
-    });
-    let bounds = cx
-        .debug_bounds(selector)
-        .unwrap_or_else(|| panic!("missing {selector}"));
-    cx.simulate_mouse_move(bounds.center(), None, Modifiers::default());
-    cx.run_until_parked();
-    cx.update(|window, cx| {
-        window.refresh();
-        window.draw(cx).clear(cx);
-    });
-    let bounds = cx
-        .debug_bounds(selector)
-        .expect("control after pointer layout");
-    cx.simulate_click(bounds.center(), Modifiers::default());
-    cx.run_until_parked();
-    cx.update(|window, cx| {
-        window.refresh();
-        window.draw(cx).clear(cx);
-    });
-    cx.run_until_parked();
-    cx.update(|window, cx| window.draw(cx).clear(cx));
+    fixture::tap(cx, selector);
 }
 
 pub(super) fn provider(endpoint: &str, name: &str) -> Provider {

@@ -129,8 +129,11 @@ adding their cold compilation times together. Backend and Desktop share their
 dependency cache, with Desktop as its sole producer; Mobile reuses the ARM cache.
 Lint uses a separate metadata cache. Downloaded speech libraries are cached
 separately and saved after preparation, before subsequent checks or target cleanup.
-ARM Rust steps use one Cargo build job to fit the standard runner's memory;
-Intel uses two. This does not reduce parallel test execution.
+Desktop compilation uses one Cargo job on both architectures to avoid overlapping
+large main and test targets. Other ARM Rust steps use one job; Intel uses two.
+These CLI limits preserve the shared dependency cache identity. Backend tests run
+four fixtures concurrently on ARM and two on Intel to bound real-Node fixture
+contention. Desktop interactions remain serial.
 
 CI does not supply model credentials, production profiles or OS permissions.
 Live-service and device tests stay opt-in. The ordinary Flutter suite skips its

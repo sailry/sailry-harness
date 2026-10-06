@@ -264,7 +264,7 @@ pub(crate) fn tap(cx: &mut VisualTestContext, selector: &str) {
     let bounds = cx
         .debug_bounds(selector)
         .expect("control after pointer layout");
-    cx.simulate_click(bounds.center(), Modifiers::default());
+    press(cx, bounds.center());
     cx.run_until_parked();
     cx.update(|window, cx| {
         window.refresh();
@@ -272,6 +272,17 @@ pub(crate) fn tap(cx: &mut VisualTestContext, selector: &str) {
     });
     cx.run_until_parked();
     cx.update(|window, cx| window.draw(cx).clear(cx));
+}
+
+pub(crate) fn press(cx: &mut VisualTestContext, position: Point<Pixels>) {
+    use gpui_kit::test::TestWindowExt;
+
+    // Debug selectors and script anchors are not observed Kit ElementIds.
+    // Keep native hit testing, with the same inter-event frames as Kit's click.
+    cx.simulate_mouse_down(position, MouseButton::Left, Modifiers::default());
+    cx.update(|window, cx| window.render_frame(cx));
+    cx.simulate_mouse_up(position, MouseButton::Left, Modifiers::default());
+    cx.update(|window, cx| window.render_frame(cx));
 }
 
 pub(crate) use crate::conversation::live::attachments::image_testing::{

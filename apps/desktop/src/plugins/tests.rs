@@ -40,9 +40,14 @@ pub(in crate::plugins) fn init(cx: &mut TestAppContext) {
 
 #[track_caller]
 pub(in crate::plugins) fn wait(cx: &mut VisualTestContext, predicate: impl Fn(&App) -> bool) {
+    wait_with(cx, Duration::from_millis(10), predicate);
+}
+
+#[track_caller]
+fn wait_with(cx: &mut VisualTestContext, cadence: Duration, predicate: impl Fn(&App) -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        cx.executor().advance_clock(Duration::from_millis(10));
+        cx.executor().advance_clock(cadence);
         cx.run_until_parked();
         if cx.update(|window, cx| {
             window.refresh();

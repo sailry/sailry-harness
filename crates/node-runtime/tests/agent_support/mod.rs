@@ -34,7 +34,7 @@ enum Reply {
         failures: usize,
         status: u16,
     },
-    Markdown(Arc<String>, Duration),
+    Markdown(Arc<String>, Duration, Option<CancellationToken>),
     Workload,
     Browser(Arc<String>, bool),
     Goals(Arc<String>),
@@ -100,7 +100,15 @@ impl Server {
         Self::markdown_after(text, Duration::ZERO).await
     }
     pub async fn markdown_after(text: String, delay: Duration) -> Self {
-        Self::serve(Reply::Markdown(Arc::new(text), delay)).await
+        Self::serve(Reply::Markdown(Arc::new(text), delay, None)).await
+    }
+    pub async fn markdown_held(text: String, release: CancellationToken) -> Self {
+        Self::serve(Reply::Markdown(
+            Arc::new(text),
+            Duration::ZERO,
+            Some(release),
+        ))
+        .await
     }
     pub async fn http(failures: usize, status: u16) -> Self {
         Self::serve(Reply::Http { failures, status }).await
@@ -491,7 +499,7 @@ async fn respond(
         });
     let delta = match (&reply, batch, call) {
         (Reply::Staged(_), _, _) => json!({"role":"assistant", "content":"First"}),
-        (Reply::Markdown(text, _), _, _) => json!({"role":"assistant", "content":text.as_str()}),
+        (Reply::Markdown(text, ..), _, _) => json!({"role":"assistant", "content":text.as_str()}),
         (Reply::Parallel(calls), true, _) => {
             json!({"role": "assistant", "tool_calls": calls.iter().enumerate().map(|(index, (name, args))|
                 json!({"index": index, "id": format!("call-fixture-{index}"), "type": "function", "function": {"name": name, "arguments": args.to_string()}})
@@ -505,8 +513,11 @@ async fn respond(
         }
     };
     records.lock().unwrap().push(body);
-    if let Reply::Markdown(_, delay) = &reply {
+    if let Reply::Markdown(_, delay, release) = &reply {
         tokio::time::sleep(*delay).await;
+        if let Some(release) = release {
+            release.cancelled().await;
+        }
     }
     if let Reply::Held(start, _) = &reply {
         start.notified().await;

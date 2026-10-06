@@ -10,6 +10,12 @@ mod selection;
 mod settings;
 mod xiangqi;
 
+#[track_caller]
+fn wait(cx: &mut VisualTestContext, predicate: impl Fn(&App) -> bool) {
+    // Advance script animation timers independently of expensive rendered frames.
+    super::wait_with(cx, Duration::from_millis(100), predicate);
+}
+
 #[gpui::test]
 fn sidebar_opens_without_project(cx: &mut TestAppContext) {
     init(cx);
@@ -254,11 +260,12 @@ fn thinking_replaces_controls_below_the_last_play(cx: &mut TestAppContext) {
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
         let (_, _server) = fixture.game(true);
+        let release = sailry_link::CancellationToken::new();
         let delayed = fixture
             .runtime
-            .block_on(crate::agent_fixture::Server::markdown_after(
+            .block_on(crate::agent_fixture::Server::markdown_held(
                 "{\"move\":0}".into(),
-                std::time::Duration::from_millis(1800),
+                release.clone(),
             ));
         fixture.game_endpoint(&delayed.endpoint);
         let (panel, visual) = mount(&fixture, cx);
@@ -284,7 +291,15 @@ fn thinking_replaces_controls_below_the_last_play(cx: &mut TestAppContext) {
             .collect();
         click(visual, Box::leak(format!("card-{value}").into_boxed_str()));
         click(visual, "ddz-play");
-        wait(visual, |cx| snapshot(&panel, cx).contains("text \"1 秒\""));
+        wait(visual, |cx| {
+            snapshot(&panel, cx).lines().any(|line| {
+                line.trim()
+                    .strip_prefix("text \"")
+                    .and_then(|text| text.strip_suffix(" 秒\""))
+                    .and_then(|seconds| seconds.parse::<u64>().ok())
+                    .is_some_and(|seconds| seconds >= 1)
+            })
+        });
         let tree = visual.update(|_, cx| snapshot(&panel, cx));
         assert!(tree.contains("ddz-status-thinking"));
         assert!(tree.contains("ShimmerText"));
@@ -294,6 +309,7 @@ fn thinking_replaces_controls_below_the_last_play(cx: &mut TestAppContext) {
         let thinking = visual.debug_bounds("ddz-status-avatar").unwrap();
         assert!(thinking.top() > visual.debug_bounds("ddz-last-play-bottom").unwrap().top());
         assert!(thinking.bottom() < visual.debug_bounds("ddz-hand-top").unwrap().top());
+        release.cancel();
         wait(visual, |cx| {
             snapshot(&panel, cx).contains("ddz-status-turn")
         });

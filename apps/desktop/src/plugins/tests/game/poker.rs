@@ -45,11 +45,12 @@ fn plays_a_human_and_model_betting_round(cx: &mut TestAppContext) {
         });
         let fixture = Fixture::new(remote);
         let (_, _server) = fixture.game_plugin_with("poker", &["player_1_model"], anchors);
+        let release = sailry_link::CancellationToken::new();
         let delayed = fixture
             .runtime
-            .block_on(crate::agent_fixture::Server::markdown_after(
+            .block_on(crate::agent_fixture::Server::markdown_held(
                 "{\"move\":0}".into(),
-                Duration::from_millis(2200),
+                release.clone(),
             ));
         fixture.game_endpoint(&delayed.endpoint);
         let (panel, visual) = mount(&fixture, cx);
@@ -157,7 +158,14 @@ fn plays_a_human_and_model_betting_round(cx: &mut TestAppContext) {
             assert!(elapsed.right() < px(width) && elapsed.bottom() < px(height));
         }
         wait(visual, |cx| {
-            snapshot(&panel, cx).contains("poker-elapsed-1-anchor")
+            let tree = snapshot(&panel, cx);
+            tree.split("poker-elapsed-").any(|suffix| {
+                suffix
+                    .split('-')
+                    .next()
+                    .and_then(|seconds| seconds.parse::<u64>().ok())
+                    .is_some_and(|seconds| seconds >= 1)
+            })
         });
         assert!(tree.contains("poker-history-action-0"));
         assert!(tree.contains("poker-history-avatar-0"));
@@ -170,6 +178,8 @@ fn plays_a_human_and_model_betting_round(cx: &mut TestAppContext) {
                     .bottom()
         );
         assert!(thinking.bottom() < visual.debug_bounds("poker-hole-0-anchor").unwrap().top());
+
+        release.cancel();
 
         wait(visual, |cx| {
             let tree = snapshot(&panel, cx);

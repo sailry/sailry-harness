@@ -78,14 +78,19 @@ jobs:
             target: aarch64-apple-darwin
             # Large Rust targets can exceed the standard ARM runner's 7 GB RAM.
             jobs: 1
+            threads: 4
           - runner: macos-15-intel
             target: x86_64-apple-darwin
             jobs: 2
+            # Concurrent real-Node fixtures repeatedly exhausted their deadlines.
+            threads: 2
     runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 120
     env:
       # CLI job limits keep this cache-hashed environment shared with Mobile.
       CARGO_BUILD_JOBS: '2'
+      # Main and test Desktop targets together can exceed Intel's 14 GB RAM too.
+      BUILD_JOBS: ${{ matrix.kind == 'desktop' && 1 || matrix.platform.jobs }}
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: 'true'
@@ -132,7 +137,7 @@ jobs:
         # A restored build-script fingerprint can outlive its downloaded libraries.
         run: |
           cargo clean --locked -p sherpa-onnx-sys
-          cargo build --locked -p sailry-speech --jobs ${{ matrix.platform.jobs }} -vv
+          cargo build --locked -p sailry-speech --jobs "$BUILD_JOBS" -vv
       - name: Save speech native libraries
         if: matrix.kind != 'backend' && steps.speech-cache.outputs.cache-hit != 'true'
         # Save before later checks fail or rust-cache prunes target directories.
@@ -145,29 +150,29 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Strict lint
         if: matrix.kind == 'lint'
-        run: cargo clippy --locked --workspace --all-targets --jobs ${{ matrix.platform.jobs }} -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets --jobs "$BUILD_JOBS" -- -D warnings
       - name: Backend test compilation
         if: matrix.kind == 'backend'
-        run: cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --no-run --timings --jobs ${{ matrix.platform.jobs }}
+        run: cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --no-run --timings --jobs "$BUILD_JOBS"
       - name: Backend unit and local/remote integration
         if: matrix.kind == 'backend'
-        run: cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --no-fail-fast --jobs ${{ matrix.platform.jobs }} -- --test-threads=4
+        run: cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --no-fail-fast --jobs "$BUILD_JOBS" -- --test-threads=${{ matrix.platform.threads }}
       - name: Isolated database engines
         if: matrix.kind == 'backend' && matrix.platform.target == 'aarch64-apple-darwin'
         run: |
           brew install postgresql@17 mysql@8.4
           export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
-          cargo test --locked -p sailry-node-runtime --test databases --jobs ${{ matrix.platform.jobs }} -- --ignored --test-threads=1
+          cargo test --locked -p sailry-node-runtime --test databases --jobs "$BUILD_JOBS" -- --ignored --test-threads=1
       - name: Desktop test compilation
         if: matrix.kind == 'desktop'
-        run: cargo test --locked -p sailry-desktop --no-run --timings --jobs ${{ matrix.platform.jobs }}
+        run: cargo test --locked -p sailry-desktop --no-run --timings --jobs "$BUILD_JOBS"
       - name: Desktop behavior and Kit interactions
         if: matrix.kind == 'desktop'
         # Desktop fixtures share process-global locale and native UI state.
-        run: cargo test --locked -p sailry-desktop --jobs ${{ matrix.platform.jobs }} -- --test-threads=1
+        run: cargo test --locked -p sailry-desktop --jobs "$BUILD_JOBS" -- --test-threads=1
       - name: Desktop and Host binaries
         if: matrix.kind == 'desktop'
-        run: cargo build --locked -p sailry-desktop -p sailry-host --jobs ${{ matrix.platform.jobs }}
+        run: cargo build --locked -p sailry-desktop -p sailry-host --jobs "$BUILD_JOBS"
       - name: Compilation timings
         if: always() && matrix.kind != 'lint'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

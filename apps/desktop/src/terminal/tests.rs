@@ -224,6 +224,28 @@ fn input_and_remount(cx: &mut TestAppContext) {
         });
         visual.update(|window, _| window.activate_window());
         visual.run_until_parked();
+        visual.update(|window, cx| view.update(cx, |view, cx| view.focus(window, cx)));
+        // A marker can precede an asynchronous prompt. Wait for the fixture's
+        // complete prompt and acknowledged viewport before screen comparisons.
+        visual.simulate_input("PS1='fixture-ready> '; printf 'startup-%s\\n' ready");
+        visual.simulate_keystrokes("enter");
+        wait(visual, &view, |view| {
+            content(view).contains("startup-ready")
+                && view.state.snapshot.as_ref().is_some_and(|snapshot| {
+                    let screen = &snapshot.screen;
+                    screen.columns == view.metrics.columns
+                        && screen.rows.len() == usize::from(view.metrics.rows)
+                        && screen.cursor.as_ref().is_some_and(|cursor| {
+                            screen.rows[usize::from(cursor.row)]
+                                .spans
+                                .iter()
+                                .map(|span| span.text.as_str())
+                                .collect::<String>()
+                                .trim_end()
+                                == "fixture-ready>"
+                        })
+                })
+        });
         let grid = visual.debug_bounds("terminal-grid").unwrap();
         let original_text = view.read_with(visual, |view, _| content(view));
         visual.update(|_, cx| {

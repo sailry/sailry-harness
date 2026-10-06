@@ -18,15 +18,7 @@ pub(crate) enum Control {
 }
 
 fn send(cx: &mut VisualTestContext) {
-    cx.run_until_parked();
-    cx.update(|window, cx| window.draw(cx).clear(cx));
-    let bounds = cx.debug_bounds("live-chat-send").expect("send button");
-    cx.simulate_mouse_move(bounds.center(), None, Modifiers::default());
-    cx.run_until_parked();
-    cx.update(|window, cx| window.draw(cx).clear(cx));
-    let bounds = cx.debug_bounds("live-chat-send").expect("send button");
-    cx.simulate_click(bounds.center(), Modifiers::default());
-    cx.run_until_parked();
+    tap(cx, "live-chat-send");
 }
 
 pub(crate) fn control(cx: &mut VisualTestContext, key: usize, control: Control) {
@@ -50,7 +42,7 @@ pub(crate) fn control(cx: &mut VisualTestContext, key: usize, control: Control) 
     cx.run_until_parked();
     // Hover and queued toolbar renders can change the native control's geometry.
     let current = position(cx);
-    cx.simulate_click(current, Modifiers::default());
+    fixture::press(cx, current);
     cx.run_until_parked();
 }
 
