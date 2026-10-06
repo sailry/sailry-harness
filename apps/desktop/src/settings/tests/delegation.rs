@@ -6,8 +6,27 @@ mod fixture;
 use fixture::{Fixture, choose, copied, draw, fill, init, input, shown, tap, wait};
 
 #[track_caller]
-fn toast(visual: &mut VisualTestContext, expected: &str) {
-    crate::feedback::tests::shown(visual);
+fn toast(visual: &mut VisualTestContext, expected: &str, occurrences: usize) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        visual.run_until_parked();
+        // Kit retains closing cards, so their presence is not a new operation result.
+        if visual.update(|window, cx| {
+            !window.notifications(cx).is_empty()
+                && crate::feedback::tests::count(window, expected, cx) >= occurrences
+        }) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "expected toast: {expected}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(
+        visual.update(|window, cx| crate::feedback::tests::count(window, expected, cx)),
+        occurrences
+    );
     assert_eq!(visual.update(crate::feedback::tests::summary), expected);
 }
 
@@ -77,7 +96,7 @@ fn preserves_conflicting_drafts(cx: &mut TestAppContext) {
         assert!(owner.read_with(visual, |owner, _| owner.roles.is_empty()));
         tap(visual, "role-add");
         tap(visual, "role-save");
-        toast(visual, "Check the identifier, name and turn limit");
+        toast(visual, "Check the identifier, name and turn limit", 1);
         assert!(visual.debug_bounds("role-error").is_none());
         fill(visual, "review");
         tap(visual, "role-save");
@@ -110,7 +129,7 @@ fn preserves_conflicting_drafts(cx: &mut TestAppContext) {
         wait(visual, |_| fixture.roles()[0].revision == 3);
         visual.update(|window, cx| window.clear_notifications(cx));
         tap(visual, "role-save");
-        toast(visual, "Subagent changed; reopen it");
+        toast(visual, "Subagent changed; reopen it", 1);
         assert!(visual.debug_bounds("role-error").is_none());
         tap(visual, "role-field-settings_name");
         assert_eq!(copied(visual), "Preserved draft 中文");
@@ -125,7 +144,7 @@ fn preserves_conflicting_drafts(cx: &mut TestAppContext) {
         });
         visual.update(|window, cx| window.clear_notifications(cx));
         tap(visual, "role-delete-confirm");
-        toast(visual, "Subagent changed; reopen it");
+        toast(visual, "Subagent changed; reopen it", 2);
         shown(&owner, visual, "role-removal-error", false);
         shown(&owner, visual, "role-removal", true);
         assert_eq!(fixture.roles()[0].name, "Latest role");
@@ -151,7 +170,7 @@ fn retries_bound_requests(cx: &mut TestAppContext) {
         choose(visual, "role-source", 1);
         fixture.transport.mode.store(1, Ordering::SeqCst);
         tap(visual, "role-save");
-        toast(visual, "Result unconfirmed; retry the original request");
+        toast(visual, "Result unconfirmed; retry the original request", 1);
         assert!(visual.debug_bounds("role-error").is_none());
         assert_eq!(fixture.roles().len(), 1);
         input(visual, "role-field-settings_name", "Ignored pending edit");
@@ -171,7 +190,7 @@ fn retries_bound_requests(cx: &mut TestAppContext) {
         let mut replacement = fixture.roles().remove(0);
         visual.update(|window, cx| window.clear_notifications(cx));
         tap(visual, "role-delete-confirm");
-        toast(visual, "Result unconfirmed; retry the original request");
+        toast(visual, "Result unconfirmed; retry the original request", 2);
         shown(&owner, visual, "role-removal-error", false);
         shown(&owner, visual, "role-removal", true);
         assert!(fixture.roles().is_empty());
@@ -265,7 +284,7 @@ fn preserves_missing_model_selection(cx: &mut TestAppContext) {
             "Saved after explicit inheritance",
         );
         tap(visual, "role-save");
-        toast(visual, "Selected model or provider is unavailable");
+        toast(visual, "Selected model or provider is unavailable", 1);
         assert!(visual.debug_bounds("role-error").is_none());
         assert_eq!(fixture.roles()[0].revision, 1);
         choose(visual, "role-source", 0);
