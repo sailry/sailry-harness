@@ -24,10 +24,9 @@ cargo build --locked -p sailry-host
 just desktop
 ```
 
-`just desktop` prepares the Office runtime and builds an application bundle on
-macOS. Its default profile is `.runtime/desktop`. Office preparation requires `uv`
-0.10.9 and creates a pinned, relocatable Python runtime without installing packages
-into your user Python environment. An available Apple Development signing identity
+`just desktop` builds an application bundle on macOS without bundling Python or
+document script libraries. Its default profile is `.runtime/desktop`.
+An available Apple Development signing identity
 keeps the development app's OS permission identity stable; otherwise signing is ad hoc.
 
 ```sh
@@ -196,9 +195,9 @@ files after packaging. The Apple account must have accepted current agreements
 and the API key must have notarization access.
 
 Apple silicon and Intel runners build native Desktop DMGs, updater ZIPs and
-standalone macOS Host archives. Desktop contains only its own Office runtime,
-not remote Host binaries. Independent Linux amd64 and arm64 runners each build
-one Host architecture, with glibc 2.28 targeting and a pinned Office runtime.
+standalone macOS Host archives. Desktop contains its local Node, not remote Host
+binaries or a Python runtime. Independent Linux amd64 and arm64 runners each
+build one Host architecture with glibc 2.28 targeting.
 Linux link inputs are checksum-pinned in
 [`linux-sysroot.lock.json`](scripts/package/linux-sysroot.lock.json); the build
 does not install cross-compilation packages into the host system.
@@ -208,8 +207,6 @@ fresh `dist/` directory:
 
 ```sh
 cargo build --locked --release -p sailry-desktop -p sailry-host
-python3 scripts/prepare-office-runtime.py --target "$(rustc -vV | awk '/^host: / {print $2}')" \
-  --output "target/office-runtimes/$(rustc -vV | awk '/^host: / {print $2}')/office-runtime"
 SAILRY_SIGNING=developer-id SAILRY_NOTARIZE=1 bash scripts/package-macos.sh release
 ```
 
@@ -229,7 +226,7 @@ public releases or existing assets. Review all required platform and candidate
 checks before publishing a full-product draft.
 
 To build and package one Linux Host locally, install the pinned Zig 0.16.0,
-cargo-zigbuild 0.23.4 and uv 0.10.9 tools plus LLVM ar/strip, then run:
+cargo-zigbuild 0.23.4 tools plus LLVM ar/strip, then run:
 
 ```sh
 rustup target add x86_64-unknown-linux-gnu

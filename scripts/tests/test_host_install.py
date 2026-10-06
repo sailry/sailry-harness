@@ -60,8 +60,6 @@ shutil.copyfile(source, destination)
         (package / "sailry").write_bytes((ROOT / "scripts/host-command.sh").read_bytes())
         (package / "install-host.sh").write_bytes((ROOT / "scripts/install-host.sh").read_bytes())
         (package / "service.sh").write_bytes((ROOT / "crates/node-runtime/src/ssh/install/service.sh").read_bytes())
-        (package / "office-runtime").mkdir()
-        (package / "office-runtime/runtime.json").write_text('{"version":1}\n')
         for target in TARGETS.values():
             name = f"sailry-host-{version}-{target}.tar.gz"
             archive = self.assets / name

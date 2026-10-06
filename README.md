@@ -63,8 +63,8 @@ Download the macOS **DMG** for Apple silicon or Intel from
 [Releases](https://github.com/sailry/sailry-harness/releases), then drag Sailry to
 Applications. ZIP assets serve the desktop's automatic updater.
 
-Linux Host is a separate release asset for **amd64** and **arm64**, including its
-Office runtime. It requires systemd, glibc 2.28 or newer, and the X11/XInput client
+Linux Host is a separate release asset for **amd64** and **arm64**. It requires
+systemd, glibc 2.28 or newer, and the X11/XInput client
 libraries (`libX11.so.6` and `libXi.so.6`); no desktop session is needed for
 headless tasks. On a minimal Debian or Ubuntu server, install those libraries
 with `sudo apt-get install libx11-6 libxi6`. Install a published version without
@@ -110,6 +110,11 @@ It verifies the installer and archive checksums; remote Host binaries are not
 bundled inside Desktop. For an existing Host, use `sailry share` and pair instead
 of installing again. Draft release assets are unavailable to this installer until
 the release is published.
+
+Desktop and Host do not bundle Python or Office script libraries. Office
+inspection, previews and PDF export use Rust. Document skills use the execution
+Node's tools and prepare project-local dependencies only when a task needs them,
+subject to the session's command permissions and network availability.
 
 ## Start with what you need
 

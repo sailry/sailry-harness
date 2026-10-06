@@ -507,13 +507,6 @@ async fn office_reads_and_exports_require_grants() {
             .await
             .unwrap();
         assert!(preview_bytes.starts_with(b"%PDF-"));
-        let runtime = Command::OfficeRuntime { worktree };
-        assert_eq!(
-            client
-                .execute(client.prepare(runtime.clone()).with_plugin(context.clone()))
-                .await,
-            client.execute(client.prepare(runtime)).await
-        );
         let export = Command::ExportPdf {
             worktree,
             options: office::Export {

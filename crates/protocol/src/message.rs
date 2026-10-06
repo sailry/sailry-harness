@@ -857,9 +857,6 @@ pub enum Command {
         worktree: WorktreeId,
         options: crate::office::Export,
     },
-    OfficeRuntime {
-        worktree: WorktreeId,
-    },
     ReadOffice {
         worktree: WorktreeId,
         options: crate::office::Read,
@@ -1160,7 +1157,6 @@ impl Command {
                 | Self::ListDirectory { .. }
                 | Self::BrowseFiles { .. }
                 | Self::ReadFile { .. }
-                | Self::OfficeRuntime { .. }
                 | Self::ReadOffice { .. }
                 | Self::PreviewOffice { .. }
                 | Self::DownloadFile { .. }
@@ -1367,7 +1363,6 @@ pub enum Output {
         stream: crate::StreamId,
     },
     FileWritten(crate::FileWritten),
-    OfficeRuntime(crate::office::Environment),
     OfficeContent(crate::office::Inspection),
     OfficeWritten(crate::office::Written),
     OfficePreview(crate::office::Preview),

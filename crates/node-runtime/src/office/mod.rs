@@ -1,12 +1,10 @@
-//! Native file operations and managed authoring libraries on the execution Node.
+//! Native Office inspection and PDF conversion on the execution Node.
 use sailry_protocol::{ErrorCode, Fault, office::*};
 use std::{
     io::{Cursor, Read as _},
     path::Path,
 };
 
-mod runtime;
-pub(crate) use runtime::environment;
 mod package;
 mod pdf;
 #[cfg(test)]

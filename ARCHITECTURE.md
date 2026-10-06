@@ -164,8 +164,9 @@ peer trust survives restart. Host release archives are independent from Desktop;
 the official installer verifies versioned assets and starts systemd or launchd.
 Desktop's Add Host command invokes that installer through Node-owned SSH, then
 pairs through a private bootstrap ticket. It never uploads a bundled Host or
-overwrites an existing profile. Desktop still includes its own local Node and
-Office runtime.
+overwrites an existing profile. Desktop still includes its own local Node.
+Office inspection and PDF conversion use Rust; document skills use the execution
+Node's command tools and project-local dependencies, not a bundled interpreter.
 
 The `sailry` management command controls the installed service. Sharing uses a
 profile-private Unix socket to request an invitation from the running Host; the

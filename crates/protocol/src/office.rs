@@ -1,4 +1,4 @@
-//! Office inspection, conversion and the execution Node authoring environment.
+//! Native Office inspection and PDF conversion.
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -45,12 +45,4 @@ pub struct Section {
     pub name: String,
     pub text: String,
     pub truncated: bool,
-}
-
-/// Managed authoring libraries on the execution Node, independent of the controller.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Environment {
-    pub python: String,
-    pub python_version: String,
-    pub packages: Vec<String>,
 }

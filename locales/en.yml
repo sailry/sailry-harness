@@ -216,7 +216,6 @@ artifact_reload: Reload preview
 send: Send
 more: More actions
 
-tool_office_runtime: Office environment
 tool_office_read: Read document
 tool_office_export: Export PDF
 

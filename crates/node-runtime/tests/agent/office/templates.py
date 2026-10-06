@@ -1,4 +1,4 @@
-# Exercise the installed package resources with the shared interpreter.
+# Exercise installed skill resources with the execution Node's external interpreter.
 import json
 import subprocess
 import sys

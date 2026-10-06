@@ -4,11 +4,6 @@ set -euo pipefail
 task_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$task_root"
 
-task_native="$(rustc -vV | awk '/^host: / {print $2}')"
-task_target="${CARGO_TARGET_DIR:-$task_root/target}"
-python3 "$task_root/scripts/prepare-office-runtime.py" --target "$task_native" \
-  --output "$task_target/debug/office-runtime"
-
 if test "$(uname -s)" != Darwin; then
   exec cargo run --locked -p sailry-desktop -- "$@"
 fi
@@ -35,7 +30,6 @@ mkdir -p "$task_app/Contents/MacOS" "$task_app/Contents/Resources"
 if test -d "$task_app/Contents/Resources/office-runtime"; then
   rm -rf "$task_app/Contents/Resources/office-runtime"
 fi
-cp -R "$task_build/office-runtime" "$task_app/Contents/Resources/office-runtime"
 if test -d "$task_app/Contents/Resources/hosts"; then
   rm -rf "$task_app/Contents/Resources/hosts"
 fi

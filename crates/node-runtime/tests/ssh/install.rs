@@ -190,8 +190,20 @@ async fn deploys_and_pairs() {
             execute(&host, Command::InspectHost).await,
             Output::HostInfo(_)
         ));
+        assert!(
+            !directory
+                .path()
+                .join(".local/lib/sailry/office-runtime")
+                .exists()
+        );
         let project = directory.path().join("office-project");
         std::fs::create_dir(&project).unwrap();
+        std::fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src/office/fixtures/report.docx"),
+            project.join("report.docx"),
+        )
+        .unwrap();
         execute(
             &host,
             Command::RegisterProject {
@@ -203,40 +215,26 @@ async fn deploys_and_pairs() {
         let Output::Snapshot(snapshot) = execute(&host, Command::Snapshot).await else {
             panic!("snapshot expected")
         };
-        let Output::OfficeRuntime(runtime) = execute(
+        let Output::OfficeContent(content) = execute(
             &host,
-            Command::OfficeRuntime {
+            Command::ReadOffice {
                 worktree: snapshot.worktrees[0].id,
+                options: sailry_protocol::office::Read {
+                    path: "report.docx".into(),
+                    offset: 0,
+                },
             },
         )
         .await
         else {
-            panic!("deployed Office runtime expected")
+            panic!("native Office content expected")
         };
         assert!(
-            std::path::Path::new(&runtime.python).starts_with(
-                directory
-                    .path()
-                    .join(".local/lib/sailry/office-runtime")
-                    .canonicalize()
-                    .unwrap()
-            )
+            content
+                .sections
+                .iter()
+                .any(|section| section.text.contains("中文内容"))
         );
-        let verify = format!(
-            "'{}' -c 'import docx, openpyxl, pptx, reportlab, pypdf, pdfplumber; print(\"office-ready\")'",
-            runtime.python.replace('\'', "'\"'\"'")
-        );
-        let verify = Command::RunSsh {
-            profile: profile.id,
-            expected_revision: profile.revision,
-            command: verify,
-            timeout_ms: 30000,
-        };
-        assert!(matches!(
-            execute(&client, verify).await,
-            Output::SshOutcome(Outcome::Completed { exit_code: 0, stdout, .. })
-                if stdout.trim() == "office-ready"
-        ));
         assert_eq!(
             client.execute(request).await.unwrap(),
             Output::SshOutcome(Outcome::HostInstalled { node: installed })

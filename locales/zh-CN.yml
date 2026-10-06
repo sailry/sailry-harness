@@ -2565,7 +2565,6 @@ artifact_zoom_in: 放大
 artifact_fit_width: 适应宽度
 artifact_reload: 刷新预览
 
-tool_office_runtime: Office 环境
 tool_office_read: 读取文档
 tool_office_export: 导出 PDF
 

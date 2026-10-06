@@ -48,7 +48,7 @@ async fn install(fixture: &process::Fixture) -> plugin::Info {
         };
         package
     };
-    assert_eq!(package.extension.as_ref().unwrap().tools.len(), 7);
+    assert_eq!(package.extension.as_ref().unwrap().tools.len(), 6);
     package
 }
 
@@ -356,13 +356,7 @@ async fn preserves_ask_and_plan_policy() {
             .iter()
             .map(|tool| tool["function"]["name"].as_str().unwrap())
             .collect();
-        for read in [
-            "list_directory",
-            "read_file",
-            "search_files",
-            "read_office",
-            "get_office_runtime",
-        ] {
+        for read in ["list_directory", "read_file", "search_files", "read_office"] {
             assert!(names.contains(&name(read).as_str()));
         }
         for write in ["write_file", "export_pdf"] {

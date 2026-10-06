@@ -24,8 +24,6 @@ mkdir -p "$task_root/dist"
 task_output="$(mktemp -d "$task_root/dist/macos-$task_profile-XXXXXX")"
 task_app="$task_output/Sailry.app"
 mkdir -p "$task_app/Contents/MacOS" "$task_app/Contents/Resources" "$task_output/host"
-test -f "$task_root/target/office-runtimes/$task_target/office-runtime/runtime.json"
-cp -R "$task_root/target/office-runtimes/$task_target/office-runtime" "$task_app/Contents/Resources/office-runtime"
 cp "$task_build/sailry-desktop" "$task_app/Contents/MacOS/sailry-desktop"
 cp "$task_build/sailry-host" "$task_output/host/sailry-host"
 cp "$task_root/scripts/host-launchd.sh" "$task_output/host/host-launchd.sh"
@@ -59,7 +57,6 @@ if test "$task_signing" = developer-id; then
   python3 "$task_root/scripts/package/sign-macos.py" --app "$task_app" \
     --host "$task_output/host" --target "$task_target"
 else
-  cp -R "$task_app/Contents/Resources/office-runtime" "$task_output/host/office-runtime"
   codesign --force --sign - "$task_output/host/sailry-host"
   codesign --force --sign - "$task_app"
 fi

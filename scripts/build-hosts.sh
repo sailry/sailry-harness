@@ -57,7 +57,4 @@ for task_target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu "$task_nat
   "$task_llvm_strip" --strip-debug "$task_output/sailry-host"
   if [[ "$task_target" == *apple-darwin ]]; then codesign --force --sign - "$task_output/sailry-host"; fi
   chmod 755 "$task_output/sailry-host"
-  python3 "$task_root/scripts/prepare-office-runtime.py" --target "$task_target" \
-    --output "$task_root/target/office-runtimes/$task_target/office-runtime" \
-    --archive "$task_output/office-runtime.tar.gz"
 done

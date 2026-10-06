@@ -3,7 +3,6 @@ param(
     [string] $Profile = 'release',
     [ValidateSet('x86_64-pc-windows-msvc', 'aarch64-pc-windows-msvc')]
     [string] $Target,
-    [string] $OfficeRuntimeDirectory,
     [Parameter(Mandatory = $true)]
     [string] $LicensesDirectory,
     [string[]] $DependencyDirectories = @()
@@ -67,19 +66,8 @@ function Assert-PeTarget([string] $Path) {
 
 Assert-OrdinaryTree $task_executable
 Assert-PeTarget $task_executable
-if (-not $OfficeRuntimeDirectory) {
-    $OfficeRuntimeDirectory = Join-Path $task_root "target/office-runtimes/$Target/office-runtime"
-}
-$OfficeRuntimeDirectory = (Resolve-Path -LiteralPath $OfficeRuntimeDirectory).ProviderPath
 $LicensesDirectory = (Resolve-Path -LiteralPath $LicensesDirectory).ProviderPath
-Assert-OrdinaryTree $OfficeRuntimeDirectory
 Assert-OrdinaryTree $LicensesDirectory
-$task_runtime = Get-Content -LiteralPath (Join-Path $OfficeRuntimeDirectory 'runtime.json') -Raw | ConvertFrom-Json
-if ($task_runtime.version -ne 1 -or $task_runtime.target -ne $Target -or
-    $task_runtime.executable -ne 'python/python.exe') {
-    throw 'The prepared Office runtime does not match the target'
-}
-Assert-PeTarget (Join-Path $OfficeRuntimeDirectory 'python/python.exe')
 foreach ($task_notice in @('dependencies.json', 'source-notices')) {
     if (-not (Test-Path -LiteralPath (Join-Path $LicensesDirectory $task_notice))) {
         throw 'Provide complete license collector output through -LicensesDirectory'
@@ -118,7 +106,6 @@ foreach ($task_directory in @($task_build) + $DependencyDirectories) {
         $task_libraries[$task_library.Name] = $task_library.FullName
     }
 }
-Copy-Item -LiteralPath $OfficeRuntimeDirectory -Destination (Join-Path $task_app 'office-runtime') -Recurse
 Copy-Item -LiteralPath $LicensesDirectory -Destination (Join-Path $task_app 'licenses') -Recurse
 Copy-Item -LiteralPath (Join-Path $task_root 'Cargo.lock') -Destination $task_app
 $task_build_info = [ordered]@{

@@ -41,11 +41,6 @@ fn reads_original_large_output_and_joined_rows() {
             "目录/a.txt:42    match\t",
         ),
         (
-            "get_office_runtime",
-            json!({"data":{"packages":["first==1","second==2"]}}),
-            "first==1\nsecond==2",
-        ),
-        (
             "export_pdf",
             json!({"data":{"file":{"path":"report.pdf"},"warnings":[]}}),
             "report.pdf",

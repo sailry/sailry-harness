@@ -192,7 +192,6 @@ impl Ingress {
                     | sailry_protocol::Command::BrowseFiles { .. }
                     | sailry_protocol::Command::ListTerminalTools { .. }
                     | sailry_protocol::Command::ReadFile { .. }
-                    | sailry_protocol::Command::OfficeRuntime { .. }
                     | sailry_protocol::Command::ReadOffice { .. }
                     | sailry_protocol::Command::SearchFiles { .. }
                     | sailry_protocol::Command::InspectGit { .. }

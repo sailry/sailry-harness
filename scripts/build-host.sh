@@ -47,6 +47,4 @@ else
   codesign --force --sign - "$task_output/sailry-host"
 fi
 chmod 755 "$task_output/sailry-host"
-python3 scripts/prepare-office-runtime.py --target "$task_target" \
-  --output "$task_root/target/office-runtimes/$task_target/office-runtime"
 printf 'Host build: %s\n' "$task_output"

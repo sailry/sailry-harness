@@ -57,11 +57,8 @@ fn swaps_whole_bundle_and_retains_independent_original() {
     )
     .unwrap();
     let backup = install::replace(&staged, &fixture::config(), &installed).unwrap();
-    assert!(
-        installed
-            .join("Contents/Resources/office-runtime/python/bin/python3.12")
-            .is_file()
-    );
+    assert!(installed.join("Contents/MacOS/sailry-desktop").is_file());
+    assert!(!installed.join("Contents/Resources/office-runtime").exists());
     assert!(!installed.join("Contents/Resources/original-only").exists());
     assert_eq!(
         std::fs::read(backup.join("Sailry.app/Contents/Resources/original-only")).unwrap(),

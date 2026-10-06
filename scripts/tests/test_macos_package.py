@@ -33,23 +33,19 @@ class CodeSigning(unittest.TestCase):
             (root / "link").symlink_to("program")
             self.assertEqual(signing.mach_objects(root), [root / "nested/lib.so", root / "program"])
 
-    def test_signs_separate_host_and_reuses_signed_interpreter(self):
+    def test_signs_separate_host_and_nested_native_code(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             app = root / "Sailry.app"
             resources = app / "Contents/Resources"
-            office = resources / "office-runtime"
             main = app / "Contents/MacOS/sailry-desktop"
-            python = office / "python/bin/python3.12"
+            dependency = app / "Contents/Frameworks/fixture.dylib"
             host = root / "host"
             host.mkdir()
-            for path in (main, python, host / "sailry-host"):
+            for path in (main, dependency, host / "sailry-host"):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"\xcf\xfa\xed\xfe" + b"fixture")
-            (python.parent / "python3").symlink_to("python3.12")
             def command(*args):
-                if args[1] == "--force" and Path(args[-1]) == python:
-                    python.write_bytes(python.read_bytes() + b"signed")
                 return ""
             with patch.object(signing, "run", side_effect=command) as run, \
                     patch.object(signing, "verify") as verify:
@@ -62,8 +58,9 @@ class CodeSigning(unittest.TestCase):
             self.assertTrue(all("--keychain" in call for call in calls))
             self.assertIn("--entitlements", calls[-2])
             self.assertFalse((resources / "hosts").exists())
-            self.assertEqual((host / "office-runtime/python/bin/python3.12").read_bytes(), python.read_bytes())
-            self.assertEqual((host / "office-runtime/python/bin/python3").readlink(), Path("python3.12"))
+            self.assertFalse((resources / "office-runtime").exists())
+            self.assertFalse((host / "office-runtime").exists())
+            verify.assert_any_call(dependency, "FIXTURE")
             verify.assert_any_call(app, "FIXTURE", deep=True)
             verify.assert_any_call(host / "sailry-host", "FIXTURE")
 

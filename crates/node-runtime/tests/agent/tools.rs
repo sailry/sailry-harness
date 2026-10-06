@@ -179,7 +179,6 @@ async fn reads_bound_worktree() {
                     "read_file",
                     "write_file",
                     "search_files",
-                    "get_office_runtime",
                     "read_office",
                     "export_pdf",
                 ],
@@ -249,7 +248,6 @@ async fn reads_bound_worktree() {
         );
         for name in [
             plugin_tool("files", "read_office").as_str(),
-            plugin_tool("files", "get_office_runtime").as_str(),
             plugin_tool("files", "export_pdf").as_str(),
             "load_skill",
             "read_skill_resource",

@@ -263,7 +263,7 @@ mod redirects {
             staged
                 .directory
                 .path()
-                .join("contents/Sailry.app/Contents/Resources/office-runtime/runtime.json")
+                .join("contents/Sailry.app/Contents/Resources/build.json")
                 .is_file()
         );
         serving.await.unwrap();
@@ -360,7 +360,7 @@ async fn downloads_verifies_and_reports_ready_without_installing() {
         result
             .directory
             .path()
-            .join("contents/Sailry.app/Contents/Resources/office-runtime/runtime.json")
+            .join("contents/Sailry.app/Contents/Resources/build.json")
             .is_file()
     );
     assert!(

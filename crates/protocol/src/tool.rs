@@ -122,8 +122,6 @@ pub enum Operation {
     WriteFile,
     #[serde(rename = "files.search")]
     SearchFiles,
-    #[serde(rename = "office.runtime")]
-    OfficeRuntime,
     #[serde(rename = "office.read")]
     ReadOffice,
     #[serde(rename = "office.export")]
@@ -187,11 +185,9 @@ impl Operation {
             Self::ExecuteDatabase => Some(Action::ControlDatabases),
             Self::RunSsh | Self::TransferSsh => Some(Action::ControlSsh),
             Self::DelegateAgent => Some(Action::DelegateAgents),
-            Self::ListDirectory
-            | Self::ReadFile
-            | Self::SearchFiles
-            | Self::OfficeRuntime
-            | Self::ReadOffice => Some(Action::ReadFiles),
+            Self::ListDirectory | Self::ReadFile | Self::SearchFiles | Self::ReadOffice => {
+                Some(Action::ReadFiles)
+            }
             Self::WriteFile | Self::ExportPdf => Some(Action::WriteFiles),
             Self::InspectMedia => Some(Action::InspectMedia),
             Self::GenerateImage => Some(Action::GenerateImage),

@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Sign a fresh macOS package, including the bundled Office interpreter and Host."""
+"""Sign native code in a fresh macOS application and separate Host package."""
 
 import argparse
 import os
 from pathlib import Path
-import shutil
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -43,9 +42,7 @@ def verify(path, team, deep=False):
 
 
 def sign(app, host, target, identity, team, keychain=None):
-    resources = app / "Contents/Resources"
-    office = resources / "office-runtime"
-    if not app.is_dir() or not office.is_dir() or not (host / "sailry-host").is_file():
+    if not app.is_dir() or not (host / "sailry-host").is_file():
         raise RuntimeError("Expected a complete Sailry application package")
     options = ["--force", "--sign", identity, "--timestamp", "--options", "runtime"]
     if keychain:
@@ -59,7 +56,6 @@ def sign(app, host, target, identity, team, keychain=None):
     run("codesign", *options, "--entitlements", ROOT / "apps/desktop/macos/entitlements.plist", app)
     verify(app, team, deep=True)
     # Host is a separate release asset, never a remote deployment payload inside Desktop.
-    shutil.copytree(office, host / "office-runtime", symlinks=True)
     run("codesign", *options, host / "sailry-host")
     verify(host / "sailry-host", team)
     print(f"Developer ID signing verified: {len(objects)} Mach-O files and Sailry.app")

@@ -1,4 +1,4 @@
-"""Generate owned document fixtures with the bundled Office runtime."""
+"""Generate owned document fixtures with an external test environment."""
 from pathlib import Path
 import json
 from docx import Document

@@ -997,7 +997,6 @@
             "files.read",
             "files.write",
             "files.search",
-            "office.runtime",
             "office.read",
             "office.export",
             "media.inspect",

@@ -39,22 +39,20 @@ fn extracts_complete_signed_bundle() {
     let destination = staged.directory.path().join("extracted");
     fs::create_dir(&destination).unwrap();
     let root = package::extract(&staged.archive, &staged.selection.release, &destination).unwrap();
-    assert!(
-        root.join("Contents/Resources/office-runtime/python/bin/python3.12")
-            .is_file()
-    );
+    assert!(root.join("Contents/MacOS/sailry-desktop").is_file());
     assert!(!root.join("Contents/Resources/hosts").exists());
+    assert!(!root.join("Contents/Resources/office-runtime").exists());
 }
 
 #[cfg(target_os = "macos")]
 #[test]
-fn rejects_missing_runtime_or_wrong_architecture() {
+fn rejects_missing_executable_or_wrong_architecture() {
     let staged = fixture::staged();
     let root = staged.directory.path().join("Sailry.app");
-    let runtime = root.join("Contents/Resources/office-runtime/runtime.json");
-    fs::rename(&runtime, runtime.with_extension("saved")).unwrap();
+    let executable = root.join("Contents/MacOS/sailry-desktop");
+    fs::rename(&executable, executable.with_extension("saved")).unwrap();
     assert!(package::validate(&root, &staged.selection.release).is_err());
-    fs::rename(runtime.with_extension("saved"), &runtime).unwrap();
+    fs::rename(executable.with_extension("saved"), &executable).unwrap();
     let mut wrong = staged.selection.release.clone();
     wrong.target = if wrong.target.starts_with("aarch64") {
         "x86_64-apple-darwin"

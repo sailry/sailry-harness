@@ -39,7 +39,6 @@ impl Ingress {
                 Command::ListDirectory { worktree, .. }
                 | Command::ListTerminalTools { worktree }
                 | Command::ReadFile { worktree, .. }
-                | Command::OfficeRuntime { worktree }
                 | Command::ReadOffice { worktree, .. }
                 | Command::SearchFiles { worktree, .. }
                 | Command::InspectGit { worktree }

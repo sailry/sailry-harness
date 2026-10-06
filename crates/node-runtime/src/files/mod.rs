@@ -73,9 +73,6 @@ impl Files {
                 Command::ListDirectory { path, after, .. } => {
                     directory::list(&root, path, after.as_ref(), &control).map(Output::Directory)
                 }
-                Command::OfficeRuntime { .. } => {
-                    crate::office::environment().map(Output::OfficeRuntime)
-                }
                 Command::ReadOffice { options, .. } => {
                     crate::office::read(&root, &options).map(Output::OfficeContent)
                 }

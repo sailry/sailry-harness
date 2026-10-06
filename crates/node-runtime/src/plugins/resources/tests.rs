@@ -158,7 +158,9 @@ async fn bundled_office_resources_use_the_installed_package() {
     for name in ["word", "excel", "powerpoint", "pdf"] {
         let key = format!("office:{name}");
         let text = resources.read(&key, "SKILL.md").await.unwrap();
-        assert!(text.content.contains("get_office_runtime"));
+        assert!(text.content.contains("execution Node"));
+        assert!(text.content.contains("project-local"));
+        assert!(!text.content.contains("get_office_runtime"));
         assert!(Path::new(&text.directory).is_dir());
         for relative in ["scripts/inspect_file.py", "templates/create.py"] {
             let script = resources.read(&key, relative).await.unwrap();

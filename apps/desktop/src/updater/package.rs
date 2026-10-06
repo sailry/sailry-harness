@@ -100,13 +100,6 @@ struct Build {
     application_version: String,
 }
 
-#[derive(Deserialize)]
-struct Runtime {
-    version: u32,
-    target: String,
-    executable: String,
-}
-
 pub(super) fn validate(root: &Path, release: &Release) -> Result<()> {
     if !root.is_dir() {
         return Err(Failure::new(
@@ -141,33 +134,6 @@ pub(super) fn validate(root: &Path, release: &Release) -> Result<()> {
             "the packaged build metadata differs from signed update metadata",
         ));
     }
-    let runtime_root = resources.join("office-runtime");
-    let runtime: Runtime = serde_json::from_slice(&read(
-        &confined(root, &runtime_root.join("runtime.json"))?,
-        64 * 1024,
-    )?)
-    .map_err(|_| {
-        Failure::new(
-            "updates_package_invalid",
-            "the packaged Office runtime metadata is invalid",
-        )
-    })?;
-    let expected_python = if macos {
-        "python/bin/python3.12"
-    } else {
-        "python/python.exe"
-    };
-    if runtime.version != 1
-        || runtime.target != release.target
-        || runtime.executable != expected_python
-    {
-        return Err(Failure::new(
-            "updates_package_invalid",
-            "the packaged Office runtime differs from this update target",
-        ));
-    }
-    let python = confined(root, &runtime_root.join(&runtime.executable))?;
-    verify_executable(&python, &release.target)?;
     if macos {
         validate_plist(root, release)?;
         #[cfg(target_os = "macos")]

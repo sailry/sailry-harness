@@ -34,17 +34,12 @@ struct Search {
     globs: Vec<String>,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Empty {}
-
 pub(super) fn description(operation: Operation) -> &'static str {
     match operation {
         Operation::ListDirectory => "List a directory in the captured worktree",
         Operation::ReadFile => "Read bounded UTF-8 text in the captured worktree",
         Operation::WriteFile => "Write UTF-8 text using the expected file revision",
         Operation::SearchFiles => "Search text in the captured worktree",
-        Operation::OfficeRuntime => "Read the execution Node's document authoring environment",
         Operation::ReadOffice => "Read document sections in the captured worktree",
         Operation::ExportPdf => "Export a document to PDF in the captured worktree",
         _ => unreachable!("not a file operation"),
@@ -67,7 +62,6 @@ pub(super) fn parameters(operation: Operation) -> Value {
             json!({"query":{"type":"string"},"regex":{"type":"boolean"},"case_sensitive":{"type":"boolean"},"globs":{"type":"array","items":{"type":"string"}}}),
             vec!["query", "regex", "case_sensitive", "globs"],
         ),
-        Operation::OfficeRuntime => (json!({}), vec![]),
         Operation::ReadOffice => {
             return serde_json::to_value(schemars::schema_for!(office::Read))
                 .expect("Office schema is JSON");
@@ -128,10 +122,6 @@ pub(super) fn command(
                     globs: input.globs,
                 },
             }
-        }
-        Operation::OfficeRuntime => {
-            let _: Empty = decode(arguments)?;
-            Command::OfficeRuntime { worktree }
         }
         Operation::ReadOffice => Command::ReadOffice {
             worktree,

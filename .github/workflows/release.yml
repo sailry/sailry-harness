@@ -80,10 +80,10 @@ jobs:
             ~/.cargo/git
             target/release
             target/sherpa-onnx-prebuilt
-            target/office-runtimes
-          key: packages-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'crates/node-runtime/src/office/runtime/requirements.lock', 'scripts/package/linux-sysroot.lock.json') }}-${{ github.sha }}
+          key: packages-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'scripts/package/linux-sysroot.lock.json') }}-${{ github.sha }}
           restore-keys: |
-            packages-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'crates/node-runtime/src/office/runtime/requirements.lock', 'scripts/package/linux-sysroot.lock.json') }}-
+            packages-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'scripts/package/linux-sysroot.lock.json') }}-
+            packages-${{ matrix.target }}-
       - name: Verify distribution signing configuration
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
@@ -104,14 +104,11 @@ jobs:
       - name: Build prerequisites
         run: |
           brew install llvm@21 ripgrep
-          python3 -m pip install --disable-pip-version-check uv==0.10.9
       - name: Packaging fixtures
         run: python3 -m unittest discover -s scripts/tests -v
       - name: Build native Desktop and standalone Host
         run: |
           cargo build --locked --release --timings -p sailry-desktop -p sailry-host
-          python3 scripts/prepare-office-runtime.py --target '${{ matrix.target }}' \
-            --output 'target/office-runtimes/${{ matrix.target }}/office-runtime'
       - name: Save compilation before signing
         if: always() && steps.native-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
@@ -121,7 +118,6 @@ jobs:
             ~/.cargo/git
             target/release
             target/sherpa-onnx-prebuilt
-            target/office-runtimes
           key: ${{ steps.native-cache.outputs.cache-primary-key }}
       - name: Compilation timings
         if: always()
@@ -237,15 +233,14 @@ jobs:
             target/host-cross
             target/host-sysroots
             target/tooling
-            target/office-runtimes
-          key: host-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'crates/node-runtime/src/office/runtime/requirements.lock', 'scripts/package/linux-sysroot.lock.json') }}-${{ github.sha }}
+          key: host-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'scripts/package/linux-sysroot.lock.json') }}-${{ github.sha }}
           restore-keys: |
-            host-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'crates/node-runtime/src/office/runtime/requirements.lock', 'scripts/package/linux-sysroot.lock.json') }}-
+            host-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'scripts/package/linux-sysroot.lock.json') }}-
+            host-${{ matrix.target }}-
       - name: Host prerequisites
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes llvm pkg-config ripgrep jq libx11-6 libxi6
-          python3 -m pip install --disable-pip-version-check uv==0.10.9
           rustup target add '${{ matrix.target }}'
           if ! test -x target/tooling/bin/cargo-zigbuild; then
             cargo install cargo-zigbuild --version 0.23.4 --locked --root target/tooling

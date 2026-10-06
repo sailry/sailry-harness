@@ -551,7 +551,6 @@ pub(super) fn execute(
         | Command::ReadGitDiff { .. }
         | Command::ListDirectory { .. }
         | Command::ReadFile { .. }
-        | Command::OfficeRuntime { .. }
         | Command::ReadOffice { .. }
         | Command::ExportPdf { .. }
         | Command::PreviewOffice { .. }

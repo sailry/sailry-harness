@@ -265,9 +265,7 @@ impl Database {
                 | Command::SearchFiles { worktree, .. } => {
                     (Some(Action::ReadFiles), Some(*worktree), None)
                 }
-                Command::OfficeRuntime { worktree }
-                | Command::ReadOffice { worktree, .. }
-                | Command::PreviewOffice { worktree, .. } => {
+                Command::ReadOffice { worktree, .. } | Command::PreviewOffice { worktree, .. } => {
                     (Some(Action::ReadFiles), Some(*worktree), None)
                 }
                 Command::ExportPdf { worktree, .. } => {

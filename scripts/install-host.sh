@@ -82,7 +82,6 @@ tar -xzf "$task_stage/$task_archive" -C "$task_stage/package"
 test -x "$task_stage/package/sailry-host"
 test -f "$task_stage/package/sailry"
 test -f "$task_stage/package/service.sh"
-test -f "$task_stage/package/office-runtime/runtime.json"
 chmod 700 "$task_stage/package/sailry" "$task_stage/package/sailry-host"
 test "$("$task_stage/package/sailry-host" --version)" = "Sailry Host $task_version"
 if test "$task_update" = 1; then

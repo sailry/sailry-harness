@@ -3,8 +3,13 @@ use serde_json::json;
 
 #[tokio::test]
 #[cfg(unix)]
-#[ignore = "requires the packaged Office runtime from scripts/prepare-office-runtime.py"]
-async fn scripts_use_managed_libraries_over_both_transports() {
+#[ignore = "requires SAILRY_TEST_OFFICE_PYTHON pointing to an external test environment"]
+async fn scripts_use_node_environment() {
+    let python = std::path::PathBuf::from(
+        std::env::var_os("SAILRY_TEST_OFFICE_PYTHON").expect("external test interpreter required"),
+    );
+    assert!(python.is_absolute());
+    assert!(python.is_file());
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
@@ -12,7 +17,7 @@ async fn scripts_use_managed_libraries_over_both_transports() {
         std::fs::write(
             root.join("verify.py"),
             concat!(
-                include_str!("../../src/office/runtime/verify.py"),
+                include_str!("office/verify.py"),
                 "\n",
                 include_str!("office/templates.py"),
             ),
@@ -48,29 +53,13 @@ async fn scripts_use_managed_libraries_over_both_transports() {
             .profile()
             .join("plugins/packages")
             .join(&package.summary.digest);
-        let Output::OfficeRuntime(environment) = client
-            .execute(client.prepare(Command::OfficeRuntime {
-                worktree: session.worktree,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("runtime expected")
-        };
-        assert!(
-            environment
-                .packages
-                .iter()
-                .any(|p| p == "python-docx==1.2.0")
-        );
         let command = format!(
             "'{}' verify.py '{}'",
-            environment.python.replace('\'', "'\"'\"'"),
+            python.to_str().unwrap().replace('\'', "'\"'\"'"),
             installed.to_str().unwrap().replace('\'', "'\"'\"'")
         );
         let author = Server::turn_tools(vec![
             ("load_skill".into(), json!({"skill":"office:word"})),
-            (plugin_tool("files", "get_office_runtime"), json!({})),
             (
                 plugin_tool("commands", "run_command"),
                 json!({"command":command}),
@@ -111,7 +100,7 @@ async fn scripts_use_managed_libraries_over_both_transports() {
             .execute(client.prepare(Command::SubmitTurn {
                 session: session.id,
                 expected_revision: session.revision,
-                message: "Create styled Office documents using the bundled libraries".into(),
+                message: "Create styled Office documents using the project environment".into(),
             }))
             .await
             .unwrap()
@@ -129,15 +118,18 @@ async fn scripts_use_managed_libraries_over_both_transports() {
             .collect();
         for required in [
             "load_skill",
-            plugin_tool("files", "get_office_runtime").as_str(),
             plugin_tool("files", "read_office").as_str(),
             plugin_tool("files", "export_pdf").as_str(),
         ] {
             assert!(names.contains(&required));
         }
         assert!(names.contains(&plugin_tool("commands", "run_command").as_str()));
-        for removed in ["write_office", "edit_office"] {
-            assert!(!names.contains(&removed));
+        for removed in [
+            "write_office".to_owned(),
+            "edit_office".to_owned(),
+            plugin_tool("files", "get_office_runtime"),
+        ] {
+            assert!(!names.contains(&removed.as_str()));
         }
         let results: Vec<_> = page
             .entries
@@ -148,11 +140,11 @@ async fn scripts_use_managed_libraries_over_both_transports() {
                 _ => None,
             })
             .collect();
-        assert_eq!(results.len(), 3);
+        assert_eq!(results.len(), 2);
         for result in &results {
             assert!(result.get("error").is_none(), "{result}");
         }
-        let Output::CommandResult(completion) = serde_json::from_value(results[2].clone()).unwrap()
+        let Output::CommandResult(completion) = serde_json::from_value(results[1].clone()).unwrap()
         else {
             panic!("command result expected")
         };
