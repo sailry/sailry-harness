@@ -64,6 +64,10 @@ fn reconnects_revoked_accounts(cx: &mut TestAppContext) {
             let mut owner = None;
             let (_, visual) = cx.add_window_view(|window, cx| {
                 let workspace = fixture.owner(window, cx);
+                workspace.update(cx, |workspace, cx| {
+                    workspace.providers.category = preset.category();
+                    workspace.select(crate::settings::Section::Providers, cx);
+                });
                 owner = Some(workspace.clone());
                 Root::new(cx.new(|_| Surface(workspace)), window, cx)
             });
@@ -79,8 +83,15 @@ fn reconnects_revoked_accounts(cx: &mut TestAppContext) {
             assert!(visual.debug_bounds("provider-api-key").is_none());
             editor.read_with(visual, |editor, _| {
                 assert_eq!(editor.error, None);
-                assert!(editor.authorization.is_none());
             });
+            for selector in [
+                "provider-connect",
+                "provider-authorization",
+                "provider-account",
+                "provider-login",
+            ] {
+                assert!(visual.debug_bounds(selector).is_none());
+            }
             visual.update(|window, cx| {
                 editor.update(cx, |editor, cx| {
                     editor.name.update(cx, |input, cx| {
@@ -104,24 +115,27 @@ fn reconnects_revoked_accounts(cx: &mut TestAppContext) {
                 tr("provider_account_unavailable")
             );
             visual.update(|window, cx| window.clear_notifications(cx));
+            editor.read_with(visual, |editor, cx| {
+                assert!(!editor.closed && !editor.pending);
+                assert!(editor.models.is_empty());
+                assert_eq!(
+                    editor.name.read(cx).value().as_ref(),
+                    "Unsaved account name"
+                );
+            });
+            tap(visual, "provider-cancel");
+            assert!(editor.read_with(visual, |editor, _| editor.closed));
+            assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+            settle(visual);
             let before = recorded.commands.lock().unwrap().len();
-            tap(visual, "provider-connect");
-            wait(visual, |cx| editor.read(cx).authorization.is_some());
+            tap(visual, "provider-login-0");
             if preset == Preset::ChatGpt {
-                wait(visual, |cx| {
-                    editor.read(cx).authorization.as_ref().is_some_and(|login| {
-                        matches!(login.read(cx).state(), Some(login::State::Browser { .. }))
-                    })
-                });
-                let authorization = editor.read_with(visual, |editor, cx| {
-                    let Some(login::State::Browser {
-                        authorization_url, ..
-                    }) = editor.authorization.as_ref().unwrap().read(cx).state()
-                    else {
-                        panic!("browser authorization expected")
-                    };
-                    authorization_url.clone()
-                });
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while visual.debug_bounds("provider-login-waiting").is_none() {
+                    settle(visual);
+                    assert!(Instant::now() < deadline, "browser readiness deadline");
+                }
+                let authorization = visual.opened_url().unwrap();
                 fixture.runtime.block_on(async {
                     reqwest::get(support::callback(&authorization).expose())
                         .await
@@ -131,28 +145,12 @@ fn reconnects_revoked_accounts(cx: &mut TestAppContext) {
                 });
             }
             wait(visual, |cx| {
-                editor.read(cx).authorization.as_ref().is_some_and(|login| {
-                    matches!(login.read(cx).state(), Some(login::State::Connected))
-                }) && !editor.read(cx).pending
-                    && editor
-                        .read(cx)
-                        .provider
-                        .as_ref()
-                        .is_some_and(|provider| provider.revision > saved.revision)
+                owner.read(cx).providers.channels[0].credential_configured
+                    && owner.read(cx).provider_link.as_ref().unwrap().providers[&0].revision
+                        > saved.revision
             });
-            editor.read_with(visual, |editor, cx| {
-                assert_eq!(editor.error, None);
-                assert!(!editor.closed);
-                assert!(editor.models.is_empty());
-                assert_eq!(
-                    editor.name.read(cx).value().as_ref(),
-                    "Unsaved account name"
-                );
-                assert_eq!(
-                    editor.provider.as_ref().unwrap().credential,
-                    Some(reference.clone())
-                );
-            });
+            settle(visual);
+            assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
             let commands = recorded.commands.lock().unwrap();
             assert!(commands[before..].iter().any(|command| matches!(command,
                 Command::BeginProviderLogin { provider, .. } if *provider == saved.id
@@ -174,6 +172,28 @@ fn reconnects_revoked_accounts(cx: &mut TestAppContext) {
             assert_eq!(credentials[0].id, reference.id);
             assert_eq!(credentials[0].revision, revision + 2);
             assert!(!credentials[0].revoked);
+            let editor = visual.update(|window, cx| {
+                crate::settings::providers::editor::open(owner.clone(), Some(0), window, cx)
+            });
+            settle(visual);
+            editor.read_with(visual, |editor, cx| {
+                assert_eq!(editor.error, None);
+                assert_eq!(editor.name.read(cx).value().as_ref(), saved.name);
+                assert_eq!(
+                    editor.provider.as_ref().unwrap().credential,
+                    Some(reference.clone())
+                );
+            });
+            visual.update(|window, cx| {
+                editor.update(cx, |editor, cx| {
+                    editor.name.update(cx, |input, cx| {
+                        input.set_value("Saved account name", window, cx)
+                    });
+                    editor.models.clear();
+                    editor.default_model = 0;
+                    cx.notify();
+                })
+            });
             tap(visual, "provider-discover");
             wait(visual, |cx| {
                 editor.read(cx).probe.is_none() && !editor.read(cx).models.is_empty()
@@ -183,7 +203,7 @@ fn reconnects_revoked_accounts(cx: &mut TestAppContext) {
             let Output::Providers(providers) = fixture.execute(Command::ListProviders) else {
                 panic!("providers expected")
             };
-            assert_eq!(providers[0].name, "Unsaved account name");
+            assert_eq!(providers[0].name, "Saved account name");
             assert_eq!(providers[0].credential, Some(reference));
             visual.update(|window, _| window.remove_window());
             fixture.close();

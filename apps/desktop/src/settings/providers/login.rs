@@ -345,25 +345,6 @@ impl Login {
         cx.open_url(url);
     }
 
-    #[cfg(test)]
-    pub(super) fn attempt_id(&self) -> sailry_protocol::RequestId {
-        self.request.id
-    }
-
-    #[cfg(test)]
-    pub(super) fn pending(&self) -> bool {
-        self.pending
-    }
-
-    pub(super) fn active(&self) -> bool {
-        !self.closed && (self.pending || self.cancelling || self.state().is_some_and(State::active))
-    }
-
-    #[cfg(test)]
-    pub(super) fn finished(&self) -> bool {
-        self.closed
-    }
-
     fn expired(&self) -> bool {
         !self.closed && self.error == Some("provider_login_expired")
     }

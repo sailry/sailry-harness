@@ -253,7 +253,14 @@ fn aligns_usage_and_keeps_actions(cx: &mut TestAppContext) {
             },
         );
         assert!(visual.update(|window, cx| window.has_active_dialog(cx)));
-        assert!(visual.debug_bounds("provider-connect").is_some());
+        assert!(visual.debug_bounds("provider-editor").is_some());
+        for selector in [
+            "provider-connect",
+            "provider-authorization",
+            "provider-account",
+        ] {
+            assert!(visual.debug_bounds(selector).is_none());
+        }
         visual.update(|window, cx| window.close_dialog(cx));
     }
     fixture.close();

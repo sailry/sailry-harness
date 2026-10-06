@@ -8,6 +8,9 @@ use sailry_protocol::{
 };
 use std::sync::{Arc, Mutex, atomic::AtomicU8};
 
+mod cancellation;
+mod recovery;
+
 struct Recording {
     inner: Arc<dyn Transport>,
     requests: Mutex<Vec<Request>>,
@@ -32,7 +35,9 @@ struct Fixture {
     runtime: Arc<tokio::runtime::Runtime>,
     node: Node,
     controller: Link,
-    transport: Arc<Recording>,
+    transport: Arc<dyn Transport>,
+    recording: Arc<Recording>,
+    mode: Arc<AtomicU8>,
     server: support::Server,
     _directory: tempfile::TempDir,
 }
@@ -41,7 +46,8 @@ impl Fixture {
     fn new(remote: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
-        let server = runtime.block_on(support::server(Arc::new(AtomicU8::new(0))));
+        let mode = Arc::new(AtomicU8::new(0));
+        let server = runtime.block_on(support::server(mode.clone()));
         let node = runtime
             .block_on(Node::start_with_authorization(
                 directory.path().join("node"),
@@ -66,14 +72,17 @@ impl Fixture {
         } else {
             node.local()
         };
+        let recording = Arc::new(Recording {
+            inner,
+            requests: Mutex::new(Vec::new()),
+        });
         Self {
             runtime,
             node,
             controller,
-            transport: Arc::new(Recording {
-                inner,
-                requests: Mutex::new(Vec::new()),
-            }),
+            transport: recording.clone(),
+            recording,
+            mode,
             server,
             _directory: directory,
         }
@@ -108,6 +117,86 @@ impl Fixture {
         providers.into_iter().next().unwrap()
     }
 
+    fn mount<'a>(
+        &self,
+        cx: &'a mut TestAppContext,
+    ) -> (Entity<Workspace>, &'a mut VisualTestContext) {
+        let saved = self.provider();
+        let mut owner = None;
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let workspace = cx.new(|cx| Workspace::new(window, cx));
+            workspace.update(cx, |workspace, cx| {
+                workspace.bind_providers(
+                    self.transport.clone(),
+                    self.runtime.clone(),
+                    "Authorization Node".into(),
+                    cx,
+                );
+                workspace.select(crate::settings::Section::Providers, cx);
+            });
+            owner = Some(workspace.clone());
+            Root::new(workspace, window, cx)
+        });
+        let owner = owner.unwrap();
+        wait(visual, |cx| {
+            owner.read(cx).providers.channels.len() == 1
+                && owner.read(cx).providers.channels[0].preset == Preset::ChatGpt
+                && owner.read(cx).provider_link.as_ref().is_some_and(|live| {
+                    live.connected
+                        && !live.pending
+                        && live
+                            .providers
+                            .get(&0)
+                            .is_some_and(|provider| provider.id == saved.id)
+                })
+        });
+        (owner, visual)
+    }
+
+    fn begin(&self, visual: &mut VisualTestContext) -> (RequestId, String) {
+        let before = self.recording.requests.lock().unwrap().len();
+        tap(visual, "provider-login-0");
+        wait(visual, |_| {
+            self.recording.requests.lock().unwrap()[before..]
+                .iter()
+                .any(|request| matches!(request.command, Command::BeginProviderLogin { .. }))
+        });
+        let attempt = self.recording.requests.lock().unwrap()[before..]
+            .iter()
+            .find(|request| matches!(request.command, Command::BeginProviderLogin { .. }))
+            .unwrap()
+            .id;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while visual.debug_bounds("provider-login-waiting").is_none() {
+            draw(visual);
+            assert!(Instant::now() < deadline, "browser readiness deadline");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        std::thread::sleep(*gpui_kit::component::dialog::ANIMATION_DURATION);
+        draw(visual);
+        let State::Browser {
+            authorization_url, ..
+        } = self.state(attempt)
+        else {
+            panic!("browser authorization expected")
+        };
+        assert_eq!(
+            visual.opened_url().as_deref(),
+            Some(authorization_url.as_str())
+        );
+        (attempt, authorization_url)
+    }
+
+    fn callback(&self, authorization: &str) {
+        self.runtime.block_on(async {
+            reqwest::get(support::callback(authorization).expose())
+                .await
+                .unwrap()
+                .error_for_status()
+                .unwrap();
+        });
+    }
+
     fn close(self) {
         self.runtime.block_on(self.controller.close()).unwrap();
         self.runtime.block_on(self.node.shutdown()).unwrap();
@@ -130,37 +219,10 @@ fn authorizes_saved_provider_without_saving(cx: &mut TestAppContext) {
             secret: None,
         });
         let saved = fixture.provider();
-        let mut owner = None;
-        let (_, visual) = cx.add_window_view(|window, cx| {
-            let workspace = cx.new(|cx| Workspace::new(window, cx));
-            workspace.update(cx, |workspace, cx| {
-                workspace.bind_providers(
-                    fixture.transport.clone(),
-                    fixture.runtime.clone(),
-                    "Authorization Node".into(),
-                    cx,
-                );
-                workspace.select(crate::settings::Section::Providers, cx);
-            });
-            owner = Some(workspace.clone());
-            Root::new(workspace, window, cx)
-        });
-        let owner = owner.unwrap();
-        wait(visual, |cx| {
-            owner.read(cx).providers.channels.len() == 1
-                && owner.read(cx).providers.channels[0].preset == Preset::ChatGpt
-                && owner.read(cx).provider_link.as_ref().is_some_and(|live| {
-                    live.connected
-                        && !live.pending
-                        && live
-                            .providers
-                            .get(&0)
-                            .is_some_and(|provider| provider.id == saved.id)
-                })
-        });
+        let (owner, visual) = fixture.mount(cx);
         assert!(visual.debug_bounds("provider-login-0").is_some());
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
-        fixture.transport.requests.lock().unwrap().clear();
+        fixture.recording.requests.lock().unwrap().clear();
         tap(visual, "provider-login-0");
         let deadline = Instant::now() + Duration::from_secs(10);
         while visual.debug_bounds("provider-login-waiting").is_none() {
@@ -173,7 +235,7 @@ fn authorizes_saved_provider_without_saving(cx: &mut TestAppContext) {
         assert!(visual.update(|window, cx| window.has_active_dialog(cx)));
         assert!(visual.debug_bounds("provider-login-loading").is_none());
         assert!(visual.debug_bounds("provider-login").unwrap().size.width <= px(520.));
-        let requests = fixture.transport.requests.lock().unwrap().clone();
+        let requests = fixture.recording.requests.lock().unwrap().clone();
         let beginnings: Vec<_> = requests
             .iter()
             .filter(|request| matches!(request.command, Command::BeginProviderLogin { .. }))
@@ -215,7 +277,7 @@ fn authorizes_saved_provider_without_saving(cx: &mut TestAppContext) {
         wait(visual, |_| fixture.state(request.id) == State::Cancelled);
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
         assert_eq!(fixture.provider(), saved);
-        let requests = fixture.transport.requests.lock().unwrap();
+        let requests = fixture.recording.requests.lock().unwrap();
         assert_eq!(
             requests
                 .iter()

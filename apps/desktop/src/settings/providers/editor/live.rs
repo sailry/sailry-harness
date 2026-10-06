@@ -36,10 +36,6 @@ impl Editor {
     }
 
     pub(super) fn save_live(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.persist(false, window, cx);
-    }
-
-    pub(super) fn persist(&mut self, authorize: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.pending || self.closed {
             return;
         }
@@ -137,12 +133,8 @@ impl Editor {
                                 cx.notify();
                             }
                         });
-                        if authorize {
-                            editor.start_authorization(provider, window, cx);
-                        } else {
-                            editor.close(window, cx);
-                            window.close_dialog(cx);
-                        }
+                        editor.close(window, cx);
+                        window.close_dialog(cx);
                     }
                     Ok(Err(error)) => {
                         let key = if editor.preset.oauth()

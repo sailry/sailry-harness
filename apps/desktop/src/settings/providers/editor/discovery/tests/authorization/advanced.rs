@@ -97,6 +97,15 @@ fn mounted<'a>(
         crate::settings::providers::editor::open(owner.clone(), Some(0), window, cx)
     });
     settle(visual);
+    for selector in [
+        "provider-connect",
+        "provider-authorization",
+        "provider-account",
+        "provider-login",
+        "provider-oauth-note",
+    ] {
+        assert!(visual.debug_bounds(selector).is_none());
+    }
     (owner, editor, visual)
 }
 

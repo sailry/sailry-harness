@@ -326,7 +326,15 @@ fn selects_types_and_protocols(cx: &mut TestAppContext) {
                 editor.read_with(visual, |editor, _| editor.preset),
                 Preset::ChatGpt
             );
-            assert!(visual.debug_bounds("provider-oauth-note").is_some());
+            for selector in [
+                "provider-oauth-note",
+                "provider-authorization",
+                "provider-account",
+                "provider-connect",
+                "provider-login",
+            ] {
+                assert!(visual.debug_bounds(selector).is_none());
+            }
             assert_eq!(
                 editor.read_with(visual, |editor, cx| editor.name.read(cx).value()),
                 "My gateway"

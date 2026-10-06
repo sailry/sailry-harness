@@ -1,6 +1,6 @@
 use super::*;
 use crate::settings::providers::authorization_support as support;
-use sailry_protocol::{Effort, conversation::login};
+use sailry_protocol::Effort;
 use std::sync::atomic::AtomicU8;
 
 struct Surface(Entity<Workspace>);
@@ -42,12 +42,8 @@ fn tap(cx: &mut VisualTestContext, selector: &'static str) {
 
 #[path = "authorization/advanced.rs"]
 mod advanced;
-#[path = "authorization/cancellation.rs"]
-mod cancellation;
 #[path = "authorization/reconnection.rs"]
 mod reconnection;
-#[path = "authorization/recovery.rs"]
-mod recovery;
 
 #[gpui::test]
 fn configures_an_empty_account(cx: &mut TestAppContext) {
@@ -69,6 +65,9 @@ fn configures_an_empty_account(cx: &mut TestAppContext) {
             let mut owner = None;
             let (_, visual) = cx.add_window_view(|window, cx| {
                 let workspace = fixture.owner(window, cx);
+                workspace.update(cx, |workspace, cx| {
+                    workspace.select(crate::settings::Section::Providers, cx)
+                });
                 owner = Some(workspace.clone());
                 let surface = cx.new(|_| Surface(workspace));
                 Root::new(surface, window, cx)
@@ -92,21 +91,33 @@ fn configures_an_empty_account(cx: &mut TestAppContext) {
             });
             settle(visual);
             assert!(visual.debug_bounds("provider-login-0").is_none());
-            tap(visual, "provider-connect");
-            editor.read_with(visual, |editor, _| {
-                assert!(
-                    editor.pending || editor.authorization.is_some() || editor.error.is_some(),
-                    "connect button must receive the click"
-                );
-                assert_eq!(editor.error, None);
+            for selector in [
+                "provider-connect",
+                "provider-authorization",
+                "provider-account",
+                "provider-login",
+                "provider-oauth-note",
+            ] {
+                assert!(visual.debug_bounds(selector).is_none());
+            }
+            assert!(server.requests.lock().unwrap().is_empty());
+            tap(visual, "provider-save");
+            wait(visual, |cx| editor.read(cx).closed);
+            assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+            wait(visual, |cx| {
+                owner.read(cx).providers.channels.len() == 1
+                    && owner.read(cx).providers.channels[0].preset == preset
             });
-            wait(visual, |cx| editor.read(cx).authorization.is_some());
-            wait(visual, |cx| owner.read(cx).providers.channels.len() == 1);
             let Output::Providers(providers) = fixture.execute(Command::ListProviders) else {
                 panic!("providers expected")
             };
             let provider = &providers[0];
             assert_eq!(provider.name, "Account catalog");
+            assert!(provider.credential.is_none());
+            assert!(provider.models.is_empty());
+            assert!(server.requests.lock().unwrap().is_empty());
+            settle(visual);
+            tap(visual, "provider-login-0");
             if preset == Preset::ChatGpt {
                 fixture.execute(Command::PutCredential {
                     id: "00000000-0000-0000-0000-000000000001".parse().unwrap(),
@@ -115,27 +126,12 @@ fn configures_an_empty_account(cx: &mut TestAppContext) {
                     secret: Secret::new("isolated-unselected-key".into()),
                     expires_at_ms: None,
                 });
-                wait(visual, |cx| {
-                    editor.read(cx).authorization.as_ref().is_some_and(|login| {
-                        matches!(login.read(cx).state(), Some(login::State::Browser { .. }))
-                    })
-                });
-                let authorization = editor.read_with(visual, |editor, cx| {
-                    let Some(login::State::Browser {
-                        authorization_url, ..
-                    }) = editor.authorization.as_ref().unwrap().read(cx).state()
-                    else {
-                        panic!("browser authorization expected")
-                    };
-                    authorization_url.clone()
-                });
-                visual.update(|window, cx| {
-                    editor.update(cx, |editor, cx| {
-                        editor.name.update(cx, |name, cx| {
-                            name.set_value("Unsaved account name", window, cx)
-                        })
-                    })
-                });
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while visual.debug_bounds("provider-login-waiting").is_none() {
+                    settle(visual);
+                    assert!(Instant::now() < deadline, "browser readiness deadline");
+                }
+                let authorization = visual.opened_url().unwrap();
                 let callback = support::callback(&authorization);
                 fixture.runtime.block_on(async {
                     reqwest::get(callback.expose())
@@ -148,15 +144,23 @@ fn configures_an_empty_account(cx: &mut TestAppContext) {
             wait(visual, |cx| {
                 owner.read(cx).providers.channels[0].credential_configured
             });
-            wait(visual, |cx| {
-                editor.read(cx).configured
-                    && !editor.read(cx).pending
-                    && !editor.read(cx).models.is_empty()
+            settle(visual);
+            assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+            let editor = visual.update(|window, cx| {
+                crate::settings::providers::editor::open(owner.clone(), Some(0), window, cx)
             });
+            settle(visual);
+            assert!(editor.read_with(visual, |editor, _| editor.configured
+                && !editor.models.is_empty()));
+            for selector in [
+                "provider-connect",
+                "provider-authorization",
+                "provider-account",
+                "provider-login",
+            ] {
+                assert!(visual.debug_bounds(selector).is_none());
+            }
             if preset == Preset::ChatGpt {
-                wait(visual, |cx| {
-                    editor.read(cx).account_label.as_deref() == Some("user@example.com")
-                });
                 let Output::Credentials(credentials) = fixture.execute(Command::ListCredentials)
                 else {
                     panic!("credentials expected")
@@ -179,19 +183,31 @@ fn configures_an_empty_account(cx: &mut TestAppContext) {
                         .id),
                     credentials[0].id
                 );
+                let reference = editor.read_with(visual, |editor, _| {
+                    editor
+                        .provider
+                        .as_ref()
+                        .unwrap()
+                        .credential
+                        .as_ref()
+                        .unwrap()
+                        .id
+                });
+                assert_eq!(
+                    credentials
+                        .iter()
+                        .find(|credential| credential.id == reference)
+                        .unwrap()
+                        .account_label
+                        .as_deref(),
+                    Some("user@example.com")
+                );
             }
             visual.update(|window, cx| {
                 assert!(window.has_active_dialog(cx));
                 editor.read_with(cx, |editor, cx| {
                     assert!(!editor.closed);
-                    assert_eq!(
-                        editor.name.read(cx).value().as_ref(),
-                        if preset == Preset::ChatGpt {
-                            "Unsaved account name"
-                        } else {
-                            "Account catalog"
-                        }
-                    );
+                    assert_eq!(editor.name.read(cx).value().as_ref(), "Account catalog");
                 });
             });
             settle(visual);
