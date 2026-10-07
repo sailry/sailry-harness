@@ -69,6 +69,7 @@ pub(super) fn status(run: &Run, page: &Page) -> &'static str {
             }
         }
         Status::Cancelled => "chat_compact_cancelled",
+        Status::Continued => "turn_continued",
         Status::Interrupted => "chat_compact_interrupted",
         Status::Failed => "chat_compact_failed",
     }

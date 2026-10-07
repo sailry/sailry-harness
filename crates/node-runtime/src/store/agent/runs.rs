@@ -371,7 +371,7 @@ pub(super) fn finish(
     status: Status,
     error: Option<Fault>,
     events: &broadcast::Sender<EventEnvelope>,
-) -> Result<(), Fault> {
+) -> Result<Status, Fault> {
     let transaction = database.connection.transaction().map_err(storage_error)?;
     let mut run = get(&transaction, turn)?;
     if !matches!(run.status, Status::Running | Status::Stopping) {
@@ -380,7 +380,9 @@ pub(super) fn finish(
             "turn execution has already ended",
         ));
     }
-    run.status = if run.status == Status::Stopping {
+    run.status = if run.status == Status::Stopping
+        && !matches!(status, Status::Continued | Status::Interrupted)
+    {
         Status::Cancelled
     } else {
         status
@@ -412,6 +414,7 @@ pub(super) fn finish(
     let queue = super::queue::read(&transaction, run.session)?;
     let envelope = changed(&transaction, database.node, run.session)?;
     let child = super::children::get(&transaction, &run)?;
+    let status = run.status;
     transaction.commit().map_err(storage_error)?;
     let _ = events.send(envelope);
     database.approvals.retain(|_, (owner, _)| *owner != turn);
@@ -437,7 +440,7 @@ pub(super) fn finish(
             .feeds
             .publish(database.node, child.origin.session, Change::Child(child));
     }
-    Ok(())
+    Ok(status)
 }
 
 pub(in crate::store) fn recover(db: &Connection) -> Result<(), Fault> {

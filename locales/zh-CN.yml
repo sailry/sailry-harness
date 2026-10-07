@@ -1142,6 +1142,7 @@ turn_queued: 等待处理
 turn_running: 已处理
 turn_waiting: 等待确认
 turn_completed: 已完成
+turn_continued: 已接续
 turn_cancelled: 已停止
 turn_cancelled_by_user: 用户已取消
 turn_failed: 处理失败

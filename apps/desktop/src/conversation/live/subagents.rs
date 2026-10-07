@@ -16,6 +16,7 @@ pub(super) fn status_key(status: Status) -> &'static str {
         Status::Running => "chat_running",
         Status::Stopping => "chat_stopping",
         Status::Completed => "turn_completed",
+        Status::Continued => "turn_continued",
         Status::Cancelled => "turn_cancelled",
         Status::Interrupted => "chat_interrupted",
         Status::Failed => "turn_failed",

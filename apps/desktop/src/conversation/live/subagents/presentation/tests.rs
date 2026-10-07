@@ -1,5 +1,7 @@
 use super::*;
+use crate::conversation::live::tests::fixture as chat;
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_protocol::{
     Delegation, WorktreeId,
     conversation::{Run, RunKind},
@@ -12,6 +14,22 @@ struct Harness {
 impl Render for Harness {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex().child(icons(&self.children.iter().collect::<Vec<_>>(), cx))
+    }
+}
+
+struct Group {
+    owner: Entity<View>,
+    turn: TurnId,
+    children: Vec<Child>,
+    continuing: bool,
+}
+
+impl Render for Group {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let children = self.children.iter().collect::<Vec<_>>();
+        self.owner.update(cx, |view, cx| {
+            view.render_children(self.turn, &children, self.continuing, cx)
+        })
     }
 }
 
@@ -62,6 +80,235 @@ fn mount<'a>(
         Root::new(view, window, cx)
     });
     (entity.unwrap(), visual)
+}
+
+fn mount_group<'a>(
+    cx: &'a mut TestAppContext,
+    binding: Binding,
+    children: Vec<Child>,
+) -> (Entity<Group>, &'a mut VisualTestContext) {
+    let mut entity = None;
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let owner = cx.new(|cx| View::new(binding, None, window, cx));
+        let view = cx.new(|cx| {
+            cx.observe(&owner, |_, _, cx| cx.notify()).detach();
+            Group {
+                owner,
+                turn: TurnId::new(),
+                children,
+                continuing: false,
+            }
+        });
+        entity = Some(view.clone());
+        Root::new(view, window, cx)
+    });
+    (entity.unwrap(), visual)
+}
+
+#[gpui::test]
+fn counts_unique_children_preserves_history(cx: &mut TestAppContext) {
+    chat::init(cx);
+    let fixture = crate::conversation::live::ChatFixture::with_tools(false, Vec::new());
+    let records = children(2);
+    let (view, visual) = mount_group(cx, fixture.binding.clone(), records.clone());
+    let owner = view.read_with(visual, |view, _| view.owner.clone());
+    let first = key(&records[0]);
+    let toggle = format!("live-turn-subagents-{first}");
+    let list = Box::leak(format!("live-subagent-list-{first}").into_boxed_str());
+    for mode in [ThemeMode::Light, ThemeMode::Dark] {
+        visual.update(|window, cx| Theme::change(mode, Some(window), cx));
+        for reuse in [true, false] {
+            for (earlier, status) in [
+                (Status::Completed, Status::Completed),
+                (Status::Queued, Status::Completed),
+                (Status::Completed, Status::Running),
+            ] {
+                let mut records = records.clone();
+                if reuse {
+                    records[1].run.session = records[0].run.session;
+                }
+                records[0].name = Some("Earlier task".into());
+                records[1].name = Some("Current task".into());
+                records[0].run.status = earlier;
+                records[1].run.status = status;
+                owner.update(visual, |view, cx| {
+                    view.expanded.clear();
+                    cx.notify();
+                });
+                view.update(visual, |view, cx| {
+                    view.children = records.clone();
+                    view.continuing = false;
+                    cx.notify();
+                });
+                let total = if reuse { 1 } else { 2 };
+                let completed = usize::from(status == Status::Completed)
+                    + usize::from(!reuse && earlier == Status::Completed);
+                let label = View::child_label(completed, total);
+                visual.update(|window, cx| {
+                    window.render_frame(cx);
+                    assert_eq!(
+                        window.find(SharedString::from(toggle.clone())).label(),
+                        Some(label.as_str())
+                    );
+                });
+                assert!(visual.debug_bounds(list).is_none());
+                assert_eq!(
+                    visual
+                        .debug_bounds(Box::leak(
+                            format!("{toggle}-summary-shimmer").into_boxed_str(),
+                        ))
+                        .is_some(),
+                    status == Status::Running || (!reuse && earlier == Status::Queued)
+                );
+                let selected = if reuse { &records[1..] } else { &records[..] };
+                let strip = visual
+                    .debug_bounds(Box::leak(
+                        format!("live-subagent-icons-{}", key(&selected[0])).into_boxed_str(),
+                    ))
+                    .unwrap();
+                assert_eq!(
+                    strip.size.width,
+                    px(16. * total as f32 + 4. * (total - 1) as f32)
+                );
+                for (index, child) in records.iter().enumerate() {
+                    let id = format!("live-subagent-icon-{}", key(child));
+                    let visible = !reuse || index == 1;
+                    assert_eq!(
+                        visual
+                            .debug_bounds(Box::leak(id.clone().into_boxed_str()))
+                            .is_some(),
+                        visible
+                    );
+                    for (state, running) in [("rotating", true), ("static", false)] {
+                        assert_eq!(
+                            visual
+                                .debug_bounds(Box::leak(format!("{id}-{state}").into_boxed_str()))
+                                .is_some(),
+                            visible && (child.run.status == Status::Running) == running
+                        );
+                    }
+                }
+                visual.update(|window, cx| window.click(SharedString::from(toggle.clone()), cx));
+                visual.run_until_parked();
+                visual.update(|window, cx| window.render_frame(cx));
+                assert!(visual.debug_bounds(list).is_some());
+                let mut previous = None;
+                for child in &records {
+                    let id = format!("live-subagent-row-{}", key(child));
+                    let row = visual
+                        .debug_bounds(Box::leak(id.clone().into_boxed_str()))
+                        .unwrap();
+                    if let Some(previous) = previous {
+                        assert!(row.top() > previous);
+                    }
+                    previous = Some(row.top());
+                    let label = format!(
+                        "{}: {}",
+                        child.name.as_ref().unwrap(),
+                        tr(status_key(child.run.status))
+                    );
+                    visual.update(|window, _| {
+                        assert_eq!(
+                            window.find(SharedString::from(id)).label(),
+                            Some(label.as_str())
+                        );
+                    });
+                }
+                view.update(visual, |view, cx| {
+                    view.continuing = true;
+                    cx.notify();
+                });
+                visual.update(|window, cx| window.render_frame(cx));
+                for (index, child) in records.iter().enumerate() {
+                    assert_eq!(
+                        visual
+                            .debug_bounds(Box::leak(
+                                format!("live-subagent-row-{}-summary-shimmer", key(child))
+                                    .into_boxed_str(),
+                            ))
+                            .is_some(),
+                        index + 1 == records.len()
+                    );
+                }
+            }
+        }
+    }
+    visual.update(|window, _| window.remove_window());
+    drop(view);
+    drop(owner);
+    fixture.close();
+}
+
+#[gpui::test]
+fn preserves_first_appearance_order(cx: &mut TestAppContext) {
+    chat::init(cx);
+    let fixture = crate::conversation::live::ChatFixture::with_tools(false, Vec::new());
+    let mut records = children(3);
+    let mut sessions = records
+        .iter()
+        .map(|child| child.run.session)
+        .collect::<Vec<_>>();
+    sessions.sort_unstable();
+    for (child, session) in records.iter_mut().zip(sessions.into_iter().rev()) {
+        child.run.session = session;
+    }
+    let first = key(&records[0]);
+    let toggle = format!("live-turn-subagents-{first}");
+    let (view, visual) = mount_group(cx, fixture.binding.clone(), records.clone());
+    let owner = view.read_with(visual, |view, _| view.owner.clone());
+    for mode in [ThemeMode::Light, ThemeMode::Dark] {
+        visual.update(|window, cx| Theme::change(mode, Some(window), cx));
+        for sequences in [[1, 1, 1], [9, 3, 1]] {
+            for (child, sequence) in records.iter_mut().zip(sequences) {
+                child.run.sequence = sequence;
+            }
+            owner.update(visual, |view, cx| {
+                view.expanded.clear();
+                cx.notify();
+            });
+            view.update(visual, |view, cx| {
+                view.children = records.clone();
+                cx.notify();
+            });
+            visual.update(|window, cx| window.render_frame(cx));
+            let strip = visual
+                .debug_bounds(Box::leak(
+                    format!("live-subagent-icons-{first}").into_boxed_str(),
+                ))
+                .unwrap();
+            let mut previous = strip.left();
+            for child in &records {
+                let icon = visual
+                    .debug_bounds(Box::leak(
+                        format!("live-subagent-icon-{}", key(child)).into_boxed_str(),
+                    ))
+                    .unwrap();
+                assert_eq!(icon.left(), previous);
+                assert_eq!(icon.size, size(px(16.), px(16.)));
+                previous = icon.right() + px(4.);
+            }
+            assert_eq!(previous - px(4.), strip.right());
+            visual.update(|window, cx| window.click(SharedString::from(toggle.clone()), cx));
+            visual.run_until_parked();
+            visual.update(|window, cx| window.render_frame(cx));
+            let mut previous = None;
+            for child in &records {
+                let row = visual
+                    .debug_bounds(Box::leak(
+                        format!("live-subagent-row-{}", key(child)).into_boxed_str(),
+                    ))
+                    .unwrap();
+                if let Some(previous) = previous {
+                    assert!(row.top() > previous);
+                }
+                previous = Some(row.top());
+            }
+        }
+    }
+    visual.update(|window, _| window.remove_window());
+    drop(view);
+    drop(owner);
+    fixture.close();
 }
 
 #[gpui::test]

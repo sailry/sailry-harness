@@ -126,6 +126,8 @@ pub enum Status {
     Running,
     Stopping,
     Completed,
+    /// A guidance handoff ended this invocation without stopping its session.
+    Continued,
     Cancelled,
     Interrupted,
     Failed,

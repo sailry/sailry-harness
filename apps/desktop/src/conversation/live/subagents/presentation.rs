@@ -42,6 +42,7 @@ impl View {
             running: matches!(child.run.status, Status::Running | Status::Stopping),
             icon: match child.run.status {
                 Status::Completed => IconName::Check,
+                Status::Continued => IconName::ArrowRight,
                 Status::Failed | Status::Interrupted => IconName::CircleX,
                 Status::Cancelled => IconName::Minus,
                 Status::Queued => IconName::Ellipsis,
@@ -64,12 +65,19 @@ impl View {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let first = key(children[0]);
-        let total = children.len();
-        let completed = children
+        let mut agents = latest(children.iter().copied());
+        agents.sort_by_key(|agent| {
+            children
+                .iter()
+                .position(|child| child.run.session == agent.run.session)
+                .unwrap()
+        });
+        let total = agents.len();
+        let completed = agents
             .iter()
             .filter(|child| child.run.status == Status::Completed)
             .count();
-        let active = children.iter().any(|child| {
+        let active = agents.iter().any(|child| {
             matches!(
                 child.run.status,
                 Status::Queued | Status::Running | Status::Stopping
@@ -81,7 +89,7 @@ impl View {
             .get(&(turn, key.clone()))
             .copied()
             .unwrap_or(false);
-        if total == 1 {
+        if children.len() == 1 {
             return self.render_child(children[0], continuing, cx);
         }
         let list = first.clone();
@@ -93,7 +101,7 @@ impl View {
             .gap_2()
             .debug_selector(move || format!("live-subagent-list-{list}"))
             .children(children.iter().copied().enumerate().map(|(index, child)| {
-                self.render_child(child, continuing && index + 1 == total, cx)
+                self.render_child(child, continuing && index + 1 == children.len(), cx)
             }));
         Collapsible::new()
             .w_full()
@@ -102,7 +110,7 @@ impl View {
             .child(
                 crate::conversation::disclosure::trigger_with_icons(
                     format!("live-turn-subagents-{first}"),
-                    icons(children, cx),
+                    icons(&agents, cx),
                     Self::child_label(completed, total).into(),
                     crate::conversation::disclosure::Detail {
                         running: active || continuing,

@@ -170,7 +170,8 @@ pub(super) enum Operation {
         turn: TurnId,
         status: Status,
         error: Option<Fault>,
-        reply: oneshot::Sender<Result<(), Fault>>,
+        owner: Option<sailry_link::CancellationToken>,
+        reply: oneshot::Sender<Result<Status, Fault>>,
     },
 }
 
@@ -314,13 +315,15 @@ impl Ingress {
         turn: TurnId,
         status: Status,
         error: Option<Fault>,
-    ) -> Result<(), Fault> {
+        owner: Option<sailry_link::CancellationToken>,
+    ) -> Result<Status, Fault> {
         let (reply, response) = oneshot::channel();
         self.sender
             .send(Job::Agent(Box::new(Operation::Finish {
                 turn,
                 status,
                 error,
+                owner,
                 reply,
             })))
             .await
@@ -598,9 +601,43 @@ pub(super) fn execute(
             turn,
             status,
             error,
+            owner,
             reply,
         } => {
-            let _ = reply.send(runs::finish(database, turn, status, error, events));
+            let result = (|| {
+                let owner_stopped = owner
+                    .as_ref()
+                    .is_some_and(sailry_link::CancellationToken::is_cancelled);
+                if owner_stopped {
+                    controls.cancel(turn);
+                    queue::guidance::retain(database, turn, events)?;
+                }
+                // Resolve after every earlier Stop in this actor, not from a
+                // Runner's stale cancellation observation or queue contents.
+                let status = if controls.stopped.is_cancelled() || status == Status::Interrupted {
+                    Status::Interrupted
+                } else if owner_stopped {
+                    Status::Cancelled
+                } else if controls.yielded(turn) {
+                    Status::Continued
+                } else {
+                    status
+                };
+                let error = if status == Status::Interrupted
+                    && error
+                        .as_ref()
+                        .is_none_or(|error| error.code != ErrorCode::OutcomeUnknown)
+                {
+                    Some(Fault::new(
+                        ErrorCode::OutcomeUnknown,
+                        "Node stopped execution; calls were not replayed",
+                    ))
+                } else {
+                    error
+                };
+                runs::finish(database, turn, status, error, events)
+            })();
+            let _ = reply.send(result);
         }
     }
 }

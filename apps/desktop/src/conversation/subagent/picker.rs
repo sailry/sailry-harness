@@ -150,8 +150,12 @@ impl Render for Picker {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let owner = cx.entity().downgrade();
         let rows = self.rows.clone();
+        let state = self.tree.read(cx);
+        let has_folders = (0..rows.len())
+            .filter_map(|index| state.entry(index))
+            .any(|entry| entry.is_folder());
         let visible = (0..6)
-            .take_while(|&index| self.tree.read(cx).entry(index).is_some())
+            .take_while(|&index| state.entry(index).is_some())
             .count()
             .max(1);
         v_flex()
@@ -199,16 +203,18 @@ impl Render for Picker {
                                 .w_full()
                                 .min_w_0()
                                 .gap_2()
-                                .child(if folder {
-                                    Icon::new(if entry.is_expanded() {
-                                        IconName::ChevronDown
+                                .when(has_folders, |this| {
+                                    this.child(if folder {
+                                        Icon::new(if entry.is_expanded() {
+                                            IconName::ChevronDown
+                                        } else {
+                                            IconName::ChevronRight
+                                        })
+                                        .size_4()
+                                        .into_any_element()
                                     } else {
-                                        IconName::ChevronRight
+                                        div().w_4().into_any_element()
                                     })
-                                    .size_4()
-                                    .into_any_element()
-                                } else {
-                                    div().w_4().into_any_element()
                                 })
                                 .child(crate::ui::identicon::animated(
                                     crate::ui::identicon::agent(&key.debug_id(), cx),
@@ -220,6 +226,9 @@ impl Render for Picker {
                                         .min_w_0()
                                         .truncate()
                                         .text_sm()
+                                        .debug_selector(move || {
+                                            format!("subagent-name-{}", key.debug_id())
+                                        })
                                         .child(row.name.clone()),
                                 )
                                 .child(super::status_icon(&row)),

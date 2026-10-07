@@ -177,6 +177,7 @@ fn single_child_opens_directly(cx: &mut TestAppContext) {
                 Status::Running,
                 Status::Stopping,
                 Status::Completed,
+                Status::Continued,
                 Status::Cancelled,
                 Status::Interrupted,
                 Status::Failed,

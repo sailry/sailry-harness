@@ -3,6 +3,23 @@ use crate::Command;
 use serde_json::json;
 
 #[test]
+fn preserves_termination_status() {
+    for (status, value) in [
+        (Status::Completed, "completed"),
+        (Status::Continued, "continued"),
+        (Status::Cancelled, "cancelled"),
+        (Status::Interrupted, "interrupted"),
+    ] {
+        assert_eq!(serde_json::to_value(status).unwrap(), value);
+        assert_eq!(
+            serde_json::from_value::<Status>(json!(value)).unwrap(),
+            status
+        );
+    }
+    assert_eq!(crate::VERSION, 1);
+}
+
+#[test]
 fn preserves_explicit_kind() {
     for (kind, name) in [(RunKind::Task, "task"), (RunKind::Compaction, "compaction")] {
         let run = Run {

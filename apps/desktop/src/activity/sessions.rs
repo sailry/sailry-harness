@@ -30,6 +30,7 @@ pub(crate) fn status(session: &Session) -> SharedString {
             None => "activity_running",
         },
         Some(Status::Completed) => "activity_completed",
+        Some(Status::Continued) => "turn_continued",
         Some(Status::Failed) => "activity_failed",
         Some(Status::Interrupted) => "chat_interrupted",
         Some(Status::Cancelled) => "turn_cancelled",

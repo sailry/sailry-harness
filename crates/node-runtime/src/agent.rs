@@ -137,12 +137,12 @@ async fn run(
             Err(error) => (Status::Failed, Some(error), None),
         }
     };
-    let persisted = ingress.finish_run(turn, status, error.clone()).await;
+    let persisted = ingress.finish_run(turn, status, error.clone(), owner).await;
     if let Err(error) = &persisted {
         eprintln!("Agent completion persistence failed: {error}");
     }
     controls.finish(turn);
-    persisted?;
+    let status = persisted?;
     if !controls.stopped.is_cancelled() {
         plugins::callbacks::complete(ingress, callbacks, status).await;
     }
@@ -150,7 +150,10 @@ async fn run(
     if let Some(error) = error {
         return Err(error);
     }
-    Ok((status, output))
+    Ok((
+        status,
+        (status == Status::Completed).then_some(output).flatten(),
+    ))
 }
 
 async fn execute(

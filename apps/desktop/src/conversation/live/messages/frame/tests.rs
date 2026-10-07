@@ -92,6 +92,7 @@ fn active_phase_lifecycle() {
     assert_eq!(phase(&run, &page, &retry), None);
     for status in [
         Status::Completed,
+        Status::Continued,
         Status::Failed,
         Status::Cancelled,
         Status::Interrupted,
@@ -99,6 +100,8 @@ fn active_phase_lifecycle() {
         run.status = status;
         if status == Status::Cancelled {
             assert_eq!(super::status(&run, true), "turn_cancelled");
+        } else if status == Status::Continued {
+            assert_eq!(super::status(&run, true), "turn_continued");
         }
         assert!(!continuing_tools(&run, &page, &activity));
         assert_eq!(phase(&run, &page, &[]), None);

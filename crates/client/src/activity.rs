@@ -25,7 +25,7 @@ pub fn lane(session: &Session) -> Lane {
             Lane::Failed
         }
         Some(Status::Completed | Status::Failed | Status::Interrupted) => Lane::Idle,
-        Some(Status::Cancelled) | None => Lane::Idle,
+        Some(Status::Cancelled | Status::Continued) | None => Lane::Idle,
     }
 }
 

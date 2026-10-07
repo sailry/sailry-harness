@@ -118,7 +118,7 @@ async fn settles_tool_batch() {
             .await
             .unwrap();
         let page = finished(&fixture.client, fixture.session.id, selected.id).await;
-        assert_eq!(status(&page, active.id), Status::Cancelled);
+        assert_eq!(status(&page, active.id), Status::Continued);
         assert_eq!(status(&page, selected.id), Status::Completed);
         assert!(!page.queue.paused);
         assert!(page.queue.items.is_empty());

@@ -9,6 +9,7 @@ struct Active {
     operations: usize,
     media: Option<super::media::Binding>,
     finishing: bool,
+    yielded: bool,
 }
 
 struct Child {
@@ -39,6 +40,7 @@ impl Controls {
                 operations: 0,
                 media: None,
                 finishing: false,
+                yielded: false,
             },
         );
     }
@@ -54,7 +56,8 @@ impl Controls {
     }
 
     pub fn cancel(&self, turn: TurnId) {
-        if let Some(active) = self.active.lock().unwrap().get(&turn) {
+        if let Some(active) = self.active.lock().unwrap().get_mut(&turn) {
+            active.yielded = false;
             active.stop.cancel();
             for ((parent, _), child) in self.children.lock().unwrap().iter() {
                 if *parent == active.session {
@@ -65,10 +68,19 @@ impl Controls {
     }
 
     pub fn yield_run(&self, turn: TurnId) {
-        if let Some(active) = self.active.lock().unwrap().get(&turn) {
+        if let Some(active) = self.active.lock().unwrap().get_mut(&turn) {
             // Guidance replaces the Runner, not its session-owned delegated work.
+            active.yielded |= !active.stop.is_cancelled();
             active.stop.cancel();
         }
+    }
+
+    pub fn yielded(&self, turn: TurnId) -> bool {
+        self.active
+            .lock()
+            .unwrap()
+            .get(&turn)
+            .is_some_and(|active| active.yielded)
     }
 
     pub fn register_child(
@@ -116,7 +128,8 @@ impl Controls {
 
     pub fn stop(&self) {
         self.stopped.cancel();
-        for active in self.active.lock().unwrap().values() {
+        for active in self.active.lock().unwrap().values_mut() {
+            active.yielded = false;
             active.stop.cancel();
         }
         for child in self.children.lock().unwrap().values() {
@@ -218,10 +231,33 @@ mod tests {
         controls.register(previous, parent, CancellationToken::new());
         controls.register_child(parent, SessionId::new(), TurnId::new(), child.clone());
         controls.yield_run(previous);
+        assert!(controls.yielded(previous));
         assert!(!child.is_cancelled());
         controls.finish(previous);
         controls.register(current, parent, CancellationToken::new());
         controls.cancel(current);
+        assert!(!controls.yielded(current));
         assert!(child.is_cancelled());
+    }
+
+    #[test]
+    fn stop_overrides_handoff() {
+        for shutdown in [false, true] {
+            let controls = Controls::default();
+            let turn = TurnId::new();
+            let token = CancellationToken::new();
+            controls.register(turn, SessionId::new(), token.clone());
+            controls.yield_run(turn);
+            assert!(controls.yielded(turn));
+            assert!(token.is_cancelled());
+            if shutdown {
+                controls.stop();
+            } else {
+                controls.cancel(turn);
+            }
+            assert!(!controls.yielded(turn));
+            controls.yield_run(turn);
+            assert!(!controls.yielded(turn));
+        }
     }
 }

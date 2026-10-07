@@ -166,7 +166,7 @@ async fn settles_batch_before_handoff() {
             .await
             .unwrap();
         let page = finished(&fixture.client, child.id, guided.id).await;
-        assert_eq!(status(&page, recipient.turn), Status::Cancelled);
+        assert_eq!(status(&page, recipient.turn), Status::Continued);
         assert_eq!(status(&page, guided.id), Status::Completed);
         assert!(page.queue.items.is_empty());
         assert_eq!(

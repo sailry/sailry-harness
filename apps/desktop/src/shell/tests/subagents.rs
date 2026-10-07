@@ -1,7 +1,11 @@
 use super::workspace::click;
 use super::*;
 use crate::{
-    conversation::{subagent::Key, transcript::Location, turn::Status},
+    conversation::{
+        subagent::Key,
+        transcript::Location,
+        turn::{Block, Status},
+    },
     resources::SideResource,
 };
 
@@ -27,6 +31,67 @@ fn show(shell: &Entity<Shell>, cx: &mut VisualTestContext) -> Location {
         }),
         ..Location::main((0, 2), 0)
     }
+}
+
+fn name_offset(cx: &mut VisualTestContext, id: usize) -> Pixels {
+    let row = cx
+        .debug_bounds(Box::leak(format!("subagent-row-{id}").into_boxed_str()))
+        .unwrap();
+    let name = cx
+        .debug_bounds(Box::leak(format!("subagent-name-{id}").into_boxed_str()))
+        .unwrap();
+    name.left() - row.left()
+}
+
+#[gpui::test]
+fn aligns_flat_choices(cx: &mut TestAppContext) {
+    let (shell, mut cx) = setup(cx);
+    show(&shell, &mut cx);
+    for parent in [
+        None,
+        Some(Key {
+            id: 99,
+            generation: 0,
+        }),
+    ] {
+        cx.update(|_, cx| {
+            shell.update(cx, |shell, cx| {
+                let turn = shell
+                    .conversations
+                    .get_mut(&(0, 2))
+                    .unwrap()
+                    .turns
+                    .last_mut()
+                    .unwrap();
+                for block in &mut turn.blocks {
+                    if let Block::Subagents(agents) = block {
+                        for agent in agents {
+                            agent.parent = parent;
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        });
+        draw(&mut cx);
+        click(&mut cx, "composer-subagents");
+        for id in 0..4 {
+            assert_eq!(name_offset(&mut cx, id), px(32.));
+        }
+        cx.simulate_keystrokes("escape");
+        draw(&mut cx);
+        assert!(cx.debug_bounds("subagent-picker").is_none());
+    }
+    click(&mut cx, "composer-subagents");
+    cx.simulate_keystrokes("down enter");
+    draw(&mut cx);
+    assert!(cx.debug_bounds("subagent-picker").is_none());
+    cx.update(|_, cx| {
+        let Some(SideResource::Subagent(panel)) = &shell.read(cx).side_resource else {
+            panic!("missing panel")
+        };
+        assert_eq!(panel.location.child.unwrap().id, 1);
+    });
 }
 
 #[gpui::test]
@@ -165,9 +230,17 @@ fn keyboard_tree_and_child_links(cx: &mut TestAppContext) {
     let (shell, mut cx) = setup(cx);
     show(&shell, &mut cx);
     click(&mut cx, "composer-subagents");
-    cx.simulate_keystrokes("down down");
+    assert_eq!(name_offset(&mut cx, 0), px(56.));
+    assert_eq!(name_offset(&mut cx, 1), px(56.));
+    assert_eq!(name_offset(&mut cx, 2), px(72.));
+    cx.simulate_keystrokes("down left");
     draw(&mut cx);
-    cx.simulate_keystrokes("enter");
+    assert!(cx.debug_bounds("subagent-row-2").is_none());
+    assert_eq!(name_offset(&mut cx, 0), px(56.));
+    cx.simulate_keystrokes("right");
+    draw(&mut cx);
+    assert_eq!(name_offset(&mut cx, 2), px(72.));
+    cx.simulate_keystrokes("down enter");
     draw(&mut cx);
     cx.update(|_, cx| {
         let Some(SideResource::Subagent(panel)) = &shell.read(cx).side_resource else {
