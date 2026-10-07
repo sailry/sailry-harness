@@ -19,7 +19,7 @@ Use case: illustration-story. Project asset: transparent welcome hero for the Gr
 
 ### background.png
 
-Use case: illustration-story. Project asset: large background decoration PNG for the black-gold-red Great Sage developer app theme. Landscape 2560x1440 pixels, high resolution. GENUINELY TRANSPARENT background; all empty sky and central space transparent, no black rectangle and no paper substrate. Original refined Chinese shanshui ink landscape decoration: fine antique-gold ink outlines and warm charcoal mountain silhouettes concentrated at far right and lower edges, soft painterly mist, a few elegant large 祥云 auspicious clouds drifting along upper right and lower left, small subtle vermilion ink accents. Scenic natural rhythm, not a repeating wallpaper pattern, not a collage. Huge EMPTY TRANSPARENT center and left-center, roughly 75 percent negative space, suitable for application controls. Scene emerges gently from lower right and fades naturally into transparency at inner edges, gold lines crisp but restrained. The motifs should work over either ivory or ink black backgrounds with opacity reduced by the application. No character, no typography, no GUI, no frame, no watermark, no bright or busy central content. Elegant original traditional Chinese landscape and clouds matching a Monkey King theme.
+Use case: style-transfer. Project asset: replacement background decoration PNG for Sailry's Great Sage theme. The existing landscape is the edit target; the approved UI concept is the style reference only. Output only background artwork, never interface, lettering, portrait or controls. High-resolution 4:3 landscape, genuine transparent alpha with no paper or black rectangle. Match the reference's antique gold and vermilion ink atmosphere: hollow gold-outline auspicious clouds at the top-right and lower corners, flowing gold ribbons and sparse dry-brush dust, low charcoal mountains with gold edges along the bottom. No massive right-hand mountain or cream-filled cloud masses. Broad muted vermilion and burgundy ink washes across the upper third, tapering toward the sides. Keep the central lower content area calm and mostly transparent without leaving most of the canvas empty. Insets should survive a centered cover crop. No text, logo, portrait, GUI, watermark or painted checkerboard. Shared transparent art works at lower opacity over ivory.
 
 ### cloud-top-left.png
 
@@ -33,3 +33,18 @@ Use case: precise-object-edit. Project asset: transparent lower-right cloud corn
 
 Use case: ui-mockup. Project asset: ONE small transparent PNG send-button glyph for an original Great Sage Sun Wukong theme. Centered square canvas. A clear bold UPWARD ARROW with a straight shaft subtly resembling a red-and-black Ruyi Jingu Bang staff, two tiny ornamental bands. The arrowhead must remain unmistakably an upward send arrow. Flat warm ink black silhouette with a tiny vermilion accent, NOT gold (it will appear on a gold circular button). Very simple graphic designed for legibility at 16px, thick strokes, minimal detail, occupies central 70% of canvas. Genuine transparent background. No button circle, no background, no glow, no shadow, no text, no other objects, no watermark.
 
+
+### Card and heading icons
+
+Use case: stylized-concept. Generate one small square transparent raster icon per asset for the Great Sage theme. Simple elegant bold silhouettes, antique gold and warm black thick ink outlines, restrained vermilion accents, clear at 24 logical pixels, central 75 percent, very few details, original flat engraved brush art. No photorealism, badge, scene, text or watermark.
+
+- `explore.png`: one golden auspicious cloud with three curled lobes and a flowing red tail, suggesting exploration and travel
+- `build.png`: one red-and-gold Ruyi Jingu Bang staff diagonally ascending, gold bands at both ends and a dark vermilion shaft
+- `review.png`: one bold gold almond eye with a vermilion pupil and two controlled flame strokes, suggesting inspection
+- `plan.png`: one ivory and antique-gold rolled scroll with short black ink marks rather than letters and a small vermilion ribbon
+
+The sidebar reuses these original illustrations at 16 pixels. Production icons are compressed to 96 × 96 pixels.
+
+### grain.png
+
+Use case: stylized-concept. Subtle seamless tileable transparent square PNG texture for small dark-gold-red Chinese mythology cards. Only sparse antique bronze and muted gold dry-brush fibers, fine dust and tiny ink speckles, dispersed with matching edges. Genuine transparent alpha across most pixels, no paper or black rectangle. Delicate irregular grain, low contrast at reduced opacity over brown or ivory panels. No clouds, mountains, scene, shapes, text, icons, frames, broad washes or painted checkerboard.

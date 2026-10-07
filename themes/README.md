@@ -43,6 +43,24 @@ The matching `icon.explore`, `icon.build`, `icon.review` and `icon.plan` assets
 replace individual 24-pixel glyphs. Labels, prompt actions and responsive layout
 remain application-owned.
 
+Explicit card backgrounds use their configured color and alpha directly;
+hover and active colors may also include alpha (`#RRGGBBAA`). Omitted backgrounds
+retain Kit's normal tint. Optional `background.card.explore`,
+`background.card.build`, `background.card.review` and `background.card.plan`
+assets add noninteractive textures, clipped to the card radius behind its content.
+
+## Window backgrounds and sidebar headings
+
+`background.window` draws once behind the entire Shell, including navigation,
+the feature rail and title bar. Existing surface transparency settings control
+how much of it shows through. `background.content` and `background.sidebar` are
+separate optional foreground decorations; omit them for a continuous wallpaper.
+
+Sidebar group headings have default Kit icons. The `icon.group.hosts`,
+`icon.group.activity`, `icon.group.unassigned`, `icon.group.projects` and
+`icon.group.recent` assets replace their 16-pixel glyphs without changing group
+labels, disclosure controls or keyboard interaction.
+
 ## Raster decorations
 
 PNG, JPEG, WebP and GIF resources are supported; SVG and remote URLs are rejected.
@@ -53,8 +71,8 @@ and `fill` stretches it. Background slots also accept `tile`, which repeats
 without stretching at `tile_size` logical pixels wide (32–1024, default 256),
 preserving the image's aspect ratio. Repeating textures must have matching edges.
 
-The Great Sage package uses a large transparent landscape with `cover`, rather
-than a repeating pattern, and reduces decoration opacity in light mode.
+The Great Sage package uses a transparent gold-and-vermilion landscape as a
+window wallpaper with `cover`, and reduces decoration opacity in light mode.
+Its translucent cards share a small repeating grain texture and themed icons.
 Compress production PNGs and size small ornaments/icons for their displayed size;
 large wallpapers should retain enough detail for the window.
-

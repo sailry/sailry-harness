@@ -26,6 +26,18 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::BTreeSet;
 
+fn group_icon(key: &'static str, fallback: IconName, cx: &App) -> impl IntoElement {
+    div()
+        .debug_selector(move || format!("sidebar-group-{key}"))
+        .size_4()
+        .flex_shrink_0()
+        .child(theme::icon(
+            &format!("group.{key}"),
+            Icon::new(fallback).size_4(),
+            cx,
+        ))
+}
+
 pub(crate) const WIDTH_RANGE: std::ops::Range<f32> = 200. ..320.;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -210,6 +222,7 @@ impl Shell {
                                                 !shell.sidebar.hosts_closed;
                                             cx.notify();
                                         }))
+                                        .child(group_icon("hosts", IconName::Cpu, cx))
                                         .child(
                                             div()
                                                 .flex_shrink_0()
@@ -325,6 +338,7 @@ impl Shell {
                                                 !shell.sidebar.projects_closed;
                                             cx.notify();
                                         }))
+                                        .child(group_icon("projects", IconName::Folder, cx))
                                         .child(
                                             div()
                                                 .flex_shrink_0()

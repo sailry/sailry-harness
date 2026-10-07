@@ -6,6 +6,7 @@ use gpui_kit::{
 
 pub(crate) struct Appearance {
     pub background: Hsla,
+    pub explicit_background: bool,
     pub foreground: Hsla,
     pub detail: Hsla,
     pub icon: Hsla,
@@ -35,6 +36,7 @@ pub(crate) fn appearance(key: &str, color: Hsla, cx: &App) -> Appearance {
     };
     Appearance {
         background: parse(style.and_then(|style| style.background.as_ref()), color),
+        explicit_background: style.is_some_and(|style| style.background.is_some()),
         foreground: parse(
             style.and_then(|style| style.foreground.as_ref()),
             cx.theme().foreground,
@@ -64,6 +66,25 @@ pub(crate) fn appearance(key: &str, color: Hsla, cx: &App) -> Appearance {
 }
 
 impl Appearance {
+    pub fn texture(&self, key: &str, cx: &App) -> Option<AnyElement> {
+        let slot = match key {
+            "explore" => "background.card.explore",
+            "build" => "background.card.build",
+            "review" => "background.card.review",
+            "plan" => "background.card.plan",
+            _ => return None,
+        };
+        decoration::background(slot, cx).map(|texture| {
+            div()
+                .absolute()
+                .inset_0()
+                .rounded(self.radius)
+                .overflow_hidden()
+                .child(texture)
+                .into_any_element()
+        })
+    }
+
     pub fn variant(&self, cx: &App) -> ButtonCustomVariant {
         ButtonCustomVariant::new(cx)
             .color(self.background)

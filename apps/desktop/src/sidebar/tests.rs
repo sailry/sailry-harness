@@ -4,6 +4,7 @@ use gpui_kit::component::Root;
 use std::time::Duration;
 
 mod scroll;
+mod theme;
 
 fn borderless_fill(visual: &mut VisualTestContext, bounds: Bounds<Pixels>, expected: Hsla) {
     visual.update(|window, _| {
@@ -55,19 +56,19 @@ fn highlights_keep_borderless_fills(cx: &mut TestAppContext) {
             ("session-0", Row::Session(0, 0), false, false),
         ] {
             let bounds = visual.debug_bounds(selector).unwrap();
-            let fill = visual.update(|_, cx| theme::sidebar_item(selected, false, cx));
+            let fill = visual.update(|_, cx| crate::theme::sidebar_item(selected, false, cx));
             borderless_fill(visual, bounds, fill);
             visual.simulate_mouse_move(bounds.center(), None, Modifiers::default());
             visual.run_until_parked();
             visual.update(|window, cx| window.draw(cx).clear(cx));
             assert_eq!(visual.debug_bounds(selector), Some(bounds));
             assert!(shell.read_with(visual, |shell, _| shell.sidebar.hovered == Some(row)));
-            let fill = visual.update(|_, cx| theme::sidebar_item(selected, !project, cx));
+            let fill = visual.update(|_, cx| crate::theme::sidebar_item(selected, !project, cx));
             borderless_fill(visual, bounds, fill);
             visual.simulate_mouse_move(point(px(1.), px(1.)), None, Modifiers::default());
             visual.run_until_parked();
             visual.update(|window, cx| window.draw(cx).clear(cx));
-            let fill = visual.update(|_, cx| theme::sidebar_item(selected, false, cx));
+            let fill = visual.update(|_, cx| crate::theme::sidebar_item(selected, false, cx));
             borderless_fill(visual, bounds, fill);
         }
         let host = visual.debug_bounds("host-1").unwrap();
@@ -78,7 +79,7 @@ fn highlights_keep_borderless_fills(cx: &mut TestAppContext) {
         let hovered = shell.read_with(visual, |shell, _| {
             shell.sidebar.hovered == Some(Row::Host(1))
         });
-        let fill = visual.update(|_, cx| theme::sidebar_item(true, hovered, cx));
+        let fill = visual.update(|_, cx| crate::theme::sidebar_item(true, hovered, cx));
         let bounds = visual.debug_bounds("host-1").unwrap();
         borderless_fill(visual, bounds, fill);
     }

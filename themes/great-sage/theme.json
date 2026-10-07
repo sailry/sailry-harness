@@ -50,56 +50,47 @@
     },
     "cards": {
       "explore": {
-        "background": "#F0E4CB",
+        "background": "#F0E4CBCC",
         "foreground": "#32281E",
         "detail": "#594835",
         "icon": "#805914",
-        "hover": "#E9D8B5",
-        "active": "#E1CEA2",
+        "hover": "#E9D8B5D9",
+        "active": "#E1CEA2E6",
         "border": "#80591438",
         "border_width": 1
       },
       "build": {
-        "background": "#F4DFD6",
+        "background": "#F4DFD6CC",
         "foreground": "#32281E",
         "detail": "#594835",
         "icon": "#9C4330",
-        "hover": "#EDD0C4",
-        "active": "#E3BFB2",
+        "hover": "#EDD0C4D9",
+        "active": "#E3BFB2E6",
         "border": "#9C433038",
         "border_width": 1
       },
       "review": {
-        "background": "#EDE9CF",
+        "background": "#EDE9CFCC",
         "foreground": "#32281E",
         "detail": "#594835",
         "icon": "#73651D",
-        "hover": "#E3DDB8",
-        "active": "#D9D0A3",
+        "hover": "#E3DDB8D9",
+        "active": "#D9D0A3E6",
         "border": "#73651D38",
         "border_width": 1
       },
       "plan": {
-        "background": "#E8E0D5",
+        "background": "#E8E0D5CC",
         "foreground": "#32281E",
         "detail": "#594835",
         "icon": "#74604B",
-        "hover": "#DED3C3",
-        "active": "#D2C4AF",
+        "hover": "#DED3C3D9",
+        "active": "#D2C4AFE6",
         "border": "#74604B38",
         "border_width": 1
       }
     },
     "assets": {
-      "background.content": {
-        "path": "assets/background.png",
-        "fit": "cover",
-        "alignment": [
-          1,
-          1
-        ],
-        "opacity": 0.08
-      },
       "hero.new_session": {
         "path": "assets/hero.png",
         "fit": "contain",
@@ -121,6 +112,75 @@
       "icon.send": {
         "path": "assets/send.png",
         "fit": "contain"
+      },
+      "background.window": {
+        "path": "assets/background.png",
+        "fit": "cover",
+        "alignment": [
+          0.5,
+          0.5
+        ],
+        "opacity": 0.22
+      },
+      "icon.explore": {
+        "path": "assets/explore.png",
+        "fit": "contain"
+      },
+      "icon.build": {
+        "path": "assets/build.png",
+        "fit": "contain"
+      },
+      "icon.review": {
+        "path": "assets/review.png",
+        "fit": "contain"
+      },
+      "icon.plan": {
+        "path": "assets/plan.png",
+        "fit": "contain"
+      },
+      "icon.group.hosts": {
+        "path": "assets/explore.png",
+        "fit": "contain"
+      },
+      "icon.group.activity": {
+        "path": "assets/review.png",
+        "fit": "contain"
+      },
+      "icon.group.unassigned": {
+        "path": "assets/plan.png",
+        "fit": "contain"
+      },
+      "icon.group.projects": {
+        "path": "assets/build.png",
+        "fit": "contain"
+      },
+      "icon.group.recent": {
+        "path": "assets/plan.png",
+        "fit": "contain"
+      },
+      "background.card.explore": {
+        "path": "assets/grain.png",
+        "fit": "tile",
+        "tile_size": 128,
+        "opacity": 0.12
+      },
+      "background.card.build": {
+        "path": "assets/grain.png",
+        "fit": "tile",
+        "tile_size": 128,
+        "opacity": 0.12
+      },
+      "background.card.review": {
+        "path": "assets/grain.png",
+        "fit": "tile",
+        "tile_size": 128,
+        "opacity": 0.12
+      },
+      "background.card.plan": {
+        "path": "assets/grain.png",
+        "fit": "tile",
+        "tile_size": 128,
+        "opacity": 0.12
       }
     }
   },
@@ -165,56 +225,47 @@
     },
     "cards": {
       "explore": {
-        "background": "#2D2418",
+        "background": "#49351FB3",
         "foreground": "#F2E6CF",
-        "detail": "#C8B99F",
+        "detail": "#E0D1B9",
         "icon": "#DEB66B",
-        "hover": "#3A2F20",
-        "active": "#493B28",
+        "hover": "#594126CC",
+        "active": "#654A2DD9",
         "border": "#DEB66B38",
         "border_width": 1
       },
       "build": {
-        "background": "#341D19",
+        "background": "#502720B3",
         "foreground": "#F2E6CF",
-        "detail": "#C8B99F",
+        "detail": "#E0D1B9",
         "icon": "#EF8D74",
-        "hover": "#442823",
-        "active": "#54332D",
+        "hover": "#623028CC",
+        "active": "#703B30D9",
         "border": "#EF8D7438",
         "border_width": 1
       },
       "review": {
-        "background": "#2D2A17",
+        "background": "#49411EB3",
         "foreground": "#F2E6CF",
-        "detail": "#C8B99F",
+        "detail": "#E0D1B9",
         "icon": "#DECA71",
-        "hover": "#3C371F",
-        "active": "#4A4428",
+        "hover": "#575025CC",
+        "active": "#655B2CD9",
         "border": "#DECA7138",
         "border_width": 1
       },
       "plan": {
-        "background": "#25211D",
+        "background": "#38312AB3",
         "foreground": "#F2E6CF",
-        "detail": "#C8B99F",
+        "detail": "#E0D1B9",
         "icon": "#D1B994",
-        "hover": "#322C25",
-        "active": "#40372D",
+        "hover": "#463B32CC",
+        "active": "#514439D9",
         "border": "#D1B99438",
         "border_width": 1
       }
     },
     "assets": {
-      "background.content": {
-        "path": "assets/background.png",
-        "fit": "cover",
-        "alignment": [
-          1,
-          1
-        ],
-        "opacity": 0.22
-      },
       "hero.new_session": {
         "path": "assets/hero.png",
         "fit": "contain",
@@ -236,6 +287,75 @@
       "icon.send": {
         "path": "assets/send.png",
         "fit": "contain"
+      },
+      "background.window": {
+        "path": "assets/background.png",
+        "fit": "cover",
+        "alignment": [
+          0.5,
+          0.5
+        ],
+        "opacity": 0.85
+      },
+      "icon.explore": {
+        "path": "assets/explore.png",
+        "fit": "contain"
+      },
+      "icon.build": {
+        "path": "assets/build.png",
+        "fit": "contain"
+      },
+      "icon.review": {
+        "path": "assets/review.png",
+        "fit": "contain"
+      },
+      "icon.plan": {
+        "path": "assets/plan.png",
+        "fit": "contain"
+      },
+      "icon.group.hosts": {
+        "path": "assets/explore.png",
+        "fit": "contain"
+      },
+      "icon.group.activity": {
+        "path": "assets/review.png",
+        "fit": "contain"
+      },
+      "icon.group.unassigned": {
+        "path": "assets/plan.png",
+        "fit": "contain"
+      },
+      "icon.group.projects": {
+        "path": "assets/build.png",
+        "fit": "contain"
+      },
+      "icon.group.recent": {
+        "path": "assets/plan.png",
+        "fit": "contain"
+      },
+      "background.card.explore": {
+        "path": "assets/grain.png",
+        "fit": "tile",
+        "tile_size": 128,
+        "opacity": 0.18
+      },
+      "background.card.build": {
+        "path": "assets/grain.png",
+        "fit": "tile",
+        "tile_size": 128,
+        "opacity": 0.18
+      },
+      "background.card.review": {
+        "path": "assets/grain.png",
+        "fit": "tile",
+        "tile_size": 128,
+        "opacity": 0.18
+      },
+      "background.card.plan": {
+        "path": "assets/grain.png",
+        "fit": "tile",
+        "tile_size": 128,
+        "opacity": 0.18
       }
     }
   }

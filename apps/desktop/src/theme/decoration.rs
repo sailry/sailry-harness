@@ -230,9 +230,11 @@ pub fn preview(package: &Package, dark: bool, cx: &App) -> AnyElement {
         .overflow_hidden()
         .bg(theme.background)
         .children(
-            asset(package, "background.content", dark).map(|(decoration, image)| {
-                div().absolute().inset_0().child(picture(decoration, image))
-            }),
+            asset(package, "background.window", dark)
+                .or_else(|| asset(package, "background.content", dark))
+                .map(|(decoration, image)| {
+                    div().absolute().inset_0().child(picture(decoration, image))
+                }),
         )
         .child(
             h_flex()

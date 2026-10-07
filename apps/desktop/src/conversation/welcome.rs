@@ -132,7 +132,12 @@ fn layout(
         let on_prompt = on_prompt.clone();
         let appearance = crate::theme::cards::appearance(key, color, cx);
         Button::new(title)
+            .relative()
             .custom(appearance.variant(cx))
+            // Kit tints custom variant colors; package backgrounds specify the exact fill.
+            .when(appearance.explicit_background, |button| {
+                button.bg(appearance.background)
+            })
             .h_auto()
             .flex_1()
             .min_w_0()
@@ -142,8 +147,10 @@ fn layout(
             .border(appearance.border_width)
             .border_color(appearance.border)
             .rounded(appearance.radius)
+            .children(appearance.texture(key, cx))
             .child(
                 v_flex()
+                    .relative()
                     .w_full()
                     .min_w_0()
                     .gap_4()

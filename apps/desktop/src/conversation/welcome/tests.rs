@@ -307,9 +307,9 @@ fn themed_cards_preserve_actions(cx: &mut TestAppContext) {
     for variant in ["light", "dark"] {
         for key in ["explore", "build", "review", "plan"] {
             manifest[variant]["cards"][key] = serde_json::json!({
-                "background": "#35261b", "foreground": "#fff4e0",
+                "background": "#35261bcc", "foreground": "#fff4e0",
                 "detail": "#d9c8af", "icon": "#e7bd68",
-                "hover": "#493522", "active": "#5b432d",
+                "hover": "#493522d9", "active": "#5b432de6",
                 "border": "#9a7a46", "border_width": 1, "radius": 12
             });
         }
@@ -338,16 +338,19 @@ fn themed_cards_preserve_actions(cx: &mut TestAppContext) {
             let appearance = crate::theme::cards::appearance("explore", cx.theme().blue, cx);
             assert_eq!(
                 appearance.background,
-                theme::try_parse_color("#35261b").unwrap()
+                theme::try_parse_color("#35261bcc").unwrap()
             );
             assert_eq!(
                 appearance.foreground,
                 theme::try_parse_color("#fff4e0").unwrap()
             );
-            assert_eq!(appearance.hover, theme::try_parse_color("#493522").unwrap());
+            assert_eq!(
+                appearance.hover,
+                theme::try_parse_color("#493522d9").unwrap()
+            );
             assert_eq!(
                 appearance.active,
-                theme::try_parse_color("#5b432d").unwrap()
+                theme::try_parse_color("#5b432de6").unwrap()
             );
             assert_eq!(appearance.border_width, px(1.));
             assert_eq!(appearance.radius, px(12.));
@@ -366,6 +369,24 @@ fn themed_cards_preserve_actions(cx: &mut TestAppContext) {
                 assert!(bounds.left() >= px(0.) && bounds.right() <= px(width));
                 assert!(bounds.contains(&image.origin));
                 assert_eq!(image.size, size(px(24.), px(24.)));
+                for (position, color) in [
+                    (point(px(1.), px(1.)), "#35261bcc"),
+                    (bounds.center(), "#493522d9"),
+                ] {
+                    visual.simulate_mouse_move(position, None, Modifiers::default());
+                    visual.run_until_parked();
+                    visual.update(|window, cx| {
+                        window.draw(cx).clear(cx);
+                        let target = bounds.scale(window.scale_factor());
+                        let expected = theme::try_parse_color(color).unwrap();
+                        assert!(
+                            window.painted_quads().into_iter().any(|quad| {
+                                quad.bounds == target && quad.background == expected.into()
+                            }),
+                            "card fill did not follow the package state"
+                        );
+                    });
+                }
                 visual.simulate_click(bounds.center(), Modifiers::default());
                 visual.run_until_parked();
                 assert_eq!(

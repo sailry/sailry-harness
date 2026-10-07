@@ -27,6 +27,7 @@ impl Shell {
                     .h_8()
                     .flex_shrink_0()
                     .px_2()
+                    .gap_1()
                     .text_sm()
                     .text_color(cx.theme().sidebar_foreground.opacity(0.5))
                     .aria_label(tr("active_sessions"))
@@ -39,6 +40,7 @@ impl Shell {
                         }
                         cx.notify();
                     }))
+                    .child(group_icon("activity", IconName::LayoutDashboard, cx))
                     .child(div().flex_1().child(tr("active_sessions")))
                     .child(
                         Icon::new(if open {

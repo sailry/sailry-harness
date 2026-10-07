@@ -80,6 +80,7 @@ impl Shell {
                     .h_8()
                     .flex_shrink_0()
                     .px_2()
+                    .gap_1()
                     .text_sm()
                     .text_color(cx.theme().sidebar_foreground.opacity(0.5))
                     .aria_label(tr("recent_sessions"))
@@ -92,6 +93,7 @@ impl Shell {
                         }
                         cx.notify();
                     }))
+                    .child(group_icon("recent", IconName::Calendar, cx))
                     .child(div().flex_1().child(tr("recent_sessions")))
                     .child(
                         Icon::new(if open {

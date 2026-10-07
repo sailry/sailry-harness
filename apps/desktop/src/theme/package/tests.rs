@@ -116,13 +116,13 @@ fn great_sage_imports() {
     let loaded = Loaded::read(&source, true).unwrap();
     assert_eq!(loaded.manifest.version, 1);
     assert_eq!(loaded.manifest.id, "great-sage");
-    assert_eq!(loaded.images.len(), 5);
     assert_eq!(loaded.manifest.package_version.as_deref(), Some("0.1.0"));
     assert_eq!(loaded.manifest.license.name.as_deref(), Some("Apache-2.0"));
     assert_eq!(
         loaded.manifest.description.as_deref(),
         Some("A theme inspired by the Great Sage, with golden accents and ink landscapes")
     );
+    assert_eq!(loaded.images.len(), 10);
     for variant in [&loaded.manifest.light, &loaded.manifest.dark] {
         assert_eq!(variant.composer.border_width, 1);
         assert_eq!(variant.cards.len(), 4);
@@ -130,15 +130,15 @@ fn great_sage_imports() {
             assert_ne!(style.hover, style.background);
             assert_ne!(style.active, style.hover);
         }
-        let image = &variant.assets["background.content"];
+        let image = &variant.assets["background.window"];
         assert!(matches!(image.fit, Fit::Cover));
         let decoded = image::open(source.join(&image.path)).unwrap().into_rgba8();
         assert!(decoded.pixels().any(|pixel| pixel[3] == 0));
-        assert!(decoded.width() >= 1600);
+        assert!(decoded.width() >= 1400 && decoded.height() >= 1000);
     }
     assert!(
-        loaded.manifest.light.assets["background.content"].opacity
-            < loaded.manifest.dark.assets["background.content"].opacity
+        loaded.manifest.light.assets["background.window"].opacity
+            < loaded.manifest.dark.assets["background.window"].opacity
     );
     let directory = tempfile::tempdir().unwrap();
     loaded.install(directory.path()).unwrap();
