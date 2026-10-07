@@ -3,7 +3,7 @@
   "id": "ink-dragon",
   "name": "Gilded Ink Dragon",
   "description": "Modern ink mountains crowned by a silver dragon, with restrained gold foil accents",
-  "package_version": "0.1.1",
+  "package_version": "0.1.2",
   "license": {
     "author": "Sailry",
     "name": "Apache-2.0",
@@ -69,7 +69,9 @@
         "table.active.background": "#74839424",
         "table.active.border": "#75808E60",
         "selection.background": "#74839430",
-        "scrollbar.thumb.background": "#414B5850"
+        "scrollbar.thumb.background": "#414B5850",
+        "switch.thumb.background": "#F1F3F5",
+        "switch.background": "#707B89"
       }
     },
     "composer": {
@@ -255,18 +257,18 @@
         "muted.background": "#272D34DB",
         "muted.foreground": "#B7BEC7",
         "title_bar.background": "#20252B",
-        "title_bar.border": "#C7CEDB38",
+        "title_bar.border": "#9AA6B430",
         "sidebar.background": "#1D2228",
         "sidebar.foreground": "#EDEFF1",
-        "sidebar.border": "#C7CEDB38",
+        "sidebar.border": "#9AA6B430",
         "sidebar.accent.background": "#C1CBD828",
         "sidebar.accent.foreground": "#EDEFF1",
         "group_box.background": "#252B32E8",
         "group_box.foreground": "#EDEFF1",
         "popover.background": "#292F36",
         "popover.foreground": "#EDEFF1",
-        "border": "#C7CEDB38",
-        "input.border": "#BEC9D278",
+        "border": "#9AA6B430",
+        "input.border": "#9AA6B450",
         "ring": "#BEC8D4",
         "primary.background": "#CED5DE",
         "primary.foreground": "#181C21",
@@ -298,12 +300,14 @@
         "tab_bar.segmented.background": "#252C3588",
         "list.hover.background": "#C2CAD518",
         "list.active.background": "#C1CBD828",
-        "list.active.border": "#C7CEDB60",
+        "list.active.border": "#9AA6B448",
         "table.hover.background": "#C2CAD518",
         "table.active.background": "#C1CBD828",
-        "table.active.border": "#C7CEDB60",
+        "table.active.border": "#9AA6B448",
         "selection.background": "#C1CBD840",
-        "scrollbar.thumb.background": "#A9B0BB50"
+        "scrollbar.thumb.background": "#A9B0BB50",
+        "switch.thumb.background": "#F1F3F5",
+        "switch.background": "#485360"
       }
     },
     "composer": {
@@ -317,7 +321,7 @@
         "icon": "#D4B67B",
         "hover": "#353E4AC9",
         "active": "#3A4452D4",
-        "border": "#CAD1DA50",
+        "border": "#9AA6B43C",
         "border_width": 1,
         "radius": 14
       },
@@ -328,7 +332,7 @@
         "icon": "#D4B67B",
         "hover": "#353E4AC9",
         "active": "#3A4452D4",
-        "border": "#CAD1DA50",
+        "border": "#9AA6B43C",
         "border_width": 1,
         "radius": 14
       },
@@ -339,7 +343,7 @@
         "icon": "#D4B67B",
         "hover": "#353E4AC9",
         "active": "#3A4452D4",
-        "border": "#CAD1DA50",
+        "border": "#9AA6B43C",
         "border_width": 1,
         "radius": 14
       },
@@ -350,7 +354,7 @@
         "icon": "#D4B67B",
         "hover": "#353E4AC9",
         "active": "#3A4452D4",
-        "border": "#CAD1DA50",
+        "border": "#9AA6B43C",
         "border_width": 1,
         "radius": 14
       }
@@ -468,7 +472,7 @@
       "user": {
         "background": "#2A313ADF",
         "foreground": "#EDEFF1",
-        "border": "#C7CEDB38",
+        "border": "#9AA6B430",
         "border_width": 1,
         "radius": 14
       },

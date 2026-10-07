@@ -2,12 +2,27 @@
 
 import json
 from pathlib import Path
+import re
 import unittest
 
 from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def luminance(value):
+    channels = [int(value[index:index + 2], 16) / 255 for index in [1, 3, 5]]
+    linear = [
+        channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
+        for channel in channels
+    ]
+    return sum(channel * weight for channel, weight in zip(linear, [0.2126, 0.7152, 0.0722]))
+
+
+def contrast(first, second):
+    values = sorted([luminance(first), luminance(second)])
+    return (values[1] + 0.05) / (values[0] + 0.05)
 
 
 class Package(unittest.TestCase):
@@ -75,6 +90,51 @@ class Package(unittest.TestCase):
                         opacity = int(card[state][-2:], 16)
                         self.assertGreater(opacity, 0)
                         self.assertLess(opacity, 255)
+
+    def test_button_readability(self):
+        for variant in self.variants:
+            colors = variant["theme"]["colors"]
+            for state in ["background", "hover.background", "active.background"]:
+                fill = colors["button.primary." + state]
+                stops = re.findall(r"#[0-9A-Fa-f]{6}", fill)
+                # The pinned Kit background parser accepts two gradient stops.
+                self.assertEqual(len(stops), 2)
+                for stop in stops:
+                    with self.subTest(mode=variant["theme"]["mode"], state=state):
+                        self.assertGreaterEqual(contrast(colors["button.primary.foreground"], stop), 4.5)
+
+    def test_switch_readability(self):
+        for variant in self.variants:
+            colors = variant["theme"]["colors"]
+            tracks = [colors["switch.background"]] + re.findall(
+                r"#[0-9A-Fa-f]{6}", colors["button.primary.background"]
+            )
+            for track in tracks:
+                with self.subTest(mode=variant["theme"]["mode"], track=track):
+                    self.assertGreaterEqual(contrast(colors["switch.thumb.background"], track), 3)
+
+    def test_frame_transparency(self):
+        for variant in self.variants:
+            frame = variant["assets"]["button.new_session"]
+            with Image.open(ROOT / frame["path"]) as image:
+                alpha = image.convert("RGBA").getchannel("A")
+                # The frame must not tint the caption or paint an opaque panel.
+                opening = alpha.crop((image.width // 4, image.height * 3 // 8,
+                                      image.width * 3 // 4, image.height * 9 // 16))
+                self.assertLessEqual(opening.getextrema()[1], 2)
+
+    def test_wallpaper_text_contrast(self):
+        for variant in self.variants:
+            colors = variant["theme"]["colors"]
+            opacity = variant["assets"]["background.window"]["opacity"]
+            base = colors["background"]
+            # Cover both artwork extremes behind unboxed assistant text.
+            for level in [0, 255]:
+                channels = [round(int(base[index:index + 2], 16) * (1 - opacity)
+                                  + level * opacity) for index in [1, 3, 5]]
+                surface = "#" + "".join(f"{channel:02X}" for channel in channels)
+                with self.subTest(mode=variant["theme"]["mode"], level=level):
+                    self.assertGreaterEqual(contrast(colors["foreground"], surface), 4.5)
 
 
 if __name__ == "__main__":

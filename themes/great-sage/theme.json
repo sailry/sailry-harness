@@ -3,7 +3,7 @@
   "id": "great-sage",
   "name": "Great Sage",
   "description": "A theme inspired by the Great Sage, with golden accents and ink landscapes",
-  "package_version": "0.1.0",
+  "package_version": "0.1.1",
   "license": {
     "author": "Sailry",
     "name": "Apache-2.0",
@@ -33,10 +33,10 @@
         "primary.foreground": "#FFFFFF",
         "primary.hover.background": "#795516",
         "primary.active.background": "#68460F",
-        "button.primary.background": "linear-gradient(135deg, #E0B65E, #C08C31)",
-        "button.primary.foreground": "#21180D",
-        "button.primary.hover.background": "linear-gradient(135deg, #E8C575, #D09A3D)",
-        "button.primary.active.background": "linear-gradient(135deg, #D1A14C, #AE7C25)",
+        "button.primary.background": "linear-gradient(180deg, #893D2D, #432018)",
+        "button.primary.foreground": "#FFF0D0",
+        "button.primary.hover.background": "linear-gradient(180deg, #994A36, #50251D)",
+        "button.primary.active.background": "linear-gradient(180deg, #612C22, #301613)",
         "accent.background": "#8B641F12",
         "accent.foreground": "#32281E",
         "secondary.active.background": "#8B641F20",
@@ -59,7 +59,9 @@
         "button.secondary.active.background": "#CCAA7299",
         "secondary.background": "#EDDFC68C",
         "secondary.foreground": "#533C1D",
-        "secondary.hover.background": "#DCC59A99"
+        "secondary.hover.background": "#DCC59A99",
+        "switch.thumb.background": "#FFF8ED",
+        "switch.background": "#796D5F"
       }
     },
     "composer": {
@@ -137,7 +139,7 @@
           0.5,
           0.5
         ],
-        "opacity": 0.4
+        "opacity": 0.25
       },
       "icon.explore": {
         "path": "assets/explore.png",
@@ -201,9 +203,13 @@
       },
       "button.new_session": {
         "path": "assets/circlet.png",
-        "fit": "fill",
-        "height": 10,
-        "opacity": 0.75
+        "fit": "cover",
+        "alignment": [
+          0.5,
+          0.45
+        ],
+        "height": 32,
+        "opacity": 0.9
       },
       "message.user.top_left": {
         "path": "assets/cloud-top-left.png",
@@ -259,10 +265,10 @@
         "primary.foreground": "#21180D",
         "primary.hover.background": "#E9C875",
         "primary.active.background": "#BC9141",
-        "button.primary.background": "linear-gradient(135deg, #EDCA7D, #BB8D3E)",
-        "button.primary.foreground": "#21180D",
-        "button.primary.hover.background": "linear-gradient(135deg, #F2D58F, #D5A94F)",
-        "button.primary.active.background": "linear-gradient(135deg, #D5AD5C, #AA7D30)",
+        "button.primary.background": "linear-gradient(180deg, #743528, #341A16)",
+        "button.primary.foreground": "#FFF0D0",
+        "button.primary.hover.background": "linear-gradient(180deg, #91432F, #462019)",
+        "button.primary.active.background": "linear-gradient(180deg, #58271E, #28130F)",
         "accent.background": "#D8AE5616",
         "accent.foreground": "#F2E6CF",
         "secondary.active.background": "#D8AE5628",
@@ -285,7 +291,9 @@
         "button.secondary.active.background": "#80623785",
         "secondary.background": "#382E2070",
         "secondary.foreground": "#E5D0A3",
-        "secondary.hover.background": "#6B502C70"
+        "secondary.hover.background": "#6B502C70",
+        "switch.thumb.background": "#FFF8ED",
+        "switch.background": "#65594B"
       }
     },
     "composer": {
@@ -363,7 +371,7 @@
           0.5,
           0.5
         ],
-        "opacity": 0.7
+        "opacity": 0.35
       },
       "icon.explore": {
         "path": "assets/explore.png",
@@ -427,9 +435,13 @@
       },
       "button.new_session": {
         "path": "assets/circlet.png",
-        "fit": "fill",
-        "height": 10,
-        "opacity": 0.85
+        "fit": "cover",
+        "alignment": [
+          0.5,
+          0.45
+        ],
+        "height": 32,
+        "opacity": 0.9
       },
       "message.user.top_left": {
         "path": "assets/cloud-top-left.png",

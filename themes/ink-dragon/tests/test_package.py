@@ -115,6 +115,16 @@ class Package(unittest.TestCase):
                 with self.subTest(mode=variant["theme"]["mode"], foreground=foreground):
                     self.assertGreaterEqual(contrast(rgba(foreground), surface), 4.5)
 
+    def test_switch_readability(self):
+        for variant in self.variants:
+            colors = variant["theme"]["colors"]
+            tracks = [colors["switch.background"]] + re.findall(
+                r"#[0-9A-Fa-f]{6}", colors["button.primary.background"]
+            )
+            for track in tracks:
+                with self.subTest(mode=variant["theme"]["mode"], track=track):
+                    self.assertGreaterEqual(contrast(rgba(colors["switch.thumb.background"]), rgba(track)), 3)
+
     def test_wallpaper_text_contrast(self):
         # Check both ink extremes through the default panel tints. User-selected
         # surface opacity can change contrast independently of this package.

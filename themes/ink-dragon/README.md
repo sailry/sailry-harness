@@ -11,7 +11,9 @@ The window wallpaper extends behind translucent navigation and content panels.
 Its center stays clear for conversations. Surface opacity remains controlled by
 Sailry's appearance settings. Cards retain translucent hover and pressed states.
 Primary buttons use ink-black fills with silver-white labels in both variants.
-Surface borders are silver gray; gold remains in small artwork accents.
+Surface borders are muted silver gray; gold remains in small artwork accents.
+Dark borders use lower-opacity cool gray to avoid bright outlines. Switch thumbs
+use silver white against darker tracks in both variants.
 Button, tab, message, and wordmark colors follow the selected variant. The four
 original card symbols also appear beside sidebar group headings.
 
@@ -30,6 +32,6 @@ python3 -m pip install -r requirements-dev.txt
 python3 -m unittest discover -s tests -v
 ```
 
-These checks validate PNG resources, resource budgets, light/dark text contrast,
+These checks validate PNG resources, resource budgets, light/dark text and switch contrast,
 and translucent card states. They do not launch Sailry or verify native UI
 interactions.
