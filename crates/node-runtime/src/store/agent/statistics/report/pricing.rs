@@ -18,25 +18,14 @@ impl Catalog {
     ) -> Result<Option<Cost>, Fault> {
         let usage: String = row.get(12).map_err(storage_error)?;
         let usage: UsageMetadata = serde_json::from_str(&usage).map_err(storage_error)?;
-        let reported = usage.cost.and_then(micros).map(|usd_micros| Cost {
-            usd_micros,
-            responses: 1,
-            breakdown: None,
-        });
         let media: Option<String> = row.get(14).map_err(storage_error)?;
         if matches!(media.as_deref(), Some("image" | "video")) {
             // Text token rates cannot price image modalities or video duration.
-            return Ok(reported);
+            return Ok(None);
         }
         let api: Option<String> = row.get(9).map_err(storage_error)?;
-        let authentication: Option<String> = row.get(10).map_err(storage_error)?;
-        let endpoint: Option<String> = row.get(11).map_err(storage_error)?;
-        let Some(supplier) = supplier(
-            api.as_deref(),
-            authentication.as_deref(),
-            endpoint.as_deref(),
-        ) else {
-            return Ok(reported);
+        let Some(supplier) = supplier(api.as_deref()) else {
+            return Ok(None);
         };
         let model: String = row.get(6).map_err(storage_error)?;
         let key = (supplier.to_owned(), model);
@@ -56,22 +45,13 @@ impl Catalog {
         }
         Ok(self.models[&key]
             .as_ref()
-            .and_then(|cost| estimate(cost, &usage))
-            .or(reported))
+            .and_then(|cost| estimate(cost, &usage)))
     }
 }
 
-fn supplier(
-    api: Option<&str>,
-    authentication: Option<&str>,
-    endpoint: Option<&str>,
-) -> Option<&'static str> {
-    if authentication != Some("api_key") {
-        return None;
-    }
-    // A custom endpoint can proxy the same model. These are catalog reference
-    // prices, not a claim about that endpoint's billing. Missing exact IDs stay unpriced.
-    endpoint?;
+fn supplier(api: Option<&str>) -> Option<&'static str> {
+    // All authentication methods use catalog reference prices, not billed amounts.
+    // Custom endpoints can proxy the same model; missing exact IDs stay unpriced.
     match api? {
         "responses" | "chat_completions" => Some("openai"),
         "anthropic" => Some("anthropic"),

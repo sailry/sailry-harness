@@ -62,39 +62,17 @@ fn prices_disjoint_audio_tokens() {
 }
 
 #[test]
-fn prices_custom_endpoints() {
-    assert_eq!(
-        supplier(
-            Some("responses"),
-            Some("api_key"),
-            Some("https://api.openai.com/v1/")
-        ),
-        Some("openai")
-    );
-    assert_eq!(
-        supplier(
-            Some("responses"),
-            Some("chat_gpt"),
-            Some("https://api.openai.com/v1")
-        ),
-        None
-    );
-    assert_eq!(
-        supplier(
-            Some("responses"),
-            Some("api_key"),
-            Some("https://proxy.invalid/v1")
-        ),
-        Some("openai")
-    );
-    assert_eq!(
-        supplier(
-            Some("anthropic"),
-            Some("api_key"),
-            Some("https://proxy.invalid/v1")
-        ),
-        Some("anthropic")
-    );
+fn maps_captured_model_apis() {
+    for (api, expected) in [
+        (Some("responses"), Some("openai")),
+        (Some("chat_completions"), Some("openai")),
+        (Some("anthropic"), Some("anthropic")),
+        (Some("gemini"), Some("google")),
+        (Some("unknown"), None),
+        (None, None),
+    ] {
+        assert_eq!(supplier(api), expected);
+    }
 }
 
 fn priced(input: u64, output: u64, cache_read: u64, cache_write: u64) -> Cost {

@@ -197,13 +197,40 @@ fn restores_unique_usage() {
     response.llm_response.provider_metadata =
         Some(serde_json::json!({"sailry_timing":{"elapsed_us":2_000_000}}));
     let first = fixture.append([response.clone(), response]);
+    fixture
+        .database
+        .connection
+        .execute(
+            "UPDATE agent_runs SET provider=?1",
+            [serde_json::to_vec(
+                &serde_json::json!({"api":"responses","authentication":"chat_gpt"}),
+            )
+            .unwrap()],
+        )
+        .unwrap();
+    fixture
+        .database
+        .connection
+        .execute(
+            "INSERT INTO model_catalog(provider,id,body) VALUES('openai','fixture',?1)",
+            [serde_json::to_vec(
+                &serde_json::json!({"cost":{"input":2,"output":8,"cache_read":0.5}}),
+            )
+            .unwrap()],
+        )
+        .unwrap();
     let expected = read(&fixture.database.connection, fixture.session).unwrap();
     assert_eq!(
         expected.cost,
         Some(sailry_protocol::usage::Cost {
-            usd_micros: 12_300,
+            usd_micros: 49,
             responses: 1,
-            breakdown: None,
+            breakdown: Some(sailry_protocol::usage::CostBreakdown {
+                input: 16,
+                output: 32,
+                cache_read: 1,
+                cache_write: 0,
+            }),
         })
     );
     assert_eq!(

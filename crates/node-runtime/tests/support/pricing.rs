@@ -1,5 +1,5 @@
-//! Adds isolated provider metadata after stopping the fixture Node.
-//! The HTTP model fixture supplies tokens but does not expose ADK's optional cost field.
+//! Adds an ignored model-reported amount after stopping the fixture Node.
+//! Catalog estimates must remain unchanged by ADK's optional cost field.
 pub fn seed(profile: &std::path::Path) {
     let db = rusqlite::Connection::open_with_flags(
         profile.join("storage/node.sqlite3"),

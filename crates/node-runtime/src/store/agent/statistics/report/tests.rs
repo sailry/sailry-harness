@@ -111,6 +111,36 @@ fn estimates_custom_endpoints() {
             .cost,
         priced.totals.cost
     );
+    for authentication in [
+        Authentication::ApiKey,
+        Authentication::ChatGpt,
+        Authentication::Copilot,
+        Authentication::Host,
+    ] {
+        fixture
+            .database
+            .connection
+            .execute(
+                "UPDATE agent_runs SET provider=CAST(json_set(provider,'$.authentication',?1) AS BLOB)",
+                [serde_json::to_value(authentication).unwrap().as_str().unwrap()],
+            )
+            .unwrap();
+        let estimated = report(&fixture, &query());
+        assert_eq!(estimated.totals.cost, priced.totals.cost);
+        assert!(
+            estimated
+                .requests
+                .items
+                .iter()
+                .all(|request| request.usd_micros == Some(49))
+        );
+        assert_eq!(
+            super::super::read(&fixture.database.connection, fixture.session)
+                .unwrap()
+                .cost,
+            priced.totals.cost
+        );
+    }
     fixture
         .database
         .connection
@@ -126,8 +156,21 @@ fn estimates_custom_endpoints() {
         .execute("DELETE FROM model_catalog", [])
         .unwrap();
     let unavailable = report(&fixture, &query());
-    assert_eq!(unavailable.totals.cost.as_ref().unwrap().responses, 1);
-    assert_eq!(unavailable.totals.cost.unwrap().usd_micros, 500000);
+    assert_eq!(unavailable.totals.responses, 3);
+    assert_eq!(unavailable.totals.cost, None);
+    assert!(
+        unavailable
+            .requests
+            .items
+            .iter()
+            .all(|request| request.usd_micros.is_none())
+    );
+    assert_eq!(
+        super::super::read(&fixture.database.connection, fixture.session)
+            .unwrap()
+            .cost,
+        None
+    );
 }
 
 #[test]
@@ -173,6 +216,7 @@ fn companion_costs() {
         .unwrap();
     for kind in ["vision", "image"] {
         let mut entry = event(START, 10);
+        entry.llm_response.usage_metadata.as_mut().unwrap().cost = Some(0.5);
         entry
             .provider_metadata
             .insert("sailry_media".into(), kind.into());
@@ -269,7 +313,7 @@ fn preserves_branch_ownership() {
     assert!(before.groups.iter().any(|group| group.key
         == Key::Model {
             provider: source.config.provider,
-            model: source.config.model.clone(),
+            model: source.config.model.clone()
         }
         && group.metrics.tokens.as_ref().unwrap().input == 10));
     command(
