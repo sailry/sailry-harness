@@ -17,6 +17,7 @@ mod decoration;
 mod dialog;
 pub(crate) mod messages;
 mod neutral;
+mod preview;
 #[cfg(test)]
 mod tabs;
 pub(crate) mod wordmark;
@@ -26,8 +27,8 @@ pub(crate) mod fixture;
 pub(crate) mod package;
 pub(crate) use catalog::{Catalog, Mode, Package, Selection, apply, apply_colors, remove};
 pub(crate) use composer::surface as composer_surface;
-pub(crate) use decoration::preview;
 pub(crate) use decoration::{background, banner, brand, icon, new_session_button};
+pub(crate) use preview::preview;
 
 fn variant(cx: &App) -> Option<&package::Variant> {
     let catalog = cx.try_global::<Catalog>()?;

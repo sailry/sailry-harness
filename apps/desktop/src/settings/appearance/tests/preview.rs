@@ -1,6 +1,8 @@
 use super::*;
 use std::path::Path;
 
+mod license;
+
 struct Harness;
 
 impl Render for Harness {

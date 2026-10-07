@@ -3,6 +3,7 @@ use core::prelude::v1::test;
 use std::time::{Duration, Instant};
 
 mod actions;
+mod corners;
 mod preview;
 
 struct Mounted(Entity<Workspace>);

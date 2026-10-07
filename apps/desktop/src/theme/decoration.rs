@@ -6,7 +6,11 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{component::*, *};
 use std::sync::Arc;
 
-fn asset(package: &Package, slot: &str, dark: bool) -> Option<(Decoration, Arc<RenderImage>)> {
+pub(super) fn asset(
+    package: &Package,
+    slot: &str,
+    dark: bool,
+) -> Option<(Decoration, Arc<RenderImage>)> {
     let manifest = package.manifest.as_ref()?;
     let variant = if dark {
         &manifest.dark
@@ -242,65 +246,4 @@ pub fn brand(size: Pixels, cx: &App) -> Option<AnyElement> {
             .child(picture(decoration, image))
             .into_any_element(),
     )
-}
-
-pub fn preview(package: &Package, dark: bool, cx: &App) -> AnyElement {
-    let mut theme = cx.theme().clone();
-    theme.apply_config(if dark { &package.dark } else { &package.light });
-    div()
-        .relative()
-        .w_full()
-        .h_24()
-        .overflow_hidden()
-        .bg(theme.background)
-        .children(
-            asset(package, "background.window", dark)
-                .or_else(|| asset(package, "background.content", dark))
-                .map(|(decoration, image)| {
-                    div().absolute().inset_0().child(picture(decoration, image))
-                }),
-        )
-        .child(
-            h_flex()
-                .relative()
-                .size_full()
-                .child(
-                    v_flex()
-                        .h_full()
-                        .w_12()
-                        .p_2()
-                        .gap_2()
-                        .bg(theme.sidebar)
-                        .child(div().size_3().rounded_full().bg(theme.primary))
-                        .children(
-                            (0..3).map(|_| div().h_1().w_full().bg(theme.foreground.opacity(0.12))),
-                        ),
-                )
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .min_w_0()
-                        .p_3()
-                        .gap_2()
-                        .child(
-                            div()
-                                .h_2()
-                                .w_16()
-                                .rounded_full()
-                                .bg(theme.foreground.opacity(0.3)),
-                        )
-                        .child(div().h_1().w_full().bg(theme.foreground.opacity(0.1)))
-                        .child(div().flex_1())
-                        .child(
-                            h_flex()
-                                .h_6()
-                                .p_1()
-                                .rounded(theme.radius)
-                                .bg(theme.group_box)
-                                .child(div().flex_1())
-                                .child(div().size_4().rounded_full().bg(theme.primary)),
-                        ),
-                ),
-        )
-        .into_any_element()
 }

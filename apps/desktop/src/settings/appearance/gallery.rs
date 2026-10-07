@@ -34,10 +34,33 @@ impl Workspace {
                                 .child(theme::preview(package, cx.theme().is_dark(), cx))
                                 .child(
                                     h_flex()
+                                        .debug_selector(move || format!("theme-card-label-{index}"))
+                                        .relative()
                                         .w_full()
                                         .p_3()
                                         .gap_2()
-                                        .bg(cx.theme().group_box)
+                                        .overflow_hidden()
+                                        // A taller clipped fill preserves large bottom radii
+                                        // without changing the label row's layout.
+                                        .child(
+                                            div()
+                                                .debug_selector(move || {
+                                                    format!("theme-card-label-fill-{index}")
+                                                })
+                                                .absolute()
+                                                .left_0()
+                                                .right_0()
+                                                .bottom_0()
+                                                .h_full()
+                                                .min_h(
+                                                    (cx.theme().radius_lg - px(1.)).max(px(0.))
+                                                        * 2.,
+                                                )
+                                                .rounded_b(
+                                                    (cx.theme().radius_lg - px(1.)).max(px(0.)),
+                                                )
+                                                .bg(cx.theme().group_box),
+                                        )
                                         .child(
                                             div()
                                                 .flex_1()

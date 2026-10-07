@@ -328,8 +328,11 @@ impl Render for Import {
                 Accordion::new("theme-license-details")
                     .w_full()
                     .h_auto()
+                    // GPUI overflow masks are rectangular; paint the fill on Kit's rounded root.
+                    .bg(cx.theme().tokens.accordion)
                     .item(|item| {
                         item.open(self.license_open)
+                            .bg(cx.theme().transparent)
                             .title(
                                 h_flex()
                                     .w_full()
