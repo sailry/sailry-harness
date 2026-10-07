@@ -1,0 +1,166 @@
+use super::*;
+use gpui_kit::test::TestWindowExt as _;
+
+#[gpui::test]
+fn protects_counts_and_staging_paths(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        prepare(&fixture);
+        let root = fixture.directory.path().join("project");
+        let repository = git2::Repository::open(&root).unwrap();
+        let long = format!("nested/long/path/{}.rs", "长文件名".repeat(12));
+        let paths: [&str; 3] = [&long, "only-plus.rs", "only-minus.rs"];
+        let base = ["old\n".repeat(164), "base\n".into(), "old\n".repeat(164)];
+        let changed = [
+            "new\n".repeat(237),
+            format!("base\n{}", "new\n".repeat(237)),
+            String::new(),
+        ];
+        let mut index = repository.index().unwrap();
+        for (path, content) in paths.iter().zip(&base) {
+            std::fs::create_dir_all(root.join(path).parent().unwrap()).unwrap();
+            std::fs::write(root.join(path), content).unwrap();
+            index.add_path(Path::new(path)).unwrap();
+        }
+        index.write().unwrap();
+        let tree = repository.find_tree(index.write_tree().unwrap()).unwrap();
+        let parent = repository.head().unwrap().peel_to_commit().unwrap();
+        let author = git2::Signature::now("Fixture", "fixture@example.invalid").unwrap();
+        repository
+            .commit(
+                Some("HEAD"),
+                &author,
+                &author,
+                "Counts fixture",
+                &tree,
+                &[&parent],
+            )
+            .unwrap();
+        for (path, content) in paths.iter().zip(&changed) {
+            std::fs::write(root.join(path), content).unwrap();
+        }
+        let (shell, visual) = files::mount(&fixture, remote, cx);
+        let selector = format!("git-tracked-{long}");
+        let panel = main(&shell, &fixture, visual, &selector);
+        let handle = visual.update(|window, _| window.window_handle());
+        visual.simulate_window_resize(handle, size(px(1400.), px(900.)));
+        let workspace = shell.read_with(visual, |shell, cx| shell.plugin_workspace(cx).unwrap());
+        for width in [260., 480.] {
+            workspace.update(visual, |workspace, cx| {
+                workspace.width = px(width);
+                cx.notify();
+            });
+            wait(visual, |_| true);
+            let mut columns = Vec::new();
+            for (index, path) in paths.iter().enumerate() {
+                let bounds = |visual: &mut VisualTestContext, prefix: &str| {
+                    let selector = Box::leak(format!("{prefix}-tracked/{path}").into_boxed_str());
+                    visual.debug_bounds(selector).unwrap()
+                };
+                let label = bounds(visual, "resource-label");
+                let counts = bounds(visual, "resource-badges");
+                let selector = Box::leak(format!("git-index-tracked-{path}").into_boxed_str());
+                let check = visual.debug_bounds(selector).unwrap();
+                let viewport = visual.update(|window, _| window.viewport_size());
+                assert_eq!(counts.size.width, px(96.));
+                assert!(label.right() <= counts.left());
+                assert!(counts.right() < check.left());
+                assert!(check.left() >= px(0.) && check.right() <= viewport.width);
+                assert!(check.top() >= px(0.) && check.bottom() <= viewport.height);
+                if index == 0 {
+                    let detail = bounds(visual, "resource-detail");
+                    assert!(detail.right() <= counts.left());
+                }
+                for badge in 0..if index == 0 { 2 } else { 1 } {
+                    let selector = Box::leak(
+                        format!("resource-badge-tracked/{path}-{badge}").into_boxed_str(),
+                    );
+                    let badge = visual.debug_bounds(selector).unwrap();
+                    assert!(badge.left() >= counts.left() && badge.right() <= counts.right());
+                }
+                columns.push((counts.left(), counts.right(), check.left(), check.right()));
+            }
+            assert!(columns.windows(2).all(|pair| pair[0] == pair[1]));
+        }
+        let check = SharedString::from(format!("git-index-tracked-{long}"));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            wait(visual, |_| true);
+            let observed = visual.update(|window, _| window.try_find(check.clone()));
+            if observed
+                .as_ref()
+                .is_some_and(|check| check.visible() && check.disabled() != Some(true))
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "checkbox readiness deadline: remote={remote}, check={observed:?}; {}",
+                panel.read_with(visual, |_, cx| diagnostics(&panel, cx)),
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        visual.update(|window, cx| {
+            let observed = window.find(check.clone());
+            assert_eq!(observed.role(), Some(Role::CheckBox));
+            assert_eq!(observed.checked(), Some(false));
+            window.click(check.clone(), cx);
+        });
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let mutations = writes(&fixture);
+            assert!(
+                mutations.len() <= 1,
+                "duplicate staging requests: {mutations:?}"
+            );
+            if mutations.len() == 1 {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "staging deadline: remote={remote}, check={:?}, mutations={mutations:?}; {}",
+                visual.update(|window, _| window.try_find(check.clone())),
+                panel.read_with(visual, |_, cx| diagnostics(&panel, cx)),
+            );
+            wait(visual, |_| true);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        wait(visual, |_| {
+            let mut index = repository.index().unwrap();
+            // Node writes the index through a separate repository handle.
+            index.read(true).unwrap();
+            let entry = index.get_path(Path::new(&long), 0).unwrap();
+            repository.find_blob(entry.id).unwrap().content() == changed[0].as_bytes()
+        });
+        let mutations = writes(&fixture);
+        let Command::UpdateGitIndex {
+            worktree,
+            paths: captured,
+            operation,
+            ..
+        } = &mutations[0].command
+        else {
+            panic!("index update expected")
+        };
+        assert_eq!(*worktree, fixture.session.worktree);
+        assert_eq!(captured, &[long.clone()]);
+        assert_eq!(*operation, sailry_protocol::GitIndexChange::Stage);
+        assert!(mutations[0].plugin.as_ref().is_some_and(|context| {
+            context.package.name == "git" && context.worktree == fixture.binding.worktree
+        }));
+        let mut index = repository.index().unwrap();
+        index.read(true).unwrap();
+        for (path, content) in paths[1..].iter().zip(&base[1..]) {
+            let entry = index.get_path(Path::new(path), 0).unwrap();
+            assert_eq!(
+                repository.find_blob(entry.id).unwrap().content(),
+                content.as_bytes()
+            );
+        }
+        visual.update(|window, _| window.remove_window());
+        drop(panel);
+        drop(shell);
+        fixture.close();
+    }
+}

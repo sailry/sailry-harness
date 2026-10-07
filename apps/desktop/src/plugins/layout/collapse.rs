@@ -157,7 +157,10 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                 if actions_visible { "focused" } else { "hover" }
             );
             let plain = args.props().get("variant").and_then(HostValue::as_str) == Some("plain");
+            let radius = (cx.theme().radius - px(1.)).max(px(0.));
+            let has_actions = actions.is_some();
             let group: SharedString = format!("collapse-{id}").into();
+            let heading_selector = format!("{id}-heading");
             let button = Button::new(id.clone())
                 .debug_selector({
                     let id = id.clone();
@@ -170,7 +173,17 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                 .h_9()
                 .min_w_0()
                 .when(plain, |button| button.h_8().px_1())
-                .when(!plain, |button| button.rounded_none().bg(cx.theme().muted))
+                .when(!plain, |button| {
+                    button
+                        .rounded_none()
+                        .rounded_tl(radius)
+                        .when(!has_actions, |button| button.rounded_tr(radius))
+                        .when(!open, |button| {
+                            button
+                                .rounded_bl(radius)
+                                .when(!has_actions, |button| button.rounded_br(radius))
+                        })
+                })
                 .justify_start()
                 .accessibility_label(label)
                 .icon(if open {
@@ -199,10 +212,17 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                 })
                 .child(
                     h_flex()
+                        .debug_selector(move || heading_selector)
                         .group(group.clone())
                         .relative()
                         .w_full()
                         .min_w_0()
+                        .when(!plain, |row| {
+                            // GPUI clips rectangular overflow, not descendant corner fills.
+                            row.bg(cx.theme().muted)
+                                .rounded_t(radius)
+                                .when(!open, |row| row.rounded_b(radius))
+                        })
                         .child(button)
                         .when_some(actions, |row, actions| {
                             row.child(

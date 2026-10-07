@@ -5,6 +5,7 @@ use sailry_protocol::{Output, Request, plugin::Info};
 use std::path::Path;
 
 mod composer;
+mod layout;
 
 fn package(fixture: &Fixture) -> Info {
     let Output::Plugin(info) = fixture.execute(Command::ReadPlugin { name: "git".into() }) else {

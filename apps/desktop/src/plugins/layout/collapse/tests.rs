@@ -20,6 +20,36 @@ fn draw(visual: &mut VisualTestContext) {
     });
 }
 
+fn heading_fill(visual: &mut VisualTestContext, open: bool) {
+    let heading = visual.debug_bounds("node-a-heading").unwrap();
+    let button = visual.debug_bounds("node-a").unwrap();
+    let action = visual.debug_bounds("node-a-actions").unwrap();
+    assert_eq!(button.left(), heading.left());
+    assert!(button.right() <= action.left());
+    assert!(heading.contains(&action.center()));
+    if open {
+        let body = visual.debug_bounds("node-a-body").unwrap();
+        assert_eq!(heading.left(), body.left());
+        assert_eq!(heading.right(), body.right());
+    }
+    visual.update(|window, cx| {
+        let scale = window.scale_factor();
+        let radius = (cx.theme().radius - px(1.)).max(px(0.)).scale(scale);
+        let fill = window
+            .painted_quads()
+            .into_iter()
+            .find(|quad| {
+                quad.bounds == heading.scale(scale) && quad.background == cx.theme().muted.into()
+            })
+            .expect("panel heading must fill the action region");
+        assert_eq!(fill.corner_radii.top_left, radius);
+        assert_eq!(fill.corner_radii.top_right, radius);
+        let bottom = if open { px(0.).scale(scale) } else { radius };
+        assert_eq!(fill.corner_radii.bottom_left, bottom);
+        assert_eq!(fill.corner_radii.bottom_right, bottom);
+    });
+}
+
 #[gpui::test]
 fn preserves_slots_and_native_expansion(cx: &mut TestAppContext) {
     init(cx);
@@ -112,6 +142,7 @@ export default class Groups extends View {
     });
     let _application = application.unwrap();
     draw(visual);
+    heading_fill(visual, true);
     for id in ["node-a", "node-b"] {
         let header = visual.debug_bounds(id).unwrap();
         let body = visual
@@ -129,6 +160,7 @@ export default class Groups extends View {
     assert!(visual.debug_bounds("missing-title").is_none());
     click(visual, "node-a");
     draw(visual);
+    heading_fill(visual, false);
     assert!(visual.debug_bounds("node-a-body").is_none());
     assert!(visual.debug_bounds("node-a-title").is_some());
     assert!(visual.debug_bounds("node-b-body").is_some());

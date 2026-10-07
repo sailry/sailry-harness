@@ -91,6 +91,7 @@ pub(super) struct Decoration {
     pub icon_size: Option<f32>,
     #[serde(default)]
     pub badges: Vec<Badge>,
+    pub badges_width: Option<f32>,
     pub check: Option<Check>,
 }
 #[derive(Clone, Deserialize, PartialEq)]
@@ -130,6 +131,10 @@ pub(super) fn content(
     cx: &mut App,
 ) -> AnyElement {
     let decoration = item.decoration.clone().unwrap_or_default();
+    let label_selector = format!("resource-label-{}", item.id);
+    let detail_selector = format!("resource-detail-{}", item.id);
+    let badges_selector = format!("resource-badges-{}", item.id);
+    let fixed_badges = decoration.badges_width;
     let glyph = icon(glyph)
         .with_size(px(decoration.icon_size.unwrap_or(16.)))
         .text_color(color(decoration.icon_tone.as_deref(), cx))
@@ -143,9 +148,12 @@ pub(super) fn content(
             h_flex()
                 .flex_1()
                 .min_w_0()
+                .overflow_hidden()
                 .gap_2()
                 .child(
                     div()
+                        .debug_selector(move || label_selector.clone())
+                        .flex_shrink_1()
                         .min_w_0()
                         .max_w_full()
                         .truncate()
@@ -153,6 +161,7 @@ pub(super) fn content(
                 )
                 .children(decoration.detail.map(|detail| {
                     div()
+                        .debug_selector(move || detail_selector.clone())
                         .flex_1()
                         .min_w_0()
                         .truncate()
@@ -160,13 +169,30 @@ pub(super) fn content(
                         .child(detail)
                 })),
         )
-        .children(decoration.badges.into_iter().map(|badge| {
-            div()
-                .text_xs()
-                .flex_shrink_0()
-                .text_color(color(badge.tone.as_deref(), cx))
-                .child(badge.text)
-        }))
+        .when(
+            fixed_badges.is_some() || !decoration.badges.is_empty(),
+            |row| {
+                row.child(
+                    h_flex()
+                        .debug_selector(move || badges_selector.clone())
+                        .flex_shrink_0()
+                        .gap_2()
+                        .justify_end()
+                        .when_some(fixed_badges, |badges, width| badges.w(px(width)))
+                        .children(decoration.badges.into_iter().enumerate().map(
+                            |(index, badge)| {
+                                let selector = format!("resource-badge-{}-{index}", item.id);
+                                div()
+                                    .debug_selector(move || selector.clone())
+                                    .text_xs()
+                                    .flex_shrink_0()
+                                    .text_color(color(badge.tone.as_deref(), cx))
+                                    .child(badge.text)
+                            },
+                        )),
+                )
+            },
+        )
         .children(decoration.check.map(|check| {
             let path = item.id.clone();
             let check_id = check.id.clone();
@@ -184,6 +210,9 @@ pub(super) fn content(
         }))
         .into_any_element()
 }
+
+#[cfg(test)]
+mod tests;
 
 // Component Checkbox exposes bool only in b79f4ce; Base Checkbox supplies mixed semantics.
 fn checkbox(
