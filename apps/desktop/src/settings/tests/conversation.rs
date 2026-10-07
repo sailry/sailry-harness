@@ -41,13 +41,14 @@ fn drags_and_restores_text_size(cx: &mut TestAppContext) {
             let selector = Box::leak(format!("message-text-size-tick-{size}").into_boxed_str());
             let tick = visual.debug_bounds(selector).unwrap();
             assert!(tick.left() >= px(0.) && tick.right() <= px(width));
-            let inset = px(8.);
+            let inset = px(12.);
             let fraction = f32::from(size - 12) / 6.;
             let position = point(
                 slider.left() + inset + (slider.size.width - inset * 2.) * fraction,
                 slider.center().y,
             );
             assert!((tick.center().x - position.x).abs() <= px(1.));
+            assert_eq!(tick.size, gpui_kit::size(px(4.), px(4.)));
             let current = visual.update(|_, cx| crate::preferences::data(cx).message_text_size());
             let thumb = point(
                 slider.left()
