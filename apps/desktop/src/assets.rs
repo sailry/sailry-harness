@@ -7,6 +7,7 @@ pub(crate) mod icons;
 pub(crate) struct Assets;
 
 gpui_kit::assets::icon_assets!(ActivityAssets, [ListTodo]);
+gpui_kit::assets::icon_assets!(UsageAssets, [Gauge, DollarSign, MessagesSquare]);
 
 pub(crate) const DRAG_ICON: &str = "icons/reicon/move.svg";
 
@@ -383,12 +384,16 @@ impl AssetSource for Assets {
         if let Some(bytes) = ActivityAssets.load(path)? {
             return Ok(Some(bytes));
         }
+        if let Some(bytes) = UsageAssets.load(path)? {
+            return Ok(Some(bytes));
+        }
         gpui_kit::assets::Assets.load(path)
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
         let mut names = gpui_kit::assets::Assets.list(path)?;
         names.extend(ActivityAssets.list(path)?);
+        names.extend(UsageAssets.list(path)?);
         names.extend(
             ICONS
                 .iter()
@@ -408,5 +413,19 @@ mod tests {
     fn embedded_product_icons() {
         assert!(Assets.load("icons/folder.svg").unwrap().is_some());
         assert!(Assets.load("icons/list-todo.svg").unwrap().is_some());
+    }
+
+    #[test]
+    fn footer_icons() {
+        let names = Assets.list("icons/").unwrap();
+        for path in [
+            "icons/gauge.svg",
+            "icons/dollar-sign.svg",
+            "icons/messages-square.svg",
+        ] {
+            let expected = UsageAssets.load(path).unwrap().unwrap();
+            assert_eq!(Assets.load(path).unwrap().unwrap(), expected);
+            assert!(names.iter().any(|name| name.as_ref() == path));
+        }
     }
 }

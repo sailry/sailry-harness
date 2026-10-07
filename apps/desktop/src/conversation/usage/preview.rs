@@ -1,13 +1,18 @@
 //! Explicit preview values do not subscribe to a Node or execute package code.
 use super::*;
+use gpui_kit::assets::IconName;
 use gpui_kit::component::progress::ProgressCircle;
 
 pub(super) fn group(turns: usize) -> Group {
     Group {
         metrics: [
             ("composer_tokens", Some(IconName::ChartPie), "—".to_owned()),
-            ("composer_speed", Some(IconName::ArrowUp), "—".to_owned()),
-            ("composer_cost", None, "$—".to_owned()),
+            ("composer_speed", Some(IconName::Gauge), "—".to_owned()),
+            (
+                "composer_cost",
+                Some(IconName::DollarSign),
+                "0.00".to_owned(),
+            ),
             (
                 "composer_cache",
                 Some(IconName::MemoryStick),
@@ -15,7 +20,7 @@ pub(super) fn group(turns: usize) -> Group {
             ),
             (
                 "composer_turns",
-                Some(IconName::RotateCw),
+                Some(IconName::MessagesSquare),
                 turns.to_string(),
             ),
         ]

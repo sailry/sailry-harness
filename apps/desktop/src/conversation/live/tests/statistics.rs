@@ -84,6 +84,7 @@ fn restores_totals_and_keeps_focus(cx: &mut TestAppContext) {
                 ("composer_tokens", "16"),
                 ("composer_turns", "1"),
                 ("composer_cache", "0%"),
+                ("composer_cost", "0.00"),
             ]
             .into_iter()
             .all(|(id, value)| {
@@ -93,6 +94,51 @@ fn restores_totals_and_keeps_focus(cx: &mut TestAppContext) {
                         && entry.state.value.as_str() == Some(value)
                 })
             })
+        });
+        view.read_with(visual, |view, cx| {
+            let entries = view.contributions.read(cx).entries(Slot::Statistics, cx);
+            let metric = |id: &str| {
+                entries
+                    .iter()
+                    .find(|entry| entry.key.package.name == "statistics" && entry.key.id == id)
+                    .unwrap()
+            };
+            for (id, icon) in [
+                ("composer_speed", "gauge"),
+                ("composer_cost", "dollar-sign"),
+                ("composer_turns", "messages-square"),
+            ] {
+                assert_eq!(metric(id).declaration.icon.as_deref(), Some(icon));
+                assert!(metric(id).icon().is_some());
+            }
+            let rate = metric("composer_speed")
+                .state
+                .value
+                .as_str()
+                .unwrap()
+                .strip_suffix("/s")
+                .unwrap()
+                .parse::<f64>()
+                .unwrap();
+            let expected =
+                generation.output_tokens as f64 * 1_000_000. / generation.elapsed_us as f64;
+            assert!((rate - expected).abs() < 0.050_001);
+            assert!(
+                view.history
+                    .snapshot
+                    .as_ref()
+                    .unwrap()
+                    .statistics
+                    .cost
+                    .is_none()
+            );
+            assert!(
+                metric("composer_cost")
+                    .state
+                    .details
+                    .iter()
+                    .all(|detail| detail.value == "—")
+            );
         });
         visual.simulate_input("Preserved draft 中文 🙂");
         for mode in [ThemeMode::Light, ThemeMode::Dark] {
@@ -259,6 +305,60 @@ fn restores_totals_and_keeps_focus(cx: &mut TestAppContext) {
             expected
         );
         assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
+#[gpui::test]
+fn counts_turns_instead_of_responses(cx: &mut TestAppContext) {
+    fixture::init(cx);
+    for remote in [false, true] {
+        let fixture = fixture::Fixture::with_tools(
+            remote,
+            vec![(
+                support::plugin_tool("progress", "update_plan"),
+                serde_json::json!({
+                    "title": "Count fixture",
+                    "steps": [{"description": "Record one turn", "state": "completed"}],
+                }),
+            )],
+        );
+        let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
+        fixture.start();
+        wait(visual, |cx| {
+            let view = view.read(cx);
+            view.history.snapshot.as_ref().is_some_and(|snapshot| {
+                snapshot.statistics.turns == 1 && snapshot.statistics.responses == 2
+            }) && view
+                .contributions
+                .read(cx)
+                .entries(Slot::Statistics, cx)
+                .iter()
+                .any(|entry| {
+                    entry.key.package.name == "statistics"
+                        && entry.key.id == "composer_turns"
+                        && entry.state.value.as_str() == Some("1")
+                        && entry.state.details[0].value == "2"
+                })
+        });
+        view.read_with(visual, |view, cx| {
+            let statistics = &view.history.snapshot.as_ref().unwrap().statistics;
+            assert_eq!((statistics.turns, statistics.responses), (1, 2));
+            assert!(statistics.cost.is_none());
+            let entry = view
+                .contributions
+                .read(cx)
+                .entries(Slot::Statistics, cx)
+                .into_iter()
+                .find(|entry| {
+                    entry.key.package.name == "statistics" && entry.key.id == "composer_cost"
+                })
+                .unwrap();
+            assert_eq!(entry.state.value.as_str(), Some("0.00"));
+            assert!(entry.state.details.iter().all(|detail| detail.value == "—"));
+        });
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 2);
         visual.update(|window, _| window.remove_window());
         fixture.close();
     }
