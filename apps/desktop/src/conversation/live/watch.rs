@@ -70,6 +70,7 @@ pub(super) fn node(
                         view.defaults = next;
                     } else {
                         view.node = next;
+                        view.sync_child_approvals(cx);
                         if view.outgoing.is_some() {
                             view.sync_rows(cx);
                         }

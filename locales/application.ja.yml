@@ -1476,6 +1476,7 @@ queue_send: "プレビューを開始 (現在のプレビューターンを停�
 queue_save: "保存"
 queue_title: "待ち受けメッセージ"
 queue_paused: "キューは一時停止中"
+queue_paused_count: "%{count} 件一時停止中"
 queue_pause: "キューを一時停止"
 queue_resume: "送信を再開"
 queue_send_now: "現在のターンを停止して送信"

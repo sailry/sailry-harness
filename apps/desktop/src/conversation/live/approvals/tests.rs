@@ -8,6 +8,7 @@ use sailry_link::Transport;
 use serde_json::json;
 use std::time::Duration;
 
+mod children;
 mod lifecycle;
 mod permissions;
 #[cfg(unix)]

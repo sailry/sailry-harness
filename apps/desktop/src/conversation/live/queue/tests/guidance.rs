@@ -36,6 +36,17 @@ fn guides_without_stopping(cx: &mut TestAppContext) {
             panic!("turn expected")
         };
         fixture.runtime.block_on(server.wait_count(1));
+        let Output::Session(session) = fixture.execute(Command::SetSessionConfig {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            config: SessionConfig {
+                permission: sailry_protocol::Permission::Full,
+                ..fixture.session.config.clone()
+            },
+        }) else {
+            panic!("session expected")
+        };
+        fixture.session = session;
         let selected = fixture.enqueue("Use this guidance 中文 🙂");
         let (view, visual) = super::super::super::tests::fixture::open(
             cx,
@@ -60,6 +71,8 @@ fn guides_without_stopping(cx: &mut TestAppContext) {
                 && panel.read(cx).retry.is_none()
                 && panel.read(cx).queue.items[0].guidance == Some(active.id)
         });
+        let guided = panel.read_with(visual, |panel, _| panel.queue.items[0].turn);
+        assert_ne!(guided, selected);
         view.read_with(visual, |view, cx| {
             assert_eq!(view.active(), Some(active.id));
             assert_eq!(
@@ -107,7 +120,7 @@ fn guides_without_stopping(cx: &mut TestAppContext) {
                 .filter(|entry| entry.author == "user")
                 .map(|entry| entry.turn)
                 .collect();
-            assert_eq!(users, vec![active.id, selected]);
+            assert_eq!(users, vec![active.id, guided]);
         });
         assert_eq!(server.requests.lock().unwrap().len(), 2);
         visual.update(|window, _| window.remove_window());

@@ -444,6 +444,8 @@ fn opens_child_without_discarding_draft(cx: &mut TestAppContext) {
                     .collect::<Vec<_>>(),
             )
         });
+        visual.simulate_keystrokes("escape");
+        visual.run_until_parked();
         tap(visual, "live-chat-input");
         visual.simulate_input("Keep my draft");
         let selected = std::rc::Rc::new(std::cell::Cell::new(None));
@@ -473,7 +475,54 @@ fn opens_child_without_discarding_draft(cx: &mut TestAppContext) {
                     .debug_bounds(Box::leak(format!("asset-child-{child}").into_boxed_str()))
                     .is_some()
             );
+            assert!(
+                visual
+                    .debug_bounds(Box::leak(
+                        format!("asset-child-avatar-{child}").into_boxed_str()
+                    ))
+                    .is_some()
+            );
+            assert!(
+                visual
+                    .debug_bounds(Box::leak(
+                        format!("asset-child-status-{child}").into_boxed_str()
+                    ))
+                    .is_none()
+            );
+            assert!(
+                visual
+                    .debug_bounds(Box::leak(
+                        format!("asset-child-completed-{child}").into_boxed_str()
+                    ))
+                    .is_none()
+            );
         }
+        let original = view.read_with(visual, |view, _| view.history.clone());
+        view.update(visual, |view, cx| {
+            let page =
+                Arc::make_mut(&mut Arc::make_mut(view.history.snapshot.as_mut().unwrap()).page);
+            page.children[0].run.status = Status::Completed;
+            cx.notify();
+        });
+        wait(visual, |_| true);
+        assert!(
+            visual
+                .debug_bounds(Box::leak(
+                    format!("asset-child-completed-{}", children[0]).into_boxed_str()
+                ))
+                .is_some()
+        );
+        assert!(
+            visual
+                .debug_bounds(Box::leak(
+                    format!("asset-child-status-{}", children[0]).into_boxed_str()
+                ))
+                .is_none()
+        );
+        view.update(visual, |view, cx| {
+            view.history = original;
+            cx.notify();
+        });
         tap(visual, &format!("asset-child-{}", children[0]));
         assert_eq!(selected.get(), Some(children[0]));
         assert!(!panel.read_with(visual, |panel, _| panel.open));

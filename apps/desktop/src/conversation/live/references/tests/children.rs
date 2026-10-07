@@ -2,7 +2,7 @@ use super::*;
 use crate::conversation::live::subagents::fixture::Fixture as ChildFixture;
 
 #[gpui::test]
-fn preserves_configuration_and_picker(cx: &mut TestAppContext) {
+fn keeps_child_read_only(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = ChildFixture::with_children(remote, 1);
@@ -62,23 +62,13 @@ fn preserves_configuration_and_picker(cx: &mut TestAppContext) {
         visual.update(|window, _| window.remove_window());
         drop(parent);
         let (view, visual) = fixture::open(cx, binding, session.clone());
-        wait(visual, |cx| {
-            view.read(cx).connected() && view.read(cx).guide_target().is_some()
-        });
-        assert!(visual.debug_bounds("child-guide-input").is_some());
+        wait(visual, |cx| view.read(cx).connected());
+        assert!(visual.debug_bounds("child-guide-input").is_none());
+        assert!(visual.debug_bounds("child-guide").is_none());
+        assert!(visual.debug_bounds("child-guide-attach").is_none());
         assert!(visual.debug_bounds("live-chat-input").is_none());
         assert!(visual.debug_bounds("live-chat-model").is_none());
         assert!(visual.debug_bounds("live-chat-mode").is_none());
-        tap(visual, "child-guide-input");
-        visual.simulate_input("/");
-        wait(visual, |cx| view.read(cx).references.open);
-        view.read_with(visual, |view, _| {
-            assert!(view.references.rows.iter().all(|row| !matches!(row,
-                Item::Page(Page::Models | Page::Reasoning)
-                    | Item::Command(commands::Choice::Settings | commands::Choice::Mode(_) | commands::Choice::Model(..) | commands::Choice::Reasoning(_))
-            )));
-            assert!(view.references.rows.iter().all(|row| !matches!(row, Item::Command(commands::Choice::External(entry)) if entry.declaration.command.as_ref().is_some_and(|command| command.kind == sailry_protocol::plugin::ui::CommandKind::Invoke))));
-        });
         visual.update(|window, cx| {
             view.update(cx, |view, cx| {
                 view.references.dismiss();

@@ -1,4 +1,44 @@
 use super::*;
+
+#[gpui::test]
+fn resumes_paused_queue(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        fixture.enqueue("First queued message");
+        fixture.enqueue("Second queued message");
+        let (view, visual) = super::super::super::tests::fixture::open(
+            cx,
+            fixture.binding.clone(),
+            fixture.session.clone(),
+        );
+        let panel = view.read_with(visual, |view, _| view.queue.clone());
+        wait(visual, |cx| {
+            panel.read(cx).connected
+                && panel.read(cx).queue.paused
+                && panel.read(cx).queue.items.len() == 2
+        });
+        click(visual, "live-chat-input");
+        visual.simulate_input("Keep the unsent draft");
+        click(visual, "live-queue");
+        assert!(visual.debug_bounds("queue-resume").is_some());
+        click(visual, "queue-resume");
+        wait(visual, |cx| {
+            !panel.read(cx).pending
+                && panel.read(cx).queue.items.is_empty()
+                && view.read(cx).active().is_none()
+        });
+        assert!(!panel.read_with(visual, |panel, _| panel.queue.paused));
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 2);
+        assert_eq!(
+            view.read_with(visual, |view, cx| view.input.read(cx).value()),
+            "Keep the unsent draft"
+        );
+        visual.update(|window, _| window.remove_window());
+        drop(view);
+        fixture.close();
+    }
+}
 use sailry_link::{Admission, Pending as Future, Subscription};
 use sailry_protocol::{Fault, RequestId, Topic};
 use std::sync::Mutex;
@@ -213,6 +253,7 @@ fn sends_during_execution(cx: &mut TestAppContext) {
             view.read_with(visual, |view, _| view.active()),
             Some(active.id)
         );
+        assert!(visual.debug_bounds("queue-resume").is_some());
         let turn = panel.read_with(visual, |panel, _| panel.queue.items[1].turn);
         click(visual, selector("send", turn));
         wait(visual, |cx| {

@@ -97,17 +97,33 @@ impl Assets {
                             .w_full()
                             .min_w_0()
                             .gap_2()
-                            .child(crate::ui::identicon::animated(
-                                Icon::new(child.icon).size_4(),
-                                child.running,
-                            ))
-                            .child(div().flex_1().min_w_0().truncate().child(child.name))
                             .child(
                                 div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(tr(child.status)),
-                            ),
+                                    .debug_selector(move || format!("asset-child-avatar-{id}"))
+                                    .child(crate::ui::identicon::animated(
+                                        crate::ui::identicon::agent(&id.to_string(), cx),
+                                        child.running,
+                                    )),
+                            )
+                            .child(div().flex_1().min_w_0().truncate().child(child.name))
+                            .when(child.status == "turn_completed", |row| {
+                                row.child(
+                                    div()
+                                        .debug_selector(move || {
+                                            format!("asset-child-completed-{id}")
+                                        })
+                                        .child(Icon::new(IconName::Check).size_4()),
+                                )
+                            })
+                            .when(!child.running && child.status != "turn_completed", |row| {
+                                row.child(
+                                    div()
+                                        .debug_selector(move || format!("asset-child-status-{id}"))
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(tr(child.status)),
+                                )
+                            }),
                     )
                     .on_click(
                         cx.listener(move |panel, _, window, cx| panel.select_child(id, window, cx)),

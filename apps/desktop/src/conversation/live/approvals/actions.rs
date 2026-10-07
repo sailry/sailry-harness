@@ -9,6 +9,7 @@ pub(in crate::conversation::live) struct Actions {
     pub(in crate::conversation::live) attempt: Option<Request>,
     pub(in crate::conversation::live) error: Option<&'static str>,
     task: Option<Task<()>>,
+    pub(super) children: BTreeMap<SessionId, super::watch::Child>,
 }
 
 impl Actions {
@@ -17,6 +18,13 @@ impl Actions {
             .snapshot
             .iter()
             .flat_map(|snapshot| &snapshot.page.approvals)
+            .chain(self.children.values().flat_map(|child| {
+                child
+                    .history
+                    .snapshot
+                    .iter()
+                    .flat_map(|snapshot| &snapshot.page.approvals)
+            }))
             .filter(|approval| approval.state == ApprovalState::Pending)
             .map(|approval| approval.id)
             .collect();
@@ -37,10 +45,28 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.approvals.pending || self.approvals.attempt.is_some() || !self.connected() {
+        if self.readonly()
+            || self.approvals.pending
+            || self.approvals.attempt.is_some()
+            || !self.connected()
+        {
             return;
         }
-        let Some(snapshot) = &self.history.snapshot else {
+        let Some(history) = std::iter::once(&self.history)
+            .chain(self.approvals.children.values().map(|child| &child.history))
+            .find(|history| {
+                history.snapshot.as_ref().is_some_and(|snapshot| {
+                    snapshot
+                        .page
+                        .approvals
+                        .iter()
+                        .any(|approval| approval.id == id)
+                })
+            })
+        else {
+            return;
+        };
+        let Some(snapshot) = &history.snapshot else {
             return;
         };
         let Some(approval) = snapshot
@@ -51,7 +77,7 @@ impl View {
         else {
             return;
         };
-        if self.session() != Some(approval.session)
+        if !history.connected
             || !snapshot
                 .page
                 .runs
@@ -73,7 +99,7 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.approvals.pending || !self.connected() {
+        if self.readonly() || self.approvals.pending || !self.connected() {
             return;
         }
         let Some(request) = self.approvals.attempt.clone() else {

@@ -3,9 +3,7 @@ use sailry_protocol::conversation::Child;
 
 mod panel;
 pub(crate) use panel::{Panel, Tab};
-mod guidance;
 mod presentation;
-pub(super) use guidance::Recipient;
 
 #[cfg(test)]
 pub(crate) mod fixture;
@@ -37,8 +35,12 @@ pub(super) fn latest<'a>(children: impl IntoIterator<Item = &'a Child>) -> Vec<&
     children
 }
 
-pub(super) fn rank(child: &Child) -> (bool, u64) {
-    (child.run.status != Status::Queued, child.run.sequence)
+pub(super) fn rank(child: &Child) -> (bool, bool, u64) {
+    (
+        matches!(child.run.status, Status::Running | Status::Stopping),
+        child.run.status != Status::Queued,
+        child.run.sequence,
+    )
 }
 
 pub(super) fn key(child: &Child) -> String {
@@ -49,6 +51,37 @@ pub(super) fn key(child: &Child) -> String {
 }
 
 impl View {
+    fn current_children(&self, turn: TurnId) -> Vec<&Child> {
+        let Some(snapshot) = &self.history.snapshot else {
+            return Vec::new();
+        };
+        let mut origins = std::collections::BTreeSet::from([turn]);
+        if self.active() == Some(turn) {
+            // Background children keep their original call owner across handoff.
+            origins.extend(
+                snapshot
+                    .page
+                    .children
+                    .iter()
+                    .filter(|child| {
+                        Some(child.origin.session) == self.session()
+                            && matches!(
+                                child.run.status,
+                                Status::Queued | Status::Running | Status::Stopping
+                            )
+                    })
+                    .map(|child| child.origin.turn),
+            );
+        }
+        latest(
+            snapshot
+                .page
+                .children
+                .iter()
+                .filter(|child| origins.contains(&child.origin.turn)),
+        )
+    }
+
     pub(crate) fn child(&self, id: SessionId) -> Option<&Child> {
         self.history
             .snapshot
@@ -98,15 +131,7 @@ impl View {
 
     /// Counts the turn's children as (active, complete, failed, total).
     pub(super) fn child_counts(&self, turn: TurnId) -> Option<(usize, usize, usize, usize)> {
-        let children = latest(
-            self.history
-                .snapshot
-                .as_ref()?
-                .page
-                .children
-                .iter()
-                .filter(|child| child.origin.turn == turn),
-        );
+        let children = self.current_children(turn);
         if children.is_empty() {
             return None;
         }

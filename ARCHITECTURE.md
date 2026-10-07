@@ -127,10 +127,18 @@ its founding ancestry. The same parent session may reuse an idle child without
 losing history or changing its role, effective configuration or worktree. Idle
 reuse captures current packages and settings; initial delegation inherits the
 parent's frozen capture, and guidance retains the active recipient's capture.
+Delegation waits synchronously by default. Opt-in background children remain
+owned by their main session across guidance handoffs; the main agent can guide
+and wait for them through Node-owned tools. Main-session completion waits for
+owned children, while explicit Stop cancels them. Child views are read-only;
+their approvals retain the child identity and are presented in the main session.
 
 Guidance is durably admitted before execution and hands off after the whole tool
 batch settles, before the next model request. A new ADK invocation continues the
-same session history; it does not inject into an in-flight model stream. Explicit
+same session history; it does not inject into an in-flight model stream. If a
+queued input has a different capture, explicit guidance admits a replacement
+using the recipient's capture without modifying the original sent-turn record.
+Natural completion advances the queue automatically. Explicit
 Stop and restart preserve unconsumed input, references and attachments in a paused
 queue without automatic replay.
 

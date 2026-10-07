@@ -39,7 +39,11 @@ impl View {
                         .text_color(cx.theme().muted_foreground)
                         .label(
                             rust_i18n::t!(
-                                "queue_count",
+                                if paused {
+                                    "queue_paused_count"
+                                } else {
+                                    "queue_count"
+                                },
                                 count = self.queue.read(cx).queue.items.len()
                             )
                             .to_string(),
@@ -317,6 +321,33 @@ impl Render for Panel {
             })
         });
         presentation::panel(window)
+            .when(
+                self.queue.paused && !self.child && !self.queue.items.is_empty(),
+                |panel| {
+                    let session = self.session.unwrap();
+                    let revision = self.queue.revision;
+                    panel.child(
+                        Button::new("queue-resume")
+                            .outline()
+                            .small()
+                            .rounded_full()
+                            .label(tr("queue_resume"))
+                            .debug_selector(|| "queue-resume".into())
+                            .disabled(self.blocked())
+                            .on_click(cx.listener(move |panel, _, window, cx| {
+                                panel.execute(
+                                    Command::SetQueuePaused {
+                                        session,
+                                        expected_revision: revision,
+                                        paused: false,
+                                    },
+                                    window,
+                                    cx,
+                                );
+                            })),
+                    )
+                },
+            )
             .when_some(editor, |panel, editor| panel.child(editor))
             .when(self.editing.is_none(), |panel| {
                 panel.child(

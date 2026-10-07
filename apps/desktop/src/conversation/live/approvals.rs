@@ -14,109 +14,148 @@ use sailry_protocol::{
 mod actions;
 #[cfg(test)]
 mod tests;
+mod watch;
 pub(super) use actions::Actions;
 
 impl View {
     pub(super) fn pending_approvals(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let page = &self.history.snapshot.as_ref()?.page;
-        let calls: Vec<_> = self
-            .history
-            .calls
-            .iter()
-            .filter(|call| {
-                call.approval
-                    .as_ref()
-                    .is_some_and(|approval| approval.state == ApprovalState::Pending)
+        if self.readonly() {
+            return None;
+        }
+        let calls: Vec<_> = std::iter::once(&self.history)
+            .chain(self.approvals.children.values().map(|child| &child.history))
+            .flat_map(|history| {
+                history.calls.iter().filter_map(move |call| {
+                    let page = &history.snapshot.as_ref()?.page;
+                    call.approval
+                        .as_ref()
+                        .is_some_and(|approval| approval.state == ApprovalState::Pending)
+                        .then_some((call, page, history.connected))
+                })
             })
             .collect();
         if calls.is_empty() && self.approvals.error.is_none() {
             return None;
         }
         let busy = self.approvals.pending || self.approvals.attempt.is_some();
-        let rows = calls.iter().enumerate().map(|(position, call)| {
-            let approval = call.approval.as_ref().unwrap();
-            let id = approval.id;
-            let details = details(call, page);
-            let disabled = busy
-                || !self.connected()
-                || !page
-                    .runs
-                    .iter()
-                    .any(|run| run.turn == approval.turn && run.status == Status::Running);
-            v_flex()
-                .id(format!("approval-request-{id}"))
-                .aria_label(details.prompt.unwrap_or_else(|| call.name.clone().into()))
-                .w_full()
-                .gap_2()
-                .text_sm()
-                .child(
-                    div()
-                        .font_medium()
-                        .debug_selector(move || format!("live-approval-title-{id}"))
-                        .child(
-                            call.display(page)
-                                .map(|display| {
-                                    SharedString::from(
-                                        display.label(&rust_i18n::locale()).to_owned(),
-                                    )
-                                })
-                                .unwrap_or_else(|| {
-                                    crate::conversation::surface::tool_label(&call.name)
-                                }),
-                        ),
-                )
-                .when(position > 0, |row| {
-                    row.pt_3().border_t_1().border_color(cx.theme().border)
-                })
-                .when_some(details.context, |row, path| {
-                    row.child(div().text_color(cx.theme().muted_foreground).child(path))
-                })
-                .when_some(details.description, |row, description| {
-                    row.child(
-                        div()
-                            .debug_selector(move || format!("live-approval-description-{id}"))
-                            .whitespace_normal()
-                            .line_clamp(2)
-                            .text_ellipsis()
-                            .child(description),
-                    )
-                })
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .pt_2()
-                        .justify_end()
-                        .flex_shrink_0()
-                        .child(
-                            Button::new(format!("approval-reject-{id}"))
-                                .ghost()
-                                .small()
-                                .rounded_full()
-                                .min_w_12()
-                                .label(tr("approval_reject"))
-                                .disabled(disabled)
-                                .debug_selector(move || format!("live-approval-reject-{id}"))
-                                .on_click(cx.listener(move |view, _, window, cx| {
-                                    view.resolve_approval(id, Decision::Deny, window, cx)
-                                })),
+        let rows = calls
+            .iter()
+            .enumerate()
+            .map(|(position, (call, page, connected))| {
+                let approval = call.approval.as_ref().unwrap();
+                let id = approval.id;
+                let details = details(call, page);
+                let disabled = busy
+                    || !self.connected()
+                    || !connected
+                    || !page
+                        .runs
+                        .iter()
+                        .any(|run| run.turn == approval.turn && run.status == Status::Running);
+                v_flex()
+                    .id(format!("approval-request-{id}"))
+                    .aria_label(details.prompt.unwrap_or_else(|| call.name.clone().into()))
+                    .w_full()
+                    .gap_2()
+                    .text_sm()
+                    .when(approval.session != self.session().unwrap(), |row| {
+                        row.child(
+                            h_flex()
+                                .gap_2()
+                                .child(crate::ui::identicon::agent(
+                                    &approval.session.to_string(),
+                                    cx,
+                                ))
+                                .child(
+                                    div()
+                                        .debug_selector(move || format!("live-approval-child-{id}"))
+                                        .child(
+                                            self.node
+                                                .snapshot
+                                                .as_ref()
+                                                .and_then(|snapshot| {
+                                                    snapshot.sessions.iter().find(|session| {
+                                                        session.id == approval.session
+                                                    })
+                                                })
+                                                .map(|session| {
+                                                    SharedString::from(
+                                                        session.activity.title.clone(),
+                                                    )
+                                                })
+                                                .unwrap_or_else(|| tr("chat_child")),
+                                        ),
+                                ),
                         )
-                        .child(
-                            Button::new(format!("approval-approve-{id}"))
-                                .when(position == 0, |button| button.primary())
-                                .small()
-                                .rounded_full()
-                                .min_w_12()
-                                .label(tr("approval_approve"))
-                                .disabled(disabled)
-                                .debug_selector(move || format!("live-approval-approve-{id}"))
-                                .on_click(cx.listener(move |view, _, window, cx| {
-                                    view.resolve_approval(id, Decision::Approve, window, cx)
-                                })),
-                        ),
-                )
-                .debug_selector(move || format!("live-approval-request-{id}"))
-                .into_any_element()
-        });
+                    })
+                    .child(
+                        div()
+                            .font_medium()
+                            .debug_selector(move || format!("live-approval-title-{id}"))
+                            .child(
+                                call.display(page)
+                                    .map(|display| {
+                                        SharedString::from(
+                                            display.label(&rust_i18n::locale()).to_owned(),
+                                        )
+                                    })
+                                    .unwrap_or_else(|| {
+                                        crate::conversation::surface::tool_label(&call.name)
+                                    }),
+                            ),
+                    )
+                    .when(position > 0, |row| {
+                        row.pt_3().border_t_1().border_color(cx.theme().border)
+                    })
+                    .when_some(details.context, |row, path| {
+                        row.child(div().text_color(cx.theme().muted_foreground).child(path))
+                    })
+                    .when_some(details.description, |row, description| {
+                        row.child(
+                            div()
+                                .debug_selector(move || format!("live-approval-description-{id}"))
+                                .whitespace_normal()
+                                .line_clamp(2)
+                                .text_ellipsis()
+                                .child(description),
+                        )
+                    })
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .pt_2()
+                            .justify_end()
+                            .flex_shrink_0()
+                            .child(
+                                Button::new(format!("approval-reject-{id}"))
+                                    .ghost()
+                                    .small()
+                                    .rounded_full()
+                                    .min_w_12()
+                                    .label(tr("approval_reject"))
+                                    .disabled(disabled)
+                                    .debug_selector(move || format!("live-approval-reject-{id}"))
+                                    .on_click(cx.listener(move |view, _, window, cx| {
+                                        view.resolve_approval(id, Decision::Deny, window, cx)
+                                    })),
+                            )
+                            .child(
+                                Button::new(format!("approval-approve-{id}"))
+                                    .when(position == 0, |button| button.primary())
+                                    .small()
+                                    .rounded_full()
+                                    .min_w_12()
+                                    .label(tr("approval_approve"))
+                                    .disabled(disabled)
+                                    .debug_selector(move || format!("live-approval-approve-{id}"))
+                                    .on_click(cx.listener(move |view, _, window, cx| {
+                                        view.resolve_approval(id, Decision::Approve, window, cx)
+                                    })),
+                            ),
+                    )
+                    .debug_selector(move || format!("live-approval-request-{id}"))
+                    .into_any_element()
+            });
         let heading = if calls.is_empty() {
             tr("approval_receipt")
         } else {

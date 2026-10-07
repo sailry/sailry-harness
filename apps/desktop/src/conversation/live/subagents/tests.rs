@@ -7,6 +7,83 @@ use core::prelude::v1::test;
 use sailry_protocol::conversation::ApprovalState;
 
 #[gpui::test]
+fn keeps_active_children_after_handoff(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = fixture::Fixture::with_children(remote, 1);
+        fixture.start();
+        let binding = Binding {
+            client: fixture.client.clone(),
+            defaults: fixture.client.clone(),
+            runtime: fixture.runtime.clone(),
+            project: fixture.session.project,
+            worktree: Some(fixture.session.worktree),
+            host: "Fixture".into(),
+            project_name: "Child handoff".into(),
+            branch: "main".into(),
+        };
+        let (view, visual) = open(cx, binding, fixture.session.clone());
+        wait(visual, |cx| {
+            view.read(cx)
+                .history
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot.page.children.first().is_some_and(|child| {
+                        child.run.status == Status::Running
+                            && view.read(cx).child_session(child.run.session).is_some()
+                    })
+                })
+        });
+        visual.simulate_keystrokes("escape");
+        visual.run_until_parked();
+        let original = view.read_with(visual, |view, _| view.history.clone());
+        let continued = TurnId::new();
+        let child = view.read_with(visual, |view, _| {
+            view.history.snapshot.as_ref().unwrap().page.children[0].clone()
+        });
+        view.update(visual, |view, cx| {
+            let snapshot = Arc::make_mut(view.history.snapshot.as_mut().unwrap());
+            let page = Arc::make_mut(&mut snapshot.page);
+            let previous = page
+                .runs
+                .iter_mut()
+                .find(|run| run.turn == child.origin.turn)
+                .unwrap();
+            previous.status = Status::Cancelled;
+            let mut next = previous.clone();
+            next.turn = continued;
+            next.sequence += 1;
+            next.status = Status::Running;
+            page.runs.push(next);
+            let mut removed = child.clone();
+            removed.run.turn = TurnId::new();
+            removed.run.sequence += 1;
+            removed.run.status = Status::Cancelled;
+            page.children.push(removed);
+            assert_eq!(view.active(), Some(continued));
+            assert_eq!(view.child_counts(continued), Some((1, 0, 0, 1)));
+            assert_eq!(view.child_rows(continued).len(), 1);
+            assert_eq!(
+                view.current_children(child.origin.turn)[0].origin,
+                child.origin
+            );
+            cx.notify();
+        });
+        wait(visual, |_| true);
+        assert!(visual.debug_bounds("live-composer-subagents").is_some());
+        tap(visual, "live-composer-subagents");
+        assert!(visual.debug_bounds("subagent-picker").is_some());
+        view.update(visual, |view, cx| {
+            view.history = original;
+            cx.notify();
+        });
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
+#[gpui::test]
 fn single_child_opens_directly(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
@@ -37,6 +114,8 @@ fn single_child_opens_directly(cx: &mut TestAppContext) {
         let child = view.read_with(visual, |view, _| {
             view.history.snapshot.as_ref().unwrap().page.children[0].clone()
         });
+        visual.simulate_keystrokes("escape");
+        visual.run_until_parked();
         let selected = std::rc::Rc::new(std::cell::Cell::new(None));
         let captured = selected.clone();
         let _subscription = visual.update(|_, cx| {
@@ -134,6 +213,8 @@ fn readonly_approvals(cx: &mut TestAppContext) {
                             && !fixture.page(child.run.session).approvals.is_empty()
                     })
         });
+        visual.simulate_keystrokes("escape");
+        visual.run_until_parked();
         let turn = fixture.page(fixture.session.id).runs[0].turn;
         let first = key(fixture
             .page(fixture.session.id)
@@ -298,13 +379,28 @@ fn readonly_approvals(cx: &mut TestAppContext) {
                 .find(|approval| approval.state == ApprovalState::Pending)
                 .unwrap()
                 .id;
-            tap(
-                visual,
-                &format!(
-                    "live-approval-{}-{approval}",
-                    if index == 0 { "approve" } else { "reject" }
-                ),
-            );
+            assert!(visual.debug_bounds("live-approval-trigger").is_none());
+            assert!(visual.debug_bounds("child-guide-input").is_none());
+            visual.update(|window, cx| {
+                child.update(cx, |view, cx| {
+                    view.resolve_approval(
+                        approval,
+                        sailry_protocol::conversation::Decision::Approve,
+                        window,
+                        cx,
+                    );
+                    assert!(view.approvals.attempt.is_none());
+                });
+            });
+            fixture.execute(Command::ResolveApproval {
+                session: session.id,
+                approval,
+                decision: if index == 0 {
+                    sailry_protocol::conversation::Decision::Approve
+                } else {
+                    sailry_protocol::conversation::Decision::Deny
+                },
+            });
             wait(visual, |cx| {
                 child
                     .read(cx)

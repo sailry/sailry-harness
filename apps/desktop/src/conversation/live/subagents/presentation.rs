@@ -27,16 +27,10 @@ impl View {
     }
 
     pub(in crate::conversation) fn child_rows(&self, turn: TurnId) -> Vec<Row> {
-        latest(
-            self.history
-                .snapshot
-                .iter()
-                .flat_map(|snapshot| &snapshot.page.children)
-                .filter(|child| child.origin.turn == turn),
-        )
-        .into_iter()
-        .map(|child| self.row(child))
-        .collect()
+        self.current_children(turn)
+            .into_iter()
+            .map(|child| self.row(child))
+            .collect()
     }
 
     fn row(&self, child: &Child) -> Row {

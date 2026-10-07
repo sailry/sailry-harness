@@ -133,9 +133,7 @@ impl View {
         cx.notify();
     }
     pub(super) fn attachments_blocked(&self) -> bool {
-        (self.readonly() && self.guide_target().is_none())
-            || self.busy()
-            || (self.session.is_some() && !self.connected())
+        self.readonly() || self.busy() || (self.session.is_some() && !self.connected())
     }
 
     pub(super) fn has_attachments(&self) -> bool {
@@ -329,10 +327,7 @@ impl View {
         // Creation already returned an authoritative workspace. Its history or
         // snapshot subscription can still be connecting; transfer failures use
         // the existing retry state instead of leaving staged files idle.
-        if (self.readonly() && self.guide_target().is_none())
-            || self.pending
-            || self.retry.is_some()
-        {
+        if self.readonly() || self.pending || self.retry.is_some() {
             return;
         }
         let Some(worktree) = self.binding.worktree else {
@@ -429,14 +424,9 @@ impl View {
         }
         if self.preparing.is_some() && !self.attachments.items.iter().any(|item| item.pending) {
             let mut message = self.preparing.take().unwrap();
-            let recipient = self.prepared_guidance.take();
             if self.attachments.ready() {
                 message.attachments = self.attachments.ids();
-                if let Some(recipient) = recipient {
-                    self.guide_input(recipient, message, window, cx);
-                } else {
-                    self.submit(message, window, cx);
-                }
+                self.submit(message, window, cx);
             } else {
                 self.outgoing = None;
                 self.sync_rows(cx);

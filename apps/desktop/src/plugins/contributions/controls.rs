@@ -165,7 +165,10 @@ impl Registry {
                 .or(entry.declaration.icon.as_deref()),
         );
         let mut button = Button::new(SharedString::from(selector.clone()))
-            .when(form != Form::Project, |button| button.ghost())
+            .when(
+                form != Form::Project && entry.declaration.slot != Slot::Status,
+                |button| button.ghost(),
+            )
             .when(
                 entry.declaration.slot == Slot::Composer && entry.declaration.kind == Kind::Toggle,
                 |button| {
@@ -210,6 +213,7 @@ impl Registry {
                 .rounded_full()
                 .px_3()
                 .font_normal()
+                .text_color(cx.theme().muted_foreground)
                 .icon(control_icon)
                 .child(
                     h_flex()
