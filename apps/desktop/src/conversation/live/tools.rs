@@ -392,7 +392,12 @@ impl View {
             v_flex().child(notices)
         } else {
             v_flex()
-                .child(surface::code(&format!("{key}-output"), &body.text, cx))
+                .child(surface::code(
+                    &format!("{key}-output"),
+                    &body.text,
+                    px(f32::from(self.message_text_size)),
+                    cx,
+                ))
                 .child(notices)
         };
         surface::result(key, content.into_any_element(), actions, cx).into_any_element()

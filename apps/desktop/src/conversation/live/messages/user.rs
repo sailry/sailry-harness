@@ -142,7 +142,7 @@ impl View {
             return div()
                 .debug_selector(move || format!("live-user-text-{turn}"))
                 .min_w_0()
-                .text_sm()
+                .text_size(px(f32::from(self.message_text_size)))
                 .line_height(relative(1.6))
                 .child(selectable)
                 .into_any_element();
@@ -167,6 +167,7 @@ impl View {
                     .appearance(false)
                     .bordered(false)
                     .p_0()
+                    .text_size(px(f32::from(self.message_text_size)))
                     .readonly(self.busy())
                     .aria_label(tr("message_edit"))
                     .on_token_click(cx.listener(move |view, event, window, cx| {

@@ -30,6 +30,7 @@ pub struct State {
     on_image: Option<OnImage>,
     on_file: Option<OnFile>,
     scroll: Option<Viewport>,
+    typography: Option<super::typography::Typography>,
 }
 
 #[derive(Clone)]
@@ -103,6 +104,7 @@ impl State {
             on_image: None,
             on_file: None,
             scroll: None,
+            typography: None,
         }
     }
 
@@ -306,6 +308,7 @@ impl Render for State {
                     on_link: Some(on_link),
                     on_image: self.on_image.clone(),
                     on_file: self.on_file.clone(),
+                    typography: self.typography,
                     ..Editing::default()
                 },
                 window,
@@ -322,6 +325,7 @@ pub struct View {
     on_image: Option<OnImage>,
     on_file: Option<OnFile>,
     scroll: Option<Viewport>,
+    typography: Option<super::typography::Typography>,
 }
 
 impl View {
@@ -333,6 +337,7 @@ impl View {
             on_image: None,
             on_file: None,
             scroll: None,
+            typography: None,
         }
     }
     /// Retain selection and parsed content at this element's stable identity.
@@ -344,6 +349,7 @@ impl View {
             on_image: None,
             on_file: None,
             scroll: None,
+            typography: None,
         }
     }
     pub fn on_link_click(
@@ -376,6 +382,11 @@ impl View {
         self.scroll = Some(Viewport::List(state));
         self
     }
+
+    pub(crate) fn typography(mut self, typography: super::typography::Typography) -> Self {
+        self.typography = Some(typography);
+        self
+    }
 }
 
 impl RenderOnce for View {
@@ -390,7 +401,7 @@ impl RenderOnce for View {
             state.update(cx, |state, cx| state.set_source(source, cx));
             state
         };
-        state.update(cx, |state, _| {
+        state.update(cx, |state, cx| {
             if state.on_image.is_some() != self.on_image.is_some() {
                 let doc = with_ranges(state.source.as_ref()).doc;
                 state.document = Rc::new(if self.on_image.is_some() {
@@ -404,6 +415,10 @@ impl RenderOnce for View {
             state.on_image = self.on_image;
             state.on_link = self.on_link;
             state.scroll = self.scroll;
+            if state.typography != self.typography {
+                state.typography = self.typography;
+                cx.notify();
+            }
         });
         state
     }

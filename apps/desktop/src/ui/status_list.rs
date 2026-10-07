@@ -164,7 +164,10 @@ impl RenderOnce for Rows {
                                 .pl_6()
                                 .py_2()
                                 .child(crate::conversation::surface::code(
-                                    &text_key, &row.text, cx,
+                                    &text_key,
+                                    &row.text,
+                                    cx.theme().mono_font_size,
+                                    cx,
                                 )),
                         ),
                     )

@@ -1439,7 +1439,13 @@ unavailable: 此页面将在下一轮 UI 预览中补齐
 unavailable_description: 当前先确认三栏 Shell。此入口保留原有功能位置。
 settings_back: 返回工作区
 settings_general: 通用
-settings_sidebar_metrics: 显示侧栏 CPU 和内存
+settings_sidebar_metrics: 性能指示器
+settings_message_text_size: 文字大小
+message_text_small: 小
+message_text_standard: 标准
+message_text_large: 稍大
+message_text_extra_large: 特大
+message_text_size_value: "%{size}px"
 settings_appearance: 外观
 settings_conversation: 会话
 settings_conversation_description: 调整会话消息的显示方式

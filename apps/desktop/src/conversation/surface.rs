@@ -102,16 +102,21 @@ pub(crate) fn result(
 }
 
 /// Selectable literal text; the result supplies the frame, so the code block itself is bare.
-pub(crate) fn code(id: &str, text: &str, cx: &App) -> AnyElement {
-    scroll(format!("{id}-scroll"), literal_text(id, text, cx))
+pub(crate) fn code(id: &str, text: &str, text_size: Pixels, cx: &App) -> AnyElement {
+    scroll(
+        format!("{id}-scroll"),
+        literal_text(id, text, text_size, cx),
+    )
 }
 
-pub(crate) fn literal_text(id: &str, text: &str, cx: &App) -> AnyElement {
+pub(crate) fn literal_text(id: &str, text: &str, text_size: Pixels, cx: &App) -> AnyElement {
+    let line_height = text_size * (LINE_HEIGHT / 14.);
     let bare = StyleRefinement::default()
         .bg(cx.theme().transparent)
         .text_color(cx.theme().muted_foreground)
         .p_0()
-        .line_height(px(LINE_HEIGHT));
+        .text_size(text_size)
+        .line_height(line_height);
     div()
         .px_3()
         .debug_selector({
@@ -121,7 +126,8 @@ pub(crate) fn literal_text(id: &str, text: &str, cx: &App) -> AnyElement {
         .child(
             TextView::markdown(id.to_owned(), literal(text))
                 .selectable(true)
-                .line_height(px(LINE_HEIGHT))
+                .text_size(text_size)
+                .line_height(line_height)
                 .style(TextViewStyle::default().code_block(bare)),
         )
         .into_any_element()

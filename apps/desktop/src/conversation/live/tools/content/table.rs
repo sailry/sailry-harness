@@ -32,14 +32,16 @@ impl TableDelegate for Rows {
         row: usize,
         column: usize,
         _: &mut Window,
-        _: &mut Context<TableState<Self>>,
+        cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
         let text = self.data.rows[row][column].clone();
         let selector = format!("{}-cell-{row}-{column}", self.id);
         div()
             .id(SharedString::from(selector.clone()))
             .size_full()
-            .text_sm()
+            .text_size(px(f32::from(
+                crate::preferences::data(cx).message_text_size(),
+            )))
             .truncate()
             .debug_selector(move || selector.clone())
             .child(text.clone())

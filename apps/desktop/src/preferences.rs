@@ -38,6 +38,7 @@ pub(crate) struct Data {
     pub sessions: Option<std::collections::BTreeMap<String, sessions::State>>,
     pub plugin_directories: Option<std::collections::BTreeMap<String, plugins::Directory>>,
     pub message_display: Option<MessageDisplay>,
+    pub message_text_size: Option<u8>,
     pub language: Option<crate::locale::Language>,
     #[serde(default)]
     pub sidebar_metrics: bool,
@@ -113,6 +114,7 @@ impl Default for Data {
             plugin_directories: None,
             recent: None,
             message_display: None,
+            message_text_size: None,
             language: None,
             sidebar_metrics: false,
         }
@@ -120,6 +122,12 @@ impl Default for Data {
 }
 
 impl Data {
+    pub(crate) const MESSAGE_TEXT_SIZES: [u8; 4] = [12, 14, 16, 18];
+
+    pub(crate) fn message_text_size(&self) -> u8 {
+        self.message_text_size.unwrap_or(14)
+    }
+
     fn validate(&self) -> Result<(), String> {
         if self.surfaces.as_ref().is_some_and(|s| {
             !(45.0..=100.0).contains(&s.main)
@@ -143,6 +151,9 @@ impl Data {
             || self.terminal.font_family.chars().any(char::is_control)
         {
             return Err("invalid terminal display preferences".into());
+        }
+        if !Self::MESSAGE_TEXT_SIZES.contains(&self.message_text_size()) {
+            return Err("invalid conversation text size".into());
         }
         if !self.pairing.is_empty() {
             sailry_link::rendezvous::Relay::new(&self.pairing)

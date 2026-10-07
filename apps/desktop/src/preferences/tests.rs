@@ -1,5 +1,47 @@
 use super::*;
 
+mod message_size {
+    use super::*;
+
+    #[test]
+    fn defaults_to_standard() {
+        assert_eq!(Data::default().message_text_size(), 14);
+        assert_eq!(Data::MESSAGE_TEXT_SIZES, [12, 14, 16, 18]);
+    }
+
+    #[test]
+    fn persists_each_step() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("preferences.json");
+        for size in Data::MESSAGE_TEXT_SIZES {
+            let mut preferences = Preferences::open(path.clone());
+            preferences.data.message_text_size = Some(size);
+            preferences.save();
+            assert_eq!(preferences.error, None);
+            let restored = Preferences::open(path.clone());
+            assert_eq!(restored.data.message_text_size(), size);
+            assert_eq!(restored.data.version, 1);
+            assert_eq!(restored.data.terminal, Terminal::default());
+        }
+    }
+
+    #[test]
+    fn rejects_unsupported_without_overwrite() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("preferences.json");
+        let data = Data {
+            message_text_size: Some(15),
+            ..Default::default()
+        };
+        let bytes = serde_json::to_vec(&data).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        let mut preferences = Preferences::open(path.clone());
+        assert_eq!(preferences.error, Some("preferences_read_failed"));
+        preferences.save();
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+}
+
 #[test]
 fn sidebar_metrics_are_opt_in_and_persisted() {
     assert!(!Data::default().sidebar_metrics);

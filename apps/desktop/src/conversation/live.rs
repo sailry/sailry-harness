@@ -127,6 +127,7 @@ pub(crate) struct View {
     images: Entity<attachments::images::Images>,
     scroller: Entity<MessageScrollerState>,
     message_display: crate::preferences::MessageDisplay,
+    message_text_size: u8,
     rows: Vec<TurnId>,
     outgoing: Option<outgoing::Message>,
     navigation: navigation::Navigation,
@@ -196,8 +197,10 @@ impl View {
             let display = crate::preferences::data(cx)
                 .message_display
                 .unwrap_or_default();
-            if view.message_display != display {
+            let text_size = crate::preferences::data(cx).message_text_size();
+            if view.message_display != display || view.message_text_size != text_size {
                 view.message_display = display;
+                view.message_text_size = text_size;
                 view.scroller
                     .update(cx, |scroller, cx| scroller.remeasure(cx));
                 cx.notify();
@@ -359,6 +362,7 @@ impl View {
             message_display: crate::preferences::data(cx)
                 .message_display
                 .unwrap_or_default(),
+            message_text_size: crate::preferences::data(cx).message_text_size(),
             rows: Vec::new(),
             outgoing: None,
             navigation: navigation::Navigation::new(cx),

@@ -134,7 +134,11 @@ impl View {
             .or_insert_with(|| cx.new(|cx| crate::content::markdown::State::new(text.clone(), cx)))
             .clone();
         state.update(cx, |state, cx| state.set_source(text, cx));
+        let typography = crate::content::markdown::typography::Typography::of(cx);
         crate::content::markdown::View::new(&state)
+            .typography(
+                typography.scaled(f32::from(self.message_text_size) / typography.body.size()),
+            )
             .list_state(self.scroller.read(cx).list_state())
             .on_file(move |index, url, label, _| {
                 let file = crate::content::files::from_link(url, label, file_root.as_deref()?)?;

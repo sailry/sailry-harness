@@ -23,6 +23,7 @@ impl Render for Harness {
                             &(0..lines)
                                 .map(|i| format!("line {i}\n"))
                                 .collect::<String>(),
+                            px(14.),
                             cx,
                         ))
                         .child(div().h(px(1200.)).flex_shrink_0())

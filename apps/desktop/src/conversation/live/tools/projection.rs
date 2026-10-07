@@ -158,7 +158,12 @@ pub(super) fn render(
                 }))
                 .into_any_element()
         } else {
-            surface::code(&format!("{key}-output"), text, cx)
+            surface::code(
+                &format!("{key}-output"),
+                text,
+                px(f32::from(crate::preferences::data(cx).message_text_size())),
+                cx,
+            )
         };
         return Some(surface::result(key, content, actions, cx).into_any_element());
     }
@@ -178,7 +183,12 @@ pub(super) fn render(
     };
     let content = v_flex()
         .when(!text.is_empty(), |column| {
-            column.child(surface::code(&format!("{key}-output"), &text, cx))
+            column.child(surface::code(
+                &format!("{key}-output"),
+                &text,
+                px(f32::from(crate::preferences::data(cx).message_text_size())),
+                cx,
+            ))
         })
         .children(
             notices

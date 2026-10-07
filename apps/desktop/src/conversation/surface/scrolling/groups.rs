@@ -37,6 +37,7 @@ impl Render for GroupHarness {
                                 code(
                                     "output",
                                     &(0..rows).map(|i| format!("line {i}\n")).collect::<String>(),
+                                    px(14.),
                                     cx,
                                 )
                             })

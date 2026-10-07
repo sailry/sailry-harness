@@ -16,7 +16,12 @@ pub(super) fn render(
             move || id.clone()
         })
         .when(!value.is_empty(), |column| {
-            column.child(surface::literal_text(id, value, cx))
+            column.child(surface::literal_text(
+                id,
+                value,
+                px(f32::from(crate::preferences::data(cx).message_text_size())),
+                cx,
+            ))
         })
         .children(data.notices.iter().map(|notice| {
             surface::notice(notice.label(&rust_i18n::locale()).to_owned(), false, cx)
