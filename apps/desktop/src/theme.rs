@@ -18,6 +18,7 @@ mod dialog;
 pub(crate) mod messages;
 mod neutral;
 mod preview;
+mod raster;
 #[cfg(test)]
 mod tabs;
 pub(crate) mod wordmark;

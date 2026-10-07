@@ -7,7 +7,7 @@ edit target. No external game artwork was imported. Package and artwork are
 licensed under Apache-2.0, as specified in `theme.json`.
 
 Production assets are compressed indexed PNGs with transparency. The landscape
-retains its generated resolution; the hero, corner ornaments and send glyph are
+retains its generated resolution; the hero and corner ornaments are
 sized for their display roles. The package shares artwork across variants and
 sets background opacity separately for light and dark modes.
 
@@ -29,7 +29,11 @@ Use case: illustration-story. Asset type: reusable transparent auspicious-cloud 
 
 Use case: precise-object-edit. Project asset: transparent lower-right cloud corner decoration. Input image is the edit target. Rotate the entire existing gold and red upper-left L-shaped cloud ornament by exactly 180 degrees to form a lower-right L-shaped ornament. Preserve its gold engraved cloud artwork, red accents, relative proportions and genuine transparent background. Output only the rotated transparent artwork, no black fill, no text, no UI, no new objects.
 
-### send.png
+### Retired send glyph
+
+The raster glyph was removed in favor of Kit vector glyphs that follow the
+composer action foreground in each variant. Its original generation prompt is
+retained for provenance.
 
 Use case: ui-mockup. Project asset: ONE small transparent PNG send-button glyph for an original Great Sage Sun Wukong theme. Centered square canvas. A clear bold UPWARD ARROW with a straight shaft subtly resembling a red-and-black Ruyi Jingu Bang staff, two tiny ornamental bands. The arrowhead must remain unmistakably an upward send arrow. Flat warm ink black silhouette with a tiny vermilion accent, NOT gold (it will appear on a gold circular button). Very simple graphic designed for legibility at 16px, thick strokes, minimal detail, occupies central 70% of canvas. Genuine transparent background. No button circle, no background, no glow, no shadow, no text, no other objects, no watermark.
 
@@ -61,7 +65,8 @@ only postprocessing. The frame resource was removed from the package.
 
 The existing `grain.png` is reused as a content-panel texture as well as on cards.
 It tiles at its native 256-pixel size without generating another image. Primary
-buttons now use solid warm-black fills; the ivory-gold send glyph remains legible.
+buttons use solid warm-black fills. Send and Stop use separate high-contrast
+solid fills with Kit vector glyphs.
 
 Generated with the built-in OpenAI imagegen tool using this prompt:
 

@@ -3,7 +3,7 @@
   "id": "great-sage",
   "name": "Great Sage",
   "description": "A theme inspired by the Great Sage, with golden accents and ink landscapes",
-  "package_version": "0.1.2",
+  "package_version": "0.1.3",
   "license": {
     "author": "Sailry",
     "name": "Apache-2.0",
@@ -65,7 +65,19 @@
       }
     },
     "composer": {
-      "border_width": 1
+      "border_width": 1,
+      "send": {
+        "background": "#32271F",
+        "foreground": "#FFF1D8",
+        "hover": "#463728",
+        "active": "#251B15"
+      },
+      "stop": {
+        "background": "#32271F",
+        "foreground": "#FFF1D8",
+        "hover": "#463728",
+        "active": "#251B15"
+      }
     },
     "cards": {
       "explore": {
@@ -127,10 +139,6 @@
         "fit": "contain",
         "height": 48,
         "opacity": 0.25
-      },
-      "icon.send": {
-        "path": "assets/send.png",
-        "fit": "contain"
       },
       "background.window": {
         "path": "assets/background.png",
@@ -248,7 +256,7 @@
       "name": "Great Sage dark",
       "mode": "dark",
       "colors": {
-        "background": "#191411",
+        "background": "#10100FE6",
         "foreground": "#F2E6CF",
         "muted.foreground": "#AFA08A",
         "title_bar.background": "#201815",
@@ -299,7 +307,19 @@
       }
     },
     "composer": {
-      "border_width": 1
+      "border_width": 1,
+      "send": {
+        "background": "#F5E8CE",
+        "foreground": "#2B2319",
+        "hover": "#FFF8EB",
+        "active": "#D8C7A7"
+      },
+      "stop": {
+        "background": "#F5E8CE",
+        "foreground": "#2B2319",
+        "hover": "#FFF8EB",
+        "active": "#D8C7A7"
+      }
     },
     "cards": {
       "explore": {
@@ -362,10 +382,6 @@
         "height": 48,
         "opacity": 0.4
       },
-      "icon.send": {
-        "path": "assets/send.png",
-        "fit": "contain"
-      },
       "background.window": {
         "path": "assets/background.png",
         "fit": "cover",
@@ -373,7 +389,7 @@
           0.5,
           0.5
         ],
-        "opacity": 0.55
+        "opacity": 0.6
       },
       "icon.explore": {
         "path": "assets/explore.png",
@@ -457,7 +473,7 @@
         "path": "assets/grain.png",
         "fit": "tile",
         "tile_size": 256,
-        "opacity": 0.16
+        "opacity": 0.12
       }
     },
     "wordmark": {

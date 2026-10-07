@@ -1,6 +1,7 @@
 use super::{
     Catalog, Package,
     package::{Decoration, Fit},
+    raster,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{component::*, *};
@@ -169,22 +170,30 @@ pub fn new_session_button(button: button::Button, cx: &App) -> AnyElement {
     let Some((decoration, image)) = selected("button.new_session", cx) else {
         return button.into_any_element();
     };
-    // Keep the complete Kit button underneath an eventless top-edge ornament.
+    // Keep the complete Kit button underneath an eventless rounded ornament.
+    let radius = cx.theme().radius;
+    let height = decoration.height;
     div()
         .relative()
         .w_full()
         .child(button)
         .child(
             div()
+                .id("theme-new-session-decoration")
                 .debug_selector(|| "theme-button.new_session".into())
                 .absolute()
-                .top_0()
-                .left_0()
-                .w_full()
-                .h(px(f32::from(decoration.height)))
-                .rounded(cx.theme().radius)
-                .overflow_hidden()
-                .child(picture(decoration, image)),
+                .inset_0()
+                .child(raster::rounded(
+                    decoration,
+                    image,
+                    Corners {
+                        top_left: radius,
+                        top_right: radius,
+                        bottom_left: radius,
+                        bottom_right: radius,
+                    },
+                    Some(height),
+                )),
         )
         .into_any_element()
 }

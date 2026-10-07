@@ -115,6 +115,15 @@ class Package(unittest.TestCase):
                 with self.subTest(mode=variant["theme"]["mode"], foreground=foreground):
                     self.assertGreaterEqual(contrast(rgba(foreground), surface), 4.5)
 
+    def test_composer_action_contrast(self):
+        for variant in self.variants:
+            for key in ["send", "stop"]:
+                action = variant["composer"][key]
+                for state in ["background", "hover", "active"]:
+                    with self.subTest(mode=variant["theme"]["mode"], action=key, state=state):
+                        self.assertGreaterEqual(contrast(rgba(action["foreground"]), rgba(action[state])), 4.5)
+                        self.assertGreaterEqual(contrast(rgba(action[state]), rgba(variant["theme"]["colors"]["muted.background"])), 3)
+
     def test_switch_readability(self):
         for variant in self.variants:
             colors = variant["theme"]["colors"]

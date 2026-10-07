@@ -14,6 +14,9 @@ alpha respectively, multiplying the user's panel tint so the silver dragon and
 mountain ridges remain visible. The wallpaper opacity stays at 60% to retain its
 smoky ink appearance. Cards retain translucent hover and pressed states.
 Primary buttons use ink-black fills with silver-white labels in both variants.
+Send and Stop use silver-white fills and dark Kit vector glyphs in dark mode,
+reversing to dark fills and white glyphs in light mode for contrast against the
+composer. Kit supplies hover, pressed and disabled states.
 Surface borders are muted silver gray; gold remains in small artwork accents.
 Dark borders use lower-opacity cool gray to avoid bright outlines. Switch thumbs
 use silver white against darker tracks in both variants.

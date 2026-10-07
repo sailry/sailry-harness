@@ -16,10 +16,14 @@ Ordinary buttons use the global Kit color tokens; they do not inherit this
 artwork slot. Tabs use translucent copper-gold selected fills and separate
 darkened tracks, including segmented controls in dialogs.
 Switch thumbs use warm ivory against distinct dark tracks in both variants.
-Window artwork uses 30% opacity in light mode and 55% in dark mode. Warm-black
-panel tints retain the clouds and red ink without a neutral black void. The
+Send and Stop use ivory fills and dark Kit vector glyphs in dark mode, reversing
+to dark fills and ivory glyphs in light mode. Their colors are independent of
+ordinary buttons. Kit supplies hover, pressed and disabled states.
+Window artwork uses 30% opacity in light mode and 60% in dark mode. The dark
+main tint carries 90% alpha, multiplying the user's panel tint to reveal more
+clouds and red ink. The
 content panel repeats the existing 256-pixel grain texture at 8% opacity in
-light mode and 16% in dark mode, so wallpaper gaps still have material detail.
+light mode and 12% in dark mode, so wallpaper gaps still have material detail.
 
 Package checks are independent of Sailry's source and build:
 

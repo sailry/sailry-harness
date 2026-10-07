@@ -78,7 +78,7 @@ fn rejects_invalid_packages() {
 #[test]
 fn rejects_invalid_styles() {
     let mut value = crate::theme::fixture::manifest("tide");
-    value["light"]["composer"] = json!({"border_width": 1});
+    value["light"]["composer"]["border_width"] = json!(1);
     value["light"]["cards"] = json!({"explore": {
         "background": "#182b36", "border_width": 1, "radius": 16
     }});
@@ -88,6 +88,13 @@ fn rejects_invalid_styles() {
     original.validate().unwrap();
     for (pointer, replacement) in [
         ("/light/composer/border_width", json!(5)),
+        ("/light/composer/send/background", json!("not-a-color")),
+        ("/light/composer/send/foreground", json!("not-a-color")),
+        (
+            "/light/composer/stop/hover",
+            json!("linear-gradient(black, red)"),
+        ),
+        ("/light/composer/stop/active", json!("not-a-color")),
         ("/light/cards/explore/background", json!("not-a-color")),
         (
             "/light/cards/explore/background",

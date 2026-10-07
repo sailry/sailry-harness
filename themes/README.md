@@ -40,7 +40,12 @@ Decorations paint behind content without taking input focus or installing action
 
 `icon.send` and `icon.stop` replace the two distinct button glyphs.
 `button.send` and `button.stop` optionally add image textures beneath them.
-Button colors and gradients use the `button.primary.*` Kit tokens. Kit still owns
+By default button colors and gradients use the `button.primary.*` Kit tokens.
+Optional `composer.send` and `composer.stop` objects independently define solid
+`background`, `foreground`, `hover`, and `active` colors through Kit's custom
+button variant. All four colors are required when an object is present. Raster
+glyphs keep their original colors; omit the icon asset to use a Kit vector glyph
+in the action foreground color. Kit still owns
 hover, pressed, disabled, keyboard activation and accessible names. Missing image
 resources use the normal controls; the send image never substitutes for Stop.
 
@@ -109,6 +114,10 @@ square particles and their illumination. Defaults follow Kit's foreground.
 `button.new_session` overlays an eventless, full-width top-edge ornament on the
 sidebar's existing New Conversation button. Its `height` is 4–96 pixels; a thin
 transparent PNG preserves the label and Kit's fill and interaction states.
+New-session artwork is clipped to the Kit button's outer rounded bounds. Its
+configured height is capped at the button height; shorter strips leave the rest
+of the overlay transparent. Decoration never creates an inset border or changes
+button hit testing.
 
 ## Global control colors
 

@@ -103,6 +103,15 @@ class Package(unittest.TestCase):
                     with self.subTest(mode=variant["theme"]["mode"], state=state):
                         self.assertGreaterEqual(contrast(colors["button.primary.foreground"], stop), 4.5)
 
+    def test_composer_action_contrast(self):
+        for variant in self.variants:
+            for key in ["send", "stop"]:
+                action = variant["composer"][key]
+                for state in ["background", "hover", "active"]:
+                    with self.subTest(mode=variant["theme"]["mode"], action=key, state=state):
+                        self.assertGreaterEqual(contrast(action["foreground"], action[state]), 4.5)
+                        self.assertGreaterEqual(contrast(action[state], variant["theme"]["colors"]["muted.background"]), 3)
+
     def test_switch_readability(self):
         for variant in self.variants:
             colors = variant["theme"]["colors"]
@@ -135,9 +144,10 @@ class Package(unittest.TestCase):
                 grain = image.convert("RGBA").getcolors(image.width * image.height)
             # Shell paints its theme background above the window wallpaper.
             # Its lowest permitted tint is 45%; cover both artwork extremes there.
+            residual = 1 - 0.45 * (int(base[7:9], 16) / 255 if len(base) == 9 else 1)
             for level in [0, 255]:
                 channels = [round(int(base[index:index + 2], 16)
-                                  * (1 - opacity * 0.55) + level * opacity * 0.55)
+                                  * (1 - opacity * residual) + level * opacity * residual)
                             for index in [1, 3, 5]]
                 surface = "#" + "".join(f"{channel:02X}" for channel in channels)
                 with self.subTest(mode=variant["theme"]["mode"], level=level):

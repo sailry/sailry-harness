@@ -124,6 +124,17 @@ pub struct Composer {
     /// Uses Kit's input border color; zero preserves the borderless surface.
     #[serde(default)]
     pub border_width: u8,
+    pub send: Option<Action>,
+    pub stop: Option<Action>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Action {
+    pub background: String,
+    pub foreground: String,
+    pub hover: String,
+    pub active: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -265,6 +276,20 @@ impl Manifest {
             }
             if variant.composer.border_width > 4 {
                 return Err("invalid composer border width".into());
+            }
+            for action in [&variant.composer.send, &variant.composer.stop]
+                .into_iter()
+                .flatten()
+            {
+                for color in [
+                    &action.background,
+                    &action.foreground,
+                    &action.hover,
+                    &action.active,
+                ] {
+                    gpui_kit::component::theme::try_parse_color(color)
+                        .map_err(|error| error.to_string())?;
+                }
             }
             for (key, card) in &variant.cards {
                 if !["explore", "build", "review", "plan"].contains(&key.as_str()) {

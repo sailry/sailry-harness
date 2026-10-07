@@ -31,11 +31,32 @@ pub(crate) fn surface(cx: &App) -> Div {
 pub(super) fn content(button: Button, disabled: bool, active: bool, cx: &App) -> Button {
     let key = if active { "stop" } else { "send" };
     let slot = if active { "button.stop" } else { "button.send" };
+    let style = super::variant(cx).and_then(|variant| {
+        if active {
+            variant.composer.stop.as_ref()
+        } else {
+            variant.composer.send.as_ref()
+        }
+    });
+    let button = if let Some(style) = style {
+        button.custom(appearance(style, cx))
+    } else {
+        button
+    };
     let fallback = Icon::new(if active {
         IconName::WindowMaximize
     } else {
         IconName::ArrowUp
     });
+    let fallback = if let Some(style) = style {
+        fallback.text_color(if disabled {
+            cx.theme().muted_foreground.opacity(0.5)
+        } else {
+            color(&style.foreground)
+        })
+    } else {
+        fallback
+    };
     let custom_icon = decoration::selected(&format!("icon.{key}"), cx).is_some();
     let texture = decoration::background(slot, cx).map(|texture| {
         // Blend textures over Kit's fill so pointer and disabled states stay visible.
@@ -61,4 +82,16 @@ pub(super) fn content(button: Button, disabled: bool, active: bool, cx: &App) ->
                     .child(decoration::sized_icon(key, rems(1.), fallback, cx)),
             ),
     )
+}
+
+fn color(value: &str) -> Hsla {
+    theme::try_parse_color(value).expect("validated composer action color")
+}
+
+fn appearance(style: &super::package::Action, cx: &App) -> button::ButtonCustomVariant {
+    button::ButtonCustomVariant::new(cx)
+        .color(color(&style.background))
+        .foreground(color(&style.foreground))
+        .hover(color(&style.hover))
+        .active(color(&style.active))
 }

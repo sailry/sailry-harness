@@ -27,6 +27,10 @@ pub fn manifest(id: &str) -> Value {
                     "sidebar.background": if dark { "#12232f" } else { "#eaf1f6" }
                 }
             },
+            "composer": {
+                "send": { "background": "#E8F2F3", "foreground": "#162C36", "hover": "#FFFFFF", "active": "#BDDBE0" },
+                "stop": { "background": "#EDCEBE", "foreground": "#332017", "hover": "#FFEBDD", "active": "#D7AF97" }
+            },
             "assets": assets
         })
     };
@@ -84,7 +88,7 @@ pub fn styled(root: &Path, id: &str) -> PathBuf {
         variant["theme"]["colors"]["tab_bar.segmented.background"] = json!("#16808E80");
         variant["theme"]["colors"]["button.background"] = json!("#16808E18");
         variant["theme"]["colors"]["button.primary.background"] = json!("#1D6170");
-        variant["composer"] = json!({"border_width": 1});
+        variant["composer"]["border_width"] = json!(1);
         variant["messages"] = json!({
             "user": {
                 "background": if dark { "#243845D9" } else { "#E0EEF5D9" },

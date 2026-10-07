@@ -3,7 +3,7 @@
   "id": "ink-dragon",
   "name": "Gilded Ink Dragon",
   "description": "Modern ink mountains crowned by a silver dragon, with restrained gold foil accents",
-  "package_version": "0.1.3",
+  "package_version": "0.1.4",
   "license": {
     "author": "Sailry",
     "name": "Apache-2.0",
@@ -75,7 +75,19 @@
       }
     },
     "composer": {
-      "border_width": 1
+      "border_width": 1,
+      "send": {
+        "background": "#28323D",
+        "foreground": "#F4F6F8",
+        "hover": "#394858",
+        "active": "#1A222B"
+      },
+      "stop": {
+        "background": "#28323D",
+        "foreground": "#F4F6F8",
+        "hover": "#394858",
+        "active": "#1A222B"
+      }
     },
     "cards": {
       "explore": {
@@ -311,7 +323,19 @@
       }
     },
     "composer": {
-      "border_width": 1
+      "border_width": 1,
+      "send": {
+        "background": "#EDF1F5",
+        "foreground": "#20262D",
+        "hover": "#FFFFFF",
+        "active": "#CAD3DD"
+      },
+      "stop": {
+        "background": "#EDF1F5",
+        "foreground": "#20262D",
+        "hover": "#FFFFFF",
+        "active": "#CAD3DD"
+      }
     },
     "cards": {
       "explore": {
