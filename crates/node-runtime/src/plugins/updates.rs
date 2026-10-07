@@ -1,9 +1,26 @@
 //! Inspect sources without installing packages or changing their configuration.
 use super::*;
 use sailry_link::CancellationToken;
-use sailry_protocol::plugin::{Origin, skills::Source, updates::Report};
+use sailry_protocol::plugin::{
+    Origin,
+    catalog::Entry,
+    skills::Source,
+    updates::{Candidate, Report},
+};
 
 impl Host {
+    pub(crate) async fn update_catalog(
+        &self,
+        packages: &[Info],
+        stop: &CancellationToken,
+    ) -> Option<Result<Vec<Entry>, Fault>> {
+        if packages.iter().any(catalog::official::owns) {
+            Some(catalog::official::fetch(self, stop).await)
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn inspect(
         &self,
         worktree: &Path,
@@ -42,26 +59,26 @@ impl Host {
         current: Info,
         root: Option<PathBuf>,
         stop: CancellationToken,
+        catalog: Option<&Result<Vec<Entry>, Fault>>,
     ) -> Result<Report, Fault> {
+        if catalog::official::owns(&current) {
+            let entries = catalog
+                .ok_or_else(|| invalid("official plugin catalog is unavailable"))?
+                .as_ref()
+                .map_err(Clone::clone)?;
+            let entry = entries
+                .iter()
+                .find(|entry| entry.id == current.summary.name)
+                .ok_or_else(|| Fault::new(ErrorCode::NotFound, "official plugin is unavailable"))?;
+            let available = newer(entry.version.as_deref(), current.summary.version.as_deref())?;
+            return Ok(Report {
+                available: available.then(|| Candidate::Official(entry.clone())),
+                current: current.summary,
+                manual: false,
+            });
+        }
         let name = current.summary.name.clone();
         let (mut candidate, origin) = match &current.origin {
-            Some(Origin::Bundled) => {
-                let source = self
-                    .catalog_source(
-                        sailry_protocol::plugin::catalog::Source::Official,
-                        &name,
-                        stop.clone(),
-                    )
-                    .await?;
-                let selected = self.inspect_source(&source, stop).await?;
-                (
-                    selected.info,
-                    Origin::Online {
-                        source: selected.source,
-                        path: selected.path,
-                    },
-                )
-            }
             Some(Origin::Worktree { worktree, path }) => {
                 let _permit = self
                     .reads
@@ -122,9 +139,45 @@ impl Host {
         }
         candidate.origin = Some(origin);
         Ok(Report {
-            available: (candidate.summary.digest != current.summary.digest).then_some(candidate),
+            available: (candidate.summary.digest != current.summary.digest)
+                .then_some(Candidate::Package(candidate)),
             current: current.summary,
             manual: false,
         })
+    }
+}
+
+fn newer(candidate: Option<&str>, current: Option<&str>) -> Result<bool, Fault> {
+    let parse = |version: Option<&str>| {
+        version
+            .and_then(|version| semver::Version::parse(version).ok())
+            .ok_or_else(|| invalid("official plugin version is unavailable"))
+    };
+    Ok(parse(candidate)?.cmp_precedence(&parse(current)?).is_gt())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compares_semantic_versions() {
+        for (candidate, current, expected) in [
+            ("1.10.0", "1.9.0", true),
+            ("1.0.0", "1.0.0", false),
+            ("1.0.0", "2.0.0", false),
+            ("1.0.0", "1.0.0-rc.1", true),
+            ("1.0.0-rc.1", "1.0.0", false),
+            ("1.0.0+other", "1.0.0+build", false),
+        ] {
+            assert_eq!(newer(Some(candidate), Some(current)).unwrap(), expected);
+        }
+        for (candidate, current) in [
+            (None, Some("1.0.0")),
+            (Some("1.0.0"), None),
+            (Some("invalid"), Some("1.0.0")),
+        ] {
+            assert!(newer(candidate, current).is_err());
+        }
     }
 }

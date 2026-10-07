@@ -130,6 +130,7 @@ impl Ingress {
             if matches!(
                 request.command,
                 sailry_protocol::Command::CheckPluginUpdate { .. }
+                    | sailry_protocol::Command::CheckPluginUpdates { .. }
             ) {
                 return self.check_plugin_update(request).await;
             }

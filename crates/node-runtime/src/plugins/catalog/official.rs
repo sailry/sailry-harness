@@ -4,6 +4,19 @@ use super::*;
 const REPOSITORY: &str = "https://github.com/sailry/sailry-plugins";
 const INDEX: &str = "https://raw.githubusercontent.com/sailry/sailry-plugins/main/catalog.json";
 
+pub(in crate::plugins) fn owns(info: &Info) -> bool {
+    match &info.origin {
+        Some(sailry_protocol::plugin::Origin::Bundled) => true,
+        Some(sailry_protocol::plugin::Origin::Online { source, path }) => {
+            info.skill.is_none()
+                && source.repository == format!("{REPOSITORY}.git")
+                && source.git_ref == "main"
+                && path == &info.summary.name
+        }
+        _ => false,
+    }
+}
+
 #[derive(Deserialize)]
 struct Index {
     version: u32,
@@ -47,7 +60,10 @@ pub(super) fn unavailable(error: &Fault) -> bool {
     matches!(error.code, ErrorCode::Unavailable | ErrorCode::NotFound)
 }
 
-async fn fetch(host: &Host, stop: &CancellationToken) -> Result<Vec<Entry>, Fault> {
+pub(in crate::plugins) async fn fetch(
+    host: &Host,
+    stop: &CancellationToken,
+) -> Result<Vec<Entry>, Fault> {
     let _permit = host
         .reads
         .clone()

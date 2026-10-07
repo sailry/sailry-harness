@@ -38,7 +38,9 @@ async fn checks_reject_stale_revisions_without_installing() {
         )
         .unwrap();
         let report = check(&client, &installed.summary).await;
-        let candidate = report.available.unwrap();
+        let plugin::updates::Candidate::Package(candidate) = report.available.unwrap() else {
+            panic!("inspected package expected");
+        };
         assert_eq!(candidate.summary.version, installed.summary.version);
         assert_ne!(candidate.summary.digest, installed.summary.digest);
         assert_eq!(candidate.origin, installed.origin);
@@ -199,6 +201,9 @@ async fn repository_checks_pin_without_installing() {
         ];
         assert_eq!(packages(&node), stored);
         for (current, candidate) in [&installed, &installed_skill].into_iter().zip(candidates) {
+            let plugin::updates::Candidate::Package(candidate) = candidate else {
+                panic!("inspected package expected");
+            };
             assert_ne!(candidate.summary.digest, current.summary.digest);
             let Some(plugin::Origin::Online { source, path }) = candidate.origin else {
                 panic!("online source expected");

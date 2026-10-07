@@ -185,8 +185,7 @@ impl Workspace {
                         .tooltip(
                             rust_i18n::t!(
                                 "plugins_update_version",
-                                version =
-                                    candidate.info().summary.version.as_deref().unwrap_or("—")
+                                version = candidate.version().unwrap_or("—")
                             )
                             .to_string(),
                         )

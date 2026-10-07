@@ -2,6 +2,7 @@ use super::*;
 use std::sync::atomic::Ordering;
 mod fixture;
 mod live;
+mod updates;
 use fixture::{Catalog, FIRST, SECOND};
 
 async fn connection(remote: bool, catalog: &Catalog) -> (tempfile::TempDir, Node, Link, Client) {
@@ -50,6 +51,7 @@ async fn installs_pinned_packages() {
         assert_eq!(page.entries.len(), 1);
         let entry = &page.entries[0];
         assert_eq!(entry.id, "official-new");
+        assert_eq!(entry.version.as_deref(), Some("1.0.0"));
         assert!(!entry.bundled);
         assert_eq!(
             entry.repository.as_deref(),
@@ -96,7 +98,7 @@ async fn installs_pinned_packages() {
             expected_revision: 0,
         });
         let installed = info(client.execute(request.clone()).await.unwrap());
-        assert_eq!(installed.summary.version.as_deref(), Some("first"));
+        assert_eq!(installed.summary.version.as_deref(), Some("1.0.0"));
         assert_eq!(installed.summary.digest, selected.info.summary.digest);
         assert_eq!(
             installed.origin,
@@ -152,10 +154,27 @@ async fn updates_preinstalled() {
             panic!("update expected");
         };
         assert_eq!(report.current, disabled.summary);
-        let candidate = report.available.unwrap();
-        let Some(plugin::Origin::Online { source, path }) = candidate.origin else {
-            panic!("online origin expected");
+        let plugin::updates::Candidate::Official(candidate) = report.available.unwrap() else {
+            panic!("official catalog entry expected");
         };
+        assert_eq!(candidate.version.as_deref(), Some("0.2.0"));
+        assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+        let Output::PluginSource(selected) = execute(
+            &client,
+            Command::InspectPluginSource {
+                source: plugin::skills::Source {
+                    repository: candidate.repository.unwrap(),
+                    git_ref: Some("main".into()),
+                    path: Some(candidate.id),
+                },
+            },
+        )
+        .await
+        else {
+            panic!("immutable source selection expected");
+        };
+        let source = selected.source;
+        let path = selected.path;
         assert_eq!(source.commit, SECOND);
         assert_eq!(path, "reminders");
         assert_eq!(
@@ -182,9 +201,24 @@ async fn updates_preinstalled() {
             )
             .await,
         );
-        assert_eq!(updated.summary.digest, candidate.summary.digest);
+        assert_eq!(updated.summary.digest, selected.info.summary.digest);
+        assert_eq!(updated.summary.version.as_deref(), Some("0.2.0"));
         assert!(!updated.summary.enabled);
         assert_eq!(updated.summary.revision, disabled.summary.revision + 1);
+        catalog.requests.lock().unwrap().clear();
+        let Output::PluginUpdate(report) = execute(
+            &client,
+            Command::CheckPluginUpdate {
+                name: updated.summary.name.clone(),
+                expected_revision: updated.summary.revision,
+            },
+        )
+        .await
+        else {
+            panic!("update report expected");
+        };
+        assert!(report.available.is_none());
+        assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

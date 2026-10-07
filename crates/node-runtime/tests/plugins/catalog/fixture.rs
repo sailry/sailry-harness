@@ -20,6 +20,7 @@ pub(super) struct Catalog {
     pub status: Arc<AtomicU16>,
     pub invalid: Arc<AtomicBool>,
     pub requests: Arc<Mutex<Vec<String>>>,
+    pub version: Arc<Mutex<Option<String>>>,
     worker: tokio::task::JoinHandle<()>,
 }
 
@@ -35,8 +36,10 @@ impl Catalog {
         let malformed = invalid.clone();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let captured = requests.clone();
-        let first = archive("first");
-        let second = archive("second");
+        let version = Arc::new(Mutex::new(None::<String>));
+        let selected_version = version.clone();
+        let first = archive("1.0.0", "0.1.0");
+        let second = archive("2.0.0", "0.2.0");
         let worker = tokio::spawn(async move {
             loop {
                 let (mut socket, _) = listener.accept().await.unwrap();
@@ -64,7 +67,10 @@ impl Catalog {
                         if malformed.load(Ordering::SeqCst) {
                             b"{\"version\":2,\"packages\":[]}".to_vec()
                         } else {
-                            index()
+                            index(
+                                current.load(Ordering::SeqCst),
+                                selected_version.lock().unwrap().as_deref(),
+                            )
                         },
                     ),
                     "/repos/sailry/sailry-plugins/commits/main" => (
@@ -99,6 +105,7 @@ impl Catalog {
             status,
             invalid,
             requests,
+            version,
             worker,
         }
     }
@@ -117,19 +124,28 @@ fn manifest(version: &str) -> serde_json::Value {
     })
 }
 
-fn index() -> Vec<u8> {
+fn index(updated: bool, version: Option<&str>) -> Vec<u8> {
     let mut index: serde_json::Value =
         serde_json::from_str(include_str!("../../../../../plugins/catalog.json")).unwrap();
     index["packages"]
         .as_array_mut()
         .unwrap()
         .push(serde_json::json!({
-            "id": "official-new", "manifest": manifest("first"),
+            "id": "official-new", "manifest": manifest(if updated { "2.0.0" } else { "1.0.0" }),
         }));
+    let package = index["packages"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|package| package["id"] == "reminders")
+        .unwrap();
+    package["manifest"]["version"] = version
+        .unwrap_or(if updated { "0.2.0" } else { "0.1.0" })
+        .into();
     serde_json::to_vec(&index).unwrap()
 }
 
-fn archive(version: &str) -> Vec<u8> {
+fn archive(version: &str, reminders: &str) -> Vec<u8> {
     let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default().unix_permissions(0o644);
     zip.start_file("repo-source/LICENSE", options).unwrap();
@@ -142,14 +158,14 @@ fn archive(version: &str) -> Vec<u8> {
         .unwrap();
     zip.write_all(b"Fixture package license").unwrap();
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/reminders");
-    files(&root, &root, &mut zip);
+    files(&root, &root, &mut zip, reminders);
     zip.start_file("repo-source/reminders/fixture-revision.txt", options)
         .unwrap();
     zip.write_all(version.as_bytes()).unwrap();
     zip.finish().unwrap().into_inner()
 }
 
-fn files(root: &Path, directory: &Path, zip: &mut zip::ZipWriter<Cursor<Vec<u8>>>) {
+fn files(root: &Path, directory: &Path, zip: &mut zip::ZipWriter<Cursor<Vec<u8>>>, version: &str) {
     let mut entries = std::fs::read_dir(directory)
         .unwrap()
         .map(Result::unwrap)
@@ -158,7 +174,7 @@ fn files(root: &Path, directory: &Path, zip: &mut zip::ZipWriter<Cursor<Vec<u8>>
     for entry in entries {
         let path = entry.path();
         if entry.file_type().unwrap().is_dir() {
-            files(root, &path, zip);
+            files(root, &path, zip, version);
         } else {
             assert!(entry.file_type().unwrap().is_file());
             let relative = path
@@ -172,7 +188,13 @@ fn files(root: &Path, directory: &Path, zip: &mut zip::ZipWriter<Cursor<Vec<u8>>
                 zip::write::SimpleFileOptions::default().unix_permissions(0o644),
             )
             .unwrap();
-            zip.write_all(&std::fs::read(path).unwrap()).unwrap();
+            let mut bytes = std::fs::read(path).unwrap();
+            if relative == "plugin.json" {
+                let mut manifest: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                manifest["version"] = version.into();
+                bytes = serde_json::to_vec(&manifest).unwrap();
+            }
+            zip.write_all(&bytes).unwrap();
         }
     }
 }

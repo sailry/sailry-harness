@@ -1,6 +1,7 @@
 use super::*;
 use crate::store::{Ingress, Job, unavailable};
 use sailry_link::Admission;
+use sailry_protocol::plugin::updates::{Batch, Failure, Request as Selection};
 use sailry_protocol::{Receipt, Request, VERSION};
 use tokio::sync::oneshot;
 
@@ -21,31 +22,105 @@ impl Ingress {
                 "Node or protocol version mismatch",
             ));
         }
-        let Command::CheckPluginUpdate {
-            name,
-            expected_revision,
-        } = &request.command
-        else {
+        let (selections, single) = match &request.command {
+            Command::CheckPluginUpdate {
+                name,
+                expected_revision,
+            } => (
+                vec![Selection {
+                    name: name.clone(),
+                    expected_revision: *expected_revision,
+                }],
+                true,
+            ),
+            Command::CheckPluginUpdates { packages } => (packages.clone(), false),
+            _ => {
+                return Err(Fault::new(
+                    ErrorCode::Internal,
+                    "plugin update inspection expected",
+                ));
+            }
+        };
+        let mut names = std::collections::BTreeSet::new();
+        if selections.len() > plugin::MAX_INSTALLED
+            || selections
+                .iter()
+                .any(|package| !names.insert(package.name.clone()))
+        {
             return Err(Fault::new(
-                ErrorCode::Internal,
-                "plugin update inspection expected",
+                ErrorCode::InvalidRequest,
+                "invalid plugin update selection",
             ));
-        };
-        let info = self.update_info(name, *expected_revision).await?;
-        let root = if let Some(plugin::Origin::Worktree { worktree, .. }) = &info.origin {
-            Some(self.worktree_root(*worktree).await?)
-        } else {
-            None
-        };
+        }
+        let mut batch = Batch::default();
+        let mut current = Vec::new();
+        for selection in selections {
+            let info = match self
+                .update_info(&selection.name, selection.expected_revision)
+                .await
+            {
+                Ok(info) => info,
+                Err(error) => {
+                    batch.failures.push(Failure {
+                        name: selection.name,
+                        error,
+                    });
+                    continue;
+                }
+            };
+            let root = if let Some(plugin::Origin::Worktree { worktree, .. }) = &info.origin {
+                match self.worktree_root(*worktree).await {
+                    Ok(root) => Some(root),
+                    Err(error) => {
+                        batch.failures.push(Failure {
+                            name: selection.name,
+                            error,
+                        });
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
+            current.push((selection, info, root));
+        }
         let stop = self.closed.child_token();
         let _guard = stop.clone().drop_guard();
-        let report = self.plugins.check_update(info, root, stop).await?;
-        self.update_info(name, *expected_revision).await?;
+        let packages: Vec<_> = current.iter().map(|(_, info, _)| info.clone()).collect();
+        let catalog = self.plugins.update_catalog(&packages, &stop).await;
+        for (selection, info, root) in current {
+            let result = match self
+                .plugins
+                .check_update(info, root, stop.clone(), catalog.as_ref())
+                .await
+            {
+                Ok(report) => self
+                    .update_info(&selection.name, selection.expected_revision)
+                    .await
+                    .map(|_| report),
+                Err(error) => Err(error),
+            };
+            match result {
+                Ok(report) => batch.reports.push(report),
+                Err(error) => batch.failures.push(Failure {
+                    name: selection.name,
+                    error,
+                }),
+            }
+        }
         if self.closed.is_cancelled() {
             return Err(unavailable());
         }
+        let output = if single {
+            if let Some(failure) = batch.failures.pop() {
+                return Err(failure.error);
+            }
+            Output::PluginUpdate(batch.reports.pop().expect("single plugin update report"))
+        } else {
+            Output::PluginUpdates(batch)
+        };
         let (send, completion) = oneshot::channel();
-        let _ = send.send(Ok(Output::PluginUpdate(report)));
+        let _ = send.send(Ok(output));
         Ok(Admission {
             receipt: Receipt {
                 id: request.id,

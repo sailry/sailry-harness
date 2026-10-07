@@ -6,7 +6,7 @@ use gpui_kit::component::notification::{Notification, NotificationType};
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     Command, ErrorCode, Fault, Output, Request,
-    plugin::{Info, Origin, Summary},
+    plugin::{Info, Origin, Summary, catalog::Entry as Listing, updates as checks},
 };
 use std::collections::{BTreeMap, VecDeque};
 
@@ -26,6 +26,7 @@ pub(super) struct Entry {
 
 pub(super) enum Candidate {
     Node(Info),
+    Official(Listing),
     Upload(Package),
 }
 
@@ -72,10 +73,11 @@ impl State {
 }
 
 impl Candidate {
-    pub(super) fn info(&self) -> &Info {
+    pub(super) fn version(&self) -> Option<&str> {
         match self {
-            Self::Node(info) => info,
-            Self::Upload(package) => &package.info,
+            Self::Node(info) => info.summary.version.as_deref(),
+            Self::Official(entry) => entry.version.as_deref(),
+            Self::Upload(package) => package.info.summary.version.as_deref(),
         }
     }
 
@@ -83,6 +85,7 @@ impl Candidate {
         let expected_revision = current.revision;
         let name = current.name.clone();
         Some(match self {
+            Self::Official(_) => return None,
             Self::Upload(package) => Command::InstallPluginUpload {
                 stream: package.upload.stream,
                 source: sailry_protocol::plugin::UploadSource::Directory,
@@ -140,20 +143,36 @@ impl Workspace {
         self.plugin_catalog.updates.check = Some(stop.clone());
         let cancelled = stop.clone();
         let job = binding.runtime.clone().spawn(async move {
+            let result = tokio::select! {
+                biased;
+                _ = cancelled.cancelled() => return None,
+                result = binding.client.execute(binding.client.prepare(Command::CheckPluginUpdates {
+                    packages: packages.iter().map(|package| checks::Request {
+                        name: package.name.clone(),
+                        expected_revision: package.revision,
+                    }).collect(),
+                })) => result,
+            };
+            let batch = match result {
+                Ok(Output::PluginUpdates(batch)) => batch,
+                Ok(_) => return Some(Err(Fault::new(ErrorCode::Internal, "plugin update reports expected"))),
+                Err(error) => return Some(Err(error)),
+            };
             let mut entries = BTreeMap::new();
-            let mut failed = 0;
-            for current in packages {
+            let mut failed = batch.failures.len();
+            for report in batch.reports {
+                let name = report.current.name.clone();
                 let result = tokio::select! {
                     biased;
                     _ = cancelled.cancelled() => return None,
-                    result = inspect(&binding, current.clone(), directories.get(&current.name).cloned(), cancelled.clone()) => result,
+                    result = inspect(&binding, report, directories.get(&name).cloned(), cancelled.clone()) => result,
                 };
                 match result {
-                    Ok(entry) => { entries.insert(current.name, entry); }
+                    Ok(entry) => { entries.insert(name, entry); }
                     Err(_) => { failed += 1; }
                 }
             }
-            Some((entries, failed))
+            Some(Ok((entries, failed)))
         });
         self.plugin_catalog.updates.task = Some(cx.spawn_in(window, async move |owner, cx| {
             let result = job.await;
@@ -169,7 +188,7 @@ impl Workspace {
                 let state = &mut owner.plugin_catalog.updates;
                 state.check = None;
                 match result {
-                    Ok(Some((entries, failed))) => {
+                    Ok(Some(Ok((entries, failed)))) => {
                         state.entries = entries;
                         state.accept(&owner.plugin_catalog.packages);
                         let available = state.available();
@@ -262,6 +281,11 @@ impl Workspace {
             return;
         };
         if batch.request.is_none() {
+            if let Some(Candidate::Official(listing)) = &entry.candidate {
+                let listing = listing.clone();
+                self.prepare_plugin_update(listing, window, cx);
+                return;
+            }
             let Some(command) = entry
                 .candidate
                 .as_ref()
@@ -347,48 +371,155 @@ impl Workspace {
                     batch.failed += 1;
                     batch.request = None;
                 }
-                if batch.entries.is_empty() {
-                    let message = if batch.failed > 0 {
-                        rust_i18n::t!(
-                            "plugins_update_partial",
-                            count = batch.completed,
-                            failed = batch.failed
-                        )
-                    } else {
-                        rust_i18n::t!("plugins_updates_applied", count = batch.completed)
-                    };
-                    let failed = batch.failed > 0;
-                    state.batch = None;
-                    notify(window, message.into(), failed, cx);
-                } else {
-                    owner.send_plugin_updates(window, cx);
-                }
+                owner.advance_plugin_updates(window, cx);
                 cx.notify();
             });
         }));
         cx.notify();
     }
+
+    fn prepare_plugin_update(
+        &mut self,
+        listing: Listing,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let batch = self
+            .plugin_catalog
+            .updates
+            .batch
+            .as_mut()
+            .expect("active updates");
+        let current = batch
+            .entries
+            .front()
+            .expect("active update")
+            .current
+            .clone();
+        batch.pending = true;
+        let binding = batch.binding.clone();
+        let node = binding.client.target();
+        let selected = current.clone();
+        let job = binding
+            .runtime
+            .clone()
+            .spawn(async move { prepare(&binding, &selected, listing).await });
+        self.plugin_catalog.updates.task = Some(cx.spawn_in(window, async move |owner, cx| {
+            let result = job.await;
+            let _ = owner.update_in(cx, |owner, window, cx| {
+                let state = &mut owner.plugin_catalog.updates;
+                let Some(batch) = &mut state.batch else {
+                    return;
+                };
+                if batch.binding.client.target() != node
+                    || batch
+                        .entries
+                        .front()
+                        .is_none_or(|entry| entry.current != current)
+                {
+                    return;
+                }
+                batch.pending = false;
+                match result {
+                    Ok(Ok(command)) => batch.request = Some(batch.binding.client.prepare(command)),
+                    result => {
+                        let error = match result {
+                            Ok(Err(error)) => error,
+                            _ => Fault::new(
+                                ErrorCode::Unavailable,
+                                "plugin update inspection failed",
+                            ),
+                        };
+                        let entry = batch.entries.pop_front().expect("active update");
+                        let message = rust_i18n::t!(
+                            "plugins_update_error",
+                            name = entry.current.name,
+                            error = tr(live::error_key(&error))
+                        );
+                        if owner.plugin_catalog.packages.contains(&entry.current) {
+                            state.entries.insert(entry.current.name.clone(), entry);
+                        }
+                        batch.failed += 1;
+                        notify(window, message.into(), true, cx);
+                    }
+                }
+                owner.advance_plugin_updates(window, cx);
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn advance_plugin_updates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let state = &mut self.plugin_catalog.updates;
+        let Some(batch) = &state.batch else { return };
+        if batch.entries.is_empty() {
+            let message = if batch.failed > 0 {
+                rust_i18n::t!(
+                    "plugins_update_partial",
+                    count = batch.completed,
+                    failed = batch.failed
+                )
+            } else {
+                rust_i18n::t!("plugins_updates_applied", count = batch.completed)
+            };
+            let failed = batch.failed > 0;
+            state.batch = None;
+            notify(window, message.into(), failed, cx);
+        } else {
+            self.send_plugin_updates(window, cx);
+        }
+    }
 }
 
-async fn inspect(
-    binding: &Binding,
-    current: Summary,
-    directory: Option<std::path::PathBuf>,
-    stop: CancellationToken,
-) -> Result<Entry, Fault> {
-    let Output::PluginUpdate(report) = binding
+async fn prepare(binding: &Binding, current: &Summary, listing: Listing) -> Result<Command, Fault> {
+    let source = sailry_protocol::plugin::skills::Source {
+        repository: listing.repository.ok_or_else(|| {
+            Fault::new(
+                ErrorCode::InvalidRequest,
+                "official plugin repository is unavailable",
+            )
+        })?,
+        git_ref: Some("main".into()),
+        path: Some(listing.id),
+    };
+    let Output::PluginSource(selected) = binding
         .client
-        .execute(binding.client.prepare(Command::CheckPluginUpdate {
-            name: current.name.clone(),
-            expected_revision: current.revision,
-        }))
+        .execute(
+            binding
+                .client
+                .prepare(Command::InspectPluginSource { source }),
+        )
         .await?
     else {
         return Err(Fault::new(
             ErrorCode::Internal,
-            "plugin update inspection expected",
+            "plugin source inspection expected",
         ));
     };
+    if selected.info.summary.name != current.name
+        || selected.info.summary.version != listing.version
+    {
+        return Err(Fault::new(
+            ErrorCode::RevisionConflict,
+            "official plugin version changed; check updates again",
+        ));
+    }
+    Ok(Command::InstallPluginSource {
+        source: selected.source,
+        path: selected.path,
+        name: current.name.clone(),
+        expected_revision: current.revision,
+    })
+}
+
+async fn inspect(
+    binding: &Binding,
+    report: checks::Report,
+    directory: Option<std::path::PathBuf>,
+    stop: CancellationToken,
+) -> Result<Entry, Fault> {
+    let current = &report.current;
     if report.manual
         && let Some(path) = directory
     {
@@ -417,7 +548,10 @@ async fn inspect(
     }
     Ok(Entry {
         current: report.current,
-        candidate: report.available.map(Candidate::Node),
+        candidate: report.available.map(|candidate| match candidate {
+            checks::Candidate::Package(info) => Candidate::Node(info),
+            checks::Candidate::Official(entry) => Candidate::Official(entry),
+        }),
         manual: report.manual,
     })
 }

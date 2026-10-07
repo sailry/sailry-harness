@@ -573,6 +573,7 @@ pub(super) fn execute(
         | Command::ReadCatalogPluginInfo { .. }
         | Command::InspectPluginSource { .. }
         | Command::CheckPluginUpdate { .. }
+        | Command::CheckPluginUpdates { .. }
         | Command::InstallPluginSource { .. }
         | Command::InstallBundledPlugin { .. }
         | Command::InstallSkill { .. }

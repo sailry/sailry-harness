@@ -7,7 +7,7 @@ use sailry_protocol::plugin::{
 };
 use serde::Deserialize;
 use std::io::{Read, Seek};
-mod official;
+pub(super) mod official;
 
 #[derive(Deserialize)]
 struct Response<T> {
@@ -123,6 +123,7 @@ impl Host {
             entries.push(Entry {
                 id: item.slug,
                 name: item.name,
+                version: None,
                 description: item.description,
                 description_locales: Default::default(),
                 display: None,
@@ -219,6 +220,7 @@ pub(super) fn entry(id: &str, manifest: manifest::Manifest) -> Entry {
     Entry {
         id: id.to_owned(),
         name: manifest.name,
+        version: manifest.version,
         description: manifest
             .extension
             .as_ref()

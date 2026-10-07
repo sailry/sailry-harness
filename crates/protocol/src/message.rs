@@ -320,6 +320,9 @@ pub enum Command {
         name: String,
         expected_revision: u64,
     },
+    CheckPluginUpdates {
+        packages: Vec<crate::plugin::updates::Request>,
+    },
     InstallPluginSource {
         source: crate::plugin::skills::Resolved,
         path: String,
@@ -1104,6 +1107,7 @@ impl Command {
                 | Self::ReadCatalogPluginInfo { .. }
                 | Self::InspectPluginSource { .. }
                 | Self::CheckPluginUpdate { .. }
+                | Self::CheckPluginUpdates { .. }
                 | Self::UploadPlugin(_)
                 | Self::InspectPluginUpload { .. }
                 | Self::ReadPlugin { .. }
@@ -1287,6 +1291,7 @@ pub enum Output {
     PluginCatalog(crate::plugin::catalog::Page),
     PluginSource(crate::plugin::catalog::Selection),
     PluginUpdate(crate::plugin::updates::Report),
+    PluginUpdates(crate::plugin::updates::Batch),
     PluginRepository(crate::plugin::skills::Source),
     PluginUpload(crate::plugin::Upload),
     PluginSettings(crate::plugin::settings::State),

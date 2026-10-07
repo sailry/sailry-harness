@@ -8,6 +8,7 @@ use std::{
 struct Server {
     endpoint: String,
     requests: Arc<Mutex<Vec<String>>>,
+    unavailable: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -23,6 +24,8 @@ impl Server {
         let address = listener.local_addr().unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let captured = requests.clone();
+        let unavailable = Arc::new(AtomicBool::new(false));
+        let source_unavailable = unavailable.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let stopped = stop.clone();
         let thread = std::thread::spawn(move || {
@@ -50,8 +53,9 @@ impl Server {
             )
             .unwrap();
             zip.write_all(b"Official repository update").unwrap();
-            let reminders: serde_json::Value =
+            let mut reminders: serde_json::Value =
                 serde_json::from_slice(&std::fs::read(root.join("plugin.json")).unwrap()).unwrap();
+            reminders["version"] = "0.2.0".into();
             let official_archive = zip.finish().unwrap().into_inner();
             for stream in listener.incoming() {
                 if stopped.load(Ordering::SeqCst) {
@@ -73,7 +77,10 @@ impl Server {
                 let request = String::from_utf8(request).unwrap();
                 let path = request.split_whitespace().nth(1).unwrap();
                 captured.lock().unwrap().push(path.to_owned());
-                if path == "/catalog.json" && !official {
+                if (path == "/catalog.json" && !official)
+                    || (path == "/repos/sailry/sailry-plugins/commits/main"
+                        && source_unavailable.load(Ordering::SeqCst))
+                {
                     write!(
                         stream,
                         "HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -111,6 +118,7 @@ impl Server {
         Self {
             endpoint: format!("http://{address}"),
             requests,
+            unavailable,
             stop,
             thread: Some(thread),
         }
@@ -144,7 +152,15 @@ fn add_files(
                 zip::write::SimpleFileOptions::default(),
             )
             .unwrap();
-            zip.write_all(&std::fs::read(path).unwrap()).unwrap();
+            let bytes = std::fs::read(path).unwrap();
+            if relative == "plugin.json" {
+                let mut manifest: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                manifest["version"] = "0.2.0".into();
+                zip.write_all(&serde_json::to_vec(&manifest).unwrap())
+                    .unwrap();
+            } else {
+                zip.write_all(&bytes).unwrap();
+            }
         }
     }
 }
@@ -228,8 +244,30 @@ fn preinstalled_updates(cx: &mut TestAppContext) {
         });
         shown(visual, "plugin-update-reminders", true);
         shown(visual, "plugins-update-all", true);
+        assert_eq!(*server.requests.lock().unwrap(), ["/catalog.json"]);
         assert!(fixture.transport.requests.lock().unwrap().is_empty());
+        fixture.transport.mode.store(1, Ordering::SeqCst);
         tap(visual, "plugins-update-all");
+        shown(visual, "plugins-retry", true);
+        let request = fixture.transport.requests.lock().unwrap()[0];
+        let paths = server.requests.lock().unwrap().clone();
+        assert!(
+            paths
+                .iter()
+                .any(|path| path == "/repos/sailry/sailry-plugins/commits/main")
+        );
+        assert!(
+            paths
+                .iter()
+                .any(|path| path.starts_with("/sailry/sailry-plugins/zip/"))
+        );
+        tap(visual, "plugins-retry");
+        wait(visual, |cx| !owner.read(cx).plugin_catalog.busy());
+        assert_eq!(
+            *fixture.transport.requests.lock().unwrap(),
+            [request, request]
+        );
+        assert_eq!(*server.requests.lock().unwrap(), paths);
         updates::ready(&owner, visual, "reminders", 3);
         let Output::Plugin(info) = fixture.execute(Command::ReadPlugin {
             name: "reminders".into(),
@@ -237,6 +275,7 @@ fn preinstalled_updates(cx: &mut TestAppContext) {
             panic!("package expected");
         };
         assert!(!info.summary.enabled);
+        assert_eq!(info.summary.version.as_deref(), Some("0.2.0"));
         let Some(sailry_protocol::plugin::Origin::Online { source, path }) = info.origin else {
             panic!("official source expected");
         };
@@ -246,6 +285,41 @@ fn preinstalled_updates(cx: &mut TestAppContext) {
         );
         assert_eq!(source.commit, "a".repeat(40));
         assert_eq!(path, "reminders");
+        assert!(!visual.did_prompt_for_paths());
+        fixture.close(visual);
+    }
+}
+
+#[gpui::test]
+fn failed_inspection_preserves_official_candidate(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let server = Server::official();
+        let fixture = Fixture::with_skill_source(remote, &server.endpoint);
+        let before = fixture.public_packages(false);
+        let (owner, visual) = fixture.mount(cx);
+        updates::ready(&owner, visual, "reminders", 1);
+        tap(visual, "plugins-check-updates");
+        shown(visual, "plugin-update-reminders", true);
+        assert_eq!(*server.requests.lock().unwrap(), ["/catalog.json"]);
+        server.unavailable.store(true, Ordering::SeqCst);
+        tap(visual, "plugin-update-reminders");
+        wait(visual, |cx| !owner.read(cx).plugin_catalog.busy());
+        shown(visual, "plugin-update-reminders", true);
+        shown(visual, "plugins-retry", false);
+        assert_eq!(fixture.public_packages(false), before);
+        assert!(fixture.transport.requests.lock().unwrap().is_empty());
+        assert!(!visual.update(|window, cx| window.notifications(cx).is_empty()));
+        server.unavailable.store(false, Ordering::SeqCst);
+        tap(visual, "plugin-update-reminders");
+        updates::ready(&owner, visual, "reminders", 2);
+        let current = fixture
+            .public_packages(false)
+            .into_iter()
+            .find(|package| package.name == "reminders")
+            .unwrap();
+        assert_eq!(current.version.as_deref(), Some("0.2.0"));
+        assert_eq!(fixture.transport.requests.lock().unwrap().len(), 1);
         assert!(!visual.did_prompt_for_paths());
         fixture.close(visual);
     }

@@ -20,6 +20,7 @@ pub struct Selection {
 pub struct Entry {
     pub id: String,
     pub name: String,
+    pub version: Option<String>,
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub description_locales: std::collections::BTreeMap<String, String>,
