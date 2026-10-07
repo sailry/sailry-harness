@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::base::DialogClose;
 
 impl Render for Preview {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -17,9 +18,11 @@ impl Render for Preview {
             .sample(window, cx);
         if !presence.should_render() {
             cx.defer_in(window, |view, window, cx| {
-                view.clear(Some(window), cx);
                 if view.focus.contains_focused(window, cx) {
                     window.close_dialog(cx);
+                    view.finish_close(window, cx);
+                } else {
+                    view.clear(Some(window), cx);
                 }
             });
         }
@@ -42,7 +45,7 @@ impl Render for Preview {
         if let Some(image_size) = image_size {
             self.viewport.clamp_pan(image_size, canvas);
         }
-        v_flex()
+        let content = v_flex()
             .id("attachment-image-preview")
             .debug_selector(|| "attachment-image-preview".into())
             .aria_label(tr("chat_image_preview"))
@@ -82,15 +85,9 @@ impl Render for Preview {
                             view.viewport.drag = None;
                         }),
                     )
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|view, event: &MouseDownEvent, window, cx| {
-                            view.focus.focus(window, cx);
-                            view.viewport.drag = Some(event.position);
-                        }),
-                    )
                     .child(match &self.result {
                         Some(Ok(image)) => img(image.clone())
+                            .id("image-lightbox-image")
                             .debug_selector(|| "image-lightbox-image".into())
                             .flex_shrink_0()
                             .relative()
@@ -99,6 +96,15 @@ impl Render for Preview {
                             .w(image_size.unwrap().width)
                             .h(image_size.unwrap().height)
                             .object_fit(ObjectFit::Contain)
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|view, event: &MouseDownEvent, window, cx| {
+                                    view.focus.focus(window, cx);
+                                    view.viewport.drag = Some(event.position);
+                                    cx.stop_propagation();
+                                }),
+                            )
+                            .on_click(|_, _, cx| cx.stop_propagation())
                             .into_any_element(),
                         Some(Err(key)) => div()
                             .text_sm()
@@ -118,6 +124,7 @@ impl Render for Preview {
             )
             .child(gpui_kit::component::surface::render(
                 h_flex()
+                    .id("image-lightbox-toolbar")
                     .debug_selector(|| "image-lightbox-toolbar".into())
                     .flex_shrink_0()
                     .items_center()
@@ -128,6 +135,7 @@ impl Render for Preview {
                     .rounded(cx.theme().radius_full())
                     .bg(cx.theme().popover)
                     .text_color(cx.theme().popover_foreground)
+                    .on_click(|_, _, cx| cx.stop_propagation())
                     .when(self.sources.len() > 1, |row| {
                         row.child(
                             Button::new("image-previous")
@@ -286,6 +294,7 @@ impl Render for Preview {
                             })),
                     ),
                 cx,
-            ))
+            ));
+        DialogClose::new().size_full().child(content)
     }
 }

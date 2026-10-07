@@ -1,8 +1,8 @@
 //! Conversation inventory composition; Node owns extraction and Client owns pagination.
 use super::*;
 use crate::content::images::{ImageSource, Images};
-use crate::theme::DialogStyle as _;
 use sailry_protocol::conversation::assets::{Group, Kind, Query, Target};
+mod overview;
 mod render;
 #[cfg(test)]
 mod tests;
@@ -15,7 +15,6 @@ pub(crate) struct Assets {
     loaded_revision: Option<u64>,
     images: Entity<Images>,
     scroll: ScrollHandle,
-    kind: Option<Kind>,
     groups: Vec<Group>,
     before: Option<u64>,
     loading: bool,
@@ -38,7 +37,11 @@ impl Assets {
         binding: Binding,
         session: Option<SessionId>,
         images: Entity<Images>,
+        cx: &mut Context<Self>,
     ) -> Self {
+        if let Some(owner) = owner.upgrade() {
+            cx.observe(&owner, |_, _, cx| cx.notify()).detach();
+        }
         Self {
             owner,
             binding,
@@ -47,7 +50,6 @@ impl Assets {
             scroll: ScrollHandle::new(),
             revision: None,
             loaded_revision: None,
-            kind: None,
             groups: Vec::new(),
             before: None,
             loading: false,
@@ -81,6 +83,7 @@ impl Assets {
         self.revision = revision;
         self.groups.clear();
         self.before = None;
+        self.loaded_revision = None;
         self.loading = false;
         self.failed = false;
         if self.open {
@@ -89,28 +92,18 @@ impl Assets {
         cx.notify();
     }
 
-    fn show(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.session.is_none() {
+    fn set_open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open == open || open && self.session.is_none() {
             return;
         }
-        self.open = true;
-        self.load(false, window, cx);
-        let panel = cx.entity();
-        window.open_dialog(cx, move |dialog, window, cx| {
-            let close = panel.clone();
-            dialog
-                .form_title(tr("chat_assets_title"))
-                .w((window.viewport_size().width - px(48.)).min(px(720.)))
-                .on_close(move |_, _, cx| {
-                    close.update(cx, |panel, cx| {
-                        panel.open = false;
-                        panel.stop.cancel();
-                        panel.loading = false;
-                        cx.notify();
-                    })
-                })
-                .child(panel.update(cx, |panel, cx| panel.content(window, cx)))
-        });
+        self.open = open;
+        if open {
+            self.load(false, window, cx);
+        } else {
+            self.stop.cancel();
+            self.task = None;
+            self.loading = false;
+        }
         cx.notify();
     }
 
@@ -129,7 +122,7 @@ impl Assets {
         let cancel = stop.clone();
         let client = self.binding.client.clone();
         let query = Query {
-            kind: self.kind,
+            kind: None,
             before,
             limit: 20,
         };
@@ -189,9 +182,7 @@ impl Assets {
             Target::Image(image) => ImageSource::Image { session, image },
             Target::File { path } => {
                 if !crate::content::images::supports(&path) {
-                    self.open = false;
-                    self.stop.cancel();
-                    window.close_dialog(cx);
+                    self.set_open(false, window, cx);
                     let _ = self
                         .owner
                         .update(cx, |_, cx| cx.emit(Event::FileAt(worktree, path)));
@@ -205,7 +196,28 @@ impl Assets {
             }
         };
         if source.format().is_some() {
-            Images::open(&self.images, source, window, cx);
+            let panel = cx.entity().downgrade();
+            let target = self.binding.client.target();
+            let revision = self.revision;
+            self.set_open(false, window, cx);
+            Images::open_on_close(
+                &self.images,
+                source,
+                move |_, cx| {
+                    let _ = panel.update(cx, |panel, cx| {
+                        if !panel.open
+                            && panel.session == Some(session)
+                            && panel.binding.client.target() == target
+                            && panel.revision == revision
+                        {
+                            panel.open = true;
+                            cx.notify();
+                        }
+                    });
+                },
+                window,
+                cx,
+            );
         } else {
             source.download(
                 self.binding.client.clone(),
@@ -214,5 +226,17 @@ impl Assets {
                 cx,
             );
         }
+    }
+
+    fn select_child(&mut self, id: SessionId, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_open(false, window, cx);
+        let _ = self.owner.update(cx, |view, cx| view.open_child(id, cx));
+    }
+
+    fn select_source(&mut self, uri: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_open(false, window, cx);
+        let _ = self
+            .owner
+            .update(cx, |_, cx| cx.emit(Event::Link(uri.into())));
     }
 }

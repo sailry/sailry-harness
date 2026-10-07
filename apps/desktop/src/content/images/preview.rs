@@ -10,6 +10,8 @@ mod view;
 mod viewport;
 use viewport::{MAX_ZOOM, MIN_ZOOM, Viewport};
 
+type CloseHandler = Box<dyn FnOnce(&mut Window, &mut App)>;
+
 #[cfg(test)]
 mod tests;
 
@@ -58,6 +60,7 @@ pub(super) fn open_sources(
             cancel: CancellationToken::new(),
             viewport: Viewport::default(),
             closing: false,
+            on_close: None,
         }
     });
     view.update(cx, |view, cx| view.reload(window, cx));
@@ -79,7 +82,7 @@ pub(super) fn open_sources(
                 false
             })
             .on_close(move |_, window, cx| {
-                close.update(cx, |view, cx| view.clear(Some(window), cx))
+                close.update(cx, |view, cx| view.finish_close(window, cx));
             })
             .child(content.clone())
     });
@@ -98,6 +101,7 @@ pub(super) struct Preview {
     cancel: CancellationToken,
     viewport: Viewport,
     closing: bool,
+    pub(super) on_close: Option<CloseHandler>,
 }
 
 impl Drop for Preview {
@@ -107,6 +111,13 @@ impl Drop for Preview {
 }
 
 impl Preview {
+    fn finish_close(&mut self, window: &mut Window, cx: &mut App) {
+        self.clear(Some(window), cx);
+        if let Some(callback) = self.on_close.take() {
+            callback(window, cx);
+        }
+    }
+
     fn clear(&mut self, window: Option<&mut Window>, cx: &mut App) {
         self.cancel.cancel();
         self.transforming = false;

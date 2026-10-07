@@ -281,12 +281,13 @@ impl View {
             )
         });
         let owner = cx.weak_entity();
-        let assets = cx.new(|_| {
+        let assets = cx.new(|cx| {
             assets::Assets::new(
                 owner,
                 binding.clone(),
                 session.as_ref().map(|session| session.id),
                 images.clone(),
+                cx,
             )
         });
         let controls = cx.new(|_| controls::Controls::new(search.clone(), assets.clone()));

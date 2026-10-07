@@ -6,6 +6,8 @@ pub(crate) mod icons;
 
 pub(crate) struct Assets;
 
+gpui_kit::assets::icon_assets!(ActivityAssets, [ListTodo]);
+
 pub(crate) const DRAG_ICON: &str = "icons/reicon/move.svg";
 
 // Kit b79f4ce has no file-diff or Git status glyphs. These product SVGs use
@@ -378,11 +380,15 @@ impl AssetSource for Assets {
         if let Some(bytes) = icons::load(path) {
             return Ok(Some(Cow::Owned(bytes)));
         }
+        if let Some(bytes) = ActivityAssets.load(path)? {
+            return Ok(Some(bytes));
+        }
         gpui_kit::assets::Assets.load(path)
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
         let mut names = gpui_kit::assets::Assets.list(path)?;
+        names.extend(ActivityAssets.list(path)?);
         names.extend(
             ICONS
                 .iter()
@@ -401,5 +407,6 @@ mod tests {
     #[test]
     fn embedded_product_icons() {
         assert!(Assets.load("icons/folder.svg").unwrap().is_some());
+        assert!(Assets.load("icons/list-todo.svg").unwrap().is_some());
     }
 }

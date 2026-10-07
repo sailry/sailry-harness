@@ -1,4 +1,12 @@
-chat_assets_title: 资源与产物
+chat_assets_title: 活动
+chat_assets_activity: 活动
+chat_assets_progress: 进度
+chat_assets_output: 输出
+chat_assets_sources: 来源
+chat_assets_no_activity: 无子智能体
+chat_assets_no_progress: 无任务
+chat_assets_no_output: 无输出
+chat_assets_no_sources: 无来源
 chat_assets_all: 全部
 chat_assets_resources: 资源
 chat_assets_artifacts: 产物

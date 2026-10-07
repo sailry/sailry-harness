@@ -59,13 +59,15 @@ impl Drop for Entry {
 }
 
 impl Images {
-    pub(crate) fn open(
+    pub(crate) fn open_on_close(
         images: &Entity<Self>,
         source: ImageSource,
+        on_close: impl FnOnce(&mut Window, &mut App) + 'static,
         window: &mut Window,
         cx: &mut App,
     ) {
-        preview::open_gallery(images, vec![source], 0, window, cx);
+        let preview = preview::open_gallery(images, vec![source], 0, window, cx);
+        preview.update(cx, |preview, _| preview.on_close = Some(Box::new(on_close)));
     }
 
     pub(crate) fn new(

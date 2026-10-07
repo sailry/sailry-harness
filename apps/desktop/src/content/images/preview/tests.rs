@@ -151,6 +151,11 @@ fn controls_and_original_download(cx: &mut TestAppContext) {
             let images = view.image_cache();
             open_gallery(&images, sources, 0, window, cx)
         });
+        let closed = std::rc::Rc::new(std::cell::Cell::new(0));
+        let captured = closed.clone();
+        preview.update(visual, |view, _| {
+            view.on_close = Some(Box::new(move |_, _| captured.set(captured.get() + 1)));
+        });
         loaded(&preview, visual);
         let entering = visual.debug_bounds("image-lightbox-image").unwrap().size;
         frame(visual, 90);
@@ -285,11 +290,15 @@ fn controls_and_original_download(cx: &mut TestAppContext) {
         visual.update(|window, cx| preview.read(cx).focus.clone().focus(window, cx));
         visual.simulate_keystrokes("enter");
         assert!(visual.update(|window, cx| window.has_active_dialog(cx)));
-        // Escape must also dismiss while a toolbar control owns focus.
+        // A blank backdrop also dismisses while a toolbar control owns focus.
         visual.simulate_keystrokes("tab");
         frame(visual, 500);
         let before_close = visual.debug_bounds("image-lightbox-image").unwrap().size;
-        visual.simulate_keystrokes("escape");
+        let canvas = visual.debug_bounds("image-lightbox-canvas").unwrap();
+        let image = visual.debug_bounds("image-lightbox-image").unwrap();
+        let blank = point(canvas.left() + px(2.), canvas.top() + px(2.));
+        assert!(!image.contains(&blank));
+        visual.simulate_click(blank, Modifiers::default());
         frame(visual, 0);
         assert!(preview.read_with(visual, |view, _| view.closing));
         assert!(visual.update(|window, cx| window.has_active_dialog(cx)));
@@ -306,6 +315,7 @@ fn controls_and_original_download(cx: &mut TestAppContext) {
         frame(visual, 500);
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
         assert!(preview.read_with(visual, |view, _| view.result.is_none()));
+        assert_eq!(closed.get(), 1);
         assert!(visual.update(|window, _| previous_focus.is_focused(window)));
 
         let sources = preview.read_with(visual, |view, _| view.sources.clone());
@@ -313,6 +323,10 @@ fn controls_and_original_download(cx: &mut TestAppContext) {
             cx.set_reduce_motion(true);
             let images = view.read(cx).image_cache();
             open_gallery(&images, sources, 0, window, cx)
+        });
+        let captured = closed.clone();
+        reduced.update(visual, |view, _| {
+            view.on_close = Some(Box::new(move |_, _| captured.set(captured.get() + 1)));
         });
         loaded(&reduced, visual);
         let fitted = visual.debug_bounds("image-lightbox-image").unwrap().size;
@@ -336,6 +350,7 @@ fn controls_and_original_download(cx: &mut TestAppContext) {
         frame(visual, 0);
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
         assert!(reduced.read_with(visual, |view, _| view.result.is_none()));
+        assert_eq!(closed.get(), 2);
         assert!(visual.update(|window, _| previous_focus.is_focused(window)));
         visual.update(|_, cx| cx.set_reduce_motion(false));
         visual.update(|window, _| window.remove_window());

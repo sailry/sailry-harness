@@ -2,8 +2,18 @@
 use super::*;
 use gpui_kit::component::{button::Button, popover::Popover};
 use gpui_kit::prelude::FluentBuilder as _;
+use sailry_protocol::conversation::progress::Progress;
 
 impl View {
+    pub(super) fn turn_progress(&self, turn: TurnId) -> Option<Progress> {
+        self.history
+            .calls
+            .iter()
+            .rev()
+            .filter(|call| call.turn == turn)
+            .find_map(|call| call.progress.clone())
+    }
+
     pub(super) fn composer_activity(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let badges = self.registered_controls(
             sailry_protocol::plugin::ui::Slot::Status,
@@ -11,14 +21,9 @@ impl View {
             crate::plugins::contributions::Form::Toolbar,
             cx,
         );
-        let active = self.active();
         let progress = self
-            .history
-            .calls
-            .iter()
-            .rev()
-            .filter(|call| Some(call.turn) == active)
-            .find_map(|call| call.progress.clone())
+            .active()
+            .and_then(|turn| self.turn_progress(turn))
             .filter(|progress| {
                 let (completed, total) = tools::progress::counts(progress);
                 completed < total

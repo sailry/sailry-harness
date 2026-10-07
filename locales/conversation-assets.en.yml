@@ -1,4 +1,12 @@
-chat_assets_title: Resources and artifacts
+chat_assets_title: Activity
+chat_assets_activity: Activity
+chat_assets_progress: Progress
+chat_assets_output: Output
+chat_assets_sources: Sources
+chat_assets_no_activity: No subagents
+chat_assets_no_progress: No tasks
+chat_assets_no_output: No output
+chat_assets_no_sources: No sources
 chat_assets_all: All
 chat_assets_resources: Resources
 chat_assets_artifacts: Artifacts

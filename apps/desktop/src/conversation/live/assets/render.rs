@@ -1,173 +1,199 @@
 use super::*;
+use crate::conversation::subagent::Choice;
 use gpui_kit::component::{
     button::{Button, ButtonVariants as _},
+    popover::Popover,
     scroll::ScrollableElement,
     separator::Separator,
     spinner::Spinner,
-    tab::{Tab, TabBar},
 };
 use gpui_kit::prelude::FluentBuilder as _;
 
 impl Render for Assets {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        Button::new("live-assets")
-            .debug_selector(|| "live-assets".into())
-            .ghost()
-            .small()
-            .icon(IconName::Folder)
-            .disabled(self.session.is_none())
-            .tooltip(tr("chat_assets_title"))
-            .accessibility_label(tr("chat_assets_title"))
-            .on_click(cx.listener(|panel, _, window, cx| panel.show(window, cx)))
+        let panel = cx.entity().downgrade();
+        let session = self.session;
+        let selector = session
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "draft".into());
+        let popover = Popover::new("live-assets-popover")
+            .anchor(Anchor::TopRight)
+            .open(self.open)
+            .p_3()
+            .trigger(
+                Button::new("live-assets")
+                    .debug_selector(|| "live-assets".into())
+                    .ghost()
+                    .small()
+                    .icon(Icon::new(gpui_kit::assets::IconName::ListTodo))
+                    .disabled(session.is_none())
+                    .tooltip(tr("chat_assets_title"))
+                    .accessibility_label(tr("chat_assets_title")),
+            )
+            .on_open_change(
+                cx.listener(|panel, open, window, cx| panel.set_open(*open, window, cx)),
+            )
+            .content(move |_, window, cx| {
+                panel
+                    .update(cx, |panel, cx| panel.content(window, cx))
+                    .unwrap_or_else(|_| div().into_any_element())
+            });
+        div()
+            .debug_selector(move || format!("live-overview-{selector}"))
+            .child(popover)
     }
 }
 
 impl Assets {
     pub(super) fn content(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let selected = match self.kind {
-            None => 0,
-            Some(Kind::Resource) => 1,
-            Some(Kind::Artifact) => 2,
-        };
-        let tabs = TabBar::new("asset-tabs")
-            .segmented()
-            .selected_index(selected)
-            .children(
-                [
-                    "chat_assets_all",
-                    "chat_assets_resources",
-                    "chat_assets_artifacts",
-                ]
-                .into_iter()
-                .enumerate()
-                .map(|(index, key)| {
-                    Tab::new()
-                        .label(tr(key))
-                        .debug_selector(move || format!("asset-tab-{index}"))
-                }),
-            )
-            .on_click(cx.listener(|panel, index: &usize, window, cx| {
-                let kind = match index {
-                    1 => Some(Kind::Resource),
-                    2 => Some(Kind::Artifact),
-                    _ => None,
-                };
-                if kind != panel.kind {
-                    panel.kind = kind;
-                    panel.groups.clear();
-                    panel.before = None;
-                    panel.loaded_revision = None;
-                    panel.load(false, window, cx);
-                }
-            }));
-        // Kit's percentage-height wrapper clips this auto-growing dialog; use its native viewport.
+        let overview = self
+            .owner
+            .upgrade()
+            .map(|owner| overview::Overview::new(owner.read(cx)))
+            .unwrap_or_default();
+        let selector = self
+            .session
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "draft".into());
         let mut body = v_flex()
-            .id("asset-timeline")
+            .id("asset-overview")
             .relative()
             .gap_4()
             .w_full()
-            .h_auto()
-            .min_h_32()
-            .max_h((window.viewport_size().height - px(240.)).max(px(120.)))
+            .max_h((window.viewport_size().height - px(128.)).max(px(120.)))
             .overflow_y_scroll()
             .track_scroll(&self.scroll);
-        // Kit has no timeline control. Passive chronology decorates Kit action buttons;
-        // the Stepper is reserved for progress/navigation, not historical events.
-        for group in &self.groups {
-            let stamp = chrono::DateTime::from_timestamp_millis(group.timestamp_ms)
-                .map(|time| {
-                    time.with_timezone(&chrono::Local)
-                        .format("%Y-%m-%d %H:%M")
-                        .to_string()
-                })
-                .unwrap_or_default();
-            let mut entries = v_flex()
+        let count = overview.children.len();
+        let mut activity = section("activity", "chat_assets_activity").child(
+            h_flex()
+                .debug_selector(|| "asset-activity-heading".into())
                 .gap_2()
-                .pl_4()
-                .border_l_1()
-                .border_color(cx.theme().border);
-            for (index, target) in group.items.iter().enumerate() {
-                let (name, icon) = match target {
-                    Target::Attachment(value) => (value.spec.name.clone(), IconName::File),
-                    Target::Image(value) => (value.attachment.spec.name.clone(), IconName::File),
-                    Target::File { path } => (path.clone(), IconName::File),
-                };
-                let source = match target {
-                    Target::Attachment(value) => Some(ImageSource::Attachment(value.clone())),
-                    Target::Image(value) => self.session.map(|session| ImageSource::Image {
-                        session,
-                        image: value.clone(),
-                    }),
-                    Target::File { path } if crate::content::images::supports(path) => {
-                        Some(ImageSource::File {
-                            context: None,
-                            worktree: group.worktree,
-                            path: path.clone(),
-                        })
-                    }
-                    _ => None,
-                };
-                let target = target.clone();
-                let worktree = group.worktree;
-                let key = format!("asset-{}-{index}", group.sequence);
-                let selector = key.clone();
-                let mut row = h_flex().w_full().gap_3().items_center();
-                if let Some(source) = source.filter(|source| source.format().is_some()) {
-                    row = row.child(Images::media(&self.images, source, cx).size_12());
-                } else {
-                    row = row.child(
-                        Icon::new(icon)
-                            .size_5()
-                            .text_color(cx.theme().muted_foreground),
-                    );
-                }
-                entries = entries.child(
-                    Button::new(key)
-                        .debug_selector(move || selector.clone())
-                        .ghost()
-                        .h_auto()
-                        .w_full()
-                        .p_3()
-                        .justify_start()
-                        .accessibility_label(name.clone())
-                        .child(row.child(div().flex_1().min_w_0().truncate().text_sm().child(name)))
-                        .on_click(cx.listener(move |panel, _, window, cx| {
-                            panel.select(target.clone(), worktree, window, cx)
-                        })),
-                );
-            }
-            body = body.child(
-                v_flex()
-                    .gap_2()
+                .when(count > 0, |row| {
+                    row.child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(
+                                rust_i18n::t!("composer_subagent_count", count = count).to_string(),
+                            ),
+                    )
+                }),
+        );
+        for child in overview.children {
+            let Choice::Live(id) = child.key else {
+                continue;
+            };
+            activity = activity.child(
+                Button::new(format!("asset-child-{id}"))
+                    .debug_selector(move || format!("asset-child-{id}"))
+                    .ghost()
+                    .w_full()
+                    .h_auto()
+                    .p_2()
+                    .justify_start()
+                    .accessibility_label(format!("{}: {}", child.name, tr(child.status)))
                     .child(
                         h_flex()
+                            .w_full()
+                            .min_w_0()
                             .gap_2()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(stamp)
-                            .child(tr(match group.kind {
-                                Kind::Resource => "chat_assets_resources",
-                                Kind::Artifact => "chat_assets_artifacts",
-                            })),
+                            .child(Icon::new(child.icon).size_4())
+                            .child(div().flex_1().min_w_0().truncate().child(child.name))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(tr(child.status)),
+                            ),
                     )
-                    .child(entries),
+                    .on_click(
+                        cx.listener(move |panel, _, window, cx| panel.select_child(id, window, cx)),
+                    ),
             );
         }
-        if self.groups.is_empty() && !self.loading && !self.failed {
-            body = body.child(
-                div()
-                    .h_32()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(tr("chat_assets_empty")),
+        if count == 0 {
+            activity = activity.child(empty("chat_assets_no_activity", cx));
+        }
+        body = body.child(activity).child(Separator::horizontal());
+        let mut progress = section("progress", "chat_assets_progress");
+        if let Some(plan) = overview.progress {
+            let (completed, total) = tools::progress::counts(&plan);
+            progress = progress
+                .child(
+                    div()
+                        .debug_selector(|| "asset-progress-heading".into())
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(
+                            rust_i18n::t!(
+                                "composer_todo_count",
+                                completed = completed,
+                                total = total
+                            )
+                            .to_string(),
+                        ),
+                )
+                .child(tools::progress::list(
+                    &format!("overview-{}", overview.turn.unwrap()),
+                    &plan,
+                    false,
+                    cx,
+                ));
+        } else {
+            progress = progress.child(empty("chat_assets_no_progress", cx));
+        }
+        body = body.child(progress).child(Separator::horizontal());
+        let mut output = section("output", "chat_assets_output");
+        let mut sources = section("sources", "chat_assets_sources");
+        let mut output_count = 0;
+        let mut source_count = overview.sources.len();
+        for group in &self.groups {
+            for (index, target) in group.items.iter().enumerate() {
+                let row = self.asset(group, index, target, cx);
+                if group.kind == Kind::Artifact {
+                    output = output.child(row);
+                    output_count += 1;
+                } else {
+                    sources = sources.child(row);
+                    source_count += 1;
+                }
+            }
+        }
+        for (index, source) in overview.sources.into_iter().enumerate() {
+            let uri = source.uri;
+            let label = source
+                .title
+                .filter(|title| !title.trim().is_empty())
+                .unwrap_or_else(|| uri.clone());
+            sources = sources.child(
+                Button::new(("asset-source", index))
+                    .debug_selector(move || format!("asset-source-{index}"))
+                    .ghost()
+                    .w_full()
+                    .h_auto()
+                    .p_2()
+                    .justify_start()
+                    .accessibility_label(label.clone())
+                    .icon(IconName::Globe)
+                    .child(div().flex_1().min_w_0().truncate().text_left().child(label))
+                    .on_click(cx.listener(move |panel, _, window, cx| {
+                        panel.select_source(uri.clone(), window, cx)
+                    })),
             );
         }
+        if output_count == 0 && !self.loading && !self.failed {
+            output = output.child(empty("chat_assets_no_output", cx));
+        }
+        if source_count == 0 && !self.loading && !self.failed {
+            sources = sources.child(empty("chat_assets_no_sources", cx));
+        }
+        body = body
+            .child(output)
+            .child(Separator::horizontal())
+            .child(sources);
         if self.failed {
             let retry =
-                v_flex().gap_2().items_center().child(
+                v_flex().items_center().child(
                     Button::new("asset-retry")
                         .label(tr("chat_retry"))
                         .debug_selector(|| "asset-retry".into())
@@ -191,25 +217,29 @@ impl Assets {
                     .on_click(cx.listener(|panel, _, window, cx| panel.load(true, window, cx))),
             );
         }
-        v_flex()
-            .gap_4()
-            .w_full()
+        let panel = v_flex()
             .debug_selector(|| "asset-panel".into())
+            .w(px(360.).min(window.viewport_size().width - px(48.)))
+            .min_w_0()
+            .gap_3()
             .child(
-                h_flex().justify_between().child(tabs).child(
-                    Button::new("asset-refresh")
-                        .ghost()
-                        .small()
-                        .icon(IconName::RotateCw)
-                        .tooltip(tr("chat_assets_refresh"))
-                        .accessibility_label(tr("chat_assets_refresh"))
-                        .disabled(self.loading)
-                        .on_click(
-                            cx.listener(|panel, _, window, cx| panel.load(false, window, cx)),
-                        ),
-                ),
+                h_flex()
+                    .justify_between()
+                    .child(div().font_semibold().child(tr("chat_assets_title")))
+                    .child(
+                        Button::new("asset-refresh")
+                            .ghost()
+                            .small()
+                            .icon(IconName::RotateCw)
+                            .tooltip(tr("chat_assets_refresh"))
+                            .accessibility_label(tr("chat_assets_refresh"))
+                            .disabled(self.loading)
+                            .debug_selector(|| "asset-refresh".into())
+                            .on_click(
+                                cx.listener(|panel, _, window, cx| panel.load(false, window, cx)),
+                            ),
+                    ),
             )
-            .child(Separator::horizontal())
             .child(
                 div()
                     .relative()
@@ -222,11 +252,87 @@ impl Assets {
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .bg(cx.theme().background.opacity(0.7))
+                                .bg(cx.theme().popover.opacity(0.7))
                                 .child(Spinner::new()),
                         )
                     }),
-            )
+            );
+        div()
+            .debug_selector(move || format!("overview-{selector}"))
+            .child(panel)
             .into_any_element()
     }
+
+    fn asset(
+        &self,
+        group: &Group,
+        index: usize,
+        target: &Target,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let name = match target {
+            Target::Attachment(value) => value.spec.name.clone(),
+            Target::Image(value) => value.attachment.spec.name.clone(),
+            Target::File { path } => path.clone(),
+        };
+        let source = match target {
+            Target::Attachment(value) => Some(ImageSource::Attachment(value.clone())),
+            Target::Image(value) => self.session.map(|session| ImageSource::Image {
+                session,
+                image: value.clone(),
+            }),
+            Target::File { path } if crate::content::images::supports(path) => {
+                Some(ImageSource::File {
+                    context: None,
+                    worktree: group.worktree,
+                    path: path.clone(),
+                })
+            }
+            _ => None,
+        };
+        let target = target.clone();
+        let worktree = group.worktree;
+        let key = format!("asset-{}-{index}", group.sequence);
+        let selector = key.clone();
+        let mut row = h_flex().w_full().min_w_0().gap_2();
+        if let Some(source) = source.filter(|source| source.format().is_some()) {
+            row = row.child(Images::media(&self.images, source, cx).size_8());
+        } else {
+            row = row.child(
+                Icon::new(IconName::File)
+                    .size_4()
+                    .text_color(cx.theme().muted_foreground),
+            );
+        }
+        Button::new(key)
+            .debug_selector(move || selector.clone())
+            .ghost()
+            .w_full()
+            .h_auto()
+            .p_2()
+            .justify_start()
+            .accessibility_label(name.clone())
+            .child(row.child(div().flex_1().min_w_0().truncate().text_left().child(name)))
+            .on_click(cx.listener(move |panel, _, window, cx| {
+                panel.select(target.clone(), worktree, window, cx)
+            }))
+            .into_any_element()
+    }
+}
+
+fn section(id: &'static str, label: &'static str) -> Div {
+    v_flex()
+        .debug_selector(move || format!("asset-{id}"))
+        .gap_1()
+        .w_full()
+        .min_w_0()
+        .child(div().text_sm().font_semibold().child(tr(label)))
+}
+
+fn empty(label: &'static str, cx: &App) -> Div {
+    div()
+        .py_1()
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .child(tr(label))
 }

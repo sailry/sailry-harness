@@ -84,7 +84,7 @@ impl Transport for Observed {
 }
 
 #[gpui::test]
-fn retries_and_cancels_stale_filters(cx: &mut TestAppContext) {
+fn retries_and_cancels_superseded_queries(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let mut fixture = Fixture::with_server(remote, |runtime| {
@@ -95,7 +95,7 @@ fn retries_and_cancels_stale_filters(cx: &mut TestAppContext) {
         submit(&fixture, "[Input](input.txt)".into());
         let observed = Arc::new(Observed::new(fixture.transport.clone()));
         fixture.binding.client = Arc::new(Client::new(observed.clone()));
-        let (view, visual) = open(cx, &fixture);
+        let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
         wait(visual, |cx| view.read(cx).connected());
         let panel = view.read_with(visual, |view, _| view.assets.clone());
         tap(visual, "live-assets");
@@ -125,7 +125,7 @@ fn retries_and_cancels_stale_filters(cx: &mut TestAppContext) {
         });
         observed.fail.store(true, Ordering::SeqCst);
         visual.update(|window, cx| window.clear_notifications(cx));
-        panel.update_in(visual, |panel, window, cx| panel.load(false, window, cx));
+        tap(visual, "asset-refresh");
         wait(visual, |cx| panel.read(cx).failed);
         crate::feedback::tests::shown(visual);
         assert_eq!(
@@ -146,9 +146,7 @@ fn retries_and_cancels_stale_filters(cx: &mut TestAppContext) {
             observed.queries.lock().unwrap().len() == queries + 1 && !panel.read(cx).loading
         });
         assert_eq!(panel.read_with(visual, |panel, _| panel.groups.len()), 2);
-        let state = panel.read_with(visual, |panel, _| {
-            (panel.failed, panel.loading, panel.open, panel.kind)
-        });
+        let state = panel.read_with(visual, |panel, _| (panel.failed, panel.loading, panel.open));
         let rendered = visual.debug_bounds("asset-retry");
         let content = visual.debug_bounds("asset-panel");
         let notice = visual.debug_bounds("notification-card");
@@ -158,25 +156,42 @@ fn retries_and_cancels_stale_filters(cx: &mut TestAppContext) {
             "asset Retry failed: remote={remote}, state={state:?}, queries={queries}->{}, retry={retry:?}->{rendered:?}, content={content:?}, notice={notice:?}, viewport={viewport:?}",
             observed.queries.lock().unwrap().len()
         );
-        let count = observed.queries.lock().unwrap().len();
-        tap(visual, "asset-tab-0");
-        assert_eq!(observed.queries.lock().unwrap().len(), count);
         observed.hold.store(true, Ordering::SeqCst);
-        panel.update_in(visual, |panel, window, cx| panel.load(false, window, cx));
+        tap(visual, "asset-refresh");
         fixture.runtime.block_on(observed.wait_held());
-        tap(visual, "asset-tab-1");
+        panel.update_in(visual, |panel, window, cx| panel.load(false, window, cx));
         wait(visual, |cx| !panel.read(cx).loading);
         wait(visual, |_| observed.cancelled.load(Ordering::SeqCst) == 1);
-        assert!(panel.read_with(visual, |panel, _| panel.groups.len() == 1
-            && panel.groups[0].kind == Kind::Resource));
-        tap(visual, "asset-tab-0");
-        wait(visual, |cx| !panel.read(cx).loading);
-        observed.hold.store(true, Ordering::SeqCst);
-        panel.update_in(visual, |panel, window, cx| panel.load(false, window, cx));
-        fixture.runtime.block_on(observed.wait_held());
+        assert_eq!(panel.read_with(visual, |panel, _| panel.groups.len()), 2);
+        for (outside, cancelled) in [(false, 2), (true, 3)] {
+            observed.hold.store(true, Ordering::SeqCst);
+            tap(visual, "asset-refresh");
+            fixture.runtime.block_on(observed.wait_held());
+            if outside {
+                let position = visual
+                    .update(|window, _| point(px(1.), window.viewport_size().height - px(1.)));
+                assert!(
+                    !visual
+                        .debug_bounds("asset-panel")
+                        .unwrap()
+                        .contains(&position)
+                );
+                visual.simulate_click(position, Modifiers::default());
+            } else {
+                visual.simulate_keystrokes("escape");
+            }
+            wait(visual, |cx| !panel.read(cx).open);
+            wait(visual, |_| {
+                observed.cancelled.load(Ordering::SeqCst) == cancelled
+            });
+            assert!(visual.debug_bounds("asset-panel").is_none());
+            tap(visual, "live-assets");
+            wait(visual, |cx| panel.read(cx).open && !panel.read(cx).loading);
+            assert_eq!(panel.read_with(visual, |panel, _| panel.groups.len()), 2);
+        }
         visual.simulate_keystrokes("escape");
         wait(visual, |cx| !panel.read(cx).open);
-        wait(visual, |_| observed.cancelled.load(Ordering::SeqCst) == 2);
+        assert!(observed.queries.lock().unwrap().iter().all(Option::is_none));
         assert_eq!(fixture.task_requests(), 1);
         fixture.close();
     }
