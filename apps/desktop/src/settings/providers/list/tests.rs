@@ -38,25 +38,33 @@ fn bounds(cx: &mut VisualTestContext, selector: String) -> Bounds<Pixels> {
 }
 
 fn columns(cx: &mut VisualTestContext, ids: &[usize], authorization: Option<usize>) {
-    let usage = bounds(cx, format!("provider-usage-{}", ids[0]));
     for &id in ids {
         let details = bounds(cx, format!("provider-details-{id}"));
         let name = bounds(cx, format!("provider-name-{id}"));
-        let row_usage = bounds(cx, format!("provider-usage-{id}"));
+        let kind = bounds(cx, format!("provider-kind-{id}"));
+        let count = bounds(cx, format!("provider-count-{id}"));
         assert!(details.size.width > px(0.));
         assert_eq!(name.size.width, details.size.width);
-        assert!(details.right() < row_usage.left());
-        assert_eq!(row_usage.size.width, px(192.));
-        assert_eq!(row_usage.left(), usage.left());
-        assert!(
-            bounds(cx, format!("provider-kind-{id}")).right()
-                < bounds(cx, format!("provider-count-{id}")).left()
-        );
-        for field in ["plan", "5h", "7d"] {
-            let column = bounds(cx, format!("provider-{field}-{id}"));
-            let first = bounds(cx, format!("provider-{field}-{}", ids[0]));
-            assert_eq!(column.left(), first.left());
-            assert_eq!(column.size.width, first.size.width);
+        assert_eq!(kind.left(), details.left());
+        assert_eq!(count.left() - kind.right(), px(12.));
+        assert_eq!(kind.top(), count.top());
+        assert_eq!(kind.size.height, count.size.height);
+        assert!(count.right() <= details.right());
+        for field in [
+            "usage",
+            "plan",
+            "plan-value",
+            "plan-progress",
+            "5h",
+            "5h-value",
+            "5h-progress",
+            "7d",
+            "7d-value",
+            "7d-progress",
+            "manage-usage",
+        ] {
+            let selector = Box::leak(format!("provider-{field}-{id}").into_boxed_str());
+            assert!(cx.debug_bounds(selector).is_none(), "unexpected {selector}");
         }
     }
     let first_control = bounds(cx, format!("provider-{}-control", ids[0]));
@@ -69,7 +77,7 @@ fn columns(cx: &mut VisualTestContext, ids: &[usize], authorization: Option<usiz
         assert_eq!(actions.size.width, px(120.));
         assert_eq!(control.left(), first_control.left());
         assert_eq!(actions.left(), first_actions.left());
-        assert!(usage.right() < control.left());
+        assert!(bounds(cx, format!("provider-details-{id}")).right() < control.left());
         assert!(control.right() < actions.left());
         assert_eq!(actions.right(), row.right());
         let edit = bounds(cx, format!("provider-edit-{id}"));
@@ -94,73 +102,35 @@ fn keeps_preview_passive(cx: &mut TestAppContext) {
         gpui_kit::init(cx);
         crate::theme::init(cx);
     });
+    let mut ids = Vec::new();
     let (_, visual) = cx.add_window_view(|window, cx| {
         let workspace = cx.new(|cx| Workspace::new(window, cx));
         workspace.update(cx, |workspace, cx| {
             workspace.providers.channels[0].preset = Preset::ChatGpt;
             workspace.select(crate::settings::Section::Providers, cx);
+            ids = workspace
+                .providers
+                .channels
+                .iter()
+                .filter(|channel| channel.preset.category() == workspace.providers.category)
+                .map(|channel| channel.id)
+                .collect();
         });
         Root::new(workspace, window, cx)
     });
-    draw(visual);
-    assert!(visual.debug_bounds("provider-login-0").is_none());
-    for field in [
-        "provider-plan-value-0",
-        "provider-5h-value-0",
-        "provider-7d-value-0",
-    ] {
-        assert!(visual.debug_bounds(field).is_some());
+    assert!(ids.contains(&0));
+    for width in [560., 800.] {
+        visual.simulate_resize(size(px(width), px(820.)));
+        draw(visual);
+        columns(visual, &ids, None);
     }
-    assert_eq!(tr("provider_usage_unknown").as_ref(), "—");
-    assert!(visual.debug_bounds("provider-5h-progress-0").is_none());
-    assert!(visual.debug_bounds("provider-7d-progress-0").is_none());
-    assert!(visual.debug_bounds("provider-manage-usage-0").is_none());
     assert!(visual.opened_url().is_none());
     assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
     assert!(!visual.did_prompt_for_paths());
 }
 
-#[test]
-fn uses_observed_remaining_and_expiry() {
-    for (used, remaining_value, percentage) in [
-        (0, 10000, "100"),
-        (4250, 5750, "57.5"),
-        (4255, 5745, "57.45"),
-        (10000, 0, "0"),
-        (10050, 0, "0"),
-    ] {
-        let window = Window {
-            used_basis_points: used,
-            reset_at_ms: Some(200),
-        };
-        assert_eq!(remaining(Some(&window), 199), Some(remaining_value));
-        assert_eq!(percent(remaining_value), percentage);
-        assert_eq!(remaining(Some(&window), 200), None);
-        assert_eq!(remaining(Some(&window), 201), None);
-    }
-    assert_eq!(remaining(None, 100), None);
-    assert_eq!(
-        remaining(
-            Some(&Window {
-                used_basis_points: 4250,
-                reset_at_ms: None
-            }),
-            u64::MAX
-        ),
-        Some(5750)
-    );
-    assert_eq!(
-        remaining_label("provider_usage_5h").as_ref(),
-        "5h remaining"
-    );
-    assert_eq!(
-        remaining_label("provider_usage_7d").as_ref(),
-        "7d remaining"
-    );
-}
-
 #[gpui::test]
-fn aligns_usage_and_keeps_actions(cx: &mut TestAppContext) {
+fn aligns_columns_and_keeps_actions(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     cx.update(|cx| {
         gpui_kit::init(cx);
@@ -171,7 +141,7 @@ fn aligns_usage_and_keeps_actions(cx: &mut TestAppContext) {
         let client = Client::new(transport.clone());
         let mut chatgpt = fixture.providers[index].clone();
         let revision = chatgpt.revision;
-        chatgpt.name = "A long ChatGPT provider name that must truncate without moving usage, switches or action buttons".into();
+        chatgpt.name = "A long ChatGPT provider name that must truncate without moving switches or action buttons".into();
         chatgpt.api = ModelApi::Responses;
         chatgpt.authentication = Authentication::ChatGpt;
         chatgpt.endpoint = "https://api.openai.com/v1".into();
@@ -231,6 +201,7 @@ fn aligns_usage_and_keeps_actions(cx: &mut TestAppContext) {
         });
         assert_eq!([chatgpt_id.min(keyed_id), chatgpt_id.max(keyed_id)], [0, 1]);
         let mut previous = px(0.);
+        let mut previous_summary = None;
         for width in [560., 800.] {
             visual.simulate_resize(size(px(width), px(820.)));
             draw(visual);
@@ -238,13 +209,16 @@ fn aligns_usage_and_keeps_actions(cx: &mut TestAppContext) {
             let details = visual.debug_bounds("provider-details-0").unwrap();
             assert!(details.size.width > previous);
             previous = details.size.width;
+            let summary = [0, 1].map(|id| {
+                let kind = bounds(visual, format!("provider-kind-{id}"));
+                let count = bounds(visual, format!("provider-count-{id}"));
+                (kind.size.width, count.left(), count.size.width)
+            });
+            if let Some(previous) = previous_summary {
+                assert_eq!(summary, previous);
+            }
+            previous_summary = Some(summary);
         }
-        for selector in ["provider-manage-usage-0", "provider-manage-usage-1"] {
-            assert!(visual.debug_bounds(selector).is_none());
-        }
-        let usage = visual.debug_bounds("provider-usage-0").unwrap();
-        let slot = visual.debug_bounds("provider-plan-0").unwrap();
-        assert_eq!(usage.size.height, slot.size.height);
         for (id, login, edit, delete, control, content, actions) in [
             (
                 0,

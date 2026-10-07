@@ -37,6 +37,27 @@ fn draw(cx: &mut VisualTestContext) {
     cx.update(|window, cx| window.draw(cx).clear(cx));
 }
 
+fn assert_hidden(cx: &mut VisualTestContext) {
+    assert!(cx.debug_bounds("provider-details-0").is_some());
+    for selector in [
+        "provider-usage-0",
+        "provider-plan-0",
+        "provider-plan-value-0",
+        "provider-plan-progress-0",
+        "provider-5h-0",
+        "provider-5h-value-0",
+        "provider-5h-progress-0",
+        "provider-7d-0",
+        "provider-7d-value-0",
+        "provider-7d-progress-0",
+    ] {
+        assert!(
+            cx.debug_bounds(selector).is_none(),
+            "{selector} must not render"
+        );
+    }
+}
+
 fn wait(cx: &mut VisualTestContext, predicate: impl Fn(&App) -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
@@ -104,7 +125,7 @@ fn baseline(
 }
 
 #[gpui::test]
-fn keeps_geometry_and_expires_without_requests(cx: &mut TestAppContext) {
+fn hides_display_and_expires_without_requests(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     cx.update(|cx| {
         gpui_kit::init(cx);
@@ -149,36 +170,14 @@ fn keeps_geometry_and_expires_without_requests(cx: &mut TestAppContext) {
         let mut snapshot = baseline(&fixture, counted.clone());
         let mut quota = observation(&mut snapshot);
         project(&owner, visual, snapshot.clone());
-        let geometry = [
-            "provider-usage-0",
-            "provider-plan-0",
-            "provider-5h-0",
-            "provider-7d-0",
-        ]
-        .map(|selector| visual.debug_bounds(selector).unwrap());
-        assert!(visual.debug_bounds("provider-5h-progress-0").is_none());
-        assert!(visual.debug_bounds("provider-7d-progress-0").is_none());
+        assert_hidden(visual);
 
         let reset = now() + 1000;
         quota.five_hour.as_mut().unwrap().reset_at_ms = Some(reset);
         quota.seven_day.as_mut().unwrap().reset_at_ms = Some(reset);
         snapshot.provider_quotas = vec![quota.clone()];
         project(&owner, visual, snapshot.clone());
-        for selector in ["provider-5h-progress-0", "provider-7d-progress-0"] {
-            assert_eq!(visual.debug_bounds(selector).unwrap().size.height, px(4.));
-        }
-        assert!(visual.debug_bounds("provider-plan-progress-0").is_none());
-        for (selector, before) in [
-            "provider-usage-0",
-            "provider-plan-0",
-            "provider-5h-0",
-            "provider-7d-0",
-        ]
-        .into_iter()
-        .zip(geometry)
-        {
-            assert_eq!(visual.debug_bounds(selector).unwrap(), before);
-        }
+        assert_hidden(visual);
         owner.read_with(visual, |owner, _| {
             assert_eq!(owner.providers.channels[0].quota, Some(quota.clone()));
             assert_eq!(
@@ -190,19 +189,7 @@ fn keeps_geometry_and_expires_without_requests(cx: &mut TestAppContext) {
         std::thread::sleep(Duration::from_millis(reset.saturating_sub(now()) + 5));
         visual.executor().advance_clock(Duration::from_secs(2));
         draw(visual);
-        assert!(visual.debug_bounds("provider-5h-progress-0").is_none());
-        assert!(visual.debug_bounds("provider-7d-progress-0").is_none());
-        for (selector, before) in [
-            "provider-usage-0",
-            "provider-plan-0",
-            "provider-5h-0",
-            "provider-7d-0",
-        ]
-        .into_iter()
-        .zip(geometry)
-        {
-            assert_eq!(visual.debug_bounds(selector).unwrap(), before);
-        }
+        assert_hidden(visual);
         owner.read_with(visual, |owner, _| {
             assert_eq!(owner.providers.channels[0].quota, Some(quota.clone()));
             assert_eq!(owner.provider_link.as_ref().unwrap().quota_reset, None);
@@ -267,18 +254,18 @@ fn binds_current_account_and_clears_on_rebind(cx: &mut TestAppContext) {
         owner.read_with(visual, |owner, _| {
             assert_eq!(owner.providers.channels[0].quota, Some(quota.clone()))
         });
-        assert!(visual.debug_bounds("provider-5h-progress-0").is_some());
+        assert_hidden(visual);
 
         snapshot.provider_quotas = vec![unselected, foreign];
         project(&owner, visual, snapshot.clone());
         owner.read_with(visual, |owner, _| {
             assert_eq!(owner.providers.channels[0].quota, None)
         });
-        assert!(visual.debug_bounds("provider-5h-progress-0").is_none());
-        assert!(visual.debug_bounds("provider-7d-progress-0").is_none());
+        assert_hidden(visual);
 
         snapshot.provider_quotas = vec![quota.clone()];
         project(&owner, visual, snapshot.clone());
+        assert_hidden(visual);
         let mut foreign_snapshot = snapshot.clone();
         foreign_snapshot.node = fixture.transports[1 - index].target();
         foreign_snapshot.provider_quotas.clear();
@@ -295,13 +282,15 @@ fn binds_current_account_and_clears_on_rebind(cx: &mut TestAppContext) {
         owner.read_with(visual, |owner, _| {
             assert_eq!(owner.providers.channels[0].quota, Some(quota.clone()))
         });
+        draw(visual);
+        assert_hidden(visual);
 
         snapshot.providers[0].credential.as_mut().unwrap().id = CredentialId::new();
         project(&owner, visual, snapshot);
         owner.read_with(visual, |owner, _| {
             assert_eq!(owner.providers.channels[0].quota, None)
         });
-        assert!(visual.debug_bounds("provider-5h-progress-0").is_none());
+        assert_hidden(visual);
         owner.update(visual, |owner, cx| {
             owner.bind_providers(
                 fixture.transports[1 - index].clone(),
@@ -326,8 +315,7 @@ fn binds_current_account_and_clears_on_rebind(cx: &mut TestAppContext) {
             )
         });
         draw(visual);
-        assert!(visual.debug_bounds("provider-5h-progress-0").is_none());
-        assert!(visual.debug_bounds("provider-7d-progress-0").is_none());
+        assert_hidden(visual);
     }
     fixture.close();
 }
