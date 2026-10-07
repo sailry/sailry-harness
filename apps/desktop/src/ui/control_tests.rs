@@ -8,6 +8,7 @@ use gpui_kit::{
     *,
 };
 
+mod input;
 mod scrollbar;
 
 struct Controls(Entity<InputState>);

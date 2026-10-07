@@ -760,7 +760,9 @@ impl RenderOnce for Input {
             .size_full()
             .line_height(LINE_HEIGHT)
             .when(!is_multi_line, |this| {
-                this.input_px(self.size).input_py(self.size)
+                // The single-line state fills and centers itself in the frame.
+                // Vertical padding would clip its line in the smaller sizes.
+                this.input_px(self.size).line_height(relative(1.25))
             })
             .input_h(self.size)
             .input_text_size(self.size)

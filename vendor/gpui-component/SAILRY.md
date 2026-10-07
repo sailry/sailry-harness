@@ -116,3 +116,17 @@ overlay and explicit layout-bounds mode. Native interaction tests cover both
 axes, child and sibling placement, and sidebar thumb dragging after wheel
 scrolling. Retire this patch when upstream keeps direct helper tracks anchored
 to the handle viewport.
+
+## Input
+
+The pinned Input applies fixed single-line frame heights, size-dependent vertical
+padding and a 1.25 rem line height together. The remaining interior is shorter
+than the line for Medium, Small and XSmall, clipping text and placeholders.
+Single-line frames now let Base's existing full-height state center the line
+without extra vertical padding, and resolve the line height against the selected
+font size so XSmall fits its unchanged frame. Horizontal padding, size APIs,
+focus, editing and accessibility remain in Kit. Textarea and Editor retain their
+existing line height and internal padding. Desktop Kit interaction tests cover
+the standard sizes, rem scaling, placeholders, prefixes and suffixes, pointer
+and keyboard editing, and multiline geometry. Retire this patch when upstream
+provides fitting single-line geometry for the same sizes.
