@@ -155,8 +155,180 @@ fn shows_supported_sse_servers(cx: &mut TestAppContext) {
         menu(visual, "plugin-menu-example", 0);
         shown(visual, "plugin-server-legacy", true);
         shown(visual, "plugin-authorize-legacy", true);
+        shown(visual, "plugin-details-cancel", true);
+        shown(visual, "plugin-details-uninstall", true);
+        assert!(
+            visual
+                .debug_bounds("plugin-details-mcp-configure")
+                .is_none()
+        );
+        assert!(visual.debug_bounds("plugin-details-configure").is_none());
         visual.simulate_keystrokes("escape");
         shown(visual, "plugin-live-details", false);
+        fixture.close(visual);
+    }
+}
+
+#[gpui::test]
+fn uninstalls_captured_details(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        install(&fixture);
+        let installed = fixture.public_packages(false);
+        let other = fixture.public_packages(true);
+        let requests = fixture.transport.requests.lock().unwrap().len();
+        let (owner, visual) = fixture.mount(cx);
+        ready(&owner, visual);
+        tap(visual, "plugin-details-example");
+        shown(visual, "plugin-skill-analysis", true);
+        tap(visual, "plugin-details-uninstall");
+        let (title, detail) = crate::prompts::tests::wait(visual);
+        assert_eq!(title, tr("plugins_uninstall"));
+        assert!(detail.contains("example"));
+        assert_eq!(fixture.transport.requests.lock().unwrap().len(), requests);
+        crate::prompts::tests::answer(visual, "settings_cancel");
+        shown(visual, "plugin-live-details", true);
+        assert!(visual.update(|window, cx| window.has_active_dialog(cx)));
+        assert!(!visual.has_pending_prompt());
+        assert_eq!(fixture.public_packages(false), installed);
+        assert_eq!(fixture.transport.requests.lock().unwrap().len(), requests);
+
+        tap(visual, "plugin-details-uninstall");
+        crate::prompts::tests::wait(visual);
+        fixture.bind(&owner, visual, true);
+        ready(&owner, visual);
+        owner.read_with(visual, |owner, _| {
+            assert_eq!(
+                owner
+                    .provider_link
+                    .as_ref()
+                    .unwrap()
+                    .binding
+                    .client
+                    .target(),
+                fixture.other.id()
+            );
+            assert_eq!(owner.plugin_catalog.packages, other);
+        });
+        crate::prompts::tests::answer(visual, "plugins_uninstall");
+        wait(visual, |_| fixture.plugins().is_empty());
+        shown(visual, "plugin-live-details", false);
+        assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+        assert_eq!(
+            fixture.transport.requests.lock().unwrap().len(),
+            requests + 1
+        );
+        assert_eq!(
+            fixture.public_packages(false),
+            installed
+                .into_iter()
+                .filter(|package| package.name != "example")
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(fixture.public_packages(true), other);
+        assert_eq!(
+            owner.read_with(visual, |owner, _| owner.plugin_catalog.packages.clone()),
+            other
+        );
+        fixture.close(visual);
+    }
+}
+
+#[gpui::test]
+fn preserves_conflicting_uninstall(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        install(&fixture);
+        let other = fixture.public_packages(true);
+        let (owner, visual) = fixture.mount(cx);
+        ready(&owner, visual);
+        tap(visual, "plugin-details-example");
+        shown(visual, "plugin-skill-analysis", true);
+        fixture.execute(Command::SetPluginEnabled {
+            name: "example".into(),
+            expected_revision: 1,
+            enabled: false,
+        });
+        wait(visual, |cx| {
+            owner
+                .read(cx)
+                .plugin_catalog
+                .packages
+                .iter()
+                .any(|package| {
+                    package.name == "example" && package.revision == 2 && !package.enabled
+                })
+        });
+        let updated = fixture.public_packages(false);
+        let requests = fixture.transport.requests.lock().unwrap().len();
+        visual.update(|window, cx| window.clear_notifications(cx));
+        tap(visual, "plugin-details-uninstall");
+        crate::prompts::tests::answer(visual, "plugins_uninstall");
+        let (title, detail) = crate::prompts::tests::wait(visual);
+        assert_eq!(title, tr("plugins_uninstall"));
+        assert!(detail.contains("example"));
+        crate::prompts::tests::answer(visual, "settings_cancel");
+        crate::feedback::tests::shown(visual);
+        assert_eq!(
+            visual.update(crate::feedback::tests::summary),
+            tr("plugins_conflict")
+        );
+        assert_eq!(
+            fixture.transport.requests.lock().unwrap().len(),
+            requests + 1
+        );
+        assert_eq!(fixture.public_packages(false), updated);
+        assert_eq!(fixture.public_packages(true), other);
+        shown(visual, "plugin-live-details", true);
+        shown(visual, "plugin-skill-analysis", true);
+        shown(visual, "plugin-details-uninstall", true);
+        assert!(visual.update(|window, cx| window.has_active_dialog(cx)));
+        assert!(!visual.has_pending_prompt());
+        tap(visual, "plugin-details-cancel");
+        shown(visual, "plugin-live-details", false);
+        assert_eq!(fixture.public_packages(false), updated);
+        fixture.close(visual);
+    }
+}
+
+#[gpui::test]
+fn recovers_uncertain_uninstall(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        install(&fixture);
+        let other = fixture.public_packages(true);
+        let (owner, visual) = fixture.mount(cx);
+        ready(&owner, visual);
+        tap(visual, "plugin-details-example");
+        shown(visual, "plugin-skill-analysis", true);
+        fixture.transport.mode.store(1, Ordering::SeqCst);
+        tap(visual, "plugin-details-uninstall");
+        crate::prompts::tests::answer(visual, "plugins_uninstall");
+        let (title, detail) = crate::prompts::tests::wait(visual);
+        assert_eq!(title, tr("plugins_uninstall"));
+        assert!(detail.contains("example"));
+        assert!(fixture.plugins().is_empty());
+        assert_eq!(fixture.transport.requests.lock().unwrap().len(), 1);
+        crate::prompts::tests::answer(visual, "settings_cancel");
+        shown(visual, "plugin-live-details", true);
+        crate::feedback::tests::shown(visual);
+        assert_eq!(
+            visual.update(crate::feedback::tests::summary),
+            tr("plugins_unknown")
+        );
+        tap(visual, "plugin-details-uninstall");
+        crate::prompts::tests::answer(visual, "plugins_retry");
+        shown(visual, "plugin-live-details", false);
+        assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+        assert!(fixture.plugins().is_empty());
+        assert_eq!(fixture.public_packages(true), other);
+        let requests = fixture.transport.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0], requests[1]);
+        drop(requests);
         fixture.close(visual);
     }
 }

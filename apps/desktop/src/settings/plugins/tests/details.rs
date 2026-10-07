@@ -21,12 +21,30 @@ fn scrolls_long_skill_details(cx: &mut TestAppContext) {
             name: "example".into(),
             expected_revision: 0,
         });
+        let installed = fixture.public_packages(false);
+        let requests = fixture.transport.requests.lock().unwrap().len();
         let (_, visual) = fixture.mount(cx);
         tap(visual, "plugin-details-example");
         shown(visual, "plugin-info-version", true);
         shown(visual, "settings-heading-skills_details", true);
         shown(visual, "settings-heading-skills_installed", false);
+        shown(visual, "plugin-details-cancel", true);
+        shown(visual, "plugin-details-uninstall", true);
+        assert!(
+            visual
+                .debug_bounds("plugin-details-mcp-configure")
+                .is_none()
+        );
+        assert!(visual.debug_bounds("plugin-details-configure").is_none());
         let dialog = visual.debug_bounds("dialog-0").unwrap();
+        let footer = ["plugin-details-cancel", "plugin-details-uninstall"]
+            .map(|selector| visual.debug_bounds(selector).unwrap());
+        for button in footer {
+            assert!(button.left() >= dialog.left());
+            assert!(button.right() <= dialog.right());
+            assert!(button.top() >= dialog.top());
+            assert!(button.bottom() <= dialog.bottom());
+        }
         let before = visual.debug_bounds("plugin-info-version").unwrap();
         assert!(before.bottom() > dialog.bottom());
         visual.simulate_event(ScrollWheelEvent {
@@ -39,8 +57,18 @@ fn scrolls_long_skill_details(cx: &mut TestAppContext) {
         let after = visual.debug_bounds("plugin-info-version").unwrap();
         assert!(after.top() < before.top() - px(100.));
         assert!(after.top() >= dialog.top());
-        assert!(after.bottom() <= dialog.bottom());
-        visual.simulate_keystrokes("escape");
+        assert!(after.bottom() <= footer[0].top());
+        assert_eq!(
+            ["plugin-details-cancel", "plugin-details-uninstall"]
+                .map(|selector| visual.debug_bounds(selector).unwrap()),
+            footer
+        );
+        tap(visual, "plugin-details-cancel");
+        shown(visual, "plugin-live-details", false);
+        assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+        assert!(!visual.has_pending_prompt());
+        assert_eq!(fixture.public_packages(false), installed);
+        assert_eq!(fixture.transport.requests.lock().unwrap().len(), requests);
         fixture.close(visual);
     }
 }

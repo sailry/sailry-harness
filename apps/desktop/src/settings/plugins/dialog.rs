@@ -10,7 +10,7 @@ use sailry_protocol::{
 mod tests;
 pub(super) mod upload;
 
-struct Editor {
+pub(super) struct Editor {
     binding: Binding,
     original: Option<Summary>,
     origin: Option<Origin>,
@@ -24,6 +24,7 @@ struct Editor {
     request: Option<Request>,
     pending: bool,
     closed: bool,
+    on_removed: Option<Box<dyn FnOnce(&mut Window, &mut App)>>,
     task: Option<Task<()>>,
 }
 
@@ -76,7 +77,39 @@ fn create(
         owner.update(cx, |owner, cx| owner.check_plugin_updates(window, cx));
         return None;
     }
-    let editor = cx.new(|_| Editor {
+    let editor = new(binding, original, origin, remove, known, cx);
+    if !remove {
+        return Some(editor);
+    }
+    let result = editor.clone();
+    editor.update(cx, |editor, cx| editor.prompt(window, cx));
+    Some(result)
+}
+
+pub(super) fn remove(
+    binding: Binding,
+    original: Summary,
+    window: &mut Window,
+    cx: &mut App,
+    on_removed: impl FnOnce(&mut Window, &mut App) + 'static,
+) -> Entity<Editor> {
+    let editor = new(binding, Some(original), None, true, Vec::new(), cx);
+    editor.update(cx, |editor, cx| {
+        editor.on_removed = Some(Box::new(on_removed));
+        editor.prompt(window, cx);
+    });
+    editor
+}
+
+fn new(
+    binding: Binding,
+    original: Option<Summary>,
+    origin: Option<Origin>,
+    remove: bool,
+    known: Vec<Summary>,
+    cx: &mut App,
+) -> Entity<Editor> {
+    cx.new(|_| Editor {
         binding,
         updating: original.is_some(),
         original,
@@ -90,17 +123,16 @@ fn create(
         request: None,
         pending: false,
         closed: false,
+        on_removed: None,
         task: None,
-    });
-    if !remove {
-        return Some(editor);
-    }
-    let result = editor.clone();
-    editor.update(cx, |editor, cx| editor.prompt(window, cx));
-    Some(result)
+    })
 }
 
 impl Editor {
+    pub(super) fn pending(&self) -> bool {
+        self.pending
+    }
+
     fn start(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.loading || self.pending || self.request.is_some() || self.closed {
             return;
@@ -127,7 +159,7 @@ impl Editor {
         }
     }
 
-    fn prompt(&self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn prompt(&self, window: &mut Window, cx: &mut Context<Self>) {
         let plugin = self
             .original
             .as_ref()
@@ -277,6 +309,9 @@ impl Editor {
                         }
                         editor.closed = true;
                         editor.request = None;
+                        if let Some(on_removed) = editor.on_removed.take() {
+                            on_removed(window, cx);
+                        }
                     }
                     Ok(Err(error)) => {
                         if !live::uncertain(&error) {

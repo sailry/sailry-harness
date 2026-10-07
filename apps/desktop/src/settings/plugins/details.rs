@@ -1,7 +1,10 @@
 use super::*;
 use crate::settings::providers::Binding;
 use crate::theme::DialogStyle as _;
-use gpui_kit::component::skeleton::Skeleton;
+use gpui_kit::component::{
+    dialog::{DialogClose, DialogFooter},
+    skeleton::Skeleton,
+};
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     Command, Output,
@@ -11,10 +14,9 @@ use sailry_protocol::{
 enum Target {
     Installed(Summary),
     Catalog {
+        market: WeakEntity<market::Market>,
+        entry: sailry_protocol::plugin::catalog::Entry,
         source: Source,
-        id: String,
-        name: String,
-        bundled: bool,
     },
 }
 
@@ -25,6 +27,7 @@ pub(super) struct Details {
     error: Option<&'static str>,
     stop: CancellationToken,
     task: Option<Task<()>>,
+    removal: Option<Entity<dialog::Editor>>,
 }
 
 impl Drop for Details {
@@ -66,6 +69,7 @@ pub(crate) fn open_bound(
 }
 
 pub(super) fn open_catalog(
+    market: Entity<market::Market>,
     binding: Binding,
     source: Source,
     entry: sailry_protocol::plugin::catalog::Entry,
@@ -75,10 +79,9 @@ pub(super) fn open_catalog(
     mount(
         binding,
         Target::Catalog {
+            market: market.downgrade(),
+            entry,
             source,
-            id: entry.id,
-            name: entry.name,
-            bundled: entry.bundled,
         },
         window,
         cx,
@@ -93,6 +96,7 @@ fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) ->
         error: None,
         stop: CancellationToken::new(),
         task: None,
+        removal: None,
     });
     details.update(cx, |_, cx| {
         crate::feedback::observe_with(
@@ -120,6 +124,15 @@ fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) ->
     let entity = details.clone();
     window.open_dialog(cx, move |dialog, window, cx| {
         let close = details.clone();
+        let action = details.clone();
+        let state = details.read(cx);
+        let installed = matches!(&state.target, Target::Installed(_));
+        let pending = state.pending(cx);
+        let action_id = if installed {
+            "plugin-details-uninstall"
+        } else {
+            "plugin-details-install"
+        };
         dialog
             .form_title(
                 h_flex()
@@ -148,15 +161,96 @@ fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) ->
             .w((window.viewport_size().width - px(48.)).min(px(520.)))
             .on_close(move |_, _, cx| close.read(cx).stop.cancel())
             .child(details.clone())
+            .footer(
+                DialogFooter::new()
+                    .child(DialogClose::new().trigger(|button| {
+                        button
+                            .label(tr("settings_cancel"))
+                            .debug_selector(|| "plugin-details-cancel".into())
+                    }))
+                    .child(
+                        Button::new(action_id)
+                            .primary()
+                            .label(tr(if installed {
+                                "plugins_uninstall"
+                            } else {
+                                "plugins_install"
+                            }))
+                            .debug_selector(move || action_id.into())
+                            .disabled(state.info.is_none() || state.error.is_some() || pending)
+                            .loading(pending)
+                            .on_click(move |_, window, cx| {
+                                action.update(cx, |details, cx| details.submit(window, cx));
+                            }),
+                    ),
+            )
     });
     entity
 }
 
 impl Details {
+    fn pending(&self, cx: &App) -> bool {
+        self.removal
+            .as_ref()
+            .is_some_and(|editor| editor.read(cx).pending())
+    }
+
+    fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.stop.is_cancelled()
+            || self.info.is_none()
+            || self.error.is_some()
+            || self.pending(cx)
+        {
+            return;
+        }
+        match &self.target {
+            Target::Installed(expected) => {
+                if let Some(editor) = &self.removal {
+                    editor.update(cx, |editor, cx| editor.prompt(window, cx));
+                    return;
+                }
+                let details = cx.weak_entity();
+                let editor = dialog::remove(
+                    self.binding.clone(),
+                    expected.clone(),
+                    window,
+                    cx,
+                    move |window, cx| {
+                        let active = details
+                            .update(cx, |details, _| !details.stop.is_cancelled())
+                            .unwrap_or(false);
+                        if active {
+                            window.close_dialog(cx);
+                        }
+                    },
+                );
+                cx.observe(&editor, |_, _, cx| cx.notify()).detach();
+                self.removal = Some(editor);
+                cx.notify();
+            }
+            Target::Catalog {
+                market,
+                entry,
+                source,
+                ..
+            } => {
+                let Some(market) = market.upgrade() else {
+                    return;
+                };
+                let entry = entry.clone();
+                let source = *source;
+                // Dismiss Details before acquisition opens its own dialog.
+                self.stop.cancel();
+                window.close_dialog(cx);
+                market.update(cx, |market, cx| market.install(source, entry, window, cx));
+            }
+        }
+    }
+
     fn name(&self) -> &str {
         match &self.target {
             Target::Installed(expected) => &expected.name,
-            Target::Catalog { name, .. } => name,
+            Target::Catalog { entry, .. } => &entry.name,
         }
     }
 
@@ -182,15 +276,10 @@ impl Details {
             Target::Installed(expected) => Command::ReadPlugin {
                 name: expected.name.clone(),
             },
-            Target::Catalog {
-                source,
-                id,
-                bundled,
-                ..
-            } => Command::ReadCatalogPluginInfo {
+            Target::Catalog { source, entry, .. } => Command::ReadCatalogPluginInfo {
                 source: *source,
-                id: id.clone(),
-                bundled: *bundled,
+                id: entry.id.clone(),
+                bundled: entry.bundled,
             },
         };
         let stop = self.stop.clone();
@@ -211,7 +300,7 @@ impl Details {
                     Ok(Some(Ok(Output::Plugin(info)))) => {
                         let matches = match &details.target {
                             Target::Installed(expected) => info.summary == *expected,
-                            Target::Catalog { name, .. } => info.summary.name == *name,
+                            Target::Catalog { entry, .. } => info.summary.name == entry.name,
                         };
                         if matches {
                             details.info = Some(info);
@@ -232,6 +321,7 @@ impl Details {
 impl Render for Details {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut body = v_flex().gap_4();
+        let pending = self.pending(cx);
         if let Some(info) = &self.info {
             let installed = matches!(&self.target, Target::Installed(_));
             let configurable = info
@@ -244,29 +334,10 @@ impl Render for Details {
                 body = body.child(
                     Button::new("plugin-details-configure")
                         .label(tr("plugins_settings_title"))
+                        .disabled(pending)
                         .debug_selector(|| "plugin-details-configure".into())
                         .on_click(move |_, window, cx| {
                             configuration::mount(binding.clone(), expected.clone(), window, cx);
-                        }),
-                );
-            }
-            if installed
-                && !info.mcp.is_empty()
-                && (!configurable || !super::super::mcp::form_bound(info))
-            {
-                let binding = self.binding.clone();
-                let info = info.clone();
-                let id = if configurable {
-                    "plugin-details-mcp-configure"
-                } else {
-                    "plugin-details-configure"
-                };
-                body = body.child(
-                    Button::new(id)
-                        .label(tr("mcp_edit"))
-                        .debug_selector(move || id.into())
-                        .on_click(move |_, window, cx| {
-                            super::super::mcp::configure(binding.clone(), info.clone(), window, cx);
                         }),
                 );
             }
@@ -324,6 +395,7 @@ impl Render for Details {
                                         move || format!("plugin-authorize-{name}")
                                     })
                                     .label(tr("mcp_oauth_title"))
+                                    .disabled(pending)
                                     .on_click(move |_, window, cx| {
                                         authorization::open(
                                             binding.clone(),
@@ -340,15 +412,7 @@ impl Render for Details {
             }
             body = body
                 .when(!info.skills.is_empty(), |view| view.child(skills))
-                .when(!info.mcp.is_empty(), |view| view.child(mcp))
-                .when(!info.mcp.is_empty(), |view| {
-                    view.child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(tr("plugins_mcp_on_turn")),
-                    )
-                });
+                .when(!info.mcp.is_empty(), |view| view.child(mcp));
             if let Some(extension) = &info.extension {
                 let mut tools = Group::new("plugins_tools");
                 for tool in &extension.tools {

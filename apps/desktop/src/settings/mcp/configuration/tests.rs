@@ -91,7 +91,7 @@ fn edit(cx: &mut VisualTestContext, configuration: &Configuration) {
 }
 
 #[gpui::test]
-fn bundled_cards_and_details_open_configuration(cx: &mut TestAppContext) {
+fn bundled_cards_open_document(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
@@ -103,13 +103,9 @@ fn bundled_cards_and_details_open_configuration(cx: &mut TestAppContext) {
         shown(visual, "mcp-configuration-document", true);
         shown(visual, "mcp-editor", false);
         tap(visual, "mcp-configuration-cancel");
-        owner.update(visual, |owner, cx| owner.select(Section::Plugins, cx));
-        tap(visual, "plugin-details-github");
-        shown(visual, "plugin-details-configure", true);
-        tap(visual, "plugin-details-configure");
+        tap(visual, "mcp-edit-github");
         shown(visual, "mcp-configuration-document", true);
         tap(visual, "mcp-configuration-cancel");
-        visual.simulate_keystrokes("escape");
         fixture.close(visual);
     }
 }

@@ -179,15 +179,24 @@ fn official_install_and_details(cx: &mut TestAppContext) {
         let server = Server::official();
         let fixture = Fixture::with_skill_source(remote, &server.endpoint);
         let before = fixture.public_packages(false);
-        let (_, visual) = fixture.mount(cx);
+        let (owner, visual) = fixture.mount(cx);
         tap(visual, "plugins-market-tab");
         shown(visual, "market-details-portable", true);
         tap(visual, "market-details-portable");
         shown(visual, "plugin-skill-review", true);
         shown(visual, "plugin-server-remote", true);
+        shown(visual, "plugin-details-install", true);
+        shown(visual, "plugin-details-cancel", true);
+        shown(visual, "plugin-details-uninstall", false);
         assert_eq!(fixture.public_packages(false), before);
-        visual.simulate_keystrokes("escape");
-        tap(visual, "market-install-portable");
+        assert!(fixture.transport.requests.lock().unwrap().is_empty());
+        tap(visual, "plugin-details-cancel");
+        shown(visual, "plugin-live-details", false);
+        assert_eq!(fixture.public_packages(false), before);
+        assert!(fixture.transport.requests.lock().unwrap().is_empty());
+        tap(visual, "market-details-portable");
+        shown(visual, "plugin-skill-review", true);
+        tap(visual, "plugin-details-install");
         wait(visual, |_| {
             fixture
                 .plugins()
@@ -195,6 +204,9 @@ fn official_install_and_details(cx: &mut TestAppContext) {
                 .any(|package| package.name == "portable")
         });
         shown(visual, "plugin-download-submit", false);
+        shown(visual, "plugin-live-details", false);
+        assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+        assert_eq!(fixture.transport.requests.lock().unwrap().len(), 1);
         let paths = server.requests.lock().unwrap().clone();
         assert!(
             paths
@@ -221,6 +233,44 @@ fn official_install_and_details(cx: &mut TestAppContext) {
         );
         assert_eq!(source.commit, "a".repeat(40));
         assert_eq!(path, "portable");
+        fixture.execute(Command::SetPluginEnabled {
+            name: "portable".into(),
+            expected_revision: 1,
+            enabled: false,
+        });
+        wait(visual, |cx| {
+            owner
+                .read(cx)
+                .plugin_catalog
+                .packages
+                .iter()
+                .any(|package| package.name == "portable" && package.revision == 2)
+        });
+        let installed = fixture.public_packages(false);
+        let other = fixture.public_packages(true);
+        tap(visual, "market-details-portable");
+        shown(visual, "plugin-skill-review", true);
+        shown(visual, "plugin-authorize-remote", true);
+        shown(visual, "plugin-details-uninstall", true);
+        shown(visual, "plugin-details-install", false);
+        tap(visual, "plugin-details-uninstall");
+        crate::prompts::tests::answer(visual, "settings_cancel");
+        assert_eq!(fixture.public_packages(false), installed);
+        assert_eq!(fixture.transport.requests.lock().unwrap().len(), 1);
+        shown(visual, "plugin-live-details", true);
+        tap(visual, "plugin-details-uninstall");
+        crate::prompts::tests::answer(visual, "plugins_uninstall");
+        wait(visual, |_| {
+            !fixture
+                .plugins()
+                .iter()
+                .any(|package| package.name == "portable")
+        });
+        shown(visual, "plugin-live-details", false);
+        assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+        assert_eq!(fixture.transport.requests.lock().unwrap().len(), 2);
+        assert_eq!(fixture.public_packages(false), before);
+        assert_eq!(fixture.public_packages(true), other);
         fixture.close(visual);
     }
 }
@@ -552,8 +602,12 @@ fn installs_portable_packages_from_catalog(cx: &mut TestAppContext) {
         tap(visual, "plugins-market-tab");
         tap(visual, "plugins-official");
         shown(visual, "market-install-gomoku", true);
-        tap(visual, "market-install-gomoku");
+        tap(visual, "market-details-gomoku");
+        shown(visual, "plugin-details-install", true);
+        tap(visual, "plugin-details-install");
         wait(visual, |_| fixture.plugins().len() == 2);
+        shown(visual, "plugin-live-details", false);
+        assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
         let Output::Plugin(info) = fixture.execute(Command::ReadPlugin {
             name: "gomoku".into(),
         }) else {

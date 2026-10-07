@@ -121,7 +121,13 @@ impl Market {
         cx.notify();
     }
 
-    fn install(&mut self, entry: Listing, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn install(
+        &mut self,
+        source: Source,
+        entry: Listing,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.pending.is_some() {
             return;
         }
@@ -152,7 +158,6 @@ impl Market {
         let stop = self.begin(Loading::Repository(entry.id.clone()));
         let cancelled = stop.clone();
         let binding = self.binding.clone();
-        let source = self.source;
         let job = binding.runtime.spawn(async move {
             tokio::select! {
                 biased;
@@ -204,7 +209,14 @@ impl Market {
         if let Some(installed) = installed {
             details::open(owner, installed, window, cx);
         } else {
-            details::open_catalog(self.binding.clone(), self.source, entry, window, cx);
+            details::open_catalog(
+                cx.entity(),
+                self.binding.clone(),
+                self.source,
+                entry,
+                window,
+                cx,
+            );
         }
     }
 }
@@ -374,9 +386,10 @@ impl Render for Market {
                                     })
                                     .on_click(cx.listener({
                                         let entry = entry.clone();
+                                        let source = self.source;
                                         move |state, _, window, cx| {
                                             cx.stop_propagation();
-                                            state.install(entry.clone(), window, cx);
+                                            state.install(source, entry.clone(), window, cx);
                                         }
                                     }));
                             resource_card::card(format!("market-card-{}", entry.id), summary, install, cx)
