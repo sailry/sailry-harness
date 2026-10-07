@@ -18,6 +18,16 @@ pub const SLOTS: &[&str] = &[
     "banner.conversation.bottom",
     "banner.new_session",
     "hero.new_session",
+    "composer.top_left",
+    "composer.bottom_right",
+    "button.send",
+    "button.stop",
+    "icon.send",
+    "icon.stop",
+    "icon.explore",
+    "icon.build",
+    "icon.review",
+    "icon.plan",
     "icon.conversation",
     "icon.activity",
     "icon.files",
@@ -55,6 +65,34 @@ pub struct Variant {
     pub theme: ThemeConfig,
     #[serde(default)]
     pub assets: BTreeMap<String, Decoration>,
+    #[serde(default)]
+    pub composer: Composer,
+    #[serde(default)]
+    pub cards: BTreeMap<String, Card>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Composer {
+    /// Uses Kit's input border color; zero preserves the borderless surface.
+    #[serde(default)]
+    pub border_width: u8,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Card {
+    pub background: Option<String>,
+    pub foreground: Option<String>,
+    pub detail: Option<String>,
+    pub icon: Option<String>,
+    pub hover: Option<String>,
+    pub active: Option<String>,
+    pub border: Option<String>,
+    #[serde(default)]
+    pub border_width: u8,
+    /// Omitted radii follow Kit's large surface radius.
+    pub radius: Option<u8>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -68,9 +106,12 @@ pub struct Decoration {
     pub alignment: [f32; 2],
     #[serde(default = "opaque")]
     pub opacity: f32,
-    /// Banner and Hero height; backgrounds and icons use their application's bounds.
+    /// Banner and Hero height, or square corner size; backgrounds and icons use application bounds.
     #[serde(default = "height")]
     pub height: u16,
+    /// Logical tile width; aspect ratio is preserved independently of window size.
+    #[serde(default = "tile_size")]
+    pub tile_size: u16,
     pub license: Option<License>,
 }
 
@@ -81,6 +122,7 @@ pub enum Fit {
     Cover,
     Contain,
     Fill,
+    Tile,
 }
 
 fn center() -> [f32; 2] {
@@ -91,6 +133,9 @@ fn opaque() -> f32 {
 }
 fn height() -> u16 {
     64
+}
+fn tile_size() -> u16 {
+    256
 }
 
 pub struct Loaded {
@@ -120,9 +165,40 @@ impl Manifest {
             return Err("theme package requires light and dark variants".into());
         }
         for variant in [&self.light, &self.dark] {
+            if variant.composer.border_width > 4 {
+                return Err("invalid composer border width".into());
+            }
+            for (key, card) in &variant.cards {
+                if !["explore", "build", "review", "plan"].contains(&key.as_str()) {
+                    return Err(format!("unsupported welcome card: {key}"));
+                }
+                if card.border_width > 4 || card.radius.is_some_and(|radius| radius > 32) {
+                    return Err(format!("invalid welcome card dimensions: {key}"));
+                }
+                for color in [
+                    &card.background,
+                    &card.foreground,
+                    &card.detail,
+                    &card.icon,
+                    &card.hover,
+                    &card.active,
+                    &card.border,
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    gpui_kit::component::theme::try_parse_color(color)
+                        .map_err(|error| error.to_string())?;
+                }
+            }
             for (slot, asset) in &variant.assets {
                 if !SLOTS.contains(&slot.as_str()) {
                     return Err(format!("unsupported theme slot: {slot}"));
+                }
+                if !(32..=1024).contains(&asset.tile_size)
+                    || (matches!(asset.fit, Fit::Tile) && !slot.starts_with("background."))
+                {
+                    return Err(format!("invalid theme tiling: {slot}"));
                 }
                 resources::validate_path(&asset.path)?;
                 let unit = |v: f32| v.is_finite() && (0. ..=1.).contains(&v);

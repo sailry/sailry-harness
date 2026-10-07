@@ -8,6 +8,7 @@ use sailry_protocol::{Permission, WorkMode, plugin::ui};
 
 mod fit;
 mod sidebar;
+mod theme;
 
 #[gpui::test]
 fn narrow_controls(cx: &mut TestAppContext) {

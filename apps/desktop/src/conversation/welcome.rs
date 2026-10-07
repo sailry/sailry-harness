@@ -1,6 +1,6 @@
 use crate::{shell::Shell, tr};
 use gpui_kit::component::{
-    button::{Button, ButtonCustomVariant, ButtonVariants},
+    button::{Button, ButtonVariants},
     scroll::ScrollableElement,
     *,
 };
@@ -96,6 +96,7 @@ fn layout(
         );
     let [explore, build, review, plan] = [
         (
+            "explore",
             "welcome_explore",
             "welcome_explore_detail",
             "welcome_explore_prompt",
@@ -103,6 +104,7 @@ fn layout(
             theme.blue,
         ),
         (
+            "build",
             "welcome_build",
             "welcome_build_detail",
             "welcome_build_prompt",
@@ -110,6 +112,7 @@ fn layout(
             theme.green,
         ),
         (
+            "review",
             "welcome_review",
             "welcome_review_detail",
             "welcome_review_prompt",
@@ -117,6 +120,7 @@ fn layout(
             theme.yellow,
         ),
         (
+            "plan",
             "welcome_plan",
             "welcome_plan_detail",
             "welcome_plan_prompt",
@@ -124,23 +128,20 @@ fn layout(
             theme.magenta,
         ),
     ]
-    .map(|(title, detail, prompt, icon, color)| {
+    .map(|(key, title, detail, prompt, icon, color)| {
         let on_prompt = on_prompt.clone();
+        let appearance = crate::theme::cards::appearance(key, color, cx);
         Button::new(title)
-            .custom(
-                ButtonCustomVariant::new(cx)
-                    .color(color)
-                    .hover(color.opacity(0.2))
-                    .active(color.opacity(0.26)),
-            )
+            .custom(appearance.variant(cx))
             .h_auto()
             .flex_1()
             .min_w_0()
             .p_4()
             .debug_selector(move || title.into())
             .accessibility_label(tr(title))
-            .border_0()
-            .rounded(theme.radius_2xl())
+            .border(appearance.border_width)
+            .border_color(appearance.border)
+            .rounded(appearance.radius)
             .child(
                 v_flex()
                     .w_full()
@@ -150,11 +151,11 @@ fn layout(
                         h_flex()
                             .w_full()
                             .justify_between()
-                            .child(Icon::new(icon).size_6().text_color(color))
+                            .child(appearance.image(key, icon, cx))
                             .child(
                                 Icon::new(IconName::ArrowRight)
                                     .size_4()
-                                    .text_color(color.opacity(0.5)),
+                                    .text_color(appearance.icon.opacity(0.5)),
                             ),
                     )
                     .child(
@@ -167,7 +168,7 @@ fn layout(
                             .child(
                                 div()
                                     .text_xs()
-                                    .text_color(theme.muted_foreground)
+                                    .text_color(appearance.detail)
                                     .whitespace_normal()
                                     .child(tr(detail)),
                             ),

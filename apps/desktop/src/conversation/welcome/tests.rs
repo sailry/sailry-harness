@@ -299,6 +299,95 @@ fn preserves_prompt_actions(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn themed_cards_preserve_actions(cx: &mut TestAppContext) {
+    init(cx);
+    let directory = tempfile::tempdir().unwrap();
+    let source = crate::theme::fixture::write(directory.path(), "cards");
+    let mut manifest = crate::theme::fixture::manifest("cards");
+    for variant in ["light", "dark"] {
+        for key in ["explore", "build", "review", "plan"] {
+            manifest[variant]["cards"][key] = serde_json::json!({
+                "background": "#35261b", "foreground": "#fff4e0",
+                "detail": "#d9c8af", "icon": "#e7bd68",
+                "hover": "#493522", "active": "#5b432d",
+                "border": "#9a7a46", "border_width": 1, "radius": 12
+            });
+        }
+    }
+    std::fs::write(
+        source.join("theme.json"),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+    let loaded = crate::theme::package::Loaded::read(&source, true).unwrap();
+    cx.update(|cx| {
+        cx.global_mut::<crate::theme::Catalog>()
+            .packages
+            .push(loaded.into());
+        crate::theme::apply(1, None, cx);
+    });
+    let selected = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let window = cx.open_window(size(px(760.), px(1000.)), |window, cx| Welcome {
+        selected: selected.clone(),
+        input: cx.new(|cx| TextareaState::new(window, cx)),
+    });
+    let visual = &mut VisualTestContext::from_window(*window, cx);
+    for mode in [ThemeMode::Light, ThemeMode::Dark] {
+        visual.update(|window, cx| {
+            Theme::change(mode, Some(window), cx);
+            let appearance = crate::theme::cards::appearance("explore", cx.theme().blue, cx);
+            assert_eq!(
+                appearance.background,
+                theme::try_parse_color("#35261b").unwrap()
+            );
+            assert_eq!(
+                appearance.foreground,
+                theme::try_parse_color("#fff4e0").unwrap()
+            );
+            assert_eq!(appearance.hover, theme::try_parse_color("#493522").unwrap());
+            assert_eq!(
+                appearance.active,
+                theme::try_parse_color("#5b432d").unwrap()
+            );
+            assert_eq!(appearance.border_width, px(1.));
+            assert_eq!(appearance.radius, px(12.));
+        });
+        for width in [280., 760.] {
+            visual.simulate_window_resize(*window, size(px(width), px(1000.)));
+            visual.run_until_parked();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            for key in ["explore", "build", "review", "plan"] {
+                let bounds = visual
+                    .debug_bounds(Box::leak(format!("welcome_{key}").into_boxed_str()))
+                    .unwrap();
+                let image = visual
+                    .debug_bounds(Box::leak(format!("theme-icon.{key}").into_boxed_str()))
+                    .unwrap();
+                assert!(bounds.left() >= px(0.) && bounds.right() <= px(width));
+                assert!(bounds.contains(&image.origin));
+                assert_eq!(image.size, size(px(24.), px(24.)));
+                visual.simulate_click(bounds.center(), Modifiers::default());
+                visual.run_until_parked();
+                assert_eq!(
+                    selected.borrow().last(),
+                    Some(&tr(&format!("welcome_{key}_prompt")))
+                );
+            }
+        }
+    }
+    assert_eq!(selected.borrow().len(), 16);
+    visual.update(|window, cx| {
+        crate::theme::apply(0, Some(window), cx);
+        let appearance = crate::theme::cards::appearance("explore", cx.theme().blue, cx);
+        assert_eq!(appearance.background, cx.theme().blue);
+        assert_eq!(appearance.radius, cx.theme().radius_2xl());
+        assert_eq!(appearance.border_width, px(0.));
+    });
+    visual.run_until_parked();
+    assert!(visual.debug_bounds("theme-icon.explore").is_none());
+}
+
+#[gpui_kit::test]
 fn narrow_pane_bounds(cx: &mut TestAppContext) {
     init(cx);
     let window = cx.open_window(size(px(180.), px(820.)), |window, cx| Welcome {

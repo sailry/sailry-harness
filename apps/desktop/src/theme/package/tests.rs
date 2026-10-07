@@ -67,6 +67,72 @@ fn rejects_invalid_packages() {
 }
 
 #[test]
+fn rejects_invalid_styles() {
+    let mut value = crate::theme::fixture::manifest("tide");
+    value["light"]["composer"] = json!({"border_width": 1});
+    value["light"]["cards"] = json!({"explore": {
+        "background": "#182b36", "border_width": 1, "radius": 16
+    }});
+    value["light"]["assets"]["background.content"]["fit"] = json!("tile");
+    value["light"]["assets"]["background.content"]["tile_size"] = json!(128);
+    let original: Manifest = serde_json::from_value(value.clone()).unwrap();
+    original.validate().unwrap();
+    for (pointer, replacement) in [
+        ("/light/composer/border_width", json!(5)),
+        ("/light/cards/explore/background", json!("not-a-color")),
+        (
+            "/light/cards/explore/background",
+            json!("linear-gradient(black, red)"),
+        ),
+        ("/light/cards/explore/border_width", json!(5)),
+        ("/light/cards/explore/radius", json!(33)),
+        ("/light/cards", json!({"other": {}})),
+        ("/light/assets/background.content/tile_size", json!(0)),
+        ("/light/assets/background.content/tile_size", json!(1025)),
+        ("/light/assets/icon.send/fit", json!("tile")),
+    ] {
+        let mut invalid = value.clone();
+        *invalid.pointer_mut(pointer).unwrap() = replacement;
+        let manifest: Manifest = serde_json::from_value(invalid).unwrap();
+        assert!(
+            manifest.validate().is_err(),
+            "accepted invalid field {pointer}"
+        );
+    }
+}
+
+#[test]
+fn great_sage_imports() {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../themes/great-sage");
+    let loaded = Loaded::read(&source, true).unwrap();
+    assert_eq!(loaded.manifest.version, 1);
+    assert_eq!(loaded.manifest.id, "great-sage");
+    assert_eq!(loaded.images.len(), 5);
+    for variant in [&loaded.manifest.light, &loaded.manifest.dark] {
+        assert_eq!(variant.composer.border_width, 1);
+        assert_eq!(variant.cards.len(), 4);
+        for style in variant.cards.values() {
+            assert_ne!(style.hover, style.background);
+            assert_ne!(style.active, style.hover);
+        }
+        let image = &variant.assets["background.content"];
+        assert!(matches!(image.fit, Fit::Cover));
+        let decoded = image::open(source.join(&image.path)).unwrap().into_rgba8();
+        assert!(decoded.pixels().any(|pixel| pixel[3] == 0));
+        assert!(decoded.width() >= 1600);
+    }
+    assert!(
+        loaded.manifest.light.assets["background.content"].opacity
+            < loaded.manifest.dark.assets["background.content"].opacity
+    );
+    let directory = tempfile::tempdir().unwrap();
+    loaded.install(directory.path()).unwrap();
+    let installed = Loaded::read(&directory.path().join("great-sage"), true).unwrap();
+    assert_eq!(installed.manifest.name, loaded.manifest.name);
+    assert_eq!(installed.images.len(), loaded.images.len());
+}
+
+#[test]
 fn bounds_files_and_decoding() {
     let directory = tempfile::tempdir().unwrap();
     let source = crate::theme::fixture::write(directory.path(), "tide");

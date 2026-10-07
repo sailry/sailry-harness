@@ -40,10 +40,5 @@ pub(super) fn composer(
 }
 
 pub(crate) fn input_surface(cx: &App) -> Div {
-    v_flex()
-        .relative()
-        .w_full()
-        .p_3()
-        .rounded(cx.theme().radius_2xl())
-        .bg(cx.theme().muted)
+    crate::theme::composer_surface(cx)
 }

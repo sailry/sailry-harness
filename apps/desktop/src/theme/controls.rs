@@ -5,6 +5,7 @@ use gpui_kit::*;
 
 struct Controls {
     disabled: bool,
+    active: bool,
     activations: usize,
 }
 
@@ -14,6 +15,7 @@ impl Render for Controls {
             send_button(
                 Button::new("send").primary().label("Send"),
                 self.disabled,
+                self.active,
                 cx,
             )
             .debug_selector(|| "theme-send".into())
@@ -40,7 +42,7 @@ fn disabled_fill(cx: &mut TestAppContext) {
         for mode in [ThemeMode::Light, ThemeMode::Dark] {
             Theme::change(mode, None, cx);
             for disabled in [false, true] {
-                let mut button = send_button(Button::new("send").primary(), disabled, cx);
+                let mut button = send_button(Button::new("send").primary(), disabled, false, cx);
                 let fill = (disabled && !mode.is_dark())
                     .then_some(Fill::from(cx.theme().secondary_active));
                 assert_eq!(button.style().background, fill);
@@ -55,22 +57,33 @@ fn disabled_fill(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn send_activation(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let source = crate::theme::fixture::write(directory.path(), "controls");
+    let loaded = package::Loaded::read(&source, true).unwrap();
     cx.update(|cx| {
         gpui_kit::init(cx);
         super::init(cx);
+        cx.global_mut::<Catalog>().packages.push(loaded.into());
     });
     let mut controls = None;
     let (_, visual) = cx.add_window_view(|window, cx| {
         let view = cx.new(|_| Controls {
             disabled: true,
+            active: false,
             activations: 0,
         });
         controls = Some(view.clone());
         Root::new(view, window, cx)
     });
     let controls = controls.unwrap();
-    for mode in [ThemeMode::Light, ThemeMode::Dark] {
+    for (package, mode) in [
+        (0, ThemeMode::Light),
+        (0, ThemeMode::Dark),
+        (1, ThemeMode::Light),
+        (1, ThemeMode::Dark),
+    ] {
         visual.update(|window, cx| {
+            apply(package, None, cx);
             Theme::change(mode, Some(window), cx);
             controls.update(cx, |view, cx| {
                 view.disabled = true;
@@ -111,6 +124,47 @@ fn send_activation(cx: &mut TestAppContext) {
         settle(visual);
         assert_eq!(controls.read_with(visual, |view, _| view.activations), 3);
     }
+}
+
+#[gpui::test]
+fn send_and_stop_assets(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let source = crate::theme::fixture::write(directory.path(), "states");
+    let loaded = package::Loaded::read(&source, true).unwrap();
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        super::init(cx);
+        cx.global_mut::<Catalog>().packages.push(loaded.into());
+        apply(1, None, cx);
+    });
+    let mut controls = None;
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|_| Controls {
+            disabled: false,
+            active: false,
+            activations: 0,
+        });
+        controls = Some(view.clone());
+        Root::new(view, window, cx)
+    });
+    let controls = controls.unwrap();
+    for (active, present, absent) in [
+        (false, "theme-icon.send", "theme-icon.stop"),
+        (true, "theme-icon.stop", "theme-icon.send"),
+        (false, "theme-icon.send", "theme-icon.stop"),
+    ] {
+        controls.update(visual, |view, cx| {
+            view.active = active;
+            cx.notify();
+        });
+        settle(visual);
+        assert!(visual.debug_bounds(present).is_some());
+        assert!(visual.debug_bounds(absent).is_none());
+        let bounds = visual.debug_bounds("theme-send").unwrap();
+        visual.simulate_click(bounds.center(), Modifiers::default());
+        settle(visual);
+    }
+    assert_eq!(controls.read_with(visual, |view, _| view.activations), 3);
 }
 
 #[gpui::test]

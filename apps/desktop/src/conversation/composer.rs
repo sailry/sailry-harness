@@ -8,14 +8,6 @@ use gpui_kit::component::{
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-pub(super) fn send_icon(active: bool) -> Icon {
-    if active {
-        Icon::new(IconName::WindowMaximize)
-    } else {
-        Icon::new(IconName::ArrowUp)
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Options {
     pub choices: [usize; 4],
@@ -97,9 +89,9 @@ impl Shell {
                 crate::theme::send_button(
                     Button::new("send").primary(),
                     !active && value.trim().is_empty() && !attachment && !has_references,
+                    active,
                     cx,
                 )
-                .icon(send_icon(active))
                 .debug_selector(|| "composer-send".into())
                 .rounded_full()
                 .tooltip(tr(if active { "turn_stop" } else { "send" }))

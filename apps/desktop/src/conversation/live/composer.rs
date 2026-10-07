@@ -121,11 +121,11 @@ impl View {
                             crate::theme::send_button(
                                 Button::new("live-send").primary(),
                                 busy || send_blocked,
+                                active,
                                 cx,
                             )
                             .flex_shrink_0()
                             .rounded_full()
-                            .icon(super::super::composer::send_icon(active))
                             .debug_selector(|| "live-chat-send".into())
                             .when(saving && !send_blocked, |button| {
                                 button

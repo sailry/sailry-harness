@@ -8,7 +8,9 @@ use gpui_kit::component::{
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{App, Global, Hsla, Window, WindowAppearance};
 
+pub(crate) mod cards;
 mod catalog;
+mod composer;
 #[cfg(test)]
 mod controls;
 mod decoration;
@@ -21,6 +23,7 @@ pub(crate) use dialog::DialogStyle;
 pub(crate) mod fixture;
 pub(crate) mod package;
 pub(crate) use catalog::{Catalog, Mode, Package, Selection, apply, remove};
+pub(crate) use composer::surface as composer_surface;
 pub(crate) use decoration::preview;
 pub(crate) use decoration::{background, banner, brand, icon};
 
@@ -99,8 +102,8 @@ pub fn subtle_button(cx: &App) -> ButtonCustomVariant {
 /// Kit b79f4ce fixes primary disabled fill at 15% of the enabled background
 /// without a separate token. Its public Styled override lets the light composer
 /// use the shared selected surface while preserving Kit's disabled behavior.
-pub fn send_button(button: Button, disabled: bool, cx: &App) -> Button {
-    button
+pub fn send_button(button: Button, disabled: bool, active: bool, cx: &App) -> Button {
+    composer::content(button, disabled, active, cx)
         .disabled(disabled)
         .when(disabled && !cx.theme().is_dark(), |button| {
             button
