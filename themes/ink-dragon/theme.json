@@ -3,7 +3,7 @@
   "id": "ink-dragon",
   "name": "Gilded Ink Dragon",
   "description": "Modern ink mountains crowned by a silver dragon, with restrained gold foil accents",
-  "package_version": "0.1.0",
+  "package_version": "0.1.1",
   "license": {
     "author": "Sailry",
     "name": "Apache-2.0",
@@ -21,19 +21,19 @@
         "muted.background": "#F3F4F5DB",
         "muted.foreground": "#29313B",
         "title_bar.background": "#DDE0E3",
-        "title_bar.border": "#3139432B",
+        "title_bar.border": "#75808E50",
         "sidebar.background": "#DCDFE2",
         "sidebar.foreground": "#171B20",
-        "sidebar.border": "#3139432B",
-        "sidebar.accent.background": "#86662D20",
+        "sidebar.border": "#75808E50",
+        "sidebar.accent.background": "#74839424",
         "sidebar.accent.foreground": "#171B20",
         "group_box.background": "#F1F3F5E8",
         "group_box.foreground": "#171B20",
         "popover.background": "#F1F3F5",
         "popover.foreground": "#171B20",
-        "border": "#3139432B",
-        "input.border": "#49515C66",
-        "ring": "#86662D",
+        "border": "#75808E50",
+        "input.border": "#75808E80",
+        "ring": "#657385",
         "primary.background": "#20252B",
         "primary.foreground": "#F4F5F6",
         "primary.hover.background": "#323A44",
@@ -47,15 +47,15 @@
         "button.background": "#F0F2F480",
         "button.foreground": "#171B20",
         "button.hover.background": "#29313B14",
-        "button.active.background": "#86662D20",
+        "button.active.background": "#74839424",
         "secondary.background": "#F0F2F480",
         "secondary.foreground": "#171B20",
         "secondary.hover.background": "#29313B14",
-        "secondary.active.background": "#86662D20",
+        "secondary.active.background": "#74839424",
         "button.secondary.background": "#F0F2F480",
         "button.secondary.foreground": "#171B20",
         "button.secondary.hover.background": "#29313B14",
-        "button.secondary.active.background": "#86662D20",
+        "button.secondary.active.background": "#74839424",
         "tab.background": "#E9ECEF60",
         "tab.foreground": "#39414B",
         "tab.active.background": "#252C35ED",
@@ -63,12 +63,12 @@
         "tab_bar.background": "#CBD0D688",
         "tab_bar.segmented.background": "#CBD0D688",
         "list.hover.background": "#29313B14",
-        "list.active.background": "#86662D20",
-        "list.active.border": "#86662D50",
+        "list.active.background": "#74839424",
+        "list.active.border": "#75808E60",
         "table.hover.background": "#29313B14",
-        "table.active.background": "#86662D20",
-        "table.active.border": "#86662D50",
-        "selection.background": "#86662D30",
+        "table.active.background": "#74839424",
+        "table.active.border": "#75808E60",
+        "selection.background": "#74839430",
         "scrollbar.thumb.background": "#414B5850"
       }
     },
@@ -82,8 +82,8 @@
         "detail": "#515964",
         "icon": "#86662D",
         "hover": "#FFFFFFC9",
-        "active": "#E9E2D4D4",
-        "border": "#49515D40",
+        "active": "#E3E8EFD4",
+        "border": "#75808E58",
         "border_width": 1,
         "radius": 14
       },
@@ -93,8 +93,8 @@
         "detail": "#515964",
         "icon": "#86662D",
         "hover": "#FFFFFFC9",
-        "active": "#E9E2D4D4",
-        "border": "#49515D40",
+        "active": "#E3E8EFD4",
+        "border": "#75808E58",
         "border_width": 1,
         "radius": 14
       },
@@ -104,8 +104,8 @@
         "detail": "#515964",
         "icon": "#86662D",
         "hover": "#FFFFFFC9",
-        "active": "#E9E2D4D4",
-        "border": "#49515D40",
+        "active": "#E3E8EFD4",
+        "border": "#75808E58",
         "border_width": 1,
         "radius": 14
       },
@@ -115,8 +115,8 @@
         "detail": "#515964",
         "icon": "#86662D",
         "hover": "#FFFFFFC9",
-        "active": "#E9E2D4D4",
-        "border": "#49515D40",
+        "active": "#E3E8EFD4",
+        "border": "#75808E58",
         "border_width": 1,
         "radius": 14
       }
@@ -132,10 +132,14 @@
         "opacity": 0.75
       },
       "button.new_session": {
-        "path": "assets/trim.png",
-        "fit": "fill",
-        "height": 6,
-        "opacity": 0.8
+        "path": "assets/button-ink.png",
+        "fit": "cover",
+        "alignment": [
+          0.5,
+          0.6
+        ],
+        "height": 32,
+        "opacity": 0.9
       },
       "icon.explore": {
         "path": "assets/explore.png",
@@ -198,28 +202,28 @@
         "fit": "contain"
       },
       "composer.top_left": {
-        "path": "assets/grain.png",
+        "path": "assets/corner-top-left.png",
         "fit": "contain",
         "height": 48,
-        "opacity": 0.5
+        "opacity": 0.8
       },
       "composer.bottom_right": {
-        "path": "assets/grain.png",
+        "path": "assets/corner-bottom-right.png",
         "fit": "contain",
         "height": 48,
-        "opacity": 0.5
+        "opacity": 0.8
       },
       "message.user.top_left": {
-        "path": "assets/grain.png",
+        "path": "assets/corner-top-left.png",
         "fit": "contain",
         "height": 32,
-        "opacity": 0.24
+        "opacity": 0.25
       },
       "message.user.bottom_right": {
-        "path": "assets/grain.png",
+        "path": "assets/corner-bottom-right.png",
         "fit": "contain",
         "height": 32,
-        "opacity": 0.24
+        "opacity": 0.25
       }
     },
     "wordmark": {
@@ -230,7 +234,7 @@
       "user": {
         "background": "#EDF0F3DF",
         "foreground": "#171B20",
-        "border": "#3139432B",
+        "border": "#75808E50",
         "border_width": 1,
         "radius": 14
       },
@@ -251,54 +255,54 @@
         "muted.background": "#272D34DB",
         "muted.foreground": "#B7BEC7",
         "title_bar.background": "#20252B",
-        "title_bar.border": "#D4B67B32",
+        "title_bar.border": "#C7CEDB38",
         "sidebar.background": "#1D2228",
         "sidebar.foreground": "#EDEFF1",
-        "sidebar.border": "#D4B67B32",
-        "sidebar.accent.background": "#D4B67B28",
+        "sidebar.border": "#C7CEDB38",
+        "sidebar.accent.background": "#C1CBD828",
         "sidebar.accent.foreground": "#EDEFF1",
         "group_box.background": "#252B32E8",
         "group_box.foreground": "#EDEFF1",
         "popover.background": "#292F36",
         "popover.foreground": "#EDEFF1",
-        "border": "#D4B67B32",
-        "input.border": "#D4B67B70",
-        "ring": "#D4B67B",
-        "primary.background": "#D8BE86",
+        "border": "#C7CEDB38",
+        "input.border": "#BEC9D278",
+        "ring": "#BEC8D4",
+        "primary.background": "#CED5DE",
         "primary.foreground": "#181C21",
-        "primary.hover.background": "#E5CE9D",
-        "primary.active.background": "#BA9C62",
-        "button.primary.background": "linear-gradient(135deg, #E5CE9D, #BE9C5F)",
-        "button.primary.foreground": "#181C21",
-        "button.primary.hover.background": "linear-gradient(135deg, #EFDDB4, #D1B179)",
-        "button.primary.active.background": "linear-gradient(135deg, #CDB27C, #A98A50)",
+        "primary.hover.background": "#E2E8F0",
+        "primary.active.background": "#AEB9C8",
+        "button.primary.background": "linear-gradient(135deg, #363E49, #151A21)",
+        "button.primary.foreground": "#EDEFF1",
+        "button.primary.hover.background": "linear-gradient(135deg, #45505E, #252D38)",
+        "button.primary.active.background": "linear-gradient(135deg, #232B36, #0F141A)",
         "accent.background": "#C2CAD518",
         "accent.foreground": "#EDEFF1",
         "button.background": "#A7B1BF16",
         "button.foreground": "#EDEFF1",
         "button.hover.background": "#C2CAD518",
-        "button.active.background": "#D4B67B28",
+        "button.active.background": "#C1CBD828",
         "secondary.background": "#A7B1BF16",
         "secondary.foreground": "#EDEFF1",
         "secondary.hover.background": "#C2CAD518",
-        "secondary.active.background": "#D4B67B28",
+        "secondary.active.background": "#C1CBD828",
         "button.secondary.background": "#A7B1BF16",
         "button.secondary.foreground": "#EDEFF1",
         "button.secondary.hover.background": "#C2CAD518",
-        "button.secondary.active.background": "#D4B67B28",
+        "button.secondary.active.background": "#C1CBD828",
         "tab.background": "#30374144",
         "tab.foreground": "#B7BEC7",
-        "tab.active.background": "#4A4539E8",
-        "tab.active.foreground": "#ECD6A8",
+        "tab.active.background": "#38414BE8",
+        "tab.active.foreground": "#ECEFF2",
         "tab_bar.background": "#252C3588",
         "tab_bar.segmented.background": "#252C3588",
         "list.hover.background": "#C2CAD518",
-        "list.active.background": "#D4B67B28",
-        "list.active.border": "#D4B67B60",
+        "list.active.background": "#C1CBD828",
+        "list.active.border": "#C7CEDB60",
         "table.hover.background": "#C2CAD518",
-        "table.active.background": "#D4B67B28",
-        "table.active.border": "#D4B67B60",
-        "selection.background": "#D4B67B40",
+        "table.active.background": "#C1CBD828",
+        "table.active.border": "#C7CEDB60",
+        "selection.background": "#C1CBD840",
         "scrollbar.thumb.background": "#A9B0BB50"
       }
     },
@@ -312,8 +316,8 @@
         "detail": "#B7BEC7",
         "icon": "#D4B67B",
         "hover": "#353E4AC9",
-        "active": "#423F35D4",
-        "border": "#C8B18348",
+        "active": "#3A4452D4",
+        "border": "#CAD1DA50",
         "border_width": 1,
         "radius": 14
       },
@@ -323,8 +327,8 @@
         "detail": "#B7BEC7",
         "icon": "#D4B67B",
         "hover": "#353E4AC9",
-        "active": "#423F35D4",
-        "border": "#C8B18348",
+        "active": "#3A4452D4",
+        "border": "#CAD1DA50",
         "border_width": 1,
         "radius": 14
       },
@@ -334,8 +338,8 @@
         "detail": "#B7BEC7",
         "icon": "#D4B67B",
         "hover": "#353E4AC9",
-        "active": "#423F35D4",
-        "border": "#C8B18348",
+        "active": "#3A4452D4",
+        "border": "#CAD1DA50",
         "border_width": 1,
         "radius": 14
       },
@@ -345,8 +349,8 @@
         "detail": "#B7BEC7",
         "icon": "#D4B67B",
         "hover": "#353E4AC9",
-        "active": "#423F35D4",
-        "border": "#C8B18348",
+        "active": "#3A4452D4",
+        "border": "#CAD1DA50",
         "border_width": 1,
         "radius": 14
       }
@@ -362,10 +366,14 @@
         "opacity": 0.6
       },
       "button.new_session": {
-        "path": "assets/trim.png",
-        "fit": "fill",
-        "height": 6,
-        "opacity": 0.8
+        "path": "assets/button-ink.png",
+        "fit": "cover",
+        "alignment": [
+          0.5,
+          0.6
+        ],
+        "height": 32,
+        "opacity": 0.9
       },
       "icon.explore": {
         "path": "assets/explore.png",
@@ -428,28 +436,28 @@
         "fit": "contain"
       },
       "composer.top_left": {
-        "path": "assets/grain.png",
+        "path": "assets/corner-top-left.png",
         "fit": "contain",
         "height": 48,
-        "opacity": 0.5
+        "opacity": 0.8
       },
       "composer.bottom_right": {
-        "path": "assets/grain.png",
+        "path": "assets/corner-bottom-right.png",
         "fit": "contain",
         "height": 48,
-        "opacity": 0.5
+        "opacity": 0.8
       },
       "message.user.top_left": {
-        "path": "assets/grain.png",
+        "path": "assets/corner-top-left.png",
         "fit": "contain",
         "height": 32,
-        "opacity": 0.24
+        "opacity": 0.25
       },
       "message.user.bottom_right": {
-        "path": "assets/grain.png",
+        "path": "assets/corner-bottom-right.png",
         "fit": "contain",
         "height": 32,
-        "opacity": 0.24
+        "opacity": 0.25
       }
     },
     "wordmark": {
@@ -460,7 +468,7 @@
       "user": {
         "background": "#2A313ADF",
         "foreground": "#EDEFF1",
-        "border": "#D4B67B32",
+        "border": "#C7CEDB38",
         "border_width": 1,
         "radius": 14
       },

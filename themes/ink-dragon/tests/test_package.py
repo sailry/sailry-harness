@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import re
 import unittest
 
 from PIL import Image
@@ -102,6 +103,14 @@ class Package(unittest.TestCase):
             pairs.append((colors["tab.active.foreground"], composite(
                 rgba(colors["tab.active.background"]), base
             )))
+            for prefix in ["button", "button.primary"]:
+                for state in ["background", "hover.background", "active.background"]:
+                    stops = re.findall(
+                        r"#[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?",
+                        colors[prefix + "." + state],
+                    )
+                    for stop in stops:
+                        pairs.append((colors[prefix + ".foreground"], composite(rgba(stop), base)))
             for foreground, surface in pairs:
                 with self.subTest(mode=variant["theme"]["mode"], foreground=foreground):
                     self.assertGreaterEqual(contrast(rgba(foreground), surface), 4.5)

@@ -10,12 +10,16 @@ existing v1 theme contract and needs no theme-specific application code.
 The window wallpaper extends behind translucent navigation and content panels.
 Its center stays clear for conversations. Surface opacity remains controlled by
 Sailry's appearance settings. Cards retain translucent hover and pressed states.
+Primary buttons use ink-black fills with silver-white labels in both variants.
+Surface borders are silver gray; gold remains in small artwork accents.
 Button, tab, message, and wordmark colors follow the selected variant. The four
 original card symbols also appear beside sidebar group headings.
 
 All artwork is compressed transparent PNG. Wallpapers retain their generated
 1586 × 992 resolution; symbols are 96 × 96, the repeating foil texture is
-256 × 256, and the button trim is 768 × 256. [ARTWORK.md](ARTWORK.md) contains
+256 × 256, and corner ornaments are 192 × 192. The button artwork is resized to
+768 pixels wide and cropped by the existing decoration slot's cover fit.
+[ARTWORK.md](ARTWORK.md) contains
 the generation prompts and provenance. The package's Apache-2.0 license is
 included in `theme.json`.
 
