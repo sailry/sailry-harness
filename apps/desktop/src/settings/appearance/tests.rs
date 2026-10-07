@@ -2,6 +2,8 @@ use super::*;
 use core::prelude::v1::test;
 use std::time::{Duration, Instant};
 
+mod preview;
+
 struct Mounted(Entity<Workspace>);
 impl Render for Mounted {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {

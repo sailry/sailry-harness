@@ -8,6 +8,12 @@ installed or embedded in application builds.
 A package contains `theme.json` and local raster resources under `assets/`.
 The manifest requires `version: 1`, an ID matching its installed directory,
 a name, author/license metadata, and both `light` and `dark` variants.
+Optional `description` introduces the theme, `package_version` identifies its
+release, and `license.name` summarizes its license without replacing `license.text`.
+The numeric `version` remains the manifest format version, not a release version.
+Provided descriptions must be nonblank and at most 4 KiB, with ordinary line breaks
+and tabs allowed. Release versions and license names must be nonblank, single-line
+strings of at most 64 and 160 UTF-8 bytes, respectively.
 Colors and sizing in each variant's `theme` use the pinned GPUI Kit ThemeConfig.
 Omitted values inherit Sailry's configured Kit defaults.
 

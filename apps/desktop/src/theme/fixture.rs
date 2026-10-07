@@ -32,7 +32,9 @@ pub fn manifest(id: &str) -> Value {
     };
     json!({
         "version": 1, "id": id, "name": "Tide",
-        "license": { "author": "Sailry", "text": "Original test artwork, dedicated to the public domain under CC0 1.0" },
+        "description": "A coastal theme with light and dark palettes",
+        "package_version": "0.1.0",
+        "license": { "author": "Sailry", "name": "CC0-1.0", "text": "Original test artwork, dedicated to the public domain under CC0 1.0" },
         "light": variant(false), "dark": variant(true)
     })
 }

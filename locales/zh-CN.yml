@@ -484,6 +484,10 @@ appearance_light: 亮色
 appearance_dark: 暗色
 appearance_import: 导入主题
 appearance_preview: 预览主题
+appearance_information: 信息
+appearance_author: 作者
+appearance_identifier: 标识
+appearance_format_version: 格式版本
 appearance_import_invalid: 无法导入，请检查主题包格式和资源
 appearance_import_conflict: 主题已存在或资源空间不足
 appearance_picker_failed: 无法打开文件夹选择器，请重试

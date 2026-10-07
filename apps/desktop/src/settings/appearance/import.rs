@@ -1,6 +1,12 @@
+use super::super::entry::Entry;
 use super::*;
 use crate::theme::DialogStyle as _;
-use gpui_kit::component::scroll::ScrollableElement;
+use gpui_kit::component::{
+    accordion::Accordion,
+    dialog::{DialogClose, DialogFooter},
+    group_box::{GroupBox, GroupBoxVariants},
+};
+use gpui_kit::prelude::FluentBuilder as _;
 use std::path::PathBuf;
 use theme::package::Loaded;
 
@@ -54,6 +60,7 @@ pub(super) fn preview(loaded: Loaded, window: &mut Window, cx: &mut App) {
         loaded: Some(loaded),
         busy: false,
         error: None,
+        license_open: false,
     });
     view.update(cx, |_, cx| {
         crate::feedback::observe(window, cx, |view, _| view.error.into_iter().collect());
@@ -62,21 +69,35 @@ pub(super) fn preview(loaded: Loaded, window: &mut Window, cx: &mut App) {
         let busy = view.read(cx).busy;
         let save = view.clone();
         dialog
-            .form_title(tr("appearance_preview"))
+            .form_title(
+                div()
+                    .pr_6()
+                    .min_w_0()
+                    .truncate()
+                    .debug_selector(|| "theme-preview-title".into())
+                    .child(view.read(cx).package.name.clone()),
+            )
             .w((window.viewport_size().width - px(48.)).min(px(640.)))
             .close_button(!busy)
             .keyboard(!busy)
             .overlay_closable(!busy)
             .child(view.clone())
             .footer(
-                gpui_kit::component::dialog::DialogFooter::new()
+                DialogFooter::new()
                     .w_full()
+                    .child(DialogClose::new().trigger(|button| {
+                        button
+                            .label(tr("settings_cancel"))
+                            .disabled(busy)
+                            .debug_selector(|| "theme-import-cancel".into())
+                    }))
                     .child(
                         Button::new("theme-import-confirm")
                             .primary()
                             .label(tr("appearance_import"))
                             .debug_selector(|| "theme-import-confirm".into())
                             .disabled(busy)
+                            .loading(busy)
                             .on_click(move |_, window, cx| {
                                 save.update(cx, |view, cx| view.save(window, cx))
                             }),
@@ -90,6 +111,7 @@ struct Import {
     loaded: Option<Loaded>,
     busy: bool,
     error: Option<&'static str>,
+    license_open: bool,
 }
 
 impl Import {
@@ -144,41 +166,148 @@ impl Import {
 }
 
 impl Render for Import {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let license = &self
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let manifest = self
             .package
             .manifest
             .as_ref()
-            .expect("imported theme manifest")
-            .license;
+            .expect("imported theme manifest");
+        let license = &manifest.license;
+        let width = (window.viewport_size().width - px(48.)).min(px(640.));
+        let value_width = (width - px(88.)) * 0.55;
+        let value = |text: String| {
+            div()
+                .w(value_width)
+                .min_w_0()
+                .text_right()
+                .whitespace_normal()
+                .child(text)
+        };
         v_flex()
-            .gap_3()
-            .child(div().text_lg().child(self.package.name.clone()))
+            .id("theme-preview-details")
+            .debug_selector(|| "theme-preview-details".into())
+            .gap_4()
+            // Kit's Dialog owns the single bounded scroll area and fixed footer.
+            .flex_none()
+            .p_1()
             .child(
                 div()
                     .grid()
-                    .grid_cols(2)
+                    .grid_cols(if width < px(520.) { 1 } else { 2 })
                     .gap_3()
                     .children([false, true].map(|dark| {
-                        v_flex()
-                            .gap_2()
-                            .child(theme::preview(&self.package, dark, cx))
-                            .child(tr(if dark {
-                                "appearance_dark"
-                            } else {
-                                "appearance_light"
-                            }))
+                        let selector = if dark {
+                            "theme-preview-dark"
+                        } else {
+                            "theme-preview-light"
+                        };
+                        GroupBox::new()
+                            .id(selector)
+                            .fill()
+                            .min_w_0()
+                            .content_style(
+                                StyleRefinement::default()
+                                    .p_0()
+                                    .gap_0()
+                                    .border_1()
+                                    .border_color(cx.theme().border)
+                                    .rounded(cx.theme().radius_lg)
+                                    .overflow_hidden(),
+                            )
+                            .child(
+                                div()
+                                    .debug_selector(move || selector.into())
+                                    .child(theme::preview(&self.package, dark, cx)),
+                            )
+                            .child(
+                                div()
+                                    .px_3()
+                                    .py_2()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(tr(if dark {
+                                        "appearance_dark"
+                                    } else {
+                                        "appearance_light"
+                                    })),
+                            )
                     })),
             )
-            .child(div().text_sm().child(license.author.clone()))
+            .when_some(manifest.description.clone(), |body, description| {
+                body.child(
+                    div()
+                        .debug_selector(|| "theme-preview-description".into())
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .whitespace_normal()
+                        .child(description),
+                )
+            })
             .child(
-                div()
-                    .id("theme-license")
-                    .max_h_24()
-                    .overflow_y_scrollbar()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(license.text.clone()),
+                Group::new("appearance_information")
+                    .child(
+                        Entry::new("theme-info-author", tr("appearance_author"))
+                            .control(value(license.author.clone())),
+                    )
+                    .child(
+                        Entry::new(
+                            "theme-info-version",
+                            tr(if manifest.package_version.is_some() {
+                                "settings_version"
+                            } else {
+                                "appearance_format_version"
+                            }),
+                        )
+                        .control(value(
+                            manifest
+                                .package_version
+                                .clone()
+                                .unwrap_or_else(|| manifest.version.to_string()),
+                        )),
+                    )
+                    .child(
+                        Entry::new("theme-info-id", tr("appearance_identifier"))
+                            .control(value(manifest.id.clone())),
+                    ),
+            )
+            .child(
+                Accordion::new("theme-license-details")
+                    .w_full()
+                    .h_auto()
+                    .item(|item| {
+                        item.open(self.license_open)
+                            .title(
+                                h_flex()
+                                    .w_full()
+                                    .min_w_0()
+                                    .gap_3()
+                                    .debug_selector(|| "theme-license-toggle".into())
+                                    .child(tr("settings_license"))
+                                    .when_some(license.name.clone(), |title, name| {
+                                        title.child(
+                                            div()
+                                                .ml_auto()
+                                                .min_w_0()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .whitespace_normal()
+                                                .child(name),
+                                        )
+                                    }),
+                            )
+                            .content_style(StyleRefinement::default().px_4().pb_4())
+                            .child(
+                                div()
+                                    .debug_selector(|| "theme-license-text".into())
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .whitespace_normal()
+                                    .child(license.text.clone()),
+                            )
+                    })
+                    .on_toggle_click(cx.listener(|view, open: &[usize], _, cx| {
+                        view.license_open = open.contains(&0);
+                        cx.notify();
+                    })),
             )
     }
 }

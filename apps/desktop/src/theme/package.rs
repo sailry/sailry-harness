@@ -43,6 +43,8 @@ pub const SLOTS: &[&str] = &[
 #[serde(deny_unknown_fields)]
 pub struct License {
     pub author: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub text: String,
 }
 
@@ -52,6 +54,11 @@ pub struct Manifest {
     pub version: u32,
     pub id: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The theme's release version, independent of the v1 manifest format.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package_version: Option<String>,
     /// Applies to the package and assets without an individual license.
     pub license: License,
     pub light: Variant,
@@ -160,6 +167,20 @@ impl Manifest {
         {
             return Err("invalid theme package name".into());
         }
+        if self.description.as_ref().is_some_and(|description| {
+            description.trim().is_empty()
+                || description.len() > 4 * 1024
+                || description
+                    .chars()
+                    .any(|value| value.is_control() && !matches!(value, '\n' | '\r' | '\t'))
+        }) {
+            return Err("invalid theme package description".into());
+        }
+        if self.package_version.as_ref().is_some_and(|version| {
+            version.trim().is_empty() || version.len() > 64 || version.chars().any(char::is_control)
+        }) {
+            return Err("invalid theme release version".into());
+        }
         self.license.validate()?;
         if self.light.theme.mode.is_dark() || !self.dark.theme.mode.is_dark() {
             return Err("theme package requires light and dark variants".into());
@@ -220,6 +241,11 @@ impl Manifest {
 
 impl License {
     fn validate(&self) -> Result<(), String> {
+        if self.name.as_ref().is_some_and(|name| {
+            name.trim().is_empty() || name.len() > 160 || name.chars().any(char::is_control)
+        }) {
+            return Err("invalid theme license name".into());
+        }
         if self.author.trim().is_empty()
             || self.author.len() > 512
             || self.author.chars().any(char::is_control)

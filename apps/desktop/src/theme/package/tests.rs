@@ -5,15 +5,24 @@ use serde_json::json;
 fn validation_and_recovery() {
     let directory = tempfile::tempdir().unwrap();
     let source = crate::theme::fixture::write(directory.path(), "tide");
+    let manifest = std::fs::read(source.join("theme.json")).unwrap();
     let loaded = Loaded::read(&source, true).unwrap();
     let packages = directory.path().join("installed");
     // Installation uses the verified snapshot, including its original license.
     std::fs::write(source.join("assets/light.png"), "changed after preview").unwrap();
+    std::fs::write(source.join("theme.json"), "changed after preview").unwrap();
     loaded.install(&packages).unwrap();
     assert!(loaded.install(&packages).is_err());
     let installed = packages.join("tide");
+    assert_eq!(
+        std::fs::read(installed.join("theme.json")).unwrap(),
+        manifest
+    );
     let restored = Loaded::read(&installed, true).unwrap();
     assert_eq!(restored.images.len(), 2);
+    assert_eq!(restored.manifest.description, loaded.manifest.description);
+    assert_eq!(restored.manifest.package_version.as_deref(), Some("0.1.0"));
+    assert_eq!(restored.manifest.license.name.as_deref(), Some("CC0-1.0"));
     assert_eq!(restored.manifest.license.text, loaded.manifest.license.text);
     std::fs::remove_file(installed.join("assets/light.png")).unwrap();
     assert!(Loaded::read(&installed, true).is_err());
@@ -108,6 +117,12 @@ fn great_sage_imports() {
     assert_eq!(loaded.manifest.version, 1);
     assert_eq!(loaded.manifest.id, "great-sage");
     assert_eq!(loaded.images.len(), 5);
+    assert_eq!(loaded.manifest.package_version.as_deref(), Some("0.1.0"));
+    assert_eq!(loaded.manifest.license.name.as_deref(), Some("Apache-2.0"));
+    assert_eq!(
+        loaded.manifest.description.as_deref(),
+        Some("A theme inspired by the Great Sage, with golden accents and ink landscapes")
+    );
     for variant in [&loaded.manifest.light, &loaded.manifest.dark] {
         assert_eq!(variant.composer.border_width, 1);
         assert_eq!(variant.cards.len(), 4);
@@ -127,8 +142,26 @@ fn great_sage_imports() {
     );
     let directory = tempfile::tempdir().unwrap();
     loaded.install(directory.path()).unwrap();
-    let installed = Loaded::read(&directory.path().join("great-sage"), true).unwrap();
+    let root = directory.path().join("great-sage");
+    assert_eq!(
+        std::fs::read(root.join("theme.json")).unwrap(),
+        std::fs::read(source.join("theme.json")).unwrap()
+    );
+    let installed = Loaded::read(&root, true).unwrap();
     assert_eq!(installed.manifest.name, loaded.manifest.name);
+    assert_eq!(installed.manifest.description, loaded.manifest.description);
+    assert_eq!(
+        installed.manifest.package_version,
+        loaded.manifest.package_version
+    );
+    assert_eq!(
+        installed.manifest.license.name,
+        loaded.manifest.license.name
+    );
+    assert_eq!(
+        installed.manifest.license.text,
+        loaded.manifest.license.text
+    );
     assert_eq!(installed.images.len(), loaded.images.len());
 }
 
@@ -180,4 +213,96 @@ fn rejects_symlinks_on_recovery() {
     )
     .unwrap();
     assert!(Loaded::read(&source, true).is_err());
+}
+
+mod metadata {
+    use super::*;
+
+    #[test]
+    fn allows_omission_and_null() {
+        for null in [false, true] {
+            let mut value = crate::theme::fixture::manifest("tide");
+            for key in ["description", "package_version"] {
+                if null {
+                    value[key] = serde_json::Value::Null;
+                } else {
+                    value.as_object_mut().unwrap().remove(key);
+                }
+            }
+            if null {
+                value["license"]["name"] = serde_json::Value::Null;
+            } else {
+                value["license"].as_object_mut().unwrap().remove("name");
+            }
+            let manifest: Manifest = serde_json::from_value(value).unwrap();
+            manifest.validate().unwrap();
+            assert_eq!(manifest.version, 1);
+            assert!(manifest.description.is_none());
+            assert!(manifest.package_version.is_none());
+            assert!(manifest.license.name.is_none());
+            let encoded = serde_json::to_value(manifest).unwrap();
+            assert!(encoded.get("description").is_none());
+            assert!(encoded.get("package_version").is_none());
+            assert!(encoded["license"].get("name").is_none());
+        }
+    }
+
+    #[test]
+    fn preserves_values() {
+        let mut value = crate::theme::fixture::manifest("tide");
+        value["description"] = json!("First paragraph.\n\nSecond paragraph.\tDetails");
+        value["package_version"] = json!("2026.10-rc.1");
+        value["license"]["name"] = json!("Example License");
+        let manifest: Manifest = serde_json::from_value(value.clone()).unwrap();
+        manifest.validate().unwrap();
+        let encoded = serde_json::to_value(manifest).unwrap();
+        for pointer in ["/description", "/package_version", "/license/name"] {
+            assert_eq!(encoded.pointer(pointer), value.pointer(pointer));
+        }
+    }
+
+    #[test]
+    fn accepts_bounds() {
+        let mut value = crate::theme::fixture::manifest("tide");
+        value["description"] = json!("d".repeat(4 * 1024));
+        value["package_version"] = json!("v".repeat(64));
+        value["license"]["name"] = json!("l".repeat(160));
+        let manifest: Manifest = serde_json::from_value(value).unwrap();
+        manifest.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_invalid_values() {
+        let original = crate::theme::fixture::manifest("tide");
+        for (pointer, replacement) in [
+            ("/description", json!(" \n\t")),
+            ("/description", json!("d".repeat(4 * 1024 + 1))),
+            ("/description", json!("invalid\u{0}")),
+            ("/package_version", json!(" ")),
+            ("/package_version", json!("v".repeat(65))),
+            ("/package_version", json!("0.1.0\n")),
+            ("/license/name", json!(" ")),
+            ("/license/name", json!("l".repeat(161))),
+            ("/license/name", json!("License\t")),
+        ] {
+            let mut value = original.clone();
+            *value.pointer_mut(pointer).unwrap() = replacement;
+            let manifest: Manifest = serde_json::from_value(value).unwrap();
+            assert!(
+                manifest.validate().is_err(),
+                "accepted invalid field {pointer}"
+            );
+        }
+    }
+
+    #[test]
+    fn validates_asset_licenses() {
+        let mut value = crate::theme::fixture::manifest("tide");
+        value["light"]["assets"]["brand"]["license"] = value["license"].clone();
+        let manifest: Manifest = serde_json::from_value(value.clone()).unwrap();
+        manifest.validate().unwrap();
+        value["light"]["assets"]["brand"]["license"]["name"] = json!(" ");
+        let manifest: Manifest = serde_json::from_value(value).unwrap();
+        assert!(manifest.validate().is_err());
+    }
 }
