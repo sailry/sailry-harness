@@ -6,6 +6,36 @@ use super::*;
 use core::prelude::v1::test;
 use sailry_protocol::conversation::ApprovalState;
 
+fn assert_icons(cx: &mut VisualTestContext, children: &[Child], rotating: bool) -> Bounds<Pixels> {
+    let first = key(&children[0]);
+    let strip = cx
+        .debug_bounds(Box::leak(
+            format!("live-subagent-icons-{first}").into_boxed_str(),
+        ))
+        .unwrap();
+    let mut previous = strip.left();
+    for child in children {
+        let id = format!("live-subagent-icon-{}", key(child));
+        let bounds = cx
+            .debug_bounds(Box::leak(id.clone().into_boxed_str()))
+            .unwrap();
+        assert_eq!(bounds.size, size(px(16.), px(16.)));
+        assert!(bounds.left() >= previous);
+        assert!(bounds.right() <= strip.right());
+        assert_eq!(bounds.center().y, strip.center().y);
+        previous = bounds.right();
+        for (state, expected) in [("rotating", rotating), ("static", !rotating)] {
+            assert_eq!(
+                cx.debug_bounds(Box::leak(format!("{id}-{state}").into_boxed_str()))
+                    .is_some(),
+                expected,
+                "unexpected {state} state for {id}"
+            );
+        }
+    }
+    strip
+}
+
 #[gpui::test]
 fn keeps_active_children_after_handoff(cx: &mut TestAppContext) {
     init(cx);
@@ -216,12 +246,10 @@ fn readonly_approvals(cx: &mut TestAppContext) {
         visual.simulate_keystrokes("escape");
         visual.run_until_parked();
         let turn = fixture.page(fixture.session.id).runs[0].turn;
-        let first = key(fixture
-            .page(fixture.session.id)
-            .children
-            .iter()
-            .min_by_key(|child| child.origin.index)
-            .unwrap());
+        let mut children = fixture.page(fixture.session.id).children;
+        children.sort_by_key(|child| child.origin.index);
+        assert_eq!(children.len(), 2);
+        let first = key(&children[0]);
         parent.read_with(visual, |view, _| {
             assert!(
                 view.history
@@ -236,8 +264,10 @@ fn readonly_approvals(cx: &mut TestAppContext) {
         let toggle = format!("live-turn-subagents-{first}");
         let list = Box::leak(format!("live-subagent-list-{first}").into_boxed_str());
         assert!(visual.debug_bounds(list).is_none());
+        let collapsed_icons = assert_icons(visual, &children, true);
         tap(visual, &toggle);
         assert!(visual.debug_bounds(list).is_some());
+        assert_eq!(assert_icons(visual, &children, true), collapsed_icons);
         assert!(
             visual
                 .debug_bounds(Box::leak(
@@ -262,7 +292,6 @@ fn readonly_approvals(cx: &mut TestAppContext) {
         let children_button = visual.debug_bounds("live-composer-subagents").unwrap();
         assert!(children_button.left() >= todo.right());
         assert!((children_button.center().y - todo.center().y).abs() < px(1.));
-        let children = fixture.page(fixture.session.id).children;
         parent.read_with(visual, |view, _| {
             let names: Vec<_> = view
                 .child_rows(turn)
@@ -304,6 +333,7 @@ fn readonly_approvals(cx: &mut TestAppContext) {
         assert!(visual.debug_bounds("composer-todo").is_none());
         assert!(visual.debug_bounds("live-composer-subagents").is_none());
         assert!(visual.debug_bounds(list).is_some());
+        assert_icons(visual, &children, false);
         // The last activity keeps its loader while the parent awaits new content.
         assert!(
             visual
@@ -449,6 +479,7 @@ fn readonly_approvals(cx: &mut TestAppContext) {
         tap(visual, &toggle);
         assert!(parent.read_with(visual, |view, _| view.expanded[&(turn, key.clone())]));
         assert!(visual.debug_bounds("subagent-picker").is_none());
+        assert_icons(visual, &children, false);
         visual.update(|window, _| window.remove_window());
         fixture.close();
     }

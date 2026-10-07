@@ -100,9 +100,9 @@ impl View {
             .min_w_0()
             .open(open)
             .child(
-                crate::conversation::disclosure::trigger(
+                crate::conversation::disclosure::trigger_with_icons(
                     format!("live-turn-subagents-{first}"),
-                    IconName::Bot,
+                    icons(children, cx),
                     Self::child_label(completed, total).into(),
                     crate::conversation::disclosure::Detail {
                         running: active || continuing,
@@ -180,3 +180,32 @@ impl View {
         )
     }
 }
+
+fn icons(children: &[&Child], cx: &App) -> impl IntoElement {
+    let id = format!("live-subagent-icons-{}", key(children[0]));
+    h_flex()
+        .id(id.clone())
+        .debug_selector(move || id.clone())
+        .flex_shrink_0()
+        .gap_1()
+        .children(children.iter().map(|child| {
+            let id = format!("live-subagent-icon-{}", key(child));
+            let selector = id.clone();
+            let running = matches!(child.run.status, Status::Running | Status::Stopping);
+            let state = format!("{id}-{}", if running { "rotating" } else { "static" });
+            div()
+                .id(id)
+                .debug_selector(move || selector.clone())
+                .size_4()
+                .flex_shrink_0()
+                .child(div().debug_selector(move || state.clone()).size_4().child(
+                    crate::ui::identicon::animated(
+                        crate::ui::identicon::agent(&child.run.session.to_string(), cx),
+                        running,
+                    ),
+                ))
+        }))
+}
+
+#[cfg(test)]
+mod tests;

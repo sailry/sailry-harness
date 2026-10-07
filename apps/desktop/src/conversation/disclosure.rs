@@ -75,6 +75,20 @@ pub(crate) fn trigger(
     cx: &App,
 ) -> Button {
     let detail = detail.into();
+    let icon = glyph(icon.into(), &detail, cx);
+    trigger_with_icons(id, icon, label, detail, open, cx)
+}
+
+/// The same activity trigger with a composed set of leading icons.
+pub(crate) fn trigger_with_icons(
+    id: String,
+    icons: impl IntoElement,
+    label: SharedString,
+    detail: impl Into<Detail>,
+    open: bool,
+    cx: &App,
+) -> Button {
+    let detail = detail.into();
     let group = SharedString::from(id.clone());
     let summary = format!("{id}-summary");
     let state_color = tone(&detail, cx);
@@ -89,7 +103,15 @@ pub(crate) fn trigger(
         .min_w_0()
         .max_w_full()
         .accessibility_label(detail.accessible(&label))
-        .child(row(summary, icon, label, detail, open, group, cx))
+        .child(row(
+            summary,
+            icons.into_any_element(),
+            label,
+            detail,
+            open,
+            group,
+            cx,
+        ))
 }
 
 /// Activity summaries retain status without offering an output disclosure.
@@ -101,6 +123,7 @@ pub(crate) fn summary(
     cx: &App,
 ) -> impl IntoElement {
     detail.hide_caret = true;
+    let icon = glyph(icon.into(), &detail, cx);
     let content_id = format!("{id}-summary");
     let group = SharedString::from(id.clone());
     div()
@@ -130,7 +153,7 @@ fn tone(detail: &Detail, cx: &App) -> Hsla {
 
 fn row(
     id: String,
-    icon: impl Into<Icon>,
+    icons: AnyElement,
     label: SharedString,
     detail: Detail,
     open: bool,
@@ -160,18 +183,7 @@ fn row(
                 cx.theme().foreground
             })
         })
-        .child(if detail.pending {
-            Icon::empty()
-                .path("icons/reicon/help-circle.svg")
-                .text_color(status_color)
-                .size_4()
-                .into_any_element()
-        } else {
-            crate::ui::identicon::animated(
-                Icon::new(icon).size_4().flex_shrink_0(),
-                detail.rotate_icon,
-            )
-        })
+        .child(icons)
         .child(
             div()
                 .when(detail.secondary, |label| label.min_w_0().truncate())
@@ -215,6 +227,22 @@ fn row(
             |row, state| row.child(div().flex_shrink_0().text_color(status_color).child(state)),
         )
         .when(!detail.hide_caret, |row| row.child(caret(open, group)))
+}
+
+fn glyph(icon: Icon, detail: &Detail, cx: &App) -> AnyElement {
+    if detail.pending {
+        Icon::empty()
+            .path("icons/reicon/help-circle.svg")
+            .text_color(if detail.failed {
+                cx.theme().danger
+            } else {
+                cx.theme().warning
+            })
+            .size_4()
+            .into_any_element()
+    } else {
+        crate::ui::identicon::animated(icon.size_4().flex_shrink_0(), detail.rotate_icon)
+    }
 }
 
 /// Preserve the hit area and inline alignment while keeping idle rows quiet.
