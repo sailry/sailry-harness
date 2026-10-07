@@ -10,6 +10,7 @@ use gpui_kit::{
     component::{
         slider::{Slider, SliderState},
         tab::{Tab, TabBar},
+        tooltip::Tooltip,
         *,
     },
     *,
@@ -53,6 +54,7 @@ impl State {
 impl Workspace {
     pub(super) fn conversation(&self, cx: &mut Context<Self>) -> AnyElement {
         let display = preferences::data(cx).message_display.unwrap_or_default();
+        let text_size = self.conversation.text_size.clone();
         Group::new("settings_messages")
             .child(
                 Row::new(
@@ -76,49 +78,50 @@ impl Workspace {
             .child(
                 Row::new(
                     "settings_message_text_size",
-                    v_flex()
+                    div()
+                        .id("message-text-size-slider")
+                        .relative()
                         .w_full()
                         .min_w_0()
-                        .gap_2()
+                        .px_2()
+                        .aria_label(tr("settings_message_text_size"))
+                        .debug_selector(|| "message-text-size-slider".into())
+                        .tooltip(move |window, cx| {
+                            let size = text_size.read(cx).value().start() as u8;
+                            let label = SIZE_LABELS[usize::from((size - 12) / 2)];
+                            Tooltip::element(move |_, _| {
+                                div()
+                                    .debug_selector(|| "message-text-size-tooltip".into())
+                                    .child(format!(
+                                        "{} · {}",
+                                        tr(label),
+                                        rust_i18n::t!("message_text_size_value", size = size)
+                                    ))
+                            })
+                            .build(window, cx)
+                        })
                         .child(
-                            div()
-                                .id("message-text-size-slider")
-                                .w_full()
-                                .px_2()
-                                .aria_label(tr("settings_message_text_size"))
-                                .debug_selector(|| "message-text-size-slider".into())
-                                .child(Slider::new(&self.conversation.text_size)),
+                            div().absolute().left_2().right_2().top_0().h_6().children(
+                                // Kit supplies discrete interaction but no tick API.
+                                // These eventless marks leave its thumb and track intact.
+                                crate::preferences::Data::MESSAGE_TEXT_SIZES
+                                    .into_iter()
+                                    .map(|size| {
+                                        div()
+                                            .absolute()
+                                            .left(relative(f32::from(size - 12) / 6.))
+                                            .top_2()
+                                            .ml(-px(0.5))
+                                            .w(px(1.))
+                                            .h_2()
+                                            .bg(cx.theme().tokens.slider_bar.opacity(0.5))
+                                            .debug_selector(move || {
+                                                format!("message-text-size-tick-{size}")
+                                            })
+                                    }),
+                            ),
                         )
-                        .child(
-                            h_flex()
-                                .w_full()
-                                .justify_between()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .children(
-                                    crate::preferences::Data::MESSAGE_TEXT_SIZES
-                                        .into_iter()
-                                        .zip(SIZE_LABELS)
-                                        .map(|(size, label)| {
-                                            v_flex()
-                                                .flex_1()
-                                                .min_w_0()
-                                                .items_center()
-                                                .text_center()
-                                                .debug_selector(move || {
-                                                    format!("message-text-size-label-{size}")
-                                                })
-                                                .child(tr(label))
-                                                .child(
-                                                    rust_i18n::t!(
-                                                        "message_text_size_value",
-                                                        size = size
-                                                    )
-                                                    .to_string(),
-                                                )
-                                        }),
-                                ),
-                        ),
+                        .child(Slider::new(&self.conversation.text_size)),
                 )
                 .wide(),
             )

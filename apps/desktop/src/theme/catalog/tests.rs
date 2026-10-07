@@ -66,3 +66,79 @@ fn accounts_for_replaced_images() {
     assert_eq!(catalog.packages[1].images.len(), 1);
     assert_eq!(catalog.selected, 1);
 }
+
+mod slider {
+    use super::*;
+
+    fn package(directory: &std::path::Path) -> Package {
+        let source = crate::theme::fixture::write(directory, "colors");
+        let mut package = Package::preview(&Loaded::read(&source, true).unwrap());
+        for (config, primary, foreground) in [
+            (&mut package.light, "#b58128", "#18120a"),
+            (&mut package.dark, "#ddbc70", "#241e12"),
+        ] {
+            let colors = &mut Rc::make_mut(config).colors;
+            colors.primary = Some(primary.into());
+            colors.primary_foreground = Some(foreground.into());
+            colors.slider_bar = None;
+            colors.slider_thumb = None;
+        }
+        package
+    }
+
+    #[gpui::test]
+    fn derives_missing_colors_from_primary(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let package = package(directory.path());
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::init(cx);
+            let builtin = cx.global::<Catalog>().packages[0].clone();
+            for mode in [ThemeMode::Light, ThemeMode::Dark] {
+                Theme::change(mode, None, cx);
+                let original = (
+                    cx.theme().tokens.slider_bar.clone(),
+                    cx.theme().tokens.slider_thumb.clone(),
+                );
+                apply_colors(package.clone(), None, cx);
+                let expected = if mode.is_dark() { "#ddbc70" } else { "#b58128" };
+                assert_eq!(cx.theme().primary, Hsla::parse_hex(expected).unwrap());
+                assert_eq!(cx.theme().tokens.slider_bar, cx.theme().tokens.primary);
+                assert_eq!(
+                    cx.theme().tokens.slider_thumb.color,
+                    cx.theme().primary_foreground
+                );
+                apply_colors(builtin.clone(), None, cx);
+                assert_eq!(cx.theme().tokens.slider_bar, original.0);
+                assert_eq!(cx.theme().tokens.slider_thumb, original.1);
+            }
+        });
+    }
+
+    #[gpui::test]
+    fn preserves_explicit_package_colors(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let mut package = package(directory.path());
+        for config in [&mut package.light, &mut package.dark] {
+            let colors = &mut Rc::make_mut(config).colors;
+            colors.slider_bar = Some("#37b298".into());
+            colors.slider_thumb = Some("#c6f8ee".into());
+        }
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::init(cx);
+            apply_colors(package, None, cx);
+            for mode in [ThemeMode::Light, ThemeMode::Dark] {
+                Theme::change(mode, None, cx);
+                assert_eq!(
+                    cx.theme().tokens.slider_bar.color,
+                    Hsla::parse_hex("#37b298").unwrap()
+                );
+                assert_eq!(
+                    cx.theme().tokens.slider_thumb.color,
+                    Hsla::parse_hex("#c6f8ee").unwrap()
+                );
+            }
+        });
+    }
+}

@@ -211,12 +211,18 @@ pub fn apply_colors(package: Package, window: Option<&mut Window>, cx: &mut App)
         // against the default primary button background in a partial color theme.
         let mut colors = serde_json::to_value(&defaults.colors).expect("Kit color serialization");
         let overrides = serde_json::to_value(&config_mut.colors).expect("Kit color serialization");
+        let slider_bar = config_mut.colors.slider_bar.clone();
+        let slider_thumb = config_mut.colors.slider_thumb.clone();
         for (key, value) in overrides.as_object().expect("Kit color object") {
             if !value.is_null() {
                 colors[key] = value.clone();
             }
         }
         config_mut.colors = serde_json::from_value(colors).expect("Kit color configuration");
+        // Missing slider colors derive from this package's primary colors, not
+        // the builtin theme's neutral slider overrides.
+        config_mut.colors.slider_bar = slider_bar;
+        config_mut.colors.slider_thumb = slider_thumb;
         config_mut.font_size = config_mut.font_size.or(defaults.font_size);
         config_mut.font_family = config_mut
             .font_family

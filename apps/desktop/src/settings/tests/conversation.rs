@@ -36,15 +36,18 @@ fn drags_and_restores_text_size(cx: &mut TestAppContext) {
         let slider = visual.debug_bounds("message-text-size-slider").unwrap();
         assert!(slider.left() >= px(0.) && slider.right() <= px(width));
         for size in crate::preferences::Data::MESSAGE_TEXT_SIZES {
-            let selector = Box::leak(format!("message-text-size-label-{size}").into_boxed_str());
-            let label = visual.debug_bounds(selector).unwrap();
-            assert!(label.left() >= px(0.) && label.right() <= px(width));
+            let label = Box::leak(format!("message-text-size-label-{size}").into_boxed_str());
+            assert!(visual.debug_bounds(label).is_none());
+            let selector = Box::leak(format!("message-text-size-tick-{size}").into_boxed_str());
+            let tick = visual.debug_bounds(selector).unwrap();
+            assert!(tick.left() >= px(0.) && tick.right() <= px(width));
             let inset = px(8.);
             let fraction = f32::from(size - 12) / 6.;
             let position = point(
                 slider.left() + inset + (slider.size.width - inset * 2.) * fraction,
                 slider.center().y,
             );
+            assert!((tick.center().x - position.x).abs() <= px(1.));
             let current = visual.update(|_, cx| crate::preferences::data(cx).message_text_size());
             let thumb = point(
                 slider.left()
@@ -65,6 +68,14 @@ fn drags_and_restores_text_size(cx: &mut TestAppContext) {
                 Preferences::open(path.clone()).data.message_text_size(),
                 size
             );
+            visual.simulate_mouse_move(point(px(1.), px(1.)), None, Modifiers::none());
+            visual.simulate_mouse_move(position, None, Modifiers::none());
+            visual
+                .executor()
+                .advance_clock(std::time::Duration::from_secs(1));
+            visual.run_until_parked();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(visual.debug_bounds("message-text-size-tooltip").is_some());
         }
     }
     // Kit accessibility increment/decrement uses this state path without a
