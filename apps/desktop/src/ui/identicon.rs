@@ -1,6 +1,6 @@
 //! Stable procedural agent badges, rendered by Kit's ordinary SVG Icon.
 use gpui_kit::{component::*, *};
-use std::{fmt::Write, sync::LazyLock};
+use std::{fmt::Write, sync::LazyLock, time::Duration};
 
 fn identity(key: &str) -> (usize, usize) {
     // Fixed hashing keeps a session's identity unchanged across platforms and launches.
@@ -57,6 +57,28 @@ pub(crate) fn agent(key: &str, cx: &App) -> Icon {
         .size_4()
         .flex_shrink_0()
         .text_color(colors[color].scale(if theme.is_dark() { 400 } else { 600 }))
+}
+
+pub(crate) fn rotation() -> Animation {
+    // Kit's Spinner fixes its speed at 0.8 seconds; use its Icon animation API
+    // for a 450 ms revolution followed by a 550 ms pause, once per second.
+    Animation::new(Duration::from_secs(1))
+        .repeat()
+        .with_easing(|phase| {
+            let progress = (phase / 0.45).min(1.);
+            progress * progress * (3. - 2. * progress)
+        })
+}
+
+pub(crate) fn animated(icon: Icon, running: bool) -> AnyElement {
+    if running {
+        icon.with_animation("session-rotation", rotation(), |icon, phase| {
+            icon.transform(Transformation::rotate(percentage(phase)))
+        })
+        .into_any_element()
+    } else {
+        icon.into_any_element()
+    }
 }
 
 #[cfg(test)]

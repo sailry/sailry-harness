@@ -5,7 +5,6 @@ use super::*;
 use gpui_kit::component::{
     badge::Badge, hover_card::HoverCard, popover::Popover, scroll::ScrollableElement,
 };
-use std::time::Duration;
 
 #[cfg(test)]
 mod tests;
@@ -249,27 +248,10 @@ impl Shell {
     }
 }
 
-fn rotation() -> Animation {
-    // Kit's Spinner fixes its speed at 0.8 seconds; use its Icon animation API
-    // for a 450 ms revolution followed by a 550 ms pause, once per second.
-    Animation::new(Duration::from_secs(1))
-        .repeat()
-        .with_easing(|phase| {
-            let progress = (phase / 0.45).min(1.);
-            progress * progress * (3. - 2. * progress)
-        })
-}
-
 fn avatar_icon(key: &str, state: Lane, cx: &App) -> Div {
     let icon = crate::ui::identicon::agent(key, cx).size_5();
     let (name, content) = match state {
-        Lane::Running => (
-            "running",
-            icon.with_animation("session-rotation", rotation(), |icon, phase| {
-                icon.transform(Transformation::rotate(percentage(phase)))
-            })
-            .into_any_element(),
-        ),
+        Lane::Running => ("running", crate::ui::identicon::animated(icon, true)),
         Lane::Idle => ("idle", icon.into_any_element()),
         state => {
             let (name, symbol, color) = match state {

@@ -59,6 +59,7 @@ impl Shell {
                 agent.turn.status.label()
             },
             icon: super::transcript::status_icon(agent.turn.status),
+            running: matches!(agent.turn.status, Status::Running(_)),
             order: agent.order,
         })
         .collect()

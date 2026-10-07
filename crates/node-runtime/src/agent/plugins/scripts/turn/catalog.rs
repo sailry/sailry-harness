@@ -5,6 +5,8 @@ use sailry_protocol::{
     tool::Operation,
 };
 
+const ROLE_SUMMARY_CHARS: usize = 1024;
+
 pub(super) fn input(invocation: &Invocation, package: &plugin::Info, selected: &[String]) -> Value {
     let operations: Vec<_> = package
         .extension
@@ -39,7 +41,7 @@ pub(super) fn input(invocation: &Invocation, package: &plugin::Info, selected: &
         .profiles
         .iter()
         .filter(|_| operations.contains(&Operation::DelegateAgent))
-        .map(|role| json!({"key":role.key,"name":role.name,"description":role.description}))
+        .map(role_summary)
         .collect();
     let databases: Vec<_> = invocation
         .connections
@@ -71,6 +73,17 @@ pub(super) fn input(invocation: &Invocation, package: &plugin::Info, selected: &
     json!({"roles":roles,"automatic":invocation.automatic,"mode":invocation.turn.config.mode,"config":config,"names":names,"connections":{"bound":invocation.connections.bound,"databases":databases,"ssh":ssh}})
 }
 
+fn role_summary(profile: &sailry_protocol::role::Profile) -> Value {
+    let description = profile.description.trim();
+    let purpose = if description.is_empty() {
+        profile.instructions.trim()
+    } else {
+        description
+    };
+    let description: String = purpose.chars().take(ROLE_SUMMARY_CHARS).collect();
+    json!({"key":profile.key,"name":profile.name,"description":description})
+}
+
 fn database(profile: &sailry_protocol::database::Profile) -> Value {
     let (engine, database) = match &profile.connection {
         Connection::Sqlite { .. } => (Engine::Sqlite, "main"),
@@ -91,6 +104,31 @@ fn database(profile: &sailry_protocol::database::Profile) -> Value {
 mod tests {
     use super::*;
     use sailry_protocol::database::{Profile, Tls};
+
+    #[test]
+    fn previews_roles_without_changing_instructions() {
+        let mut profile = sailry_protocol::role::Profile {
+            id: sailry_protocol::RoleId::new(),
+            revision: 1,
+            key: "review".into(),
+            name: "Review".into(),
+            appearance: None,
+            description: " ".into(),
+            model: None,
+            max_turns: None,
+            skills: vec![],
+            instructions: format!("{}Complete role instructions", "🙂".repeat(1025)),
+        };
+        let instructions = profile.instructions.clone();
+        let summary = role_summary(&profile);
+        assert_eq!(summary["key"], profile.key);
+        assert_eq!(summary["name"], profile.name);
+        assert_eq!(summary["description"], "🙂".repeat(ROLE_SUMMARY_CHARS));
+        assert_eq!(profile.instructions, instructions);
+        profile.description = "Inspect the task".into();
+        assert_eq!(role_summary(&profile)["description"], "Inspect the task");
+        assert_eq!(profile.instructions, instructions);
+    }
 
     #[test]
     fn keeps_connection_metadata_private() {

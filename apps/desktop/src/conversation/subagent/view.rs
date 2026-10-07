@@ -182,15 +182,9 @@ impl Shell {
 
 /// Shared state glyph for inline delegation and the compact session picker.
 pub(in crate::conversation) fn status_icon(row: &Row) -> AnyElement {
-    use gpui_kit::component::{Icon, IconName, Sizable as _, spinner::Spinner};
-    if matches!(
-        row.status,
-        "chat_running" | "chat_stopping" | "subagent_running"
-    ) {
-        Spinner::new()
-            .icon(IconName::LoaderCircle)
-            .small()
-            .into_any_element()
+    use gpui_kit::component::{Icon, IconName, Sizable as _};
+    if row.running {
+        crate::ui::identicon::animated(Icon::new(IconName::LoaderCircle).small(), true)
     } else {
         Icon::new(row.icon.clone())
             .size_4()

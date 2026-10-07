@@ -76,6 +76,8 @@ impl View {
                         div()
                             .debug_selector(move || format!("live-approval-description-{id}"))
                             .whitespace_normal()
+                            .line_clamp(2)
+                            .text_ellipsis()
                             .child(description),
                     )
                 })

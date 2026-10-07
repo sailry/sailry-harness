@@ -54,7 +54,7 @@ pub(super) fn bind(
                     stop,
                     name,
                     declaration.description.clone().unwrap_or_default(),
-                    json!({"type":"object","properties":{"role":{"type":["string","null"]},"task":{"type":"string"},"title":{"type":"string"},"worktree":{"type":["string","null"]}},"required":["role","task"],"additionalProperties":false}),
+                    json!({"type":"object","properties":{"role":{"type":["string","null"]},"task":{"type":"string"},"title":{"type":"string"},"worktree":{"type":["string","null"]}},"required":["task"],"additionalProperties":false}),
                 ))
             } else if operation == Operation::Progress {
                 Arc::new(progress::UpdatePlan {

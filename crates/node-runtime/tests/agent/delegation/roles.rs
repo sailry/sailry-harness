@@ -1,12 +1,22 @@
 use super::*;
 
+#[path = "roles/defaults.rs"]
+mod defaults;
+
 #[tokio::test]
 async fn inherits_parent_model() {
     for remote in [false, true] {
-        for named in [false, true] {
+        for (roster, selection) in [
+            (false, None),
+            (false, Some(None)),
+            (true, None),
+            (true, Some(None)),
+            (true, Some(Some("review"))),
+        ] {
             let directory = tempfile::tempdir().unwrap();
             let root = directory.path().join("project");
             std::fs::create_dir(&root).unwrap();
+            std::fs::write(root.join("AGENTS.md"), "Shared default instructions").unwrap();
             let node = Node::start(directory.path().join("node")).await.unwrap();
             let controller =
                 Link::controller(directory.path().join("controller"), NetworkScope::default())
@@ -22,10 +32,13 @@ async fn inherits_parent_model() {
             } else {
                 node.local()
             });
-            let key = named.then_some("review");
+            let mut args = json!({"task": "第一轮：读取并总结"});
+            if let Some(role) = selection {
+                args["role"] = json!(role);
+            }
             let server = Server::parallel(vec![(
                 crate::agent_support::plugin_tool("delegation", "spawn_agent"),
-                json!({"role": key, "task": "Inherited child task"}),
+                args,
             )])
             .await;
             let (mut session, mut provider) = configured(&client, &server.endpoint, &root).await;
@@ -38,7 +51,7 @@ async fn inherits_parent_model() {
                 }))
                 .await
                 .unwrap();
-            if named {
+            if roster {
                 let role = role::Profile {
                     appearance: None,
                     id: RoleId::new(),
@@ -49,7 +62,10 @@ async fn inherits_parent_model() {
                     model: None,
                     max_turns: Some(2),
                     skills: vec![],
-                    instructions: "Inherited role instruction".into(),
+                    instructions: format!(
+                        "Inherited role instruction {}Full child instruction tail",
+                        "🙂".repeat(1024)
+                    ),
                 };
                 let Output::Role(role) = client
                     .execute(client.prepare(Command::PutRole {
@@ -103,7 +119,21 @@ async fn inherits_parent_model() {
             assert_eq!(output[0]["response"], "answer-fixture-a");
             let requests = server.requests.lock().unwrap().clone();
             assert_eq!(requests.len(), 3);
-            if named {
+            let parent_instruction = requests[0]["messages"][0].to_string();
+            assert!(parent_instruction.contains(
+                "Choose a role from the admitted roster when it fits the delegated task"
+            ));
+            assert!(
+                parent_instruction.contains("use its exact listed key and never invent a role")
+            );
+            assert!(
+                parent_instruction
+                    .contains("If no role fits or the roster is empty, omit role or use null")
+            );
+            assert!(parent_instruction.contains(
+                "normally omit role to preserve its original role and frozen configuration"
+            ));
+            if roster {
                 let tool = requests[0]["tools"]
                     .as_array()
                     .unwrap()
@@ -115,13 +145,19 @@ async fn inherits_parent_model() {
                     .unwrap();
                 assert_eq!(
                     tool["function"]["parameters"]["properties"]["role"]["enum"],
-                    json!(["review"])
+                    json!(["review", null])
+                );
+                assert_eq!(tool["function"]["parameters"]["required"], json!(["task"]));
+                assert_eq!(
+                    tool["function"]["parameters"]["properties"]["role"]["type"],
+                    json!(["string", "null"])
                 );
                 assert!(
                     requests[0]["messages"]
                         .to_string()
-                        .contains("review: Review")
+                        .contains("review (Review): Inherited role instruction")
                 );
+                assert!(!parent_instruction.contains("Full child instruction tail"));
             }
             let child = requests
                 .iter()
@@ -133,6 +169,14 @@ async fn inherits_parent_model() {
                 })
                 .unwrap();
             assert_eq!(child["reasoning_effort"], "high");
+            assert_eq!(child["model"], requests[0]["model"]);
+            assert_eq!(child["messages"][0]["role"], "system");
+            assert!(
+                child["messages"][0]
+                    .to_string()
+                    .contains("Shared default instructions")
+            );
+            assert!(child["messages"].to_string().contains("第一轮：读取并总结"));
             assert!(
                 !child["messages"]
                     .to_string()
@@ -142,7 +186,19 @@ async fn inherits_parent_model() {
                 child["messages"]
                     .to_string()
                     .contains("Inherited role instruction"),
-                named
+                selection == Some(Some("review"))
+            );
+            assert_eq!(
+                child["messages"]
+                    .to_string()
+                    .contains("Full child instruction tail"),
+                selection == Some(Some("review"))
+            );
+            let children = children(&client, session.id, 1).await;
+            assert_eq!(children[0].config, turn.config);
+            assert_eq!(
+                children[0].delegation.as_ref().unwrap().role.is_some(),
+                selection == Some(Some("review"))
             );
             node.shutdown().await.unwrap();
             controller.close().await.unwrap();

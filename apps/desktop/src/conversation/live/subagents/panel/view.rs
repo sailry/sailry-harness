@@ -16,6 +16,12 @@ impl Shell {
                     .child(id)
                     .map(|child| source.child_name(child))
                     .unwrap_or_else(|| tr("chat_child"));
+                let running = tab
+                    .view
+                    .read(cx)
+                    .summary()
+                    .and_then(|session| session.activity.run.as_ref())
+                    .is_some_and(|run| matches!(run.status, Status::Running | Status::Stopping));
                 let close = Button::new(format!("close-child-{id}"))
                     .ghost()
                     .xsmall()
@@ -31,7 +37,10 @@ impl Shell {
                     format!("child-tab-{id}"),
                     label.clone(),
                     id == panel.selected,
-                    Some(crate::ui::identicon::agent(&id.to_string(), cx).into_any_element()),
+                    Some(crate::ui::identicon::animated(
+                        crate::ui::identicon::agent(&id.to_string(), cx),
+                        running,
+                    )),
                     close,
                     cx,
                 )

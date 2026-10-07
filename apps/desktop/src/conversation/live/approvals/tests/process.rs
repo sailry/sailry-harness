@@ -22,6 +22,69 @@ fn approve(view: &Entity<View>, visual: &mut VisualTestContext) -> ApprovalId {
 }
 
 #[gpui::test]
+fn clamps_without_changing_command(cx: &mut TestAppContext) {
+    init(cx);
+    for (text, remote) in [
+        "完整内容 中文 🙂\\n".repeat(40),
+        "完整内容 中文 🙂\n".repeat(40),
+    ]
+    .into_iter()
+    .flat_map(|text| [false, true].map(|remote| (text.clone(), remote)))
+    {
+        let command = format!("printf '%s' '{text}' > full.txt");
+        let fixture = Fixture::with_tools(
+            remote,
+            vec![(
+                crate::agent_fixture::plugin_tool("commands", "run_command"),
+                json!({"command": command, "timeout_ms": 5_000}),
+            )],
+        );
+        fixture.start();
+        let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
+        wait(visual, |cx| {
+            view.read(cx).connected() && pending(&view, cx).is_some()
+        });
+        let id = view.read_with(visual, |_, cx| pending(&view, cx).unwrap());
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let bounds = |visual: &mut VisualTestContext, name: &str| {
+            visual
+                .debug_bounds(Box::leak(
+                    format!("live-approval-{name}-{id}").into_boxed_str(),
+                ))
+                .unwrap()
+        };
+        let title = bounds(visual, "title");
+        let description = bounds(visual, "description");
+        assert_eq!(description.size.height, title.size.height * 2.);
+        let panel = visual.debug_bounds("pending-approvals").unwrap();
+        for action in ["approve", "reject"] {
+            let button = bounds(visual, action);
+            assert!(button.top() >= description.bottom());
+            assert!(button.bottom() <= panel.bottom());
+        }
+        view.read_with(visual, |view, _| {
+            assert_eq!(
+                details(
+                    &view.history.calls[0],
+                    &view.history.snapshot.as_ref().unwrap().page
+                )
+                .description
+                .as_deref(),
+                Some(command.as_str()),
+            );
+        });
+        let path = fixture.directory.path().join("project/full.txt");
+        assert!(!path.exists());
+        approve(&view, visual);
+        wait(visual, |cx| view.read(cx).active().is_none());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), text);
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 2);
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
+#[gpui::test]
 fn executes_reopens_and_denies(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {

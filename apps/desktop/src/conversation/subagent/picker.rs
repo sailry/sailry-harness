@@ -210,7 +210,10 @@ impl Render for Picker {
                                 } else {
                                     div().w_4().into_any_element()
                                 })
-                                .child(crate::ui::identicon::agent(&key.debug_id(), cx))
+                                .child(crate::ui::identicon::animated(
+                                    crate::ui::identicon::agent(&key.debug_id(), cx),
+                                    row.running,
+                                ))
                                 .child(
                                     div()
                                         .flex_1()
@@ -281,6 +284,7 @@ mod tests {
             parent: parent.map(|id| Choice::Preview(Key { id, generation: 0 })),
             name: format!("Agent {id}").into(),
             status: "turn_waiting",
+            running: false,
             icon: IconName::CircleUser,
             order,
         }

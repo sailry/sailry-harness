@@ -45,6 +45,7 @@ impl View {
             parent: None,
             name: self.child_name(child),
             status: status_key(child.run.status),
+            running: matches!(child.run.status, Status::Running | Status::Stopping),
             icon: match child.run.status {
                 Status::Completed => IconName::Check,
                 Status::Failed | Status::Interrupted => IconName::CircleX,
@@ -145,8 +146,9 @@ impl View {
             crate::conversation::disclosure::Detail {
                 text,
                 secondary: true,
-                running: continuing || matches!(row.status, "chat_running" | "chat_stopping"),
-                failed: matches!(row.status, "turn_failed" | "chat_interrupted"),
+                running: continuing || row.running,
+                rotate_icon: row.running,
+                failed: matches!(child.run.status, Status::Failed | Status::Interrupted),
                 ..Default::default()
             },
             false,

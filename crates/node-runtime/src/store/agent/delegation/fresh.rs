@@ -1,5 +1,8 @@
 use super::*;
 
+#[cfg(test)]
+mod tests;
+
 pub(super) fn capture(
     db: &Connection,
     node: NodeId,
@@ -27,8 +30,7 @@ pub(super) fn capture(
                 .ok_or_else(|| invalid("role is not in the parent turn snapshot"))?
                 .clone(),
         ),
-        None if roster.profiles.is_empty() => None,
-        None => return Err(invalid("select a role from the parent turn snapshot")),
+        None => None,
     };
     let mut config = super::super::permissions::config(db, run.turn)?;
     let references = super::super::plugins::read(db, run.turn)?;

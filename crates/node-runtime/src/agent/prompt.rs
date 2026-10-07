@@ -52,4 +52,21 @@ mod tests {
             assert!(!prompt.contains("This is a planning turn"));
         }
     }
+
+    #[test]
+    fn delegation_matches_configured_roles() {
+        let prompt = instruction(WorkMode::Code, Permission::Ask);
+        assert!(
+            prompt
+                .contains("Choose a role from the admitted roster when it fits the delegated task")
+        );
+        assert!(prompt.contains("use its exact listed key and never invent a role"));
+        assert!(prompt.contains("If no role fits or the roster is empty"));
+        assert!(prompt.contains("omit role or use null"));
+        assert!(
+            prompt.contains(
+                "normally omit role to preserve its original role and frozen configuration"
+            )
+        );
+    }
 }

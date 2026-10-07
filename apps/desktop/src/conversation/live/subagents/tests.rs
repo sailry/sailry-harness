@@ -62,6 +62,41 @@ fn single_child_opens_directly(cx: &mut TestAppContext) {
         tap(visual, &row);
         assert_eq!(selected.get(), Some(child.run.session));
         assert!(visual.debug_bounds("subagent-picker").is_none());
+        view.update(visual, |view, _| {
+            for status in [
+                Status::Queued,
+                Status::Running,
+                Status::Stopping,
+                Status::Completed,
+                Status::Cancelled,
+                Status::Interrupted,
+                Status::Failed,
+            ] {
+                let snapshot = Arc::make_mut(view.history.snapshot.as_mut().unwrap());
+                let current = Arc::make_mut(&mut snapshot.page)
+                    .children
+                    .iter_mut()
+                    .find(|current| current.run.turn == child.run.turn)
+                    .unwrap();
+                current.run.status = status;
+                current.run.error = Some(sailry_protocol::Fault::new(
+                    sailry_protocol::ErrorCode::InvalidRequest,
+                    "Fixture diagnostic",
+                ));
+                let rows = view.child_rows(child.origin.turn);
+                assert_eq!(rows.len(), 1);
+                assert_eq!(
+                    rows[0].running,
+                    matches!(status, Status::Running | Status::Stopping)
+                );
+            }
+            let snapshot = Arc::make_mut(view.history.snapshot.as_mut().unwrap());
+            *Arc::make_mut(&mut snapshot.page)
+                .children
+                .iter_mut()
+                .find(|current| current.run.turn == child.run.turn)
+                .unwrap() = child.clone();
+        });
         visual.update(|window, _| window.remove_window());
         fixture.close();
     }

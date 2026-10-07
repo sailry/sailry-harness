@@ -49,6 +49,8 @@ pub(crate) fn row(prompt: SharedString, actions: impl IntoElement) -> Div {
                 .min_h_0()
                 .text_sm()
                 .whitespace_normal()
+                .line_clamp(2)
+                .text_ellipsis()
                 .child(prompt),
         )
         .child(actions)

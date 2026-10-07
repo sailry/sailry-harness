@@ -117,6 +117,11 @@ Delegated work uses the same ADK engine and history path with an explicit
 parent/child association. Closing a view stops observation, not admitted work;
 stopping a turn is an explicit command.
 
+The delegation plugin manages role settings; Node owns and freezes the configured
+roster. Delegation selects a matching configured role. An omitted or null role
+uses the parent's effective model and assistant instructions; an unknown explicit
+role is rejected.
+
 Each delegated turn retains its parent tool-call identity; the child session keeps
 its founding ancestry. The same parent session may reuse an idle child without
 losing history or changing its role, effective configuration or worktree. Idle

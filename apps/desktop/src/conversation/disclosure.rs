@@ -18,6 +18,7 @@ pub(crate) struct Detail {
     pub state: Option<SharedString>,
     pub failed: bool,
     pub running: bool,
+    pub rotate_icon: bool,
     pub pending: bool,
     pub hide_caret: bool,
 }
@@ -166,7 +167,10 @@ fn row(
                 .size_4()
                 .into_any_element()
         } else {
-            Icon::new(icon).size_4().flex_shrink_0().into_any_element()
+            crate::ui::identicon::animated(
+                Icon::new(icon).size_4().flex_shrink_0(),
+                detail.rotate_icon,
+            )
         })
         .child(
             div()

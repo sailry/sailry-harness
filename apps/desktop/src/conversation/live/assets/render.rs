@@ -97,7 +97,10 @@ impl Assets {
                             .w_full()
                             .min_w_0()
                             .gap_2()
-                            .child(Icon::new(child.icon).size_4())
+                            .child(crate::ui::identicon::animated(
+                                Icon::new(child.icon).size_4(),
+                                child.running,
+                            ))
                             .child(div().flex_1().min_w_0().truncate().child(child.name))
                             .child(
                                 div()

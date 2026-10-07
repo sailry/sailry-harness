@@ -93,3 +93,86 @@ fn long_details_fit_the_column(cx: &mut TestAppContext) {
     );
     assert_eq!(trigger.size.height, px(24.));
 }
+
+struct AgentIcon {
+    rotating: bool,
+    pending: bool,
+}
+
+impl Render for AgentIcon {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        trigger(
+            "child-activity".into(),
+            crate::ui::identicon::agent("child", cx),
+            "Child".into(),
+            Detail {
+                // Keep text still so frame requests prove the icon itself rotates.
+                rotate_icon: self.rotating,
+                pending: self.pending,
+                ..Default::default()
+            },
+            false,
+            cx,
+        )
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.rotating = !this.rotating;
+            cx.notify();
+        }))
+    }
+}
+
+#[gpui::test]
+fn rotates_only_when_requested(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+    });
+    let mut entity = None;
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|_| AgentIcon {
+            rotating: false,
+            pending: false,
+        });
+        entity = Some(view.clone());
+        Root::new(view, window, cx)
+    });
+    let entity = entity.unwrap();
+    for mode in [ThemeMode::Light, ThemeMode::Dark] {
+        for reduced in [false, true] {
+            visual.update(|window, cx| {
+                Theme::change(mode, Some(window), cx);
+                cx.set_reduce_motion(reduced);
+            });
+            let mut resting = None;
+            for (rotating, pending) in [(false, false), (true, false), (true, true), (false, false)]
+            {
+                entity.update(visual, |view, cx| {
+                    view.rotating = rotating;
+                    view.pending = pending;
+                    cx.notify();
+                });
+                let frames = visual.update(|window, cx| {
+                    window.simulate_next_frame(cx);
+                    window.refresh();
+                    window.draw(cx).clear(cx);
+                    window.simulate_next_frame(cx)
+                });
+                assert_eq!(frames > 0, rotating && !pending && !reduced);
+                let bounds = visual.debug_bounds("child-activity").unwrap();
+                assert_eq!(bounds.size.height, px(24.));
+                if !pending {
+                    if let Some(resting) = resting {
+                        assert_eq!(bounds, resting);
+                    } else {
+                        resting = Some(bounds);
+                    }
+                }
+            }
+        }
+    }
+    let position = visual.debug_bounds("child-activity").unwrap().center();
+    visual.simulate_click(position, Modifiers::default());
+    visual.run_until_parked();
+    assert!(entity.read_with(visual, |view, _| view.rotating));
+    visual.update(|window, _| window.remove_window());
+}

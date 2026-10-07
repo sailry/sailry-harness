@@ -30,6 +30,7 @@ pub(in crate::conversation) struct Row {
     pub parent: Option<Choice>,
     pub name: SharedString,
     pub status: &'static str,
+    pub running: bool,
     pub icon: IconName,
     pub order: u64,
 }
