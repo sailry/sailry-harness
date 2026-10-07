@@ -68,3 +68,44 @@ pub fn write(root: &Path, id: &str) -> PathBuf {
     .unwrap();
     directory
 }
+
+/// Exercises optional styles without depending on a distributable theme package.
+pub fn styled(root: &Path, id: &str) -> PathBuf {
+    let directory = write(root, id);
+    let mut value = manifest(id);
+    for (mode, dark) in [("light", false), ("dark", true)] {
+        let variant = &mut value[mode];
+        let foreground = if dark { "#D6F1F4" } else { "#173D48" };
+        variant["theme"]["colors"]["foreground"] = json!(foreground);
+        variant["theme"]["colors"]["tab.foreground"] =
+            json!(if dark { "#AFC5D0" } else { "#4E7180" });
+        variant["theme"]["colors"]["tab.active.foreground"] = json!("#F1FBFD");
+        variant["theme"]["colors"]["tab.active.background"] = json!("#1D6170");
+        variant["theme"]["colors"]["tab_bar.segmented.background"] = json!("#16808E80");
+        variant["theme"]["colors"]["button.background"] = json!("#16808E18");
+        variant["theme"]["colors"]["button.primary.background"] = json!("#1D6170");
+        variant["composer"] = json!({"border_width": 1});
+        variant["messages"] = json!({
+            "user": {
+                "background": if dark { "#243845D9" } else { "#E0EEF5D9" },
+                "foreground": foreground, "border": "#16808E70",
+                "border_width": 1, "radius": 14
+            },
+            "assistant": { "foreground": foreground }
+        });
+        variant["wordmark"] = json!({
+            "foreground": if dark { "#B5EEF2" } else { "#1C6F7D" },
+            "glow": "#55CED9"
+        });
+        // One continuous wallpaper also covers the navigation panes.
+        let assets = variant["assets"].as_object_mut().unwrap();
+        assets.remove("background.content");
+        assets.remove("background.sidebar");
+    }
+    std::fs::write(
+        directory.join("theme.json"),
+        serde_json::to_vec_pretty(&value).unwrap(),
+    )
+    .unwrap();
+    directory
+}

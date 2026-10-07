@@ -11,7 +11,8 @@ fn settle(visual: &mut VisualTestContext) {
 fn group_icons_and_window_background(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     cx.executor().allow_parking();
-    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../themes/great-sage");
+    let directory = tempfile::tempdir().unwrap();
+    let source = crate::theme::fixture::styled(directory.path(), "sidebar");
     let loaded = crate::theme::package::Loaded::read(&source, true).unwrap();
     cx.update(|cx| {
         gpui_kit::init(cx);

@@ -111,61 +111,6 @@ fn rejects_invalid_styles() {
 }
 
 #[test]
-fn great_sage_imports() {
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../themes/great-sage");
-    let loaded = Loaded::read(&source, true).unwrap();
-    assert_eq!(loaded.manifest.version, 1);
-    assert_eq!(loaded.manifest.id, "great-sage");
-    assert_eq!(loaded.manifest.package_version.as_deref(), Some("0.1.0"));
-    assert_eq!(loaded.manifest.license.name.as_deref(), Some("Apache-2.0"));
-    assert_eq!(
-        loaded.manifest.description.as_deref(),
-        Some("A theme inspired by the Great Sage, with golden accents and ink landscapes")
-    );
-    assert_eq!(loaded.images.len(), 11);
-    for variant in [&loaded.manifest.light, &loaded.manifest.dark] {
-        assert_eq!(variant.composer.border_width, 1);
-        assert_eq!(variant.cards.len(), 4);
-        for style in variant.cards.values() {
-            assert_ne!(style.hover, style.background);
-            assert_ne!(style.active, style.hover);
-        }
-        let image = &variant.assets["background.window"];
-        assert!(matches!(image.fit, Fit::Cover));
-        let decoded = image::open(source.join(&image.path)).unwrap().into_rgba8();
-        assert!(decoded.pixels().any(|pixel| pixel[3] == 0));
-        assert!(decoded.width() >= 1400 && decoded.height() >= 1000);
-    }
-    assert!(
-        loaded.manifest.light.assets["background.window"].opacity
-            < loaded.manifest.dark.assets["background.window"].opacity
-    );
-    let directory = tempfile::tempdir().unwrap();
-    loaded.install(directory.path()).unwrap();
-    let root = directory.path().join("great-sage");
-    assert_eq!(
-        std::fs::read(root.join("theme.json")).unwrap(),
-        std::fs::read(source.join("theme.json")).unwrap()
-    );
-    let installed = Loaded::read(&root, true).unwrap();
-    assert_eq!(installed.manifest.name, loaded.manifest.name);
-    assert_eq!(installed.manifest.description, loaded.manifest.description);
-    assert_eq!(
-        installed.manifest.package_version,
-        loaded.manifest.package_version
-    );
-    assert_eq!(
-        installed.manifest.license.name,
-        loaded.manifest.license.name
-    );
-    assert_eq!(
-        installed.manifest.license.text,
-        loaded.manifest.license.text
-    );
-    assert_eq!(installed.images.len(), loaded.images.len());
-}
-
-#[test]
 fn bounds_files_and_decoding() {
     let directory = tempfile::tempdir().unwrap();
     let source = crate::theme::fixture::write(directory.path(), "tide");

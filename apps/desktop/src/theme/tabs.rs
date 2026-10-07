@@ -155,7 +155,8 @@ fn equal_width_variants(cx: &mut TestAppContext) {
 #[gpui::test]
 fn themed_categories(cx: &mut TestAppContext) {
     let (view, visual) = setup(cx);
-    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../themes/great-sage");
+    let directory = tempfile::tempdir().unwrap();
+    let source = super::fixture::styled(directory.path(), "tabs");
     let loaded = super::package::Loaded::read(&source, true).unwrap();
     visual.update(|_, cx| {
         cx.global_mut::<super::Catalog>()

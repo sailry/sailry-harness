@@ -22,8 +22,8 @@ mod tests {
 
     #[gpui_kit::test]
     fn follows_package_and_mode(cx: &mut TestAppContext) {
-        let source =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../themes/great-sage");
+        let directory = tempfile::tempdir().unwrap();
+        let source = crate::theme::fixture::styled(directory.path(), "wordmark");
         let loaded = crate::theme::package::Loaded::read(&source, true).unwrap();
         cx.update(|cx| {
             gpui_kit::init(cx);

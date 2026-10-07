@@ -360,7 +360,8 @@ fn preserves_literal_text(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn themed_actions(cx: &mut TestAppContext) {
     init(cx);
-    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../themes/great-sage");
+    let directory = tempfile::tempdir().unwrap();
+    let source = crate::theme::fixture::styled(directory.path(), "actions");
     let loaded = crate::theme::package::Loaded::read(&source, true).unwrap();
     cx.update(|cx| {
         cx.global_mut::<crate::theme::Catalog>()

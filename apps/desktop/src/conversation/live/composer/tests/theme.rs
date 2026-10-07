@@ -4,7 +4,8 @@ use gpui_kit::component::ThemeMode;
 #[gpui::test]
 fn preserves_drafts_and_sends(cx: &mut TestAppContext) {
     init(cx);
-    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../themes/great-sage");
+    let directory = tempfile::tempdir().unwrap();
+    let source = crate::theme::fixture::styled(directory.path(), "composer");
     let loaded = crate::theme::package::Loaded::read(&source, true).unwrap();
     cx.update(|cx| {
         cx.global_mut::<crate::theme::Catalog>()
