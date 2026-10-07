@@ -341,7 +341,7 @@ async fn planning_exposes_only_reads() {
         })
         .await;
         let turn = fixture.submit().await;
-        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        let page = questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         assert!(page.approvals.is_empty());
         assert_eq!(results(&page)[1]["skills"].as_array().unwrap().len(), 1);

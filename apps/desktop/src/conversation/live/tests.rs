@@ -53,6 +53,25 @@ pub(crate) fn wait(cx: &mut VisualTestContext, predicate: impl Fn(&App) -> bool)
     }
 }
 
+pub(crate) fn continue_plan(view: &Entity<View>, visual: &mut VisualTestContext) {
+    use sailry_protocol::conversation::question::{Input, State};
+    wait(visual, |cx| {
+        let view = view.read(cx);
+        view.connected()
+            && view.history.snapshot.as_ref().is_some_and(|snapshot| {
+                view.history.calls.iter().any(|call| {
+                    call.question
+                        .as_ref()
+                        .is_some_and(|question| question.state == State::Pending)
+                        && call
+                            .question_spec(&snapshot.page)
+                            .is_some_and(|spec| matches!(spec.input, Input::Plan))
+                })
+            })
+    });
+    fixture::tap(visual, "live-question-secondary");
+}
+
 fn open_models(cx: &mut VisualTestContext) {
     click(cx, "live-chat-model");
     settle_models(cx);

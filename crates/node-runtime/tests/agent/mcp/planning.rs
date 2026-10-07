@@ -16,7 +16,7 @@ async fn exposes_readonly_tools() {
 
         super::super::planning::configure(&mut fixture, WorkMode::Plan).await;
         let (_, turn) = submit(&fixture, false).await;
-        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        let page = questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         assert!(page.approvals.is_empty());
         assert_eq!(results(&page)[0]["output"]["version"], "planning fixture");

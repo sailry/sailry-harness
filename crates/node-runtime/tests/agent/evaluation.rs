@@ -12,6 +12,7 @@ pub(super) fn trajectory(page: &Page, expected: &[(String, Value)]) {
     let actual: Vec<_> = page
         .entries
         .iter()
+        .filter(|entry| entry.author != "plan_review")
         .flat_map(|entry| &entry.parts)
         .filter_map(|part| match part {
             Part::ToolCall {

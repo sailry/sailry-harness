@@ -28,6 +28,37 @@ pub(super) async fn pending(client: &Client, session: SessionId) -> (Page, Quest
     .expect("question deadline")
 }
 
+/// Non-review feature fixtures explicitly keep Plan mode when its completion asks.
+pub(super) async fn finish_plan(client: &Client, session: SessionId, turn: TurnId) -> Page {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let page = history(client, session).await;
+            if page.runs.iter().any(|run| {
+                run.turn == turn
+                    && !matches!(run.status, Status::Queued | Status::Running | Status::Stopping)
+            }) {
+                return page;
+            }
+            if let Some(question) = page.questions.iter().find(|question| {
+                question.turn == turn && question.state == State::Pending
+            }) {
+                let call = page.entries.iter().find(|entry| entry.id == question.entry)
+                    .and_then(|entry| entry.parts.get(question.index)).unwrap();
+                assert!(matches!(call, Part::ToolCall { name, arguments, .. }
+                    if name == "plan_review" && arguments == &json!({"prompt":"","input":{"kind":"plan"}})),
+                    "completion must wait for the Node's review: {page:?}");
+                client.execute(client.prepare(Command::ResolveQuestion {
+                    session,
+                    question: question.id,
+                    response: Response::Answer(Answer::Text(String::new())),
+                })).await.unwrap();
+                return finished(client, session, turn).await;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.expect("planning completion deadline")
+}
+
 fn text_input() -> serde_json::Value {
     json!({"prompt": "Describe the task", "input": {"kind": "text", "multiline": true, "max_bytes": 1024}})
 }

@@ -97,6 +97,7 @@ async fn starts_one_coding_turn() {
         assert_eq!(accepted.turn.config, accepted.session.config);
         assert_eq!(accepted.turn.config.permission, Permission::Full);
         let page = finished(&other, session, accepted.turn.id).await;
+        assert_eq!(page.questions.len(), 1);
         assert_eq!(page.runs.len(), 2, "{page:?}");
         assert!(
             page.runs.iter().all(|run| run.status == Status::Completed),
@@ -225,6 +226,7 @@ async fn preserves_feedback_and_finishes() {
             .await
             .unwrap();
         let page = finished(&fixture.client, session, turn.id).await;
+        assert_eq!(page.questions.len(), 1);
         assert_eq!(page.runs.len(), 1);
         assert_eq!(page.runs[0].status, Status::Completed);
         assert_eq!(page.questions[0].state, State::Answered(answer));

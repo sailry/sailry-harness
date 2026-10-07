@@ -166,6 +166,7 @@ fn remote_defaults_and_resume(cx: &mut TestAppContext) {
         click(visual, "live-chat-input");
         visual.simulate_input("use desktop configuration");
         visual.simulate_keystrokes("enter");
+        continue_plan(&view, visual);
         wait(visual, |cx| {
             view.read(cx)
                 .history
@@ -242,6 +243,7 @@ fn remote_defaults_and_resume(cx: &mut TestAppContext) {
         click(visual, "live-chat-input");
         visual.simulate_input("source is offline");
         visual.simulate_keystrokes("enter");
+        continue_plan(&view, visual);
         wait(visual, |cx| {
             view.read(cx)
                 .history

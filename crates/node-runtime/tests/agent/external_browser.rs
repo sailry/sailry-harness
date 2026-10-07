@@ -244,7 +244,11 @@ async fn filters_without_provisioning() {
             for mode in [WorkMode::Code, WorkMode::Plan] {
                 let fixture =
                     Fixture::configured(remote, vec![], mode, Permission::Full, enabled).await;
-                let page = finished(&fixture.client, fixture.session, fixture.turn).await;
+                let page = if mode == WorkMode::Plan {
+                    questions::finish_plan(&fixture.client, fixture.session, fixture.turn).await
+                } else {
+                    finished(&fixture.client, fixture.session, fixture.turn).await
+                };
                 assert_eq!(page.runs.last().unwrap().status, Status::Completed);
                 {
                     let requests = fixture._server.requests.lock().unwrap();

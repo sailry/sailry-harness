@@ -110,7 +110,10 @@ pub struct AcceptedPlan {
 
 impl Spec {
     pub fn validate(&self) -> Result<(), Fault> {
-        if self.prompt.trim().is_empty() || self.prompt.len() > 16 * 1024 {
+        if (self.prompt.trim().is_empty()
+            && !(self.prompt.is_empty() && matches!(self.input, Input::Plan)))
+            || self.prompt.len() > 16 * 1024
+        {
             return Err(invalid("question prompt is empty or too large"));
         }
         match &self.input {

@@ -142,6 +142,14 @@ Natural completion advances the queue automatically. Explicit
 Stop and restart preserve unconsumed input, references and attachments in a paused
 queue without automatic replay.
 
+Main-session planning completion requires review even when the model returns a
+plain answer instead of requesting review itself. Node records this question in
+the same durable history. Executing the plan atomically admits one coding turn
+and changes the session mode while preserving its permission. Continuing planning
+keeps Plan mode and does not itself admit another turn; subsequent user input or
+an already admitted queue supplies further work.
+Delegated planning answers do not create a separate user review.
+
 ### Pairing and reconnect
 
 The pairing service exchanges a six-digit, 60-second code for an opaque invitation

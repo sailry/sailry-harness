@@ -56,6 +56,92 @@ fn completed(view: &Entity<View>, visual: &mut VisualTestContext) {
 }
 
 #[gpui::test]
+fn executes_completed_plan(cx: &mut TestAppContext) {
+    init(cx);
+    assert_eq!(
+        crate::conversation::surface::tool_label("plan_review"),
+        tr("composer_mode_plan")
+    );
+    for remote in [false, true] {
+        let fixture = fixture(remote, vec![]);
+        let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
+        let id = ready(&view, visual, None);
+        view.read_with(visual, |view, _| {
+            let page = &view.history.snapshot.as_ref().unwrap().page;
+            assert_eq!(page.runs.len(), 1);
+            assert_eq!(page.questions.len(), 1);
+            assert!(matches!(
+                view.questions.editing.as_ref().unwrap().spec.input,
+                Input::Plan
+            ));
+            assert_eq!(view.session.as_ref().unwrap().config.mode, WorkMode::Plan);
+        });
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
+        tap(visual, "live-chat-input");
+        visual.simulate_input("Unsent planning draft 中文 🙂");
+        tap(visual, "live-question-trigger");
+        tap(visual, "live-question-submit");
+        completed(&view, visual);
+        wait(visual, |cx| !view.read(cx).questions.locked());
+        let session = view.read_with(visual, |view, cx| {
+            assert_eq!(view.input.read(cx).value(), "Unsent planning draft 中文 🙂");
+            let session = view.session.as_ref().unwrap();
+            assert_eq!(session.config.mode, WorkMode::Code);
+            assert_eq!(session.config.permission, Permission::Full);
+            let page = &view.history.snapshot.as_ref().unwrap().page;
+            assert_eq!(page.questions[0].id, id);
+            assert!(matches!(
+                page.questions[0].state,
+                State::Answered(Answer::Plan { .. })
+            ));
+            session.clone()
+        });
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 2);
+        visual.update(|window, _| window.remove_window());
+        drop(view);
+        let (view, visual) = open(cx, fixture.binding.clone(), session);
+        completed(&view, visual);
+        assert!(view.read_with(visual, |view, _| view.questions.editing.is_none()));
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 2);
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
+#[gpui::test]
+fn continues_completed_plan(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = fixture(remote, vec![]);
+        let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
+        let id = ready(&view, visual, None);
+        tap(visual, "live-chat-input");
+        visual.simulate_input("More planning context 中文 🙂");
+        tap(visual, "live-question-trigger");
+        tap(visual, "live-question-secondary");
+        wait(visual, |cx| {
+            view.read(cx).active().is_none() && !view.read(cx).questions.locked()
+        });
+        view.read_with(visual, |view, cx| {
+            assert_eq!(view.input.read(cx).value(), "More planning context 中文 🙂");
+            assert_eq!(view.session.as_ref().unwrap().config.mode, WorkMode::Plan);
+            let page = &view.history.snapshot.as_ref().unwrap().page;
+            assert_eq!(page.runs.len(), 1);
+            assert_eq!(page.runs[0].status, Status::Completed);
+            assert_eq!(page.questions.len(), 1);
+            assert_eq!(page.questions[0].id, id);
+            assert_eq!(
+                page.questions[0].state,
+                State::Answered(Answer::Text(String::new()))
+            );
+        });
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
+#[gpui::test]
 fn preserves_drafts(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {

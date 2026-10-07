@@ -32,7 +32,11 @@ async fn send(fixture: &Fixture, message: &str) -> TurnId {
     else {
         panic!("turn expected");
     };
-    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    let page = if fixture.session.config.mode == WorkMode::Plan {
+        questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await
+    } else {
+        finished(&fixture.client, fixture.session.id, turn.id).await
+    };
     assert_eq!(
         page.runs.last().unwrap().status,
         Status::Completed,

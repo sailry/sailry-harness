@@ -72,6 +72,41 @@ fn validates_plan_feedback() {
     assert_eq!(serde_json::from_value::<Response>(value).unwrap(), response);
 }
 
+#[test]
+fn reserves_empty_prompts_for_plans() {
+    for input in [
+        Input::Plan,
+        Input::Text {
+            multiline: true,
+            max_bytes: 64,
+        },
+        Input::Choice {
+            options: vec!["one".into()],
+            multiple: false,
+            allow_other: false,
+        },
+        Input::Form { fields: vec![] },
+        Input::Url {
+            url: "https://example.invalid/continue".into(),
+            elicitation_id: "request".into(),
+        },
+    ] {
+        let mut spec = Spec {
+            prompt: "Review".into(),
+            input,
+        };
+        spec.validate().unwrap();
+        for prompt in ["", " ", "\n\t"] {
+            spec.prompt = prompt.into();
+            assert_eq!(
+                spec.validate().is_ok(),
+                prompt.is_empty() && matches!(spec.input, Input::Plan),
+                "unexpected validation for {spec:?}"
+            );
+        }
+    }
+}
+
 fn choice(multiple: bool, allow_other: bool) -> Spec {
     Spec {
         prompt: "Pick a target".into(),

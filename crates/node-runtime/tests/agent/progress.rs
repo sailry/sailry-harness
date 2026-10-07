@@ -62,11 +62,12 @@ async fn restores_without_replay() {
         else {
             panic!("turn expected")
         };
-        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        let page = questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
         assert!(page.approvals.is_empty());
         let view = observe(&fixture.client, fixture.session.id).await;
-        assert_eq!(view.calls.len(), 3);
+        assert_eq!(view.calls.len(), 4);
+        assert_eq!(view.calls[3].name, "plan_review");
         let recorded: Vec<_> = view
             .calls
             .iter()
@@ -104,7 +105,13 @@ async fn restores_without_replay() {
             panic!("fork expected")
         };
         let inherited = observe(&fixture.client, branch.id).await;
-        assert_eq!(inherited.calls, view.calls);
+        let mut expected = view.calls.clone();
+        for call in Arc::make_mut(&mut expected) {
+            if let Some(question) = &mut call.question {
+                question.session = branch.id;
+            }
+        }
+        assert_eq!(inherited.calls, expected);
         fixture.node.shutdown().await.unwrap();
         let node = Node::start(fixture.directory.path().join("node"))
             .await

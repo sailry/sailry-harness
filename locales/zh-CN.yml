@@ -1553,7 +1553,7 @@ interaction_continue_recorded: 已选择继续规划 · 示例
 interaction_start_recorded: 已选择开始编码 · 示例，未执行
 interaction_cancelled: 已取消
 interaction_continue: 继续规划
-interaction_start: 开始编码
+interaction_start: 执行计划
 question_reply: 等待回答
 interaction_submit: 提交回答
 interaction_cancel: 取消问题
@@ -1571,7 +1571,7 @@ question_closed: 问题已结束，草稿已保留
 question_interrupted: 任务已中断
 question_unconsumed: 回答已保存，任务已中断
 plan_pending: 等待确认
-plan_execute_confirm: 是否按此规划开始编码
+plan_execute_confirm: 按此计划执行
 plan_accepted: 已安排编码
 plan_continued: 已继续规划
 plan_config_changed: 配置已变化，请重新确认

@@ -31,6 +31,7 @@ pub(crate) fn tool_label(name: &str) -> SharedString {
         "load_skill" => "tool_load_skill",
         "read_skill_resource" => "tool_read_skill_resource",
         "compact_context" => "chat_compact",
+        "plan_review" => "composer_mode_plan",
         _ => return name.to_owned().into(),
     };
     tr(key)

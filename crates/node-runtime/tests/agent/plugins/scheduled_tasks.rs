@@ -297,7 +297,11 @@ async fn tool_visibility_follows_package_and_planning_policy() {
             }
             planning::configure(&mut fixture, mode).await;
             let turn = submit(&fixture, "Inspect scheduled tools").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            let page = if mode == WorkMode::Plan {
+                questions::finish_plan(&fixture.client, fixture.session.id, turn).await
+            } else {
+                finished(&fixture.client, fixture.session.id, turn).await
+            };
             assert_eq!(page.runs.last().unwrap().status, Status::Completed);
             let requests = server.requests.lock().unwrap();
             let exposed = requests.last().unwrap()["tools"]

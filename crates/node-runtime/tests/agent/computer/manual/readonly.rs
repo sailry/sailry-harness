@@ -27,6 +27,17 @@ async fn complete(client: &Client, relay: &relay::Relay, session: SessionId, tur
             if relay.refused() {
                 return None;
             }
+            if let Some(question) = page.questions.iter().find(|question| {
+                question.turn == turn && question.state == question::State::Pending
+                    && page.entries.iter().find(|entry| entry.id == question.entry)
+                        .and_then(|entry| entry.parts.get(question.index))
+                        .is_some_and(|part| matches!(part, Part::ToolCall {name, ..} if name == "plan_review"))
+            }) {
+                client.execute(client.prepare(Command::ResolveQuestion {
+                    session, question: question.id,
+                    response: question::Response::Answer(question::Answer::Text(String::new())),
+                })).await.expect("keep observation in Plan mode");
+            }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     })

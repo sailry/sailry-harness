@@ -201,12 +201,17 @@ async fn rejects_hidden_writes() {
                 .execute(fixture.client.prepare(Command::StartQueuedTurn { turn }))
                 .await
                 .unwrap();
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            let page = if mode == WorkMode::Plan {
+                questions::finish_plan(&fixture.client, fixture.session.id, turn).await
+            } else {
+                finished(&fixture.client, fixture.session.id, turn).await
+            };
             assert_eq!(page.runs[0].status, Status::Completed, "{page:?}");
             assert!(page.approvals.is_empty());
             let results: Vec<_> = page
                 .entries
                 .iter()
+                .filter(|entry| entry.author != "plan_review")
                 .flat_map(|entry| &entry.parts)
                 .filter_map(|part| match part {
                     Part::ToolResult { result, .. } => Some(result),
@@ -407,7 +412,11 @@ async fn uses_frozen_mode_at_admission() {
             }
             start.notify_one();
             finish.notify_one();
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            let page = if mode == WorkMode::Plan {
+                questions::finish_plan(&fixture.client, fixture.session.id, turn).await
+            } else {
+                finished(&fixture.client, fixture.session.id, turn).await
+            };
             assert_eq!(page.runs[0].status, Status::Completed);
             fixture.node.shutdown().await.unwrap();
             fixture.controller.close().await.unwrap();

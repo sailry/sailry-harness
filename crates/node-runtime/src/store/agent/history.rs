@@ -74,6 +74,7 @@ pub(super) fn append(
         }
         super::compaction::validate(&transaction, session, turn, &event)?;
         super::elicitation::validate(&transaction, turn, &event)?;
+        super::review::validate(&transaction, turn, &event)?;
         transaction
             .execute(
                 "INSERT INTO agent_events(session,id,turn,body) VALUES(?1,?2,?3,?4)",
@@ -359,6 +360,7 @@ pub(crate) fn project(
                 ))
             }))
             .chain(super::elicitation::project(event)?.into_iter().map(Ok))
+            .chain(super::review::project(event)?.into_iter().map(Ok))
             .chain(event.provider_metadata.get("adk_tool_started").map(|value| {
                 let value: Value = serde_json::from_str(value).map_err(storage_error)?;
                 let name = value["name"].as_str().ok_or_else(|| invalid("invalid tool start name"))?;

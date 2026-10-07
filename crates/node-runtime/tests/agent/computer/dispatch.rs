@@ -17,7 +17,9 @@ async fn binds_omitted_session_arguments() {
             json!({"list_apps":raw,"get_accessibility_tree":raw}),
         )
         .await;
-        let page = finished(&fixture.client, fixture.session, fixture.turn).await;
+        let page =
+            super::super::questions::finish_plan(&fixture.client, fixture.session, fixture.turn)
+                .await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert!(page.approvals.is_empty());
         for name in names {
@@ -70,7 +72,12 @@ async fn refuses_public_session_substitution() {
                 json!({"list_apps":success,"get_accessibility_tree":success}),
             )
             .await;
-            let page = finished(&fixture.client, fixture.session, fixture.turn).await;
+            let page = super::super::questions::finish_plan(
+                &fixture.client,
+                fixture.session,
+                fixture.turn,
+            )
+            .await;
             assert_eq!(page.runs.last().unwrap().status, Status::Completed);
             assert!(page.approvals.is_empty());
             for name in names {
@@ -289,7 +296,9 @@ async fn enforces_frozen_plan_admission() {
             }))
             .await
             .unwrap();
-        let page = finished(&fixture.client, fixture.session, fixture.turn).await;
+        let page =
+            super::super::questions::finish_plan(&fixture.client, fixture.session, fixture.turn)
+                .await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert!(page.approvals.is_empty());
         fixture.shutdown().await;

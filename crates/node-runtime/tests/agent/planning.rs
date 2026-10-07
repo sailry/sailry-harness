@@ -2,6 +2,8 @@ use super::*;
 use process::Fixture;
 use serde_json::{Value, json};
 
+#[path = "planning/completion.rs"]
+mod completion;
 #[path = "planning/review.rs"]
 mod review;
 
@@ -124,7 +126,7 @@ async fn freezes_child_mode() {
             )
             .await
             .unwrap();
-        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        let page = questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
         let Output::Snapshot(snapshot) = fixture
             .client
@@ -141,12 +143,9 @@ async fn freezes_child_mode() {
             .unwrap();
         assert_eq!(child.config.mode, WorkMode::Plan);
         assert_eq!(child.config.permission, Permission::Full);
-        assert!(
-            history(&fixture.client, child.id)
-                .await
-                .approvals
-                .is_empty()
-        );
+        let child_history = history(&fixture.client, child.id).await;
+        assert!(child_history.approvals.is_empty());
+        assert!(child_history.questions.is_empty());
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 3);
         for request in requests {
@@ -206,7 +205,7 @@ async fn restores_frozen_tools() {
             .execute(resumed.prepare(Command::StartQueuedTurn { turn: turn.id }))
             .await
             .unwrap();
-        let page = finished(&resumed, fixture.session.id, turn.id).await;
+        let page = questions::finish_plan(&resumed, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
         assert_eq!(page.runs[0].revision, turn.revision);
         assert!(page.approvals.is_empty());
@@ -301,7 +300,7 @@ async fn rejects_mutations_before_approval() {
             else {
                 panic!("turn expected")
             };
-            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+            let page = questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await;
             assert!(!fixture.root.join("forbidden.txt").exists());
             assert!(page.approvals.is_empty());
             assert!(page.runs[0].status != Status::Running);

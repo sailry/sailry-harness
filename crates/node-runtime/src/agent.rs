@@ -15,6 +15,7 @@ mod plugins;
 mod prompt;
 mod question;
 mod references;
+mod review;
 mod skills;
 mod title;
 mod tools;
@@ -377,6 +378,8 @@ async fn execute_with(
     let mut cancelled = false;
     let mut output = None;
     let mut has_result = false;
+    let mut proposal = None;
+    let mut requested_review = false;
     loop {
         let next = tokio::select! {
             biased;
@@ -407,6 +410,12 @@ async fn execute_with(
                 }
                 answer::validate(&event)?;
                 has_result |= answer::present(&event) || (reviewing && answer::reviewed(&event));
+                if reviewing {
+                    requested_review |= review::requested(&event);
+                    if answer::present(&event) {
+                        proposal = Some(event.id.clone());
+                    }
+                }
                 if event.llm_response.partial {
                     ingress.partial(target, turn, event).await?;
                 } else if capture_output && let Some(content) = event.content() {
@@ -431,6 +440,14 @@ async fn execute_with(
                         ErrorCode::Unavailable,
                         "Model returned no answer",
                     ));
+                }
+                if reviewing
+                    && !requested_review
+                    && !cancelled
+                    && !stop.is_cancelled()
+                    && let Some(source) = proposal
+                {
+                    review::wait(ingress, &invocation, &stop, source).await?;
                 }
                 return Ok(output);
             }

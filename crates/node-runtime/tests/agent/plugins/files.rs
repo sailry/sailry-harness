@@ -342,7 +342,7 @@ async fn preserves_ask_and_plan_policy() {
         );
         configure(&mut fixture, Permission::Full, WorkMode::Plan).await;
         let planned = submit(&fixture).await;
-        let page = finished(&fixture.client, fixture.session.id, planned.id).await;
+        let page = questions::finish_plan(&fixture.client, fixture.session.id, planned.id).await;
         assert_eq!(page.approvals.len(), 1);
         assert!(
             checkpoints(&fixture.client, fixture.session.id, planned.id)

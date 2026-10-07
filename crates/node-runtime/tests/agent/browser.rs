@@ -136,7 +136,11 @@ async fn routes_through_controller() {
             else {
                 panic!("turn expected")
             };
-            let page = finished(&client, session.id, turn.id).await;
+            let page = if mode == WorkMode::Plan {
+                questions::finish_plan(&client, session.id, turn.id).await
+            } else {
+                finished(&client, session.id, turn.id).await
+            };
             super::evaluation::trajectory(&page, &calls);
             assert_eq!(
                 page.runs.last().unwrap().status,
@@ -168,6 +172,7 @@ async fn routes_through_controller() {
             let results: Vec<_> = page
                 .entries
                 .iter()
+                .filter(|entry| entry.author != "plan_review")
                 .flat_map(|entry| &entry.parts)
                 .filter_map(|part| {
                     if let Part::ToolResult { result, .. } = part {

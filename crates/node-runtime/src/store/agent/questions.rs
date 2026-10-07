@@ -35,18 +35,26 @@ pub(super) fn begin(
     request: &ToolConfirmationRequest,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Question, Fault> {
-    if !matches!(request.tool_name.as_str(), "ask_user" | elicitation::TOOL) {
+    if !matches!(
+        request.tool_name.as_str(),
+        "ask_user" | elicitation::TOOL | review::TOOL
+    ) {
         return Err(invalid("tool does not accept user input"));
     }
     let spec: Spec = serde_json::from_value(request.args.clone())
         .map_err(|_| invalid("invalid question arguments"))?;
     spec.validate()?;
+    if request.tool_name == "ask_user" && spec.prompt.is_empty() {
+        return Err(invalid("question prompt is empty"));
+    }
     let transaction = database.connection.transaction().map_err(storage_error)?;
     let run = calls::active(&transaction, turn)?;
     if matches!(spec.input, question::Input::Plan) {
         planning::validate(&transaction, turn, run.session)?;
     }
-    let (entry, index) = if request.tool_name == elicitation::TOOL {
+    let (entry, index) = if request.tool_name == review::TOOL {
+        review::locate(&transaction, turn, request)?
+    } else if request.tool_name == elicitation::TOOL {
         elicitation::locate(&transaction, turn, request)?
     } else {
         if matches!(
@@ -160,6 +168,11 @@ fn spec(db: &Connection, question: &Question) -> Result<Spec, Fault> {
     let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
     if question.index == 0
         && let Some(spec) = elicitation::spec(&event)?
+    {
+        return Ok(spec);
+    }
+    if question.index == 0
+        && let Some(spec) = review::spec(&event)
     {
         return Ok(spec);
     }

@@ -1,5 +1,5 @@
 use super::*;
-use conversation::question::{Answer, Question, State};
+use conversation::question::{Answer, Input, Question, Spec, State};
 
 fn question(run: &Run) -> Question {
     Question {
@@ -184,4 +184,157 @@ fn validates_plan_answers() {
             assert!(result.is_err());
         }
     }
+}
+
+fn review_entry(question: &Question, spec: Spec) -> Entry {
+    Entry {
+        sequence: 1,
+        id: question.entry.clone(),
+        turn: question.turn,
+        author: "assistant".into(),
+        branch: String::new(),
+        timestamp_ms: 1,
+        usage: None,
+        citations: vec![],
+        search_suggestions: None,
+        parts: vec![Part::ToolCall {
+            display: None,
+            presentation: Default::default(),
+            grouping: Default::default(),
+            id: Some("review".into()),
+            name: "plan_review".into(),
+            arguments: serde_json::to_value(spec).unwrap(),
+        }],
+    }
+}
+
+#[test]
+fn projects_automatic_reviews() {
+    for state in [
+        State::Pending,
+        State::Answered(Answer::Plan {
+            turn: TurnId::new(),
+        }),
+        State::Answered(Answer::Text(String::new())),
+    ] {
+        let (mut projection, mut snapshot, run, _) = fixture();
+        let question = Question {
+            state,
+            ..question(&run)
+        };
+        Arc::make_mut(&mut snapshot.page).entries.push(review_entry(
+            &question,
+            Spec {
+                prompt: String::new(),
+                input: Input::Plan,
+            },
+        ));
+        projection
+            .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+            .unwrap();
+        assert_eq!(
+            projection
+                .apply(1, frame(&snapshot, 11, Change::Question(question.clone())))
+                .unwrap(),
+            Apply::Applied
+        );
+        assert_eq!(
+            projection.snapshot().unwrap().page.questions,
+            vec![question.clone()]
+        );
+        Arc::make_mut(&mut snapshot.page).questions.push(question);
+        snapshot.sequence = 11;
+        projection.reconnect(2).unwrap();
+        assert_eq!(
+            projection
+                .apply(2, Update::ConversationSnapshot(snapshot.clone()))
+                .unwrap(),
+            Apply::Applied
+        );
+        assert_eq!(projection.snapshot().unwrap().page, snapshot.page);
+    }
+}
+
+#[test]
+fn rejects_invalid_review_sources() {
+    for spec in [
+        Spec {
+            prompt: String::new(),
+            input: Input::Text {
+                multiline: true,
+                max_bytes: 64,
+            },
+        },
+        Spec {
+            prompt: "Review".into(),
+            input: Input::Text {
+                multiline: true,
+                max_bytes: 64,
+            },
+        },
+        Spec {
+            prompt: "Review".into(),
+            input: Input::Plan,
+        },
+        Spec {
+            prompt: " ".into(),
+            input: Input::Plan,
+        },
+    ] {
+        let (mut projection, mut snapshot, run, _) = fixture();
+        let question = question(&run);
+        Arc::make_mut(&mut snapshot.page)
+            .entries
+            .push(review_entry(&question, spec));
+        projection
+            .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+            .unwrap();
+        assert!(
+            projection
+                .apply(1, frame(&snapshot, 11, Change::Question(question.clone())))
+                .is_err()
+        );
+        assert!(projection.snapshot().unwrap().page.questions.is_empty());
+        Arc::make_mut(&mut snapshot.page).questions.push(question);
+        projection.reconnect(2).unwrap();
+        assert!(
+            projection
+                .apply(2, Update::ConversationSnapshot(snapshot))
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn retains_nonempty_model_prompts() {
+    let (mut projection, mut snapshot, run, _) = fixture();
+    let question = question(&run);
+    let mut entry = review_entry(
+        &question,
+        Spec {
+            prompt: String::new(),
+            input: Input::Plan,
+        },
+    );
+    let Part::ToolCall { name, .. } = &mut entry.parts[0] else {
+        panic!("tool call expected")
+    };
+    *name = "ask_user".into();
+    Arc::make_mut(&mut snapshot.page).entries.push(entry);
+    projection
+        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .unwrap();
+    assert!(
+        projection
+            .apply(1, frame(&snapshot, 11, Change::Question(question.clone())))
+            .is_err()
+    );
+    assert!(projection.snapshot().unwrap().page.questions.is_empty());
+    Arc::make_mut(&mut snapshot.page).questions.push(question);
+    projection.reconnect(2).unwrap();
+    assert!(
+        projection
+            .apply(2, Update::ConversationSnapshot(snapshot))
+            .is_err()
+    );
 }

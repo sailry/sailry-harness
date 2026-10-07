@@ -21,6 +21,7 @@ pub(super) mod providers;
 pub(super) mod questions;
 pub(super) mod queue;
 pub(crate) mod references;
+pub(crate) mod review;
 pub(in crate::store) mod runs;
 mod search;
 mod sessions;

@@ -247,7 +247,7 @@ async fn uses_storage_authority_and_filters_plan_writes() {
         );
         planning::configure(&mut fixture, WorkMode::Plan).await;
         let turn = submit(&fixture, false).await;
-        finished(&fixture.client, fixture.session.id, turn.id).await;
+        questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await;
         let request = server.requests.lock().unwrap().last().cloned().unwrap();
         let names: Vec<_> = request["tools"]
             .as_array()

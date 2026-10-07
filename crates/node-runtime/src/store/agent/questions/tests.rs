@@ -2,6 +2,7 @@ use super::super::tests::command;
 use super::*;
 use question::{Answer, Input};
 
+mod completion;
 mod planning;
 
 struct Fixture {

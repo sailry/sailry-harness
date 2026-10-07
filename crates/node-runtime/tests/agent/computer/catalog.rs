@@ -28,7 +28,16 @@ async fn preserves_host_bound_native_definitions() {
             for mode in [WorkMode::Code, WorkMode::Plan] {
                 let fixture =
                     Fixture::new(remote, vec![], mode, Permission::Full, enabled, json!({})).await;
-                let page = finished(&fixture.client, fixture.session, fixture.turn).await;
+                let page = if mode == WorkMode::Plan {
+                    super::super::questions::finish_plan(
+                        &fixture.client,
+                        fixture.session,
+                        fixture.turn,
+                    )
+                    .await
+                } else {
+                    finished(&fixture.client, fixture.session, fixture.turn).await
+                };
                 assert_eq!(page.runs.last().unwrap().status, Status::Completed);
                 {
                     let requests = fixture.server.requests.lock().unwrap();

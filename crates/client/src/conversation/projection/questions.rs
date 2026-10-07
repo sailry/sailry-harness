@@ -56,12 +56,24 @@ fn check(page: &Page, question: &Question) -> Result<(), Fault> {
         else {
             return Err(invalid("question does not reference a canonical tool call"));
         };
-        if entry.turn != question.turn || !matches!(name.as_str(), "ask_user" | "mcp_elicitation") {
+        if entry.turn != question.turn
+            || !matches!(
+                name.as_str(),
+                "ask_user" | "mcp_elicitation" | "plan_review"
+            )
+        {
             return Err(invalid("question references another turn or tool"));
         }
         let spec: Spec = serde_json::from_value(arguments.clone())
             .map_err(|_| invalid("question has invalid arguments"))?;
         spec.validate()?;
+        if name == "ask_user" && spec.prompt.is_empty() {
+            return Err(invalid("question prompt is empty"));
+        }
+        if name == "plan_review" && (!matches!(spec.input, Input::Plan) || !spec.prompt.is_empty())
+        {
+            return Err(invalid("plan review does not match its source"));
+        }
         if (name == "mcp_elicitation")
             != matches!(spec.input, Input::Form { .. } | Input::Url { .. })
         {

@@ -58,6 +58,7 @@ fn commands_preserve_shared_controls_and_markers(cx: &mut TestAppContext) {
         });
         visual.simulate_keystrokes("escape");
         tap(visual, "live-chat-send");
+        crate::conversation::live::tests::continue_plan(&view, visual);
         wait(visual, |cx| {
             view.read(cx)
                 .history
@@ -204,6 +205,7 @@ fn preserves_queue_and_focus(cx: &mut TestAppContext) {
         });
         tap(visual, "live-queue");
         tap(visual, &format!("queue-send-{}", turn.id));
+        crate::conversation::live::tests::continue_plan(&view, visual);
         wait(visual, |cx| {
             view.read(cx)
                 .history

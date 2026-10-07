@@ -65,13 +65,14 @@ async fn preserves_reads_in_plan() {
         else {
             panic!("turn expected")
         };
-        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        let page = questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await;
         super::evaluation::trajectory(&page, &calls);
         assert_eq!(page.runs[0].status, Status::Completed, "{page:?}");
         assert!(page.approvals.is_empty());
         let results: Vec<_> = page
             .entries
             .iter()
+            .filter(|entry| entry.author != "plan_review")
             .flat_map(|entry| &entry.parts)
             .filter_map(|part| match part {
                 Part::ToolResult { result, .. } => Some(result),

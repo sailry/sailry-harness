@@ -372,7 +372,7 @@ async fn plan_mode_excludes_process_writes() {
         else {
             panic!()
         };
-        finished(&fixture.client, fixture.session.id, turn.id).await;
+        questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await;
         let request = server.requests.lock().unwrap().last().unwrap().clone();
         let tools = request["tools"].as_array().unwrap();
         assert!(
