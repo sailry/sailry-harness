@@ -49,11 +49,11 @@ fn single_child_opens_directly(cx: &mut TestAppContext) {
         assert!(
             visual
                 .debug_bounds(Box::leak(
-                    format!("live-turn-subagents-{}", child.run.session).into_boxed_str()
+                    format!("live-turn-subagents-{}", key(&child)).into_boxed_str()
                 ))
                 .is_none()
         );
-        let row = format!("live-subagent-row-{}", child.run.session);
+        let row = format!("live-subagent-row-{}", key(&child));
         let bounds = visual
             .debug_bounds(Box::leak(row.clone().into_boxed_str()))
             .unwrap();
@@ -100,14 +100,12 @@ fn readonly_approvals(cx: &mut TestAppContext) {
                     })
         });
         let turn = fixture.page(fixture.session.id).runs[0].turn;
-        let first = fixture
+        let first = key(fixture
             .page(fixture.session.id)
             .children
             .iter()
             .min_by_key(|child| child.origin.index)
-            .unwrap()
-            .run
-            .session;
+            .unwrap());
         parent.read_with(visual, |view, _| {
             assert!(
                 view.history

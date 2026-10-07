@@ -7,6 +7,7 @@ mod compaction;
 pub(crate) mod completion;
 mod controls;
 mod delegation;
+mod guidance;
 mod mcp;
 pub(crate) mod media;
 mod model;
@@ -264,6 +265,7 @@ async fn execute_with(
             let instruction = instruction.clone();
             Box::pin(async move { Ok(instruction) })
         }))
+        .before_model_callback(guidance::bind(ingress, invocation.turn.id))
         .before_model_callback(preamble);
     extensions.callbacks.push((0, compact));
     extensions.callbacks.sort_by_key(|(order, _)| *order);

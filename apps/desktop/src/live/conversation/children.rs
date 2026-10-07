@@ -33,7 +33,8 @@ impl Shell {
         }
         let binding = source.read(cx).binding();
         let node = binding.client.target();
-        if session.delegation.as_ref().map(|origin| origin.session) != source.read(cx).session()
+        if (session.delegation.as_ref().map(|origin| origin.session) != source.read(cx).session()
+            && source.read(cx).child_session(session.id).as_ref() != Some(&session))
             || session.delegation.is_none()
             || session.project != binding.project
         {

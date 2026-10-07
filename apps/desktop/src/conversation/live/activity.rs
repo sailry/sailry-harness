@@ -34,7 +34,7 @@ impl View {
         let commands = self.command_activity(cx);
         let approval = self.pending_approvals(cx);
         let question = self.pending_question(cx);
-        let queue = (!self.readonly()).then(|| self.queue_bar(cx)).flatten();
+        let queue = self.queue_bar(cx);
         if progress.is_none()
             && children.is_none()
             && commands.is_none()

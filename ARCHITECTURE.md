@@ -117,6 +117,18 @@ Delegated work uses the same ADK engine and history path with an explicit
 parent/child association. Closing a view stops observation, not admitted work;
 stopping a turn is an explicit command.
 
+Each delegated turn retains its parent tool-call identity; the child session keeps
+its founding ancestry. The same parent session may reuse an idle child without
+losing history or changing its role, effective configuration or worktree. Idle
+reuse captures current packages and settings; initial delegation inherits the
+parent's frozen capture, and guidance retains the active recipient's capture.
+
+Guidance is durably admitted before execution and hands off after the whole tool
+batch settles, before the next model request. A new ADK invocation continues the
+same session history; it does not inject into an in-flight model stream. Explicit
+Stop and restart preserve unconsumed input, references and attachments in a paused
+queue without automatic replay.
+
 ### Pairing and reconnect
 
 The pairing service exchanges a six-digit, 60-second code for an opaque invitation

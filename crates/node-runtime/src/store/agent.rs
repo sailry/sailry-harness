@@ -8,7 +8,7 @@ mod children;
 pub(crate) mod compaction;
 pub(crate) mod connections;
 pub(in crate::store) mod continuation;
-mod delegation;
+pub(in crate::store) mod delegation;
 pub(crate) mod elicitation;
 mod feed;
 mod history;
@@ -142,6 +142,19 @@ pub(super) enum Operation {
     Claim {
         token: sailry_link::CancellationToken,
         reply: oneshot::Sender<Result<Option<Invocation>, Fault>>,
+    },
+    YieldGuidance {
+        recipient: TurnId,
+        reply: oneshot::Sender<Result<bool, Fault>>,
+    },
+    ClaimGuidance {
+        recipient: TurnId,
+        token: sailry_link::CancellationToken,
+        reply: oneshot::Sender<Result<Option<Invocation>, Fault>>,
+    },
+    RetainGuidance {
+        recipient: TurnId,
+        reply: oneshot::Sender<Result<(), Fault>>,
     },
     Finish {
         turn: TurnId,
@@ -298,6 +311,47 @@ impl Ingress {
                 turn,
                 status,
                 error,
+                reply,
+            })))
+            .await
+            .map_err(|_| super::unavailable())?;
+        response.await.map_err(|_| super::unavailable())?
+    }
+
+    pub(crate) async fn yield_guidance(&self, recipient: TurnId) -> Result<bool, Fault> {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .send(Job::Agent(Box::new(Operation::YieldGuidance {
+                recipient,
+                reply,
+            })))
+            .await
+            .map_err(|_| super::unavailable())?;
+        response.await.map_err(|_| super::unavailable())?
+    }
+
+    pub(crate) async fn claim_guidance(
+        &self,
+        recipient: TurnId,
+        token: sailry_link::CancellationToken,
+    ) -> Result<Option<Invocation>, Fault> {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .send(Job::Agent(Box::new(Operation::ClaimGuidance {
+                recipient,
+                token,
+                reply,
+            })))
+            .await
+            .map_err(|_| super::unavailable())?;
+        response.await.map_err(|_| super::unavailable())?
+    }
+
+    pub(crate) async fn retain_guidance(&self, recipient: TurnId) -> Result<(), Fault> {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .send(Job::Agent(Box::new(Operation::RetainGuidance {
+                recipient,
                 reply,
             })))
             .await
@@ -487,6 +541,35 @@ pub(super) fn execute(
                 controls.register(invocation.turn.id, token);
             }
             let _ = reply.send(result);
+        }
+        Operation::YieldGuidance { recipient, reply } => {
+            let result = if controls.stopped.is_cancelled() {
+                Ok(false)
+            } else {
+                queue::guidance::yield_run(database, recipient, events)
+            };
+            if matches!(result, Ok(true)) {
+                controls.cancel(recipient);
+            }
+            let _ = reply.send(result);
+        }
+        Operation::ClaimGuidance {
+            recipient,
+            token,
+            reply,
+        } => {
+            let result = if controls.stopped.is_cancelled() || token.is_cancelled() {
+                queue::guidance::retain(database, recipient, events).map(|_| None)
+            } else {
+                runs::claim_guidance(database, recipient, events)
+            };
+            if let Ok(Some(invocation)) = &result {
+                controls.register(invocation.turn.id, token);
+            }
+            let _ = reply.send(result);
+        }
+        Operation::RetainGuidance { recipient, reply } => {
+            let _ = reply.send(queue::guidance::retain(database, recipient, events));
         }
         Operation::Finish {
             turn,

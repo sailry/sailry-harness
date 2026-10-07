@@ -97,10 +97,52 @@ fn active_phase_lifecycle() {
         Status::Interrupted,
     ] {
         run.status = status;
+        if status == Status::Cancelled {
+            assert_eq!(super::status(&run, true), "turn_cancelled");
+        }
         assert!(!continuing_tools(&run, &page, &activity));
         assert_eq!(phase(&run, &page, &[]), None);
         assert_eq!(phase(&run, &page, &text), None);
     }
+}
+
+#[test]
+fn excludes_later_child_calls() {
+    let run = run();
+    let original = sailry_protocol::conversation::Child {
+        run: Run {
+            status: Status::Completed,
+            ..run.clone()
+        },
+        origin: sailry_protocol::Delegation {
+            session: run.session,
+            turn: run.turn,
+            entry: "original".into(),
+            index: 0,
+            role: None,
+        },
+        name: None,
+    };
+    let mut reused = original.clone();
+    reused.origin.entry = "later".into();
+    reused.run.turn = TurnId::new();
+    reused.run.status = Status::Running;
+    let page = Page {
+        session: run.session,
+        revision: 1,
+        entries: vec![],
+        runs: vec![],
+        queue: Default::default(),
+        approvals: vec![],
+        questions: vec![],
+        children: vec![original.clone(), reused],
+        next_before: None,
+    };
+    let blocks = [
+        Block::Children(vec![&original]),
+        Block::Text("report".into(), "Earlier call report".into()),
+    ];
+    assert_eq!(phase(&run, &page, &blocks), Some("turn_generating"));
 }
 
 #[gpui_kit::test]

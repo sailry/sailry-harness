@@ -1,6 +1,8 @@
 use super::*;
 use sailry_client::conversation::Projection;
 
+#[path = "queue/guidance.rs"]
+mod guidance;
 #[path = "queue/persistence.rs"]
 mod persistence;
 
@@ -17,6 +19,10 @@ struct Fixture {
 
 impl Fixture {
     async fn start(remote: bool, slow: bool) -> Self {
+        Self::with_server(remote, Server::start(slow).await).await
+    }
+
+    async fn with_server(remote: bool, server: Server) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
@@ -36,7 +42,6 @@ impl Fixture {
             node.local()
         };
         let client = Client::new(transport);
-        let server = Server::start(slow).await;
         let (session, provider) = configured(&client, &server.endpoint, &root).await;
         Self {
             directory,

@@ -557,6 +557,12 @@ pub enum Command {
         expected_revision: u64,
         message: crate::conversation::Input,
     },
+    /// Guides an active child at its next model boundary using its frozen capture.
+    GuideTurn {
+        recipient: crate::TurnId,
+        expected_revision: u64,
+        message: crate::conversation::Input,
+    },
     /// Atomically admits an idle continuation fenced by the calling package's private data.
     ContinueTurn {
         session: SessionId,
@@ -625,6 +631,12 @@ pub enum Command {
     },
     SendQueuedTurn {
         turn: crate::TurnId,
+        expected_revision: u64,
+    },
+    /// Prioritizes compatible input without interrupting an unsettled tool batch.
+    GuideQueuedTurn {
+        turn: crate::TurnId,
+        recipient: crate::TurnId,
         expected_revision: u64,
     },
     MoveQueuedTurn {

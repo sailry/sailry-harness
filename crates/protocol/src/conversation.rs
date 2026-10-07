@@ -202,6 +202,8 @@ pub struct Pending {
     pub revision: u64,
     pub config_revision: u64,
     pub ready: bool,
+    /// Accepted guidance intent; execution begins only after the recipient ends.
+    pub guidance: Option<TurnId>,
     pub preview: String,
     pub truncated: bool,
     pub attachments: Vec<crate::attachment::Attachment>,

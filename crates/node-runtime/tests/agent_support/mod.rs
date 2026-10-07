@@ -74,6 +74,7 @@ enum Reply {
         calls: Arc<Vec<(String, Value)>>,
     },
     Parallel(Arc<Vec<(String, Value)>>),
+    Batch(Arc<Vec<(String, Value)>>),
     Gate(Arc<tokio::sync::Barrier>),
     Held(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>),
     Staged(Arc<Vec<Arc<tokio::sync::Notify>>>),
@@ -251,6 +252,10 @@ impl Server {
 
     pub async fn parallel(calls: Vec<(String, Value)>) -> Self {
         Self::serve(Reply::Parallel(Arc::new(calls))).await
+    }
+
+    pub async fn batch(calls: Vec<(String, Value)>) -> Self {
+        Self::serve(Reply::Batch(Arc::new(calls))).await
     }
 
     pub async fn gate(count: usize) -> Self {
@@ -507,16 +512,17 @@ async fn respond(
             .flatten(),
         _ => browser_call.as_ref(),
     };
-    let batch = matches!(&reply, Reply::Parallel(_) if completed == 0)
-        && body["tools"].as_array().is_some_and(|tools| {
-            tools
-                .iter()
-                .any(|tool| tool["function"]["name"] == plugin_tool("delegation", "spawn_agent"))
-        });
+    let batch = matches!(&reply, Reply::Batch(_) if completed == 0)
+        || (matches!(&reply, Reply::Parallel(_) if completed == 0)
+            && body["tools"].as_array().is_some_and(|tools| {
+                tools.iter().any(|tool| {
+                    tool["function"]["name"] == plugin_tool("delegation", "spawn_agent")
+                })
+            }));
     let delta = match (&reply, batch, call) {
         (Reply::Staged(_), _, _) => json!({"role":"assistant", "content":"First"}),
         (Reply::Markdown(text, ..), _, _) => json!({"role":"assistant", "content":text.as_str()}),
-        (Reply::Parallel(calls), true, _) => {
+        (Reply::Parallel(calls) | Reply::Batch(calls), true, _) => {
             json!({"role": "assistant", "tool_calls": calls.iter().enumerate().map(|(index, (name, args))|
                 json!({"index": index, "id": format!("call-fixture-{index}"), "type": "function", "function": {"name": name, "arguments": args.to_string()}})
             ).collect::<Vec<_>>()})

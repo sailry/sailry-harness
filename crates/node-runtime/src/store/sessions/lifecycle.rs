@@ -32,8 +32,9 @@ pub(in crate::store) fn remove(
     let mut query = db
         .prepare(
             "WITH RECURSIVE owned(id) AS (
-            SELECT ?1 UNION SELECT d.session FROM session_delegations d
-            JOIN turns t ON t.id=d.parent_turn JOIN owned ON owned.id=t.session
+            SELECT ?1 UNION SELECT child.session FROM agent_delegations d
+            JOIN turns child ON child.id=d.turn
+            JOIN turns parent ON parent.id=d.parent_turn JOIN owned ON owned.id=parent.session
         ) SELECT id FROM owned",
         )
         .map_err(storage_error)?;

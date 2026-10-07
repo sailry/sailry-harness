@@ -6,8 +6,8 @@ use sailry_protocol::conversation::Child as Summary;
 mod tests;
 
 pub(super) fn get(db: &Connection, run: &Run) -> Result<Option<Summary>, Fault> {
-    delegation::read(db, run.session)?
-        .map(|origin| project(db, run.clone(), *origin))
+    delegation::origin(db, run.turn)?
+        .map(|origin| project(db, run.clone(), origin))
         .transpose()
 }
 
@@ -18,8 +18,8 @@ pub(super) fn list(db: &Connection, entries: &[Entry]) -> Result<Vec<Summary>, F
         .collect();
     let mut query = db
         .prepare(
-            "SELECT a.body,d.body FROM session_delegations d JOIN turns t ON t.session=d.session
-         JOIN agent_runs a ON a.turn=t.id
+            "SELECT a.body,d.body FROM agent_delegations d JOIN turns t ON t.id=d.turn
+         JOIN agent_runs a ON a.turn=d.turn
          JOIN json_each(?1) e ON d.parent_turn=json_extract(e.value,'$[0]')
              AND d.entry=json_extract(e.value,'$[1]')
          ORDER BY t.rowid",
@@ -42,19 +42,9 @@ pub(super) fn list(db: &Connection, entries: &[Entry]) -> Result<Vec<Summary>, F
 }
 
 fn project(db: &Connection, run: Run, origin: Delegation) -> Result<Summary, Fault> {
-    let name = if let Some(role) = origin.role {
-        let parent = runs::get(db, origin.turn)?;
-        let roster = crate::store::sessions::roles::read(db, parent.session, parent.revision)?;
-        Some(
-            roster
-                .profiles
-                .into_iter()
-                .find(|entry| entry.id == role)
-                .ok_or_else(|| storage_error("frozen child role is missing"))?
-                .name,
-        )
-    } else {
-        None
-    };
+    let name = delegation::child(db, run.turn)?
+        .ok_or_else(|| storage_error("child summary has no delegation"))?
+        .role
+        .map(|role| role.name);
     Ok(Summary { run, origin, name })
 }

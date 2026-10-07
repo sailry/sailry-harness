@@ -255,3 +255,146 @@ fn rejects_parent_relocation() {
     assert!(crate::conversation::history::merge(&mut page, incoming, true).is_err());
     assert_eq!(page, *snapshot.page);
 }
+
+#[test]
+fn preserves_reused_and_guided_runs() {
+    let (mut projection, mut snapshot, mut first) = setup();
+    first.run.status = Status::Completed;
+    let mut parent = snapshot.page.runs[0].clone();
+    parent.turn = TurnId::new();
+    parent.sequence = 3;
+    let mut call = snapshot.page.entries[0].clone();
+    call.id = "reuse-call".into();
+    call.sequence = 2;
+    call.turn = parent.turn;
+    let Part::ToolCall { arguments, .. } = &mut call.parts[0] else {
+        panic!("delegation call expected")
+    };
+    *arguments = serde_json::json!({"session":first.run.session,"task":"Continue"});
+    let page = Arc::make_mut(&mut snapshot.page);
+    page.runs[0].status = Status::Completed;
+    page.runs.push(parent.clone());
+    page.entries.push(call.clone());
+    page.children.push(first.clone());
+    projection
+        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .unwrap();
+    let mut reused = first.clone();
+    reused.run.turn = TurnId::new();
+    reused.run.sequence = 4;
+    reused.run.status = Status::Running;
+    reused.origin.turn = parent.turn;
+    reused.origin.entry = call.id;
+    projection
+        .apply(1, frame(&snapshot, 11, Change::Child(reused.clone())))
+        .unwrap();
+    let mut guided = reused.clone();
+    guided.run.turn = TurnId::new();
+    guided.run.sequence = 5;
+    guided.run.status = Status::Queued;
+    projection
+        .apply(1, frame(&snapshot, 12, Change::Child(guided.clone())))
+        .unwrap();
+    reused.run.status = Status::Cancelled;
+    projection
+        .apply(1, frame(&snapshot, 13, Change::Child(reused.clone())))
+        .unwrap();
+    guided.run.status = Status::Running;
+    projection
+        .apply(1, frame(&snapshot, 14, Change::Child(guided.clone())))
+        .unwrap();
+    let expected = vec![first.clone(), reused.clone(), guided.clone()];
+    assert_eq!(projection.snapshot().unwrap().page.children, expected);
+    let older = History {
+        sequence: snapshot.sequence,
+        page: (*snapshot.page).clone(),
+        missing: vec![],
+    };
+    projection.merge_history(1, None, older).unwrap();
+    assert_eq!(projection.snapshot().unwrap().page.children, expected);
+    let mut recovered = projection.snapshot().unwrap().clone();
+    recovered.sequence = 0;
+    projection.reconnect(2).unwrap();
+    projection
+        .apply(2, Update::ConversationSnapshot(recovered))
+        .unwrap();
+    assert_eq!(projection.snapshot().unwrap().page.children, expected);
+    assert_ne!(first.origin.turn, reused.origin.turn);
+    assert_eq!(reused.origin, guided.origin);
+}
+
+#[test]
+fn hydrates_reuse_without_founding_call() {
+    let (_, mut snapshot, mut child) = setup();
+    child.run.worktree = WorktreeId::new();
+    let Part::ToolCall { arguments, .. } =
+        &mut Arc::make_mut(&mut snapshot.page).entries[0].parts[0]
+    else {
+        panic!("delegation call expected")
+    };
+    *arguments = serde_json::json!({"session":child.run.session,"task":"Continue"});
+    Arc::make_mut(&mut snapshot.page)
+        .children
+        .push(child.clone());
+    let mut page = (*snapshot.page).clone();
+    page.entries.clear();
+    page.children.clear();
+    let chunk = (*snapshot.page).clone();
+    crate::conversation::history::merge(&mut page, chunk.clone(), false).unwrap();
+    assert_eq!(page, chunk);
+    assert_eq!(page.children, [child]);
+}
+
+#[test]
+fn rejects_changed_reuse_ownership() {
+    let (mut projection, mut snapshot, child) = setup();
+    Arc::make_mut(&mut snapshot.page)
+        .children
+        .push(child.clone());
+    projection
+        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .unwrap();
+    let mut next = child.clone();
+    next.run.turn = TurnId::new();
+    next.run.sequence += 1;
+    let mut variants = vec![];
+    let mut forged = next.clone();
+    forged.origin.role = Some(RoleId::new());
+    variants.push(forged);
+    let mut forged = next.clone();
+    forged.name = Some("Changed role".into());
+    variants.push(forged);
+    let mut forged = next.clone();
+    forged.run.revision += 1;
+    variants.push(forged);
+    let mut forged = next;
+    forged.run.worktree = WorktreeId::new();
+    variants.push(forged);
+    for forged in variants {
+        assert!(
+            projection
+                .apply(1, frame(&snapshot, 11, Change::Child(forged)))
+                .is_err()
+        );
+        assert_eq!(projection.snapshot().unwrap(), &snapshot);
+    }
+    for value in [
+        serde_json::Value::Null,
+        serde_json::json!("invalid"),
+        serde_json::json!(SessionId::new()),
+    ] {
+        let mut forged = snapshot.clone();
+        let Part::ToolCall { arguments, .. } =
+            &mut Arc::make_mut(&mut forged.page).entries[0].parts[0]
+        else {
+            panic!("delegation call expected")
+        };
+        arguments["session"] = value;
+        assert!(
+            projection
+                .apply(1, Update::ConversationSnapshot(forged))
+                .is_err()
+        );
+        assert_eq!(projection.snapshot().unwrap(), &snapshot);
+    }
+}

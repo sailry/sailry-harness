@@ -16,6 +16,8 @@ pub(super) struct Panel {
     binding: Binding,
     images: Entity<attachments::images::Images>,
     session: Option<SessionId>,
+    recipient: Option<TurnId>,
+    child: bool,
     queue: Queue,
     connected: bool,
     editing: Option<Editing>,
@@ -39,7 +41,7 @@ impl Panel {
         self.pending || self.retry.is_some()
     }
     pub(super) fn editing_draft(&self) -> bool {
-        self.editing.is_some()
+        self.editing.is_some() && !self.child
     }
     pub(super) fn new(
         owner: WeakEntity<View>,
@@ -57,7 +59,9 @@ impl Panel {
                     .or(panel
                         .editing
                         .as_ref()
-                        .is_some_and(|editing| panel.changed(editing) && !panel.pending)
+                        .is_some_and(|editing| {
+                            !panel.child && panel.changed(editing) && !panel.pending
+                        })
                         .then_some("queue_draft_changed"))
                     .into_iter()
                     .collect()
@@ -95,6 +99,8 @@ impl Panel {
             binding,
             images,
             session: None,
+            recipient: None,
+            child: false,
             queue: Queue::default(),
             connected: false,
             editing: None,
@@ -113,11 +119,26 @@ impl Panel {
             .as_ref()
             .map(|snapshot| &snapshot.page.queue);
         let connected = view.connected();
+        let recipient = view.history.snapshot.as_ref().and_then(|snapshot| {
+            snapshot
+                .page
+                .runs
+                .iter()
+                .find(|run| {
+                    run.status == Status::Running
+                        && run.kind == sailry_protocol::conversation::RunKind::Task
+                })
+                .map(|run| run.turn)
+        });
         if self.session != view.session()
+            || self.recipient != recipient
+            || self.child != view.readonly()
             || self.connected != connected
             || queue.is_some_and(|queue| *queue != self.queue)
         {
             self.session = view.session();
+            self.recipient = recipient;
+            self.child = view.readonly();
             self.connected = connected;
             if let Some(queue) = queue {
                 self.queue = queue.clone();
@@ -128,6 +149,14 @@ impl Panel {
 
     fn blocked(&self) -> bool {
         !self.connected || self.pending || self.retry.is_some()
+    }
+
+    fn allows(&self, command: &Command) -> bool {
+        !self.child
+            || matches!(
+                command,
+                Command::ReadQueuedTurn { .. } | Command::RemoveQueuedTurn { .. }
+            )
     }
 
     fn changed(&self, editing: &Editing) -> bool {

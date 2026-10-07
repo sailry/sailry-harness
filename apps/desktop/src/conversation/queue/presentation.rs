@@ -44,6 +44,7 @@ pub(in crate::conversation) fn row(
     key: SharedString,
     label: SharedString,
     attached: bool,
+    draggable: bool,
     actions: impl IntoIterator<Item = AnyElement>,
     cx: &App,
 ) -> ListItem {
@@ -57,18 +58,20 @@ pub(in crate::conversation) fn row(
                 .w_full()
                 .min_w_0()
                 .gap_2()
-                .child(
-                    div()
-                        .id(SharedString::from(format!("queue-drag-{key}")))
-                        .size_6()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .cursor_grab()
-                        .debug_selector(move || format!("queue-drag-{key}"))
-                        .aria_label(tr("queue_drag"))
-                        .child(Icon::new(IconName::EllipsisVertical).size_4()),
-                )
+                .when(draggable, |row| {
+                    row.child(
+                        div()
+                            .id(SharedString::from(format!("queue-drag-{key}")))
+                            .size_6()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .cursor_grab()
+                            .debug_selector(move || format!("queue-drag-{key}"))
+                            .aria_label(tr("queue_drag"))
+                            .child(Icon::new(IconName::EllipsisVertical).size_4()),
+                    )
+                })
                 .child(div().flex_1().min_w_0().truncate().text_sm().child(label))
                 .when(attached, |row| {
                     row.child(Icon::new(IconName::File).size_4())
@@ -79,6 +82,7 @@ pub(in crate::conversation) fn row(
 
 pub(in crate::conversation) fn editor(
     input: Textarea,
+    readonly: bool,
     actions: impl IntoIterator<Item = AnyElement>,
 ) -> Div {
     v_flex()
@@ -93,7 +97,7 @@ pub(in crate::conversation) fn editor(
                         cx.propagate();
                     }
                 })
-                .child(input.aria_label(tr("queue_edit"))),
+                .child(input.aria_label(tr(if readonly { "queue_read" } else { "queue_edit" }))),
         )
         .child(h_flex().justify_end().gap_2().children(actions))
 }

@@ -3,7 +3,9 @@ use sailry_protocol::conversation::Child;
 
 mod panel;
 pub(crate) use panel::{Panel, Tab};
+mod guidance;
 mod presentation;
+pub(super) use guidance::Recipient;
 
 #[cfg(test)]
 pub(crate) mod fixture;
@@ -22,6 +24,30 @@ pub(super) fn status_key(status: Status) -> &'static str {
     }
 }
 
+pub(super) fn latest<'a>(children: impl IntoIterator<Item = &'a Child>) -> Vec<&'a Child> {
+    let mut selected = BTreeMap::<SessionId, &Child>::new();
+    for child in children {
+        let current = selected.entry(child.run.session).or_insert(child);
+        if rank(child) > rank(current) {
+            *current = child;
+        }
+    }
+    let mut children: Vec<_> = selected.into_values().collect();
+    children.sort_by_key(|child| child.run.sequence);
+    children
+}
+
+pub(super) fn rank(child: &Child) -> (bool, u64) {
+    (child.run.status != Status::Queued, child.run.sequence)
+}
+
+pub(super) fn key(child: &Child) -> String {
+    format!(
+        "{}-{}-{}-{}",
+        child.run.session, child.origin.turn, child.origin.entry, child.origin.index
+    )
+}
+
 impl View {
     pub(crate) fn child(&self, id: SessionId) -> Option<&Child> {
         self.history
@@ -30,7 +56,8 @@ impl View {
             .page
             .children
             .iter()
-            .find(|child| child.run.session == id)
+            .filter(|child| child.run.session == id)
+            .max_by_key(|child| rank(child))
     }
 
     pub(crate) fn child_session(&self, id: SessionId) -> Option<Session> {
@@ -47,7 +74,9 @@ impl View {
                         .worktrees
                         .iter()
                         .any(|tree| tree.id == session.worktree && tree.project == session.project)
-                    && session.delegation.as_deref() == Some(&child.origin)
+                    && session.delegation.as_ref().is_some_and(|origin| {
+                        origin.session == child.origin.session && origin.role == child.origin.role
+                    })
             })
             .cloned()
     }
@@ -69,15 +98,15 @@ impl View {
 
     /// Counts the turn's children as (active, complete, failed, total).
     pub(super) fn child_counts(&self, turn: TurnId) -> Option<(usize, usize, usize, usize)> {
-        let children: Vec<_> = self
-            .history
-            .snapshot
-            .as_ref()?
-            .page
-            .children
-            .iter()
-            .filter(|child| child.origin.turn == turn)
-            .collect();
+        let children = latest(
+            self.history
+                .snapshot
+                .as_ref()?
+                .page
+                .children
+                .iter()
+                .filter(|child| child.origin.turn == turn),
+        );
         if children.is_empty() {
             return None;
         }
@@ -98,7 +127,7 @@ impl View {
     pub(super) fn child_summary(
         &self,
         turn: TurnId,
-        children: &[SessionId],
+        children: &[&Child],
         continuing: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {

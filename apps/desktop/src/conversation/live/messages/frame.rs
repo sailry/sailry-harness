@@ -60,10 +60,7 @@ pub(super) fn phase(run: &Run, page: &Page, blocks: &[Block<'_>]) -> Option<&'st
             Block::Tools(calls) => calls
                 .iter()
                 .any(|call| call.state == sailry_client::conversation::tools::State::Running),
-            Block::Children(children) => page
-                .children
-                .iter()
-                .any(|child| children.contains(&child.run.session) && active(child.run.status)),
+            Block::Children(children) => children.iter().any(|child| active(child.run.status)),
             _ => false,
         })
     {

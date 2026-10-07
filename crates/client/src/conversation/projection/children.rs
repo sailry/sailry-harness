@@ -32,13 +32,12 @@ pub(in crate::conversation) fn merge(
             *previous = child;
         }
     } else {
-        if page.children.iter().any(|entry| {
-            entry.run.session == child.run.session
-                || entry.run.sequence == child.run.sequence
-                || (entry.origin.turn, &entry.origin.entry, entry.origin.index)
-                    == (child.origin.turn, &child.origin.entry, child.origin.index)
-        }) {
-            return Err(invalid("conversation repeats a child or delegation call"));
+        if page
+            .children
+            .iter()
+            .any(|entry| entry.run.sequence == child.run.sequence)
+        {
+            return Err(invalid("child admission order repeats"));
         }
         page.children.push(child);
         page.children.sort_by_key(|child| child.run.sequence);
@@ -47,9 +46,7 @@ pub(in crate::conversation) fn merge(
 }
 
 pub(super) fn validate(page: &Page) -> Result<(), Fault> {
-    let mut sessions = BTreeSet::new();
     let mut turns = BTreeSet::new();
-    let mut calls = BTreeSet::new();
     if page
         .children
         .windows(2)
@@ -58,11 +55,8 @@ pub(super) fn validate(page: &Page) -> Result<(), Fault> {
         return Err(invalid("child admission order changed"));
     }
     for child in &page.children {
-        if !sessions.insert(child.run.session)
-            || !turns.insert(child.run.turn)
-            || !calls.insert((child.origin.turn, &child.origin.entry, child.origin.index))
-        {
-            return Err(invalid("conversation repeats a child or delegation call"));
+        if !turns.insert(child.run.turn) {
+            return Err(invalid("child turn repeats"));
         }
         check(page, child)?;
     }
@@ -84,11 +78,30 @@ fn check(page: &Page, child: &Child) -> Result<(), Fault> {
         || parent.kind != conversation::RunKind::Task
         || page.runs.iter().any(|run| run.turn == child.run.turn)
         || child.run.origin.is_some()
-        || child.run.status == Status::Queued
         || child.origin.role.is_some() != child.name.is_some()
         || child.name.as_ref().is_some_and(|name| name.is_empty())
     {
         return Err(invalid("child does not belong to its parent turn"));
+    }
+    for previous in &page.children {
+        if previous.run.session == child.run.session
+            && (previous.origin.session != child.origin.session
+                || previous.origin.role != child.origin.role
+                || previous.name != child.name
+                || previous.run.revision != child.run.revision
+                || previous.run.worktree != child.run.worktree)
+        {
+            return Err(invalid("child ownership or frozen configuration changed"));
+        }
+        if (
+            previous.origin.turn,
+            &previous.origin.entry,
+            previous.origin.index,
+        ) == (child.origin.turn, &child.origin.entry, child.origin.index)
+            && previous.run.session != child.run.session
+        {
+            return Err(invalid("delegation call belongs to another child"));
+        }
     }
     let entry = page
         .entries
@@ -101,13 +114,27 @@ fn check(page: &Page, child: &Child) -> Result<(), Fault> {
     if entry.turn != parent.turn {
         return Err(invalid("child references another turn or tool"));
     }
+    let session = arguments
+        .get("session")
+        .map(|value| serde_json::from_value::<SessionId>(value.clone()))
+        .transpose()
+        .map_err(|_| invalid("child delegation session is invalid"))?;
+    if session.is_some_and(|session| session != child.run.session) {
+        return Err(invalid("child session differs from its delegation"));
+    }
     let worktree = arguments
         .get("worktree")
         .filter(|value| !value.is_null())
         .map(|value| serde_json::from_value::<WorktreeId>(value.clone()))
         .transpose()
         .map_err(|_| invalid("child delegation worktree is invalid"))?
-        .unwrap_or(parent.worktree);
+        .unwrap_or_else(|| {
+            if session.is_some() {
+                child.run.worktree
+            } else {
+                parent.worktree
+            }
+        });
     if child.run.worktree != worktree {
         return Err(invalid("child worktree differs from its delegation"));
     }

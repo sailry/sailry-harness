@@ -8,6 +8,16 @@ pub(in crate::store) fn execute(
     let mut changed = Vec::new();
     let session = match &request.command {
         Command::ReadQueuedTurn { turn } => {
+            let run = runs::get(db, *turn)?;
+            let session = super::super::super::commands::session(db, run.session)?;
+            if session.delegation.is_some()
+                && !super::super::delegation::queued_guidance(db, run.turn)?
+            {
+                return Err(Fault::new(
+                    ErrorCode::PermissionDenied,
+                    "child queued input is read-only",
+                ));
+            }
             return Ok((Output::QueuedMessage(message(db, *turn)?), None));
         }
         Command::EditQueuedTurn {
@@ -18,6 +28,7 @@ pub(in crate::store) fn execute(
             validate(message)?;
             let run = check_item(db, *turn, *expected_revision)?;
             let mut session = super::super::super::commands::session(db, run.session)?;
+            super::super::super::sessions::writable(&session)?;
             session.config = super::super::permissions::config(db, run.turn)?;
             session.roles =
                 super::super::super::sessions::roles::read(db, run.session, run.revision)?;
@@ -32,7 +43,7 @@ pub(in crate::store) fn execute(
             }
             super::super::super::attachments::turns::bind(db, *turn, &message.attachments)?;
             db.execute(
-                "UPDATE agent_pending SET revision=revision+1,request=?2,caller=?3 WHERE turn=?1",
+                "UPDATE agent_pending SET revision=revision+1,request=?2,caller=?3,recipient=NULL WHERE turn=?1",
                 params![turn.to_string(), request.id.to_string(), &caller.0[..]],
             )
             .map_err(storage_error)?;
@@ -44,6 +55,15 @@ pub(in crate::store) fn execute(
             expected_revision,
         } => {
             let run = check_item(db, *turn, *expected_revision)?;
+            let session = super::super::super::commands::session(db, run.session)?;
+            if session.delegation.is_some()
+                && !super::super::delegation::queued_guidance(db, run.turn)?
+            {
+                return Err(Fault::new(
+                    ErrorCode::PermissionDenied,
+                    "child queued input is read-only",
+                ));
+            }
             changed.push(runs::stop(db, *turn)?);
             run.session
         }
@@ -52,6 +72,10 @@ pub(in crate::store) fn execute(
             expected_revision,
         } => {
             let run = check_item(db, *turn, *expected_revision)?;
+            super::super::super::sessions::writable(&super::super::super::commands::session(
+                db,
+                run.session,
+            )?)?;
             let first = read(db, run.session)?.items.first().map(|item| item.turn);
             reorder(db, run.session, *turn, first)?;
             for active in runs::list(db, run.session, &[])? {
@@ -63,12 +87,20 @@ pub(in crate::store) fn execute(
             changed.push(runs::start(db, *turn)?);
             run.session
         }
+        Command::GuideQueuedTurn {
+            turn,
+            recipient,
+            expected_revision,
+        } => guidance::select(db, *turn, *recipient, *expected_revision)?,
         Command::MoveQueuedTurn {
             session,
             expected_revision,
             turn,
             before,
         } => {
+            super::super::super::sessions::writable(&super::super::super::commands::session(
+                db, *session,
+            )?)?;
             check_revision(read(db, *session)?.revision, *expected_revision)?;
             reorder(db, *session, *turn, *before)?;
             *session
@@ -78,8 +110,14 @@ pub(in crate::store) fn execute(
             expected_revision,
             paused,
         } => {
+            super::super::super::sessions::writable(&super::super::super::commands::session(
+                db, *session,
+            )?)?;
             check_revision(read(db, *session)?.revision, *expected_revision)?;
             pause(db, *session, *paused)?;
+            if *paused {
+                guidance::clear(db, *session, None)?;
+            }
             *session
         }
         _ => return Err(invalid("command does not operate on a queue")),

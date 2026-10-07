@@ -52,9 +52,10 @@ impl View {
                 .items
                 .iter()
                 .any(|item| item.turn == turn)
-                && snapshot.page.runs.iter().any(|run| {
-                    run.turn != turn && matches!(run.status, Status::Running | Status::Stopping)
-                }))
+                && (self.readonly()
+                    || snapshot.page.runs.iter().any(|run| {
+                        run.turn != turn && matches!(run.status, Status::Running | Status::Stopping)
+                    })))
                 || (snapshot
                     .page
                     .runs

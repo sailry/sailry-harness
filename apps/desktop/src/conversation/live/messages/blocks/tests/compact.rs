@@ -58,7 +58,7 @@ fn preserves_visible_boundaries() {
         Block::Question(&first),
         Block::Tools(vec![&standalone]),
         Block::Tools(vec![&progress]),
-        Block::Children(vec![SessionId::new()]),
+        Block::Children(vec![]),
         Block::Resource,
         Block::Compaction("summary".into(), "Summary"),
         Block::Retry(1, 5),

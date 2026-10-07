@@ -113,6 +113,7 @@ pub(crate) struct View {
     draft_mode: Option<sailry_protocol::WorkMode>,
     draft_permission: Option<sailry_protocol::Permission>,
     preparing: Option<sailry_protocol::conversation::Input>,
+    prepared_guidance: Option<subagents::Recipient>,
     session: Option<Session>,
     node: NodeView,
     defaults: NodeView,
@@ -213,7 +214,11 @@ impl View {
         });
         let input_events = cx.subscribe_in(&input, window, |view, _, event, window, cx| {
             if matches!(event, InputEvent::PressEnter { shift: false, .. }) {
-                view.send(window, cx);
+                if view.readonly() {
+                    view.guide(window, cx);
+                } else {
+                    view.send(window, cx);
+                }
             }
             cx.notify();
         });
@@ -340,6 +345,7 @@ impl View {
             draft_mode: remembered.as_ref().map(|selection| selection.mode),
             draft_permission: remembered.as_ref().map(|selection| selection.permission),
             preparing: None,
+            prepared_guidance: None,
             session,
             node: NodeView::default(),
             defaults: NodeView::default(),
@@ -425,7 +431,7 @@ impl View {
 
     pub(crate) fn focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.refresh_repository(repository::Refresh::Focus, cx);
-        if self.readonly() {
+        if self.readonly() && self.guide_target().is_none() {
             return;
         }
         self.input.update(cx, |input, cx| input.focus(window, cx));
@@ -689,7 +695,9 @@ impl Render for View {
                     || self.readonly()
                     || !self.rows.is_empty(),
                 |body| {
-                    body.child(if self.readonly() {
+                    body.child(if self.guide_target().is_some() {
+                        self.guidance_composer(cx)
+                    } else if self.readonly() {
                         v_flex()
                             .px_6()
                             .pb_4()

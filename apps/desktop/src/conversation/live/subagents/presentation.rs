@@ -27,26 +27,33 @@ impl View {
     }
 
     pub(in crate::conversation) fn child_rows(&self, turn: TurnId) -> Vec<Row> {
-        self.history
-            .snapshot
-            .iter()
-            .flat_map(|snapshot| &snapshot.page.children)
-            .filter(|child| child.origin.turn == turn)
-            .map(|child| Row {
-                key: Choice::Live(child.run.session),
-                parent: None,
-                name: self.child_name(child),
-                status: status_key(child.run.status),
-                icon: match child.run.status {
-                    Status::Completed => IconName::Check,
-                    Status::Failed | Status::Interrupted => IconName::CircleX,
-                    Status::Cancelled => IconName::Minus,
-                    Status::Queued => IconName::Ellipsis,
-                    Status::Running | Status::Stopping => IconName::LoaderCircle,
-                },
-                order: child.run.sequence,
-            })
-            .collect()
+        latest(
+            self.history
+                .snapshot
+                .iter()
+                .flat_map(|snapshot| &snapshot.page.children)
+                .filter(|child| child.origin.turn == turn),
+        )
+        .into_iter()
+        .map(|child| self.row(child))
+        .collect()
+    }
+
+    fn row(&self, child: &Child) -> Row {
+        Row {
+            key: Choice::Live(child.run.session),
+            parent: None,
+            name: self.child_name(child),
+            status: status_key(child.run.status),
+            icon: match child.run.status {
+                Status::Completed => IconName::Check,
+                Status::Failed | Status::Interrupted => IconName::CircleX,
+                Status::Cancelled => IconName::Minus,
+                Status::Queued => IconName::Ellipsis,
+                Status::Running | Status::Stopping => IconName::LoaderCircle,
+            },
+            order: child.run.sequence,
+        }
     }
 
     pub(super) fn child_label(completed: usize, total: usize) -> String {
@@ -57,26 +64,21 @@ impl View {
     pub(in crate::conversation) fn render_children(
         &self,
         turn: TurnId,
-        children: &[SessionId],
+        children: &[&Child],
         continuing: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let first = children[0];
+        let first = key(children[0]);
         let total = children.len();
         let completed = children
             .iter()
-            .filter(|id| {
-                self.child(**id)
-                    .is_some_and(|child| child.run.status == Status::Completed)
-            })
+            .filter(|child| child.run.status == Status::Completed)
             .count();
-        let active = children.iter().any(|id| {
-            self.child(*id).is_some_and(|child| {
-                matches!(
-                    child.run.status,
-                    Status::Queued | Status::Running | Status::Stopping
-                )
-            })
+        let active = children.iter().any(|child| {
+            matches!(
+                child.run.status,
+                Status::Queued | Status::Running | Status::Stopping
+            )
         });
         let key = format!("subagents-{first}");
         let open = self
@@ -84,26 +86,20 @@ impl View {
             .get(&(turn, key.clone()))
             .copied()
             .unwrap_or(false);
-        let rows: Vec<_> = self
-            .child_rows(turn)
-            .into_iter()
-            .filter(|row| matches!(row.key, Choice::Live(id) if children.contains(&id)))
-            .collect();
         if total == 1 {
-            return self.child_row(rows.into_iter().next().unwrap(), continuing, cx);
+            return self.render_child(children[0], continuing, cx);
         }
+        let list = first.clone();
         let content = v_flex()
             .w_full()
             .min_w_0()
             .pl_4()
             .pt_2()
             .gap_2()
-            .debug_selector(move || format!("live-subagent-list-{first}"))
-            .children(
-                rows.into_iter()
-                    .enumerate()
-                    .map(|(index, row)| self.child_row(row, continuing && index + 1 == total, cx)),
-            );
+            .debug_selector(move || format!("live-subagent-list-{list}"))
+            .children(children.iter().copied().enumerate().map(|(index, child)| {
+                self.render_child(child, continuing && index + 1 == total, cx)
+            }));
         Collapsible::new()
             .w_full()
             .min_w_0()
@@ -128,10 +124,9 @@ impl View {
             .into_any_element()
     }
 
-    fn child_row(&self, row: Row, continuing: bool, cx: &mut Context<Self>) -> AnyElement {
-        let Choice::Live(id) = row.key else {
-            unreachable!()
-        };
+    fn render_child(&self, child: &Child, continuing: bool, cx: &mut Context<Self>) -> AnyElement {
+        let row = self.row(child);
+        let id = child.run.session;
         let text = self
             .child_session(id)
             .map(|session| {
@@ -144,7 +139,7 @@ impl View {
             })
             .unwrap_or_default();
         crate::conversation::disclosure::trigger(
-            format!("live-subagent-row-{id}"),
+            format!("live-subagent-row-{}", key(child)),
             crate::ui::identicon::agent(&id.to_string(), cx),
             row.name.clone(),
             crate::conversation::disclosure::Detail {

@@ -146,9 +146,43 @@ impl View {
                         )
                     }),
             );
-        let input = div()
-            .id("live-chat-input")
-            .debug_selector(|| "live-chat-input".into())
+        let input = self.input_field("live-chat-input", cx);
+        let context = (!self.sidebar).then(|| self.context_bar(cx));
+        super::super::layout::composer(
+            self.notices(cx),
+            v_flex()
+                .id("composer-drop")
+                .gap_2()
+                .on_drag_move(super::attachments::pointer_drag)
+                .when(!self.attachments_blocked(), |composer| {
+                    composer
+                        .drag_over::<ExternalPaths>(|style, _, _, cx| {
+                            style.bg(cx.theme().drop_target)
+                        })
+                        .on_drop(cx.listener(|view, paths: &ExternalPaths, window, cx| {
+                            view.attach_paths(paths.paths().to_vec(), window, cx);
+                            view.focus(window, cx);
+                        }))
+                })
+                .children(self.attachment_drafts(cx))
+                .child(input)
+                .child(toolbar)
+                .into_any_element(),
+            context,
+            Some(self.reference_picker(cx)),
+            self.sidebar,
+            cx,
+        )
+    }
+
+    pub(super) fn input_field(
+        &self,
+        selector: &'static str,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        div()
+            .id(selector)
+            .debug_selector(move || selector.into())
             .capture_action(cx.listener(View::paste_attachments))
             .capture_action(cx.listener(|view, action: &Enter, window, cx| {
                 if action.shift || action.secondary {
@@ -183,33 +217,7 @@ impl View {
                     .bordered(false)
                     .aria_label(tr("composer"))
                     .on_token_click(cx.listener(View::activate_reference)),
-            );
-        let context = (!self.sidebar).then(|| self.context_bar(cx));
-        super::super::layout::composer(
-            self.notices(cx),
-            v_flex()
-                .id("composer-drop")
-                .gap_2()
-                .on_drag_move(super::attachments::pointer_drag)
-                .when(!self.attachments_blocked(), |composer| {
-                    composer
-                        .drag_over::<ExternalPaths>(|style, _, _, cx| {
-                            style.bg(cx.theme().drop_target)
-                        })
-                        .on_drop(cx.listener(|view, paths: &ExternalPaths, window, cx| {
-                            view.attach_paths(paths.paths().to_vec(), window, cx);
-                            view.focus(window, cx);
-                        }))
-                })
-                .children(self.attachment_drafts(cx))
-                .child(input)
-                .child(toolbar)
-                .into_any_element(),
-            context,
-            Some(self.reference_picker(cx)),
-            self.sidebar,
-            cx,
-        )
+            )
     }
 
     pub(super) fn notices(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {

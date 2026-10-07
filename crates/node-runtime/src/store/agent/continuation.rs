@@ -47,7 +47,7 @@ pub(in crate::store) fn admit(
     let session = super::super::commands::session(db, *session)?;
     let child: bool = db
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM session_delegations WHERE session=?1)",
+            "SELECT EXISTS(SELECT 1 FROM agent_delegations d JOIN turns t ON t.id=d.turn WHERE t.session=?1)",
             [session.id.to_string()],
             |row| row.get(0),
         )

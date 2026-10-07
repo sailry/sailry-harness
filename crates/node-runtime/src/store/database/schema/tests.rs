@@ -224,6 +224,52 @@ mod startup {
     use super::*;
 
     #[test]
+    fn rejects_obsolete_delegations_without_writing() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("database.sqlite3");
+        let node = NodeId([65; 32]);
+        let database = Database::open(&path, node, None).unwrap();
+        database
+            .connection
+            .execute_batch(
+                "CREATE TABLE session_delegations(session TEXT PRIMARY KEY, body BLOB NOT NULL); \
+                 INSERT INTO session_delegations VALUES('retained','kept'); \
+                 DROP TABLE agent_delegations; DROP TABLE model_catalog_status",
+            )
+            .unwrap();
+        database.close().unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let error = Database::open(&path, node, None).err().unwrap();
+        assert!(error.to_string().contains("per-turn associations"));
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(snapshots(directory.path()).is_empty());
+        let connection = Connection::open(&path).unwrap();
+        assert_eq!(
+            connection
+                .query_row("SELECT body FROM session_delegations", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap(),
+            "kept"
+        );
+        for table in ["agent_delegations", "model_catalog_status"] {
+            assert!(
+                !connection
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+                        [table],
+                        |row| row.get::<_, bool>(0),
+                    )
+                    .unwrap()
+            );
+        }
+    }
+
+    #[test]
     fn rejects_removed_storage_without_writing() {
         for table in ["credentials", "plugin_credentials"] {
             let directory = tempfile::tempdir().unwrap();

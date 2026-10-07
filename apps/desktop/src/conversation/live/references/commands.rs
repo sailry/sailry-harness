@@ -91,6 +91,7 @@ impl View {
 
     pub(super) fn command_catalog(&self, page: &Page, cx: &App) -> Vec<Item> {
         match page {
+            Page::Models | Page::Reasoning if self.readonly() => vec![],
             Page::Models => self
                 .model_sources()
                 .filter(|(node, provider)| provider.enabled && self.source_connected(*node))
@@ -114,12 +115,15 @@ impl View {
                 .map(|effort| Item::Command(Choice::Reasoning(effort)))
                 .collect(),
             Page::Commands => {
-                let mut rows = vec![if self.command_catalog(&Page::Models, cx).is_empty() {
-                    Item::Command(Choice::Settings)
-                } else {
-                    Item::Page(Page::Models)
-                }];
-                if !self.available_efforts().is_empty() {
+                let mut rows = Vec::new();
+                if !self.readonly() {
+                    rows.push(if self.command_catalog(&Page::Models, cx).is_empty() {
+                        Item::Command(Choice::Settings)
+                    } else {
+                        Item::Page(Page::Models)
+                    });
+                }
+                if !self.readonly() && !self.available_efforts().is_empty() {
                     rows.push(Item::Page(Page::Reasoning));
                 }
                 if self.can_compact() {
@@ -147,6 +151,13 @@ impl View {
                         .read(cx)
                         .commands(cx)
                         .into_iter()
+                        .filter(|entry| {
+                            !self.readonly()
+                                || entry.declaration.command.as_ref().is_some_and(|command| {
+                                    command.kind
+                                        == sailry_protocol::plugin::ui::CommandKind::Message
+                                })
+                        })
                         .map(|entry| Item::Command(Choice::External(Box::new(entry)))),
                 );
                 rows

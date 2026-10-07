@@ -91,14 +91,14 @@ CREATE TABLE IF NOT EXISTS events (
     cursor INTEGER PRIMARY KEY AUTOINCREMENT,
     body BLOB NOT NULL
 );
-CREATE TABLE IF NOT EXISTS session_delegations (
-    session TEXT PRIMARY KEY REFERENCES sessions(id),
+CREATE TABLE IF NOT EXISTS agent_delegations (
+    turn TEXT PRIMARY KEY REFERENCES turns(id),
     parent_turn TEXT NOT NULL REFERENCES turns(id),
     entry TEXT NOT NULL,
     part INTEGER NOT NULL,
-    body BLOB NOT NULL,
-    UNIQUE(parent_turn,entry,part)
+    body BLOB NOT NULL
 );
+CREATE INDEX IF NOT EXISTS agent_delegations_call ON agent_delegations(parent_turn,entry,part);
 CREATE TABLE IF NOT EXISTS link_peers (
     identity BLOB PRIMARY KEY CHECK(length(identity)=32)
 );
@@ -219,6 +219,7 @@ CREATE TABLE IF NOT EXISTS agent_pending (
     revision INTEGER NOT NULL,
     request TEXT NOT NULL,
     caller BLOB NOT NULL,
+    recipient TEXT REFERENCES turns(id),
     FOREIGN KEY(caller,request) REFERENCES requests(caller,id)
 );
 CREATE INDEX IF NOT EXISTS agent_events_id ON agent_events(id);

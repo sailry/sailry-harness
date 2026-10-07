@@ -4,6 +4,13 @@ use adk_core::ToolConfirmationRequest;
 use serde::Deserialize;
 use serde_json::Value;
 
+mod fresh;
+mod guidance;
+mod reuse;
+pub(in crate::store) use guidance::{guide, queued_guidance, retain_guidance};
+
+#[cfg(test)]
+mod fixture;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -12,6 +19,7 @@ mod worktree_tests;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Arguments {
+    session: Option<SessionId>,
     role: Option<String>,
     title: Option<String>,
     task: String,
@@ -49,7 +57,7 @@ pub(in crate::store) fn read(
 ) -> Result<Option<Box<Delegation>>, Fault> {
     let body: Option<Vec<u8>> = db
         .query_row(
-            "SELECT body FROM session_delegations WHERE session=?1",
+            "SELECT d.body FROM agent_delegations d JOIN turns t ON t.id=d.turn WHERE t.session=?1 ORDER BY t.rowid LIMIT 1",
             [session.to_string()],
             |row| row.get(0),
         )
@@ -57,6 +65,78 @@ pub(in crate::store) fn read(
         .map_err(storage_error)?;
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()
+}
+
+pub(super) fn origin(db: &Connection, turn: TurnId) -> Result<Option<Delegation>, Fault> {
+    let body: Option<Vec<u8>> = db
+        .query_row(
+            "SELECT body FROM agent_delegations WHERE turn=?1",
+            [turn.to_string()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(storage_error)?;
+    body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
+        .transpose()
+}
+
+pub(in crate::store) fn child(db: &Connection, turn: TurnId) -> Result<Option<Child>, Fault> {
+    let Some(origin) = origin(db, turn)? else {
+        return Ok(None);
+    };
+    let run = runs::get(db, turn)?;
+    let founding = read(db, run.session)?
+        .ok_or_else(|| storage_error("child session has no founding delegation"))?;
+    if origin.session != founding.session || origin.role != founding.role {
+        return Err(storage_error(
+            "child ownership differs from its founding delegation",
+        ));
+    }
+    let role = if let Some(id) = founding.role {
+        let parent = runs::get(db, founding.turn)?;
+        let roster = super::super::sessions::roles::read(db, parent.session, parent.revision)?;
+        Some(
+            roster
+                .profiles
+                .into_iter()
+                .find(|role| role.id == id)
+                .ok_or_else(|| storage_error("frozen child role is missing"))?,
+        )
+    } else {
+        None
+    };
+    Ok(Some(Child { role }))
+}
+
+fn insert(db: &Connection, turn: TurnId, origin: &Delegation) -> Result<(), Fault> {
+    db.execute(
+        "INSERT INTO agent_delegations(turn,parent_turn,entry,part,body) VALUES(?1,?2,?3,?4,?5)",
+        params![
+            turn.to_string(),
+            origin.turn.to_string(),
+            origin.entry,
+            origin.index as i64,
+            encode(origin)?
+        ],
+    )
+    .map_err(storage_error)?;
+    Ok(())
+}
+
+pub(in crate::store) fn follow(
+    db: &Connection,
+    recipient: TurnId,
+    source: TurnId,
+) -> Result<(), Fault> {
+    let origin = origin(db, recipient)?
+        .ok_or_else(|| Fault::new(ErrorCode::WrongTarget, "guidance recipient is not a child"))?;
+    if runs::get(db, recipient)?.session != runs::get(db, source)?.session {
+        return Err(Fault::new(
+            ErrorCode::WrongTarget,
+            "guidance belongs to another child",
+        ));
+    }
+    insert(db, source, &origin)
 }
 
 pub(super) fn admit(
@@ -67,6 +147,10 @@ pub(super) fn admit(
     selected: Option<Input>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Invocation, Fault> {
+    let has_role = arguments.get("role").is_some();
+    if arguments.get("session").is_some_and(Value::is_null) {
+        return Err(invalid("invalid child session"));
+    }
     let args: Arguments =
         serde_json::from_value(arguments).map_err(|_| invalid("invalid delegation arguments"))?;
     if args.title.as_ref().is_some_and(|title| {
@@ -75,7 +159,7 @@ pub(super) fn admit(
         return Err(invalid("invalid delegation title"));
     }
     let inherits_input = selected.is_some();
-    let message = selected.unwrap_or_else(|| args.task.into());
+    let message = selected.unwrap_or_else(|| args.task.clone().into());
     queue::validate(&message)?;
     if super::plugins::operation(&database.connection, parent, &request.tool_name)?
         != Some(sailry_protocol::tool::Operation::DelegateAgent)
@@ -90,34 +174,22 @@ pub(super) fn admit(
             "worktree directory is unavailable",
         ));
     }
+    if let Some(id) = args.session {
+        let session = super::super::commands::session(&database.connection, id)?;
+        if !database.worktree_root(session.worktree)?.is_dir() {
+            return Err(Fault::new(
+                ErrorCode::NotFound,
+                "worktree directory is unavailable",
+            ));
+        }
+    }
     let tx = database.connection.transaction().map_err(storage_error)?;
     let run = calls::active(&tx, parent)?;
     let previous = super::super::commands::session(&tx, run.session)?;
     super::super::sessions::writable(&previous)?;
-    if previous.delegation.is_some() {
-        return Err(Fault::new(
-            ErrorCode::PermissionDenied,
-            "child sessions cannot delegate",
-        ));
-    }
     let (entry, index) = calls::locate(&tx, parent, request)?;
-    let worktree = match args.worktree {
-        Some(worktree) => super::super::worktrees::select(
-            &tx,
-            previous.project.ok_or_else(|| {
-                invalid("connection conversations cannot select a project worktree")
-            })?,
-            Some(worktree),
-        )?,
-        None => run.worktree,
-    };
-    if inherits_input && worktree != run.worktree {
-        return Err(invalid(
-            "selected input cannot be delegated to another worktree",
-        ));
-    }
     let exists: bool = tx.query_row(
-        "SELECT EXISTS(SELECT 1 FROM session_delegations WHERE parent_turn=?1 AND entry=?2 AND part=?3)",
+        "SELECT EXISTS(SELECT 1 FROM agent_delegations WHERE parent_turn=?1 AND entry=?2 AND part=?3)",
         params![parent.to_string(), entry, index as i64], |row| row.get(0),
     ).map_err(storage_error)?;
     if exists {
@@ -126,37 +198,37 @@ pub(super) fn admit(
             "child call was already admitted; execution was not replayed",
         ));
     }
-    let roster = super::super::sessions::roles::read(&tx, run.session, run.revision)?;
-    let role = match args.role.as_deref() {
-        Some(key) => Some(
-            roster
-                .profiles
-                .iter()
-                .find(|role| role.key == key)
-                .ok_or_else(|| invalid("role is not in the parent turn snapshot"))?
-                .clone(),
-        ),
-        None if roster.profiles.is_empty() => None,
-        None => return Err(invalid("select a role from the parent turn snapshot")),
+    let (mut session, role, created) = if args.session.is_some() {
+        let (session, role) = reuse::restore(&tx, &run, &previous, &args, has_role)?;
+        (session, role, false)
+    } else {
+        let (session, role) = fresh::capture(&tx, database.node, &run, &previous, &args)?;
+        super::super::sessions::insert(&tx, &session)?;
+        super::super::media::freeze(&tx, session.id, Some(run.session))?;
+        (session, role, true)
     };
-    let references = super::plugins::read(&tx, run.turn)?;
+    let worktree = session.worktree;
+    if inherits_input && worktree != run.worktree {
+        return Err(invalid(
+            "selected input cannot be delegated to another worktree",
+        ));
+    }
+    let references = if created {
+        super::plugins::read(&tx, run.turn)?
+    } else if let Some(binding) = &session.config.assistant {
+        super::plugins::assistant(&tx, binding)?
+    } else {
+        super::plugins::capture(&tx)?
+    };
     let plugins = super::plugins::packages(&tx, &references)?;
-    let plugin_settings = super::super::plugins::settings::capture(&tx, &plugins);
-    let (config, provider, caller, request_id): (Vec<u8>, Option<Vec<u8>>, Vec<u8>, String) = tx.query_row(
-        "SELECT r.config,a.provider,t.caller,t.request FROM turns t JOIN agent_runs a ON a.turn=t.id JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision WHERE t.id=?1",
-        [parent.to_string()], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
-    ).map_err(storage_error)?;
-    let caller = NodeId(
-        caller
-            .try_into()
-            .map_err(|_| storage_error("invalid caller identity"))?,
-    );
-    let mut config: SessionConfig = serde_json::from_slice(&config).map_err(storage_error)?;
-    if let Some(role) = &role {
+    if !created && let Some(role) = &role {
         let resources: Vec<_> = plugins
             .iter()
             .filter(|package| {
-                crate::plugins::conversation::owns_resources(config.assistant.as_ref(), package)
+                crate::plugins::conversation::owns_resources(
+                    session.config.assistant.as_ref(),
+                    package,
+                )
             })
             .cloned()
             .collect();
@@ -164,91 +236,75 @@ pub(super) fn admit(
             crate::plugins::resources::skill(&resources, key)?;
         }
     }
-    let mut provider: Option<Provider> = provider
-        .map(|body| serde_json::from_slice(&body).map_err(storage_error))
-        .transpose()?;
-    if let Some(model) = role.as_ref().and_then(|role| role.model.as_ref()) {
-        let selected = roster
-            .providers
-            .iter()
-            .find(|provider| provider.id == model.provider)
-            .ok_or_else(|| invalid("frozen role provider is missing"))?
-            .clone();
-        let metadata = selected
-            .models
-            .iter()
-            .find(|entry| entry.id == model.model)
-            .ok_or_else(|| invalid("frozen role model is missing"))?;
-        config.provider = selected.id;
-        config.credential = selected.credential.clone();
-        config.model = model.model.clone();
-        config.effort = model.effort.unwrap_or(metadata.default_effort);
-        provider = Some(selected);
-    }
-    if let Some(provider) = &mut provider {
-        crate::providers::login::capture(provider)?;
-    }
-    super::super::commands::validate_config(&tx, database.node, &config)?;
-    let session = Session {
-        id: SessionId::new(),
-        archived: false,
-        activity: Default::default(),
-        project: previous.project,
-        worktree,
-        revision: 1,
-        config,
-        roles: role::Snapshot::default(),
-        fork: None,
-        profile: provider.clone().map(|provider| SessionProfile {
-            source: database.node,
-            provider,
-        }),
-        delegation: Some(Box::new(Delegation {
-            session: run.session,
-            turn: parent,
-            entry: entry.clone(),
-            index,
-            role: role.as_ref().map(|role| role.id),
-        })),
-    };
-    super::super::sessions::insert(&tx, &session)?;
-    super::super::media::freeze(&tx, session.id, Some(run.session))?;
+    let plugin_settings = super::super::plugins::settings::capture(&tx, &plugins);
+    let (caller, request_id): (Vec<u8>, String) = tx
+        .query_row(
+            "SELECT caller,request FROM turns WHERE id=?1",
+            [parent.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(storage_error)?;
+    let caller = NodeId(
+        caller
+            .try_into()
+            .map_err(|_| storage_error("invalid caller identity"))?,
+    );
     let media = super::super::media::session_models(&tx, session.id)?;
-    tx.execute("INSERT INTO session_delegations(session,parent_turn,entry,part,body) VALUES(?1,?2,?3,?4,?5)",
-        params![session.id.to_string(), parent.to_string(), entry, index as i64, encode(session.delegation.as_ref().unwrap())?],
-    ).map_err(storage_error)?;
+    let origin = Delegation {
+        session: run.session,
+        turn: parent,
+        entry,
+        index,
+        role: role.as_ref().map(|role| role.id),
+    };
+    if created {
+        session.delegation = Some(Box::new(origin.clone()));
+    }
     let turn = QueuedTurn {
         id: TurnId::new(),
         kind: RunKind::Task,
         session: session.id,
         request: request_id.parse().map_err(storage_error)?,
-        revision: 1,
+        revision: session.revision,
         config: session.config.clone(),
         roles: session.roles.clone(),
         plugins: references,
     };
     // The outer request owns durable admission; child rows only freeze scope and ancestry.
     tx.execute(
-        "INSERT INTO turns(id,kind,session,revision,request,caller,plugins) VALUES(?1,'task',?2,1,?3,?4,?5)",
+        "INSERT INTO turns(id,kind,session,revision,request,caller,plugins) VALUES(?1,'task',?2,?3,?4,?5,?6)",
         params![
             turn.id.to_string(),
             session.id.to_string(),
+            turn.revision as i64,
             request_id,
             &caller.0[..],
             encode(&turn.plugins)?,
         ],
     )
     .map_err(storage_error)?;
+    insert(&tx, turn.id, &origin)?;
     // Child work already has a supervisor slot; it must not wait behind its parent in the root queue.
     super::super::attachments::turns::bind(&tx, turn.id, &message.attachments)?;
     runs::record(&tx, &turn, Status::Running, false)?;
+    let provider: Option<Vec<u8>> = tx
+        .query_row(
+            "SELECT provider FROM agent_runs WHERE turn=?1",
+            [turn.id.to_string()],
+            |row| row.get(0),
+        )
+        .map_err(storage_error)?;
+    let provider = provider
+        .map(|body| serde_json::from_slice(&body).map_err(storage_error))
+        .transpose()?;
     let child_run = runs::get(&tx, turn.id)?;
     let summary = children::get(&tx, &child_run)?.expect("admitted child has an origin");
     let mut envelopes = Vec::with_capacity(2);
-    for event in [
-        Event::SessionChanged(Box::new(session)),
-        activity::queued(&tx, turn.clone())?,
-    ] {
+    for event in created
+        .then(|| Event::SessionChanged(Box::new(session)))
+        .into_iter()
+        .chain(std::iter::once(activity::queued(&tx, turn.clone())?))
+    {
         tx.execute("INSERT INTO events(body) VALUES(?1)", [encode(&event)?])
             .map_err(storage_error)?;
         envelopes.push(EventEnvelope {

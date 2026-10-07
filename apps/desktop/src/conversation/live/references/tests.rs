@@ -1,3 +1,4 @@
+mod children;
 mod history;
 pub(super) mod inline;
 mod mounted;

@@ -182,14 +182,37 @@ impl Delegate {
         };
         let result = self.tasks.spawn(async move {
             let _active = active;
-            let invocation = ingress.delegate(turn, request, arguments, message, stop.clone()).await?;
-            let session = invocation.turn.session;
-            let turn = invocation.turn.id;
-            let result = Box::pin(run(&ingress, &tasks, invocation, stop)).await;
-            Ok::<_, Fault>(match result {
-                Ok((status, response)) => json!({"session": session, "turn": turn, "status": status, "response": response}),
-                Err(error) => json!({"isError": true, "session": session, "turn": turn, "error": error}),
-            })
+            // A boundary handoff cancels one Runner, never the parent-owned operation.
+            let mut token = stop.child_token();
+            let mut invocation = ingress.delegate(turn, request, arguments, message, token.clone()).await?;
+            loop {
+                let session = invocation.turn.session;
+                let turn = invocation.turn.id;
+                let mut result = Box::pin(run(&ingress, &tasks, invocation, token)).await;
+                let next_token = stop.child_token();
+                let next = if result.is_err() || stop.is_cancelled() || ingress.agents.stopped.is_cancelled() {
+                    ingress.retain_guidance(turn).await?;
+                    None
+                } else {
+                    match ingress.claim_guidance(turn, next_token.clone()).await {
+                        Ok(next) => next,
+                        Err(error) => {
+                            ingress.retain_guidance(turn).await?;
+                            result = Err(error);
+                            None
+                        }
+                    }
+                };
+                if let Some(next) = next {
+                    invocation = next;
+                    token = next_token;
+                    continue;
+                }
+                return Ok::<_, Fault>(match result {
+                    Ok((status, response)) => json!({"session": session, "turn": turn, "status": status, "response": response}),
+                    Err(error) => json!({"isError": true, "session": session, "turn": turn, "error": error}),
+                });
+            }
         }).map_err(|_| AdkError::tool("child task capacity is unavailable"))?;
         match result.await {
             Ok(Ok(value)) => Ok(value),

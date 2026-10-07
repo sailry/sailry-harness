@@ -418,16 +418,20 @@ pub(super) fn execute(
         } => super::sessions::rewind(db, *session, *through, *expected_head, *expected_revision),
         Command::ReplaceTurn { .. } => super::sessions::replace(db, caller, request),
         Command::StartQueuedTurn { turn } => {
+            let queued = super::agent::runs::get(db, *turn)?;
+            super::sessions::writable(&session(db, queued.session)?)?;
             let run = super::agent::start(db, *turn)?;
             Ok((
                 Output::Run(run.clone()),
                 Some(super::agent::activity::changed(db, run.session)?),
             ))
         }
+        Command::GuideTurn { .. } => super::agent::delegation::guide(db, caller, request),
         Command::ReadQueuedTurn { .. }
         | Command::EditQueuedTurn { .. }
         | Command::RemoveQueuedTurn { .. }
         | Command::SendQueuedTurn { .. }
+        | Command::GuideQueuedTurn { .. }
         | Command::MoveQueuedTurn { .. }
         | Command::SetQueuePaused { .. } => super::agent::queue::execute(db, caller, request),
         Command::StopDispatchTurn { package, job } => {

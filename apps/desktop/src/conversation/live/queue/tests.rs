@@ -5,6 +5,8 @@ use sailry_link::{Link, NetworkScope, Transport};
 use sailry_node_runtime::Node;
 use sailry_protocol::conversation::Part;
 
+mod children;
+mod guidance;
 mod lifecycle;
 
 struct Fixture {

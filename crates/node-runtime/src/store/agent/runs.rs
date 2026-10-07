@@ -28,6 +28,33 @@ pub(super) fn record(
         providers::selection(provider, &turn.config)?;
     }
     let provider = provider.as_ref().map(encode).transpose()?;
+    insert(db, turn, status, ready, provider)
+}
+
+pub(super) fn inherit(
+    db: &Connection,
+    turn: &QueuedTurn,
+    source: TurnId,
+    status: Status,
+    ready: bool,
+) -> Result<(), Fault> {
+    let provider: Option<Vec<u8>> = db
+        .query_row(
+            "SELECT provider FROM agent_runs WHERE turn=?1",
+            [source.to_string()],
+            |row| row.get(0),
+        )
+        .map_err(storage_error)?;
+    insert(db, turn, status, ready, provider)
+}
+
+fn insert(
+    db: &Connection,
+    turn: &QueuedTurn,
+    status: Status,
+    ready: bool,
+    provider: Option<Vec<u8>>,
+) -> Result<(), Fault> {
     let worktree: String = db
         .query_row(
             "SELECT worktree FROM session_revisions WHERE session=?1 AND revision=?2",
@@ -174,14 +201,28 @@ pub(in crate::store) fn stop(db: &Connection, turn: TurnId) -> Result<Run, Fault
     if run.status == Status::Queued {
         super::queue::remove(db, turn, run.session)?;
         super::super::attachments::turns::clear(db, turn)?;
-    } else if run.status == Status::Running {
+    } else if matches!(run.status, Status::Running | Status::Stopping) {
         super::queue::pause(db, run.session, true)?;
+        super::queue::guidance::clear(db, run.session, Some(turn))?;
     }
     run.status = match run.status {
         Status::Queued => Status::Cancelled,
         Status::Running => Status::Stopping,
         status => status,
     };
+    put(db, &run)?;
+    Ok(run)
+}
+
+pub(super) fn handoff(db: &Connection, turn: TurnId) -> Result<Run, Fault> {
+    let mut run = get(db, turn)?;
+    if run.status != Status::Running {
+        return Err(Fault::new(
+            ErrorCode::Conflict,
+            "guidance recipient is not running",
+        ));
+    }
+    run.status = Status::Stopping;
     put(db, &run)?;
     Ok(run)
 }
@@ -194,10 +235,37 @@ pub(super) fn claim(
     database: &mut Database,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Option<Invocation>, Fault> {
+    claim_with(database, None, events)
+}
+
+pub(super) fn claim_guidance(
+    database: &mut Database,
+    recipient: TurnId,
+    events: &broadcast::Sender<EventEnvelope>,
+) -> Result<Option<Invocation>, Fault> {
+    let run = get(&database.connection, recipient)?;
+    if matches!(run.status, Status::Running | Status::Stopping) {
+        return Err(Fault::new(
+            ErrorCode::Conflict,
+            "guidance recipient has not ended",
+        ));
+    }
+    if super::queue::read(&database.connection, run.session)?.paused {
+        super::queue::guidance::retain(database, recipient, events)?;
+        return Ok(None);
+    }
+    claim_with(database, Some(recipient), events)
+}
+
+fn claim_with(
+    database: &mut Database,
+    recipient: Option<TurnId>,
+    events: &broadcast::Sender<EventEnvelope>,
+) -> Result<Option<Invocation>, Fault> {
     let transaction = database.connection.transaction().map_err(storage_error)?;
-    let mut query = transaction.prepare("SELECT a.body,a.provider,t.caller,r.worktree FROM agent_runs a JOIN agent_pending p ON p.turn=a.turn JOIN turns t ON t.id=a.turn JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision JOIN agent_queues q ON q.session=t.session WHERE a.ready=1 AND q.paused=0 AND json_extract(a.body,'$.status')='queued' AND NOT EXISTS(SELECT 1 FROM agent_runs active JOIN turns other ON other.id=active.turn WHERE other.session=t.session AND json_extract(active.body,'$.status') IN ('running','stopping')) ORDER BY p.position,t.rowid LIMIT 1").map_err(storage_error)?;
+    let mut query = transaction.prepare("SELECT a.body,a.provider,t.caller,r.worktree FROM agent_runs a JOIN agent_pending p ON p.turn=a.turn JOIN turns t ON t.id=a.turn JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision JOIN agent_queues q ON q.session=t.session WHERE a.ready=1 AND q.paused=0 AND json_extract(a.body,'$.status')='queued' AND ((?1 IS NULL AND NOT EXISTS(SELECT 1 FROM agent_delegations d JOIN turns child ON child.id=d.turn WHERE child.session=t.session)) OR (?1 IS NOT NULL AND p.recipient=?1)) AND NOT EXISTS(SELECT 1 FROM agent_runs active JOIN turns other ON other.id=active.turn WHERE other.session=t.session AND json_extract(active.body,'$.status') IN ('running','stopping')) ORDER BY p.position,t.rowid LIMIT 1").map_err(storage_error)?;
     let row = query
-        .query_row([], |row| {
+        .query_row([recipient.map(|turn| turn.to_string())], |row| {
             Ok((
                 row.get::<_, Vec<u8>>(0)?,
                 row.get::<_, Option<Vec<u8>>>(1)?,
@@ -227,7 +295,7 @@ pub(super) fn claim(
         database
             .feeds
             .publish(database.node, run.session, Change::Run(run));
-        return claim(database, events);
+        return claim_with(database, recipient, events);
     }
     let queued = super::queue::message(&transaction, run.turn)?;
     let plugins = if queued.turn.kind == RunKind::Task {
@@ -268,7 +336,11 @@ pub(super) fn claim(
             .map(|body| serde_json::from_slice(&body).map_err(storage_error))
             .transpose()?,
         message: queued.message,
-        child: None,
+        child: if recipient.is_some() {
+            super::delegation::child(&transaction, run.turn)?
+        } else {
+            None
+        },
     };
     run.status = Status::Running;
     run.started_ms = Some(chrono::Utc::now().timestamp_millis());
@@ -276,6 +348,7 @@ pub(super) fn claim(
     super::queue::remove(&transaction, run.turn, run.session)?;
     let queue = super::queue::read(&transaction, run.session)?;
     let envelope = changed(&transaction, database.node, run.session)?;
+    let child = super::children::get(&transaction, &run)?;
     transaction.commit().map_err(storage_error)?;
     let _ = events.send(envelope);
     database
@@ -284,6 +357,11 @@ pub(super) fn claim(
     database
         .feeds
         .publish(database.node, run.session, Change::Run(run));
+    if let Some(child) = child {
+        database
+            .feeds
+            .publish(database.node, child.origin.session, Change::Child(child));
+    }
     Ok(Some(invocation))
 }
 
@@ -364,6 +442,8 @@ pub(super) fn finish(
 
 pub(in crate::store) fn recover(db: &Connection) -> Result<(), Fault> {
     super::continuation::recover(db)?;
+    super::queue::guidance::recover(db)?;
+    super::delegation::retain_guidance(db, None)?;
     let mut query = db.prepare("SELECT body FROM agent_runs WHERE json_extract(body,'$.status') IN ('running','stopping')").map_err(storage_error)?;
     let rows = query
         .query_map([], |row| row.get::<_, Vec<u8>>(0))

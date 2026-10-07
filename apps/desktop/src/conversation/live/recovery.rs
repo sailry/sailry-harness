@@ -64,9 +64,6 @@ impl View {
         if self.editing.is_some() || self.queue.read(cx).editing_draft() {
             return Err("updates_finish_edit");
         }
-        if self.readonly() {
-            return Ok(None);
-        }
         let input = self.input.read(cx);
         let text = input.value().to_string();
         if self.session.is_some()
@@ -114,7 +111,6 @@ impl View {
     ) -> bool {
         if self.recovery_identity() != snapshot.draft.identity
             || !self.connected()
-            || self.readonly()
             || self.busy()
             || !self.input.read(cx).value().is_empty()
             || !self.references.selected.is_empty()

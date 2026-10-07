@@ -14,6 +14,7 @@ fn pending() -> Queue {
             ready: true,
             preview: "中文🙂".into(),
             truncated: false,
+            guidance: None,
         }],
     }
 }

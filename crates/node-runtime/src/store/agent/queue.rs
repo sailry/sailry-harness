@@ -2,6 +2,7 @@
 use super::*;
 
 mod commands;
+pub(in crate::store) mod guidance;
 pub(in crate::store) use commands::execute;
 
 const CAPACITY: i64 = 256;
@@ -154,7 +155,7 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Queue, Fault> 
         .unwrap_or((0, false));
     // Bound previews, not user input. Editing fetches the complete original text separately.
     let mut query = db.prepare(
-        "SELECT a.body,p.revision,a.ready,r.body FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN agent_runs a ON a.turn=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller WHERE t.session=?1 ORDER BY p.position,t.rowid"
+        "SELECT a.body,p.revision,a.ready,r.body,p.recipient FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN agent_runs a ON a.turn=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller WHERE t.session=?1 ORDER BY p.position,t.rowid"
     ).map_err(storage_error)?;
     let items = query
         .query_map([session.to_string()], |row| {
@@ -163,11 +164,12 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Queue, Fault> 
                 row.get::<_, i64>(1)? as u64,
                 row.get(2)?,
                 row.get::<_, Vec<u8>>(3)?,
+                row.get::<_, Option<String>>(4)?,
             ))
         })
         .map_err(storage_error)?
         .map(|row| {
-            let (body, revision, ready, request) = row.map_err(storage_error)?;
+            let (body, revision, ready, request, recipient) = row.map_err(storage_error)?;
             let request: Request = serde_json::from_slice(&request).map_err(storage_error)?;
             let mut preview = input(request.command)?.text;
             let run: Run = serde_json::from_slice(&body).map_err(storage_error)?;
@@ -183,6 +185,9 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Queue, Fault> 
                 revision,
                 config_revision: run.revision,
                 ready,
+                guidance: recipient
+                    .map(|id| id.parse().map_err(storage_error))
+                    .transpose()?,
                 preview,
                 truncated,
                 attachments: super::super::attachments::turns::list(db, run.turn)?,
@@ -237,6 +242,7 @@ fn input(command: Command) -> Result<Input, Fault> {
         Command::QueueTurn { message, .. }
         | Command::ReplaceTurn { message, .. }
         | Command::SubmitTurn { message, .. }
+        | Command::GuideTurn { message, .. }
         | Command::ContinueTurn { message, .. }
         | Command::EditQueuedTurn { message, .. } => Ok(message),
         Command::ResolveQuestion {

@@ -390,7 +390,7 @@ impl View {
                     div()
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
-                        .child(tr("turn_cancelled_by_user")),
+                        .child(tr("turn_cancelled")),
                 )
             });
         let content = content

@@ -2,6 +2,7 @@ use super::*;
 use crate::conversation::queue::presentation;
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
+    clipboard::Clipboard,
     popover::Popover,
     scroll::ScrollableElement,
 };
@@ -68,15 +69,25 @@ impl Panel {
             revision: self.queue.revision,
             text: label(item),
         };
+        let action = if self.child { "read" } else { "edit" };
+        let label_key = if self.child {
+            "queue_read"
+        } else {
+            "queue_edit"
+        };
         let edit = Button::new(format!("live-queue-edit-{turn}"))
             .rounded_full()
             .ghost()
             .small()
-            .icon(IconName::Replace)
+            .icon(if self.child {
+                IconName::FileText
+            } else {
+                IconName::Replace
+            })
             .disabled(self.blocked())
-            .debug_selector(move || format!("queue-edit-{turn}"))
-            .tooltip(tr("queue_edit"))
-            .accessibility_label(tr("queue_edit"))
+            .debug_selector(move || format!("queue-{action}-{turn}"))
+            .tooltip(tr(label_key))
+            .accessibility_label(tr(label_key))
             .on_click(cx.listener(move |panel, _, window, cx| {
                 cx.stop_propagation();
                 panel.execute(Command::ReadQueuedTurn { turn }, window, cx);
@@ -101,7 +112,60 @@ impl Panel {
                     cx,
                 );
             }));
-        let remove = Button::new(format!("live-queue-delete-{turn}"))
+        let guide = self
+            .recipient
+            .filter(|_| !self.child && item.kind == sailry_protocol::conversation::RunKind::Task)
+            .map(|recipient| {
+                Button::new(format!("live-queue-guide-{turn}"))
+                    .rounded_full()
+                    .ghost()
+                    .small()
+                    .icon(IconName::ArrowRight)
+                    .disabled(self.blocked() || item.guidance == Some(recipient))
+                    .debug_selector(move || format!("queue-guide-{turn}"))
+                    .tooltip(tr("chat_queue_guide"))
+                    .accessibility_label(tr("chat_queue_guide"))
+                    .on_click(cx.listener(move |panel, _, window, cx| {
+                        cx.stop_propagation();
+                        panel.execute(
+                            Command::GuideQueuedTurn {
+                                turn,
+                                recipient,
+                                expected_revision: revision,
+                            },
+                            window,
+                            cx,
+                        );
+                    }))
+                    .into_any_element()
+            });
+        let remove = self.remove_button(turn, revision, cx);
+        presentation::row(
+            format!("live-queue-row-{turn}"),
+            key,
+            label(item),
+            !item.attachments.is_empty(),
+            !self.child,
+            (item.kind == sailry_protocol::conversation::RunKind::Task)
+                .then_some(edit.into_any_element())
+                .into_iter()
+                .chain(guide)
+                .chain((!self.child).then_some(send.into_any_element()))
+                .chain([remove.into_any_element()]),
+            cx,
+        )
+        .debug_selector(move || format!("queue-row-{turn}"))
+        .when(!self.child && !self.blocked(), |row| {
+            row.on_drag(drag, |drag, _, _, cx| cx.new(|_| drag.clone()))
+                .on_drop(cx.listener(move |panel, source: &Drag, window, cx| {
+                    panel.reorder(source, turn, window, cx)
+                }))
+        })
+        .into_any_element()
+    }
+
+    fn remove_button(&self, turn: TurnId, revision: u64, cx: &mut Context<Self>) -> Button {
+        Button::new(format!("live-queue-delete-{turn}"))
             .rounded_full()
             .ghost()
             .small()
@@ -120,26 +184,7 @@ impl Panel {
                     window,
                     cx,
                 );
-            }));
-        presentation::row(
-            format!("live-queue-row-{turn}"),
-            key,
-            label(item),
-            !item.attachments.is_empty(),
-            (item.kind == sailry_protocol::conversation::RunKind::Task)
-                .then_some(edit.into_any_element())
-                .into_iter()
-                .chain([send.into_any_element(), remove.into_any_element()]),
-            cx,
-        )
-        .debug_selector(move || format!("queue-row-{turn}"))
-        .when(!self.blocked(), |row| {
-            row.on_drag(drag, |drag, _, _, cx| cx.new(|_| drag.clone()))
-                .on_drop(cx.listener(move |panel, source: &Drag, window, cx| {
-                    panel.reorder(source, turn, window, cx)
-                }))
-        })
-        .into_any_element()
+            }))
     }
 }
 
@@ -160,7 +205,7 @@ impl Render for Panel {
                 .filter(|item| editing.attachments.contains(&item.id))
                 .cloned()
                 .collect();
-            let reload = changed.then(|| {
+            let reload = (changed && !self.child).then(|| {
                 Button::new("queue-edit-reload")
                     .rounded_full()
                     .small()
@@ -178,7 +223,11 @@ impl Render for Panel {
             let cancel = Button::new("queue-edit-cancel")
                 .rounded_full()
                 .small()
-                .label(tr("settings_cancel"))
+                .label(tr(if self.child {
+                    "close"
+                } else {
+                    "settings_cancel"
+                }))
                 .debug_selector(|| "queue-edit-cancel".into())
                 .disabled(self.pending || self.retry.is_some())
                 .on_click(cx.listener(|panel, _, window, cx| panel.cancel(window, cx)));
@@ -195,13 +244,32 @@ impl Render for Panel {
                             && editing.attachments.is_empty()),
                 )
                 .on_click(cx.listener(|panel, _, window, cx| panel.save(window, cx)));
+            let copy = self.child.then(|| {
+                div()
+                    .debug_selector(|| "queue-read-copy".into())
+                    .child(
+                        Clipboard::new("queue-read-copy")
+                            .value(editing.input.read(cx).value())
+                            .tooltip(tr("message_copy")),
+                    )
+                    .into_any_element()
+            });
+            let remove = self.child.then(|| {
+                self.remove_button(turn, editing.revision, cx)
+                    .disabled(self.blocked() || changed)
+                    .into_any_element()
+            });
             presentation::editor(
                 super::super::references::inline::textarea(&editing.input, &editing.references)
                     .readonly(
-                        self.pending
-                            && self.retry.as_ref().is_some_and(|attempt| {
-                                matches!(attempt.request.command, Command::ReadQueuedTurn { .. })
-                            }),
+                        self.child
+                            || self.pending
+                                && self.retry.as_ref().is_some_and(|attempt| {
+                                    matches!(
+                                        attempt.request.command,
+                                        Command::ReadQueuedTurn { .. }
+                                    )
+                                }),
                     )
                     .on_token_click(cx.listener(|panel, event, window, cx| {
                         if panel.blocked() {
@@ -216,9 +284,13 @@ impl Render for Panel {
                             view.activate_input_token(&input, &references, event, window, cx)
                         });
                     })),
+                self.child,
                 reload
                     .into_iter()
-                    .chain([cancel.into_any_element(), save.into_any_element()]),
+                    .chain(copy)
+                    .chain([cancel.into_any_element()])
+                    .chain((!self.child).then_some(save.into_any_element()))
+                    .chain(remove),
             )
             .when(!editing.attachments.is_empty(), |editor| {
                 if attachments.len() == editing.attachments.len() {

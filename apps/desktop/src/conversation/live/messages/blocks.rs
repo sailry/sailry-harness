@@ -1,7 +1,7 @@
 use sailry_client::conversation::{View, tools::Call};
 use sailry_protocol::{
-    SessionId, TurnId,
-    conversation::{Entry, Part},
+    TurnId,
+    conversation::{Child, Entry, Part},
 };
 use std::{borrow::Cow, collections::BTreeMap};
 
@@ -13,7 +13,7 @@ pub(super) enum Block<'a> {
     Compaction(String, &'a str),
     Tools(Vec<&'a Call>),
     Question(&'a Call),
-    Children(Vec<SessionId>),
+    Children(Vec<&'a Child>),
     Resource,
     Retry(u64, u64),
 }
@@ -158,14 +158,17 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
                     }
                     // Represent admitted delegations through their child rows; keep
                     // calls that failed before a child was created as tool errors.
-                    if let Some(child) = snapshot.page.children.iter().find(|child| {
-                        child.origin.turn == turn
-                            && child.origin.entry == call.source.entry
-                            && child.origin.index == call.source.index
-                    }) {
+                    let children = super::super::subagents::latest(
+                        snapshot.page.children.iter().filter(|child| {
+                            child.origin.turn == turn
+                                && child.origin.entry == call.source.entry
+                                && child.origin.index == call.source.index
+                        }),
+                    );
+                    if !children.is_empty() {
                         match blocks.last_mut() {
-                            Some(Block::Children(group)) => group.push(child.run.session),
-                            _ => blocks.push(Block::Children(vec![child.run.session])),
+                            Some(Block::Children(group)) => group.extend(children),
+                            _ => blocks.push(Block::Children(children)),
                         }
                         continue;
                     }

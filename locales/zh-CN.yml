@@ -1584,12 +1584,15 @@ chat_child_generic: 通用任务
 chat_child_summary: "%{complete} 已完成 · %{failed} 失败"
 chat_child_readonly: "%{role} · 只读"
 chat_child_unavailable: 子会话尚不可用，请重试
+chat_child_guide: 引导
+chat_queue_guide: 引导
 subagent_running: 运行中
 queue_add: 加入示例队列
 queue_count: "%{count} 条待发送"
 queue_preview: 仅内存队列示例，不执行模型或工具
 queue_drag: 拖动调整顺序
 queue_edit: 编辑待发送内容
+queue_read: 查看
 queue_delete: 从队列移除
 queue_send: 立即演示此消息（停止当前示例回合）
 queue_save: 保存

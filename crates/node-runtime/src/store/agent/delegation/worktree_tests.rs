@@ -83,7 +83,7 @@ fn rejects_foreign_or_missing_targets() {
         let count: i64 = fixture
             .database
             .connection
-            .query_row("SELECT COUNT(*) FROM session_delegations", [], |row| {
+            .query_row("SELECT COUNT(*) FROM agent_delegations", [], |row| {
                 row.get(0)
             })
             .unwrap();

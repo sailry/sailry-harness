@@ -224,6 +224,7 @@ impl Panel {
             entry.id.to_string().into(),
             entry.label(),
             entry.options.attachment,
+            true,
             [
                 edit.into_any_element(),
                 send.into_any_element(),
@@ -278,6 +279,7 @@ impl Render for Panel {
                         .map(|entry| entry.options.references.clone())
                         .unwrap_or_default(),
                 ),
+                false,
                 [cancel.into_any_element(), save.into_any_element()],
             )
         });

@@ -105,6 +105,21 @@ pub(super) fn prepare(connection: &Connection, path: &Path, node: NodeId) -> Res
                 format!("table {table:?} is not part of the current configuration storage"),
             ));
         }
+        let obsolete_delegations: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_delegations')",
+            [],
+            |row| row.get(0),
+        )?;
+        if obsolete_delegations
+            && connection
+                .prepare("SELECT 1 FROM session_delegations LIMIT 1")?
+                .exists([])?
+        {
+            return Err(incompatible(
+                path,
+                "stored delegations do not have per-turn associations",
+            ));
+        }
     }
     let plan = if fresh {
         Plan {

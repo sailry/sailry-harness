@@ -12,7 +12,7 @@ impl Panel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.blocked() {
+        if self.blocked() || !self.allows(&command) {
             return;
         }
         self.retry = Some(Attempt {
@@ -28,6 +28,9 @@ impl Panel {
         let Some(attempt) = self.retry.clone() else {
             return;
         };
+        if !self.allows(&attempt.request.command) {
+            return;
+        }
         self.pending = true;
         self.error = None;
         let client = self.binding.client.clone();
@@ -47,7 +50,7 @@ impl Panel {
                             TextareaState::new(window, cx)
                                 .placeholder(tr("composer"))
                                 .auto_grow(1, 3)
-                                .submit_on_enter(true)
+                                .submit_on_enter(!panel.child)
                         });
                         let Ok(content) = super::super::references::inline::content(
                             &message.message.text,
@@ -57,14 +60,19 @@ impl Panel {
                             cx.notify();
                             return;
                         };
-                        input.update(cx, |input, cx| input.set_value(content, window, cx));
-                        cx.subscribe_in(&input, window, |panel, _, event, window, cx| {
-                            if matches!(event, InputEvent::PressEnter { shift: false, .. }) {
-                                panel.save(window, cx);
-                            }
-                            cx.notify();
-                        })
-                        .detach();
+                        input.update(cx, |input, cx| {
+                            input.set_value(content, window, cx);
+                            input.set_readonly(panel.child, cx);
+                        });
+                        if !panel.child {
+                            cx.subscribe_in(&input, window, |panel, _, event, window, cx| {
+                                if matches!(event, InputEvent::PressEnter { shift: false, .. }) {
+                                    panel.save(window, cx);
+                                }
+                                cx.notify();
+                            })
+                            .detach();
+                        }
                         cx.observe(&input, |_, _, cx| cx.notify()).detach();
                         if panel
                             .popover
@@ -84,6 +92,13 @@ impl Panel {
                     }
                     Ok(Ok(Output::Queue(update))) => {
                         panel.retry = None;
+                        if panel.child
+                            && matches!(&attempt.request.command, Command::RemoveQueuedTurn { turn, .. }
+                                if panel.editing.as_ref().is_some_and(|editing| editing.turn == *turn))
+                        {
+                            panel.editing = None;
+                            panel.restore_focus(window, cx);
+                        }
                         if let Command::EditQueuedTurn { turn, message, .. } =
                             &attempt.request.command
                             && let Some(editing) = &mut panel.editing
@@ -105,7 +120,7 @@ impl Panel {
                             ErrorCode::RevisionConflict
                             | ErrorCode::Conflict
                             | ErrorCode::NotFound => {
-                                if panel.editing.is_some() {
+                                if panel.editing.is_some() && !panel.child {
                                     "queue_draft_changed"
                                 } else {
                                     "queue_changed"
@@ -129,6 +144,9 @@ impl Panel {
     }
 
     pub(super) fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.child {
+            return;
+        }
         let Some(editing) = &self.editing else { return };
         if self.changed(editing)
             || editing.input.update(cx, |input, cx| {
@@ -167,7 +185,8 @@ impl Panel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.session != Some(source.session)
+        if self.child
+            || self.session != Some(source.session)
             || source.node != self.binding.client.target()
             || source.turn == target
         {

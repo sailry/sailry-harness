@@ -24,6 +24,192 @@ fn remote_worktrees(cx: &mut TestAppContext) {
     tabs(cx, true, true);
 }
 
+#[gpui::test]
+fn opens_inherited_child(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+        crate::shell::init(cx);
+    });
+    for remote in [false, true] {
+        let fixture = Fixture::with_children(remote, 1);
+        cx.update(|cx| cx.set_global(fixture.services()));
+        let mut entity = None;
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let shell = cx.new(|cx| Shell::new(window, cx));
+            entity = Some(shell.clone());
+            Root::new(shell, window, cx)
+        });
+        let shell = entity.unwrap();
+        let target = fixture.client.target();
+        wait(visual, |cx| {
+            shell
+                .read(cx)
+                .live
+                .as_ref()
+                .unwrap()
+                .hosts
+                .contains_key(&target)
+        });
+        visual.update(|_, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.live.as_mut().unwrap().select(target, cx)
+            })
+        });
+        wait(visual, |cx| {
+            shell
+                .read(cx)
+                .live
+                .as_ref()
+                .unwrap()
+                .view
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot
+                        .sessions
+                        .iter()
+                        .any(|session| session.id == fixture.session.id)
+                })
+        });
+        visual.update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.reveal_session(fixture.session.clone(), window, cx)
+            })
+        });
+        fixture.start();
+        wait(visual, |_| {
+            fixture
+                .page(fixture.session.id)
+                .children
+                .first()
+                .is_some_and(|child| {
+                    fixture
+                        .page(child.run.session)
+                        .approvals
+                        .iter()
+                        .any(|approval| approval.state == ApprovalState::Pending)
+                })
+        });
+        let page = fixture.page(fixture.session.id);
+        let parent_turn = page.runs[0].turn;
+        let child = page.children[0].clone();
+        let approval = fixture
+            .page(child.run.session)
+            .approvals
+            .into_iter()
+            .find(|approval| approval.state == ApprovalState::Pending)
+            .unwrap();
+        fixture.execute(Command::ResolveApproval {
+            session: child.run.session,
+            approval: approval.id,
+            decision: sailry_protocol::conversation::Decision::Approve,
+        });
+        wait(visual, |_| {
+            fixture.page(fixture.session.id).runs[0].status == Status::Completed
+        });
+        let Output::Session(fork) = fixture.execute(Command::ForkConversation {
+            session: fixture.session.id,
+            through: parent_turn,
+            expected_revision: fixture.session.revision,
+        }) else {
+            panic!("fork expected")
+        };
+        visual.update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.reveal_session(fork.clone(), window, cx)
+            })
+        });
+        let source = shell.read_with(visual, |shell, _| shell.current_chat().unwrap().clone());
+        wait(visual, |cx| {
+            source.read(cx).connected()
+                && source.read(cx).child_session(child.run.session).is_some()
+        });
+        assert_ne!(fork.id, child.origin.session);
+        assert_eq!(
+            fixture.page(fork.id).runs[0].origin,
+            Some(fixture.session.id)
+        );
+        let row = Box::leak(
+            format!(
+                "live-subagent-row-{}-{}-{}-{}",
+                child.run.session, child.origin.turn, child.origin.entry, child.origin.index
+            )
+            .into_boxed_str(),
+        );
+        if visual.debug_bounds(row).is_none() {
+            click(
+                visual,
+                Box::leak(format!("live-turn-work-{parent_turn}").into_boxed_str()),
+            );
+        }
+        click(visual, row);
+        wait(
+            visual,
+            |cx| matches!(&shell.read(cx).side_resource, Some(SideResource::Child(panel)) if panel.source == source && panel.selected == child.run.session && panel.child().read(cx).connected()),
+        );
+        shell.read_with(visual, |shell, cx| {
+            let Some(SideResource::Child(panel)) = &shell.side_resource else {
+                panic!("inherited child panel expected")
+            };
+            assert_eq!(panel.tabs.len(), 1);
+            assert_eq!(panel.child().read(cx).session(), Some(child.run.session));
+            assert_eq!(
+                panel.child().read(cx).binding().worktree,
+                Some(child.run.worktree)
+            );
+        });
+        click(
+            visual,
+            Box::leak(format!("close-child-{}", child.run.session).into_boxed_str()),
+        );
+        wait(visual, |cx| shell.read(cx).side_resource.is_none());
+        let session = source.read_with(visual, |source, _| {
+            source.child_session(child.run.session).unwrap()
+        });
+        let mut substituted = session.clone();
+        substituted.config.model = "Substituted model".into();
+        visual.update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.show_live_child(source.clone(), substituted, window, cx)
+            })
+        });
+        assert!(shell.read_with(visual, |shell, _| shell.side_resource.is_none()));
+
+        let Output::Session(unrelated) = fixture.execute(Command::CreateSession {
+            project: fixture.session.project,
+            worktree: Some(fixture.session.worktree),
+            config: Some(fixture.session.config.clone()),
+        }) else {
+            panic!("session expected")
+        };
+        visual.update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.reveal_session(unrelated.clone(), window, cx)
+            })
+        });
+        let other = shell.read_with(visual, |shell, _| shell.current_chat().unwrap().clone());
+        wait(visual, |cx| other.read(cx).connected());
+        assert!(other.read_with(visual, |view, _| {
+            view.child_session(child.run.session).is_none()
+        }));
+        visual.update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.show_live_child(other.clone(), session, window, cx)
+            })
+        });
+        assert!(shell.read_with(visual, |shell, _| shell.side_resource.is_none()));
+        assert_eq!(fixture.page(child.run.session).runs.len(), 1);
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), 2);
+        visual.update(|window, _| window.remove_window());
+        drop(source);
+        drop(other);
+        drop(shell);
+        fixture.close();
+    }
+}
+
 fn tabs(cx: &mut TestAppContext, remote: bool, isolated: bool) {
     cx.executor().allow_parking();
     cx.update(|cx| {
