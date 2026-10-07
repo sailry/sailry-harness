@@ -24,9 +24,13 @@ fn heading_fill(visual: &mut VisualTestContext, open: bool) {
     let heading = visual.debug_bounds("node-a-heading").unwrap();
     let button = visual.debug_bounds("node-a").unwrap();
     let action = visual.debug_bounds("node-a-actions").unwrap();
-    assert_eq!(button.left(), heading.left());
-    assert!(button.right() <= action.left());
-    assert!(heading.contains(&action.center()));
+    assert_eq!(button, heading);
+    assert!(action.left() >= heading.left());
+    assert!(action.right() < heading.right());
+    assert!(action.top() >= heading.top());
+    assert!(action.bottom() <= heading.bottom());
+    assert!(button.contains(&action.center()));
+    assert_eq!(action.center().y, heading.center().y);
     if open {
         let body = visual.debug_bounds("node-a-body").unwrap();
         assert_eq!(heading.left(), body.left());
@@ -50,6 +54,29 @@ fn heading_fill(visual: &mut VisualTestContext, open: bool) {
     });
 }
 
+fn hover_fill(visual: &mut VisualTestContext) {
+    let heading = visual.debug_bounds("node-a-heading").unwrap();
+    let sample = point(heading.right() - px(2.), heading.center().y);
+    let backgrounds = |visual: &mut VisualTestContext| {
+        visual.update(|window, _| {
+            let sample = sample.scale(window.scale_factor());
+            window
+                .painted_quads()
+                .into_iter()
+                .filter(|quad| quad.bounds.contains(&sample))
+                .map(|quad| quad.background)
+                .collect::<Vec<_>>()
+        })
+    };
+    visual.simulate_mouse_move(point(px(1.), px(1.)), None, Modifiers::default());
+    draw(visual);
+    let before = backgrounds(visual);
+    visual.simulate_mouse_move(heading.center(), None, Modifiers::default());
+    draw(visual);
+    assert_eq!(before, backgrounds(visual));
+    heading_fill(visual, true);
+}
+
 #[gpui::test]
 fn preserves_slots_and_native_expansion(cx: &mut TestAppContext) {
     init(cx);
@@ -63,7 +90,7 @@ import {Collapse,CollapseSlot,collapseOpen,Anchor,record} from 'sailry/test';
 export default class Groups extends View {
   shown = true;
   render() {
-    return div().v_flex().w_full().p_4().gap_3()
+    return div().v_flex().items_start().w_full().p_4().gap_3()
       .child(Anchor.new('visibility').child(new Button('visibility').label('Visibility')
         .on_click((_,cx)=>{record(collapseOpen('node-b'));this.shown=!this.shown;cx.notify();})))
       .children((this.shown?['node-a','node-b']:[]).map(id=>Collapse.new(id,{label:id,default_open:true,variant:id==='node-b'?'plain':'panel'})
@@ -158,6 +185,11 @@ export default class Groups extends View {
     assert!(visual.debug_bounds("duplicate-first").is_none());
     assert!(visual.debug_bounds("unknown-title").is_none());
     assert!(visual.debug_bounds("missing-title").is_none());
+    hover_fill(visual);
+    click(visual, "node-a-action");
+    draw(visual);
+    assert_eq!(events.get(), 1);
+    assert!(visual.debug_bounds("node-a-body").is_some());
     click(visual, "node-a");
     draw(visual);
     heading_fill(visual, false);
@@ -178,6 +210,9 @@ export default class Groups extends View {
             break;
         }
     }
+    let focused = visual.update(|window, cx| window.focused(cx).unwrap());
+    draw(visual);
+    visual.update(|window, _| assert!(focused.is_focused(window)));
     assert!(visual.debug_bounds("node-a-actions-focused").is_some());
     let keystroke = Keystroke::parse("enter").unwrap();
     visual.simulate_event(KeyDownEvent {
@@ -187,7 +222,7 @@ export default class Groups extends View {
     });
     visual.simulate_event(KeyUpEvent { keystroke });
     draw(visual);
-    assert_eq!(events.get(), 1);
+    assert_eq!(events.get(), 2);
     assert!(visual.debug_bounds("node-a-body").is_none());
     click(visual, "node-b");
     draw(visual);
@@ -198,6 +233,7 @@ export default class Groups extends View {
     assert!(visual.debug_bounds("node-b-body").is_none());
     click(visual, "visibility");
     draw(visual);
+    assert_eq!(&*choices.borrow(), &[false]);
     assert!(visual.debug_bounds("node-a-title").is_none());
     assert!(visual.debug_bounds("node-b-title").is_none());
     click(visual, "visibility");

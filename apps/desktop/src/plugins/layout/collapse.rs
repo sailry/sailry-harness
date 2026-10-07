@@ -2,7 +2,7 @@
 //! slots and expansion in this native adapter without changing the framework.
 use gpui_kit::{
     component::{
-        button::{Button, ButtonVariants as _},
+        button::{Button, ButtonCustomVariant, ButtonVariants as _},
         collapsible::Collapsible,
         *,
     },
@@ -75,6 +75,7 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                     .id(id.clone())
                     .debug_selector(move || id.clone())
                     .w_full()
+                    .when(kind == Some(Kind::Actions), |slot| slot.w_auto())
                     .min_w_0()
                     .children(args.take_children())
                     .into_any_element(),
@@ -158,7 +159,6 @@ pub(super) fn extend(module: HostModule) -> HostModule {
             );
             let plain = args.props().get("variant").and_then(HostValue::as_str) == Some("plain");
             let radius = (cx.theme().radius - px(1.)).max(px(0.));
-            let has_actions = actions.is_some();
             let group: SharedString = format!("collapse-{id}").into();
             let heading_selector = format!("{id}-heading");
             let button = Button::new(id.clone())
@@ -166,7 +166,7 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                     let id = id.clone();
                     move || id.clone()
                 })
-                .ghost()
+                .custom(ButtonCustomVariant::new(cx).foreground(cx.theme().secondary_foreground))
                 .small()
                 .w_full()
                 .flex_1()
@@ -176,13 +176,8 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                 .when(!plain, |button| {
                     button
                         .rounded_none()
-                        .rounded_tl(radius)
-                        .when(!has_actions, |button| button.rounded_tr(radius))
-                        .when(!open, |button| {
-                            button
-                                .rounded_bl(radius)
-                                .when(!has_actions, |button| button.rounded_br(radius))
-                        })
+                        .rounded_t(radius)
+                        .when(!open, |button| button.rounded_b(radius))
                 })
                 .justify_start()
                 .accessibility_label(label)
@@ -227,12 +222,21 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                         .when_some(actions, |row, actions| {
                             row.child(
                                 div()
+                                    .id(format!("{id}-actions-container"))
                                     .debug_selector(move || actions_selector)
-                                    .flex_shrink_0()
-                                    .mr_2()
+                                    .absolute()
+                                    .right_2()
+                                    .top_0()
+                                    .bottom_0()
+                                    .flex()
+                                    .items_center()
                                     .track_focus(&actions_focus)
                                     .opacity(if actions_visible { 1. } else { 0. })
                                     .group_hover(group, |style| style.opacity(1.))
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation()
+                                    })
+                                    .on_click(|_, _, cx| cx.stop_propagation())
                                     .child(actions),
                             )
                         }),
