@@ -9,7 +9,12 @@ pub(crate) enum Grant {
         access: Secret,
         refresh: Secret,
         expires_at_ms: u64,
-        account_id: String,
+        earliest_refresh_at: Option<u64>,
+        client_id: String,
+        subject: String,
+        email: Option<String>,
+        id_token: Secret,
+        scopes: Vec<String>,
         renewal_pending: bool,
     },
     Copilot {
@@ -21,6 +26,12 @@ pub(crate) enum Grant {
 }
 
 impl Grant {
+    pub(crate) fn plan_enabled(&self) -> bool {
+        matches!(self, Self::ChatGpt { scopes, .. }
+            if ["resource.invoke", "chatgpt.tokens.use.direct"].iter()
+                .all(|required| scopes.iter().any(|scope| scope == required)))
+    }
+
     pub(crate) fn renewal_pending(&self) -> bool {
         match self {
             Self::ChatGpt {
@@ -43,12 +54,16 @@ impl Grant {
         match (self, other) {
             (
                 Self::ChatGpt {
-                    account_id: first, ..
+                    client_id: first_client,
+                    subject: first,
+                    ..
                 },
                 Self::ChatGpt {
-                    account_id: second, ..
+                    client_id: second_client,
+                    subject: second,
+                    ..
                 },
-            ) => first == second,
+            ) => first_client == second_client && first == second,
             (Self::Copilot { github: first, .. }, Self::Copilot { github: second, .. }) => {
                 first == second
             }
@@ -92,16 +107,38 @@ impl Grant {
                 access,
                 refresh,
                 expires_at_ms,
-                account_id,
+                client_id,
+                subject,
+                email,
+                id_token,
+                scopes,
                 ..
             } => {
-                if account_id.is_empty()
-                    || account_id.len() > 256
-                    || !account_id
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+                chatgpt::flow::issued_client(client_id)?;
+                if subject.is_empty()
+                    || subject.len() > 2048
+                    || subject.chars().any(char::is_control)
+                    || email.as_ref().is_some_and(|value| {
+                        value.is_empty()
+                            || value.len() > 1024
+                            || value.chars().any(char::is_control)
+                    })
                 {
                     return Err(invalid("authorization account identifier is invalid"));
+                }
+                token(id_token)?;
+                if scopes.len() > 128
+                    || scopes.iter().any(|scope| {
+                        scope.is_empty()
+                            || scope.len() > 256
+                            || !scope.bytes().all(|byte| {
+                                byte == 0x21
+                                    || (0x23..=0x5b).contains(&byte)
+                                    || (0x5d..=0x7e).contains(&byte)
+                            })
+                    })
+                {
+                    return Err(invalid("authorization scopes are invalid"));
                 }
                 (access, refresh, *expires_at_ms)
             }
@@ -116,17 +153,22 @@ impl Grant {
                 (access, github, *expires_at_ms)
             }
         };
-        for token in [access, renewal] {
-            if token.expose().is_empty()
-                || token.expose().len() > 16384
-                || reqwest::header::HeaderValue::from_str(token.expose()).is_err()
-            {
-                return Err(invalid("authorization token is invalid"));
-            }
+        for value in [access, renewal] {
+            token(value)?;
         }
         if expires == 0 || expires > i64::MAX as u64 {
             return Err(invalid("authorization expiry is invalid"));
         }
         Ok(())
     }
+}
+
+fn token(value: &Secret) -> Result<(), Fault> {
+    if value.expose().is_empty()
+        || value.expose().len() > 16384
+        || reqwest::header::HeaderValue::from_str(value.expose()).is_err()
+    {
+        return Err(invalid("authorization token is invalid"));
+    }
+    Ok(())
 }

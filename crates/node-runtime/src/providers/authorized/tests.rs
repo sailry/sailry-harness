@@ -23,36 +23,30 @@ fn preserves_native_metadata() {
 }
 
 #[test]
-fn keeps_all_returned_models() {
-    let mut entries = [None, Some("list"), Some("hide"), Some("unknown")].into_iter().enumerate().map(|(index, visibility)| {
-        let mut entry = json!({"slug":format!("catalog-fixture-{index}"),"minimal_client_version":"0.153.0"});
-        if let Some(visibility) = visibility { entry["visibility"] = json!(visibility); }
-        entry
-    }).collect::<Vec<_>>();
-    let expected = entries
-        .iter()
-        .map(|entry| entry["slug"].as_str().unwrap().to_owned())
-        .collect::<Vec<_>>();
-    entries.push(entries[0].clone());
+fn keeps_visible_order() {
     let models = parse(
         Authentication::ChatGpt,
         ModelApi::Responses,
-        &json!({"models":entries}),
+        &json!({"models":[
+            {"slug":"gpt-6.1-sol","display_name":"GPT-6.1 Sol","visibility":"list"},
+            {"slug":"hidden","visibility":"hide","context_window":false},
+            {"slug":"a-second","display_name":"Second","visibility":"list"},
+            {"slug":"unlisted"},
+            {"slug":"gpt-6.1-sol","display_name":"GPT-6.1 Sol","visibility":"list"}
+        ]}),
     )
     .unwrap();
     assert_eq!(
         models
             .iter()
-            .map(|model| model.id.clone())
+            .map(|model| model.id.as_str())
             .collect::<Vec<_>>(),
-        expected
+        ["gpt-6.1-sol", "a-second"]
     );
-    for model in models {
-        assert_eq!(model.display_name, None);
-        assert_eq!(model.context, None);
-        assert_eq!(model.output, None);
-        assert_eq!(model.capabilities.as_ref().unwrap().tools, None);
-    }
+    assert_eq!(models[0].display_name.as_deref(), Some("GPT-6.1 Sol"));
+    assert_eq!(models[0].context, None);
+    assert_eq!(models[0].output, None);
+    assert_eq!(models[0].capabilities.as_ref().unwrap().tools, None);
 }
 
 #[test]
@@ -91,6 +85,7 @@ fn rejects_conflicting_metadata() {
         json!({"models":[{"slug":"bad","display_name":"Bad","visibility":"list","supported_reasoning_levels":[{"effort":"high"}],"default_reasoning_level":"low"}]}),
         json!({"models":[{"slug":"bad","display_name":"Bad","visibility":"list","input_modalities":[false]}]}),
         json!({"models":[{"slug":"bad","display_name":"","visibility":"list"}]}),
+        json!({"models":[{"slug":"bad","visibility":"list"}]}),
     ] {
         assert!(parse(Authentication::ChatGpt, ModelApi::Responses, &value).is_err());
     }

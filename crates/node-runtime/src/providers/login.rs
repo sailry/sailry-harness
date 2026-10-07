@@ -1,10 +1,10 @@
-//! Node-owned device authorization. Wire references: OpenAI Codex ed6dde9f,
-//! rig-core 0.42.0; provenance and license notices are recorded in third_party_licenses.
+//! Node-owned provider authorization and protected credential renewal.
 mod chatgpt;
 mod copilot;
 mod grant;
 mod headers;
 mod options;
+pub(crate) use chatgpt::Authorization;
 pub(crate) use grant::Grant;
 pub(crate) use options::capture;
 pub(crate) use options::effective;
@@ -24,7 +24,7 @@ use zeroize::Zeroizing;
 
 const DEADLINE: Duration = Duration::from_secs(900);
 const BODY_LIMIT: usize = 64 * 1024;
-pub(crate) const CHATGPT_ENDPOINT: &str = "https://chatgpt.com/backend-api/codex";
+pub(crate) const CHATGPT_ENDPOINT: &str = "https://api.openai.com/v1";
 pub(crate) const COPILOT_ENDPOINT: &str = "https://api.githubcopilot.com";
 
 #[derive(Clone)]
@@ -94,6 +94,7 @@ impl Service {
         &self,
         authentication: Authentication,
         options: &Options,
+        authorization: Option<Authorization>,
         progress: P,
         stop: &CancellationToken,
     ) -> Result<Grant, Fault>
@@ -106,6 +107,10 @@ impl Service {
             if let State::Pending {
                 expires_at_ms: reported,
                 ..
+            }
+            | State::Browser {
+                expires_at_ms: reported,
+                ..
             } = &mut state
             {
                 *reported = (*reported).min(expires_at_ms);
@@ -115,7 +120,15 @@ impl Service {
         let operation = async {
             let client = client(options)?;
             let grant = match authentication {
-                Authentication::ChatGpt => self.chatgpt(&client, progress).await?,
+                Authentication::ChatGpt => {
+                    self.chatgpt(
+                        &client,
+                        authorization
+                            .ok_or_else(|| invalid("ChatGPT authorization context is required"))?,
+                        progress,
+                    )
+                    .await?
+                }
                 Authentication::Copilot => self.copilot(&client, options, progress).await?,
                 Authentication::ApiKey | Authentication::Host => {
                     return Err(invalid("provider does not use device authorization"));

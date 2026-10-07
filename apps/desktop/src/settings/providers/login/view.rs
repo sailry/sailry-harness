@@ -39,6 +39,9 @@ impl Login {
                         State::Pending {
                             verification_url, ..
                         } => Some(verification_url),
+                        State::Browser {
+                            authorization_url, ..
+                        } => Some(authorization_url),
                         _ => None,
                     };
                     if let Some(url) = url {
@@ -92,81 +95,89 @@ impl Login {
 impl Render for Login {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let active = !self.closed && !self.cancelling && !self.expired();
-        let code = self.state().filter(|_| active).and_then(|state| {
-            if let State::Pending { user_code, .. } = state {
-                Some(user_code.clone())
-            } else {
-                None
-            }
-        });
-        let loading = active
-            && code.is_none()
-            && (self.pending || matches!(self.state(), Some(State::Starting)));
-        let selector = if self.expired() {
-            "provider-login-code-expired"
-        } else if code.is_some() {
-            "provider-login-code"
-        } else {
-            "provider-login-code-placeholder"
-        };
-        let card = Button::new(selector)
-            .debug_selector(move || selector.into())
-            .accessibility_label(tr(if code.is_some() {
-                "provider_login_copy"
-            } else {
-                "provider_login_code_placeholder"
-            }))
-            .custom(ButtonCustomVariant::new(cx).hover(cx.theme().secondary_hover))
-            .disabled(code.is_none())
-            .w_full()
-            .h(rems(6.))
-            .bg(cx.theme().group_box)
-            .border_1()
-            .border_color(cx.theme().border)
-            .rounded(cx.theme().radius_lg)
-            .when(self.expired(), |card| {
-                card.label(tr("provider_login_code_expired"))
-            })
-            .when(loading, |card| {
-                card.child(
-                    h_flex()
-                        .debug_selector(|| "provider-login-loading".into())
-                        .gap_2()
-                        .child(spinner::Spinner::new().small())
-                        .child(tr("provider_login_starting")),
-                )
-            })
-            .when(!self.expired() && !loading && code.is_none(), |card| {
-                card.label(tr("provider_login_code_placeholder"))
-            })
-            .when_some(code, |card, code| {
-                card.child(
-                    div()
-                        .debug_selector(|| "provider-login-code-text".into())
-                        .text_2xl()
-                        .font_semibold()
-                        .child(code.clone()),
-                )
-                .on_click(move |_, window, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(code.clone()));
-                    crate::feedback::toast(
-                        window,
-                        tr("content_copied"),
-                        notification::Notification::success(tr("content_copied")),
-                        cx,
-                    );
-                })
-            });
         v_flex()
             .id("provider-login")
             .debug_selector(|| "provider-login".into())
             .w_full()
             .gap_4()
-            .child(
-                div()
-                    .debug_selector(|| "provider-login-code-card".into())
-                    .w_full()
-                    .child(card),
+            .when(self.expired(), |body| {
+                body.child(
+                    Button::new("provider-login-code-expired")
+                        .debug_selector(|| "provider-login-code-expired".into())
+                        .custom(ButtonCustomVariant::new(cx))
+                        .disabled(true)
+                        .w_full()
+                        .h(rems(6.))
+                        .bg(cx.theme().group_box)
+                        .border_1()
+                        .border_color(cx.theme().border)
+                        .rounded(cx.theme().radius_lg)
+                        .label(tr("provider_login_code_expired")),
+                )
+            })
+            .when(
+                active
+                    && (self.pending
+                        || matches!(self.state(), Some(State::Starting | State::Exchanging))),
+                |body| {
+                    body.child(
+                        h_flex()
+                            .debug_selector(|| "provider-login-loading".into())
+                            .w_full()
+                            .gap_2()
+                            .py_2()
+                            .child(spinner::Spinner::new().small())
+                            .child(tr("provider_login_starting")),
+                    )
+                },
             )
+            .when(
+                active && !self.pending && matches!(self.state(), Some(State::Browser { .. })),
+                |body| {
+                    body.child(
+                        h_flex()
+                            .debug_selector(|| "provider-login-waiting".into())
+                            .gap_2()
+                            .py_2()
+                            .child(Icon::new(IconName::ExternalLink).small())
+                            .child(tr("provider_login_waiting")),
+                    )
+                },
+            )
+            .when_some(self.state().filter(|_| active), |body, state| {
+                if let State::Pending { user_code, .. } = state {
+                    let code = user_code.clone();
+                    body.child(
+                        Button::new("provider-login-code")
+                            .debug_selector(|| "provider-login-code".into())
+                            .accessibility_label(tr("provider_login_copy"))
+                            .custom(ButtonCustomVariant::new(cx).hover(cx.theme().secondary_hover))
+                            .w_full()
+                            .h(rems(6.))
+                            .bg(cx.theme().group_box)
+                            .border_1()
+                            .border_color(cx.theme().border)
+                            .rounded(cx.theme().radius_lg)
+                            .child(
+                                div()
+                                    .debug_selector(|| "provider-login-code-text".into())
+                                    .text_2xl()
+                                    .font_semibold()
+                                    .child(user_code.clone()),
+                            )
+                            .on_click(move |_, window, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(code.clone()));
+                                crate::feedback::toast(
+                                    window,
+                                    tr("content_copied"),
+                                    notification::Notification::success(tr("content_copied")),
+                                    cx,
+                                );
+                            }),
+                    )
+                } else {
+                    body
+                }
+            })
     }
 }

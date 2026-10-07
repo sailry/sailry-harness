@@ -1,4 +1,4 @@
-//! Account-scoped provider catalogs preserve the returned model order.
+//! Account-scoped catalogs, including the public Sign in with ChatGPT model list.
 use super::*;
 use sailry_protocol::{Authentication, Effort};
 use serde_json::Value;
@@ -26,14 +26,7 @@ async fn fetch(
     url.set_path(&format!("{}/models", url.path().trim_end_matches('/')));
     let mut headers = grant.headers(options)?;
     match grant.authentication() {
-        Authentication::ChatGpt => {
-            url.query_pairs_mut().append_pair(
-                "client_version",
-                options
-                    .catalog_version()
-                    .ok_or_else(|| invalid("catalog version is missing"))?,
-            );
-        }
+        Authentication::ChatGpt => {}
         Authentication::Copilot => {
             headers.insert(
                 "openai-intent",
@@ -81,6 +74,9 @@ fn parse(
     let mut models = Vec::<discovery::Model>::new();
     let mut indices = BTreeMap::<String, usize>::new();
     for entry in entries {
+        if chatgpt && entry["visibility"] != "list" {
+            continue;
+        }
         if !chatgpt && !supports(entry, api)? {
             continue;
         }
@@ -149,21 +145,17 @@ fn parse(
         let model = discovery::Model {
             id: id.into(),
             display_name: if chatgpt {
-                entry
-                    .get("display_name")
-                    .filter(|value| !value.is_null())
-                    .map(|value| {
-                        value
-                            .as_str()
-                            .filter(|value| {
-                                !value.trim().is_empty()
-                                    && value.len() <= 256
-                                    && !value.chars().any(char::is_control)
-                            })
-                            .ok_or_else(|| unavailable("provider model display name is invalid"))
-                            .map(str::to_owned)
-                    })
-                    .transpose()?
+                Some(
+                    entry["display_name"]
+                        .as_str()
+                        .filter(|value| {
+                            !value.trim().is_empty()
+                                && value.len() <= 256
+                                && !value.chars().any(char::is_control)
+                        })
+                        .ok_or_else(|| unavailable("provider model display name is invalid"))?
+                        .to_owned(),
+                )
             } else {
                 None
             },

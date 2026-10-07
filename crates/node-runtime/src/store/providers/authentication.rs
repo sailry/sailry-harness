@@ -39,11 +39,26 @@ impl Saved {
     }
 
     fn metadata(&self, provider: ProviderId, id: CredentialId) -> Result<Credential, Fault> {
+        let account_label = if self.authentication == Authentication::ChatGpt {
+            self.key
+                .as_ref()
+                .map(|key| {
+                    let crate::providers::login::Grant::ChatGpt { email, subject, .. } =
+                        crate::providers::login::Grant::decode(self.authentication, key)?
+                    else {
+                        unreachable!()
+                    };
+                    Ok::<_, Fault>(email.unwrap_or(subject))
+                })
+                .transpose()?
+        } else {
+            None
+        };
         Ok(Credential {
             id,
             provider,
             authentication: self.authentication,
-            account_label: None,
+            account_label,
             revision: self.revision,
             expires_at_ms: self.expires_at_ms,
             revoked: self.key.is_none(),

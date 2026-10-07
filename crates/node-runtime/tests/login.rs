@@ -18,6 +18,8 @@ use std::{
 mod catalog;
 #[path = "login/execution.rs"]
 mod execution;
+#[path = "login/identity.rs"]
+mod identity;
 #[path = "login/lifecycle.rs"]
 mod lifecycle;
 #[path = "login/oauth.rs"]
@@ -98,48 +100,29 @@ fn future_expiry() -> u64 {
         + 3600
 }
 fn access_token() -> String {
-    format!("e30.{}.fixture", URL_SAFE_NO_PAD.encode(json!({"exp": future_expiry(), "https://api.openai.com/auth": {"chatgpt_account_id":"fixture-account"}}).to_string()))
+    "isolated-chatgpt-access".into()
 }
 
 fn standard(request: &discovery_support::Request) -> Reply {
     match request.path.as_str() {
         path if path.starts_with("/models") => Reply::Json(catalog::account_models(
             request,
-            if request.headers.contains_key("chatgpt-account-id") {
+            if request
+                .headers
+                .get("authorization")
+                .is_some_and(|value| value.contains("chatgpt"))
+            {
                 Authentication::ChatGpt
             } else {
                 Authentication::Copilot
             },
         )),
-        "/api/accounts/deviceauth/usercode" => {
-            assert_eq!(request.method, "POST");
-            assert_eq!(
-                serde_json::from_str::<serde_json::Value>(&request.body).unwrap()["client_id"],
-                "app_EMoamEEZ73f0CkXaXp7hrann"
-            );
-            Reply::Json(json!({"device_auth_id": DEVICE,"user_code":"ABCD-1234","interval":"1"}))
+        "/api/accounts/oauth/token" => Reply::Json(identity::tokens(request, 3600, REFRESH)),
+        "/.well-known/openid-configuration" => {
+            Reply::Json(json!({"issuer":identity::issuer(request),
+            "jwks_uri":format!("{}/.well-known/jwks.json", identity::issuer(request))}))
         }
-        "/api/accounts/deviceauth/token" => {
-            let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
-            assert_eq!(body["device_auth_id"], DEVICE);
-            assert_eq!(body["user_code"], "ABCD-1234");
-            Reply::Json(
-                json!({"authorization_code":"isolated-code-secret","code_verifier":"isolated-verifier-secret","code_challenge":"fixture"}),
-            )
-        }
-        "/oauth/token" => {
-            assert_eq!(
-                request.headers["content-type"],
-                "application/x-www-form-urlencoded"
-            );
-            assert!(request.body.contains("grant_type=authorization_code"));
-            assert!(
-                request
-                    .body
-                    .contains("code_verifier=isolated-verifier-secret")
-            );
-            Reply::Json(json!({"access_token":access_token(),"refresh_token":REFRESH}))
-        }
+        "/.well-known/jwks.json" => Reply::Json(identity::keys()),
         "/login/device/code" => {
             assert_eq!(request.headers["accept"], "application/json");
             assert!(request.body.contains("client_id=Iv1.b507a08c87ecfe98"));
@@ -177,7 +160,7 @@ async fn provider(client: &Client, authentication: Authentication) -> Provider {
         api: ModelApi::Responses,
         authentication,
         endpoint: if authentication == Authentication::ChatGpt {
-            "https://chatgpt.com/backend-api/codex"
+            "https://api.openai.com/v1"
         } else {
             "https://api.githubcopilot.com"
         }
@@ -200,10 +183,12 @@ async fn provider(client: &Client, authentication: Authentication) -> Provider {
     provider
 }
 
-async fn begin(client: &Client, provider: &Provider) -> (Request, login::Attempt) {
+async fn start(client: &Client, provider: &Provider) -> (Request, login::Attempt) {
     let request = client.prepare(Command::BeginProviderLogin {
         provider: provider.id,
         expected_revision: provider.revision,
+        redirect: (provider.authentication == Authentication::ChatGpt)
+            .then(|| identity::REDIRECT.into()),
     });
     let admission = client.dispatch(request.clone()).await.unwrap();
     assert!(admission.receipt.durable);
@@ -211,6 +196,44 @@ async fn begin(client: &Client, provider: &Provider) -> (Request, login::Attempt
         panic!("attempt expected")
     };
     assert_eq!(attempt.id, request.id);
+    (request, attempt)
+}
+
+async fn browser(client: &Client, attempt: &login::Attempt) -> String {
+    let mut stream = client.subscribe_login(attempt.id).await.unwrap();
+    loop {
+        let update = next(&mut stream).await;
+        no_secrets(&update);
+        match update.state {
+            login::State::Browser {
+                authorization_url, ..
+            } => return authorization_url,
+            login::State::Starting => {}
+            state => panic!("browser authorization expected, got {state:?}"),
+        }
+    }
+}
+
+async fn complete(client: &Client, attempt: &login::Attempt, callback: Secret) -> Request {
+    let request = client.prepare(Command::CompleteProviderLogin {
+        attempt: attempt.id,
+        callback,
+    });
+    let admission = client.dispatch(request.clone()).await.unwrap();
+    assert!(admission.receipt.durable);
+    assert_eq!(
+        admission.completion.await.unwrap().unwrap(),
+        Output::ProviderLogin(attempt.clone())
+    );
+    request
+}
+
+async fn begin(client: &Client, provider: &Provider) -> (Request, login::Attempt) {
+    let (request, attempt) = start(client, provider).await;
+    if provider.authentication == Authentication::ChatGpt {
+        let url = browser(client, &attempt).await;
+        complete(client, &attempt, identity::callback(&url)).await;
+    }
     (request, attempt)
 }
 
@@ -255,6 +278,7 @@ fn no_secrets(value: &impl serde::Serialize) {
         "isolated-code-secret",
         "isolated-verifier-secret",
         "fixture-account",
+        "isolated-chatgpt-access",
     ] {
         assert!(!body.contains(secret));
     }
@@ -269,7 +293,7 @@ async fn persists_and_recovers() {
             let provider = provider(&fixture.client, authentication).await;
             let (request, attempt) = begin(&fixture.client, &provider).await;
             let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
-            let mut prompt_seen = false;
+            let mut prompt_seen = authentication == Authentication::ChatGpt;
             loop {
                 let update = next(&mut stream).await;
                 no_secrets(&update);

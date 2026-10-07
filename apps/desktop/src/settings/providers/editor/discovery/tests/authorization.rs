@@ -126,6 +126,20 @@ fn configures_an_empty_account(cx: &mut TestAppContext) {
                     secret: Secret::new("isolated-unselected-key".into()),
                     expires_at_ms: None,
                 });
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while visual.debug_bounds("provider-login-waiting").is_none() {
+                    settle(visual);
+                    assert!(Instant::now() < deadline, "browser readiness deadline");
+                }
+                let authorization = visual.opened_url().unwrap();
+                let callback = support::callback(&authorization);
+                fixture.runtime.block_on(async {
+                    reqwest::get(callback.expose())
+                        .await
+                        .unwrap()
+                        .error_for_status()
+                        .unwrap();
+                });
             }
             wait(visual, |cx| {
                 owner.read(cx).providers.channels[0].credential_configured
@@ -186,7 +200,7 @@ fn configures_an_empty_account(cx: &mut TestAppContext) {
                         .unwrap()
                         .account_label
                         .as_deref(),
-                    None
+                    Some("user@example.com")
                 );
             }
             visual.update(|window, cx| {

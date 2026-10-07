@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub(super) fn options(authentication: Authentication, suffix: &str) -> Options {
     match authentication {
         Authentication::ChatGpt => Options::ChatGpt {
-            catalog_version: Some("0.161.0".into()),
             user_agent: format!("Sailry-Fixture/{suffix}"),
         },
         Authentication::Copilot => Options::Copilot {
@@ -19,9 +18,6 @@ pub(super) fn options(authentication: Authentication, suffix: &str) -> Options {
 
 pub(super) fn headers(request: &discovery_support::Request, options: &Options) {
     assert_eq!(request.headers["user-agent"], options.user_agent());
-    if let Some(version) = options.catalog_version() {
-        assert_eq!(request.headers["version"], version);
-    }
     if let Options::Copilot {
         editor_version,
         editor_plugin_version,
@@ -93,9 +89,9 @@ async fn discovers_with_unsaved_options() {
                 let request = requests.last().unwrap();
                 headers(request, &draft);
                 if authentication == Authentication::ChatGpt {
-                    assert_eq!(request.path, "/models?client_version=0.161.0");
-                    assert_eq!(request.headers["originator"], "codex_cli_rs");
-                    assert_eq!(request.headers["chatgpt-account-id"], "fixture-account");
+                    assert_eq!(request.path, "/models");
+                    assert!(!request.headers.contains_key("originator"));
+                    assert!(!request.headers.contains_key("chatgpt-account-id"));
                 }
             }
             fixture.close().await;

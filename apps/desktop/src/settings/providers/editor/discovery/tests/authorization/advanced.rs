@@ -16,7 +16,6 @@ fn replace(visual: &mut VisualTestContext, selector: &'static str, value: &str) 
 fn custom(preset: Preset) -> Options {
     match preset {
         Preset::ChatGpt => Options::ChatGpt {
-            catalog_version: Some("0.161.0".into()),
             user_agent: "Fixture/9.3".into(),
         },
         Preset::Copilot | Preset::CopilotResponses => Options::Copilot {
@@ -31,13 +30,7 @@ fn custom(preset: Preset) -> Options {
 fn fill(visual: &mut VisualTestContext, options: &Options) {
     replace(visual, "provider-oauth-user-agent", options.user_agent());
     match options {
-        Options::ChatGpt { .. } => {
-            replace(
-                visual,
-                "provider-oauth-catalog-version",
-                options.catalog_version().unwrap(),
-            );
-        }
+        Options::ChatGpt { .. } => {}
         Options::Copilot {
             editor_version,
             editor_plugin_version,
@@ -57,9 +50,8 @@ fn parameters(request: &crate::discovery_fixture::Request, options: &Options) {
     assert_eq!(request.headers["user-agent"], options.user_agent());
     match options {
         Options::ChatGpt { .. } => {
-            assert_eq!(request.path, "/models?client_version=0.161.0");
-            assert_eq!(request.headers["version"], "0.161.0");
-            assert_eq!(request.headers["chatgpt-account-id"], "desktop-fixture");
+            assert_eq!(request.path, "/models");
+            assert!(!request.headers.contains_key("chatgpt-account-id"));
         }
         Options::Copilot {
             editor_version,

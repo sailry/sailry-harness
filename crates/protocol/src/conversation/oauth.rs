@@ -3,16 +3,10 @@ use super::ModelApi;
 use crate::{Authentication, ErrorCode, Fault};
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_CATALOG_VERSION: &str = "0.160.0";
-pub const DEFAULT_CODEX_USER_AGENT: &str = "codex-tui/0.160.0 (Sailry/0.1)";
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Options {
     ChatGpt {
-        /// An unset override uses the supported catalog compatibility revision.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        catalog_version: Option<String>,
         user_agent: String,
     },
     Copilot {
@@ -26,8 +20,7 @@ impl Options {
     pub fn defaults(authentication: Authentication) -> Option<Self> {
         match authentication {
             Authentication::ChatGpt => Some(Self::ChatGpt {
-                catalog_version: Some(DEFAULT_CATALOG_VERSION.into()),
-                user_agent: DEFAULT_CODEX_USER_AGENT.into(),
+                user_agent: "Sailry/0.1".into(),
             }),
             Authentication::Copilot => Some(Self::Copilot {
                 user_agent: "Sailry/0.1".into(),
@@ -41,7 +34,7 @@ impl Options {
     /// Wire checks only; the execution Node also validates HTTP values.
     pub fn validate(&self, authentication: Authentication, api: ModelApi) -> Result<(), Fault> {
         let fields: &[&str] = match (self, authentication, api) {
-            (Self::ChatGpt { user_agent, .. }, Authentication::ChatGpt, ModelApi::Responses) => {
+            (Self::ChatGpt { user_agent }, Authentication::ChatGpt, ModelApi::Responses) => {
                 &[user_agent]
             }
             (
@@ -60,49 +53,12 @@ impl Options {
         }) {
             return Err(invalid("OAuth setting is invalid"));
         }
-        if let Some(version) = self.catalog_version() {
-            let parts = version.split('.').collect::<Vec<_>>();
-            if parts.len() != 3
-                || parts.iter().any(|part| {
-                    part.is_empty()
-                        || part.len() > 8
-                        || !part.bytes().all(|byte| byte.is_ascii_digit())
-                })
-            {
-                return Err(invalid("catalog version must use major.minor.patch"));
-            }
-        }
         Ok(())
-    }
-
-    pub fn catalog_version(&self) -> Option<&str> {
-        match self {
-            Self::ChatGpt {
-                catalog_version, ..
-            } => Some(
-                catalog_version
-                    .as_deref()
-                    .unwrap_or(DEFAULT_CATALOG_VERSION),
-            ),
-            Self::Copilot { .. } => None,
-        }
     }
 
     pub fn user_agent(&self) -> &str {
         match self {
             Self::ChatGpt { user_agent, .. } | Self::Copilot { user_agent, .. } => user_agent,
-        }
-    }
-
-    /// Keep the Codex originator consistent with an explicitly selected client identity.
-    pub fn originator(&self) -> Option<&str> {
-        let Self::ChatGpt { user_agent, .. } = self else {
-            return None;
-        };
-        let name = user_agent.split_once('/').map(|(name, _)| name);
-        match name {
-            Some("codex-tui" | "codex_cli_rs" | "codex_vscode") => name,
-            _ => Some("codex_cli_rs"),
         }
     }
 }
@@ -114,31 +70,6 @@ fn invalid(message: &'static str) -> Fault {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn matches_codex_originators() {
-        let mut options = Options::defaults(Authentication::ChatGpt).unwrap();
-        assert_eq!(options.originator(), Some("codex-tui"));
-        for (agent, expected) in [
-            ("codex_cli_rs/0.160.1", "codex_cli_rs"),
-            ("codex-tui/0.160.1", "codex-tui"),
-            ("codex_vscode/0.160.1", "codex_vscode"),
-            ("Custom/1", "codex_cli_rs"),
-            ("codex-tui-other/1", "codex_cli_rs"),
-        ] {
-            let Options::ChatGpt { user_agent, .. } = &mut options else {
-                unreachable!()
-            };
-            *user_agent = agent.into();
-            assert_eq!(options.originator(), Some(expected));
-        }
-        assert_eq!(
-            Options::defaults(Authentication::Copilot)
-                .unwrap()
-                .originator(),
-            None
-        );
-    }
 
     #[test]
     fn defaults_match_supported_apis() {
@@ -156,47 +87,6 @@ mod tests {
         }
         assert!(Options::defaults(Authentication::ApiKey).is_none());
         assert!(Options::defaults(Authentication::Host).is_none());
-    }
-
-    #[test]
-    fn validates_catalog_overrides() {
-        let mut options = Options::defaults(Authentication::ChatGpt).unwrap();
-        assert_eq!(options.catalog_version(), Some(DEFAULT_CATALOG_VERSION));
-        let Options::ChatGpt {
-            catalog_version, ..
-        } = &mut options
-        else {
-            unreachable!()
-        };
-        *catalog_version = Some("0.161.0".into());
-        options
-            .validate(Authentication::ChatGpt, ModelApi::Responses)
-            .unwrap();
-        assert_eq!(options.catalog_version(), Some("0.161.0"));
-        assert_eq!(
-            serde_json::from_value::<Options>(serde_json::to_value(&options).unwrap()).unwrap(),
-            options
-        );
-        for version in [
-            "",
-            "v0.161",
-            "0.161",
-            "0.161.0\r\nx-header: injected",
-            "0.161.0.1",
-        ] {
-            let Options::ChatGpt {
-                catalog_version, ..
-            } = &mut options
-            else {
-                unreachable!()
-            };
-            *catalog_version = Some(version.into());
-            assert!(
-                options
-                    .validate(Authentication::ChatGpt, ModelApi::Responses)
-                    .is_err()
-            );
-        }
     }
 
     #[test]

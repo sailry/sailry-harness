@@ -312,6 +312,7 @@ impl Database {
         } else if matches!(
             request.command,
             Command::BeginProviderLogin { .. }
+                | Command::CompleteProviderLogin { .. }
                 | Command::CancelProviderLogin { .. }
                 | Command::BeginMcpLogin { .. }
                 | Command::CompleteMcpLogin { .. }
@@ -592,6 +593,7 @@ impl Database {
                 | Command::SaveSsh { .. }
                 | Command::SaveDatabase { .. }
                 | Command::CompleteMcpLogin { .. }
+                | Command::CompleteProviderLogin { .. }
                 | Command::SavePluginSettings { .. }
                 | Command::SavePluginMcp { .. }
                 | Command::InstallMcp { .. }

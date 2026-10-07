@@ -149,7 +149,7 @@ async fn rolls_back_failed_save() {
 async fn cancels_pending_http() {
     for remote in [false, true] {
         let server = Server::start_with_request(ModelApi::Anthropic, |request| {
-            if request.path.ends_with("deviceauth/token") {
+            if request.path == "/api/accounts/oauth/token" {
                 Reply::Hold
             } else {
                 standard(request)
@@ -160,7 +160,7 @@ async fn cancels_pending_http() {
         let provider = provider(&fixture.client, Authentication::ChatGpt).await;
         let (_, attempt) = begin(&fixture.client, &provider).await;
         let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
-        server.wait_requests(2).await;
+        server.wait_requests(1).await;
         let cancel = fixture.client.prepare(Command::CancelProviderLogin {
             attempt: attempt.id,
         });
@@ -205,11 +205,8 @@ async fn rejects_conflicts_and_other_callers() {
         let release = Arc::new(tokio::sync::Notify::new());
         let ready = release.clone();
         let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-            if request.path == "/oauth/token" {
-                Reply::Delayed(
-                    ready.clone(),
-                    json!({"access_token":access_token(),"refresh_token":REFRESH}),
-                )
+            if request.path == "/api/accounts/oauth/token" {
+                Reply::Delayed(ready.clone(), identity::tokens(request, 3600, REFRESH))
             } else {
                 standard(request)
             }
@@ -248,18 +245,33 @@ async fn rejects_conflicts_and_other_callers() {
             ErrorCode::NotFound
         );
         assert_eq!(
+            other
+                .execute(other.prepare(Command::CompleteProviderLogin {
+                    attempt: attempt.id,
+                    callback: Secret::new(format!(
+                        "{}?state=other&code=other&client_id=oaiapp_other",
+                        identity::REDIRECT
+                    )),
+                }))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotFound
+        );
+        assert_eq!(
             fixture
                 .client
                 .execute(fixture.client.prepare(Command::BeginProviderLogin {
                     provider: provider.id,
-                    expected_revision: provider.revision
+                    expected_revision: provider.revision,
+                    redirect: Some(identity::REDIRECT.into())
                 }))
                 .await
                 .unwrap_err()
                 .code,
             ErrorCode::Busy
         );
-        server.wait_requests(3).await;
+        server.wait_requests(1).await;
         provider.name = "Edited during login".into();
         fixture
             .client
@@ -336,7 +348,8 @@ async fn bounds_attempts_without_observers() {
                 .client
                 .execute(fixture.client.prepare(Command::BeginProviderLogin {
                     provider: provider.id,
-                    expected_revision: provider.revision
+                    expected_revision: provider.revision,
+                    redirect: None
                 }))
                 .await
                 .unwrap_err()
@@ -380,6 +393,7 @@ async fn requires_recorded_receipt() {
         let request = fixture.client.prepare(Command::BeginProviderLogin {
             provider: provider.id,
             expected_revision: provider.revision,
+            redirect: Some(identity::REDIRECT.into()),
         });
         assert_eq!(
             fixture

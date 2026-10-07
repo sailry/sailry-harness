@@ -9,6 +9,7 @@ use sailry_protocol::{
 use std::sync::{Arc, Mutex, atomic::AtomicU8};
 
 mod cancellation;
+mod recovery;
 
 struct Recording {
     inner: Arc<dyn Transport>,
@@ -37,7 +38,7 @@ struct Fixture {
     transport: Arc<dyn Transport>,
     recording: Arc<Recording>,
     mode: Arc<AtomicU8>,
-    _server: support::Server,
+    server: support::Server,
     _directory: tempfile::TempDir,
 }
 
@@ -82,7 +83,7 @@ impl Fixture {
             transport: recording.clone(),
             recording,
             mode,
-            _server: server,
+            server,
             _directory: directory,
         }
     }
@@ -152,7 +153,7 @@ impl Fixture {
         (owner, visual)
     }
 
-    fn begin(&self, visual: &mut VisualTestContext) -> RequestId {
+    fn begin(&self, visual: &mut VisualTestContext) -> (RequestId, String) {
         let before = self.recording.requests.lock().unwrap().len();
         tap(visual, "provider-login-0");
         wait(visual, |_| {
@@ -166,26 +167,34 @@ impl Fixture {
             .unwrap()
             .id;
         let deadline = Instant::now() + Duration::from_secs(10);
-        while visual.debug_bounds("provider-login-code").is_none()
-            && visual.debug_bounds("provider-login-retry").is_none()
-        {
+        while visual.debug_bounds("provider-login-waiting").is_none() {
             draw(visual);
-            assert!(Instant::now() < deadline, "device readiness deadline");
+            assert!(Instant::now() < deadline, "browser readiness deadline");
             std::thread::sleep(Duration::from_millis(10));
         }
         std::thread::sleep(*gpui_kit::component::dialog::ANIMATION_DURATION);
         draw(visual);
-        match self.state(attempt) {
-            State::Pending {
-                verification_url, ..
-            } => assert_eq!(
-                visual.opened_url().as_deref(),
-                Some(verification_url.as_str())
-            ),
-            State::Failed(_) => assert!(visual.debug_bounds("provider-login-retry").is_some()),
-            _ => panic!("device authorization expected"),
-        }
-        attempt
+        let State::Browser {
+            authorization_url, ..
+        } = self.state(attempt)
+        else {
+            panic!("browser authorization expected")
+        };
+        assert_eq!(
+            visual.opened_url().as_deref(),
+            Some(authorization_url.as_str())
+        );
+        (attempt, authorization_url)
+    }
+
+    fn callback(&self, authorization: &str) {
+        self.runtime.block_on(async {
+            reqwest::get(support::callback(authorization).expose())
+                .await
+                .unwrap()
+                .error_for_status()
+                .unwrap();
+        });
     }
 
     fn close(self) {
@@ -216,9 +225,9 @@ fn authorizes_saved_provider_without_saving(cx: &mut TestAppContext) {
         fixture.recording.requests.lock().unwrap().clear();
         tap(visual, "provider-login-0");
         let deadline = Instant::now() + Duration::from_secs(10);
-        while visual.debug_bounds("provider-login-code").is_none() {
+        while visual.debug_bounds("provider-login-waiting").is_none() {
             draw(visual);
-            assert!(Instant::now() < deadline, "device readiness deadline");
+            assert!(Instant::now() < deadline, "browser readiness deadline");
             std::thread::sleep(Duration::from_millis(10));
         }
         std::thread::sleep(*gpui_kit::component::dialog::ANIMATION_DURATION);
@@ -236,27 +245,33 @@ fn authorizes_saved_provider_without_saving(cx: &mut TestAppContext) {
         let Command::BeginProviderLogin {
             provider,
             expected_revision,
+            redirect,
         } = &request.command
         else {
             unreachable!()
         };
         assert_eq!(*provider, saved.id);
         assert_eq!(*expected_revision, saved.revision);
-        let State::Pending {
-            verification_url, ..
+        let redirect = reqwest::Url::parse(redirect.as_ref().unwrap()).unwrap();
+        assert_eq!(redirect.scheme(), "http");
+        assert_eq!(redirect.host_str(), Some("127.0.0.1"));
+        assert!(redirect.port().is_some());
+        assert_eq!(redirect.path(), "/auth/callback");
+        let State::Browser {
+            authorization_url, ..
         } = fixture.state(request.id)
         else {
-            panic!("device authorization expected")
+            panic!("browser authorization expected")
         };
-        assert!(verification_url.ends_with("/codex/device"));
+        assert!(authorization_url.starts_with(&fixture.server.endpoint));
         assert_eq!(
             visual.opened_url().as_deref(),
-            Some(verification_url.as_str())
+            Some(authorization_url.as_str())
         );
         tap(visual, "provider-login-open");
         assert_eq!(
             visual.opened_url().as_deref(),
-            Some(verification_url.as_str())
+            Some(authorization_url.as_str())
         );
         tap(visual, "provider-login-cancel");
         wait(visual, |_| fixture.state(request.id) == State::Cancelled);
