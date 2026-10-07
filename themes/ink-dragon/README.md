@@ -9,7 +9,10 @@ existing v1 theme contract and needs no theme-specific application code.
 
 The window wallpaper extends behind translucent navigation and content panels.
 Its center stays clear for conversations. Surface opacity remains controlled by
-Sailry's appearance settings. Cards retain translucent hover and pressed states.
+Sailry's appearance settings. Dark main and navigation colors carry 82% and 92%
+alpha respectively, multiplying the user's panel tint so the silver dragon and
+mountain ridges remain visible. The wallpaper opacity stays at 60% to retain its
+smoky ink appearance. Cards retain translucent hover and pressed states.
 Primary buttons use ink-black fills with silver-white labels in both variants.
 Surface borders are muted silver gray; gold remains in small artwork accents.
 Dark borders use lower-opacity cool gray to avoid bright outlines. Switch thumbs

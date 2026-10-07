@@ -125,6 +125,21 @@ class Package(unittest.TestCase):
                 with self.subTest(mode=variant["theme"]["mode"], track=track):
                     self.assertGreaterEqual(contrast(rgba(colors["switch.thumb.background"]), rgba(track)), 3)
 
+    def test_panel_tint_contrast(self):
+        for variant in self.variants:
+            colors = variant["theme"]["colors"]
+            base = rgba(colors["background"])
+            opacity = variant["assets"]["background.window"]["opacity"]
+            for level in [0.0, 1.0]:
+                wallpaper = composite([level, level, level, opacity], base)
+                # Kit opacity multiplies theme alpha by the panel preference.
+                # Cover the supported minimum, default and opaque preference.
+                for tint in [0.45, 0.835, 1.0]:
+                    surface = composite(base[:3] + [base[3] * tint], wallpaper)
+                    for foreground in [colors["foreground"], variant["messages"]["assistant"]["foreground"]]:
+                        with self.subTest(mode=variant["theme"]["mode"], level=level, tint=tint):
+                            self.assertGreaterEqual(contrast(rgba(foreground), surface), 4.5)
+
     def test_wallpaper_text_contrast(self):
         # Check both ink extremes through the default panel tints. User-selected
         # surface opacity can change contrast independently of this package.
