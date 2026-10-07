@@ -15,9 +15,11 @@ mod composer;
 mod controls;
 mod decoration;
 mod dialog;
+pub(crate) mod messages;
 mod neutral;
 #[cfg(test)]
 mod tabs;
+pub(crate) mod wordmark;
 pub(crate) use dialog::DialogStyle;
 #[cfg(test)]
 pub(crate) mod fixture;
@@ -25,7 +27,17 @@ pub(crate) mod package;
 pub(crate) use catalog::{Catalog, Mode, Package, Selection, apply, remove};
 pub(crate) use composer::surface as composer_surface;
 pub(crate) use decoration::preview;
-pub(crate) use decoration::{background, banner, brand, icon};
+pub(crate) use decoration::{background, banner, brand, icon, new_session_button};
+
+fn variant(cx: &App) -> Option<&package::Variant> {
+    let catalog = cx.try_global::<Catalog>()?;
+    let manifest = catalog.packages[catalog.selected].manifest.as_ref()?;
+    Some(if cx.theme().is_dark() {
+        &manifest.dark
+    } else {
+        &manifest.light
+    })
+}
 
 #[derive(Default)]
 struct SystemAppearance(bool);

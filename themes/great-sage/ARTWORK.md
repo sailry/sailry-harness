@@ -48,3 +48,12 @@ The sidebar reuses these original illustrations at 16 pixels. Production icons a
 ### grain.png
 
 Use case: stylized-concept. Subtle seamless tileable transparent square PNG texture for small dark-gold-red Chinese mythology cards. Only sparse antique bronze and muted gold dry-brush fibers, fine dust and tiny ink speckles, dispersed with matching edges. Genuine transparent alpha across most pixels, no paper or black rectangle. Delicate irregular grain, low contrast at reduced opacity over brown or ivory panels. No clouds, mountains, scene, shapes, text, icons, frames, broad washes or painted checkerboard.
+
+### circlet.png
+
+Use case: stylized-concept. Asset type: transparent PNG top-edge ornament for a desktop New Conversation button in a Sun Wukong theme. Primary request: a refined thin golden circlet (Jingu) running horizontally, two ends curl upwards in small traditional cloud scroll shapes. Front view, a very wide thin shallow arc, occupying only a narrow horizontal strip at the center of a landscape canvas. Antique polished gold with finely engraved relief lines, elegant warm highlights and dark bronze grooves, tiny vermilion accents only on the curls. The center band must be slim to leave room for a button label below. No text, no button, no panel, no other objects, no background or shadow outside the metal. Genuine transparent background, crisp clean isolated edges.
+
+The circlet is downscaled to 768 × 256 and quantized to a 256-color indexed PNG
+while preserving alpha. The original canvas is retained, and the narrow top-edge
+slot stretches it to its configured display height. Existing corner PNGs are
+reused for user messages; no duplicate resources are included.

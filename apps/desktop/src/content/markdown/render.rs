@@ -111,6 +111,7 @@ pub struct Editing<'a> {
     /// What to set the document in. `None` derives [`Typography`] from the
     /// application theme; an explicit value can scale the same hierarchy.
     pub typography: Option<Typography>,
+    pub foreground: Option<Hsla>,
     pub on_link: Option<OnLink>,
     pub on_image: Option<OnImage>,
     pub on_file: Option<OnFile>,
@@ -127,6 +128,7 @@ impl Default for Editing<'_> {
             layouts: None,
             placeholder: None,
             typography: None,
+            foreground: None,
             on_link: None,
             on_image: None,
             on_file: None,
@@ -504,6 +506,7 @@ pub fn with_block(
         layouts,
         placeholder,
         typography,
+        foreground,
         on_link,
         on_image,
         on_file,
@@ -522,7 +525,11 @@ pub fn with_block(
     });
     // Cloned once so the theme is readable while `cx` stays free for the
     // element state the copy button needs.
-    let theme = Theme::of(cx).clone();
+    let mut theme = Theme::of(cx);
+    if let Some(color) = foreground {
+        theme.text = color;
+        theme.caret = color;
+    }
     let typography = typography.unwrap_or_else(|| Typography::of(cx));
     let mut column = div()
         .flex()

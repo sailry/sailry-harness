@@ -91,11 +91,13 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> crate::content::markdown::View {
         let owner = cx.entity().downgrade();
-        crate::content::markdown::View::markdown(id, text).on_link_click(move |link, window, cx| {
-            _ = owner.update(cx, |shell, cx| {
-                shell.open_conversation_link(link.clone(), window, cx)
-            });
-        })
+        crate::content::markdown::View::markdown(id, text)
+            .foreground(crate::theme::messages::foreground("assistant", cx))
+            .on_link_click(move |link, window, cx| {
+                _ = owner.update(cx, |shell, cx| {
+                    shell.open_conversation_link(link.clone(), window, cx)
+                });
+            })
     }
 
     pub(crate) fn send_preview(

@@ -26,6 +26,11 @@ pub const SLOTS: &[&str] = &[
     "composer.bottom_right",
     "button.send",
     "button.stop",
+    "button.new_session",
+    "message.user.top_left",
+    "message.user.bottom_right",
+    "message.assistant.top_left",
+    "message.assistant.bottom_right",
     "icon.send",
     "icon.stop",
     "icon.explore",
@@ -85,6 +90,27 @@ pub struct Variant {
     pub composer: Composer,
     #[serde(default)]
     pub cards: BTreeMap<String, Card>,
+    #[serde(default)]
+    pub messages: BTreeMap<String, Message>,
+    #[serde(default)]
+    pub wordmark: Wordmark,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Message {
+    pub background: Option<String>,
+    pub foreground: Option<String>,
+    pub border: Option<String>,
+    pub border_width: Option<u8>,
+    pub radius: Option<u8>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Wordmark {
+    pub foreground: Option<String>,
+    pub glow: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -122,7 +148,7 @@ pub struct Decoration {
     pub alignment: [f32; 2],
     #[serde(default = "opaque")]
     pub opacity: f32,
-    /// Banner and Hero height, or square corner size; backgrounds and icons use application bounds.
+    /// Banner, Hero and button-edge height, or square corner size.
     #[serde(default = "height")]
     pub height: u16,
     /// Logical tile width; aspect ratio is preserved independently of window size.
@@ -195,6 +221,30 @@ impl Manifest {
             return Err("theme package requires light and dark variants".into());
         }
         for variant in [&self.light, &self.dark] {
+            for (key, message) in &variant.messages {
+                if !["user", "assistant"].contains(&key.as_str()) {
+                    return Err(format!("unsupported message style: {key}"));
+                }
+                if message.border_width.is_some_and(|width| width > 4)
+                    || message.radius.is_some_and(|radius| radius > 32)
+                {
+                    return Err(format!("invalid message dimensions: {key}"));
+                }
+                for color in [&message.background, &message.foreground, &message.border]
+                    .into_iter()
+                    .flatten()
+                {
+                    gpui_kit::component::theme::try_parse_color(color)
+                        .map_err(|error| error.to_string())?;
+                }
+            }
+            for color in [&variant.wordmark.foreground, &variant.wordmark.glow]
+                .into_iter()
+                .flatten()
+            {
+                gpui_kit::component::theme::try_parse_color(color)
+                    .map_err(|error| error.to_string())?;
+            }
             if variant.composer.border_width > 4 {
                 return Err("invalid composer border width".into());
             }
@@ -233,9 +283,10 @@ impl Manifest {
                 resources::validate_path(&asset.path)?;
                 let unit = |v: f32| v.is_finite() && (0. ..=1.).contains(&v);
                 let max_height = if slot == "hero.new_session" { 240 } else { 96 };
+                let min_height = if slot == "button.new_session" { 4 } else { 16 };
                 if !unit(asset.opacity)
                     || !asset.alignment.into_iter().all(unit)
-                    || !(16..=max_height).contains(&asset.height)
+                    || !(min_height..=max_height).contains(&asset.height)
                 {
                     return Err(format!("invalid theme decoration dimensions: {slot}"));
                 }

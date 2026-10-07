@@ -151,3 +151,43 @@ fn equal_width_variants(cx: &mut TestAppContext) {
         }
     }
 }
+
+#[gpui::test]
+fn themed_categories(cx: &mut TestAppContext) {
+    let (view, visual) = setup(cx);
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../themes/great-sage");
+    let loaded = super::package::Loaded::read(&source, true).unwrap();
+    visual.update(|_, cx| {
+        cx.global_mut::<super::Catalog>()
+            .packages
+            .push(loaded.into())
+    });
+    for mode in [ThemeMode::Light, ThemeMode::Dark] {
+        visual.update(|window, cx| {
+            Theme::change(mode, Some(window), cx);
+            super::apply(1, Some(window), cx);
+            let colors = &super::variant(cx).unwrap().theme.colors;
+            assert_eq!(
+                cx.theme().tab_foreground,
+                theme::try_parse_color(colors.tab_foreground.as_ref().unwrap()).unwrap()
+            );
+            assert_eq!(
+                cx.theme().tab_active_foreground,
+                theme::try_parse_color(colors.tab_active_foreground.as_ref().unwrap()).unwrap()
+            );
+            assert_ne!(cx.theme().tab_foreground, cx.theme().tab_active_foreground);
+            assert!(cx.theme().tab_bar_segmented.a < 1.);
+            assert_ne!(cx.theme().tokens.button, cx.theme().tokens.button_primary);
+            view.update(cx, |_, cx| cx.notify());
+        });
+        settle(visual);
+        for index in [2, 0] {
+            let bounds = visual
+                .debug_bounds(["tab-0", "tab-1", "tab-2"][index])
+                .unwrap();
+            visual.simulate_click(bounds.center(), Modifiers::none());
+            settle(visual);
+            assert_eq!(view.read_with(visual, |view, _| view.selected), index);
+        }
+    }
+}

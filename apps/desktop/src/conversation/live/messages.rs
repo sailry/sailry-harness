@@ -1,6 +1,6 @@
 use super::*;
 use gpui_kit::component::{
-    bubble::{Bubble, BubbleContent, BubbleVariant},
+    bubble::{Bubble, BubbleVariant},
     button::{Button, ButtonVariants},
     clipboard::Clipboard,
     collapsible::Collapsible,
@@ -61,11 +61,8 @@ impl View {
                             .max_w(px(crate::conversation::layout::USER_MESSAGE_WIDTH))
                             .when(editing, |bubble| bubble.w_full())
                             .content(
-                                BubbleContent::new()
-                                    .px(px(14.))
-                                    .py(px(9.))
+                                crate::theme::messages::user(cx)
                                     .when(editing, |content| content.w_full())
-                                    .rounded(cx.theme().radius)
                                     .child(
                                         div()
                                             .debug_selector(move || {
@@ -136,6 +133,7 @@ impl View {
         state.update(cx, |state, cx| state.set_source(text, cx));
         let typography = crate::content::markdown::typography::Typography::of(cx);
         crate::content::markdown::View::new(&state)
+            .foreground(crate::theme::messages::foreground("assistant", cx))
             .typography(
                 typography.scaled(f32::from(self.message_text_size) / typography.body.size()),
             )
@@ -590,7 +588,7 @@ impl View {
                                         .child(Separator::horizontal()),
                                 ),
                             )
-                            .content(content)
+                            .content(crate::theme::messages::assistant(content, cx))
                             .when(!frame::active(run.status), |message| message.footer(footer)),
                     ),
             )

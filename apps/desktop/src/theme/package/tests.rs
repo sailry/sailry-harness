@@ -122,7 +122,7 @@ fn great_sage_imports() {
         loaded.manifest.description.as_deref(),
         Some("A theme inspired by the Great Sage, with golden accents and ink landscapes")
     );
-    assert_eq!(loaded.images.len(), 10);
+    assert_eq!(loaded.images.len(), 11);
     for variant in [&loaded.manifest.light, &loaded.manifest.dark] {
         assert_eq!(variant.composer.border_width, 1);
         assert_eq!(variant.cards.len(), 4);
@@ -304,5 +304,42 @@ mod metadata {
         value["light"]["assets"]["brand"]["license"]["name"] = json!(" ");
         let manifest: Manifest = serde_json::from_value(value).unwrap();
         assert!(manifest.validate().is_err());
+    }
+}
+
+mod message_styles {
+    use super::*;
+
+    #[test]
+    fn validates_colors_and_dimensions() {
+        let mut value = crate::theme::fixture::manifest("styles");
+        value["light"]["messages"] = json!({"user": {
+            "background": "#231C16CC", "foreground": "#FFEBCD", "border": "#B9954150",
+            "border_width": 1, "radius": 14
+        }});
+        value["light"]["wordmark"] = json!({"foreground": "#A47C26", "glow": "#BE7331"});
+        serde_json::from_value::<Manifest>(value.clone())
+            .unwrap()
+            .validate()
+            .unwrap();
+        for (pointer, replacement) in [
+            ("/light/messages/user/background", json!("invalid")),
+            ("/light/messages/user/foreground", json!("invalid")),
+            ("/light/messages/user/border", json!("invalid")),
+            ("/light/messages/user/border_width", json!(5)),
+            ("/light/messages/user/radius", json!(33)),
+            ("/light/messages", json!({"system": {}})),
+            ("/light/wordmark/glow", json!("invalid")),
+            ("/light/wordmark/foreground", json!("invalid")),
+        ] {
+            let mut invalid = value.clone();
+            *invalid.pointer_mut(pointer).unwrap() = replacement;
+            assert!(
+                serde_json::from_value::<Manifest>(invalid)
+                    .unwrap()
+                    .validate()
+                    .is_err()
+            );
+        }
     }
 }

@@ -76,3 +76,40 @@ window wallpaper with `cover`, and reduces decoration opacity in light mode.
 Its translucent cards share a small repeating grain texture and themed icons.
 Compress production PNGs and size small ornaments/icons for their displayed size;
 large wallpapers should retain enough detail for the window.
+
+## Message surfaces and wordmark
+
+`messages.user` and `messages.assistant` accept optional solid `background`,
+`foreground` and `border` colors, `border_width` (0–4 pixels) and `radius`
+(0–32 pixels). Omitted values preserve the current Kit message slots. The user
+style covers sent and pending prompts, including inline editing; the assistant
+style covers the message body, leaving status headers and action footers separate.
+Markdown body text follows the configured foreground; links, code and status
+colors retain their semantic roles. These refinements do not replace selection,
+copy, reference links or editing behavior.
+
+Optional `message.user.top_left`, `message.user.bottom_right`,
+`message.assistant.top_left` and `message.assistant.bottom_right` assets add
+transparent corner ornaments (16–96 pixels), clipped within the surface.
+
+`wordmark.foreground` and `wordmark.glow` independently color the welcome page's
+square particles and their illumination. Defaults follow Kit's foreground.
+
+`button.new_session` overlays an eventless, full-width top-edge ornament on the
+sidebar's existing New Conversation button. Its `height` is 4–96 pixels; a thin
+transparent PNG preserves the label and Kit's fill and interaction states.
+
+## Global control colors
+
+The theme's `colors` already exposes Kit's global button treatments:
+`button.background`, `button.foreground`, `button.hover.background` and
+`button.active.background`, plus the same fields under `button.primary`,
+`button.secondary`, `button.danger`, `button.info`, `button.success` and
+`button.warning`. Background fields accept gradients. Ghost controls use the
+semantic secondary foreground, accent hover and button active colors; disabled
+states remain Kit-derived.
+
+Tabs use `tab.background`, `tab.foreground`, `tab.active.background`,
+`tab.active.foreground`, `tab_bar.background` and
+`tab_bar.segmented.background`. The Great Sage package supplies both normal and
+selected text colors, translucent bars and gold selection fills in both modes.

@@ -182,6 +182,7 @@ impl Shell {
             .on_click(cx.listener(|this, _, window, cx| {
                 this.start_conversation(window, cx);
             }));
+        let navigation = crate::theme::new_session_button(navigation, cx);
         v_flex()
             .size_full()
             .text_color(cx.theme().sidebar_foreground)

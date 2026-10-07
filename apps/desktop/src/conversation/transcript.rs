@@ -1,7 +1,7 @@
 use super::turn::{Block, Status, Turn};
 use crate::{shell::Shell, tr};
 use gpui_kit::component::{
-    bubble::{Bubble, BubbleContent, BubbleVariant},
+    bubble::{Bubble, BubbleVariant},
     clipboard::Clipboard,
     collapsible::Collapsible,
     message::{
@@ -343,10 +343,7 @@ impl Shell {
                                         .with_variant(BubbleVariant::Muted)
                                         .max_w(px(440.))
                                         .content(
-                                            BubbleContent::new()
-                                                .rounded(cx.theme().radius)
-                                                .px(px(14.))
-                                                .py(px(9.))
+                                            crate::theme::messages::user(cx)
                                                 .when(location.child.is_none(), |bubble| {
                                                     bubble.when_some(
                                                         self.sent_references(
@@ -359,11 +356,16 @@ impl Shell {
                                                         },
                                                     )
                                                 })
-                                                .child(self.linked_message(
-                                                    format!("{id}-prompt"),
-                                                    turn.prompt.clone(),
-                                                    cx,
-                                                ))
+                                                .child(
+                                                    self.linked_message(
+                                                        format!("{id}-prompt"),
+                                                        turn.prompt.clone(),
+                                                        cx,
+                                                    )
+                                                    .foreground(crate::theme::messages::foreground(
+                                                        "user", cx,
+                                                    )),
+                                                )
                                                 .when(
                                                     turn.options
                                                         .as_ref()
@@ -398,7 +400,7 @@ impl Shell {
                                         .child(Separator::horizontal()),
                                 ),
                             )
-                            .content(content)
+                            .content(crate::theme::messages::assistant(content, cx))
                             .footer(footer),
                     ),
             )

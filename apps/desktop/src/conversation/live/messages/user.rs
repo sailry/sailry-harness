@@ -168,6 +168,10 @@ impl View {
                     .bordered(false)
                     .p_0()
                     .text_size(px(f32::from(self.message_text_size)))
+                    .when_some(
+                        crate::theme::messages::foreground("user", cx),
+                        |input, color| input.text_color(color),
+                    )
                     .readonly(self.busy())
                     .aria_label(tr("message_edit"))
                     .on_token_click(cx.listener(move |view, event, window, cx| {

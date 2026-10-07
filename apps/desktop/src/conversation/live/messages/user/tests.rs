@@ -356,3 +356,54 @@ fn preserves_literal_text(cx: &mut TestAppContext) {
         fixture.close();
     }
 }
+
+#[gpui_kit::test]
+fn themed_actions(cx: &mut TestAppContext) {
+    init(cx);
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../themes/great-sage");
+    let loaded = crate::theme::package::Loaded::read(&source, true).unwrap();
+    cx.update(|cx| {
+        cx.global_mut::<crate::theme::Catalog>()
+            .packages
+            .push(loaded.into())
+    });
+    for remote in [false, true] {
+        let fixture = Fixture::with_tools(remote, vec![]);
+        let turn = complete(&fixture, "Keep this message");
+        let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
+        wait(visual, |cx| view.read(cx).connected());
+        let history = view.read_with(visual, |view, _| view.history.snapshot.clone().unwrap());
+        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+            visual.update(|window, cx| {
+                crate::theme::apply(1, Some(window), cx);
+                Theme::change(mode, Some(window), cx);
+                view.update(cx, |_, cx| cx.notify());
+            });
+            wait(visual, |_| true);
+            assert!(visual.debug_bounds("theme-message.user.top_left").is_some());
+            tap(visual, &format!("live-user-copy-{turn}"));
+            assert_eq!(
+                visual.update(|_, cx| cx.read_from_clipboard().unwrap().text().unwrap()),
+                "Keep this message"
+            );
+            tap(visual, &format!("live-user-edit-{turn}"));
+            visual.simulate_keystrokes("cmd-a");
+            visual.simulate_input("Retained edit");
+            visual.update(|window, cx| {
+                crate::theme::apply(0, Some(window), cx);
+                view.update(cx, |_, cx| cx.notify());
+            });
+            wait(visual, |_| true);
+            assert!(visual.debug_bounds("theme-message.user.top_left").is_none());
+            assert!(view.read_with(visual, |view, cx| {
+                Arc::ptr_eq(view.history.snapshot.as_ref().unwrap(), &history)
+                    && view.editing.as_ref().unwrap().input.read(cx).value() == "Retained edit"
+            }));
+            visual.simulate_keystrokes("escape");
+            assert!(view.read_with(visual, |view, _| view.editing.is_none()));
+        }
+        assert_eq!(fixture.task_requests(), 1);
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}

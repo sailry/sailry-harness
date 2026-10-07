@@ -150,15 +150,39 @@ pub(super) fn corner(slot: &'static str, cx: &App) -> Option<AnyElement> {
             .debug_selector(move || format!("theme-{slot}"))
             .absolute()
             .size(px(f32::from(decoration.height)))
-            .when(slot == "composer.top_left", |corner| {
+            .when(slot.ends_with(".top_left"), |corner| {
                 corner.top_0().left_0()
             })
-            .when(slot == "composer.bottom_right", |corner| {
+            .when(slot.ends_with(".bottom_right"), |corner| {
                 corner.bottom_0().right_0()
             })
             .child(picture(decoration, image))
             .into_any_element(),
     )
+}
+
+pub fn new_session_button(button: button::Button, cx: &App) -> AnyElement {
+    let Some((decoration, image)) = selected("button.new_session", cx) else {
+        return button.into_any_element();
+    };
+    // Keep the complete Kit button underneath an eventless top-edge ornament.
+    div()
+        .relative()
+        .w_full()
+        .child(button)
+        .child(
+            div()
+                .debug_selector(|| "theme-button.new_session".into())
+                .absolute()
+                .top_0()
+                .left_0()
+                .w_full()
+                .h(px(f32::from(decoration.height)))
+                .rounded(cx.theme().radius)
+                .overflow_hidden()
+                .child(picture(decoration, image)),
+        )
+        .into_any_element()
 }
 
 pub fn background(slot: &'static str, cx: &App) -> Option<AnyElement> {

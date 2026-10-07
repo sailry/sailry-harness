@@ -31,6 +31,7 @@ pub struct State {
     on_file: Option<OnFile>,
     scroll: Option<Viewport>,
     typography: Option<super::typography::Typography>,
+    foreground: Option<gpui_kit::Hsla>,
 }
 
 #[derive(Clone)]
@@ -105,6 +106,7 @@ impl State {
             on_file: None,
             scroll: None,
             typography: None,
+            foreground: None,
         }
     }
 
@@ -309,6 +311,7 @@ impl Render for State {
                     on_image: self.on_image.clone(),
                     on_file: self.on_file.clone(),
                     typography: self.typography,
+                    foreground: self.foreground,
                     ..Editing::default()
                 },
                 window,
@@ -326,6 +329,7 @@ pub struct View {
     on_file: Option<OnFile>,
     scroll: Option<Viewport>,
     typography: Option<super::typography::Typography>,
+    foreground: Option<gpui_kit::Hsla>,
 }
 
 impl View {
@@ -338,6 +342,7 @@ impl View {
             on_file: None,
             scroll: None,
             typography: None,
+            foreground: None,
         }
     }
     /// Retain selection and parsed content at this element's stable identity.
@@ -350,6 +355,7 @@ impl View {
             on_file: None,
             scroll: None,
             typography: None,
+            foreground: None,
         }
     }
     pub fn on_link_click(
@@ -380,6 +386,11 @@ impl View {
     }
     pub fn list_state(mut self, state: ListState) -> Self {
         self.scroll = Some(Viewport::List(state));
+        self
+    }
+
+    pub(crate) fn foreground(mut self, color: Option<gpui_kit::Hsla>) -> Self {
+        self.foreground = color;
         self
     }
 
@@ -415,6 +426,10 @@ impl RenderOnce for View {
             state.on_image = self.on_image;
             state.on_link = self.on_link;
             state.scroll = self.scroll;
+            if state.foreground != self.foreground {
+                state.foreground = self.foreground;
+                cx.notify();
+            }
             if state.typography != self.typography {
                 state.typography = self.typography;
                 cx.notify();
@@ -681,5 +696,52 @@ mod tests {
                 "中文链接，read_file；更多内容 long_command_name_with_arguments 结束"
             );
         });
+    }
+
+    #[gpui_kit::test]
+    fn color_changes_preserve_selection(cx: &mut gpui_kit::TestAppContext) {
+        use gpui_kit::component::Root;
+        struct Sample {
+            state: Entity<State>,
+            color: Option<gpui_kit::Hsla>,
+        }
+        impl Render for Sample {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+                    .w_full()
+                    .child(View::new(&self.state).foreground(self.color))
+            }
+        }
+        cx.update(gpui_kit::init);
+        let state = cx.new(|cx| State::new("Selected paragraph", cx));
+        state.update(cx, |state, cx| state.select_all(cx));
+        let doc = state.read_with(cx, |state, _| state.document.clone());
+        let mut owner = None;
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let sample = cx.new(|_| Sample {
+                state: state.clone(),
+                color: None,
+            });
+            owner = Some(sample.clone());
+            Root::new(sample, window, cx)
+        });
+        let owner = owner.unwrap();
+        for color in [
+            Some(gpui_kit::rgb(0x805914).into()),
+            Some(gpui_kit::rgb(0xE7BF6C).into()),
+            None,
+        ] {
+            owner.update(visual, |sample, cx| {
+                sample.color = color;
+                cx.notify();
+            });
+            draw(visual);
+            draw(visual);
+            state.read_with(visual, |state, _| {
+                assert_eq!(state.foreground, color);
+                assert_eq!(state.selected_text(), "Selected paragraph");
+                assert!(Rc::ptr_eq(&state.document, &doc));
+            });
+        }
     }
 }

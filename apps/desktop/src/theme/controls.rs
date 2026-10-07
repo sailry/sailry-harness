@@ -1,9 +1,10 @@
 use super::*;
 use core::prelude::v1::test;
-use gpui_kit::component::{Root, ThemeMode, button::ButtonVariants as _, v_flex};
+use gpui_kit::component::{Disableable as _, Root, ThemeMode, button::ButtonVariants as _, v_flex};
 use gpui_kit::*;
 
 struct Controls {
+    new_session: bool,
     disabled: bool,
     active: bool,
     activations: usize,
@@ -11,19 +12,24 @@ struct Controls {
 
 impl Render for Controls {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex().tab_group().child(
-            send_button(
-                Button::new("send").primary().label("Send"),
-                self.disabled,
-                self.active,
-                cx,
-            )
+        let button = Button::new("action")
+            .primary()
+            .label("Action")
+            .disabled(self.disabled)
             .debug_selector(|| "theme-send".into())
             .on_click(cx.listener(|view, _, _, cx| {
                 view.activations += 1;
                 cx.notify();
-            })),
-        )
+            }));
+        let control = if self.new_session {
+            new_session_button(
+                button.w_full().icon(gpui_kit::component::IconName::Plus),
+                cx,
+            )
+        } else {
+            send_button(button, self.disabled, self.active, cx).into_any_element()
+        };
+        v_flex().tab_group().child(control)
     }
 }
 
@@ -57,6 +63,15 @@ fn disabled_fill(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn send_activation(cx: &mut TestAppContext) {
+    activation(cx, false);
+}
+
+#[gpui::test]
+fn new_session_activation(cx: &mut TestAppContext) {
+    activation(cx, true);
+}
+
+fn activation(cx: &mut TestAppContext, new_session: bool) {
     let directory = tempfile::tempdir().unwrap();
     let source = crate::theme::fixture::write(directory.path(), "controls");
     let loaded = package::Loaded::read(&source, true).unwrap();
@@ -68,6 +83,7 @@ fn send_activation(cx: &mut TestAppContext) {
     let mut controls = None;
     let (_, visual) = cx.add_window_view(|window, cx| {
         let view = cx.new(|_| Controls {
+            new_session,
             disabled: true,
             active: false,
             activations: 0,
@@ -93,6 +109,11 @@ fn send_activation(cx: &mut TestAppContext) {
         });
         settle(visual);
         let bounds = visual.debug_bounds("theme-send").unwrap();
+        if new_session && package == 1 {
+            let art = visual.debug_bounds("theme-button.new_session").unwrap();
+            assert_eq!(art.size.width, bounds.size.width);
+            assert_eq!(art.top(), bounds.top());
+        }
         visual.simulate_click(bounds.center(), Modifiers::default());
         settle(visual);
         assert_eq!(controls.read_with(visual, |view, _| view.activations), 0);
@@ -140,6 +161,7 @@ fn send_and_stop_assets(cx: &mut TestAppContext) {
     let mut controls = None;
     let (_, visual) = cx.add_window_view(|window, cx| {
         let view = cx.new(|_| Controls {
+            new_session: false,
             disabled: false,
             active: false,
             activations: 0,

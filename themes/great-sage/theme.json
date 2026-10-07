@@ -14,7 +14,7 @@
       "name": "Great Sage light",
       "mode": "light",
       "colors": {
-        "background": "#F6F0E5",
+        "background": "#F0E6D2",
         "foreground": "#32281E",
         "muted.foreground": "#776958",
         "title_bar.background": "#EDE3D2",
@@ -42,7 +42,24 @@
         "secondary.active.background": "#8B641F20",
         "sidebar.accent.background": "#8B641F18",
         "sidebar.accent.foreground": "#32281E",
-        "title_bar.border": "#8B641F24"
+        "title_bar.border": "#8B641F24",
+        "tab.background": "#EEE2CA80",
+        "tab.foreground": "#66502C",
+        "tab.active.background": "linear-gradient(135deg, #E0B65E, #C08C31)",
+        "tab.active.foreground": "#21180D",
+        "tab_bar.background": "#E3D2B3A6",
+        "tab_bar.segmented.background": "#E3D2B3A6",
+        "button.background": "#EDDFC68C",
+        "button.foreground": "#533C1D",
+        "button.hover.background": "#DCC59A99",
+        "button.active.background": "#CCAA7299",
+        "button.secondary.background": "#EDDFC68C",
+        "button.secondary.foreground": "#533C1D",
+        "button.secondary.hover.background": "#DCC59A99",
+        "button.secondary.active.background": "#CCAA7299",
+        "secondary.background": "#EDDFC68C",
+        "secondary.foreground": "#533C1D",
+        "secondary.hover.background": "#DCC59A99"
       }
     },
     "composer": {
@@ -120,7 +137,7 @@
           0.5,
           0.5
         ],
-        "opacity": 0.18
+        "opacity": 0.4
       },
       "icon.explore": {
         "path": "assets/explore.png",
@@ -181,6 +198,40 @@
         "fit": "tile",
         "tile_size": 128,
         "opacity": 0.12
+      },
+      "button.new_session": {
+        "path": "assets/circlet.png",
+        "fit": "fill",
+        "height": 10,
+        "opacity": 0.75
+      },
+      "message.user.top_left": {
+        "path": "assets/cloud-top-left.png",
+        "fit": "contain",
+        "height": 32,
+        "opacity": 0.12
+      },
+      "message.user.bottom_right": {
+        "path": "assets/cloud-bottom-right.png",
+        "fit": "contain",
+        "height": 32,
+        "opacity": 0.12
+      }
+    },
+    "wordmark": {
+      "foreground": "#866017",
+      "glow": "#BF8530"
+    },
+    "messages": {
+      "user": {
+        "background": "#F1E4C9ED",
+        "foreground": "#382916",
+        "border": "#9B712952",
+        "border_width": 1,
+        "radius": 14
+      },
+      "assistant": {
+        "foreground": "#32281E"
       }
     }
   },
@@ -217,7 +268,24 @@
         "secondary.active.background": "#D8AE5628",
         "sidebar.accent.background": "#D8AE561A",
         "sidebar.accent.foreground": "#F2E6CF",
-        "title_bar.border": "#D8AE5624"
+        "title_bar.border": "#D8AE5624",
+        "tab.background": "#201B1548",
+        "tab.foreground": "#CBB98F",
+        "tab.active.background": "linear-gradient(135deg, #E4BF70, #BA8936)",
+        "tab.active.foreground": "#21180D",
+        "tab_bar.background": "#29211690",
+        "tab_bar.segmented.background": "#29211690",
+        "button.background": "#382E2070",
+        "button.foreground": "#E5D0A3",
+        "button.hover.background": "#6B502C70",
+        "button.active.background": "#80623785",
+        "button.secondary.background": "#382E2070",
+        "button.secondary.foreground": "#E5D0A3",
+        "button.secondary.hover.background": "#6B502C70",
+        "button.secondary.active.background": "#80623785",
+        "secondary.background": "#382E2070",
+        "secondary.foreground": "#E5D0A3",
+        "secondary.hover.background": "#6B502C70"
       }
     },
     "composer": {
@@ -356,6 +424,40 @@
         "fit": "tile",
         "tile_size": 128,
         "opacity": 0.18
+      },
+      "button.new_session": {
+        "path": "assets/circlet.png",
+        "fit": "fill",
+        "height": 10,
+        "opacity": 0.85
+      },
+      "message.user.top_left": {
+        "path": "assets/cloud-top-left.png",
+        "fit": "contain",
+        "height": 32,
+        "opacity": 0.15
+      },
+      "message.user.bottom_right": {
+        "path": "assets/cloud-bottom-right.png",
+        "fit": "contain",
+        "height": 32,
+        "opacity": 0.15
+      }
+    },
+    "wordmark": {
+      "foreground": "#E7BF6C",
+      "glow": "#D78636"
+    },
+    "messages": {
+      "user": {
+        "background": "#2C241AE6",
+        "foreground": "#F0E1C4",
+        "border": "#CAA04A52",
+        "border_width": 1,
+        "radius": 14
+      },
+      "assistant": {
+        "foreground": "#F2E6CF"
       }
     }
   }
