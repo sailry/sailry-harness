@@ -519,6 +519,61 @@ fn opens_child_without_discarding_draft(cx: &mut TestAppContext) {
                 ))
                 .is_none()
         );
+        // Both activity surfaces clear when all children finish, without deleting history.
+        view.update(visual, |view, cx| {
+            let page =
+                Arc::make_mut(&mut Arc::make_mut(view.history.snapshot.as_mut().unwrap()).page);
+            for child in &mut page.children {
+                child.run.status = Status::Completed;
+            }
+            assert!(view.child_activity_turn().is_none());
+            assert!(overview::Overview::new(view).children.is_empty());
+            assert_eq!(view.child_rows(turn).len(), 2);
+            cx.notify();
+        });
+        wait(visual, |_| true);
+        assert!(visual.debug_bounds("live-composer-subagents").is_none());
+        for child in &children {
+            assert!(
+                visual
+                    .debug_bounds(Box::leak(format!("asset-child-{child}").into_boxed_str()))
+                    .is_none()
+            );
+        }
+        // A terminal parent must not repopulate activity from its historical children.
+        for status in [
+            Status::Completed,
+            Status::Cancelled,
+            Status::Failed,
+            Status::Interrupted,
+            Status::Continued,
+        ] {
+            view.update(visual, |view, cx| {
+                view.history = original.clone();
+                let page =
+                    Arc::make_mut(&mut Arc::make_mut(view.history.snapshot.as_mut().unwrap()).page);
+                page.runs
+                    .iter_mut()
+                    .find(|run| run.turn == turn)
+                    .unwrap()
+                    .status = status;
+                assert!(view.active().is_none());
+                assert!(view.child_activity_turn().is_none());
+                assert!(overview::Overview::new(view).children.is_empty());
+                assert_eq!(view.child_rows(turn).len(), 2);
+                cx.notify();
+            });
+            wait(visual, |_| true);
+            assert!(visual.debug_bounds("live-composer-subagents").is_none());
+            for child in &children {
+                assert!(
+                    visual
+                        .debug_bounds(Box::leak(format!("asset-child-{child}").into_boxed_str()))
+                        .is_none()
+                );
+            }
+            assert!(panel.read_with(visual, |panel, _| panel.open));
+        }
         view.update(visual, |view, cx| {
             view.history = original;
             cx.notify();

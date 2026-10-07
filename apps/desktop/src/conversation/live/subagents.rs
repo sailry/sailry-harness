@@ -150,6 +150,13 @@ impl View {
         ))
     }
 
+    pub(super) fn child_activity_turn(&self) -> Option<TurnId> {
+        self.active().filter(|turn| {
+            self.child_counts(*turn)
+                .is_some_and(|(active, _, _, _)| active > 0)
+        })
+    }
+
     pub(super) fn child_summary(
         &self,
         turn: TurnId,

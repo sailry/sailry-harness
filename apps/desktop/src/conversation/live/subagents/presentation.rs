@@ -56,7 +56,7 @@ impl View {
         rust_i18n::t!("subagent_count", completed = completed, total = total).to_string()
     }
 
-    /// Historical delegation expands inline, like the other tool groups.
+    /// Show each session once; its complete task history remains in the child view.
     pub(in crate::conversation) fn render_children(
         &self,
         turn: TurnId,
@@ -89,8 +89,8 @@ impl View {
             .get(&(turn, key.clone()))
             .copied()
             .unwrap_or(false);
-        if children.len() == 1 {
-            return self.render_child(children[0], continuing, cx);
+        if total == 1 {
+            return self.render_child(agents[0], continuing, cx);
         }
         let list = first.clone();
         let content = v_flex()
@@ -100,8 +100,12 @@ impl View {
             .pt_2()
             .gap_2()
             .debug_selector(move || format!("live-subagent-list-{list}"))
-            .children(children.iter().copied().enumerate().map(|(index, child)| {
-                self.render_child(child, continuing && index + 1 == children.len(), cx)
+            .children(agents.iter().copied().map(|child| {
+                self.render_child(
+                    child,
+                    continuing && child.run.session == children.last().unwrap().run.session,
+                    cx,
+                )
             }));
         Collapsible::new()
             .w_full()
@@ -165,11 +169,8 @@ impl View {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let turn = self.active()?;
-        let (active, _, _, total) = self.child_counts(turn)?;
-        if active == 0 {
-            return None;
-        }
+        let turn = self.child_activity_turn()?;
+        let (_, _, _, total) = self.child_counts(turn)?;
         let id = "live-composer-subagents";
         let button = Button::new(id)
             .outline()
