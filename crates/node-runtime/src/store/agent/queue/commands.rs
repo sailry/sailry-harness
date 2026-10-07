@@ -91,7 +91,12 @@ pub(in crate::store) fn execute(
             turn,
             recipient,
             expected_revision,
-        } => guidance::select(db, *turn, *recipient, *expected_revision)?,
+        } => {
+            let (session, runs) =
+                guidance::select(db, caller, request, *turn, *recipient, *expected_revision)?;
+            changed.extend(runs);
+            session
+        }
         Command::MoveQueuedTurn {
             session,
             expected_revision,

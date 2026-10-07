@@ -13,6 +13,7 @@ use tokio::{
 pub mod anthropic;
 mod browser;
 pub mod compaction;
+mod delegation;
 mod goals;
 pub mod phases;
 mod terminal;
@@ -77,6 +78,7 @@ enum Reply {
     Batch(Arc<Vec<(String, Value)>>),
     Gate(Arc<tokio::sync::Barrier>),
     Held(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>),
+    Delegation(Option<String>),
     Staged(Arc<Vec<Arc<tokio::sync::Notify>>>),
 }
 
@@ -126,6 +128,10 @@ impl Server {
     }
     pub async fn held(start: Arc<tokio::sync::Notify>, finish: Arc<tokio::sync::Notify>) -> Self {
         Self::serve(Reply::Held(start, finish)).await
+    }
+
+    pub async fn delegation(role: Option<&str>) -> Self {
+        Self::serve(Reply::Delegation(role.map(str::to_owned))).await
     }
 
     pub async fn browser(url: String) -> Self {
@@ -499,6 +505,11 @@ async fn respond(
     } else {
         None
     };
+    let delegated_call = if let Reply::Delegation(role) = &reply {
+        delegation::next(&body, role.as_deref())
+    } else {
+        None
+    };
     let call = match &reply {
         Reply::Tools(calls) | Reply::ReasonedTools(calls) | Reply::TurnTools(calls) => {
             calls.get(completed)
@@ -510,6 +521,7 @@ async fn respond(
             .any(|message| message["role"] == "user" && message["content"] == prompt.as_str())
             .then(|| calls.get(completed))
             .flatten(),
+        Reply::Delegation(_) => delegated_call.as_ref(),
         _ => browser_call.as_ref(),
     };
     let batch = matches!(&reply, Reply::Batch(_) if completed == 0)

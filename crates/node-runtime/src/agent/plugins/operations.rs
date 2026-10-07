@@ -54,7 +54,17 @@ pub(super) fn bind(
                     stop,
                     name,
                     declaration.description.clone().unwrap_or_default(),
-                    json!({"type":"object","properties":{"role":{"type":["string","null"]},"task":{"type":"string"},"title":{"type":"string"},"worktree":{"type":["string","null"]}},"required":["task"],"additionalProperties":false}),
+                    json!({"type":"object","properties":{"session":{"type":"string"},"role":{"type":["string","null"]},"task":{"type":"string"},"title":{"type":"string"},"background":{"type":"boolean"},"worktree":{"type":["string","null"]}},"required":["task"],"additionalProperties":false}),
+                ))
+            } else if matches!(operation, Operation::GuideAgent | Operation::WaitAgent) {
+                Arc::new(super::super::delegation::Control::new(
+                    ingress,
+                    invocation,
+                    package,
+                    stop,
+                    operation,
+                    name,
+                    declaration.description.clone().unwrap_or_default(),
                 ))
             } else if operation == Operation::Progress {
                 Arc::new(progress::UpdatePlan {
@@ -73,7 +83,10 @@ pub(super) fn bind(
                     stop,
                 ))
             };
-            let mut registration = if operation == Operation::DelegateAgent {
+            let mut registration = if matches!(
+                operation,
+                Operation::DelegateAgent | Operation::GuideAgent | Operation::WaitAgent
+            ) {
                 ToolRegistration::managed(tool)
             } else {
                 ToolRegistration::new(tool, declaration.presentation)
@@ -98,7 +111,9 @@ pub(super) fn available(ingress: &Ingress, invocation: &Invocation, operation: O
             !invocation.connections.databases.is_empty()
         }
         Operation::RunSsh | Operation::TransferSsh => !invocation.connections.ssh.is_empty(),
-        Operation::DelegateAgent => invocation.child.is_none() && invocation.project.is_some(),
+        Operation::DelegateAgent | Operation::GuideAgent | Operation::WaitAgent => {
+            invocation.child.is_none() && invocation.project.is_some()
+        }
         Operation::InspectMedia => invocation
             .media
             .contains_key(&sailry_protocol::media::Kind::Vision),

@@ -4,9 +4,12 @@ use adk_core::ToolConfirmationRequest;
 use serde::Deserialize;
 use serde_json::Value;
 
+mod control;
 mod fresh;
 mod guidance;
 mod reuse;
+pub(crate) use control::State;
+pub(in crate::store) use control::{owned, state};
 pub(in crate::store) use guidance::{guide, queued_guidance, retain_guidance};
 
 #[cfg(test)]
@@ -24,6 +27,8 @@ struct Arguments {
     title: Option<String>,
     task: String,
     worktree: Option<WorktreeId>,
+    #[serde(default, rename = "background")]
+    _background: bool,
 }
 
 impl Ingress {

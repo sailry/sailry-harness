@@ -23,7 +23,34 @@ pub(in crate::store) fn guide(
             "guidance requires a delegated child",
         )
     })?;
-    calls::active(db, origin.turn)?;
+    if let Some(context) = &request.plugin {
+        let parent = context.turn.ok_or_else(|| {
+            Fault::new(
+                ErrorCode::PermissionDenied,
+                "child guidance requires a parent turn",
+            )
+        })?;
+        let owned = super::owned(db, parent, run.session)?;
+        if owned.turn != run.turn || context.session != Some(origin.session) {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "guidance is outside the parent session",
+            ));
+        }
+    } else {
+        // A controller may observe a founding turn that has yielded to a newer
+        // main-session turn. Canonical session ownership survives that handoff.
+        let active: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 AND json_extract(a.body,'$.status')='running')",
+            [origin.session.to_string()], |row| row.get(0),
+        ).map_err(storage_error)?;
+        if !active {
+            return Err(Fault::new(
+                ErrorCode::Conflict,
+                "parent session is no longer running",
+            ));
+        }
+    }
     if queue::guidance::pending(db, run.turn)?.is_some() {
         return Err(Fault::new(
             ErrorCode::Conflict,

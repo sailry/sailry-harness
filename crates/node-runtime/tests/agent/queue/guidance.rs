@@ -205,7 +205,7 @@ async fn follows_natural_completion() {
 #[tokio::test]
 async fn preserves_stopped_input() {
     for remote in [false, true] {
-        let fixture = Fixture::start(remote, true).await;
+        let mut fixture = Fixture::start(remote, true).await;
         let active = fixture.push("Initial task").await;
         fixture.server.wait_count(1).await;
         let bytes = b"Retained attachment";
@@ -251,12 +251,55 @@ async fn preserves_stopped_input() {
                 target: reference::Target::File("context.txt".into()),
             }],
         };
-        let selected = held(&fixture, input.clone()).await;
+        let Output::Session(session) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SetSessionConfig {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                config: SessionConfig {
+                    permission: Permission::Full,
+                    ..fixture.session.config.clone()
+                },
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected")
+        };
+        fixture.session = session;
+        let original = held(
+            &fixture,
+            Input {
+                text: "Replace this draft".into(),
+                ..input.clone()
+            },
+        )
+        .await;
         fixture
             .client
-            .execute(guide(&fixture, selected.id, active.id, 1))
+            .execute(fixture.client.prepare(Command::EditQueuedTurn {
+                turn: original.id,
+                expected_revision: 1,
+                message: input.clone(),
+            }))
             .await
             .unwrap();
+        fixture
+            .client
+            .execute(guide(&fixture, original.id, active.id, 2))
+            .await
+            .unwrap();
+        let queue = fixture.queue().await;
+        let replacement = queue
+            .items
+            .iter()
+            .find(|item| item.guidance == Some(active.id))
+            .unwrap();
+        assert_ne!(replacement.turn, original.id);
+        let selected = read(&fixture.client, replacement.turn).await.turn;
+        assert_eq!(selected.config, active.config);
+        assert_eq!(selected.roles, active.roles);
+        assert_eq!(selected.plugins, active.plugins);
         fixture
             .client
             .execute(
@@ -268,6 +311,15 @@ async fn preserves_stopped_input() {
             .unwrap();
         let page = finished(&fixture.client, fixture.session.id, active.id).await;
         assert_eq!(status(&page, active.id), Status::Cancelled);
+        assert_eq!(status(&page, original.id), Status::Cancelled);
+        assert_eq!(
+            page.runs
+                .iter()
+                .find(|run| run.turn == original.id)
+                .unwrap()
+                .revision,
+            original.revision
+        );
         assert_eq!(status(&page, selected.id), Status::Queued);
         assert!(page.queue.paused);
         assert_eq!(page.queue.items[0].guidance, None);
@@ -356,7 +408,7 @@ async fn retargets_without_discarding_input() {
 }
 
 #[tokio::test]
-async fn rejects_changed_captures() {
+async fn retains_recipient_capture() {
     for remote in [false, true] {
         let mut fixture = Fixture::start(remote, true).await;
         let active = fixture.push("Initial task").await;
@@ -389,17 +441,31 @@ async fn rejects_changed_captures() {
             };
             fixture.session = session;
             let selected = held(&fixture, "Do not change the active capture".into()).await;
-            let before = fixture.queue().await;
-            assert_eq!(
-                fixture
-                    .client
-                    .execute(guide(&fixture, selected.id, active.id, 1))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::Conflict
-            );
-            assert_eq!(fixture.queue().await, before);
+            let request = guide(&fixture, selected.id, active.id, 1);
+            let accepted = fixture.client.execute(request.clone()).await.unwrap();
+            let queue = fixture.queue().await;
+            let replacement = queue
+                .items
+                .iter()
+                .find(|item| item.guidance == Some(active.id))
+                .unwrap();
+            assert_ne!(replacement.turn, selected.id);
+            let saved = read(&fixture.client, replacement.turn).await;
+            assert_eq!(saved.turn.config, active.config);
+            assert_eq!(saved.turn.plugins, active.plugins);
+            assert_eq!(saved.turn.roles, active.roles);
+            assert_eq!(saved.message.text, "Do not change the active capture");
+            let page = history(&fixture.client, fixture.session.id).await;
+            let original = page
+                .runs
+                .iter()
+                .find(|run| run.turn == selected.id)
+                .unwrap();
+            assert_eq!(original.status, Status::Cancelled);
+            assert_eq!(original.revision, selected.revision);
+            assert_eq!(status(&page, active.id), Status::Running);
+            assert_eq!(fixture.client.execute(request).await.unwrap(), accepted);
+            assert_eq!(fixture.queue().await, queue);
         }
         let Output::Session(session) = fixture
             .client
@@ -434,17 +500,21 @@ async fn rejects_changed_captures() {
             .await
             .unwrap();
         let selected = held(&fixture, "Do not replace captured tools".into()).await;
-        let before = fixture.queue().await;
-        assert_eq!(
-            fixture
-                .client
-                .execute(guide(&fixture, selected.id, active.id, 1))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::Conflict
-        );
-        assert_eq!(fixture.queue().await, before);
+        fixture
+            .client
+            .execute(guide(&fixture, selected.id, active.id, 1))
+            .await
+            .unwrap();
+        let queue = fixture.queue().await;
+        let replacement = queue
+            .items
+            .iter()
+            .find(|item| item.guidance == Some(active.id))
+            .unwrap();
+        let saved = read(&fixture.client, replacement.turn).await;
+        assert_eq!(saved.turn.config, active.config);
+        assert_eq!(saved.turn.plugins, active.plugins);
+        assert_eq!(saved.message.text, "Do not replace captured tools");
 
         let Output::Session(other) = fixture
             .client
@@ -494,17 +564,20 @@ async fn rejects_changed_captures() {
         else {
             panic!("turn expected")
         };
-        let before = history(&fixture.client, other.id).await.queue;
-        assert_eq!(
-            fixture
-                .client
-                .execute(guide(&fixture, other_source.id, other_active.id, 1))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::Conflict
-        );
-        assert_eq!(history(&fixture.client, other.id).await.queue, before);
+        fixture
+            .client
+            .execute(guide(&fixture, other_source.id, other_active.id, 1))
+            .await
+            .unwrap();
+        let queue = history(&fixture.client, other.id).await.queue;
+        let replacement = queue
+            .items
+            .iter()
+            .find(|item| item.guidance == Some(other_active.id))
+            .unwrap();
+        let saved = read(&fixture.client, replacement.turn).await;
+        assert_eq!(saved.turn.config, other_active.config);
+        assert_eq!(saved.message.text, "Do not replace the captured provider");
         assert_eq!(
             fixture
                 .client
@@ -522,7 +595,23 @@ async fn rejects_changed_captures() {
             Status::Running
         );
         assert_eq!(fixture.server.requests.lock().unwrap().len(), 2);
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::SendQueuedTurn {
+                turn: replacement.turn,
+                expected_revision: replacement.revision,
+            }))
+            .await
+            .unwrap();
+        fixture.server.wait_count(3).await;
         assert!(quick.requests.lock().unwrap().is_empty());
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::StopTurn {
+                turn: replacement.turn,
+            }))
+            .await
+            .unwrap();
         fixture.close().await;
     }
 }

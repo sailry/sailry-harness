@@ -133,6 +133,7 @@ async fn children(client: &Client, parent: SessionId, count: usize) -> Vec<Sessi
 mod approvals;
 mod fixture;
 mod guidance;
+mod internal_guidance;
 mod lifecycle;
 mod parallel;
 mod removal;

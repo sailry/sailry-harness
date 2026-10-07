@@ -88,6 +88,15 @@ pub(super) enum Operation {
         token: sailry_link::CancellationToken,
         reply: oneshot::Sender<Result<Invocation, Fault>>,
     },
+    ChildState {
+        parent: TurnId,
+        child: SessionId,
+        reply: oneshot::Sender<Result<delegation::State, Fault>>,
+    },
+    PendingGuidance {
+        recipient: TurnId,
+        reply: oneshot::Sender<Result<bool, Fault>>,
+    },
     Checkpoint {
         turn: TurnId,
         request: Request,
@@ -411,9 +420,22 @@ pub(super) fn execute(
                 delegation::admit(database, turn, &request, arguments, message, events)
             };
             if let Ok(invocation) = &result {
-                controls.register(invocation.turn.id, token);
+                controls.register(invocation.turn.id, invocation.turn.session, token);
             }
             let _ = reply.send(result);
+        }
+        Operation::ChildState {
+            parent,
+            child,
+            reply,
+        } => {
+            let _ = reply.send(delegation::state(&database.connection, parent, child));
+        }
+        Operation::PendingGuidance { recipient, reply } => {
+            let _ = reply.send(
+                queue::guidance::pending(&database.connection, recipient)
+                    .map(|pending| pending.is_some()),
+            );
         }
         Operation::Checkpoint {
             turn,
@@ -538,7 +560,7 @@ pub(super) fn execute(
                 runs::claim(database, events)
             };
             if let Ok(Some(invocation)) = &result {
-                controls.register(invocation.turn.id, token);
+                controls.register(invocation.turn.id, invocation.turn.session, token);
             }
             let _ = reply.send(result);
         }
@@ -549,7 +571,7 @@ pub(super) fn execute(
                 queue::guidance::yield_run(database, recipient, events)
             };
             if matches!(result, Ok(true)) {
-                controls.cancel(recipient);
+                controls.yield_run(recipient);
             }
             let _ = reply.send(result);
         }
@@ -564,7 +586,7 @@ pub(super) fn execute(
                 runs::claim_guidance(database, recipient, events)
             };
             if let Ok(Some(invocation)) = &result {
-                controls.register(invocation.turn.id, token);
+                controls.register(invocation.turn.id, invocation.turn.session, token);
             }
             let _ = reply.send(result);
         }

@@ -37,7 +37,7 @@ pub(in crate::store) fn pending(
     .transpose()
 }
 
-fn compatible(db: &Connection, source: &Run, target: &Run) -> Result<(), Fault> {
+fn same_capture(db: &Connection, source: &Run, target: &Run) -> Result<bool, Fault> {
     let provider = |turn: TurnId| -> Result<Option<Vec<u8>>, Fault> {
         db.query_row(
             "SELECT provider FROM agent_runs WHERE turn=?1",
@@ -46,17 +46,20 @@ fn compatible(db: &Connection, source: &Run, target: &Run) -> Result<(), Fault> 
         )
         .map_err(storage_error)
     };
-    if source.kind != RunKind::Task
-        || source.session != target.session
-        || source.worktree != target.worktree
-        || super::super::permissions::config(db, source.turn)?
-            != super::super::permissions::config(db, target.turn)?
-        || super::super::super::sessions::roles::read(db, source.session, source.revision)?
-            != super::super::super::sessions::roles::read(db, target.session, target.revision)?
-        || super::super::plugins::read(db, source.turn)?
-            != super::super::plugins::read(db, target.turn)?
-        || provider(source.turn)? != provider(target.turn)?
-    {
+    Ok(source.kind == RunKind::Task
+        && source.session == target.session
+        && source.worktree == target.worktree
+        && super::super::permissions::config(db, source.turn)?
+            == super::super::permissions::config(db, target.turn)?
+        && super::super::super::sessions::roles::read(db, source.session, source.revision)?
+            == super::super::super::sessions::roles::read(db, target.session, target.revision)?
+        && super::super::plugins::read(db, source.turn)?
+            == super::super::plugins::read(db, target.turn)?
+        && provider(source.turn)? == provider(target.turn)?)
+}
+
+fn compatible(db: &Connection, source: &Run, target: &Run) -> Result<(), Fault> {
+    if !same_capture(db, source, target)? {
         return Err(Fault::new(
             ErrorCode::Conflict,
             "guidance must retain the recipient's frozen configuration and capabilities",
@@ -91,19 +94,73 @@ pub(in crate::store) fn tag(db: &Connection, source: TurnId, target: TurnId) -> 
 
 pub(super) fn select(
     db: &Connection,
+    caller: NodeId,
+    request: &Request,
     source: TurnId,
     target: TurnId,
     expected_revision: u64,
-) -> Result<SessionId, Fault> {
+) -> Result<(SessionId, Vec<Run>), Fault> {
     let source = check_item(db, source, expected_revision)?;
     let session = super::super::super::commands::session(db, source.session)?;
     super::super::super::sessions::writable(&session)?;
     let target = recipient(db, target, None)?;
-    compatible(db, &source, &target)?;
+    if source.kind != RunKind::Task
+        || source.session != target.session
+        || source.worktree != target.worktree
+    {
+        return Err(Fault::new(
+            ErrorCode::Conflict,
+            "guidance belongs to another execution scope",
+        ));
+    }
     // Retargeting never discards the previous pending input.
     clear(db, source.session, None)?;
-    tag(db, source.turn, target.turn)?;
-    Ok(source.session)
+    let mut changed = Vec::new();
+    let selected = if same_capture(db, &source, &target)? {
+        source.turn
+    } else {
+        // This explicit guidance command admits a new turn with the recipient's
+        // capture. The original sent turn and its configuration remain immutable.
+        let queued = message(db, source.turn)?;
+        let mut session = super::super::super::commands::session(db, target.session)?;
+        session.config = super::super::permissions::config(db, target.turn)?;
+        session.roles =
+            super::super::super::sessions::roles::read(db, target.session, target.revision)?;
+        let plugins = super::super::plugins::read(db, target.turn)?;
+        super::super::references::validate(db, &session, &queued.message, Some(&plugins))?;
+        let input: (String, Vec<u8>) = db
+            .query_row(
+                "SELECT request,caller FROM agent_pending WHERE turn=?1",
+                [source.turn.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(storage_error)?;
+        let turn = QueuedTurn {
+            id: TurnId::new(),
+            kind: RunKind::Task,
+            session: target.session,
+            request: request.id,
+            revision: target.revision,
+            config: session.config,
+            roles: session.roles,
+            plugins,
+        };
+        db.execute("INSERT INTO turns(id,kind,session,revision,request,caller,plugins) VALUES(?1,'task',?2,?3,?4,?5,?6)", params![turn.id.to_string(), turn.session.to_string(), turn.revision as i64, request.id.to_string(), &caller.0[..], encode(&turn.plugins)?]).map_err(storage_error)?;
+        super::super::super::attachments::turns::bind(db, turn.id, &queued.message.attachments)?;
+        runs::inherit(db, &turn, target.turn, Status::Queued, true)?;
+        changed.push(runs::stop(db, source.turn)?);
+        admit(db, &turn, true)?;
+        // Keep the exact current message ledger reference, including prior edits.
+        db.execute(
+            "UPDATE agent_pending SET request=?2,caller=?3 WHERE turn=?1",
+            params![turn.id.to_string(), input.0, input.1],
+        )
+        .map_err(storage_error)?;
+        changed.push(runs::get(db, turn.id)?);
+        turn.id
+    };
+    tag(db, selected, target.turn)?;
+    Ok((source.session, changed))
 }
 
 pub(in crate::store) fn clear(

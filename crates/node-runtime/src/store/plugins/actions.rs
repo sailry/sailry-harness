@@ -409,6 +409,25 @@ impl Database {
                 | Command::ListConversationAssets { session, .. } => {
                     (Some(Action::ReadConversation), None, Some(*session))
                 }
+                Command::GuideTurn { recipient, .. } => {
+                    let parent = context
+                        .turn
+                        .ok_or_else(|| denied("child guidance requires a parent turn"))?;
+                    let run = crate::store::agent::runs::get(&self.connection, *recipient)?;
+                    let owned = crate::store::agent::delegation::owned(
+                        &self.connection,
+                        parent,
+                        run.session,
+                    )?;
+                    if owned.turn != *recipient {
+                        return Err(denied("child guidance recipient is no longer current"));
+                    }
+                    (
+                        Some(Action::DelegateAgents),
+                        context.worktree,
+                        context.session,
+                    )
+                }
                 Command::QueueTurn { session, .. }
                 | Command::SubmitTurn { session, .. }
                 | Command::ContinueTurn { session, .. }

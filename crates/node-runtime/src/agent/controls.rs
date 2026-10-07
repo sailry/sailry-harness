@@ -1,13 +1,19 @@
 use sailry_link::CancellationToken;
-use sailry_protocol::TurnId;
+use sailry_protocol::{SessionId, TurnId};
 use std::{collections::BTreeMap, sync::Mutex};
 use tokio::sync::Notify;
 
 struct Active {
+    session: SessionId,
     stop: CancellationToken,
     operations: usize,
     media: Option<super::media::Binding>,
     finishing: bool,
+}
+
+struct Child {
+    turn: TurnId,
+    stop: CancellationToken,
 }
 
 #[derive(Default)]
@@ -16,6 +22,7 @@ pub(crate) struct Controls {
     pub(crate) wake: Notify,
     pub(crate) stopped: CancellationToken,
     active: Mutex<BTreeMap<TurnId, Active>>,
+    children: Mutex<BTreeMap<(SessionId, SessionId), Child>>,
     changed: Notify,
 }
 
@@ -23,10 +30,11 @@ impl Controls {
     pub(crate) async fn close(&self) -> Result<(), sailry_protocol::Fault> {
         self.mcp.close().await
     }
-    pub fn register(&self, turn: TurnId, stop: CancellationToken) {
+    pub fn register(&self, turn: TurnId, session: SessionId, stop: CancellationToken) {
         self.active.lock().unwrap().insert(
             turn,
             Active {
+                session,
                 stop,
                 operations: 0,
                 media: None,
@@ -48,6 +56,61 @@ impl Controls {
     pub fn cancel(&self, turn: TurnId) {
         if let Some(active) = self.active.lock().unwrap().get(&turn) {
             active.stop.cancel();
+            for ((parent, _), child) in self.children.lock().unwrap().iter() {
+                if *parent == active.session {
+                    child.stop.cancel();
+                }
+            }
+        }
+    }
+
+    pub fn yield_run(&self, turn: TurnId) {
+        if let Some(active) = self.active.lock().unwrap().get(&turn) {
+            // Guidance replaces the Runner, not its session-owned delegated work.
+            active.stop.cancel();
+        }
+    }
+
+    pub fn register_child(
+        &self,
+        parent: SessionId,
+        child: SessionId,
+        turn: TurnId,
+        stop: CancellationToken,
+    ) {
+        self.children
+            .lock()
+            .unwrap()
+            .insert((parent, child), Child { turn, stop });
+        self.changed.notify_waiters();
+    }
+
+    pub fn finish_child(&self, parent: SessionId, child: SessionId, turn: TurnId) {
+        let mut children = self.children.lock().unwrap();
+        // An idle session can be reused after its durable completion, before
+        // the previous task's cleanup guard has been released.
+        if children
+            .get(&(parent, child))
+            .is_some_and(|active| active.turn == turn)
+        {
+            children.remove(&(parent, child));
+        }
+        self.changed.notify_waiters();
+    }
+
+    pub fn has_children(&self, parent: SessionId) -> bool {
+        self.children
+            .lock()
+            .unwrap()
+            .keys()
+            .any(|(owner, _)| *owner == parent)
+    }
+
+    pub fn cancel_children(&self, parent: SessionId) {
+        for ((owner, _), child) in self.children.lock().unwrap().iter() {
+            if *owner == parent {
+                child.stop.cancel();
+            }
         }
     }
 
@@ -55,6 +118,9 @@ impl Controls {
         self.stopped.cancel();
         for active in self.active.lock().unwrap().values() {
             active.stop.cancel();
+        }
+        for child in self.children.lock().unwrap().values() {
+            child.stop.cancel();
         }
     }
 
@@ -109,7 +175,7 @@ mod tests {
     async fn seals_operations_before_completion() {
         let controls = Controls::default();
         let turn = TurnId::new();
-        controls.register(turn, CancellationToken::new());
+        controls.register(turn, SessionId::new(), CancellationToken::new());
         let token = controls.begin_operation(turn).unwrap();
         assert!(
             tokio::time::timeout(std::time::Duration::from_millis(10), controls.drain(turn))
@@ -122,5 +188,40 @@ mod tests {
         controls.drain(turn).await;
         controls.finish(turn);
         assert!(controls.begin_operation(turn).is_none());
+    }
+
+    #[test]
+    fn older_cleanup_retains_reused_child() {
+        let controls = Controls::default();
+        let parent = SessionId::new();
+        let child = SessionId::new();
+        let previous = TurnId::new();
+        let current = TurnId::new();
+        let stop = CancellationToken::new();
+        controls.register_child(parent, child, previous, CancellationToken::new());
+        controls.register_child(parent, child, current, stop.clone());
+        controls.finish_child(parent, child, previous);
+        assert!(controls.has_children(parent));
+        controls.cancel_children(parent);
+        assert!(stop.is_cancelled());
+        controls.finish_child(parent, child, current);
+        assert!(!controls.has_children(parent));
+    }
+
+    #[test]
+    fn guidance_preserves_owned_children() {
+        let controls = Controls::default();
+        let parent = SessionId::new();
+        let previous = TurnId::new();
+        let current = TurnId::new();
+        let child = CancellationToken::new();
+        controls.register(previous, parent, CancellationToken::new());
+        controls.register_child(parent, SessionId::new(), TurnId::new(), child.clone());
+        controls.yield_run(previous);
+        assert!(!child.is_cancelled());
+        controls.finish(previous);
+        controls.register(current, parent, CancellationToken::new());
+        controls.cancel(current);
+        assert!(child.is_cancelled());
     }
 }

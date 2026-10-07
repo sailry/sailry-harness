@@ -13,7 +13,23 @@ fn admitted(fixture: &mut Fixture) -> (TurnId, TurnId) {
         active
     );
     let source = fixture.queued();
-    select(&fixture.database.connection, source, active, 1).unwrap();
+    let request = Request::new(
+        fixture.database.node,
+        Command::GuideQueuedTurn {
+            turn: source,
+            recipient: active,
+            expected_revision: 1,
+        },
+    );
+    select(
+        &fixture.database.connection,
+        fixture.database.node,
+        &request,
+        source,
+        active,
+        1,
+    )
+    .unwrap();
     (active, source)
 }
 

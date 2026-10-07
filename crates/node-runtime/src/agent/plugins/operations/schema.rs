@@ -50,7 +50,10 @@ pub(super) fn description(operation: Operation) -> &'static str {
         Operation::RunCommand => "Execute a command in the captured turn's worktree on the Node",
         Operation::ReadCommand => "Read or list background commands in the captured session",
         Operation::StopCommand => "Stop a background command in the captured session",
-        Operation::Progress | Operation::DelegateAgent => {
+        Operation::Progress
+        | Operation::DelegateAgent
+        | Operation::GuideAgent
+        | Operation::WaitAgent => {
             unreachable!("workflow uses its core owner")
         }
     }
@@ -149,7 +152,10 @@ pub(super) fn parameters(operation: Operation) -> Value {
         | Operation::ExecuteDatabase
         | Operation::RunSsh
         | Operation::TransferSsh => unreachable!("connection parameters handled above"),
-        Operation::Progress | Operation::DelegateAgent => {
+        Operation::Progress
+        | Operation::DelegateAgent
+        | Operation::GuideAgent
+        | Operation::WaitAgent => {
             unreachable!("workflow uses its core owner")
         }
         Operation::ListDirectory
@@ -397,7 +403,10 @@ pub(super) fn command(
                 "the declared operation is not supported",
             ));
         }
-        Operation::Progress | Operation::DelegateAgent => {
+        Operation::Progress
+        | Operation::DelegateAgent
+        | Operation::GuideAgent
+        | Operation::WaitAgent => {
             unreachable!("workflow uses its core owner")
         }
         Operation::ListDirectory

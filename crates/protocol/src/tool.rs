@@ -114,6 +114,10 @@ pub enum Operation {
     TransferSsh,
     #[serde(rename = "agents.delegate")]
     DelegateAgent,
+    #[serde(rename = "agents.guide")]
+    GuideAgent,
+    #[serde(rename = "agents.wait")]
+    WaitAgent,
     #[serde(rename = "files.list")]
     ListDirectory,
     #[serde(rename = "files.read")]
@@ -184,7 +188,9 @@ impl Operation {
             Self::BrowseDatabase | Self::QueryDatabase => Some(Action::ReadDatabases),
             Self::ExecuteDatabase => Some(Action::ControlDatabases),
             Self::RunSsh | Self::TransferSsh => Some(Action::ControlSsh),
-            Self::DelegateAgent => Some(Action::DelegateAgents),
+            Self::DelegateAgent | Self::GuideAgent | Self::WaitAgent => {
+                Some(Action::DelegateAgents)
+            }
             Self::ListDirectory | Self::ReadFile | Self::SearchFiles | Self::ReadOffice => {
                 Some(Action::ReadFiles)
             }
@@ -214,6 +220,7 @@ impl Operation {
             self,
             Self::Unsupported
                 | Self::DelegateAgent
+                | Self::GuideAgent
                 | Self::CreateManagedWorktree
                 | Self::RegisterWorktree
                 | Self::RemoveWorktree
@@ -284,6 +291,8 @@ impl Declaration {
                                         Operation::Unsupported
                                             | Operation::Progress
                                             | Operation::DelegateAgent
+                                            | Operation::GuideAgent
+                                            | Operation::WaitAgent
                                             | Operation::ReadSettings
                                             | Operation::WriteFile
                                     ) && !flow.operations[..index].contains(operation)
@@ -292,7 +301,11 @@ impl Declaration {
                     && handler.operation.is_none_or(|operation| {
                         !matches!(
                             operation,
-                            Operation::Unsupported | Operation::Progress | Operation::ReadSettings
+                            Operation::Unsupported
+                                | Operation::Progress
+                                | Operation::ReadSettings
+                                | Operation::GuideAgent
+                                | Operation::WaitAgent
                         )
                     })
                     && handler.result.as_ref().is_none_or(|name| {
@@ -371,7 +384,37 @@ mod handler_tests {
 #[cfg(test)]
 mod flow_tests {
     use super::*;
+    use crate::plugin::Action;
     use serde_json::json;
+
+    #[test]
+    fn child_control_requires_native_tools() {
+        for (name, operation, read_only) in [
+            ("agents.guide", Operation::GuideAgent, false),
+            ("agents.wait", Operation::WaitAgent, true),
+        ] {
+            assert_eq!(
+                serde_json::from_value::<Operation>(json!(name)).unwrap(),
+                operation
+            );
+            assert_eq!(operation.action(), Some(Action::DelegateAgents));
+            assert_eq!(operation.read_only(), read_only);
+            let direct: Declaration =
+                serde_json::from_value(json!({"name":"child","operation":name})).unwrap();
+            assert!(direct.valid());
+            for handler in [
+                json!({"name":"child","parameters":{"type":"object"},"operation":name}),
+                json!({"name":"child","parameters":{"type":"object"},"flow":{"operations":[name]}}),
+            ] {
+                let declaration: Declaration = serde_json::from_value(
+                    json!({"name":"child","description":"Control a child","handler":handler}),
+                )
+                .unwrap();
+                assert!(!declaration.valid());
+            }
+        }
+    }
+
     #[test]
     fn unknown_operations_disable_the_whole_declaration() {
         let operation: Operation = serde_json::from_value(json!("future.operation")).unwrap();

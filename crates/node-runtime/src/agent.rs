@@ -69,7 +69,7 @@ async fn serve(ingress: Arc<Ingress>, tasks: Tasks) {
                 continue;
             }
         };
-        let _ = run(&ingress, &tasks, invocation, token).await;
+        let _ = run(&ingress, &tasks, invocation, token, None).await;
     }
 }
 
@@ -78,13 +78,41 @@ async fn run(
     tasks: &Tasks,
     invocation: Invocation,
     token: CancellationToken,
+    owner: Option<CancellationToken>,
 ) -> Result<(Status, Option<String>), Fault> {
     let controls = &ingress.agents;
     let turn = invocation.turn.id;
+    let session = invocation.turn.session;
+    let main = invocation.child.is_none();
     let callbacks = plugins::callbacks::capture(&invocation);
-    let result = execute(ingress, tasks, invocation, token.clone()).await;
+    let mut result = execute(ingress, tasks, invocation, token.clone()).await;
     // Commands and children retain cleanup ownership after ADK drops their tool futures.
     controls.drain(turn).await;
+    if owner.as_ref().is_some_and(CancellationToken::is_cancelled) {
+        // Owner Stop or timeout must retain input before observers can see a
+        // terminal child run. A guidance handoff cancels only the Runner token.
+        if let Err(error) = ingress.retain_guidance(turn).await {
+            result = Err(error);
+        }
+    }
+    if main {
+        // Background delegation belongs to this session across guidance
+        // continuations. Explicit Stop still cancels and settles its work.
+        if token.is_cancelled() || result.is_err() {
+            if !ingress.pending_guidance(turn).await.unwrap_or(false) {
+                controls.cancel_children(session);
+            }
+        }
+        while controls.has_children(session) {
+            if !token.is_cancelled() && ingress.yield_guidance(turn).await.unwrap_or(false) {
+                break;
+            }
+            if token.is_cancelled() && ingress.pending_guidance(turn).await.unwrap_or(false) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
     let (status, error, output) = if controls.stopped.is_cancelled() {
         (
             Status::Interrupted,

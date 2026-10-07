@@ -4,6 +4,8 @@ use adk_core::{AdkError, Tool, ToolConfirmationRequest, ToolContext};
 use async_trait::async_trait;
 use sailry_protocol::conversation::Input;
 use serde_json::{Value, json};
+mod control;
+pub(in crate::agent) use control::Control;
 
 fn selected_call(turn: TurnId) -> String {
     format!("sailry-selected-{turn}")
@@ -66,6 +68,7 @@ pub(super) struct Delegate {
     tasks: Tasks,
     turn: TurnId,
     session: String,
+    parent: sailry_protocol::SessionId,
     stop: CancellationToken,
     name: String,
     description: String,
@@ -88,6 +91,7 @@ impl Delegate {
             tasks: tasks.clone(),
             turn: invocation.turn.id,
             session: invocation.turn.session.to_string(),
+            parent: invocation.turn.session,
             stop: stop.clone(),
             name,
             parameters,
@@ -112,6 +116,21 @@ impl Delegate {
 struct Active {
     ingress: Arc<Ingress>,
     turn: TurnId,
+}
+
+struct Background {
+    ingress: Arc<Ingress>,
+    parent: sailry_protocol::SessionId,
+    child: sailry_protocol::SessionId,
+    turn: TurnId,
+}
+
+impl Drop for Background {
+    fn drop(&mut self) {
+        self.ingress
+            .agents
+            .finish_child(self.parent, self.child, self.turn);
+    }
 }
 
 impl Drop for Active {
@@ -157,21 +176,30 @@ impl Delegate {
         {
             return Err(AdkError::tool("delegation is no longer active"));
         }
-        let stop = self
+        let parent_stop = self
             .ingress
             .agents
             .begin_operation(self.turn)
-            .ok_or_else(|| AdkError::tool("parent execution has ended"))?
-            .child_token();
+            .ok_or_else(|| AdkError::tool("parent execution has ended"))?;
+        let background = arguments
+            .get("background")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let stop = if background {
+            self.ingress.agents.stopped.child_token()
+        } else {
+            parent_stop.child_token()
+        };
         let active = Active {
             ingress: self.ingress.clone(),
             turn: self.turn,
         };
         // ADK timeout/drop cancels the child, while the supervisor retains cleanup ownership.
-        let _cancel = stop.clone().drop_guard();
+        let _cancel = (!background).then(|| stop.clone().drop_guard());
         let ingress = self.ingress.clone();
         let tasks = self.tasks.clone();
         let turn = self.turn;
+        let parent = self.parent;
         let message = (context.function_call_id() == selected_call(turn))
             .then(|| self.selected.clone())
             .flatten();
@@ -180,15 +208,30 @@ impl Delegate {
             function_call_id: Some(context.function_call_id().into()),
             args: original,
         };
+        let (admitted, admission) = tokio::sync::oneshot::channel();
+        let task_stop = stop.clone();
         let result = self.tasks.spawn(async move {
-            let _active = active;
+            let stop = task_stop;
+            let _cancel = stop.clone().drop_guard();
+            let mut active = Some(active);
             // A boundary handoff cancels one Runner, never the parent-owned operation.
             let mut token = stop.child_token();
             let mut invocation = ingress.delegate(turn, request, arguments, message, token.clone()).await?;
+            let _background = if background {
+                if parent_stop.is_cancelled() {
+                    stop.cancel();
+                }
+                ingress.agents.register_child(parent, invocation.turn.session, invocation.turn.id, stop.clone());
+                active.take();
+                Some(Background { ingress: ingress.clone(), parent, child: invocation.turn.session, turn: invocation.turn.id })
+            } else {
+                None
+            };
+            let _ = admitted.send(json!({"session":invocation.turn.session,"turn":invocation.turn.id,"status":"running"}));
             loop {
                 let session = invocation.turn.session;
                 let turn = invocation.turn.id;
-                let mut result = Box::pin(run(&ingress, &tasks, invocation, token)).await;
+                let mut result = Box::pin(run(&ingress, &tasks, invocation, token, Some(stop.clone()))).await;
                 let next_token = stop.child_token();
                 let next = if result.is_err() || stop.is_cancelled() || ingress.agents.stopped.is_cancelled() {
                     ingress.retain_guidance(turn).await?;
@@ -214,6 +257,17 @@ impl Delegate {
                 });
             }
         }).map_err(|_| AdkError::tool("child task capacity is unavailable"))?;
+        if background {
+            return match admission.await {
+                Ok(value) => Ok(value),
+                // Admission failures are returned by the supervised task, not
+                // represented as a successfully spawned child.
+                Err(_) => match result.await {
+                    Ok(Err(error)) => Ok(json!({"isError":true,"error":error})),
+                    _ => Err(AdkError::tool("child admission outcome is unknown")),
+                },
+            };
+        }
         match result.await {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(error)) => Ok(json!({"isError":true, "error": error})),
