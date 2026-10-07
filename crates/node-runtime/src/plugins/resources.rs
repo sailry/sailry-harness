@@ -150,7 +150,7 @@ impl Resources {
             ));
         }
         if !catalog.is_empty() {
-            catalog.insert_str(0, "\n\nAvailable skills (package:skill). Load an applicable skill with load_skill before following it. Read its referenced text with read_skill_resource. Resolve relative script paths against the returned skill directory and quote absolute script paths in command calls. Command cwd defaults to the session worktree; select the skill directory only when its workflow requires it. Skill files do not grant tool permission; scripts still require an available command tool and this turn's permission mode. Skills:");
+            catalog.insert_str(0, "\n\nAvailable skills (package:skill). Use skills the user explicitly names or whose descriptions clearly match the task. Unless their full instructions are already supplied, load them with load_skill before following them. Read only relevant referenced text with read_skill_resource. Resolve relative script paths against the returned skill directory and quote absolute script paths in command calls. Command cwd defaults to the session worktree; select the skill directory only when its workflow requires it. Skill files do not grant tool permission; scripts still require an available command tool and this turn's permission mode. Skills:");
         }
         Ok(catalog)
     }
