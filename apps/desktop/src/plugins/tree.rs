@@ -2,6 +2,8 @@
 //! Retain its native TreeState and compose the existing resource row adapter.
 pub(in crate::plugins) mod drops;
 mod row;
+#[cfg(test)]
+mod tests;
 use super::{
     host::sdk::values::{decode, encode},
     native_context::{self, Events},
@@ -45,6 +47,9 @@ struct Item {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Props {
+    // Kit 0c830f4's structured host bridge limits arguments to 16 nested levels.
+    // JSON keeps recursive items outside that conversion without changing TreeState.
+    #[serde(deserialize_with = "decode_items")]
     items: Vec<Item>,
     #[serde(default)]
     variant: Variant,
@@ -57,6 +62,10 @@ struct Props {
     current: Option<String>,
     #[serde(default)]
     menu: Vec<native_context::Item>,
+}
+fn decode_items<'de, D: serde::Deserializer<'de>>(source: D) -> Result<Vec<Item>, D::Error> {
+    let source = String::deserialize(source)?;
+    serde_json::from_str(&source).map_err(serde::de::Error::custom)
 }
 #[derive(Clone, Copy, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]

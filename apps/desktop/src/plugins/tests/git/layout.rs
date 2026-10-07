@@ -43,6 +43,14 @@ fn protects_counts_and_staging_paths(cx: &mut TestAppContext) {
         let (shell, visual) = files::mount(&fixture, remote, cx);
         let selector = format!("git-tracked-{long}");
         let panel = main(&shell, &fixture, visual, &selector);
+        assert!(visual.debug_bounds("git-dir-tracked/nested").is_some());
+        assert!(
+            visual
+                .debug_bounds(Box::leak(
+                    format!("resource-detail-tracked/{long}").into_boxed_str()
+                ))
+                .is_none()
+        );
         let handle = visual.update(|window, _| window.window_handle());
         visual.simulate_window_resize(handle, size(px(1400.), px(900.)));
         let workspace = shell.read_with(visual, |shell, cx| shell.plugin_workspace(cx).unwrap());
@@ -68,10 +76,7 @@ fn protects_counts_and_staging_paths(cx: &mut TestAppContext) {
                 assert!(counts.right() < check.left());
                 assert!(check.left() >= px(0.) && check.right() <= viewport.width);
                 assert!(check.top() >= px(0.) && check.bottom() <= viewport.height);
-                if index == 0 {
-                    let detail = bounds(visual, "resource-detail");
-                    assert!(detail.right() <= counts.left());
-                }
+                assert!(label.size.width > px(20.));
                 for badge in 0..if index == 0 { 2 } else { 1 } {
                     let selector = Box::leak(
                         format!("resource-badge-tracked/{path}-{badge}").into_boxed_str(),
@@ -83,6 +88,42 @@ fn protects_counts_and_staging_paths(cx: &mut TestAppContext) {
             }
             assert!(columns.windows(2).all(|pair| pair[0] == pair[1]));
         }
+        // Selecting the submenu renders a second popup-menu scope. Use Kit's
+        // submenu scope to click List without relying on its screen direction.
+        click(visual, "git-actions");
+        visual.update(|window, cx| {
+            let item = window.within("popup-menu").find(0_usize);
+            assert_eq!(item.role(), Some(Role::MenuItem));
+            assert_eq!(item.label(), Some("View options"));
+            window.press("down", cx);
+            let mut submenu = window.within("submenu");
+            let item = submenu.find(0_usize);
+            assert_eq!(item.role(), Some(Role::MenuItem));
+            assert_eq!(item.label(), Some("List"));
+            assert!(item.visible());
+            submenu.click(0_usize, cx);
+        });
+        let detail = format!("resource-detail-tracked/{long}");
+        ready(&panel, visual, &detail);
+        assert!(visual.debug_bounds("git-dir-tracked/nested").is_none());
+        let label = visual
+            .debug_bounds(Box::leak(
+                format!("resource-label-tracked/{long}").into_boxed_str(),
+            ))
+            .unwrap();
+        let detail = visual
+            .debug_bounds(Box::leak(detail.into_boxed_str()))
+            .unwrap();
+        let counts = visual
+            .debug_bounds(Box::leak(
+                format!("resource-badges-tracked/{long}").into_boxed_str(),
+            ))
+            .unwrap();
+        assert!(label.size.width > px(20.));
+        assert!(label.right() <= counts.left() && detail.right() <= counts.left());
+        click(visual, "git-refresh");
+        ready(&panel, visual, &selector);
+        assert!(visual.debug_bounds("git-dir-tracked/nested").is_none());
         let check = SharedString::from(format!("git-index-tracked-{long}"));
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {

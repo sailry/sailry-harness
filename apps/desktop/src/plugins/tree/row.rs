@@ -131,6 +131,7 @@ pub(super) fn content(
     cx: &mut App,
 ) -> AnyElement {
     let decoration = item.decoration.clone().unwrap_or_default();
+    let text_selector = format!("resource-text-{}", item.id);
     let label_selector = format!("resource-label-{}", item.id);
     let detail_selector = format!("resource-detail-{}", item.id);
     let badges_selector = format!("resource-badges-{}", item.id);
@@ -146,6 +147,7 @@ pub(super) fn content(
         .child(glyph)
         .child(
             h_flex()
+                .debug_selector(move || text_selector.clone())
                 .flex_1()
                 .min_w_0()
                 .overflow_hidden()
@@ -153,9 +155,8 @@ pub(super) fn content(
                 .child(
                     div()
                         .debug_selector(move || label_selector.clone())
-                        .flex_shrink_1()
+                        .flex_auto()
                         .min_w_0()
-                        .max_w_full()
                         .truncate()
                         .child(item.label.clone()),
                 )

@@ -35,7 +35,7 @@ export default class Example extends View {
   render() {
     const document = this.state.documents.find(document=>document.id===this.current);
     return div().h_flex().size_full()
-      .child(div().w_48().h_full().child(ResourceTree.new("fixture-tree",{items:this.items,selected:[],current:null})))
+      .child(div().w_48().h_full().child(ResourceTree.new("fixture-tree",{items:JSON.stringify(this.items),selected:[],current:null})))
       .child(div().v_flex().flex_1().min_w_0().min_h_0()
         .child(div().id(`document-status-${this.status}`).child(this.status))
         .child(div().h_flex().children([
