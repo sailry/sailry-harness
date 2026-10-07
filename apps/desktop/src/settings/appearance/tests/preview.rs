@@ -36,12 +36,32 @@ fn scroll(visual: &mut VisualTestContext, delta: f32) {
     settle(visual);
 }
 
+fn actions(visual: &mut VisualTestContext) -> [Bounds<Pixels>; 2] {
+    let buttons = ["theme-import-cancel", "theme-import-confirm"]
+        .map(|selector| visual.debug_bounds(selector).unwrap());
+    let [cancel, confirm] = buttons;
+    let dialog = visual.debug_bounds("dialog-0").unwrap();
+    assert!(cancel.size.width > px(0.));
+    assert!(confirm.size.width > px(0.));
+    assert!(cancel.size.width <= confirm.size.width);
+    assert!(cancel.left() - dialog.left() > dialog.right() - confirm.right());
+    assert!(cancel.right() < confirm.left());
+    assert_eq!(cancel.top(), confirm.top());
+    assert_eq!(cancel.size.height, confirm.size.height);
+    for button in buttons {
+        assert!(button.bottom() <= dialog.bottom());
+        assert!(button.right() <= dialog.right());
+    }
+    buttons
+}
+
 #[gpui::test]
 fn arranges_details_responsively(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
     let source = theme::fixture::write(directory.path(), "tide");
     let visual = mount(cx, directory.path());
     for mode in [ThemeMode::Light, ThemeMode::Dark] {
+        let mut action_widths = None;
         for width in [420., 960.] {
             let handle = visual.update(|window, cx| {
                 Theme::change(mode, Some(window), cx);
@@ -98,6 +118,11 @@ fn arranges_details_responsively(cx: &mut TestAppContext) {
                     "right overflow: {selector}"
                 );
             }
+            let widths = actions(visual).map(|button| button.size.width);
+            if let Some(previous) = action_widths {
+                assert_eq!(widths, previous);
+            }
+            action_widths = Some(widths);
             click(visual, "theme-import-cancel");
             assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
             assert_eq!(
@@ -143,13 +168,8 @@ fn scrolls_license_with_fixed_actions(cx: &mut TestAppContext) {
     assert!(control.right() <= card.right());
     assert!(control.size.height > px(28.));
     assert!(author.size.height >= control.size.height);
-    let footer = ["theme-import-cancel", "theme-import-confirm"]
-        .map(|selector| visual.debug_bounds(selector).unwrap());
+    let footer = actions(visual);
     let dialog = visual.debug_bounds("dialog-0").unwrap();
-    for button in footer {
-        assert!(button.bottom() <= dialog.bottom());
-        assert!(button.right() <= dialog.right());
-    }
     assert!(visual.debug_bounds("theme-license-text").is_none());
     scroll(visual, -2000.);
     click(visual, "theme-license-toggle");
@@ -158,11 +178,7 @@ fn scrolls_license_with_fixed_actions(cx: &mut TestAppContext) {
     scroll(visual, -2000.);
     let after = visual.debug_bounds("theme-license-text").unwrap();
     assert!(after.top() < before.top() - px(100.));
-    assert_eq!(
-        ["theme-import-cancel", "theme-import-confirm"]
-            .map(|selector| visual.debug_bounds(selector).unwrap()),
-        footer,
-    );
+    assert_eq!(actions(visual), footer);
     click(visual, "theme-import-cancel");
     assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
     assert!(!directory.path().join("desktop/themes/tide").exists());

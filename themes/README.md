@@ -1,9 +1,14 @@
 # Desktop theme packages
 
-Each directory under `themes/` is a portable v1 theme source. Import its directory
+Each directory under `themes/` is a portable v1 theme source. Import a directory or ZIP
 from Settings → Appearance → Import. Imported packages are stored under
 `<profile>/desktop/themes/<id>/`. Repository directories are not automatically
 installed or embedded in application builds.
+
+The theme card's native context menu offers Apply, Details, Homepage, Export and
+Uninstall. Export creates a ZIP with `theme.json` at its root and the referenced
+assets. ZIP import also accepts one containing folder. A theme's optional
+`homepage` must be an HTTP or HTTPS URL; themes without one disable that menu item.
 
 A package contains `theme.json` and local raster resources under `assets/`.
 The manifest requires `version: 1`, an ID matching its installed directory,

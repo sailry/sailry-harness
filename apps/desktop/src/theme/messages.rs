@@ -47,7 +47,7 @@ pub(crate) fn assistant(content: MessageContent, cx: &App) -> MessageContent {
         .and_then(|variant| variant.messages.get("assistant"))
         .and_then(|style| style.radius)
         .map_or(px(0.), |radius| px(f32::from(radius)));
-    style(content, "assistant", cx).relative().children(
+    style(content, "assistant", cx).relative().child(
         div()
             .absolute()
             .inset_0()

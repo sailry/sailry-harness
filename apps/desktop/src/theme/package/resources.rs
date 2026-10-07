@@ -6,9 +6,9 @@ use std::{
     path::{Component, PathBuf},
 };
 
-const MANIFEST_LIMIT: usize = 256 * 1024;
-const FILE_LIMIT: usize = 8 * 1024 * 1024;
-const PACKAGE_LIMIT: usize = 32 * 1024 * 1024;
+pub(super) const MANIFEST_LIMIT: usize = 256 * 1024;
+pub(super) const FILE_LIMIT: usize = 8 * 1024 * 1024;
+pub(super) const PACKAGE_LIMIT: usize = 32 * 1024 * 1024;
 const DECODE_LIMIT: u64 = 32 * 1024 * 1024;
 
 pub(super) fn validate_path(path: &str) -> Result<(), String> {
@@ -54,7 +54,7 @@ fn confined(root: &Path, relative: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-fn read(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
+pub(super) fn read(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
     let metadata = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
     if !metadata.is_file() || metadata.len() > limit as u64 {
         return Err("theme resource exceeds file limit".into());
@@ -76,8 +76,58 @@ fn read(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
 
 pub(super) fn load(directory: &Path, strict: bool) -> Result<Loaded, String> {
     let bytes = read(&confined(directory, "theme.json")?, MANIFEST_LIMIT)?;
-    let manifest: Manifest = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    let manifest = manifest(&bytes)?;
+    let mut paths = BTreeMap::new();
+    for variant in [&manifest.light, &manifest.dark] {
+        for asset in variant.assets.values() {
+            if !paths.contains_key(&asset.path) {
+                // Boundary violations are fatal even during installed-package recovery.
+                paths.insert(asset.path.clone(), confined(directory, &asset.path)?);
+            }
+        }
+    }
+    assemble(manifest, bytes, strict, |relative| {
+        read(&paths[relative], FILE_LIMIT)
+    })
+}
+
+pub(super) fn load_files(
+    mut files: BTreeMap<String, Vec<u8>>,
+    strict: bool,
+) -> Result<Loaded, String> {
+    let bytes = files
+        .remove("theme.json")
+        .ok_or("theme archive is missing theme.json")?;
+    let manifest = manifest(&bytes)?;
+    for variant in [&manifest.light, &manifest.dark] {
+        for asset in variant.assets.values() {
+            if !files.contains_key(&asset.path) {
+                return Err(format!("theme archive is missing {}", asset.path));
+            }
+        }
+    }
+    assemble(manifest, bytes, strict, |relative| {
+        files
+            .remove(relative)
+            .ok_or_else(|| format!("theme archive is missing {relative}"))
+    })
+}
+
+fn manifest(bytes: &[u8]) -> Result<Manifest, String> {
+    if bytes.len() > MANIFEST_LIMIT {
+        return Err("theme manifest exceeds file limit".into());
+    }
+    let manifest: Manifest = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
     manifest.validate()?;
+    Ok(manifest)
+}
+
+fn assemble(
+    manifest: Manifest,
+    bytes: Vec<u8>,
+    strict: bool,
+    mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+) -> Result<Loaded, String> {
     let mut files = BTreeMap::from([("theme.json".into(), bytes)]);
     let mut images = BTreeMap::new();
     let mut seen = std::collections::BTreeSet::new();
@@ -89,16 +139,17 @@ pub(super) fn load(directory: &Path, strict: bool) -> Result<Loaded, String> {
             if !seen.insert(asset.path.clone()) {
                 continue;
             }
-            // A path-boundary violation invalidates the package even during recovery.
-            let path = confined(directory, &asset.path)?;
             let result: Result<(), String> = (|| {
-                let bytes = read(&path, FILE_LIMIT)?;
-                if encoded + bytes.len() > PACKAGE_LIMIT || images.len() >= 32 {
+                let bytes = read(&asset.path)?;
+                if bytes.len() > FILE_LIMIT
+                    || encoded + bytes.len() > PACKAGE_LIMIT
+                    || images.len() >= 32
+                {
                     return Err("theme package exceeds resource limit".into());
                 }
                 let (image, allocation) = decode(
                     &bytes,
-                    ImageFormat::from_path(&path).map_err(|e| e.to_string())?,
+                    ImageFormat::from_path(&asset.path).map_err(|e| e.to_string())?,
                     DECODE_LIMIT - decoded,
                 )?;
                 encoded += bytes.len();

@@ -1,5 +1,7 @@
+mod export;
 mod gallery;
 mod import;
+mod menu;
 pub(super) mod opacity;
 #[cfg(test)]
 mod tests;
@@ -27,6 +29,8 @@ impl Workspace {
         let catalog = cx.global::<theme::Catalog>();
         let incomplete = catalog.packages[catalog.selected].incomplete;
         v_flex()
+            .track_focus(&self.theme_focus)
+            .on_action(cx.listener(Self::theme_action))
             .gap_6()
             .child(
                 Group::new("settings_interface").child(Row::new(

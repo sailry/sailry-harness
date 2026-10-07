@@ -2,6 +2,7 @@ use super::*;
 use core::prelude::v1::test;
 use std::time::{Duration, Instant};
 
+mod actions;
 mod preview;
 
 struct Mounted(Entity<Workspace>);
@@ -35,6 +36,15 @@ fn click(cx: &mut VisualTestContext, selector: &'static str) {
     settle(cx);
     let center = cx.debug_bounds(selector).unwrap().center();
     cx.simulate_click(center, Modifiers::default());
+    settle(cx);
+}
+
+fn dispatch(cx: &mut VisualTestContext, owner: &Entity<Workspace>, action: Box<dyn Action>) {
+    cx.update(|window, cx| {
+        let focus = owner.read(cx).theme_focus.clone();
+        focus.focus(window, cx);
+        window.dispatch_action(action, cx);
+    });
     settle(cx);
 }
 
@@ -72,7 +82,7 @@ fn package_selection(cx: &mut TestAppContext) {
     click(visual, "theme-import");
     assert!(visual.did_prompt_for_paths());
     visual.simulate_path_prompt_response(|options| {
-        assert!(options.directories && !options.files);
+        assert!(options.directories && options.files);
         Some(vec![source.clone()])
     });
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -118,6 +128,7 @@ fn package_selection(cx: &mut TestAppContext) {
             let second = visual.debug_bounds("theme-card-1").unwrap();
             assert!(first.right() < second.left() && second.right() <= px(width));
             assert!(visual.debug_bounds("theme-remove-0").is_none());
+            assert!(visual.debug_bounds("theme-remove-1").is_none());
             click(visual, "theme-card-1");
             visual.update(|window, cx| {
                 assert_eq!(cx.global::<theme::Catalog>().selected, 1);
@@ -177,9 +188,16 @@ fn package_selection(cx: &mut TestAppContext) {
         cx.global::<theme::Catalog>().error == Some("appearance_import_invalid")
     });
     visual.update(|_, cx| assert_eq!(cx.global::<theme::Catalog>().selected, 1));
-    click(visual, "theme-remove-1");
+    dispatch(
+        visual,
+        &owner,
+        Box::new(menu::Dispatch {
+            id: "tide".into(),
+            command: menu::Command::Uninstall,
+        }),
+    );
     assert!(directory.path().join("desktop/themes/tide").exists());
-    crate::prompts::tests::answer(visual, "settings_delete");
+    crate::prompts::tests::answer(visual, "appearance_uninstall");
     visual.update(|_, cx| {
         assert_eq!(cx.global::<theme::Catalog>().selected, 0);
         assert_eq!(cx.global::<theme::Catalog>().packages.len(), 1);

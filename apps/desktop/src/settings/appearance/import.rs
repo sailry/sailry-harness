@@ -12,7 +12,7 @@ use theme::package::Loaded;
 
 pub(super) fn choose(window: &mut Window, cx: &mut App) {
     let selected = cx.prompt_for_paths(PathPromptOptions {
-        files: false,
+        files: true,
         directories: true,
         multiple: false,
         prompt: Some(tr("appearance_import")),
@@ -55,9 +55,18 @@ pub(super) fn load(path: PathBuf, window: &mut Window, cx: &mut App) {
 }
 
 pub(super) fn preview(loaded: Loaded, window: &mut Window, cx: &mut App) {
+    open(theme::Package::preview(&loaded), Some(loaded), window, cx);
+}
+
+pub(super) fn details(package: theme::Package, window: &mut Window, cx: &mut App) {
+    open(package, None, window, cx);
+}
+
+fn open(package: theme::Package, loaded: Option<Loaded>, window: &mut Window, cx: &mut App) {
+    let importing = loaded.is_some();
     let view = cx.new(|_| Import {
-        package: theme::Package::preview(&loaded),
-        loaded: Some(loaded),
+        package,
+        loaded,
         busy: false,
         error: None,
         license_open: false,
@@ -85,23 +94,34 @@ pub(super) fn preview(loaded: Loaded, window: &mut Window, cx: &mut App) {
             .footer(
                 DialogFooter::new()
                     .w_full()
-                    .child(DialogClose::new().trigger(|button| {
-                        button
-                            .label(tr("settings_cancel"))
-                            .disabled(busy)
-                            .debug_selector(|| "theme-import-cancel".into())
-                    }))
                     .child(
-                        Button::new("theme-import-confirm")
-                            .primary()
-                            .label(tr("appearance_import"))
-                            .debug_selector(|| "theme-import-confirm".into())
-                            .disabled(busy)
-                            .loading(busy)
-                            .on_click(move |_, window, cx| {
-                                save.update(cx, |view, cx| view.save(window, cx))
-                            }),
-                    ),
+                        h_flex()
+                            .flex_none()
+                            // DialogClose fills its parent; constrain it to its trigger's width.
+                            .child(DialogClose::new().trigger(|button| {
+                                button
+                                    .label(tr(if importing {
+                                        "settings_cancel"
+                                    } else {
+                                        "close"
+                                    }))
+                                    .disabled(busy)
+                                    .debug_selector(|| "theme-import-cancel".into())
+                            })),
+                    )
+                    .when(importing, |footer| {
+                        footer.child(
+                            Button::new("theme-import-confirm")
+                                .primary()
+                                .label(tr("appearance_import"))
+                                .debug_selector(|| "theme-import-confirm".into())
+                                .disabled(busy)
+                                .loading(busy)
+                                .on_click(move |_, window, cx| {
+                                    save.update(cx, |view, cx| view.save(window, cx))
+                                }),
+                        )
+                    }),
             )
     });
 }

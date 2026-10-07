@@ -1,4 +1,5 @@
 //! Current v1 desktop theme packages. Resources are local, licensed raster images.
+mod archive;
 mod resources;
 #[cfg(test)]
 mod tests;
@@ -73,6 +74,8 @@ pub struct Manifest {
     /// The theme's release version, independent of the v1 manifest format.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub homepage: Option<String>,
     /// Applies to the package and assets without an individual license.
     pub license: License,
     pub light: Variant,
@@ -215,6 +218,18 @@ impl Manifest {
             version.trim().is_empty() || version.len() > 64 || version.chars().any(char::is_control)
         }) {
             return Err("invalid theme release version".into());
+        }
+        if let Some(homepage) = &self.homepage {
+            let url = url::Url::parse(homepage).map_err(|_| "invalid theme homepage".to_string())?;
+            if !matches!(url.scheme(), "http" | "https")
+                || url.host_str().is_none()
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || homepage.chars().any(char::is_whitespace)
+                || homepage.chars().any(char::is_control)
+            {
+                return Err("invalid theme homepage".into());
+            }
         }
         self.license.validate()?;
         if self.light.theme.mode.is_dark() || !self.dark.theme.mode.is_dark() {
@@ -375,8 +390,17 @@ fn read_theme<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Theme
 
 impl Loaded {
     /// Import is strict; installed packages may lose optional images and still supply colors.
-    pub fn read(directory: &Path, strict: bool) -> Result<Self, String> {
-        resources::load(directory, strict)
+    pub fn read(path: &Path, strict: bool) -> Result<Self, String> {
+        if path.is_dir() {
+            resources::load(path, strict)
+        } else {
+            archive::load(path, strict)
+        }
+    }
+
+    /// Writes the verified snapshot without reading the source package again.
+    pub fn export(&self, path: &Path) -> Result<(), String> {
+        archive::export(self, path)
     }
 
     pub fn install(&self, root: &Path) -> Result<(), String> {

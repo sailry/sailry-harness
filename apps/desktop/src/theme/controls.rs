@@ -1,6 +1,6 @@
 use super::*;
 use core::prelude::v1::test;
-use gpui_kit::component::{Disableable as _, Root, ThemeMode, button::ButtonVariants as _, v_flex};
+use gpui_kit::component::{Root, ThemeMode, button::ButtonVariants as _, v_flex};
 use gpui_kit::*;
 
 struct Controls {

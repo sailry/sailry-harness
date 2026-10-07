@@ -477,7 +477,15 @@ settings_build_debug: 开发版
 settings_build_release: 发布版
 appearance_packages: 主题包
 appearance_selected: 已选用
-appearance_select: 选用
+appearance_select: 应用
+appearance_details: 详情
+appearance_homepage: 主页
+appearance_export: 导出
+appearance_uninstall: 卸载
+appearance_unavailable: 主题不可用
+appearance_export_done: 主题已导出
+appearance_export_failed: 无法导出主题，请重试
+appearance_removed: 主题已卸载
 appearance_mode: 主题模式
 appearance_system: 跟随系统
 appearance_light: 亮色
@@ -490,7 +498,7 @@ appearance_identifier: 标识
 appearance_format_version: 格式版本
 appearance_import_invalid: 无法导入，请检查主题包格式和资源
 appearance_import_conflict: 主题已存在或资源空间不足
-appearance_picker_failed: 无法打开文件夹选择器，请重试
+appearance_picker_failed: 无法打开文件选择器，请重试
 appearance_load_failed: 部分主题无法加载
 appearance_restore_failed: 原主题不可用，已使用默认主题
 appearance_resource_missing: 部分图片不可用，已使用默认外观
