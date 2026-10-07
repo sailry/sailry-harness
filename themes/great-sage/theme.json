@@ -3,7 +3,7 @@
   "id": "great-sage",
   "name": "Great Sage",
   "description": "A theme inspired by the Great Sage, with golden accents and ink landscapes",
-  "package_version": "0.1.1",
+  "package_version": "0.1.2",
   "license": {
     "author": "Sailry",
     "name": "Apache-2.0",
@@ -33,22 +33,22 @@
         "primary.foreground": "#FFFFFF",
         "primary.hover.background": "#795516",
         "primary.active.background": "#68460F",
-        "button.primary.background": "linear-gradient(180deg, #893D2D, #432018)",
+        "button.primary.background": "#3C3025",
         "button.primary.foreground": "#FFF0D0",
-        "button.primary.hover.background": "linear-gradient(180deg, #994A36, #50251D)",
-        "button.primary.active.background": "linear-gradient(180deg, #612C22, #301613)",
+        "button.primary.hover.background": "#514030",
+        "button.primary.active.background": "#2B211A",
         "accent.background": "#8B641F12",
         "accent.foreground": "#32281E",
         "secondary.active.background": "#8B641F20",
         "sidebar.accent.background": "#8B641F18",
         "sidebar.accent.foreground": "#32281E",
         "title_bar.border": "#8B641F24",
-        "tab.background": "#EEE2CA80",
-        "tab.foreground": "#66502C",
-        "tab.active.background": "linear-gradient(135deg, #E0B65E, #C08C31)",
-        "tab.active.foreground": "#21180D",
-        "tab_bar.background": "#E3D2B3A6",
-        "tab_bar.segmented.background": "#E3D2B3A6",
+        "tab.background": "#DFCEAD80",
+        "tab.foreground": "#4D3820",
+        "tab.active.background": "#715221E6",
+        "tab.active.foreground": "#FFF0D0",
+        "tab_bar.background": "#B59B7080",
+        "tab_bar.segmented.background": "#B59B7080",
         "button.background": "#EDDFC68C",
         "button.foreground": "#533C1D",
         "button.hover.background": "#DCC59A99",
@@ -139,7 +139,7 @@
           0.5,
           0.5
         ],
-        "opacity": 0.25
+        "opacity": 0.3
       },
       "icon.explore": {
         "path": "assets/explore.png",
@@ -202,14 +202,10 @@
         "opacity": 0.12
       },
       "button.new_session": {
-        "path": "assets/circlet.png",
-        "fit": "cover",
-        "alignment": [
-          0.5,
-          0.45
-        ],
+        "path": "assets/gilding.png",
+        "fit": "fill",
         "height": 32,
-        "opacity": 0.9
+        "opacity": 0.65
       },
       "message.user.top_left": {
         "path": "assets/cloud-top-left.png",
@@ -222,6 +218,12 @@
         "fit": "contain",
         "height": 32,
         "opacity": 0.12
+      },
+      "background.content": {
+        "path": "assets/grain.png",
+        "fit": "tile",
+        "tile_size": 256,
+        "opacity": 0.08
       }
     },
     "wordmark": {
@@ -246,16 +248,16 @@
       "name": "Great Sage dark",
       "mode": "dark",
       "colors": {
-        "background": "#10100F",
+        "background": "#191411",
         "foreground": "#F2E6CF",
         "muted.foreground": "#AFA08A",
-        "title_bar.background": "#171410",
-        "sidebar.background": "#1B1814",
+        "title_bar.background": "#201815",
+        "sidebar.background": "#241B16",
         "sidebar.foreground": "#F2E6CF",
-        "muted.background": "#26211B",
-        "group_box.background": "#211C16",
+        "muted.background": "#2B231BDC",
+        "group_box.background": "#2A231D",
         "group_box.foreground": "#F2E6CF",
-        "popover.background": "#292219",
+        "popover.background": "#2D251E",
         "popover.foreground": "#F2E6CF",
         "border": "#D8AE5624",
         "sidebar.border": "#D8AE5630",
@@ -265,22 +267,22 @@
         "primary.foreground": "#21180D",
         "primary.hover.background": "#E9C875",
         "primary.active.background": "#BC9141",
-        "button.primary.background": "linear-gradient(180deg, #743528, #341A16)",
-        "button.primary.foreground": "#FFF0D0",
-        "button.primary.hover.background": "linear-gradient(180deg, #91432F, #462019)",
-        "button.primary.active.background": "linear-gradient(180deg, #58271E, #28130F)",
+        "button.primary.background": "#32271F",
+        "button.primary.foreground": "#F5DFA9",
+        "button.primary.hover.background": "#463728",
+        "button.primary.active.background": "#251B15",
         "accent.background": "#D8AE5616",
         "accent.foreground": "#F2E6CF",
         "secondary.active.background": "#D8AE5628",
         "sidebar.accent.background": "#D8AE561A",
         "sidebar.accent.foreground": "#F2E6CF",
         "title_bar.border": "#D8AE5624",
-        "tab.background": "#201B1548",
-        "tab.foreground": "#CBB98F",
-        "tab.active.background": "linear-gradient(135deg, #E4BF70, #BA8936)",
-        "tab.active.foreground": "#21180D",
-        "tab_bar.background": "#29211690",
-        "tab_bar.segmented.background": "#29211690",
+        "tab.background": "#30251B88",
+        "tab.foreground": "#E0CEAB",
+        "tab.active.background": "#614624B3",
+        "tab.active.foreground": "#FFF0D0",
+        "tab_bar.background": "#120E0ACC",
+        "tab_bar.segmented.background": "#120E0ACC",
         "button.background": "#382E2070",
         "button.foreground": "#E5D0A3",
         "button.hover.background": "#6B502C70",
@@ -371,7 +373,7 @@
           0.5,
           0.5
         ],
-        "opacity": 0.35
+        "opacity": 0.55
       },
       "icon.explore": {
         "path": "assets/explore.png",
@@ -434,14 +436,10 @@
         "opacity": 0.18
       },
       "button.new_session": {
-        "path": "assets/circlet.png",
-        "fit": "cover",
-        "alignment": [
-          0.5,
-          0.45
-        ],
+        "path": "assets/gilding.png",
+        "fit": "fill",
         "height": 32,
-        "opacity": 0.9
+        "opacity": 0.65
       },
       "message.user.top_left": {
         "path": "assets/cloud-top-left.png",
@@ -454,6 +452,12 @@
         "fit": "contain",
         "height": 32,
         "opacity": 0.15
+      },
+      "background.content": {
+        "path": "assets/grain.png",
+        "fit": "tile",
+        "tile_size": 256,
+        "opacity": 0.16
       }
     },
     "wordmark": {

@@ -97,8 +97,8 @@ class Package(unittest.TestCase):
             for state in ["background", "hover.background", "active.background"]:
                 fill = colors["button.primary." + state]
                 stops = re.findall(r"#[0-9A-Fa-f]{6}", fill)
-                # The pinned Kit background parser accepts two gradient stops.
-                self.assertEqual(len(stops), 2)
+                self.assertTrue(fill.startswith("#"), "primary buttons use solid fills")
+                self.assertEqual(len(stops), 1)
                 for stop in stops:
                     with self.subTest(mode=variant["theme"]["mode"], state=state):
                         self.assertGreaterEqual(contrast(colors["button.primary.foreground"], stop), 4.5)
@@ -113,28 +113,62 @@ class Package(unittest.TestCase):
                 with self.subTest(mode=variant["theme"]["mode"], track=track):
                     self.assertGreaterEqual(contrast(colors["switch.thumb.background"], track), 3)
 
-    def test_frame_transparency(self):
+    def test_gilding_transparency(self):
         for variant in self.variants:
-            frame = variant["assets"]["button.new_session"]
-            with Image.open(ROOT / frame["path"]) as image:
+            gilding = variant["assets"]["button.new_session"]
+            with Image.open(ROOT / gilding["path"]) as image:
                 alpha = image.convert("RGBA").getchannel("A")
-                # The frame must not tint the caption or paint an opaque panel.
+                # The edge texture must leave the caption free of gold fill.
                 opening = alpha.crop((image.width // 4, image.height * 3 // 8,
                                       image.width * 3 // 4, image.height * 9 // 16))
                 self.assertLessEqual(opening.getextrema()[1], 2)
+                visible = alpha.point(lambda value: 255 if value >= 32 else 0)
+                self.assertEqual(visible.getbbox(), (0, 0, image.width, image.height))
 
     def test_wallpaper_text_contrast(self):
         for variant in self.variants:
             colors = variant["theme"]["colors"]
             opacity = variant["assets"]["background.window"]["opacity"]
             base = colors["background"]
-            # Cover both artwork extremes behind unboxed assistant text.
+            texture = variant["assets"]["background.content"]
+            with Image.open(ROOT / texture["path"]) as image:
+                grain = image.convert("RGBA").getcolors(image.width * image.height)
+            # Shell paints its theme background above the window wallpaper.
+            # Its lowest permitted tint is 45%; cover both artwork extremes there.
             for level in [0, 255]:
-                channels = [round(int(base[index:index + 2], 16) * (1 - opacity)
-                                  + level * opacity) for index in [1, 3, 5]]
+                channels = [round(int(base[index:index + 2], 16)
+                                  * (1 - opacity * 0.55) + level * opacity * 0.55)
+                            for index in [1, 3, 5]]
                 surface = "#" + "".join(f"{channel:02X}" for channel in channels)
                 with self.subTest(mode=variant["theme"]["mode"], level=level):
                     self.assertGreaterEqual(contrast(colors["foreground"], surface), 4.5)
+                    for _, pixel in grain:
+                        alpha = texture["opacity"] * pixel[3] / 255
+                        tinted = "#" + "".join(
+                            f"{round(channel * (1 - alpha) + pixel[index] * alpha):02X}"
+                            for index, channel in enumerate(channels)
+                        )
+                        self.assertGreaterEqual(contrast(colors["foreground"], tinted), 4.5)
+
+    def test_modal_tab_contrast(self):
+        for variant in self.variants:
+            colors = variant["theme"]["colors"]
+            surface = colors["popover.background"]
+            track = colors["tab_bar.segmented.background"]
+            opacity = int(track[-2:], 16) / 255
+            channels = [round(int(track[index:index + 2], 16) * opacity
+                              + int(surface[index:index + 2], 16) * (1 - opacity))
+                        for index in [1, 3, 5]]
+            surface = "#" + "".join(f"{channel:02X}" for channel in channels)
+            for state in ["tab", "tab.active"]:
+                fill = colors[state + ".background"]
+                opacity = int(fill[-2:], 16) / 255
+                channels = [round(int(fill[index:index + 2], 16) * opacity
+                                  + int(surface[index:index + 2], 16) * (1 - opacity))
+                            for index in [1, 3, 5]]
+                background = "#" + "".join(f"{channel:02X}" for channel in channels)
+                with self.subTest(mode=variant["theme"]["mode"], state=state):
+                    self.assertGreaterEqual(contrast(colors[state + ".foreground"], background), 4.5)
 
 
 if __name__ == "__main__":

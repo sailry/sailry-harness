@@ -49,26 +49,23 @@ The sidebar reuses these original illustrations at 16 pixels. Production icons a
 
 Use case: stylized-concept. Subtle seamless tileable transparent square PNG texture for small dark-gold-red Chinese mythology cards. Only sparse antique bronze and muted gold dry-brush fibers, fine dust and tiny ink speckles, dispersed with matching edges. Genuine transparent alpha across most pixels, no paper or black rectangle. Delicate irregular grain, low contrast at reduced opacity over brown or ivory panels. No clouds, mountains, scene, shapes, text, icons, frames, broad washes or painted checkerboard.
 
-### Button and send refinements
+### Button edge gilding
 
-The original shallow circlet was replaced with a complete engraved frame and
-cloud curls after its narrow stretched slot compressed the relief. The new
-frame uses the existing `button.new_session` slot at 32 logical pixels, cover
-fit and centered horizontal alignment. Vertical alignment 0.45 crops transparent
-outer padding while retaining the gold rim at the usual sidebar button widths.
-The center opening remains transparent for the live Kit label. The compressed
-frame is 768 × 288 pixels. Primary fills are now burgundy lacquer gradients, so
-the send glyph was changed to ivory gold with its red staff bands retained.
-The glyph is compressed to 96 × 96 pixels. Both refinements used built-in imagegen
-and retained the generated alpha; no external artwork was added.
+The rejected inset circlet frame was replaced with broken gold leaf at the actual
+button edges. No separate capsule outline is included. The `button.new_session`
+slot uses full-width fill at 32 logical pixels and 65% opacity, matching the Kit
+button's bounds and corner clip. The texture has no geometric frame to distort,
+and its transparent center leaves the live caption untouched. The 768 × 258
+indexed PNG retains generated alpha; downsizing and palette compression are the
+only postprocessing. The frame resource was removed from the package.
 
-### Frame generation
+The existing `grain.png` is reused as a content-panel texture as well as on cards.
+It tiles at its native 256-pixel size without generating another image. Primary
+buttons now use solid warm-black fills; the ivory-gold send glyph remains legible.
 
-Use case: ui-mockup. Asset type: genuine transparent raster FRAME overlay for a Great Sage desktop button. Create ONLY an elongated rounded-rectangle antique-gold metal outline with small auspicious-cloud curls at the far left and right corners. No button fill, no background, no text, no icons. Landscape canvas exactly 2048 by 768 if possible, transparent alpha. Critical composition: the entire rounded rectangle outline occupies x=64 to x=1984 and y=180 to y=440, so its width-to-height is about 7.4:1; all other canvas pixels are transparent. The frame's inner area is entirely transparent for live text on a burgundy lacquer button. A thin engraved golden circlet band forms the TOP edge, with two small curled cloud ends confined to the LEFT and RIGHT 8 percent of the frame; the center top edge is flat and very slim. Left, bottom and right borders are finer bronze-gold strokes. Native line widths about 10 pixels (only 1px when reduced to 223 logical pixels wide); corner ornament height about 110 pixels, confined to edges so no metal touches the central text region. Crisp refined relief gold, bright narrow edge highlights, shaded bronze engraving, minimal tiny vermilion accents. This frame will be rendered using cover at 223x32px with vertical alignment 0.5, cropping transparent top and bottom padding. Elegant restrained original Sun Wukong motif. Avoid solid gold panel, thick bars, a central medallion, center ornament, downward curved top band, flat gold gradient rectangle, shadows outside metal, checkerboard or watermark.
+Generated with the built-in OpenAI imagegen tool using this prompt:
 
-### Frame alpha refinement
-
-Use case: background-extraction. Edit target: the supplied golden button frame. Remove EVERY background pixel, EVERY gold glow, EVERY interior wash, and EVERY shadow outside the metal. Output only the thin engraved metal rounded rectangle and the four small gold/red cloud curls, on genuine transparent alpha. The large center opening MUST be entirely transparent (alpha zero) and all canvas outside the metal MUST be entirely transparent. Preserve the metal frame's shape, artwork, location, proportions and original 2048x768 canvas. Keep original gold shading ONLY INSIDE the metal, no glow behind it. This is a UI overlay that must not recolor the burgundy button behind it. No text, no fill, no background, no gradient rectangle, no vignette, no painted checkerboard.
+Use case: stylized-concept. Asset type: transparent gold-leaf EDGE TEXTURE overlay for a Sun Wukong burgundy lacquer UI button. Generate original gilding texture only, NOT a frame or object. Wide 3:1 canvas, genuine transparent alpha. Fine irregular antique gold leaf fragments and tiny burnished gold engraved streaks MUST TOUCH the actual canvas boundaries: a refined patch along the top-left edge, thinning out along the upper edge; a smaller balanced patch along the bottom-right edge, thinning along the bottom edge. The gold looks fused into worn red lacquer, but DO NOT paint any red or button surface: only the gold pixels are present. Edge zones are at most the outermost 12 percent of canvas height, and the two corner patches cover at most 18 percent of width. Keep the entire central 75 percent completely transparent for live text. Gold leaf has convincing bright micro-highlights, etched grooves, aged bronze shadows and sparse tiny flakes. Flat irregular gilded edge detail with understated luxuriant material finish, no glow. There must be NO enclosed loop, NO complete outline, NO capsule, NO oval, NO rounded rectangle, NO inner rim, NO clouds, NO circlet, NO central flourish, NO text, NO label, NO button background, NO border offset from image edges, NO transparent padding outside the outermost gold. Texture is intended to stretch across a 223x32px button, with corners clipped by the real button's radius, so avoid recognizable shapes that stretching would distort. Only the upper-left and lower-right EDGE gold textures, on transparent background.
 
 ### Send glyph refinement
 
