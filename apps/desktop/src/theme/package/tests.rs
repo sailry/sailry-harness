@@ -12,7 +12,7 @@ fn validation_and_recovery() {
     std::fs::write(source.join("assets/light.png"), "changed after preview").unwrap();
     std::fs::write(source.join("theme.json"), "changed after preview").unwrap();
     loaded.install(&packages).unwrap();
-    assert!(loaded.install(&packages).is_err());
+    loaded.install(&packages).unwrap();
     let installed = packages.join("tide");
     assert_eq!(
         std::fs::read(installed.join("theme.json")).unwrap(),

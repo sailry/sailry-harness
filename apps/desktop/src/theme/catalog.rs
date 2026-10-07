@@ -6,6 +6,9 @@ use gpui_kit::{
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf, rc::Rc, sync::Arc};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Selection {
     pub package: String,
@@ -156,25 +159,21 @@ impl Catalog {
     }
 
     pub fn check(&self, loaded: &Loaded) -> Result<(), String> {
-        if self
-            .packages
-            .iter()
-            .any(|package| package.id == loaded.manifest.id)
-        {
-            return Err("theme package is already installed".into());
-        }
         let allocation = |image: &Arc<RenderImage>| {
             let size = image.size(0);
             u64::from(size.width) * u64::from(size.height) * 4
         };
-        let used: u64 = self
+        let retained = self
             .packages
             .iter()
+            .filter(|package| package.id != loaded.manifest.id);
+        let used: u64 = retained
+            .clone()
             .flat_map(|package| package.images.values())
             .map(allocation)
             .sum();
         let added: u64 = loaded.images.values().map(allocation).sum();
-        if self.packages.len() >= 33 || used + added > 128 * 1024 * 1024 {
+        if retained.count() >= 33 || used + added > 128 * 1024 * 1024 {
             return Err("installed themes exceed resource limit".into());
         }
         Ok(())
@@ -182,7 +181,15 @@ impl Catalog {
 
     pub fn add(&mut self, loaded: Loaded) -> Result<(), String> {
         self.check(&loaded)?;
-        self.packages.push(loaded.into());
+        if let Some(index) = self
+            .packages
+            .iter()
+            .position(|package| package.id == loaded.manifest.id)
+        {
+            self.packages[index] = loaded.into();
+        } else {
+            self.packages.push(loaded.into());
+        }
         Ok(())
     }
 }

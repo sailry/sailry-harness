@@ -24,7 +24,7 @@ pub(crate) use dialog::DialogStyle;
 #[cfg(test)]
 pub(crate) mod fixture;
 pub(crate) mod package;
-pub(crate) use catalog::{Catalog, Mode, Package, Selection, apply, remove};
+pub(crate) use catalog::{Catalog, Mode, Package, Selection, apply, apply_colors, remove};
 pub(crate) use composer::surface as composer_surface;
 pub(crate) use decoration::preview;
 pub(crate) use decoration::{background, banner, brand, icon, new_session_button};

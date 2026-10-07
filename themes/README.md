@@ -5,6 +5,12 @@ from Settings → Appearance → Import. Imported packages are stored under
 `<profile>/desktop/themes/<id>/`. Repository directories are not automatically
 installed or embedded in application builds.
 
+Importing a package with an installed ID replaces that theme, regardless of its
+release version. Selection and light/dark mode are preserved; an active theme
+refreshes immediately. The complete verified snapshot replaces old resources.
+Failed replacement restores the previous package when possible; an unsuccessful
+restore is reported as uncertain and retains the previous files for recovery.
+
 The theme card's native context menu offers Apply, Details, Homepage, Export and
 Uninstall. Export creates a ZIP with `theme.json` at its root and the referenced
 assets. ZIP import also accepts one containing folder. A theme's optional

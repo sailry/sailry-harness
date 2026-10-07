@@ -76,6 +76,12 @@ fn open(package: theme::Package, loaded: Option<Loaded>, window: &mut Window, cx
     });
     window.open_dialog(cx, move |dialog, window, cx| {
         let busy = view.read(cx).busy;
+        let replacing = importing
+            && cx
+                .global::<theme::Catalog>()
+                .packages
+                .iter()
+                .any(|package| package.id == view.read(cx).package.id);
         let save = view.clone();
         dialog
             .form_title(
@@ -113,7 +119,11 @@ fn open(package: theme::Package, loaded: Option<Loaded>, window: &mut Window, cx
                         footer.child(
                             Button::new("theme-import-confirm")
                                 .primary()
-                                .label(tr("appearance_import"))
+                                .label(tr(if replacing {
+                                    "appearance_replace"
+                                } else {
+                                    "appearance_import"
+                                }))
                                 .debug_selector(|| "theme-import-confirm".into())
                                 .disabled(busy)
                                 .loading(busy)
@@ -162,20 +172,44 @@ impl Import {
                 match result {
                     Ok(()) => {
                         let result = cx.update_global::<theme::Catalog, _>(|catalog, _| {
+                            let active =
+                                catalog.packages[catalog.selected].id == loaded.manifest.id;
                             catalog.add(loaded)?;
                             catalog.error = None;
-                            Ok::<_, String>(())
+                            Ok::<_, String>(
+                                active.then(|| catalog.packages[catalog.selected].clone()),
+                            )
                         });
-                        if let Err(error) = result {
-                            eprintln!("could not register imported theme: {error}");
-                            fail("appearance_load_failed", cx);
+                        match result {
+                            Ok(package) => {
+                                if let Some(package) = package {
+                                    theme::apply_colors(package, Some(window), cx);
+                                }
+                                cx.refresh_windows();
+                                crate::feedback::toast(
+                                    window,
+                                    tr("appearance_import_done"),
+                                    notification::Notification::success(tr(
+                                        "appearance_import_done",
+                                    )),
+                                    cx,
+                                );
+                            }
+                            Err(error) => {
+                                eprintln!("could not register imported theme: {error}");
+                                fail("appearance_load_failed", cx);
+                            }
                         }
                         window.close_dialog(cx);
                     }
                     Err(error) => {
                         eprintln!("could not save imported theme: {error}");
                         view.loaded = Some(loaded);
-                        view.error = Some("appearance_save_failed");
+                        view.error = Some(if error.recovery.is_some() {
+                            "appearance_save_uncertain"
+                        } else {
+                            "appearance_save_failed"
+                        });
                         cx.notify();
                     }
                 }

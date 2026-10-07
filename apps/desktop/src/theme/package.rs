@@ -1,10 +1,12 @@
 //! Current v1 desktop theme packages. Resources are local, licensed raster images.
 mod archive;
+mod installation;
 mod resources;
 #[cfg(test)]
 mod tests;
 
 use gpui_kit::{RenderImage, component::theme::ThemeConfig};
+pub use installation::InstallError;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
@@ -220,7 +222,8 @@ impl Manifest {
             return Err("invalid theme release version".into());
         }
         if let Some(homepage) = &self.homepage {
-            let url = url::Url::parse(homepage).map_err(|_| "invalid theme homepage".to_string())?;
+            let url =
+                url::Url::parse(homepage).map_err(|_| "invalid theme homepage".to_string())?;
             if !matches!(url.scheme(), "http" | "https")
                 || url.host_str().is_none()
                 || !url.username().is_empty()
@@ -403,7 +406,7 @@ impl Loaded {
         archive::export(self, path)
     }
 
-    pub fn install(&self, root: &Path) -> Result<(), String> {
-        resources::install(self, root).map_err(|error| error.to_string())
+    pub fn install(&self, root: &Path) -> Result<(), InstallError> {
+        installation::install(self, root)
     }
 }

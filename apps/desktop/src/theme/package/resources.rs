@@ -203,19 +203,3 @@ fn decode(
         allocation,
     ))
 }
-
-pub(super) fn install(loaded: &Loaded, root: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    fs::create_dir_all(root)?;
-    let destination = root.join(&loaded.manifest.id);
-    if destination.try_exists()? {
-        return Err("theme package is already installed".into());
-    }
-    let staging = tempfile::tempdir_in(root)?;
-    for (relative, bytes) in &loaded.files {
-        let path = staging.path().join(relative);
-        fs::create_dir_all(path.parent().ok_or("theme resource directory is missing")?)?;
-        fs::write(path, bytes)?;
-    }
-    fs::rename(staging.path(), destination)?;
-    Ok(())
-}

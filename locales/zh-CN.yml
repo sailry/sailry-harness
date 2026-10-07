@@ -497,7 +497,10 @@ appearance_author: 作者
 appearance_identifier: 标识
 appearance_format_version: 格式版本
 appearance_import_invalid: 无法导入，请检查主题包格式和资源
-appearance_import_conflict: 主题已存在或资源空间不足
+appearance_import_conflict: "主题资源已达上限"
+appearance_import_done: "主题已导入"
+appearance_replace: "替换主题"
+appearance_save_uncertain: "替换结果不确定，请检查已安装主题"
 appearance_picker_failed: 无法打开文件选择器，请重试
 appearance_load_failed: 部分主题无法加载
 appearance_restore_failed: 原主题不可用，已使用默认主题

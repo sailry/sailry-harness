@@ -1,6 +1,8 @@
 use super::*;
 use std::path::Path;
 
+mod reimport;
+
 fn install(directory: &Path, id: &str, homepage: Option<&str>) {
     let source = theme::fixture::write(directory, id);
     if let Some(homepage) = homepage {
