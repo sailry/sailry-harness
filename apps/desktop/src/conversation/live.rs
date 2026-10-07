@@ -50,6 +50,7 @@ mod references;
 mod resend;
 mod rewind;
 pub(crate) mod search;
+mod selection;
 pub(crate) mod subagents;
 #[cfg(test)]
 pub(crate) mod tests;
@@ -78,6 +79,7 @@ pub(crate) enum Event {
     Created(Box<Session>),
     Removed(SessionId),
     Forked(Box<Session>),
+    NewConversation(String),
     UndoChanges(TurnId, Option<String>),
     GitFile(WorktreeId, Option<String>),
     File(String),
@@ -134,6 +136,8 @@ pub(crate) struct View {
     changes: BTreeMap<TurnId, Entity<messages::changes::Card>>,
     editing: Option<messages::Editing>,
     texts: std::cell::RefCell<BTreeMap<String, Entity<crate::content::markdown::State>>>,
+    prompts: std::cell::RefCell<BTreeMap<TurnId, Entity<super::prompt::State>>>,
+    selection: Option<crate::content::selection::Excerpt>,
     model_picker: Entity<super::models::Picker>,
     model_controls: Entity<model_controls::Panel>,
     queue: Entity<queue::Panel>,
@@ -366,6 +370,8 @@ impl View {
             changes: BTreeMap::new(),
             editing: None,
             texts: Default::default(),
+            prompts: Default::default(),
+            selection: None,
             model_picker,
             model_controls,
             queue,
@@ -633,6 +639,13 @@ impl Render for View {
         v_flex()
             .key_context("LiveConversation")
             .debug_selector(|| "live-conversation".into())
+            .on_scroll_wheel(cx.listener(|view, _, _, cx| view.dismiss_selection(cx)))
+            .on_key_down(cx.listener(|view, event: &KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" && view.selection.is_some() {
+                    view.dismiss_selection(cx);
+                    cx.stop_propagation();
+                }
+            }))
             .size_full()
             .min_h_0()
             .when(
@@ -698,5 +711,6 @@ impl Render for View {
                 |body| body.child(self.composer(cx)),
             )
             .children(self.contributions.read(cx).overlays(window, cx))
+            .children(self.selection_toolbar(cx))
     }
 }

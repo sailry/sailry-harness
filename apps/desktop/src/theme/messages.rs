@@ -67,6 +67,15 @@ pub(crate) fn foreground(key: &str, cx: &App) -> Option<Hsla> {
         .map(|color| theme::try_parse_color(color).expect("validated message color"))
 }
 
+pub(crate) fn background(key: &str, cx: &App) -> Option<Hsla> {
+    variant(cx)?
+        .messages
+        .get(key)?
+        .background
+        .as_ref()
+        .map(|color| theme::try_parse_color(color).expect("validated message color"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

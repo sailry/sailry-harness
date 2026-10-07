@@ -246,6 +246,23 @@ fn preserves_drafts(cx: &mut TestAppContext) {
             shell.read_with(visual, |shell, _| shell.current_chat().unwrap().entity_id()),
             draft
         );
+        visual.update(|_, cx| {
+            chat.update(cx, |_, cx| {
+                cx.emit(Event::NewConversation("Selected 中文 🙂".into()))
+            });
+        });
+        wait(visual, |cx| {
+            shell
+                .read(cx)
+                .current_chat()
+                .is_some_and(|view| view.entity_id() == draft && view.read(cx).connected())
+        });
+        assert_eq!(
+            shell.read_with(visual, |shell, cx| {
+                shell.current_chat().unwrap().read(cx).draft(cx)
+            }),
+            "unsent draft\n\n> Selected 中文 🙂\n\n"
+        );
         assert!(shell.read_with(visual, |shell, _| shell.conversations.is_empty()));
         let Output::Snapshot(snapshot) = runtime
             .block_on(client.execute(client.prepare(Command::Snapshot)))

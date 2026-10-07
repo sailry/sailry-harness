@@ -13,6 +13,9 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::render::{OnFile, OnImage, OnLink};
 use super::{BlockLayouts, Cursor, Doc, Editing, Selection, with_ranges, with_selection};
+use crate::content::selection::Excerpt;
+
+type OnSelection = Rc<dyn Fn(Excerpt, &mut Window, &mut App)>;
 
 gpui_kit::actions!(sailry_markdown, [Copy, SelectAll]);
 struct Bindings;
@@ -29,6 +32,7 @@ pub struct State {
     on_link: Option<OnLink>,
     on_image: Option<OnImage>,
     on_file: Option<OnFile>,
+    on_selection: Option<OnSelection>,
     scroll: Option<Viewport>,
     typography: Option<super::typography::Typography>,
     foreground: Option<gpui_kit::Hsla>,
@@ -104,6 +108,7 @@ impl State {
             on_link: None,
             on_image: None,
             on_file: None,
+            on_selection: None,
             scroll: None,
             typography: None,
             foreground: None,
@@ -187,9 +192,34 @@ impl State {
         }
     }
 
-    fn release(&mut self, cx: &mut Context<Self>) {
-        self.dragging = false;
+    fn release(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if std::mem::take(&mut self.dragging) {
+            self.publish_selection(window, cx);
+        }
         cx.notify();
+    }
+
+    fn publish_selection(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(listener) = &self.on_selection else {
+            return;
+        };
+        let Some(selection) = self.selection.filter(|selection| !selection.is_collapsed()) else {
+            return;
+        };
+        let (start, end) = selection.ordered();
+        let (Some((start, _)), Some((end, height))) =
+            (self.layouts.position(start), self.layouts.position(end))
+        else {
+            return;
+        };
+        let anchor = gpui_kit::Bounds::from_corners(
+            point(start.x.min(end.x), start.y.min(end.y)),
+            point(start.x.max(end.x) + px(1.), start.y.max(end.y) + height),
+        );
+        let text = self.selected_text();
+        if !text.trim().is_empty() {
+            listener(Excerpt { text, anchor }, window, cx);
+        }
     }
 
     fn autoscroll(&mut self, cx: &mut Context<Self>) {
@@ -285,11 +315,11 @@ impl Render for State {
             .on_mouse_down(MouseButton::Left, cx.listener(Self::press))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|state, _, _, cx| state.release(cx)),
+                cx.listener(|state, _, window, cx| state.release(window, cx)),
             )
             .on_mouse_up_out(
                 MouseButton::Left,
-                cx.listener(|state, _, _, cx| state.release(cx)),
+                cx.listener(|state, _, window, cx| state.release(window, cx)),
             )
             .on_action(cx.listener(|state, _: &Copy, _, cx| {
                 let text = state.selected_text();
@@ -297,8 +327,9 @@ impl Render for State {
                     cx.write_to_clipboard(ClipboardItem::new_string(text));
                 }
             }))
-            .on_action(cx.listener(|state, _: &SelectAll, _, cx| {
+            .on_action(cx.listener(|state, _: &SelectAll, window, cx| {
                 state.select_all(cx);
+                state.publish_selection(window, cx);
             }))
             .children(listener)
             .child(with_selection(
@@ -327,6 +358,7 @@ pub struct View {
     on_link: Option<OnLink>,
     on_image: Option<OnImage>,
     on_file: Option<OnFile>,
+    on_selection: Option<OnSelection>,
     scroll: Option<Viewport>,
     typography: Option<super::typography::Typography>,
     foreground: Option<gpui_kit::Hsla>,
@@ -340,6 +372,7 @@ impl View {
             on_link: None,
             on_image: None,
             on_file: None,
+            on_selection: None,
             scroll: None,
             typography: None,
             foreground: None,
@@ -353,6 +386,7 @@ impl View {
             on_link: None,
             on_image: None,
             on_file: None,
+            on_selection: None,
             scroll: None,
             typography: None,
             foreground: None,
@@ -394,6 +428,14 @@ impl View {
         self
     }
 
+    pub(crate) fn on_selection(
+        mut self,
+        listener: impl Fn(Excerpt, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_selection = Some(Rc::new(listener));
+        self
+    }
+
     pub(crate) fn typography(mut self, typography: super::typography::Typography) -> Self {
         self.typography = Some(typography);
         self
@@ -425,6 +467,7 @@ impl RenderOnce for View {
             state.on_file = self.on_file;
             state.on_image = self.on_image;
             state.on_link = self.on_link;
+            state.on_selection = self.on_selection;
             state.scroll = self.scroll;
             if state.foreground != self.foreground {
                 state.foreground = self.foreground;
@@ -558,7 +601,7 @@ mod tests {
         visual.update(|window, cx| {
             window.simulate_next_frame(cx);
             assert!(list.scroll_px_offset_for_scrollbar().y < px(0.));
-            state.update(cx, |state, cx| state.release(cx));
+            state.update(cx, |state, cx| state.release(window, cx));
             list.scroll_to_end();
         });
         draw(visual);

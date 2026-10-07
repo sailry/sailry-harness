@@ -7,6 +7,7 @@ pub(crate) mod diff;
 pub(crate) mod editor;
 pub(crate) mod images;
 pub(crate) mod markdown;
+pub(crate) mod selection;
 pub(crate) mod syntax;
 
 pub(crate) mod files;

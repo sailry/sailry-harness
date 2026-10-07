@@ -207,6 +207,29 @@ impl Shell {
                 Event::Forked(session) => {
                     shell.reveal_fork(view.clone(), *session.clone(), window, cx);
                 }
+                Event::NewConversation(text) => {
+                    let source = match &shell.side_resource {
+                        Some(SideResource::Child(panel))
+                            if panel.tabs.iter().any(|tab| &tab.view == view) =>
+                        {
+                            panel.source.clone()
+                        }
+                        _ => view.clone(),
+                    };
+                    shell.focus_chat_pane(&source, window, cx);
+                    let binding = source.read(cx).binding();
+                    if let Some(draft) = shell.chats.draft.clone() {
+                        draft.update(cx, |draft, cx| draft.retarget(binding, window, cx));
+                    } else {
+                        shell.chats.draft = Some(shell.chat_view(binding, None, window, cx));
+                    }
+                    shell.new_live_conversation(window, cx);
+                    if let Some(draft) = shell.current_chat() {
+                        draft.update(cx, |draft, cx| {
+                            draft.insert_quote(text, window, cx);
+                        });
+                    }
+                }
                 Event::Removed(session) => {
                     let node = view.read(cx).binding().client.target();
                     shell.close_session_view(Key::Session(node, *session), window, cx);

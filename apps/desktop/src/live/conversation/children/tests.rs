@@ -202,6 +202,44 @@ fn opens_inherited_child(cx: &mut TestAppContext) {
         assert!(shell.read_with(visual, |shell, _| shell.side_resource.is_none()));
         assert_eq!(fixture.page(child.run.session).runs.len(), 1);
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 2);
+        visual.update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.reveal_session(fork.clone(), window, cx);
+                shell.open_live_child(source.clone(), child.run.session, window, cx);
+            });
+        });
+        wait(
+            visual,
+            |cx| matches!(&shell.read(cx).side_resource, Some(SideResource::Child(panel)) if panel.child().read(cx).connected()),
+        );
+        let selected = shell.read_with(visual, |shell, _| match &shell.side_resource {
+            Some(SideResource::Child(panel)) => panel.child().clone(),
+            _ => panic!("child panel expected"),
+        });
+        visual.update(|_, cx| {
+            selected.update(cx, |_, cx| {
+                cx.emit(Event::NewConversation("Child excerpt".into()))
+            });
+        });
+        wait(visual, |cx| {
+            shell.read(cx).current_chat().is_some_and(|draft| {
+                draft.read(cx).session().is_none() && draft.read(cx).connected()
+            })
+        });
+        shell.read_with(visual, |shell, cx| {
+            let binding = shell.current_chat().unwrap().read(cx).binding();
+            assert_eq!(binding.client.target(), target);
+            assert_eq!(binding.project, fork.project);
+            assert_eq!(binding.worktree, Some(fork.worktree));
+        });
+        assert_eq!(
+            shell.read_with(visual, |shell, cx| {
+                shell.current_chat().unwrap().read(cx).draft(cx)
+            }),
+            "> Child excerpt\n\n"
+        );
+        assert_eq!(fixture.page(child.run.session).runs.len(), 1);
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), 2);
         visual.update(|window, _| window.remove_window());
         drop(source);
         drop(other);

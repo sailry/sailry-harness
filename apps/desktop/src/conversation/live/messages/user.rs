@@ -128,17 +128,45 @@ impl View {
             let links = references::inline::links(&text, references);
             let references = references.to_vec();
             let owner = cx.entity().downgrade();
-            let selectable = gpui_kit::base::SelectableText::new(format!("{turn}-prompt"), text)
-                .links(links, cx.theme().link, move |link, window, cx| {
-                    if let Some(reference) = references
-                        .iter()
-                        .find(|reference| references::inline::marker(reference) == link.id)
-                    {
-                        _ = owner.update(cx, |view, cx| {
-                            view.open_reference(reference.clone(), Some(turn), window, cx)
+            let resizing = owner.clone();
+            let selecting = owner.clone();
+            let state = self
+                .prompts
+                .borrow_mut()
+                .entry(turn)
+                .or_insert_with(|| {
+                    cx.new(|cx| crate::conversation::prompt::State::new(text.clone(), cx))
+                })
+                .clone();
+            state.update(cx, |state, cx| state.set_text(text, cx));
+            let selectable = crate::conversation::prompt::View::new(
+                &state,
+                turn.to_string(),
+                px(f32::from(self.message_text_size)),
+            )
+            .on_resize(move |_, cx| {
+                _ = resizing.update(cx, |view, cx| {
+                    if let Some(index) = view.rows.iter().position(|id| *id == turn) {
+                        view.scroller.update(cx, |scroller, cx| {
+                            scroller.remeasure_items(index..index + 1, cx)
                         });
                     }
+                    cx.notify();
                 });
+            })
+            .on_selection(move |excerpt, _, cx| {
+                _ = selecting.update(cx, |view, cx| view.select_excerpt(excerpt, cx));
+            })
+            .links(links, move |link, window, cx| {
+                if let Some(reference) = references
+                    .iter()
+                    .find(|reference| references::inline::marker(reference) == link.id)
+                {
+                    _ = owner.update(cx, |view, cx| {
+                        view.open_reference(reference.clone(), Some(turn), window, cx)
+                    });
+                }
+            });
             return div()
                 .debug_selector(move || format!("live-user-text-{turn}"))
                 .min_w_0()

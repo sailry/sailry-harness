@@ -12,6 +12,7 @@ pub(crate) mod live;
 mod mode;
 pub(crate) mod models;
 mod permission;
+pub(crate) mod prompt;
 pub(crate) mod queue;
 pub(crate) mod references;
 pub(crate) mod subagent;

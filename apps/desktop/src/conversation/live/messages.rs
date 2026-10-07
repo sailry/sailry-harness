@@ -117,6 +117,7 @@ impl View {
             })
             .map(|entry| entry.path.clone());
         let image_owner = owner.clone();
+        let selection_owner = owner.clone();
         let file_owner = owner.clone();
         let file_root = root.clone();
         let file_id = id.clone();
@@ -138,6 +139,9 @@ impl View {
                 typography.scaled(f32::from(self.message_text_size) / typography.body.size()),
             )
             .list_state(self.scroller.read(cx).list_state())
+            .on_selection(move |excerpt, _, cx| {
+                _ = selection_owner.update(cx, |view, cx| view.select_excerpt(excerpt, cx));
+            })
             .on_file(move |index, url, label, _| {
                 let file = crate::content::files::from_link(url, label, file_root.as_deref()?)?;
                 let source = file_owner.upgrade()?;
