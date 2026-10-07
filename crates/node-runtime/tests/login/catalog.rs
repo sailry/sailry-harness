@@ -13,7 +13,14 @@ pub(super) fn account_models(
     request: &discovery_support::Request,
     authentication: Authentication,
 ) -> serde_json::Value {
-    assert_eq!(request.path, "/models");
+    assert_eq!(
+        request.path,
+        if authentication == Authentication::ChatGpt {
+            "/models?client_version=0.160.1"
+        } else {
+            "/models"
+        }
+    );
     models(authentication)
 }
 
@@ -37,7 +44,7 @@ pub(super) fn models(authentication: Authentication) -> serde_json::Value {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn uses_public_catalog_without_client_version() {
+async fn uses_public_catalog_revision() {
     for remote in [false, true] {
         let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
         let fixture = Fixture::new(remote, &server).await;
@@ -76,7 +83,7 @@ async fn uses_public_catalog_without_client_version() {
                 .lock()
                 .unwrap()
                 .iter()
-                .filter(|request| request.path == "/models")
+                .filter(|request| request.path == "/models?client_version=0.160.1")
                 .count(),
             2
         );
@@ -173,7 +180,7 @@ fn catalog(request: &discovery_support::Request, authentication: Authentication)
     assert!(request.body.is_empty());
     assert_eq!(request.headers["user-agent"], "Sailry/0.1");
     if authentication == Authentication::ChatGpt {
-        assert_eq!(request.path, "/models");
+        assert_eq!(request.path, "/models?client_version=0.160.1");
         assert_eq!(
             request.headers["authorization"],
             "Bearer isolated-chatgpt-access"

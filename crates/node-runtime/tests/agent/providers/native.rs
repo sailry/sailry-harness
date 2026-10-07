@@ -8,6 +8,8 @@ mod assistants;
 mod cloud;
 #[path = "native/completion.rs"]
 mod completion;
+#[path = "native/errors.rs"]
+mod errors;
 #[path = "native/function_tools.rs"]
 mod function_tools;
 #[path = "native/grounding.rs"]

@@ -11,7 +11,9 @@ pub(super) struct Entry {
     id: SharedString,
     content: AnyElement,
     control: Option<AnyElement>,
+    control_width: Option<Rems>,
     actions: Vec<Button>,
+    actions_width: Option<Rems>,
 }
 
 impl Entry {
@@ -20,7 +22,9 @@ impl Entry {
             id: id.into(),
             content: content.into_any_element(),
             control: None,
+            control_width: None,
             actions: Vec::new(),
+            actions_width: None,
         }
     }
 
@@ -29,8 +33,18 @@ impl Entry {
         self
     }
 
+    pub fn control_width(mut self, width: Rems) -> Self {
+        self.control_width = Some(width);
+        self
+    }
+
     pub fn action(mut self, button: Button) -> Self {
         self.actions.push(button.ghost().small());
+        self
+    }
+
+    pub fn actions_width(mut self, width: Rems) -> Self {
+        self.actions_width = Some(width);
         self
     }
 }
@@ -66,6 +80,9 @@ impl RenderOnce for Entry {
                             h_flex()
                                 .debug_selector(move || format!("{control_id}-control"))
                                 .flex_shrink_0()
+                                .when_some(self.control_width, |slot, width| {
+                                    slot.w(width).justify_center()
+                                })
                                 .child(control),
                         )
                     })
@@ -75,6 +92,9 @@ impl RenderOnce for Entry {
                                 .debug_selector(move || format!("{actions_id}-actions"))
                                 .flex_shrink_0()
                                 .gap_2()
+                                .when_some(self.actions_width, |slot, width| {
+                                    slot.w(width).justify_end()
+                                })
                                 .children(self.actions),
                         )
                     }),

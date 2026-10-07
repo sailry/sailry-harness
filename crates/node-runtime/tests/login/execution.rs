@@ -359,7 +359,7 @@ async fn runs_tools_from_minimal_catalog() {
     for remote in [false, true] {
         let server = Server::start_with_request(ModelApi::Anthropic, |request| {
             match request.path.as_str() {
-                "/models" => Reply::Json(json!({"models":[{
+                path if path.starts_with("/models?") => Reply::Json(json!({"models":[{
                     "slug":"gpt-6.1-sol", "display_name":"GPT-6.1 Sol", "visibility":"list"
                 }]})),
                 "/responses" => {

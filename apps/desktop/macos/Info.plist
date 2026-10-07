@@ -12,6 +12,14 @@
     <key>CFBundleShortVersionString</key><string>0.1.0</string>
     <key>CFBundleVersion</key><string>1</string>
     <key>CFBundleIconFile</key><string>Sailry.icns</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key><string>ai.sailry.desktop.return</string>
+            <key>CFBundleURLSchemes</key><array><string>sailry</string></array>
+            <key>CFBundleTypeRole</key><string>Viewer</string>
+        </dict>
+    </array>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>NSMicrophoneUsageDescription</key><string>Use the microphone for voice input</string>
     <key>NSAppDataUsageDescription</key><string>Import Chrome website cookies into Sailry</string>

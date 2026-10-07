@@ -605,9 +605,21 @@ pub(super) fn failure_key(error: &sailry_protocol::Fault) -> &'static str {
         }
         _ => {}
     }
-    if error.message == "Agent execution failed (model.openai_responses.parse)" {
+    let diagnostic = error
+        .message
+        .split_once("; HTTP ")
+        .map_or(error.message.as_str(), |(message, _)| message);
+    if diagnostic
+        == "Agent execution failed (model.openai_responses.subscription_sharing_usage_limit_exceeded)"
+    {
+        "chat_subscription_limit"
+    } else if diagnostic
+        == "Agent execution failed (model.openai_responses.subscription_sharing_usage_unavailable)"
+    {
+        "chat_subscription_unavailable"
+    } else if diagnostic == "Agent execution failed (model.openai_responses.parse)" {
         "chat_response_invalid"
-    } else if error.message == "Agent execution failed (model.response_timeout)" {
+    } else if diagnostic == "Agent execution failed (model.response_timeout)" {
         "chat_response_timeout"
     } else if error.code == sailry_protocol::ErrorCode::Unavailable {
         "chat_model_failed"
@@ -626,6 +638,26 @@ mod tests {
 
     #[test]
     fn classifies_response_failures() {
+        for (message, key) in [
+            (
+                "Agent execution failed (model.openai_responses.subscription_sharing_usage_limit_exceeded)",
+                "chat_subscription_limit",
+            ),
+            (
+                "Agent execution failed (model.openai_responses.subscription_sharing_usage_unavailable)",
+                "chat_subscription_unavailable",
+            ),
+        ] {
+            for message in [
+                message.to_string(),
+                format!("{message}; HTTP 429; rate_limited"),
+            ] {
+                assert_eq!(
+                    failure_key(&Fault::new(ErrorCode::Unavailable, message)),
+                    key
+                );
+            }
+        }
         assert_eq!(
             failure_key(&Fault::new(
                 ErrorCode::Unavailable,

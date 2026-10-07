@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub(super) fn options(authentication: Authentication, suffix: &str) -> Options {
     match authentication {
         Authentication::ChatGpt => Options::ChatGpt {
+            catalog_version: Some("0.161.0".into()),
             user_agent: format!("Sailry-Fixture/{suffix}"),
         },
         Authentication::Copilot => Options::Copilot {
@@ -89,7 +90,7 @@ async fn discovers_with_unsaved_options() {
                 let request = requests.last().unwrap();
                 headers(request, &draft);
                 if authentication == Authentication::ChatGpt {
-                    assert_eq!(request.path, "/models");
+                    assert_eq!(request.path, "/models?client_version=0.161.0");
                     assert!(!request.headers.contains_key("originator"));
                     assert!(!request.headers.contains_key("chatgpt-account-id"));
                 }

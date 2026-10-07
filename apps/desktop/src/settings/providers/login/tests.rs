@@ -51,7 +51,11 @@ fn settle_dialog(cx: &mut VisualTestContext) {
     draw(cx);
 }
 
-fn authorize_browser(login: &Entity<Login>, fixture: &Fixture, visual: &mut VisualTestContext) {
+fn authorize_browser(
+    login: &Entity<Login>,
+    fixture: &Fixture,
+    visual: &mut VisualTestContext,
+) -> tokio::task::JoinHandle<String> {
     wait(visual, |cx| {
         matches!(login.read(cx).state(), Some(State::Browser { .. }))
     });
@@ -64,13 +68,29 @@ fn authorize_browser(login: &Entity<Login>, fixture: &Fixture, visual: &mut Visu
         };
         authorization_url.clone()
     });
-    fixture.runtime.block_on(async {
-        reqwest::get(support::callback(&authorization).expose())
+    let callback = support::callback(&authorization);
+    fixture.runtime.spawn(async move {
+        reqwest::get(callback.expose())
             .await
             .unwrap()
             .error_for_status()
-            .unwrap();
-    });
+            .unwrap()
+            .text()
+            .await
+            .unwrap()
+    })
+}
+
+fn page_result(
+    response: tokio::task::JoinHandle<String>,
+    fixture: &Fixture,
+    visual: &mut VisualTestContext,
+    outcome: &str,
+) {
+    wait(visual, |_| response.is_finished());
+    let html = fixture.runtime.block_on(response).unwrap();
+    assert!(html.contains(&format!("data-outcome=\"{outcome}\"")));
+    assert!(html.contains("href=\"sailry://return\""));
 }
 
 struct Surface(Entity<Workspace>);

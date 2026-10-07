@@ -1,5 +1,6 @@
 use super::super::super::authorization_support as support;
 use super::*;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_link::{Admission, Link, NetworkScope, Pending, Subscription, Transport};
 use sailry_node_runtime::Node;
 use sailry_protocol::{
@@ -10,6 +11,18 @@ use std::sync::{Arc, Mutex, atomic::AtomicU8};
 
 mod cancellation;
 mod recovery;
+
+fn close_dialog(visual: &mut VisualTestContext) {
+    draw(visual);
+    visual.update(|window, cx| {
+        let close = window.within("dialog-close").find("close");
+        assert_eq!(close.label(), Some("Close"));
+        assert_eq!(close.role(), Some(Role::Button));
+        assert!(close.visible());
+        window.within("dialog-close").click("close", cx);
+    });
+    draw(visual);
+}
 
 struct Recording {
     inner: Arc<dyn Transport>,
@@ -187,14 +200,29 @@ impl Fixture {
         (attempt, authorization_url)
     }
 
-    fn callback(&self, authorization: &str) {
-        self.runtime.block_on(async {
-            reqwest::get(support::callback(authorization).expose())
+    fn callback(&self, authorization: &str) -> tokio::task::JoinHandle<String> {
+        let callback = support::callback(authorization);
+        self.runtime.spawn(async move {
+            reqwest::get(callback.expose())
                 .await
                 .unwrap()
                 .error_for_status()
-                .unwrap();
-        });
+                .unwrap()
+                .text()
+                .await
+                .unwrap()
+        })
+    }
+
+    fn page_result(
+        &self,
+        response: tokio::task::JoinHandle<String>,
+        visual: &mut VisualTestContext,
+        outcome: &str,
+    ) {
+        wait(visual, |_| response.is_finished());
+        let html = self.runtime.block_on(response).unwrap();
+        assert!(html.contains(&format!("data-outcome=\"{outcome}\"")));
     }
 
     fn close(self) {
@@ -234,6 +262,8 @@ fn authorizes_saved_provider_without_saving(cx: &mut TestAppContext) {
         draw(visual);
         assert!(visual.update(|window, cx| window.has_active_dialog(cx)));
         assert!(visual.debug_bounds("provider-login-loading").is_none());
+        assert!(visual.debug_bounds("provider-login-footer").is_none());
+        assert!(visual.debug_bounds("provider-login-cancel").is_none());
         assert!(visual.debug_bounds("provider-login").unwrap().size.width <= px(520.));
         let requests = fixture.recording.requests.lock().unwrap().clone();
         let beginnings: Vec<_> = requests
@@ -273,7 +303,7 @@ fn authorizes_saved_provider_without_saving(cx: &mut TestAppContext) {
             visual.opened_url().as_deref(),
             Some(authorization_url.as_str())
         );
-        tap(visual, "provider-login-cancel");
+        close_dialog(visual);
         wait(visual, |_| fixture.state(request.id) == State::Cancelled);
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
         assert_eq!(fixture.provider(), saved);

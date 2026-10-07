@@ -53,7 +53,6 @@ impl Workspace {
             .channels
             .iter()
             .filter(|channel| channel.preset.category() == category);
-        let authorization_slot = real && matching.clone().any(|channel| channel.preset.oauth());
         for channel in matching {
             let id = channel.id;
             let authorization = (real && channel.preset.oauth()).then(|| {
@@ -83,33 +82,30 @@ impl Workspace {
                     )
                 })
             });
-            let reserve_authorization = authorization_slot && authorization.is_none();
             rows = rows.child(
                 Entry::new(format!("provider-{id}"), list::content(channel, real, cx))
+                    .control_width(rems(3.))
+                    // Four small Kit buttons and three gaps share the fixed action slot.
+                    .actions_width(rems(7.5))
                     .control(
-                        h_flex()
-                            .child(
-                                Switch::new(("provider-enabled", id))
-                                    .disabled(busy)
-                                    .checked(channel.enabled)
-                                    .accessibility_label(tr("provider_enabled"))
-                                    .on_click(cx.listener(move |this, enabled, _, cx| {
-                                        if this.provider_link.is_some() {
-                                            this.provider_action(id, false, *enabled, cx);
-                                            return;
-                                        }
-                                        if let Some(channel) =
-                                            this.providers.channels.iter_mut().find(|c| c.id == id)
-                                        {
-                                            channel.enabled = *enabled;
-                                        }
-                                        cx.notify();
-                                    })),
-                            )
-                            .when(reserve_authorization, |control| {
-                                // Match Kit's small icon button and the action gap.
-                                control.child(div().w_6().mr_2().flex_shrink_0())
-                            }),
+                        h_flex().child(
+                            Switch::new(("provider-enabled", id))
+                                .disabled(busy)
+                                .checked(channel.enabled)
+                                .accessibility_label(tr("provider_enabled"))
+                                .on_click(cx.listener(move |this, enabled, _, cx| {
+                                    if this.provider_link.is_some() {
+                                        this.provider_action(id, false, *enabled, cx);
+                                        return;
+                                    }
+                                    if let Some(channel) =
+                                        this.providers.channels.iter_mut().find(|c| c.id == id)
+                                    {
+                                        channel.enabled = *enabled;
+                                    }
+                                    cx.notify();
+                                })),
+                        ),
                     )
                     .when_some(authorization, |row, button| row.action(button))
                     .action(

@@ -94,6 +94,9 @@ impl Login {
 
 impl Render for Login {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.provider.authentication == sailry_protocol::Authentication::ChatGpt {
+            return self.browser_body(cx);
+        }
         let active = !self.closed && !self.cancelling && !self.expired();
         v_flex()
             .id("provider-login")
@@ -137,9 +140,9 @@ impl Render for Login {
                     body.child(
                         h_flex()
                             .debug_selector(|| "provider-login-waiting".into())
+                            .justify_center()
                             .gap_2()
                             .py_2()
-                            .child(Icon::new(IconName::ExternalLink).small())
                             .child(tr("provider_login_waiting")),
                     )
                 },
@@ -179,5 +182,109 @@ impl Render for Login {
                     body
                 }
             })
+            .into_any_element()
+    }
+}
+
+impl Login {
+    fn browser_body(&self, cx: &mut Context<Self>) -> AnyElement {
+        let loading = self.pending
+            || self.cancelling
+            || matches!(self.state(), Some(State::Starting | State::Exchanging));
+        let retry = self.error.is_some() && self.error != Some("provider_login_changed");
+        let url = match self.state() {
+            Some(State::Browser {
+                authorization_url, ..
+            }) => Some(authorization_url.clone()),
+            _ => None,
+        };
+        let interactive = !loading
+            && !self.closed
+            && self.error != Some("provider_login_changed")
+            && (retry || url.is_some());
+        let body = v_flex()
+            .id("provider-login")
+            .debug_selector(|| "provider-login".into())
+            .w_full()
+            .items_center()
+            .text_center()
+            .py_6()
+            .gap_4()
+            .child(
+                img("branding/sailry-mark.svg")
+                    .debug_selector(|| "provider-login-logo".into())
+                    .size_16(),
+            )
+            .child(if loading {
+                h_flex()
+                    .debug_selector(|| "provider-login-loading".into())
+                    .justify_center()
+                    .gap_2()
+                    .py_2()
+                    .child(spinner::Spinner::new().small())
+                    .child(tr("provider_login_starting"))
+                    .into_any_element()
+            } else {
+                h_flex()
+                    .when(!retry, |row| {
+                        row.debug_selector(|| "provider-login-waiting".into())
+                    })
+                    .justify_center()
+                    .py_2()
+                    .child(tr(if retry {
+                        "provider_login_retry"
+                    } else {
+                        "provider_login_waiting"
+                    }))
+                    .into_any_element()
+            });
+        if !interactive {
+            return body.into_any_element();
+        }
+        let id = if retry {
+            "provider-login-retry"
+        } else {
+            "provider-login-open"
+        };
+        Button::new(id)
+            .debug_selector(move || id.into())
+            .ghost()
+            .w_full()
+            .h_auto()
+            .p_0()
+            .cursor_pointer()
+            .accessibility_label(tr(if retry {
+                "provider_login_retry"
+            } else {
+                "provider_login_authorize"
+            }))
+            .child(body)
+            // Dialog binds Enter to Confirm before the native button's key-up.
+            .on_action(cx.listener(|login, _: &dialog::Confirm, window, cx| {
+                cx.stop_propagation();
+                login.authorize(window, cx);
+            }))
+            .on_click(cx.listener(|login, _, window, cx| {
+                login.authorize(window, cx);
+            }))
+            .into_any_element()
+    }
+
+    fn authorize(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pending
+            || self.cancelling
+            || self.closed
+            || self.error == Some("provider_login_changed")
+        {
+            return;
+        }
+        if self.error.is_some() {
+            self.begin(window, cx);
+        } else if let Some(State::Browser {
+            authorization_url, ..
+        }) = self.state()
+        {
+            cx.open_url(authorization_url);
+        }
     }
 }

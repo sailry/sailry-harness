@@ -36,10 +36,12 @@ fn closes_on_catalog_failure(cx: &mut TestAppContext) {
                 let owner = owner.unwrap();
                 wait(visual, |cx| owner.read(cx).providers.channels.len() == 1);
                 let login = visual.update(|window, cx| open(owner.clone(), 0, window, cx).unwrap());
-                if authentication == Authentication::ChatGpt {
-                    authorize_browser(&login, &fixture, visual);
-                }
+                let response = (authentication == Authentication::ChatGpt)
+                    .then(|| authorize_browser(&login, &fixture, visual));
                 wait(visual, |cx| login.read(cx).closed);
+                if let Some(response) = response {
+                    page_result(response, &fixture, visual, "connected");
+                }
                 login.read_with(visual, |login, _| {
                     assert_eq!(login.state(), Some(&State::Connected));
                     let error = login
@@ -77,15 +79,17 @@ fn closes_on_catalog_failure(cx: &mut TestAppContext) {
                 fixture.mode.store(1, Ordering::SeqCst);
                 let reconnect =
                     visual.update(|window, cx| open(owner.clone(), 0, window, cx).unwrap());
-                if authentication == Authentication::ChatGpt {
-                    authorize_browser(&reconnect, &fixture, visual);
-                }
+                let response = (authentication == Authentication::ChatGpt)
+                    .then(|| authorize_browser(&reconnect, &fixture, visual));
                 wait(visual, |cx| {
                     owner.read(cx).providers.channels[0].models.len() == 2
                 });
                 visual.update(|window, cx| assert!(!window.has_active_dialog(cx)));
                 assert_eq!(fixture.provider().credential, Some(credential));
                 assert!(reconnect.read_with(visual, |login, _| login.closed));
+                if let Some(response) = response {
+                    page_result(response, &fixture, visual, "connected");
+                }
                 crate::feedback::tests::shown(visual);
                 assert_eq!(
                     visual.update(crate::feedback::tests::summary),

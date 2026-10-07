@@ -7,6 +7,9 @@ use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+#[path = "responses_stream/errors.rs"]
+mod stream_errors;
+
 fn completion(output: Value) -> Value {
     json!({
         "type": "response.completed", "sequence_number": 10,

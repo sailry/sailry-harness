@@ -70,7 +70,10 @@ pub(super) fn open_for(
                 })
             })
             .child(login.clone())
-            .footer(login.read(cx).footer(&login, cx))
+            .when(
+                login.read(cx).provider.authentication != sailry_protocol::Authentication::ChatGpt,
+                |dialog| dialog.footer(login.read(cx).footer(&login, cx)),
+            )
     });
     result
 }
@@ -93,6 +96,7 @@ pub(super) struct Login {
     observer: Option<Task<()>>,
     callback: Option<Callback>,
     callback_stop: CancellationToken,
+    browser_reply: Option<tokio::sync::oneshot::Sender<crate::oauth::page::Outcome>>,
     completion: Option<Request>,
     receiver: Option<Task<()>>,
     opened: Option<sailry_protocol::RequestId>,
@@ -132,6 +136,7 @@ impl Login {
             observer: None,
             callback: None,
             callback_stop: CancellationToken::new(),
+            browser_reply: None,
             completion: None,
             receiver: None,
             opened: None,
@@ -170,6 +175,7 @@ impl Login {
                 attempt: self.request.id,
             });
             self.callback = callback;
+            self.browser_reply = None;
             self.callback_stop.cancel();
             self.callback_stop = CancellationToken::new();
             self.receiver = None;
@@ -266,6 +272,7 @@ impl Login {
                                 login.open_browser(&verification_url, cx);
                             }
                             Some(State::Connected) => {
+                                login.reply(crate::oauth::page::Outcome::Connected);
                                 login.completion = None;
                                 let key = if login
                                     .view
@@ -289,6 +296,7 @@ impl Login {
                                 }
                             }
                             Some(State::Cancelled) => {
+                                login.reply(crate::oauth::page::Outcome::Cancelled);
                                 login.completion = None;
                                 if !login.closed {
                                     window.close_dialog(cx);
@@ -310,6 +318,7 @@ impl Login {
                         }
                         if let Some(State::Failed(error)) = login.state() {
                             let key = error_key(error);
+                            login.reply(crate::oauth::page::Outcome::Failed);
                             login.completion = None;
                             login.error = Some(key);
                             login.fresh = true;
@@ -335,6 +344,12 @@ impl Login {
 
     pub(super) fn state(&self) -> Option<&State> {
         self.view.update.as_ref().map(|update| &update.state)
+    }
+
+    fn reply(&mut self, outcome: crate::oauth::page::Outcome) {
+        if let Some(sender) = self.browser_reply.take() {
+            let _ = sender.send(outcome);
+        }
     }
 
     fn open_browser(&mut self, url: &str, cx: &mut App) {
@@ -376,6 +391,13 @@ impl Login {
             || self.error == Some("provider_login_changed")
             || (self.attempt.is_none() && self.fresh)
         {
+            let outcome = match self.state() {
+                Some(State::Connected) => crate::oauth::page::Outcome::Connected,
+                Some(State::Cancelled) => crate::oauth::page::Outcome::Cancelled,
+                Some(State::Failed(_)) => crate::oauth::page::Outcome::Failed,
+                _ => crate::oauth::page::Outcome::Pending,
+            };
+            self.reply(outcome);
             self.closed = true;
             self.cancelling = false;
             self.error = None;
@@ -433,6 +455,7 @@ impl Login {
                     _ => false,
                 };
                 if cancelled {
+                    login.reply(crate::oauth::page::Outcome::Cancelled);
                     login.stop.cancel();
                     login.callback_stop.cancel();
                     login.callback = None;

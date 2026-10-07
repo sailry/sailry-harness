@@ -284,4 +284,23 @@ mod errors {
             assert!(!fault.message.contains("private"));
         }
     }
+
+    #[test]
+    fn preserves_shared_usage_codes() {
+        for code in [
+            "model.openai_responses.subscription_sharing_usage_limit_exceeded",
+            "model.openai_responses.subscription_sharing_usage_unavailable",
+        ] {
+            let failure = AdkError::new(
+                ErrorComponent::Model,
+                ErrorCategory::Forbidden,
+                code,
+                "private echoed credential",
+            );
+            assert_eq!(
+                error(failure).message,
+                format!("Agent execution failed ({code})")
+            );
+        }
+    }
 }

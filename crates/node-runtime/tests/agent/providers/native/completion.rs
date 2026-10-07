@@ -24,7 +24,7 @@ fn completed(output: Value) -> Value {
         "model":"fixture-a", "status":"completed", "output":output}})
 }
 
-async fn server(events: Vec<Value>) -> Server {
+pub(super) async fn server(events: Vec<Value>) -> Server {
     let mut body =
         "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n"
             .to_string();

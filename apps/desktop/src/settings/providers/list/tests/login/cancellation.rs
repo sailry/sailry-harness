@@ -17,18 +17,21 @@ fn cancels_browser_and_releases_callback(cx: &mut TestAppContext) {
         let (owner, visual) = fixture.mount(cx);
         for phase in [0, 1, 2] {
             let (attempt, authorization) = fixture.begin(visual);
-            if phase == 1 {
+            let response = if phase == 1 {
                 fixture.mode.store(2, Ordering::SeqCst);
-                fixture.callback(&authorization);
+                let response = fixture.callback(&authorization);
                 wait(visual, |_| {
                     matches!(fixture.state(attempt), State::Failed(_))
                 });
-            }
+                Some(response)
+            } else {
+                None
+            };
             if phase == 2 {
                 visual.simulate_keystrokes("escape");
                 draw(visual);
             } else {
-                tap(visual, "provider-login-cancel");
+                close_dialog(visual);
             }
             wait(visual, |_| !fixture.state(attempt).active());
             if phase == 1 {
@@ -37,6 +40,9 @@ fn cancels_browser_and_releases_callback(cx: &mut TestAppContext) {
                 assert_eq!(fixture.state(attempt), State::Cancelled);
             }
             assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+            if let Some(response) = response {
+                fixture.page_result(response, visual, "failed");
+            }
             fixture.runtime.block_on(async {
                 assert!(
                     reqwest::get(support::callback(&authorization).expose())

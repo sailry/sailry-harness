@@ -21,7 +21,7 @@ async fn receives_matching_state_on_each_path() {
         let redirect = listener.redirect.clone();
         let task = tokio::spawn(listener.receive(
             "https://auth.example/authorize?state=expected".into(),
-            "Return to Sailry".into(),
+            async { Reply::Text("Return to Sailry".into()) },
             CancellationToken::new(),
         ));
         let reply = send(
@@ -30,6 +30,10 @@ async fn receives_matching_state_on_each_path() {
         )
         .await;
         assert!(reply.starts_with("HTTP/1.1 200 OK"));
+        assert!(reply.contains("Content-Type: text/plain; charset=utf-8"));
+        assert!(reply.contains("Cache-Control: no-store"));
+        assert!(reply.contains("Referrer-Policy: no-referrer"));
+        assert!(reply.contains("X-Content-Type-Options: nosniff"));
         assert!(reply.ends_with("Return to Sailry"));
         let callback = task.await.unwrap().unwrap();
         assert_eq!(
@@ -45,7 +49,7 @@ async fn preserves_listener_after_invalid_state() {
     let redirect = listener.redirect.clone();
     let task = tokio::spawn(listener.receive(
         "https://auth.example/authorize?state=expected".into(),
-        "Done".into(),
+        async { Reply::Text("Done".into()) },
         CancellationToken::new(),
     ));
     for target in [
@@ -77,7 +81,7 @@ async fn cancellation_closes_listener() {
     let stop = CancellationToken::new();
     let task = tokio::spawn(listener.receive(
         "https://auth.example/authorize?state=expected".into(),
-        "Done".into(),
+        async { Reply::Text("Done".into()) },
         stop.clone(),
     ));
     stop.cancel();
@@ -90,9 +94,39 @@ async fn rejects_missing_authorization_state() {
     let result = listener
         .receive(
             "https://auth.example/authorize".into(),
-            "Done".into(),
+            async { Reply::Text("Done".into()) },
             CancellationToken::new(),
         )
         .await;
     assert_eq!(result.unwrap_err().code, ErrorCode::Unavailable);
+}
+
+#[tokio::test]
+async fn returns_callback_before_deferred_reply() {
+    let listener = Callback::bind("/auth/callback").unwrap();
+    let redirect = listener.redirect.clone();
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let callback = tokio::spawn(listener.receive(
+        "https://auth.example/authorize?state=expected".into(),
+        async move { receiver.await.unwrap() },
+        CancellationToken::new(),
+    ));
+    let response = tokio::spawn(async move {
+        send(&redirect, "/auth/callback?state=expected&code=accepted").await
+    });
+    let secret = tokio::time::timeout(Duration::from_secs(2), callback)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(secret.expose().contains("code=accepted"));
+    assert!(!response.is_finished());
+    sender
+        .send(Reply::Html("<h1>Finished</h1>".into()))
+        .ok()
+        .unwrap();
+    let response = response.await.unwrap();
+    assert!(response.starts_with("HTTP/1.1 200 OK"));
+    assert!(response.contains("Content-Type: text/html; charset=utf-8"));
+    assert!(response.ends_with("<h1>Finished</h1>"));
 }

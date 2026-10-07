@@ -26,7 +26,11 @@ async fn fetch(
     url.set_path(&format!("{}/models", url.path().trim_end_matches('/')));
     let mut headers = grant.headers(options)?;
     match grant.authentication() {
-        Authentication::ChatGpt => {}
+        Authentication::ChatGpt => {
+            if let Some(version) = options.catalog_version() {
+                url.query_pairs_mut().append_pair("client_version", version);
+            }
+        }
         Authentication::Copilot => {
             headers.insert(
                 "openai-intent",

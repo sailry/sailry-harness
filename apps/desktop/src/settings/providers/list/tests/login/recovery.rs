@@ -53,7 +53,7 @@ fn retries_the_original_callback(cx: &mut TestAppContext) {
         fixture.transport = loss.clone();
         let (owner, visual) = fixture.mount(cx);
         let (attempt, authorization) = fixture.begin(visual);
-        fixture.callback(&authorization);
+        let response = fixture.callback(&authorization);
         let deadline = Instant::now() + Duration::from_secs(10);
         while visual.debug_bounds("provider-login-retry").is_none() {
             draw(visual);
@@ -62,6 +62,7 @@ fn retries_the_original_callback(cx: &mut TestAppContext) {
         }
         assert!(!loss.first.load(Ordering::SeqCst));
         assert!(fixture.provider().credential.is_none());
+        assert!(!response.is_finished());
         assert!(visual.update(|window, cx| window.has_active_dialog(cx)));
         tap(visual, "provider-login-retry");
         wait(visual, |_| fixture.state(attempt) == State::Connected);
@@ -86,6 +87,7 @@ fn retries_the_original_callback(cx: &mut TestAppContext) {
         draw(visual);
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
         assert!(fixture.provider().credential.is_some());
+        fixture.page_result(response, visual, "connected");
         visual.update(|window, _| window.remove_window());
         visual.run_until_parked();
         drop(owner);
@@ -143,9 +145,10 @@ fn closes_while_callback_admission_is_pending(cx: &mut TestAppContext) {
         fixture.transport = delayed.clone();
         let (owner, visual) = fixture.mount(cx);
         let (attempt, authorization) = fixture.begin(visual);
-        fixture.callback(&authorization);
+        let response = fixture.callback(&authorization);
         wait(visual, |_| !delayed.first.load(Ordering::SeqCst));
-        tap(visual, "provider-login-cancel");
+        assert!(!response.is_finished());
+        close_dialog(visual);
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
         delayed.release.notify_one();
         wait(visual, |_| {
@@ -154,6 +157,7 @@ fn closes_while_callback_admission_is_pending(cx: &mut TestAppContext) {
         wait(visual, |_| fixture.state(attempt) == State::Cancelled);
         assert_eq!(fixture.provider(), saved);
         assert!(fixture.provider().credential.is_none());
+        fixture.page_result(response, visual, "cancelled");
         visual.update(|window, _| window.remove_window());
         visual.run_until_parked();
         drop(owner);

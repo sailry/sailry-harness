@@ -6,9 +6,11 @@ impl Login {
         let Some(callback) = self.callback.take() else {
             return;
         };
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        self.browser_reply = Some(sender);
         let job = self.binding.runtime.spawn(callback.receive(
             url,
-            tr("mcp_oauth_return").to_string(),
+            crate::oauth::page::response(receiver),
             self.callback_stop.clone(),
         ));
         self.receiver = Some(cx.spawn_in(window, async move |owner, cx| {

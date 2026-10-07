@@ -244,8 +244,8 @@ async fn retains_sign_in_without_plan_permission() {
                 tokens["scope"] = json!("openid email profile offline_access");
                 Reply::Json(tokens)
             } else {
-                assert_ne!(
-                    request.path, "/models",
+                assert!(
+                    !request.path.starts_with("/models"),
                     "plan-disabled sign-in must not invoke models"
                 );
                 standard(request)

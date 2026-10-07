@@ -32,6 +32,62 @@ fn tap(cx: &mut VisualTestContext, selector: &'static str) {
     draw(cx);
 }
 
+fn bounds(cx: &mut VisualTestContext, selector: String) -> Bounds<Pixels> {
+    cx.debug_bounds(Box::leak(selector.into_boxed_str()))
+        .unwrap()
+}
+
+fn columns(cx: &mut VisualTestContext, ids: &[usize], authorization: Option<usize>) {
+    let usage = bounds(cx, format!("provider-usage-{}", ids[0]));
+    for &id in ids {
+        let details = bounds(cx, format!("provider-details-{id}"));
+        let name = bounds(cx, format!("provider-name-{id}"));
+        let row_usage = bounds(cx, format!("provider-usage-{id}"));
+        assert!(details.size.width > px(0.));
+        assert_eq!(name.size.width, details.size.width);
+        assert!(details.right() < row_usage.left());
+        assert_eq!(row_usage.size.width, px(192.));
+        assert_eq!(row_usage.left(), usage.left());
+        assert!(
+            bounds(cx, format!("provider-kind-{id}")).right()
+                < bounds(cx, format!("provider-count-{id}")).left()
+        );
+        for field in ["plan", "5h", "7d"] {
+            let column = bounds(cx, format!("provider-{field}-{id}"));
+            let first = bounds(cx, format!("provider-{field}-{}", ids[0]));
+            assert_eq!(column.left(), first.left());
+            assert_eq!(column.size.width, first.size.width);
+        }
+    }
+    let first_control = bounds(cx, format!("provider-{}-control", ids[0]));
+    let first_actions = bounds(cx, format!("provider-{}-actions", ids[0]));
+    for &id in ids {
+        let row = bounds(cx, format!("provider-{id}"));
+        let control = bounds(cx, format!("provider-{id}-control"));
+        let actions = bounds(cx, format!("provider-{id}-actions"));
+        assert_eq!(control.size.width, px(48.));
+        assert_eq!(actions.size.width, px(120.));
+        assert_eq!(control.left(), first_control.left());
+        assert_eq!(actions.left(), first_actions.left());
+        assert!(usage.right() < control.left());
+        assert!(control.right() < actions.left());
+        assert_eq!(actions.right(), row.right());
+        let edit = bounds(cx, format!("provider-edit-{id}"));
+        let delete = bounds(cx, format!("provider-delete-{id}"));
+        assert_eq!(edit.size, size(px(24.), px(24.)));
+        assert_eq!(delete.size, edit.size);
+        assert_eq!(edit.left(), actions.right() - px(56.));
+        assert_eq!(delete.left(), actions.right() - px(24.));
+        let login = cx.debug_bounds(Box::leak(format!("provider-login-{id}").into_boxed_str()));
+        assert_eq!(login.is_some(), authorization == Some(id));
+        if let Some(login) = login {
+            assert_eq!(login.left(), actions.right() - px(88.));
+            assert_eq!(login.size, edit.size);
+            assert_eq!(login.center().y, edit.center().y);
+        }
+    }
+}
+
 #[gpui::test]
 fn keeps_preview_passive(cx: &mut TestAppContext) {
     cx.update(|cx| {
@@ -115,7 +171,7 @@ fn aligns_usage_and_keeps_actions(cx: &mut TestAppContext) {
         let client = Client::new(transport.clone());
         let mut chatgpt = fixture.providers[index].clone();
         let revision = chatgpt.revision;
-        chatgpt.name = "ChatGPT fixture".into();
+        chatgpt.name = "A long ChatGPT provider name that must truncate without moving usage, switches or action buttons".into();
         chatgpt.api = ModelApi::Responses;
         chatgpt.authentication = Authentication::ChatGpt;
         chatgpt.endpoint = "https://api.openai.com/v1".into();
@@ -174,16 +230,14 @@ fn aligns_usage_and_keeps_actions(cx: &mut TestAppContext) {
             )
         });
         assert_eq!([chatgpt_id.min(keyed_id), chatgpt_id.max(keyed_id)], [0, 1]);
-        for (first, second) in [
-            ("provider-usage-0", "provider-usage-1"),
-            ("provider-plan-0", "provider-plan-1"),
-            ("provider-5h-0", "provider-5h-1"),
-            ("provider-7d-0", "provider-7d-1"),
-        ] {
-            let first = visual.debug_bounds(first).unwrap();
-            let second = visual.debug_bounds(second).unwrap();
-            assert_eq!(first.left(), second.left());
-            assert_eq!(first.size.width, second.size.width);
+        let mut previous = px(0.);
+        for width in [560., 800.] {
+            visual.simulate_resize(size(px(width), px(820.)));
+            draw(visual);
+            columns(visual, &[0, 1], Some(chatgpt_id));
+            let details = visual.debug_bounds("provider-details-0").unwrap();
+            assert!(details.size.width > previous);
+            previous = details.size.width;
         }
         for selector in ["provider-manage-usage-0", "provider-manage-usage-1"] {
             assert!(visual.debug_bounds(selector).is_none());
@@ -288,6 +342,47 @@ fn aligns_usage_and_keeps_actions(cx: &mut TestAppContext) {
             assert!(visual.debug_bounds(selector).is_none());
         }
         visual.update(|window, cx| window.close_dialog(cx));
+        draw(visual);
+        let actions = visual
+            .debug_bounds(if keyed_id == 0 {
+                "provider-0-actions"
+            } else {
+                "provider-1-actions"
+            })
+            .unwrap();
+        tap(
+            visual,
+            if chatgpt_id == 0 {
+                "provider-delete-0"
+            } else {
+                "provider-delete-1"
+            },
+        );
+        assert_eq!(
+            crate::prompts::tests::wait(visual).0,
+            tr("provider_delete_title").as_ref()
+        );
+        crate::prompts::tests::answer(visual, "settings_delete");
+        wait(visual, |cx| owner.read(cx).providers.channels.len() == 1);
+        let remaining_id =
+            owner.read_with(visual, |workspace, _| workspace.providers.channels[0].id);
+        columns(visual, &[remaining_id], None);
+        let remaining_actions = visual
+            .debug_bounds(Box::leak(
+                format!("provider-{remaining_id}-actions").into_boxed_str(),
+            ))
+            .unwrap();
+        assert_eq!(remaining_actions.origin.x, actions.origin.x);
+        assert_eq!(remaining_actions.size.width, actions.size.width);
+        let Output::Providers(providers) = fixture
+            .runtime
+            .block_on(client.execute(client.prepare(Command::ListProviders)))
+            .unwrap()
+        else {
+            panic!("providers expected")
+        };
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].authentication, Authentication::ApiKey);
     }
     fixture.close();
 }

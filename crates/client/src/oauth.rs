@@ -1,7 +1,7 @@
 //! Controller-side loopback redirect; OAuth validation and token exchange stay on the Node.
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, Secret};
-use std::{io, net::TcpListener as Listener, time::Duration};
+use std::{future::Future, io, net::TcpListener as Listener, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -11,6 +11,11 @@ use url::Url;
 pub struct Callback {
     listener: Listener,
     pub redirect: String,
+}
+
+pub enum Reply {
+    Text(String),
+    Html(String),
 }
 
 impl Callback {
@@ -24,12 +29,15 @@ impl Callback {
         Ok(Self { listener, redirect })
     }
 
-    pub async fn receive(
+    pub async fn receive<R>(
         self,
         authorization: String,
-        text: String,
+        reply: R,
         stop: CancellationToken,
-    ) -> Result<Secret, Fault> {
+    ) -> Result<Secret, Fault>
+    where
+        R: Future<Output = Reply> + Send + 'static,
+    {
         let url = Url::parse(&authorization).map_err(failed)?;
         let states: Vec<_> = url
             .query_pairs()
@@ -47,9 +55,14 @@ impl Callback {
             };
             let result = tokio::select! {
                 _ = stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "OAuth callback listener closed")),
-                result = tokio::time::timeout(Duration::from_secs(3), request(stream, &self.redirect, state, &text)) => result,
+                result = tokio::time::timeout(Duration::from_secs(3), request(stream, &self.redirect, state)) => result,
             };
-            if let Ok(Ok(Some(callback))) = result {
+            if let Ok(Ok(Some((callback, mut stream)))) = result {
+                // Let the controller submit the callback before preparing its
+                // response. Receipt is not the Node's authorization outcome.
+                tokio::spawn(async move {
+                    let _ = respond(&mut stream, "200 OK", reply.await).await;
+                });
                 return Ok(callback);
             }
         }
@@ -60,8 +73,7 @@ async fn request(
     mut stream: TcpStream,
     redirect: &str,
     state: &str,
-    text: &str,
-) -> io::Result<Option<Secret>> {
+) -> io::Result<Option<(Secret, TcpStream)>> {
     let mut bytes = Vec::new();
     let mut buffer = [0; 2048];
     while !bytes.windows(4).any(|part| part == b"\r\n\r\n") {
@@ -88,10 +100,28 @@ async fn request(
         && callback.path() == expected.path()
         && callback.fragment().is_none()
         && states == [state];
-    let status = if valid { "200 OK" } else { "400 Bad Request" };
-    let body = if valid { text } else { "" };
-    stream.write_all(format!("HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await?;
-    Ok(valid.then(|| Secret::new(callback.to_string())))
+    if valid {
+        Ok(Some((Secret::new(callback.to_string()), stream)))
+    } else {
+        respond(&mut stream, "400 Bad Request", Reply::Text(String::new())).await?;
+        Ok(None)
+    }
+}
+
+async fn respond(stream: &mut TcpStream, status: &str, reply: Reply) -> io::Result<()> {
+    let (content_type, body) = match reply {
+        Reply::Text(body) => ("text/plain", body),
+        Reply::Html(body) => ("text/html", body),
+    };
+    stream
+        .write_all(
+            format!(
+                "HTTP/1.1 {status}\r\nContent-Type: {content_type}; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .as_bytes(),
+        )
+        .await
 }
 
 fn failed(_: impl std::fmt::Display) -> Fault {

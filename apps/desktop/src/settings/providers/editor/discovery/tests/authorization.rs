@@ -133,13 +133,19 @@ fn configures_an_empty_account(cx: &mut TestAppContext) {
                 }
                 let authorization = visual.opened_url().unwrap();
                 let callback = support::callback(&authorization);
-                fixture.runtime.block_on(async {
+                let response = fixture.runtime.spawn(async move {
                     reqwest::get(callback.expose())
                         .await
                         .unwrap()
                         .error_for_status()
-                        .unwrap();
+                        .unwrap()
+                        .text()
+                        .await
+                        .unwrap()
                 });
+                wait(visual, |_| response.is_finished());
+                let html = fixture.runtime.block_on(response).unwrap();
+                assert!(html.contains("data-outcome=\"connected\""));
             }
             wait(visual, |cx| {
                 owner.read(cx).providers.channels[0].credential_configured

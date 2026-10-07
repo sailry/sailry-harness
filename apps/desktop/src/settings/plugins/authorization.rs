@@ -278,10 +278,11 @@ impl Login {
         };
         let stop = self.stop.clone();
         let message = tr("mcp_oauth_return").to_string();
-        let job = self
-            .binding
-            .runtime
-            .spawn(callback.receive(url, message, stop));
+        let job = self.binding.runtime.spawn(callback.receive(
+            url,
+            async move { callback::Reply::Text(message) },
+            stop,
+        ));
         self.receiver = Some(cx.spawn_in(window, async move |owner, cx| {
             let result = job.await;
             let _ = owner.update_in(cx, |login, window, cx| {

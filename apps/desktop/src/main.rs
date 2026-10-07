@@ -44,6 +44,7 @@ mod model_picker;
 #[path = "../../../crates/node-runtime/tests/agent/providers/native/server.rs"]
 mod native_provider_fixture;
 mod navigation_tabs;
+mod oauth;
 mod pages;
 mod panes;
 mod permissions;
@@ -133,52 +134,53 @@ fn run(#[cfg(feature = "workload-tests")] workload: workload::Scenario) {
             }
         },
     };
-    gpui_kit::application()
-        .with_assets(assets::Assets)
-        .run(move |cx| {
-            cx.set_app_identity("ai.sailry.desktop", "Sailry");
-            if let Some(backend) = backend {
-                backend.install(cx);
+    let application = gpui_kit::application().with_assets(assets::Assets);
+    let returns = oauth::listen(&application);
+    application.run(move |cx| {
+        cx.set_app_identity("ai.sailry.desktop", "Sailry");
+        if let Some(backend) = backend {
+            backend.install(cx);
+        }
+        gpui_kit::init(cx);
+        theme::init(cx);
+        locale::init(cx);
+        oauth::init(returns, cx);
+        updater::init(cx);
+        shell::init(cx);
+        cx.on_window_closed(|cx, _| {
+            if cx.windows().is_empty() {
+                cx.quit();
             }
-            gpui_kit::init(cx);
-            theme::init(cx);
-            locale::init(cx);
-            updater::init(cx);
-            shell::init(cx);
-            cx.on_window_closed(|cx, _| {
-                if cx.windows().is_empty() {
-                    cx.quit();
-                }
-            })
-            .detach();
-            let options = window_options(cx);
-            cx.spawn(async move |cx| {
-                cx.open_window(options, |window, cx| {
-                    #[cfg(target_os = "macos")]
-                    macos::configure_backdrop(window);
-                    let live = cx.try_global::<backend::Services>().is_some();
-                    window.set_window_title(&if live {
-                        tr("app").to_string()
-                    } else {
-                        format!("{} - {}", tr("app"), tr("preview"))
-                    });
-                    let view = cx.new(|cx| shell::Shell::new(window, cx));
-                    #[cfg(feature = "workload-tests")]
-                    workload::attach(workload, view.clone(), window, cx);
-                    cx.new(|cx| Root::new(view, window, cx).bg(transparent_black()))
-                })
-                .expect("failed to open desktop window");
-                cx.update(|cx| cx.activate(true));
-                cx.update(|cx| {
-                    if cx.try_global::<backend::Services>().is_some() {
-                        println!("Desktop window ready");
-                    } else {
-                        println!("Preview window ready");
-                    }
+        })
+        .detach();
+        let options = window_options(cx);
+        cx.spawn(async move |cx| {
+            cx.open_window(options, |window, cx| {
+                #[cfg(target_os = "macos")]
+                macos::configure_backdrop(window);
+                let live = cx.try_global::<backend::Services>().is_some();
+                window.set_window_title(&if live {
+                    tr("app").to_string()
+                } else {
+                    format!("{} - {}", tr("app"), tr("preview"))
                 });
+                let view = cx.new(|cx| shell::Shell::new(window, cx));
+                #[cfg(feature = "workload-tests")]
+                workload::attach(workload, view.clone(), window, cx);
+                cx.new(|cx| Root::new(view, window, cx).bg(transparent_black()))
             })
-            .detach();
-        });
+            .expect("failed to open desktop window");
+            cx.update(|cx| cx.activate(true));
+            cx.update(|cx| {
+                if cx.try_global::<backend::Services>().is_some() {
+                    println!("Desktop window ready");
+                } else {
+                    println!("Preview window ready");
+                }
+            });
+        })
+        .detach();
+    });
 }
 
 fn window_options(cx: &App) -> WindowOptions {

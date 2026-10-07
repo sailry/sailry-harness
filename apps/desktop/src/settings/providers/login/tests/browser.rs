@@ -1,4 +1,17 @@
 use super::*;
+use gpui_kit::test::TestWindowExt as _;
+
+fn close_dialog(visual: &mut VisualTestContext) {
+    draw(visual);
+    visual.update(|window, cx| {
+        let close = window.within("dialog-close").find("close");
+        assert_eq!(close.label(), Some("Close"));
+        assert_eq!(close.role(), Some(Role::Button));
+        assert!(close.visible());
+        window.within("dialog-close").click("close", cx);
+    });
+    draw(visual);
+}
 
 fn mount<'a>(
     fixture: &Fixture,
@@ -56,6 +69,25 @@ fn opens_once_and_waits_without_loading(cx: &mut TestAppContext) {
         assert_eq!(visual.opened_url().as_deref(), Some(authorization.as_str()));
         assert!(visual.debug_bounds("provider-login-loading").is_none());
         let waiting = visual.debug_bounds("provider-login-waiting").unwrap();
+        let body = visual.debug_bounds("provider-login").unwrap();
+        let logo = visual.debug_bounds("provider-login-logo").unwrap();
+        let action = visual.debug_bounds("provider-login-open").unwrap();
+        assert!((logo.center().x - body.center().x).abs() < px(1.));
+        assert!((waiting.center().x - body.center().x).abs() < px(1.));
+        assert!(logo.bottom() <= waiting.top());
+        assert!(action.contains(&logo.center()));
+        assert!(action.contains(&waiting.center()));
+        assert!(visual.debug_bounds("provider-login-footer").is_none());
+        assert!(visual.debug_bounds("provider-login-cancel").is_none());
+        visual.update(|window, _| {
+            let action = window.find("provider-login-open");
+            assert_eq!(
+                action.label(),
+                Some(tr("provider_login_authorize").as_ref())
+            );
+            assert_eq!(action.role(), Some(Role::Button));
+            assert!(action.visible());
+        });
         assert!(waiting.size.height <= visual.update(|window, _| window.rem_size() * 3.));
         assert!(visual.debug_bounds("provider-login-code").is_none());
         assert!(visual.debug_bounds("provider-editor").is_none());
@@ -77,9 +109,29 @@ fn opens_once_and_waits_without_loading(cx: &mut TestAppContext) {
             visual.opened_url().as_deref(),
             Some("https://example.com/other-tab")
         );
-        tap(visual, "provider-login-open");
-        assert_eq!(visual.opened_url().as_deref(), Some(authorization.as_str()));
-        tap(visual, "provider-login-cancel");
+        for selector in ["provider-login-logo", "provider-login-waiting"] {
+            visual.update(|_, cx| cx.open_url("https://example.com/other-tab"));
+            tap(visual, selector);
+            assert_eq!(visual.opened_url().as_deref(), Some(authorization.as_str()));
+        }
+        for _ in 0..4 {
+            visual.update(|window, cx| window.focus_next(cx));
+            draw(visual);
+            if visual.update(|window, _| window.find("provider-login-open").focused() == Some(true))
+            {
+                break;
+            }
+        }
+        visual.update(|window, _| {
+            assert_eq!(window.find("provider-login-open").focused(), Some(true));
+        });
+        for key in ["enter", "space"] {
+            visual.update(|_, cx| cx.open_url("https://example.com/other-tab"));
+            visual.update(|window, cx| window.press(key, cx));
+            draw(visual);
+            assert_eq!(visual.opened_url().as_deref(), Some(authorization.as_str()));
+        }
+        close_dialog(visual);
         wait(visual, |cx| {
             !login.read(cx).pending && !login.read(cx).cancelling
         });
@@ -106,7 +158,7 @@ fn loads_only_during_exchange(cx: &mut TestAppContext) {
         });
         let (owner, visual) = mount(&fixture, cx);
         let login = visual.update(|window, cx| open(owner, 0, window, cx).unwrap());
-        authorize_browser(&login, &fixture, visual);
+        let response = authorize_browser(&login, &fixture, visual);
         wait(visual, |cx| {
             matches!(login.read(cx).state(), Some(State::Exchanging))
         });
@@ -114,7 +166,9 @@ fn loads_only_during_exchange(cx: &mut TestAppContext) {
         assert!(visual.debug_bounds("provider-login-loading").is_some());
         assert!(visual.debug_bounds("provider-login-waiting").is_none());
         assert!(visual.debug_bounds("provider-login-open").is_none());
-        tap(visual, "provider-login-cancel");
+        assert!(visual.debug_bounds("provider-login-footer").is_none());
+        assert!(!response.is_finished());
+        close_dialog(visual);
         wait(visual, |cx| {
             !login.read(cx).pending && !login.read(cx).cancelling
         });
@@ -123,6 +177,7 @@ fn loads_only_during_exchange(cx: &mut TestAppContext) {
             State::Cancelled
         );
         visual.update(|window, cx| assert!(!window.has_active_dialog(cx)));
+        page_result(response, &fixture, visual, "cancelled");
         visual.update(|window, _| window.remove_window());
         fixture.close();
     }

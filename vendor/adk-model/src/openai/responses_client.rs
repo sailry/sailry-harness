@@ -10,6 +10,8 @@ use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::StreamExt;
 
+#[path = "responses_errors.rs"]
+mod errors;
 #[path = "responses_stream.rs"]
 mod stream;
 
@@ -336,10 +338,12 @@ async fn normalize_responses_response(
 ) -> Result<reqwest_openai::Response, async_openai::error::OpenAIError> {
     use reqwest_openai::ResponseBuilderExt;
 
-    if open_responses_mode && !response.status().is_success() {
-        return normalize_error_response(response).await;
+    if !response.status().is_success()
+        && (open_responses_mode || response.status().is_server_error())
+    {
+        return normalize_error_response(response, open_responses_mode).await;
     }
-    if (!uses_max_reasoning && !open_responses_mode) || !response.status().is_success() {
+    if !response.status().is_success() {
         return Ok(response);
     }
 
@@ -348,6 +352,9 @@ async fn normalize_responses_response(
         .get(reqwest_openai::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.starts_with("text/event-stream"));
+    if !is_event_stream && !uses_max_reasoning && !open_responses_mode {
+        return Ok(response);
+    }
     let status = response.status();
     let version = response.version();
     let url = response.url().clone();
@@ -416,8 +423,9 @@ async fn normalize_responses_response(
 
 async fn normalize_error_response(
     response: reqwest_openai::Response,
+    open_responses_mode: bool,
 ) -> Result<reqwest_openai::Response, async_openai::error::OpenAIError> {
-    use async_openai::error::{ApiError, ApiErrorResponse, OpenAIError};
+    use async_openai::error::{ApiError, ApiErrorResponse, OpenAIError, WrappedError};
     use reqwest_openai::ResponseBuilderExt;
 
     let status = response.status();
@@ -425,7 +433,18 @@ async fn normalize_error_response(
     let url = response.url().clone();
     let headers = response.headers().clone();
     let bytes = response.bytes().await.map_err(OpenAIError::Reqwest)?;
-    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes)
+    // async-openai 0.41.3 discards structured codes on HTTP 5xx. Preserve only
+    // recognized sharing failures before that parser can make them retryable.
+    if let Ok(wrapped) = serde_json::from_slice::<WrappedError>(&bytes)
+        && errors::sharing_error(wrapped.error.code.as_deref()).is_some()
+    {
+        return Err(OpenAIError::ApiError(ApiErrorResponse {
+            status_code: status,
+            api_error: wrapped.error,
+        }));
+    }
+    if open_responses_mode
+        && let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes)
         && value.get("error").is_none()
         && let Some(detail) = value.get("detail").and_then(serde_json::Value::as_str)
     {
@@ -464,11 +483,10 @@ fn normalize_responses_bytes(
     } else {
         bytes.to_vec()
     };
-    if !open_responses_mode {
-        return normalized;
-    }
     // Empty SSE data fields are heartbeats, not JSON model events.
-    if normalized.strip_prefix(b"data:").is_some_and(|payload| payload.trim_ascii().is_empty()) {
+    if open_responses_mode
+        && normalized.strip_prefix(b"data:").is_some_and(|payload| payload.trim_ascii().is_empty())
+    {
         return Vec::new();
     }
 
@@ -482,6 +500,10 @@ fn normalize_responses_bytes(
     let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(payload) else {
         return normalized;
     };
+    let normalized_error = errors::normalize_event(&mut value);
+    if !open_responses_mode && !normalized_error {
+        return normalized;
+    }
     let message_status = value
         .pointer("/response/status")
         .or_else(|| value.get("status"))
@@ -489,10 +511,12 @@ fn normalize_responses_bytes(
         .filter(|status| matches!(*status, "in_progress" | "completed" | "incomplete"))
         .unwrap_or("in_progress")
         .to_string();
-    if let Some(stream_state) = stream_state {
-        stream_state.normalize_event(&mut value);
+    if open_responses_mode {
+        if let Some(stream_state) = stream_state {
+            stream_state.normalize_event(&mut value);
+        }
+        add_open_responses_defaults(&mut value, &message_status);
     }
-    add_open_responses_defaults(&mut value, &message_status);
 
     let Ok(encoded) = serde_json::to_vec(&value) else {
         return normalized;
@@ -732,6 +756,9 @@ pub(super) fn map_openai_error(e: async_openai::error::OpenAIError) -> AdkError 
 
     if let async_openai::error::OpenAIError::ApiError(ref api_err) = e {
         let status_code = api_err.status_code.as_u16();
+        if let Some(error) = errors::sharing_error(api_err.api_error.code.as_deref()) {
+            return error.with_upstream_status(status_code);
+        }
         let (category, code) = match status_code {
             401 => (ErrorCategory::Unauthorized, "model.openai_responses.unauthorized"),
             403 => (ErrorCategory::Forbidden, "model.openai_responses.forbidden"),
@@ -847,57 +874,44 @@ impl Llm for OpenAIResponsesClient {
                 .await?;
 
             let mut state = StreamState::new(native_tools);
-            let response_stream = event_stream.filter_map(move |event_result| {
-                futures::future::ready(match event_result {
-                    Ok(event) => {
-                        if let Some(response) = state.partial(&event) {
-                            return futures::future::ready(Some(Ok(response)));
-                        }
+            let response_stream = try_stream! {
+                futures::pin_mut!(event_stream);
+                while let Some(event_result) = event_stream.next().await {
+                    let event = event_result.map_err(map_openai_error)?;
+                    if let Some(response) = state.partial(&event) {
+                        yield response;
+                    } else {
                         use async_openai::types::responses::ResponseStreamEvent;
                         match event {
                             // ResponseCompleted carries the authoritative response with
                             // final output, function calls, usage, and finish reason.
                             ResponseStreamEvent::ResponseCompleted(evt) => {
-                                Some(Ok(state.complete(&evt.response)))
+                                yield state.complete(&evt.response);
+                                break;
                             }
 
                             ResponseStreamEvent::ResponseIncomplete(evt) => {
-                                Some(Ok(state.complete(&evt.response)))
+                                yield state.complete(&evt.response);
+                                break;
                             }
 
                             ResponseStreamEvent::ResponseFailed(evt) => {
-                                let (error_code, error_message) =
-                                    if let Some(err) = &evt.response.error {
-                                        (Some(err.code.clone()), Some(err.message.clone()))
-                                    } else {
-                                        (
-                                            Some("unknown".to_string()),
-                                            Some("Response failed".to_string()),
-                                        )
-                                    };
-                                Some(Ok(LlmResponse {
-                                    error_code,
-                                    error_message,
-                                    turn_complete: true,
-                                    ..Default::default()
-                                }))
+                                Err(errors::stream_error(
+                                    evt.response.error.as_ref().map(|error| error.code.as_str()),
+                                ))?;
                             }
 
-                            ResponseStreamEvent::ResponseError(evt) => Some(Ok(LlmResponse {
-                                error_code: evt.code.or_else(|| Some("error".to_string())),
-                                error_message: Some(evt.message),
-                                turn_complete: true,
-                                ..Default::default()
-                            })),
+                            ResponseStreamEvent::ResponseError(evt) => {
+                                Err(errors::stream_error(evt.code.as_deref()))?;
+                            }
 
                             // Lifecycle and native-tool events are stream activity even before
                             // text is available. Consumers may suppress empty partial output.
-                            _ => Some(Ok(LlmResponse { partial: true, ..Default::default() })),
+                            _ => yield LlmResponse { partial: true, ..Default::default() },
                         }
                     }
-                    Err(e) => Some(Err(map_openai_error(e))),
-                })
-            });
+                }
+            };
 
             Ok(crate::usage_tracking::with_usage_tracking(Box::pin(response_stream), usage_span))
         } else {
