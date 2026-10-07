@@ -149,9 +149,9 @@ rmcp = { path = "vendor/rmcp" }
 gpui-base = { path = "vendor/gpui-base" }
 gpui-component = { path = "vendor/gpui-component" }
 
-# Reduce debug binary size and keep Apple compact unwind offsets encodable.
+# Keep development code and unwind metadata small without disabling unwinding.
 [profile.dev]
-opt-level = 1
+opt-level = "z"
 debug = "limited"
 split-debuginfo = "unpacked"
 

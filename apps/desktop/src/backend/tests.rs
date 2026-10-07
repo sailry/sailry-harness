@@ -3,6 +3,39 @@ use crate::startup::Options;
 use sailry_client::Client;
 use sailry_protocol::{Command, Output};
 
+mod unwind {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct Guard<'a>(&'a AtomicUsize);
+
+    impl Drop for Guard<'_> {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[inline(never)]
+    fn nested(depth: usize, drops: &AtomicUsize) {
+        let _guard = Guard(drops);
+        if depth == 0 {
+            let trace = std::backtrace::Backtrace::force_capture().to_string();
+            assert!(trace.contains("unwind::nested"), "{trace}");
+            panic!("unwind test");
+        }
+        nested(depth - 1, drops);
+        std::hint::black_box(depth);
+    }
+
+    #[test]
+    fn catches_panics_and_runs_destructors() {
+        let drops = AtomicUsize::new(0);
+        let result = std::panic::catch_unwind(|| nested(8, &drops));
+        let panic = result.expect_err("nested call must panic");
+        assert_eq!(panic.downcast_ref::<&str>(), Some(&"unwind test"));
+        assert_eq!(drops.load(Ordering::SeqCst), 9);
+    }
+}
+
 #[test]
 fn reopens_owned_profile() {
     let directory = tempfile::tempdir().unwrap();

@@ -2,3 +2,10 @@
 # An explicit caller deployment target still takes precedence.
 [env]
 MACOSX_DEPLOYMENT_TARGET = { value = "13.0", force = false }
+
+# LLVM otherwise reserves compact unwind for C++ and Objective-C personalities.
+# Sailry uses the remaining third slot for Rust, keeping DWARF fallback for
+# frames that cannot be compactly encoded without disabling panic unwinding.
+# The linker rejects additional compact personalities rather than dropping them.
+[target.'cfg(target_os = "macos")']
+rustflags = ["-C", "llvm-args=-emit-compact-unwind-non-canonical"]
