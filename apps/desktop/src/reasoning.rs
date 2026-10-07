@@ -14,22 +14,7 @@ pub(crate) fn choices(efforts: &[Effort]) -> Vec<Effort> {
 }
 
 pub(crate) fn label(value: Effort) -> SharedString {
-    crate::tr(match value {
-        Effort::Default => "composer_effort_default",
-        Effort::Disabled => "composer_effort_none",
-        Effort::Minimal => "composer_effort_minimal",
-        Effort::Low => "composer_effort_low",
-        Effort::Medium => "composer_effort_medium",
-        Effort::High => "composer_effort_high",
-        Effort::XHigh => "composer_effort_xhigh",
-        Effort::Max => "chat_effort_max",
-        Effort::Budget(-1) => "composer_effort_dynamic",
-        Effort::Budget(tokens) => {
-            return rust_i18n::t!("composer_effort_budget", tokens = tokens)
-                .to_string()
-                .into();
-        }
-    })
+    sailry_protocol::plugin::models::effort_key(value).into()
 }
 
 #[cfg(test)]
@@ -46,14 +31,24 @@ mod tests {
 
     #[test]
     fn keeps_original_names() {
-        rust_i18n::set_locale("en");
-        for value in [
-            "default", "none", "minimal", "low", "medium", "high", "xhigh", "max",
-        ] {
-            let effort = serde_json::from_value(serde_json::json!(value)).unwrap();
-            assert_eq!(label(effort).as_ref(), value);
+        let before = rust_i18n::locale().to_string();
+        for locale in ["en", "zh-CN"] {
+            rust_i18n::set_locale(locale);
+            for value in [
+                "default", "none", "minimal", "low", "medium", "high", "xhigh", "max",
+            ] {
+                let effort = serde_json::from_value(serde_json::json!(value)).unwrap();
+                assert_eq!(label(effort).as_ref(), value);
+                assert_eq!(serde_json::to_value(effort).unwrap(), value);
+            }
+            for tokens in [-1, 0, 1024, 8192] {
+                assert_eq!(label(Effort::Budget(tokens)).as_ref(), tokens.to_string());
+                assert_eq!(
+                    serde_json::to_value(Effort::Budget(tokens)).unwrap(),
+                    serde_json::json!({"budget": tokens})
+                );
+            }
         }
-        assert_eq!(label(Effort::Budget(-1)).as_ref(), "dynamic");
-        assert_eq!(label(Effort::Budget(1024)).as_ref(), "1024 tokens");
+        rust_i18n::set_locale(&before);
     }
 }

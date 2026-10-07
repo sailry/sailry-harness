@@ -1,5 +1,6 @@
 use super::*;
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 
 #[test]
 fn orders_explicit_levels_and_budgets() {
@@ -16,6 +17,98 @@ use crate::conversation::live::tests::{
     fixture::{self, Fixture, init, tap},
     wait,
 };
+
+#[gpui::test]
+fn keeps_raw_supported_values(cx: &mut TestAppContext) {
+    let before = rust_i18n::locale().to_string();
+    init(cx);
+    cx.update(|cx| cx.set_reduce_motion(true));
+    for remote in [false, true] {
+        let fixture = Fixture::with_tools(remote, vec![]);
+        let Output::Snapshot(snapshot) = fixture.execute(Command::Snapshot) else {
+            panic!("snapshot expected")
+        };
+        let mut provider = snapshot.providers[0].clone();
+        provider.api = sailry_protocol::conversation::ModelApi::Responses;
+        provider.models[0].efforts = vec![
+            Effort::Low,
+            Effort::Medium,
+            Effort::High,
+            Effort::XHigh,
+            Effort::Max,
+        ];
+        provider.models[0].custom_efforts = true;
+        fixture.execute(Command::PutProvider {
+            expected_revision: provider.revision,
+            provider,
+        });
+        let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
+        wait(visual, |cx| {
+            view.read(cx).connected() && view.read(cx).configured()
+        });
+        for locale in ["en", "zh-CN"] {
+            rust_i18n::set_locale(locale);
+            tap(visual, "live-chat-model");
+            tap(visual, "model-controls-choose");
+            wait(visual, |_| true);
+            let current = view.read_with(visual, |view, _| view.config.as_ref().unwrap().effort);
+            let selector = Box::leak(
+                format!(
+                    "composer-model-effort-value-{}",
+                    sailry_protocol::plugin::models::effort_key(current)
+                )
+                .into_boxed_str(),
+            );
+            assert!(visual.debug_bounds(selector).is_some());
+            for (index, (effort, raw)) in [
+                (Effort::Low, "low"),
+                (Effort::Medium, "medium"),
+                (Effort::High, "high"),
+                (Effort::XHigh, "xhigh"),
+                (Effort::Max, "max"),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                tap(visual, "composer-model-effort");
+                visual.update(|window, cx| {
+                    window.render_frame(cx);
+                    let mut menu = window.within("popup-menu");
+                    let labels = (0usize..5)
+                        .map(|index| {
+                            let item = menu.find(index);
+                            assert_eq!(item.role(), Some(Role::MenuItem));
+                            assert!(item.visible(), "{item:?}");
+                            item.label().unwrap().to_owned()
+                        })
+                        .collect::<Vec<_>>();
+                    assert_eq!(labels, ["low", "medium", "high", "xhigh", "max"]);
+                    assert!(menu.try_find(5usize).is_none());
+                    for unsupported in ["default", "none", "minimal", "-1", "1024"] {
+                        assert!(!labels.iter().any(|label| label == unsupported));
+                    }
+                    menu.click(index, cx);
+                });
+                wait(visual, |cx| {
+                    !view.read(cx).busy()
+                        && view.read(cx).session.as_ref().unwrap().config.effort == effort
+                });
+                let selector =
+                    Box::leak(format!("composer-model-effort-value-{raw}").into_boxed_str());
+                assert!(visual.debug_bounds(selector).is_some());
+                assert!(visual.debug_bounds("composer-model-picker").is_some());
+            }
+            visual.simulate_keystrokes("escape");
+            wait(visual, |_| true);
+        }
+        assert_eq!(fixture.task_requests(), 0);
+        visual.update(|window, _| window.remove_window());
+        drop(view);
+        fixture.close();
+    }
+    rust_i18n::set_locale(&before);
+    cx.update(|cx| cx.set_reduce_motion(false));
+}
 
 #[gpui::test]
 fn selects_models_and_levels(cx: &mut TestAppContext) {

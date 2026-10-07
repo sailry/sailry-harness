@@ -63,6 +63,8 @@ impl Picker {
             .when(
                 selected && self.current_effort.is_some() && !choices.is_empty(),
                 |row| {
+                    let label = crate::reasoning::label(effort);
+                    let selector = label.clone();
                     row.child(
                         Button::new("composer-model-effort")
                             .custom(
@@ -75,12 +77,15 @@ impl Picker {
                             .h_7()
                             .px_3()
                             .rounded_full()
-                            .accessibility_label(crate::reasoning::label(effort))
+                            .accessibility_label(label.clone())
                             .child(
                                 div()
+                                    .debug_selector(move || {
+                                        format!("composer-model-effort-value-{selector}")
+                                    })
                                     .text_sm()
                                     .line_height(px(20.))
-                                    .child(crate::reasoning::label(effort)),
+                                    .child(label),
                             )
                             .dropdown_caret(true)
                             .disabled(self.disabled)
