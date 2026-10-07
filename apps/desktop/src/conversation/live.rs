@@ -691,21 +691,11 @@ impl Render for View {
                     .flatten(),
             )
             .when(
-                (self.resource.is_some() || self.assistant.is_some())
-                    || self.readonly()
-                    || !self.rows.is_empty(),
-                |body| {
-                    body.child(if self.readonly() {
-                        v_flex()
-                            .px_6()
-                            .pb_4()
-                            .gap_2()
-                            .children(self.notices(cx))
-                            .into_any_element()
-                    } else {
-                        self.composer(cx)
-                    })
-                },
+                !self.readonly()
+                    && (self.resource.is_some()
+                        || self.assistant.is_some()
+                        || !self.rows.is_empty()),
+                |body| body.child(self.composer(cx)),
             )
             .children(self.contributions.read(cx).overlays(window, cx))
     }

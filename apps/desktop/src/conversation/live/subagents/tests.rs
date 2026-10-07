@@ -290,6 +290,7 @@ fn readonly_approvals(cx: &mut TestAppContext) {
         tap(visual, &toggle);
         assert!(parent.read_with(visual, |view, _| view.expanded[&(turn, key.clone())]));
         let todo = visual.debug_bounds("composer-todo").unwrap();
+        assert!(visual.debug_bounds("composer-activity").is_some());
         let children_button = visual.debug_bounds("live-composer-subagents").unwrap();
         assert!(children_button.left() >= todo.right());
         assert!((children_button.center().y - todo.center().y).abs() < px(1.));
@@ -363,6 +364,11 @@ fn readonly_approvals(cx: &mut TestAppContext) {
                 ))
                 .is_none()
         );
+        let progress = original
+            .calls
+            .iter()
+            .find_map(|call| call.progress.clone())
+            .unwrap();
         parent.update(visual, |view, cx| {
             view.history = original;
             cx.notify();
@@ -380,7 +386,17 @@ fn readonly_approvals(cx: &mut TestAppContext) {
                         .as_ref()
                         .is_some_and(|snapshot| !snapshot.page.approvals.is_empty())
             });
+            child.update(visual, |view, cx| {
+                Arc::make_mut(&mut view.history.calls)[0].progress = Some(progress.clone());
+                // Prove the child has renderable status; its panel must still omit the strip.
+                assert!(view.composer_activity(cx).is_some());
+                cx.notify();
+            });
+            wait(visual, |_| true);
             assert!(visual.debug_bounds("live-chat-input").is_none());
+            assert!(visual.debug_bounds("composer-activity").is_none());
+            assert!(visual.debug_bounds("composer-todo").is_none());
+            assert!(visual.debug_bounds("composer-toolbar").is_none());
             assert!(visual.debug_bounds("message-navigation").is_none());
             assert!(
                 child.read_with(visual, |view, _| view.navigation.bounds.get().size.height
@@ -441,6 +457,7 @@ fn readonly_approvals(cx: &mut TestAppContext) {
                     .is_some_and(|snapshot| snapshot.page.runs[0].status == Status::Completed)
             });
             assert_eq!(fixture.page(session.id).runs.len(), 1);
+            assert!(visual.debug_bounds("composer-activity").is_none());
             let Output::Snapshot(snapshot) = fixture.execute(Command::Snapshot) else {
                 panic!("snapshot expected")
             };
