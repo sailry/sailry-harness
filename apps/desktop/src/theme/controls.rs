@@ -275,7 +275,7 @@ fn composer_action_states(cx: &mut TestAppContext) {
             activations: 0,
         });
         controls = Some(view.clone());
-        cx.new(|cx| Root::new(view, window, cx))
+        Root::new(view, window, cx)
     });
     let controls = controls.unwrap();
     for mode in [ThemeMode::Light, ThemeMode::Dark] {

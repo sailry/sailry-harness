@@ -1,6 +1,9 @@
 use super::{Catalog, decoration};
 use gpui_kit::{
-    component::{button::Button, *},
+    component::{
+        button::{Button, ButtonVariants},
+        *,
+    },
     *,
 };
 
