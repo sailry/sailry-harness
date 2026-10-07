@@ -7,18 +7,18 @@ use std::sync::{
 };
 use tokio::sync::Semaphore;
 
-struct Observed {
+pub(super) struct Observed {
     inner: Arc<dyn Transport>,
-    fail: AtomicBool,
+    pub(super) fail: AtomicBool,
     hold: AtomicBool,
-    queries: Mutex<Vec<Option<Kind>>>,
+    pub(super) queries: Mutex<Vec<Option<Kind>>>,
     held: Semaphore,
     release: Semaphore,
     cancelled: Arc<AtomicUsize>,
 }
 
 impl Observed {
-    fn new(inner: Arc<dyn Transport>) -> Self {
+    pub(super) fn new(inner: Arc<dyn Transport>) -> Self {
         Self {
             inner,
             fail: AtomicBool::new(true),
@@ -83,6 +83,10 @@ impl Transport for Observed {
     }
 }
 
+fn reload(panel: &Entity<Assets>, visual: &mut VisualTestContext) {
+    panel.update_in(visual, |panel, window, cx| panel.load(false, window, cx));
+}
+
 #[gpui::test]
 fn retries_and_cancels_superseded_queries(cx: &mut TestAppContext) {
     init(cx);
@@ -125,7 +129,7 @@ fn retries_and_cancels_superseded_queries(cx: &mut TestAppContext) {
         });
         observed.fail.store(true, Ordering::SeqCst);
         visual.update(|window, cx| window.clear_notifications(cx));
-        tap(visual, "asset-refresh");
+        reload(&panel, visual);
         wait(visual, |cx| panel.read(cx).failed);
         crate::feedback::tests::shown(visual);
         assert_eq!(
@@ -157,7 +161,7 @@ fn retries_and_cancels_superseded_queries(cx: &mut TestAppContext) {
             observed.queries.lock().unwrap().len()
         );
         observed.hold.store(true, Ordering::SeqCst);
-        tap(visual, "asset-refresh");
+        reload(&panel, visual);
         fixture.runtime.block_on(observed.wait_held());
         panel.update_in(visual, |panel, window, cx| panel.load(false, window, cx));
         wait(visual, |cx| !panel.read(cx).loading);
@@ -165,7 +169,7 @@ fn retries_and_cancels_superseded_queries(cx: &mut TestAppContext) {
         assert_eq!(panel.read_with(visual, |panel, _| panel.groups.len()), 2);
         for (outside, cancelled) in [(false, 2), (true, 3)] {
             observed.hold.store(true, Ordering::SeqCst);
-            tap(visual, "asset-refresh");
+            reload(&panel, visual);
             fixture.runtime.block_on(observed.wait_held());
             if outside {
                 let position = visual

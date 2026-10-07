@@ -221,25 +221,6 @@ impl Assets {
             .debug_selector(|| "asset-panel".into())
             .w(px(360.).min(window.viewport_size().width - px(48.)))
             .min_w_0()
-            .gap_3()
-            .child(
-                h_flex()
-                    .justify_between()
-                    .child(div().font_semibold().child(tr("chat_assets_title")))
-                    .child(
-                        Button::new("asset-refresh")
-                            .ghost()
-                            .small()
-                            .icon(IconName::RotateCw)
-                            .tooltip(tr("chat_assets_refresh"))
-                            .accessibility_label(tr("chat_assets_refresh"))
-                            .disabled(self.loading)
-                            .debug_selector(|| "asset-refresh".into())
-                            .on_click(
-                                cx.listener(|panel, _, window, cx| panel.load(false, window, cx)),
-                            ),
-                    ),
-            )
             .child(
                 div()
                     .relative()

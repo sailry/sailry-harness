@@ -11,8 +11,9 @@ pub(crate) struct Assets {
     owner: WeakEntity<View>,
     binding: Binding,
     session: Option<SessionId>,
-    revision: Option<u64>,
+    stamp: Option<(u64, u64)>,
     loaded_revision: Option<u64>,
+    loaded_head: Option<u64>,
     images: Entity<Images>,
     scroll: ScrollHandle,
     groups: Vec<Group>,
@@ -48,8 +49,9 @@ impl Assets {
             session,
             images,
             scroll: ScrollHandle::new(),
-            revision: None,
+            stamp: None,
             loaded_revision: None,
+            loaded_head: None,
             groups: Vec::new(),
             before: None,
             loading: false,
@@ -66,13 +68,13 @@ impl Assets {
         binding: &Binding,
         images: &Entity<Images>,
         session: Option<SessionId>,
-        revision: Option<u64>,
+        stamp: Option<(u64, u64)>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.images = images.clone();
         if self.session == session
-            && self.revision == revision
+            && self.stamp == stamp
             && self.binding.client.target() == binding.client.target()
         {
             return;
@@ -80,10 +82,11 @@ impl Assets {
         self.stop.cancel();
         self.binding = binding.clone();
         self.session = session;
-        self.revision = revision;
+        self.stamp = stamp;
         self.groups.clear();
         self.before = None;
         self.loaded_revision = None;
+        self.loaded_head = None;
         self.loading = false;
         self.failed = false;
         if self.open {
@@ -121,6 +124,7 @@ impl Assets {
         let stop = self.stop.clone();
         let cancel = stop.clone();
         let client = self.binding.client.clone();
+        let head = self.stamp.map(|(_, head)| head);
         let query = Query {
             kind: None,
             before,
@@ -142,8 +146,8 @@ impl Assets {
                 match result {
                     Ok(Some(Ok(page)))
                         if panel
-                            .revision
-                            .is_none_or(|revision| revision == page.revision)
+                            .stamp
+                            .is_none_or(|(revision, _)| revision == page.revision)
                             && (!more
                                 || panel
                                     .loaded_revision
@@ -153,6 +157,7 @@ impl Assets {
                             panel.groups.clear();
                         }
                         panel.loaded_revision = Some(page.revision);
+                        panel.loaded_head = head;
                         panel.groups.extend(page.groups);
                         panel.before = page.next_before;
                     }
@@ -198,7 +203,7 @@ impl Assets {
         if source.format().is_some() {
             let panel = cx.entity().downgrade();
             let target = self.binding.client.target();
-            let revision = self.revision;
+            let stamp = self.stamp;
             self.set_open(false, window, cx);
             Images::open_on_close(
                 &self.images,
@@ -208,7 +213,7 @@ impl Assets {
                         if !panel.open
                             && panel.session == Some(session)
                             && panel.binding.client.target() == target
-                            && panel.revision == revision
+                            && panel.stamp == stamp
                         {
                             panel.open = true;
                             cx.notify();

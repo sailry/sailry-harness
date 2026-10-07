@@ -541,10 +541,16 @@ impl Render for View {
                 &self.binding,
                 &self.images,
                 self.session(),
-                self.history
-                    .snapshot
-                    .as_ref()
-                    .map(|snapshot| snapshot.page.revision),
+                self.history.snapshot.as_ref().map(|snapshot| {
+                    (
+                        snapshot.page.revision,
+                        snapshot
+                            .page
+                            .entries
+                            .last()
+                            .map_or(0, |entry| entry.sequence),
+                    )
+                }),
                 window,
                 cx,
             )

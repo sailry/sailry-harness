@@ -6,6 +6,7 @@ use crate::conversation::live::tests::{
 use core::prelude::v1::test;
 use std::time::{Duration, Instant};
 mod lifecycle;
+mod updates;
 
 #[derive(Default)]
 struct RetryRegions(std::collections::HashMap<WindowId, (Bounds<Pixels>, Bounds<Pixels>)>);
@@ -53,9 +54,13 @@ fn open<'a>(
     (entity.unwrap(), visual)
 }
 
-fn submit(fixture: &Fixture, text: String) {
+fn submit(fixture: &Fixture, text: String) -> TurnId {
+    submit_to(fixture, fixture.session.id, text)
+}
+
+fn submit_to(fixture: &Fixture, session: SessionId, text: String) -> TurnId {
     let Output::QueuedTurn(turn) = fixture.execute(Command::SubmitTurn {
-        session: fixture.session.id,
+        session,
         expected_revision: 1,
         message: text.into(),
     }) else {
@@ -65,12 +70,7 @@ fn submit(fixture: &Fixture, text: String) {
     loop {
         let page = fixture
             .runtime
-            .block_on(
-                fixture
-                    .binding
-                    .client
-                    .read_conversation(fixture.session.id, None, 1),
-            )
+            .block_on(fixture.binding.client.read_conversation(session, None, 1))
             .unwrap();
         if page
             .page
@@ -86,6 +86,7 @@ fn submit(fixture: &Fixture, text: String) {
         );
         std::thread::sleep(Duration::from_millis(10));
     }
+    turn.id
 }
 
 #[gpui::test]
@@ -119,6 +120,11 @@ fn browsing_preserves_drafts(cx: &mut TestAppContext) {
             assert!(visual.debug_bounds(selector).is_some());
         }
         assert!(visual.debug_bounds("asset-tab-0").is_none());
+        assert!(visual.debug_bounds("asset-refresh").is_none());
+        assert_eq!(
+            visual.debug_bounds("asset-activity").unwrap().top(),
+            visual.debug_bounds("asset-panel").unwrap().top()
+        );
         for expected in [40, 44] {
             panel.update(visual, |panel, cx| {
                 panel.scroll.scroll_to_bottom();
@@ -226,6 +232,7 @@ fn opens_image_preview_and_returns_to_inventory(cx: &mut TestAppContext) {
                 panel.before,
                 panel.loaded_revision,
                 panel.scroll.offset(),
+                panel.stamp,
             )
         });
         tap(visual, selector);
@@ -264,6 +271,7 @@ fn opens_image_preview_and_returns_to_inventory(cx: &mut TestAppContext) {
                     panel.before,
                     panel.loaded_revision,
                     panel.scroll.offset(),
+                    panel.stamp,
                 )
             }),
             inventory
@@ -306,17 +314,22 @@ fn opens_image_preview_and_returns_to_inventory(cx: &mut TestAppContext) {
             visual.update(|window, cx| {
                 let view = owner.read(cx);
                 let images = view.images.clone();
-                let revision = view
-                    .history
-                    .snapshot
-                    .as_ref()
-                    .map(|page| page.page.revision);
+                let stamp = view.history.snapshot.as_ref().map(|snapshot| {
+                    (
+                        snapshot.page.revision,
+                        snapshot
+                            .page
+                            .entries
+                            .last()
+                            .map_or(0, |entry| entry.sequence),
+                    )
+                });
                 panel.update(cx, |panel, cx| {
                     panel.sync(
                         &fixture.binding,
                         &images,
                         Some(fixture.session.id),
-                        revision,
+                        stamp,
                         window,
                         cx,
                     );
@@ -338,7 +351,7 @@ fn opens_image_preview_and_returns_to_inventory(cx: &mut TestAppContext) {
                         binding,
                         &panel.images.clone(),
                         binding_changed.then_some(fixture.session.id),
-                        panel.revision,
+                        panel.stamp,
                         window,
                         cx,
                     );
@@ -367,7 +380,7 @@ fn opens_image_preview_and_returns_to_inventory(cx: &mut TestAppContext) {
                         &fixture.binding,
                         &panel.images.clone(),
                         Some(fixture.session.id),
-                        inventory.2,
+                        inventory.4,
                         window,
                         cx,
                     );
