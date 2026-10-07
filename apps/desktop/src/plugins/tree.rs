@@ -1,6 +1,7 @@
 //! Kit's script Tree has no row events, multi-selection, native menus or drag hooks.
 //! Retain its native TreeState and compose the existing resource row adapter.
 pub(in crate::plugins) mod drops;
+mod guides;
 mod row;
 #[cfg(test)]
 mod tests;
@@ -9,6 +10,7 @@ use super::{
     native_context::{self, Events},
 };
 use gpui_kit::component::scroll::ScrollableElement;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     component::{
         tree::{TreeEntry, TreeEvent, TreeItem, TreeState},
@@ -55,6 +57,8 @@ struct Props {
     variant: Variant,
     #[serde(default)]
     external_files: bool,
+    #[serde(default)]
+    guides: bool,
     indent: Option<f32>,
     skip_depth: Option<usize>,
     #[serde(default)]
@@ -194,6 +198,7 @@ pub(super) fn module(
         let tree=retained.read(cx).tree.clone();
         let mut map=BTreeMap::new(); for item in &props.items {item.collect(&mut map);}
         let last=row::last_children(&props.items); let branch=props.variant==Variant::Branch;
+        let guides=(!branch&&props.guides).then(||guides::paths(&props.items));
         let row_drops=drops.clone(); let external_files=props.external_files;
         let root_drops=drops.clone(); let root_drop_events=events.clone(); let root_drop_id=id.clone();
         let row_events=events.clone(); let row_id=id.clone(); let row_tree=tree.clone();
@@ -215,6 +220,7 @@ pub(super) fn module(
             } else {
                 crate::resources::rows::row(ix,selected,cx)
                 .h_7().text_sm().px_2().pl(px(indent)*entry.depth().saturating_sub(skip_depth)+px(8.))
+                .when_some(guides.as_ref().and_then(|paths|paths.get(&path)),|row,path|row.relative().children(guides::render(&item.id,path,skip_depth,indent,cx)))
                 .child(row::content(&item,&glyph,row_events.clone(),row_id.clone(),window,cx))
             };
             row.debug_selector({let selector=item.decoration.as_ref().and_then(|row|row.selector.clone()).unwrap_or_else(||format!("resource-file-{path}")); move ||selector.clone()})

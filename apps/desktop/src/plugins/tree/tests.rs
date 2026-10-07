@@ -28,6 +28,14 @@ fn validates_nested_items() {
     }
 }
 
+#[test]
+fn leaves_guides_opt_in() {
+    let defaults: Props = serde_json::from_value(json!({"items": "[]"})).unwrap();
+    assert!(!defaults.guides);
+    let enabled: Props = serde_json::from_value(json!({"items": "[]", "guides": true})).unwrap();
+    assert!(enabled.guides);
+}
+
 #[gpui::test]
 fn preserves_deep_tree_interactions(cx: &mut TestAppContext) {
     init(cx);
@@ -102,6 +110,14 @@ fn preserves_deep_tree_interactions(cx: &mut TestAppContext) {
     let leaf = visual.debug_bounds("resource-file-leaf").unwrap();
     let tree = visual.debug_bounds("deep-tree").unwrap();
     assert!(tree.contains(&leaf.center()));
+    let guide = visual
+        .debug_bounds("resource-guide-leaf-23-vertical")
+        .unwrap();
+    let arm = visual.debug_bounds("resource-guide-leaf-23-arm").unwrap();
+    assert_eq!(guide.top(), leaf.top());
+    assert_eq!(guide.size.height, leaf.size.height * 0.5);
+    assert_eq!(arm.top(), leaf.top() + leaf.size.height * 0.5);
+    assert_eq!(arm.right(), leaf.left() + px(8. + 12. * 24.));
     click(visual, "deep-check");
     wait(visual, |_| events.borrow().len() == 1);
     assert_eq!(
@@ -156,6 +172,11 @@ fn preserves_deep_tree_interactions(cx: &mut TestAppContext) {
         json!({"tree":"deep-tree","id":"folder-0","kind":"collapse"})
     );
     assert!(visual.debug_bounds("resource-file-leaf").is_none());
+    assert!(
+        visual
+            .debug_bounds("resource-guide-leaf-23-vertical")
+            .is_none()
+    );
     click(visual, "refresh");
     wait(visual, |_| true);
     assert!(visual.debug_bounds("resource-file-leaf").is_none());
@@ -171,6 +192,11 @@ fn preserves_deep_tree_interactions(cx: &mut TestAppContext) {
         json!({"tree":"deep-tree","id":"folder-0","kind":"expand"})
     );
     assert!(visual.debug_bounds("resource-file-leaf").is_some());
+    assert!(
+        visual
+            .debug_bounds("resource-guide-leaf-23-vertical")
+            .is_some()
+    );
     visual.update(|_, cx| assert_eq!(script.read(cx).build_error(), None));
     stop.cancel();
     visual.update(|window, _| window.remove_window());

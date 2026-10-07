@@ -69,6 +69,8 @@ Navigation and resource entries use `desktop.navigation` and `desktop.panel`. Sc
 
 `ResourceTree.new(id, { items: JSON.stringify(items), selected, current })` takes a serialized `ResourceTreeItem[]` as its `items` field. The pinned Kit host bridge limits structured arguments to 16 nested levels, so the native host decodes and validates this recursive model while retaining Kit's tree state, events and native menus.
 
+Optional `guides: true` adds dashed hierarchy guides to resource rows, following `indent` and `skip_depth`; it defaults to false and leaves tree interactions and the branch variant unchanged.
+
 ## Conversation component
 
 `Conversation.new("chat")` embeds a resource panel's captured session and Node with independent focus and draft state. Declare both `conversation.read` and `conversation.control`. The native message list, composer, approvals, questions, model selection and history are shared with database and SSH assistants.

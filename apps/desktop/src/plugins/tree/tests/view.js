@@ -35,7 +35,7 @@ export default class DeepTree extends View {
       .child(Anchor.new('refresh').child(new Button('refresh').label(`Refresh ${this.revision}`)
         .on_click((_,cx)=>{this.revision++;cx.notify();})))
       .child(div().flex_1().min_h_0().child(ResourceTree.new('deep-tree',{
-        items:JSON.stringify(this.items),selected:this.current?[this.current]:[],current:this.current,indent:12
+        items:JSON.stringify(this.items),selected:this.current?[this.current]:[],current:this.current,guides:true,indent:12
       })));
   }
 }
