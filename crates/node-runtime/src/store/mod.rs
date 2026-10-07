@@ -180,6 +180,7 @@ pub(crate) struct Ingress {
     git: crate::git::Git,
     terminals: Arc<crate::terminal::Terminals>,
     commands: Arc<crate::process::background::Commands>,
+    pub(crate) environment: Arc<crate::process::Environment>,
     sender: mpsc::Sender<Job>,
     events: broadcast::Sender<sailry_protocol::EventEnvelope>,
     accepting: Arc<AtomicBool>,
@@ -251,6 +252,7 @@ impl Store {
             git: crate::git::Git::new(),
             terminals: terminals.clone(),
             commands: Arc::default(),
+            environment: Arc::new(crate::process::Environment::capture()),
             sender,
             events: events.clone(),
             accepting: accepting.clone(),
@@ -284,6 +286,7 @@ impl Store {
             ingress.closed.clone(),
             agents.clone(),
             ingress.commands.clone(),
+            ingress.environment.clone(),
         );
         let mut plugin_work = plugins::execution::Worker::new(ingress.clone());
         let mut resource_work = resources::Worker::new(ingress.clone());

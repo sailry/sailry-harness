@@ -12,10 +12,14 @@ mod completion;
 mod errors;
 #[path = "native/function_tools.rs"]
 mod function_tools;
+#[path = "native/gemini.rs"]
+mod gemini;
 #[path = "native/grounding.rs"]
 mod grounding;
 #[path = "native/phases.rs"]
 mod phases;
+#[path = "native/prompt.rs"]
+mod prompt;
 #[path = "native/reasoning.rs"]
 mod reasoning;
 #[path = "native/search_packages.rs"]

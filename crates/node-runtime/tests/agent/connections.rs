@@ -260,6 +260,35 @@ async fn scopes_database_approvals() {
                 .unwrap(),
             2
         );
+        {
+            let requests = server.requests.lock().unwrap();
+            let base = include_str!("../../src/agent/prompt.txt").trim();
+            assert_eq!(requests.len(), 6);
+            for request in requests.iter() {
+                let messages = request["messages"].as_array().unwrap();
+                let policy = messages
+                    .iter()
+                    .filter(|message| message["role"] == "system")
+                    .map(|message| message["content"].as_str().unwrap())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                assert_eq!(policy.matches(base).count(), 1);
+                assert!(!policy.contains("Inspect the referenced table"));
+                assert_eq!(
+                    messages
+                        .iter()
+                        .filter(|message| message["role"] == "user")
+                        .filter(|message| {
+                            message["content"]
+                                .as_str()
+                                .unwrap()
+                                .contains("Inspect the referenced table")
+                        })
+                        .count(),
+                    1
+                );
+            }
+        }
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
     }

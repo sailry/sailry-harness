@@ -120,15 +120,29 @@ async fn survives_without_projects() {
             assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
             let requests = server.requests.lock().unwrap().clone();
             let request = requests.last().unwrap();
-            // The pinned ADK puts instruction-provider text in the first user preamble.
-            let instructions = request["messages"][0]["content"].as_str().unwrap();
+            let messages = request["messages"].as_array().unwrap();
+            assert_eq!(messages[0]["role"], "system");
+            let instructions = messages
+                .iter()
+                .filter(|message| message["role"] == "system")
+                .map(|message| message["content"].as_str().unwrap())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let base = include_str!("../../../src/agent/prompt.txt").trim();
+            assert_eq!(instructions.matches(base).count(), 1);
             let (plugin, guidance) = match resource {
                 Resource::Database(_) => ("databases", "You are the database workspace assistant"),
                 Resource::Ssh(_) => ("ssh", "You are the SSH workspace assistant"),
             };
-            assert!(
-                instructions.trim_start().starts_with(guidance),
-                "{instructions}"
+            assert!(instructions.contains(guidance), "{instructions}");
+            assert!(!instructions.contains("Write the requested file"));
+            assert_eq!(
+                messages
+                    .iter()
+                    .filter(|message| message["role"] == "user")
+                    .filter(|message| message["content"] == "Write the requested file")
+                    .count(),
+                1
             );
             assert!(
                 request["tools"].is_null()

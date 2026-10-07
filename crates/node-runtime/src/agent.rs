@@ -227,10 +227,19 @@ async fn execute_with(
     )
     .await?;
     let restricted = invocation.connections.bound.is_some();
-    if restricted {
-        instruction.clear();
+    instruction.push_str("\n\n");
+    instruction.push_str(&prompt::environment(
+        &ingress.environment,
+        invocation.project.is_some(),
+        restricted,
+    ));
+    extensions.tools.retain(|registration| {
+        !planning || registration.managed || registration.tool.is_read_only()
+    });
+    if !extensions.instruction.is_empty() {
+        instruction.push_str("\n\n");
+        instruction.push_str(&extensions.instruction);
     }
-    instruction.push_str(&extensions.instruction);
     instruction.push_str(
         &references::capabilities::instruction(&invocation, &resources, &extensions.tools).await?,
     );
@@ -241,13 +250,21 @@ async fn execute_with(
         stop.clone(),
         instruction.clone(),
     );
+    let preamble = prompt::bind(
+        ingress,
+        &invocation,
+        instruction.clone(),
+        &extensions.tools,
+        stop.clone(),
+    );
     let mut catalog = catalog::Catalog::default();
     let mut agent = adk_agent::LlmAgentBuilder::new("assistant")
         .model(model.clone())
         .instruction_provider(Box::new(move |_| {
             let instruction = instruction.clone();
             Box::pin(async move { Ok(instruction) })
-        }));
+        }))
+        .before_model_callback(preamble);
     extensions.callbacks.push((0, compact));
     extensions.callbacks.sort_by_key(|(order, _)| *order);
     for (_, callback) in extensions.callbacks {
@@ -289,9 +306,6 @@ async fn execute_with(
         }
     }
     for registration in extensions.tools {
-        if planning && !registration.managed && !registration.tool.is_read_only() {
-            continue;
-        }
         let confirmation = !registration.managed && !registration.tool.is_read_only();
         let tool = catalog.register(registration)?;
         if confirmation {

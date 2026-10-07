@@ -34,6 +34,15 @@ async fn retains_complete_exchanges() {
         }
         assert!(current.contains("compacted"));
         assert!(current.contains("compact-call"));
+        assert_eq!(requests[0]["messages"][0]["role"], "system");
+        assert_eq!(requests[5]["messages"][0]["role"], "system");
+        assert!(
+            !requests[5]["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|message| message["role"] == "user")
+        );
         assert_eq!(requests[0]["messages"][0], requests[5]["messages"][0]);
         let full = serde_json::to_string(&page.entries).unwrap();
         for index in 1..=4 {

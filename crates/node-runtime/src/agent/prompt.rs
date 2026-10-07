@@ -1,5 +1,11 @@
 use sailry_protocol::{Permission, WorkMode};
 
+mod environment;
+mod instructions;
+mod role;
+pub(super) use environment::capture as environment;
+pub(super) use role::bind;
+
 // Workflow references: Pi 428a12bc775145afa342530a9eaa652efb3e4422,
 // packages/coding-agent/src/core/system-prompt.ts; OpenCode
 // f03046d9f558bc54a090363fea48441b05f522bf, packages/opencode/src/session/

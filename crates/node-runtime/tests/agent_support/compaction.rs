@@ -100,23 +100,37 @@ pub async fn respond_native(
     let messages = body["messages"].as_array().unwrap();
     let start = messages
         .iter()
-        .rposition(|message| message["role"] == "user")
-        .unwrap();
-    let compact = messages[start]["content"]
-        .as_str()
-        .is_some_and(|text| text.contains("Compact prior evidence"));
-    if messages[start]["content"]
-        .as_str()
-        .is_some_and(|text| text.contains("Compact loop evidence"))
-    {
-        let completed = messages
+        .rposition(|message| message["role"] == "user");
+    let task = start.and_then(|index| messages[index]["content"].as_str());
+    let reader = plugin_tool("files", "read_file");
+    let retained_read = messages.iter().rev().find_map(|message| {
+        if message["role"] != "tool" {
+            return None;
+        }
+        let id = message["tool_call_id"].as_str()?;
+        let index = id.strip_prefix("native-read-")?.parse::<usize>().ok()?;
+        if !(1..=4).contains(&index) {
+            return None;
+        }
+        messages
             .iter()
-            .rev()
-            .find(|message| message["role"] == "tool")
-            .and_then(|message| message["tool_call_id"].as_str())
-            .and_then(|id| id.strip_prefix("native-read-"))
-            .and_then(|index| index.parse::<usize>().ok())
-            .unwrap_or(0);
+            .any(|message| {
+                message["role"] == "assistant"
+                    && message["tool_calls"].as_array().is_some_and(|calls| {
+                        calls
+                            .iter()
+                            .any(|call| call["id"] == id && call["function"]["name"] == reader)
+                    })
+            })
+            .then_some(index)
+    });
+    let loop_task = task.is_some_and(|text| text.contains("Compact loop evidence"));
+    if loop_task || (start.is_none() && retained_read.is_some()) {
+        let completed = match retained_read {
+            Some(index) => index,
+            None if loop_task => 0,
+            None => unreachable!("compacted native loop requires a retained read exchange"),
+        };
         let index = completed + 1;
         let mut calls = Vec::new();
         if completed == 3 {
@@ -133,6 +147,8 @@ pub async fn respond_native(
         };
         return reply(stream, body, delta, call).await;
     }
+    let start = start.expect("native compaction request is missing its user task");
+    let compact = task.is_some_and(|text| text.contains("Compact prior evidence"));
     if !compact {
         return respond(stream, body, fail_summary, "unused").await;
     }

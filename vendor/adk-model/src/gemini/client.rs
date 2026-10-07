@@ -1049,6 +1049,20 @@ impl GeminiModel {
     ) -> Result<LlmResponseStream> {
         let mut builder = self.client.generate_content();
 
+        let instructions = req
+            .contents
+            .iter()
+            .filter(|content| content.role == "system")
+            .flat_map(|content| &content.parts)
+            .filter_map(|part| match part {
+                Part::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if !instructions.is_empty() {
+            builder = builder.with_system_instruction(instructions.join("\n"));
+        }
+
         // Build a map of function_name → thought_signature from FunctionCall parts
         // in model content. Gemini 3.x requires thought_signature on FunctionResponse
         // parts when thinking is active, but adk_core::Part::FunctionResponse doesn't

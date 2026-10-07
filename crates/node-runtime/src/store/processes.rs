@@ -114,6 +114,7 @@ impl Worker {
         closed: CancellationToken,
         agents: Arc<crate::agent::Controls>,
         commands: Arc<process::background::Commands>,
+        environment: Arc<Environment>,
     ) -> Self {
         Self {
             pending: 0,
@@ -122,7 +123,7 @@ impl Worker {
             completed,
             closed,
             agents,
-            environment: Arc::new(Environment::capture()),
+            environment,
             capacity: Arc::new(Semaphore::new(8)),
         }
     }

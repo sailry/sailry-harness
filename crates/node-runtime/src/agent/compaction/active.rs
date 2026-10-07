@@ -27,7 +27,7 @@ impl Context {
             service,
             session,
             summarizer,
-            preamble: Content::new("user").with_text(instruction),
+            preamble: Content::new("system").with_text(instruction),
             applied: AtomicBool::new(false),
         }
     }
@@ -141,11 +141,9 @@ impl Context {
 // Keep provider-added parts in the actual request. Match the complete retained
 // suffix before replacing its prefix, rather than rebuilding ADK's prompt.
 fn tail(request: &LlmRequest, events: &[Event], preamble: &Content) -> Option<usize> {
-    if !request
-        .contents
-        .first()
-        .is_some_and(|content| content.role == preamble.role && content.parts == preamble.parts)
-    {
+    if !request.contents.first().is_some_and(|content| {
+        content.role == preamble.role && content.parts.starts_with(&preamble.parts)
+    }) {
         return None;
     }
     let retained: Vec<_> = events.iter().filter_map(Event::content).collect();
@@ -186,14 +184,18 @@ mod tests {
 
     #[test]
     fn preserves_retained_provider_parts() {
-        let preamble = Content::new("user").with_text("Instructions");
+        let preamble = Content::new("system").with_text("Instructions");
         let content = Content::new("model").with_text("Repeated response");
         let mut event = Event::new("invocation");
         event.set_content(content.clone());
         let augmented = content.clone().with_text("Provider continuation");
         let mut request = LlmRequest {
             model: "fixture".into(),
-            contents: vec![preamble.clone(), content, augmented.clone()],
+            contents: vec![
+                preamble.clone().with_text("Scoped project instructions"),
+                content,
+                augmented.clone(),
+            ],
             config: None,
             tools: Default::default(),
             previous_response_id: None,
@@ -208,7 +210,7 @@ mod tests {
             tail(
                 &request,
                 &[event.clone()],
-                &Content::new("user").with_text("Changed instructions")
+                &Content::new("system").with_text("Changed instructions")
             )
             .is_none()
         );

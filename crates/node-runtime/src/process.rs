@@ -88,6 +88,20 @@ impl Launch {
 pub(crate) struct Environment(BTreeMap<OsString, OsString>);
 
 impl Environment {
+    pub(crate) fn shell(&self) -> &std::ffi::OsStr {
+        #[cfg(unix)]
+        {
+            std::ffi::OsStr::new("/bin/sh")
+        }
+        #[cfg(windows)]
+        {
+            self.0
+                .get(std::ffi::OsStr::new("COMSPEC"))
+                .map(OsString::as_os_str)
+                .unwrap_or_else(|| std::ffi::OsStr::new("cmd.exe"))
+        }
+    }
+
     pub(crate) fn apply(&self, command: &mut tokio::process::Command) {
         command.env_clear().envs(&self.0);
     }
@@ -109,23 +123,11 @@ impl Environment {
         directory: &Path,
         inputs: Option<&Path>,
     ) -> tokio::process::Command {
+        let mut command = tokio::process::Command::new(self.shell());
         #[cfg(unix)]
-        let mut command = {
-            let mut command = tokio::process::Command::new("/bin/sh");
-            command.args(["-c", &launch.command]);
-            command
-        };
+        command.args(["-c", &launch.command]);
         #[cfg(windows)]
-        let mut command = {
-            let mut command = tokio::process::Command::new(
-                self.0
-                    .get(std::ffi::OsStr::new("COMSPEC"))
-                    .cloned()
-                    .unwrap_or_else(|| "cmd.exe".into()),
-            );
-            command.args(["/D", "/S", "/C", &launch.command]);
-            command
-        };
+        command.args(["/D", "/S", "/C", &launch.command]);
         self.apply(&mut command);
         if let Some(inputs) = inputs {
             command.env("SAILRY_ATTACHMENTS", inputs);
