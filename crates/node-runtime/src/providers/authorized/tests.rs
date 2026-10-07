@@ -50,6 +50,32 @@ fn keeps_visible_order() {
 }
 
 #[test]
+fn leaves_unreported_limits_missing() {
+    for (fields, expected) in [
+        (json!({}), (None, None)),
+        (
+            json!({"context_window":null,"max_output_tokens":null}),
+            (None, None),
+        ),
+        (json!({"context_window":272000}), (Some(272_000), None)),
+        (json!({"max_output_tokens":128000}), (None, Some(128_000))),
+    ] {
+        let mut entry = json!({"slug":"fixture","display_name":"Fixture","visibility":"list"});
+        entry
+            .as_object_mut()
+            .unwrap()
+            .extend(fields.as_object().unwrap().clone());
+        let models = parse(
+            Authentication::ChatGpt,
+            ModelApi::Responses,
+            &json!({"models":[entry]}),
+        )
+        .unwrap();
+        assert_eq!((models[0].context, models[0].output), expected);
+    }
+}
+
+#[test]
 fn separates_copilot_surfaces() {
     let value = json!({"data":[
         {"id":"responses","capabilities":{"type":"chat","limits":{"max_context_window_tokens":8192,"max_prompt_tokens":4096,"max_output_tokens":1024},"supports":{"vision":false,"tool_calls":true,"reasoning_effort":["none","low","high"]}},"supported_endpoints":["/responses"]},
