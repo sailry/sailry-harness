@@ -1,8 +1,13 @@
 //! Project guides use the admitted Node worktree and its existing file reader.
 use crate::{files::Files, store::Ingress};
 use sailry_link::CancellationToken;
-use sailry_protocol::{Command, ErrorCode, Fault, Output, WorktreeId};
-use std::{collections::BTreeSet, path::PathBuf};
+use sailry_protocol::{Command, ErrorCode, Fault, FileContent, Output, WorktreeId};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
+
+const FILENAMES: [&str; 3] = ["AGENTS.md", "CLAUDE.md", "GEMINI.md"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Scope {
@@ -16,13 +21,13 @@ pub(super) async fn load(
     scopes: &[Scope],
     stop: &CancellationToken,
 ) -> Result<String, Fault> {
-    let paths = candidates(scopes)?;
+    let directories = candidates(scopes)?;
     let root = tokio::select! {
         biased;
         _ = stop.cancelled() => return Err(cancelled()),
         root = ingress.worktree_root(worktree) => root?,
     };
-    load_from(&ingress.files, root, worktree, paths, stop).await
+    load_from(&ingress.files, root, worktree, directories, stop).await
 }
 
 fn candidates(scopes: &[Scope]) -> Result<Vec<String>, Fault> {
@@ -38,81 +43,98 @@ fn candidates(scopes: &[Scope]) -> Result<Vec<String>, Fault> {
             directories.insert(parts[..depth].join("/"));
         }
     }
-    Ok(directories
-        .into_iter()
-        .map(|directory| {
-            if directory.is_empty() {
-                "AGENTS.md".into()
-            } else {
-                format!("{directory}/AGENTS.md")
-            }
-        })
-        .collect())
+    Ok(directories.into_iter().collect())
 }
 
 async fn load_from(
     files: &Files,
     root: PathBuf,
     worktree: WorktreeId,
-    paths: Vec<String>,
+    directories: Vec<String>,
     stop: &CancellationToken,
 ) -> Result<String, Fault> {
     let mut instruction = String::new();
-    for path in paths {
-        if stop.is_cancelled() {
-            return Err(cancelled());
-        }
-        let command = Command::ReadFile {
-            worktree,
-            path: path.clone(),
-        };
-        let output = files.inspect(root.clone(), command, stop.clone()).await;
-        if stop.is_cancelled() {
-            return Err(cancelled());
-        }
-        let file = match output {
-            Ok(Output::FileContent(file)) => file,
-            Ok(_) => {
-                return Err(Fault::new(
-                    ErrorCode::Internal,
-                    "project instruction reader returned an unexpected output",
-                ));
+    for directory in directories {
+        for filename in FILENAMES {
+            let path = if directory.is_empty() {
+                filename.into()
+            } else {
+                format!("{directory}/{filename}")
+            };
+            let Some(file) = read(files, &root, worktree, &path, stop).await? else {
+                continue;
+            };
+            if !file.text.trim().is_empty() {
+                if instruction.is_empty() {
+                    instruction.push_str(
+                        "Project instructions\nThese guides apply only within their stated project-relative scope. More specific guides override ancestor guidance within that scope. Explicit user instructions and this turn's mode and permissions remain authoritative.",
+                    );
+                }
+                let scope = if directory.is_empty() {
+                    "."
+                } else {
+                    &directory
+                };
+                instruction.push_str(&format!("\n\nGuide: {path}\nScope: {scope}\n{}", file.text));
             }
-            Err(error) if error.code == ErrorCode::NotFound => continue,
-            Err(error) => {
-                return Err(Fault::new(
-                    error.code,
-                    format!(
-                        "project instructions at {path} could not be read: {}",
-                        error.message
-                    ),
-                ));
-            }
-        };
-        if file.truncated {
-            return Err(Fault::invalid(format!(
-                "project instructions at {path} exceed the file read limit"
-            )));
+            break;
         }
-        if file.text.trim().is_empty() {
-            continue;
-        }
-        if instruction.is_empty() {
-            instruction.push_str(
-                "Project instructions\nThese guides apply only within their stated project-relative scope. More specific guides override ancestor guidance within that scope. Explicit user instructions and this turn's mode and permissions remain authoritative.",
-            );
-        }
-        let scope = path.strip_suffix("/AGENTS.md").unwrap_or(".");
-        instruction.push_str(&format!("\n\nGuide: {path}\nScope: {scope}\n{}", file.text));
     }
     Ok(instruction)
 }
 
+pub(super) async fn read(
+    files: &Files,
+    root: &Path,
+    worktree: WorktreeId,
+    path: &str,
+    stop: &CancellationToken,
+) -> Result<Option<FileContent>, Fault> {
+    if stop.is_cancelled() {
+        return Err(cancelled());
+    }
+    let output = files
+        .inspect(
+            root.to_path_buf(),
+            Command::ReadFile {
+                worktree,
+                path: path.into(),
+            },
+            stop.clone(),
+        )
+        .await;
+    if stop.is_cancelled() {
+        return Err(cancelled());
+    }
+    let file = match output {
+        Ok(Output::FileContent(file)) => file,
+        Ok(_) => {
+            return Err(Fault::new(
+                ErrorCode::Internal,
+                "instruction reader returned an unexpected output",
+            ));
+        }
+        Err(error) if error.code == ErrorCode::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(Fault::new(
+                error.code,
+                format!(
+                    "instructions at {path} could not be read: {}",
+                    error.message
+                ),
+            ));
+        }
+    };
+    if file.truncated {
+        return Err(Fault::invalid(format!(
+            "instructions at {path} exceed the file read limit"
+        )));
+    }
+    Ok(Some(file))
+}
+
 fn cancelled() -> Fault {
-    Fault::new(
-        ErrorCode::Cancelled,
-        "project instruction loading was cancelled",
-    )
+    Fault::new(ErrorCode::Cancelled, "instruction loading was cancelled")
 }
 
 #[cfg(test)]

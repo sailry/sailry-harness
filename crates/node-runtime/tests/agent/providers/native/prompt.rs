@@ -1,16 +1,32 @@
 use super::*;
 use serde_json::{Value, json};
 
+#[path = "prompt/personal.rs"]
+mod personal;
+
 const BASE: &str = include_str!("../../../../src/agent/prompt.txt");
 const ROOT_RULE: &str = "Root fixture rule: preserve the requested project scope";
 const NESTED_RULE: &str = "Nested fixture rule: retain the file's Unicode content";
 const FIRST: &str = "Read the requested fixture file without changing it";
 const SECOND: &str = "Continue the same task after restoring the session";
+const PERSONAL_FIRST: &str = "Personal fixture preference: preserve concise answers";
+const PERSONAL_NEXT: &str = "Updated personal fixture preference: explain verified outcomes";
+const CONTROLLER_RULE: &str = "Controller preferences must not become execution instructions";
 
 fn prepare(fixture: &Fixture) {
-    std::fs::write(fixture.root.join("AGENTS.md"), ROOT_RULE).unwrap();
+    std::fs::write(fixture.root.join("CLAUDE.md"), ROOT_RULE).unwrap();
     std::fs::create_dir(fixture.root.join("nested")).unwrap();
-    std::fs::write(fixture.root.join("nested/AGENTS.md"), NESTED_RULE).unwrap();
+    std::fs::write(fixture.root.join("nested/GEMINI.md"), NESTED_RULE).unwrap();
+    std::fs::write(
+        fixture.node.profile().join("instructions.md"),
+        PERSONAL_FIRST,
+    )
+    .unwrap();
+    std::fs::write(
+        fixture.directory.path().join("controller/instructions.md"),
+        CONTROLLER_RULE,
+    )
+    .unwrap();
     for path in ["native.txt", "nested/native.txt"] {
         std::fs::write(fixture.root.join(path), "工具内容 🙂").unwrap();
     }
@@ -68,6 +84,11 @@ async fn resume(fixture: Fixture, first: Input, second: Input, remote: bool) {
     else {
         panic!("turn expected")
     };
+    std::fs::write(
+        fixture.node.profile().join("instructions.md"),
+        PERSONAL_NEXT,
+    )
+    .unwrap();
     let profile = fixture.node.profile().to_owned();
     fixture.node.shutdown().await.unwrap();
     let node = Node::start(profile).await.unwrap();
@@ -136,6 +157,19 @@ fn assert_policy(api: ModelApi, body: &Value, resumed: bool, nested: bool) {
     let system = instruction(api, body);
     assert_eq!(system.matches(BASE.trim()).count(), 1, "{api:?}");
     assert_eq!(system.matches(ROOT_RULE).count(), 1, "{api:?}");
+    let personal = if resumed {
+        PERSONAL_NEXT
+    } else {
+        PERSONAL_FIRST
+    };
+    let previous = if resumed {
+        PERSONAL_FIRST
+    } else {
+        PERSONAL_NEXT
+    };
+    assert_eq!(system.matches(personal).count(), 1, "{api:?}");
+    assert!(!system.contains(previous), "{api:?}");
+    assert!(!system.contains(CONTROLLER_RULE), "{api:?}");
     assert_eq!(
         system.matches(NESTED_RULE).count(),
         usize::from(nested),
@@ -144,6 +178,12 @@ fn assert_policy(api: ModelApi, body: &Value, resumed: bool, nested: bool) {
     let users = users(api, body);
     assert!(
         users.iter().all(|text| !text.contains(BASE.trim())),
+        "{api:?}"
+    );
+    assert!(
+        users.iter().all(|text| !text.contains(PERSONAL_FIRST)
+            && !text.contains(PERSONAL_NEXT)
+            && !text.contains(CONTROLLER_RULE)),
         "{api:?}"
     );
     for (task, expected) in [(FIRST, 1), (SECOND, usize::from(resumed))] {

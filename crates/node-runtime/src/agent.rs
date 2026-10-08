@@ -235,6 +235,11 @@ async fn execute_with(
         invocation.turn.config.mode,
         invocation.turn.config.permission,
     );
+    let personal = prompt::personal(ingress, invocation.worktree, &stop).await?;
+    if !personal.is_empty() {
+        instruction.push_str("\n\n");
+        instruction.push_str(&personal);
+    }
     if let Some(role) = invocation
         .child
         .as_ref()

@@ -1131,6 +1131,10 @@ impl Handler for Ingress {
 }
 
 impl Ingress {
+    pub(crate) fn profile(&self) -> Option<&std::path::Path> {
+        self.profile.as_deref()
+    }
+
     pub(crate) async fn resolve_credential(
         &self,
         reference: sailry_protocol::CredentialRef,

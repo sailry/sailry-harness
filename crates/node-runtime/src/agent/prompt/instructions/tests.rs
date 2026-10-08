@@ -33,7 +33,7 @@ impl Fixture {
 
 #[test]
 fn orders_and_deduplicates_ancestors() {
-    assert_eq!(candidates(&[]).unwrap(), ["AGENTS.md"]);
+    assert_eq!(candidates(&[]).unwrap(), [""]);
     assert_eq!(
         candidates(&[
             Scope::File("src/nested/first.rs".into()),
@@ -43,12 +43,7 @@ fn orders_and_deduplicates_ancestors() {
             Scope::Directory(String::new()),
         ])
         .unwrap(),
-        [
-            "AGENTS.md",
-            "src/AGENTS.md",
-            "src/nested/AGENTS.md",
-            "tests/AGENTS.md",
-        ]
+        ["", "src", "src/nested", "tests",]
     );
 }
 
@@ -119,6 +114,10 @@ async fn skips_missing_and_empty_guides() {
             .is_empty()
     );
     fixture.write("AGENTS.md", " \n\t");
+    fixture.write("CLAUDE.md", "Suppressed root fallback");
+    fixture.write("GEMINI.md", "Suppressed root fallback");
+    fixture.write("src/CLAUDE.md", "\n");
+    fixture.write("src/GEMINI.md", "Suppressed directory fallback");
     fixture.write("src/nested/AGENTS.md", "Nested rule");
     let instruction = fixture
         .load(
@@ -130,6 +129,59 @@ async fn skips_missing_and_empty_guides() {
     assert!(instruction.contains("Guide: src/nested/AGENTS.md\n"));
     assert!(!instruction.contains("Guide: AGENTS.md\n"));
     assert!(!instruction.contains("Guide: src/AGENTS.md\n"));
+    assert!(!instruction.contains("Suppressed"));
+}
+
+#[tokio::test]
+async fn selects_first_existing_guide() {
+    let fixture = Fixture::new();
+    for filename in FILENAMES {
+        fixture.write(filename, format!("Selected {filename}"));
+    }
+    for (index, filename) in FILENAMES.iter().enumerate() {
+        let instruction = fixture.load(&[], CancellationToken::new()).await.unwrap();
+        assert!(instruction.contains(&format!("Guide: {filename}\nScope: .\nSelected {filename}")));
+        for ignored in &FILENAMES[index + 1..] {
+            assert!(!instruction.contains(&format!("Selected {ignored}")));
+        }
+        std::fs::remove_file(fixture.directory.path().join(filename)).unwrap();
+    }
+    assert!(
+        fixture
+            .load(&[], CancellationToken::new())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn chooses_independently_in_each_directory() {
+    let fixture = Fixture::new();
+    fixture.write("AGENTS.md", "Root rule");
+    fixture.write("CLAUDE.md", "Suppressed root fallback");
+    fixture.write("src/CLAUDE.md", "Directory rule");
+    fixture.write("src/GEMINI.md", "Suppressed directory fallback");
+    fixture.write("src/nested/GEMINI.md", "Nested rule");
+    fixture.write("src/other/GEMINI.md", "Unrelated rule");
+    let instruction = fixture
+        .load(
+            &[Scope::File("src/nested/main.rs".into())],
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    for (path, scope) in [
+        ("AGENTS.md", "."),
+        ("src/CLAUDE.md", "src"),
+        ("src/nested/GEMINI.md", "src/nested"),
+    ] {
+        assert!(instruction.contains(&format!("Guide: {path}\nScope: {scope}\n")));
+    }
+    assert!(instruction.find("Root rule").unwrap() < instruction.find("Directory rule").unwrap());
+    assert!(instruction.find("Directory rule").unwrap() < instruction.find("Nested rule").unwrap());
+    assert!(!instruction.contains("Suppressed"));
+    assert!(!instruction.contains("Unrelated rule"));
 }
 
 #[tokio::test]
@@ -146,28 +198,39 @@ async fn reloads_changed_guides() {
 
 #[tokio::test]
 async fn rejects_unreadable_and_partial_guides() {
-    let directory = Fixture::new();
-    std::fs::create_dir(directory.directory.path().join("AGENTS.md")).unwrap();
-    let binary = Fixture::new();
-    binary.write("AGENTS.md", [255]);
-    let truncated = Fixture::new();
-    truncated.write("AGENTS.md", vec![b'x'; sailry_protocol::MAX_FILE_BYTES + 1]);
-    for fixture in [&directory, &binary, &truncated] {
-        let error = fixture
-            .load(&[], CancellationToken::new())
-            .await
-            .unwrap_err();
-        assert_eq!(error.code, ErrorCode::InvalidRequest);
-        assert!(error.message.contains("AGENTS.md"));
+    for filename in FILENAMES {
+        let directory = Fixture::new();
+        std::fs::create_dir(directory.directory.path().join(filename)).unwrap();
+        let binary = Fixture::new();
+        binary.write(filename, [255]);
+        let nul = Fixture::new();
+        nul.write(filename, "Binary\0content");
+        let truncated = Fixture::new();
+        truncated.write(filename, vec![b'x'; sailry_protocol::MAX_FILE_BYTES + 1]);
+        for fixture in [&directory, &binary, &nul, &truncated] {
+            for fallback in FILENAMES
+                .iter()
+                .skip_while(|name| **name != filename)
+                .skip(1)
+            {
+                fixture.write(fallback, "Must not bypass a failed guide");
+            }
+            let error = fixture
+                .load(&[], CancellationToken::new())
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, ErrorCode::InvalidRequest);
+            assert!(error.message.contains(filename));
+        }
+        assert!(
+            truncated
+                .load(&[], CancellationToken::new())
+                .await
+                .unwrap_err()
+                .message
+                .contains("exceed the file read limit")
+        );
     }
-    assert!(
-        truncated
-            .load(&[], CancellationToken::new())
-            .await
-            .unwrap_err()
-            .message
-            .contains("exceed the file read limit")
-    );
 }
 
 #[cfg(unix)]
@@ -193,6 +256,27 @@ async fn rejects_outside_links() {
         std::os::unix::fs::symlink(target, fixture.directory.path().join(name)).unwrap();
         let error = fixture
             .load(&scopes, CancellationToken::new())
+            .await
+            .unwrap_err();
+        assert_ne!(error.code, ErrorCode::NotFound);
+        assert!(!error.message.contains("Outside rule"));
+    }
+    for filename in FILENAMES {
+        let fixture = Fixture::new();
+        std::os::unix::fs::symlink(
+            outside.directory.path().join("AGENTS.md"),
+            fixture.directory.path().join(filename),
+        )
+        .unwrap();
+        for fallback in FILENAMES
+            .iter()
+            .skip_while(|name| **name != filename)
+            .skip(1)
+        {
+            fixture.write(fallback, "Must not bypass an outside link");
+        }
+        let error = fixture
+            .load(&[], CancellationToken::new())
             .await
             .unwrap_err();
         assert_ne!(error.code, ErrorCode::NotFound);

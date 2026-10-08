@@ -8,6 +8,9 @@ const REPLACEMENT: &str = "Use the replacement assistant's instructions";
 const GUIDE: &str = "Preserve the project instruction fixture";
 const INITIAL: &str = "Summarize the independent child task";
 const FOLLOWUP: &str = "Continue the same independent child task";
+const PERSONAL_FIRST: &str = "Initial personal preference for parent and child";
+const PERSONAL_NEXT: &str = "Updated personal preference for the next runner";
+const CONTROLLER_RULE: &str = "Unrelated controller preference";
 
 async fn execute(client: &Client, command: Command) -> Output {
     client.execute(client.prepare(command)).await.unwrap()
@@ -73,12 +76,33 @@ fn has_delegate(request: &Value) -> bool {
         .any(|tool| tool["function"]["name"] == plugin_tool("delegation", "spawn_agent"))
 }
 
-fn context(request: &Value) -> String {
+fn context(request: &Value, personal: &str) -> String {
     assert_eq!(request["messages"][0]["role"], "system");
     let instructions = request["messages"][0]["content"].to_string();
     assert!(instructions.contains("You are Sailry"));
     assert!(instructions.contains(INSTRUCTIONS));
     assert!(instructions.contains(GUIDE));
+    assert_eq!(instructions.matches(personal).count(), 1);
+    assert!(!instructions.contains(CONTROLLER_RULE));
+    let previous = if personal == PERSONAL_FIRST {
+        PERSONAL_NEXT
+    } else {
+        PERSONAL_FIRST
+    };
+    assert!(!instructions.contains(previous));
+    assert!(
+        request["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| message["role"] == "user")
+            .all(|message| {
+                let content = message["content"].to_string();
+                !content.contains(PERSONAL_FIRST)
+                    && !content.contains(PERSONAL_NEXT)
+                    && !content.contains(CONTROLLER_RULE)
+            })
+    );
     assert!(!instructions.contains(REPLACEMENT));
     assert!(!instructions.contains("Frozen review instructions"));
     if has_delegate(request) {
@@ -108,6 +132,16 @@ async fn inherits_assistant_and_reuses_frozen_context() {
         .await;
         let unused = Server::start(false).await;
         let mut fixture = Fixture::start(remote, parent, unused).await;
+        std::fs::write(
+            fixture.node.profile().join("instructions.md"),
+            PERSONAL_FIRST,
+        )
+        .unwrap();
+        std::fs::write(
+            fixture.directory.path().join("controller/instructions.md"),
+            CONTROLLER_RULE,
+        )
+        .unwrap();
         std::fs::write(fixture.root().join("AGENTS.md"), GUIDE).unwrap();
         let assistant = install(&fixture, 0, INSTRUCTIONS).await;
         let mut config = fixture.session.config.clone();
@@ -192,14 +226,14 @@ async fn inherits_assistant_and_reuses_frozen_context() {
         assert_eq!(original.runs[0].status, Status::Completed);
         let requests = fixture.parent.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 3);
-        context(&requests[0]);
+        context(&requests[0], PERSONAL_FIRST);
         let request = requests
             .iter()
             .find(|request| !has_delegate(request))
             .unwrap();
         assert_eq!(request["model"], "fixture-a");
         assert_eq!(request["reasoning_effort"], "high");
-        let initial = context(request);
+        let initial = context(request, PERSONAL_FIRST);
         assert!(initial.contains(INITIAL));
         assert!(!initial.contains("parent-only private context"));
         assert!(fixture.child.requests.lock().unwrap().is_empty());
@@ -247,6 +281,11 @@ async fn inherits_assistant_and_reuses_frozen_context() {
             panic!("session expected")
         };
         fixture.session = session;
+        std::fs::write(
+            fixture.node.profile().join("instructions.md"),
+            PERSONAL_NEXT,
+        )
+        .unwrap();
         let second = fixture.push("Second parent-only private context").await;
         let parent_page = finished(&fixture.client, fixture.session.id, second.id).await;
         assert!(
@@ -283,7 +322,7 @@ async fn inherits_assistant_and_reuses_frozen_context() {
         let resumed = child_requests[1];
         assert_eq!(resumed["model"], "fixture-a");
         assert_eq!(resumed["reasoning_effort"], "high");
-        let inherited = context(resumed);
+        let inherited = context(resumed, PERSONAL_NEXT);
         assert!(inherited.contains(INITIAL));
         assert!(inherited.contains("answer-fixture-a"));
         assert!(inherited.contains(FOLLOWUP));
@@ -293,7 +332,7 @@ async fn inherits_assistant_and_reuses_frozen_context() {
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[0]["model"], "fixture-new-parent");
         assert_eq!(requests[0]["reasoning_effort"], "low");
-        context(&requests[0]);
+        context(&requests[0], PERSONAL_NEXT);
         fixture.close().await;
     }
 }

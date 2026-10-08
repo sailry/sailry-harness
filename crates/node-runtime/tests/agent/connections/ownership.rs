@@ -10,6 +10,14 @@ async fn survives_without_projects() {
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
                 .unwrap();
+        let personal = "Personal preferences apply to standalone connections";
+        let unrelated = "Unrelated controller instructions";
+        std::fs::write(node.profile().join("instructions.md"), personal).unwrap();
+        std::fs::write(
+            directory.path().join("controller/instructions.md"),
+            unrelated,
+        )
+        .unwrap();
         let address = controller
             .handle()
             .pair(node.link().invite().unwrap().ticket())
@@ -143,6 +151,17 @@ async fn survives_without_projects() {
                 Resource::Ssh(_) => ("ssh", "You are the SSH workspace assistant"),
             };
             assert!(instructions.contains(guidance), "{instructions}");
+            assert_eq!(instructions.matches(personal).count(), 1);
+            assert!(!instructions.contains(unrelated));
+            assert!(
+                messages
+                    .iter()
+                    .filter(|message| message["role"] == "user")
+                    .all(|message| {
+                        let content = message["content"].to_string();
+                        !content.contains(personal) && !content.contains(unrelated)
+                    })
+            );
             assert!(!instructions.contains("Write the requested file"));
             assert_eq!(
                 messages
