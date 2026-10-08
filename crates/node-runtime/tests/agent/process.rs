@@ -104,7 +104,7 @@ async fn child(path: &Path) -> i32 {
 
 async fn gone(pid: i32) {
     tokio::time::timeout(Duration::from_secs(3), async {
-        // Probe only the exact fixture child; do not signal or search unrelated processes.
+        // SAFETY: signal 0 only probes the exact fixture PID and passes no pointers.
         while unsafe { libc::kill(pid, 0) } == 0 {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }

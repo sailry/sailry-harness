@@ -94,6 +94,7 @@ async fn replaces_changed_connections() {
             "second"
         );
         assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xx");
+        // SAFETY: signal 0 only probes the recorded fixture PID and passes no pointers.
         assert_ne!(unsafe { libc::kill(original.unwrap(), 0) }, 0);
         fixture.node.shutdown().await.unwrap();
         reaped(&data);
@@ -133,13 +134,16 @@ async fn closes_idle_children() {
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         children.push(pid(&data));
     }
+    // SAFETY: signal 0 only probes this recorded fixture PID and passes no pointers.
     assert_ne!(unsafe { libc::kill(children[0], 0) }, 0);
+    // SAFETY: each signal-0 call is a read-only probe of a recorded fixture PID.
     assert!(
         children[1..]
             .iter()
             .all(|pid| unsafe { libc::kill(*pid, 0) } == 0)
     );
     fixture.node.shutdown().await.unwrap();
+    // SAFETY: each signal-0 call checks fixture exit without sending a signal.
     assert!(
         children
             .iter()

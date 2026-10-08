@@ -31,6 +31,8 @@ impl Browser {
             let result = if !error.is_null() {
                 Err(failed())
             } else {
+                // SAFETY: WebKit supplies an optional NSImage valid on the main thread
+                // for this callback; as_ref handles nil and the bytes are copied before return.
                 unsafe { image.as_ref() }
                     .and_then(NSImage::TIFFRepresentation)
                     .filter(|data| data.len() <= 32 * 1024 * 1024)
@@ -41,6 +43,8 @@ impl Browser {
                 let _ = send.send(result);
             }
         });
+        // SAFETY: view is retained on GPUI's main thread, snapshot arguments have
+        // the declared types, and WebKit copies the block for its main-thread completion.
         unsafe {
             let config = WKSnapshotConfiguration::new(view.mtm());
             config.setSnapshotWidth(Some(&NSNumber::new_f64(960.)));

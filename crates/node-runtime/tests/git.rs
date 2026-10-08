@@ -251,6 +251,7 @@ async fn confines_repository_reads() {
         )
         .unwrap();
     let pipe = std::ffi::CString::new(root.join("pipe").to_str().unwrap()).unwrap();
+    // SAFETY: pipe is a live terminated C string naming a path in the isolated test directory.
     assert_eq!(unsafe { libc::mkfifo(pipe.as_ptr(), 0o600) }, 0);
     let node = Node::start(temp.path().join("node")).await.unwrap();
     let client = Client::new(node.local());

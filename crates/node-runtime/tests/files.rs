@@ -181,6 +181,7 @@ async fn confines_links_and_special_files() {
     symlink(temp.path().join("secret.txt"), project.join("secret.txt")).unwrap();
     std::fs::write(project.join("not:portable"), "unsupported").unwrap();
     let fifo = CString::new(project.join("pipe").to_str().unwrap()).unwrap();
+    // SAFETY: fifo is a live terminated C string naming a path in the isolated test directory.
     assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
     let node = Node::start(temp.path().join("node")).await.unwrap();
     let client = Client::new(node.local());

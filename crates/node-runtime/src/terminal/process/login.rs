@@ -77,6 +77,8 @@ fn current_user_account() -> Result<Account, Fault> {
     loop {
         let mut record = MaybeUninit::<libc::passwd>::uninit();
         let mut result = ptr::null_mut();
+        // SAFETY: record and result are writable outputs; buffer remains allocated
+        // with exactly the supplied capacity for the entire getpwuid_r call.
         let status = unsafe {
             libc::getpwuid_r(
                 libc::getuid(),
@@ -100,11 +102,14 @@ fn current_user_account() -> Result<Account, Fault> {
             return Err(failure("current user account was not found".to_owned()));
         }
 
+        // SAFETY: success with a non-null result means getpwuid_r initialized record.
         let record = unsafe { record.assume_init() };
         let read_field = |value: *const libc::c_char, field: &str| {
             if value.is_null() {
                 return Err(failure(format!("current user account has no {field}")));
             }
+            // SAFETY: getpwuid_r supplies terminated strings in buffer, which
+            // remains live and unchanged until these fields are copied into Strings.
             unsafe { CStr::from_ptr(value) }
                 .to_str()
                 .map(str::to_owned)

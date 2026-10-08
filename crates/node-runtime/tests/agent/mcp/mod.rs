@@ -121,6 +121,7 @@ fn reaped(data: &Path) {
         .unwrap()
         .parse()
         .unwrap();
+    // SAFETY: signal 0 checks this fixture PID without sending a signal or using pointers.
     assert_ne!(
         unsafe { libc::kill(pid, 0) },
         0,

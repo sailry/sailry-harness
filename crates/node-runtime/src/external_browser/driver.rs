@@ -94,6 +94,7 @@ impl Driver {
                 || (error.raw_os_error() == Some(libc::EPERM)
                     && group.is_some_and(|group| {
                         // A non-signalling probe distinguishes an absent group from denied cleanup.
+                        // SAFETY: signal 0 sends no signal and takes only scalar PID/signal arguments.
                         (unsafe { libc::kill(-(group as i32), 0) }) == -1
                             && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
                     }))

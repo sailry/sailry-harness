@@ -110,7 +110,8 @@ impl Io {
         self.input.take();
         for thread in [&mut self.writer, &mut self.reader] {
             if let Some(thread) = thread.take() {
-                // Retain the exact thread handle. Reissue cancellation to cover the
+                // SAFETY: JoinHandle retains this exact thread handle until the join below.
+                // Reissue cancellation to cover the
                 // check-to-read race; never terminate the thread or search by PID.
                 while !thread.is_finished() {
                     unsafe { CancelSynchronousIo(thread.as_raw_handle()) };

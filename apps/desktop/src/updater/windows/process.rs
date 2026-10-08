@@ -30,6 +30,7 @@ pub(super) fn system_version() -> Result<String, String> {
     };
     // RtlGetVersion reports the actual OS build, unaffected by manifest-based
     // GetVersionEx compatibility virtualization (Windows 11 also reports 10.0).
+    // SAFETY: version is writable and declares the size of its OSVERSIONINFOW layout.
     let status = unsafe { RtlGetVersion(&mut version) };
     if status < 0 {
         return Err(format!(
@@ -51,6 +52,8 @@ pub(super) fn protect(path: &Path) -> Result<(), String> {
         .collect();
     let path: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
     let mut security = std::ptr::null_mut();
+    // SAFETY: descriptor is a live terminated UTF-16 string, revision is supported,
+    // security is writable, and the optional size output may be null.
     if unsafe {
         ConvertStringSecurityDescriptorToSecurityDescriptorW(
             descriptor.as_ptr(),
@@ -65,6 +68,8 @@ pub(super) fn protect(path: &Path) -> Result<(), String> {
             io::Error::last_os_error()
         ));
     }
+    // SAFETY: path remains terminated and live, and conversion returned a valid
+    // security descriptor whose allocation is retained until after this call.
     let result = unsafe {
         SetFileSecurityW(
             path.as_ptr(),
@@ -73,6 +78,7 @@ pub(super) fn protect(path: &Path) -> Result<(), String> {
         )
     };
     let error = (result == 0).then(io::Error::last_os_error);
+    // SAFETY: conversion allocated security with LocalAlloc; it is freed exactly once.
     unsafe { LocalFree(security) };
     if let Some(error) = error {
         return Err(format!("cannot protect the updater workspace: {error}"));
@@ -81,7 +87,7 @@ pub(super) fn protect(path: &Path) -> Result<(), String> {
 }
 
 pub(super) fn current_started() -> Result<u64, String> {
-    // The pseudo handle is owned by Windows and must not be closed.
+    // SAFETY: The pseudo handle is owned by Windows and must not be closed.
     started(unsafe { GetCurrentProcess() })
 }
 
@@ -90,6 +96,8 @@ fn started(handle: HANDLE) -> Result<u64, String> {
     let mut exited = FILETIME::default();
     let mut kernel = FILETIME::default();
     let mut user = FILETIME::default();
+    // SAFETY: callers retain a current-process or query-enabled process handle;
+    // all four FILETIME outputs are distinct, writable values alive for the call.
     if unsafe { GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user) } == 0 {
         return Err(format!(
             "cannot inspect the original process: {}",
@@ -103,6 +111,8 @@ pub(super) struct Parent(HANDLE);
 
 impl Parent {
     pub(super) fn open(pid: u32, expected_started: u64) -> Result<Self, String> {
+        // SAFETY: OpenProcess accepts these scalar access flags and PID, returns
+        // an owning handle, and failure is checked before constructing Parent.
         let handle = unsafe {
             OpenProcess(
                 PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
@@ -120,6 +130,7 @@ impl Parent {
         if started(handle)? != expected_started {
             return Err("the original Sailry process identity has changed".into());
         }
+        // SAFETY: parent retains this exact handle with synchronization access.
         if unsafe { WaitForSingleObject(handle, 0) } != WAIT_TIMEOUT {
             return Err("the original Sailry process is no longer running".into());
         }
@@ -129,6 +140,7 @@ impl Parent {
     pub(super) fn wait(&self, timeout: Duration) -> Result<(), String> {
         let millis =
             u32::try_from(timeout.as_millis()).map_err(|_| "invalid update wait timeout")?;
+        // SAFETY: self retains the synchronization-enabled handle until this wait returns.
         match unsafe { WaitForSingleObject(self.0, millis) } {
             WAIT_OBJECT_0 => Ok(()),
             WAIT_TIMEOUT => Err("Sailry did not exit; the installed bundle was not changed".into()),
@@ -143,6 +155,7 @@ impl Parent {
 
 impl Drop for Parent {
     fn drop(&mut self) {
+        // SAFETY: Parent uniquely owns the successful OpenProcess handle and closes it once.
         unsafe { CloseHandle(self.0) };
     }
 }

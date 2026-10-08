@@ -16,11 +16,13 @@ impl Drop for Object {
 }
 
 pub(super) fn sample() -> Vec<Gpu> {
+    // SAFETY: the class name is a static, terminated C string; matching returns a CF dictionary.
     let Some(matching) = (unsafe { IOServiceMatching(c"IOAccelerator".as_ptr()) }) else {
         return Vec::new();
     };
     let mut iterator = 0;
-    // IOKit consumes the matching dictionary and returns an owned iterator.
+    // SAFETY: matching is a retained CF dictionary and iterator is a writable output.
+    // IOKit consumes the supplied dictionary reference and returns an owned iterator.
     if unsafe { IOServiceGetMatchingServices(0, Some(CFRetained::from(&matching)), &mut iterator) }
         != 0
     {
@@ -35,6 +37,7 @@ pub(super) fn sample() -> Vec<Gpu> {
         }
         let entry = Object(entry);
         let mut id = 0;
+        // SAFETY: entry retains the registry handle and id is a writable u64 output.
         if unsafe { IORegistryEntryGetRegistryEntryID(entry.0, &mut id) } != 0 {
             continue;
         }
@@ -46,11 +49,12 @@ pub(super) fn sample() -> Vec<Gpu> {
             .and_then(|value| value.downcast::<CFDictionary>().ok())
             .and_then(|values| {
                 let key = CFString::from_static_str("Device Utilization %");
+                // SAFETY: IOKit property dictionaries contain CF objects; key is a live CFString.
                 let raw = unsafe { values.value((&*key as *const CFString).cast()) };
                 if raw.is_null() {
                     return None;
                 }
-                // The dictionary owns this value throughout the type check and read.
+                // SAFETY: The dictionary owns this value throughout the type check and read.
                 let value = unsafe { &*raw.cast::<CFType>() };
                 value.downcast_ref::<CFNumber>()?.as_i64()
             })
@@ -71,6 +75,8 @@ pub(super) fn sample() -> Vec<Gpu> {
 
 fn property(entry: u32, key: &'static str) -> Option<CFRetained<CFType>> {
     let key = CFString::from_static_str(key);
+    // SAFETY: the caller retains entry and key is live; the default allocator
+    // and zero options are the documented IOKit configuration.
     // The Create API returns a retained property; CFRetained releases it.
     unsafe { IORegistryEntryCreateCFProperty(entry, Some(&key), kCFAllocatorDefault, 0) }
 }

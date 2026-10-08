@@ -172,6 +172,7 @@ impl Security {
                 "profile storage must belong to the current user",
             ));
         }
+        // SAFETY: the descriptor and non-null ACL are retained by self.allocation.
         if self.dacl.is_null()
             || unsafe { IsValidSecurityDescriptor(self.allocation.0) } == 0
             || unsafe { IsValidAcl(self.dacl) } == 0
@@ -197,8 +198,9 @@ impl Security {
         // SAFETY: IsValidAcl has checked this ACL's header and contained entries.
         for index in 0..unsafe { (*self.dacl).AceCount } as u32 {
             let mut entry = null_mut();
+            // SAFETY: the ACL is valid, index is below AceCount, and entry is writable.
             check(unsafe { GetAce(self.dacl, index, &mut entry) })?;
-            // GetAce can also return other ACE layouts. Read only its common
+            // SAFETY: GetAce can also return other ACE layouts. Read only its common
             // header until the type and size prove the ACCESS_ALLOWED_ACE shape.
             let header = unsafe { &*entry.cast::<windows_sys::Win32::Security::ACE_HEADER>() };
             let sid_offset = offset_of!(ACCESS_ALLOWED_ACE, SidStart);
@@ -210,6 +212,7 @@ impl Security {
                     "profile storage has an unsupported access entry",
                 ));
             }
+            // SAFETY: the validated ACE type and size identify the ACCESS_ALLOWED_ACE layout.
             let ace = unsafe { &*entry.cast::<ACCESS_ALLOWED_ACE>() };
             let sid = std::ptr::addr_of!(ace.SidStart).cast_mut().cast();
             // SAFETY: the SID header fits within the validated ACE; check its full
@@ -220,7 +223,10 @@ impl Security {
             {
                 return Err(invalid(path, "profile storage has an invalid access entry"));
             }
+            // SAFETY: the full SID passed validation and fits its retained ACE;
+            // user comes from the still-retained TokenUser allocation.
             let current = unsafe { EqualSid(sid, user) } != 0;
+            // SAFETY: sid is the same validated SID retained by this access entry.
             if !current && unsafe { IsWellKnownSid(sid, WinLocalSystemSid) } == 0 {
                 return Err(invalid(
                     path,

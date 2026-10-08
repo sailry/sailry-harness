@@ -51,6 +51,8 @@ fn create(cx: &App) -> Retained<WKWebsiteDataStore> {
     let directory = cx
         .try_global::<crate::preferences::Preferences>()
         .and_then(|preferences| preferences.directory());
+    // SAFETY: thread proves main-thread access; the persistent selector is checked
+    // before use, and the UUID version/variant bits make its identifier nonzero.
     unsafe {
         if let Some(directory) = directory.filter(|_| persistent(cx) && persistent_available()) {
             let hash = blake3::hash(directory.as_os_str().as_encoded_bytes());
@@ -76,9 +78,12 @@ pub(crate) fn install(
         return receiver;
     }
     let pending = Rc::new(RefCell::new((count, Some(sender))));
+    // SAFETY: the GPUI import task runs on the main thread and retains this data store.
     let jar = unsafe { store.httpCookieStore() };
     for value in &values {
         let pending = pending.clone();
+        // SAFETY: value is a retained NSHTTPCookie; WebKit copies the completion
+        // block and invokes it on the main thread, where its Rc/RefCell state is used.
         unsafe {
             jar.setCookie_completionHandler(
                 value,
@@ -105,6 +110,9 @@ pub(crate) fn verify(
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let sender = RefCell::new(Some(sender));
     let expected: Vec<_> = cookies.iter().filter_map(cookie).collect();
+    // SAFETY: the retained store is used on GPUI's main thread. WebKit copies the
+    // block, calls it on the main thread, and supplies an NSArray<NSHTTPCookie>
+    // valid throughout the callback; none of its borrowed cookies escape.
     unsafe {
         store.httpCookieStore().getAllCookies(&block2::RcBlock::new(
             move |stored: std::ptr::NonNull<NSArray<NSHTTPCookie>>| {
@@ -148,6 +156,9 @@ pub(crate) fn verify(
 }
 
 fn cookie(cookie: &super::chrome::Cookie) -> Option<Retained<NSHTTPCookie>> {
+    // SAFETY: Foundation's immutable cookie keys are NSStrings. Each property
+    // has its documented NSString or NSDate value type, retained by the dictionary;
+    // cookieWithProperties rejects invalid values without exposing borrowed storage.
     unsafe {
         let properties: Retained<NSMutableDictionary<NSString, AnyObject>> =
             NSMutableDictionary::new();

@@ -206,7 +206,7 @@ async fn waiting_releases_vm_capacity() {
             .unwrap();
         tokio::time::timeout(Duration::from_secs(3), async {
             for child in children {
-                // Probe only the exact isolated fixture child; never signal unrelated processes.
+                // SAFETY: signal 0 only probes the exact isolated fixture PID, with no pointers.
                 while unsafe { libc::kill(child, 0) } == 0 {
                     tokio::time::sleep(Duration::from_millis(10)).await;
                 }

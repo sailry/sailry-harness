@@ -48,7 +48,7 @@ fn open(permission: Permission) -> Result<(), Fault> {
             "Privacy_ScreenCapture"
         }
         Permission::Accessibility => {
-            // Apple's documented option contains one CFString key and CFBoolean value.
+            // SAFETY: Apple's documented option contains one CFString key and CFBoolean value.
             unsafe {
                 if !AXIsProcessTrusted() {
                     let options = CFDictionary::<CFType, CFType>::from_slices(

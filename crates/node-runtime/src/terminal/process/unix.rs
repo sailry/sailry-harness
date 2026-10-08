@@ -26,13 +26,17 @@ impl Io {
         let descriptor = master
             .as_raw_fd()
             .ok_or_else(|| failure("PTY descriptor is unavailable"))?;
-        // The duplicate remains owned by File on every error path.
+        // SAFETY: master retains its descriptor during this call; dup returns an independent one.
         let duplicate = unsafe { libc::dup(descriptor) };
         if duplicate < 0 {
             return Err(failure(std::io::Error::last_os_error()));
         }
+        // SAFETY: dup succeeded and no owner has adopted or closed this new descriptor.
+        // File owns it on every subsequent error path.
         let mut pty = unsafe { File::from_raw_fd(duplicate) };
+        // SAFETY: File keeps duplicate live; F_GETFL takes no variadic argument.
         let flags = unsafe { libc::fcntl(duplicate, libc::F_GETFL) };
+        // SAFETY: F_SETFL takes the integer flag mask for the still-owned descriptor.
         if flags < 0
             || unsafe { libc::fcntl(duplicate, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0
         {
@@ -72,6 +76,8 @@ impl Io {
                                 revents: 0,
                             },
                         ];
+                        // SAFETY: poll is a writable array of exactly poll.len() entries;
+                        // pty and reader retain both descriptors throughout the call.
                         if unsafe { libc::poll(poll.as_mut_ptr(), poll.len() as _, -1) } < 0 {
                             let error = std::io::Error::last_os_error();
                             if error.kind() == std::io::ErrorKind::Interrupted {

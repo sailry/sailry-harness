@@ -28,6 +28,9 @@ impl Surface {
     fn new(page: &gpui_wry::WebView) -> Rc<Self> {
         let view = page.raw().webview();
         let thread = MainThreadMarker::new().expect("browser runs on the UI thread");
+        // SAFETY: thread proves main-thread access and all views are retained.
+        // Wry's _inspector returns _WKInspector; setDelegate: takes an object
+        // implementing its callback signatures, retained by Surface below.
         unsafe {
             let container = NSView::initWithFrame(NSView::alloc(thread), view.frame());
             let parent = view.superview().expect("browser has a native parent");
@@ -66,6 +69,8 @@ impl Surface {
             .track_focus(&page.read(cx).focus_handle(cx))
             .child(
                 canvas(
+                    // SAFETY: GPUI runs layout on the AppKit thread; surface
+                    // retains the container throughout these native frame operations.
                     move |bounds, _, _| unsafe {
                         let parent = surface
                             .container
@@ -114,6 +119,8 @@ impl Browser {
         } else {
             tab.surface.get_or_insert_with(|| Surface::new(page));
             page.raw().open_devtools();
+            // SAFETY: this UI action retains Wry's WKWebView on the main thread;
+            // its _inspector getter has the same object return signature used by Wry.
             unsafe {
                 let inspector: Retained<AnyObject> =
                     objc2::msg_send![&page.raw().webview(), _inspector];

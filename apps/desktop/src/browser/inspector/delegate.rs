@@ -7,15 +7,20 @@ use objc2::{
 use objc2_web_kit::WKWebView;
 
 define_class!(
+    // SAFETY: NSObject has no subclass requirements; Delegate does not implement Drop.
     #[unsafe(super(NSObject))]
     #[name = "SailryWebInspectorDelegate"]
     #[thread_kind = MainThreadOnly]
     #[ivars = Retained<WKWebView>]
     pub(super) struct Delegate;
+    // SAFETY: Delegate inherits NSObject's required protocol methods unchanged.
     unsafe impl NSObjectProtocol for Delegate {}
     impl Delegate {
+        // SAFETY: WebKit's _WKInspectorDelegate declares this void callback
+        // with one _WKInspector object argument, received on the main thread.
         #[unsafe(method(inspectorFrontendLoaded:))]
         fn loaded(&self, inspector: &AnyObject) {
+            // SAFETY: this callback's object is _WKInspector, whose show selector returns void.
             unsafe { let (): () = msg_send![inspector, show]; }
             attach(self.ivars(), inspector);
         }
@@ -25,11 +30,16 @@ define_class!(
 impl Delegate {
     pub(super) fn new(view: Retained<WKWebView>) -> Retained<Self> {
         let this = Self::alloc(view.mtm()).set_ivars(view);
+        // SAFETY: all ivars are set on an allocated NSObject subclass; init uses
+        // its declared ownership family and returns the initialized Delegate.
         unsafe { msg_send![super(this), init] }
     }
 }
 
 pub(super) fn attach(view: &WKWebView, inspector: &AnyObject) {
+    // SAFETY: callers provide a live WKWebView and its _WKInspector on the main
+    // thread. attach returns void; inspectorWebView returns an optional WKWebView,
+    // retained here before its native hierarchy and frame are inspected.
     unsafe {
         let parent = view.superview().expect("inspector has a browser container");
         let bounds = parent.bounds();

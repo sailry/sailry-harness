@@ -14,9 +14,11 @@ pub(crate) fn status() -> Status {
     #[cfg(target_os = "macos")]
     {
         use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
+        // SAFETY: AVFoundation exports this immutable media type; absence is handled below.
         let Some(media) = (unsafe { AVMediaTypeAudio }) else {
             return Status::Unknown;
         };
+        // SAFETY: AVMediaTypeAudio is one of the two supported authorization media types.
         match unsafe { AVCaptureDevice::authorizationStatusForMediaType(media) } {
             AVAuthorizationStatus::Authorized => Status::Granted,
             AVAuthorizationStatus::NotDetermined => Status::NotDetermined,
@@ -44,8 +46,9 @@ pub(crate) async fn ensure(cancel: &CancellationToken) -> Result<()> {
     {
         use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
         let receiver = {
-            // AVMediaTypeAudio is the supported media type for microphone authorization.
+            // SAFETY: AVMediaTypeAudio is the supported media type for microphone authorization.
             let media = unsafe { AVMediaTypeAudio }.ok_or("dictation_unavailable")?;
+            // SAFETY: media is AVFoundation's immutable audio authorization constant.
             let status = unsafe { AVCaptureDevice::authorizationStatusForMediaType(media) };
             if status == AVAuthorizationStatus::Authorized {
                 return Ok(());
@@ -60,7 +63,8 @@ pub(crate) async fn ensure(cancel: &CancellationToken) -> Result<()> {
                     let _ = sender.send(granted.as_bool());
                 }
             });
-            // AVFoundation copies the completion block and calls it on its own queue.
+            // SAFETY: AVFoundation copies the block and may invoke it on any queue.
+            // Its only captured state is a Mutex-protected, owned channel sender.
             unsafe {
                 AVCaptureDevice::requestAccessForMediaType_completionHandler(media, &callback);
             }

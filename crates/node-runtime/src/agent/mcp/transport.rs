@@ -126,6 +126,7 @@ impl Child {
                 // retained group is absent; a live/unowned group remains an error.
                 if error.raw_os_error() == Some(libc::EPERM)
                     && group.is_some_and(|group| {
+                        // SAFETY: signal 0 sends no signal and takes only scalar PID/signal arguments.
                         (unsafe { libc::kill(-(group as i32), 0) }) == -1
                             && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
                     })

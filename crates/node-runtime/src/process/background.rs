@@ -351,11 +351,13 @@ mod tests {
             assert!(Instant::now() < deadline, "child startup deadline");
             tokio::time::sleep(Duration::from_millis(20)).await;
         };
+        // SAFETY: signal 0 only probes this fixture PID and passes no pointers.
         assert_eq!(unsafe { libc::kill(pid, 0) }, 0);
         let stopped = commands.close_session(session).await;
         assert_eq!(stopped.len(), 1);
         assert_eq!(stopped[0].status, Status::Finished(Outcome::Cancelled));
         assert!(commands.list(session).is_empty());
+        // SAFETY: signal 0 checks whether the fixture exited without sending a signal.
         while unsafe { libc::kill(pid, 0) } == 0 {
             assert!(Instant::now() < deadline, "child cleanup deadline");
             tokio::time::sleep(Duration::from_millis(20)).await;

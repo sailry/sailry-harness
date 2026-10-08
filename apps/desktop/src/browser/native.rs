@@ -126,10 +126,13 @@ impl Browser {
                         let thread =
                             objc2::MainThreadMarker::new().expect("browser runs on the UI thread");
                         let store = self.store.get_or_insert_with(|| super::profile::store(cx));
+                        // SAFETY: thread proves this GPUI callback is on the AppKit main thread.
                         let configuration =
                             unsafe { objc2_web_kit::WKWebViewConfiguration::new(thread) };
                         // Share local browser data. Each tab keeps its own
                         // script controller, IPC handlers and navigation delegate.
+                        // SAFETY: configuration and store are retained on the UI thread;
+                        // WebKit retains the data store and copies the supplied UA string.
                         unsafe {
                             configuration.setWebsiteDataStore(store);
                             // WKWebView's bare UA makes Baidu return an HTTPS-to-HTTP
@@ -256,6 +259,7 @@ impl Browser {
             let view = page.read(cx).raw().webview();
             // Kit exposes only back(); use wry's owned WKWebView handle for
             // native history availability without maintaining another history.
+            // SAFETY: Wry returns a retained WKWebView used here on GPUI's main thread.
             unsafe { [view.canGoBack(), view.canGoForward()] }
         }
         #[cfg(target_os = "windows")]
@@ -279,6 +283,7 @@ impl Browser {
         {
             use wry::WebViewExtMacOS as _;
             let view = page.raw().webview();
+            // SAFETY: this UI action runs on the main thread and view retains Wry's WKWebView.
             unsafe {
                 match action {
                     0 => {

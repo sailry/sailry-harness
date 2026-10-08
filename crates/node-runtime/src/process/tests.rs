@@ -108,7 +108,7 @@ mod unix {
 
     async fn gone(pid: i32) {
         tokio::time::timeout(Duration::from_secs(3), async {
-            // Read-only probe of the exact fixture child, never a global process search.
+            // SAFETY: signal 0 is a read-only probe of the exact fixture PID, with no pointers.
             while unsafe { libc::kill(pid, 0) } == 0 {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }

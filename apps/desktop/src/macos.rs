@@ -13,7 +13,7 @@ pub fn set_min_size(window: &Window, size: gpui_kit::Size<gpui_kit::Pixels>) {
     let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
         return;
     };
-    // GPUI owns the live content view and invokes rendering on the AppKit thread.
+    // SAFETY: GPUI owns the live content view and invokes rendering on the AppKit thread.
     let view = unsafe { handle.ns_view.cast::<NSView>().as_ref() };
     if let Some(window) = view.window() {
         window.setContentMinSize(objc2_foundation::NSSize::new(
@@ -31,7 +31,7 @@ pub fn configure_backdrop(window: &Window) {
         return;
     };
 
-    // GPUI owns this NSView and calls us on the AppKit main thread while the window is live.
+    // SAFETY: GPUI owns this NSView and calls us on the AppKit main thread while the window is live.
     let view = unsafe { handle.ns_view.cast::<NSView>().as_ref() };
     let Some(content) = view.window().and_then(|window| window.contentView()) else {
         return;

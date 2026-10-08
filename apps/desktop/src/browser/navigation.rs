@@ -19,27 +19,35 @@ pub(super) struct State {
 }
 
 define_class!(
+    // SAFETY: NSObject has no subclass requirements; Observer does not implement Drop.
     #[unsafe(super(NSObject))]
     #[name = "SailryBrowserNavigationObserver"]
     #[thread_kind = MainThreadOnly]
     #[ivars = State]
     pub(super) struct Observer;
 
+    // SAFETY: Observer inherits NSObject's required methods and preserves their signatures.
     unsafe impl NSObjectProtocol for Observer {
+        // SAFETY: this override has NSObject's SEL argument and BOOL return signature.
         #[unsafe(method(respondsToSelector:))]
         fn responds(&self, selector: Sel) -> bool {
+            // SAFETY: the initialized NSObject superclass implements this exact selector.
             let own: bool = unsafe { msg_send![super(self), respondsToSelector: selector] };
             own || self.ivars().delegate.respondsToSelector(selector)
         }
     }
 
     impl Observer {
+        // SAFETY: this matches NSObject's SEL-to-id forwarding method; State
+        // retains the returned delegate for the entire forwarding invocation.
         #[unsafe(method(forwardingTargetForSelector:))]
         fn forward(&self, _selector: Sel) -> *mut AnyObject {
             Retained::as_ptr(&self.ivars().delegate).cast_mut().cast()
         }
     }
 
+    // SAFETY: all protocol methods are optional; these callbacks match the
+    // pinned WKNavigationDelegate signatures and run only on the main thread.
     unsafe impl WKNavigationDelegate for Observer {
         #[unsafe(method(webView:didStartProvisionalNavigation:))]
         fn started(&self, _view: &WKWebView, navigation: Option<&WKNavigation>) {
@@ -65,6 +73,8 @@ impl Observer {
         tab: usize,
         events: tokio::sync::mpsc::UnboundedSender<(usize, Event)>,
     ) -> Retained<Self> {
+        // SAFETY: the caller retains Wry's WKWebView on the GPUI main thread;
+        // the getter returns a retained navigation delegate with its protocol type.
         let delegate =
             unsafe { view.navigationDelegate() }.expect("Wry installs a navigation delegate");
         let observer = view.mtm().alloc::<Self>().set_ivars(State {
@@ -73,7 +83,11 @@ impl Observer {
             events,
             tab,
         });
+        // SAFETY: Observer is allocated, all ivars are set, and NSObject's init
+        // returns the initialized object according to the init ownership family.
         let observer: Retained<Self> = unsafe { msg_send![super(observer), init] };
+        // SAFETY: observer implements WKNavigationDelegate and the caller keeps
+        // the returned Retained observer while WebKit holds its weak delegate reference.
         unsafe { view.setNavigationDelegate(Some(ProtocolObject::from_ref(&*observer))) };
         observer
     }
