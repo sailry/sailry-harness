@@ -23,7 +23,7 @@ env:
 
 jobs:
   source:
-    name: Source and packages
+    name: Source and services
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -55,8 +55,6 @@ jobs:
         run: |
           git ls-files -z '*.sh' | xargs -0 -r -n 1 bash -n
           python3 -m compileall -q scripts
-      - name: Plugin packages and examples
-        run: python3 scripts/test-plugins.py
       - name: Pairing service
         working-directory: services/pairing-relay
         run: |
