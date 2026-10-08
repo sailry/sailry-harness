@@ -183,7 +183,7 @@ pub(crate) struct Invocation {
     pub worktree: WorktreeId,
     pub project: Option<sailry_protocol::ProjectId>,
     pub provider: Option<Provider>,
-    pub media: super::media::Snapshot,
+    pub media: super::media::Models,
     pub message: Input,
     pub child: Option<Child>,
     pub plugins: Vec<plugin::Info>,

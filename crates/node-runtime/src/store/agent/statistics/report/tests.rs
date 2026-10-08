@@ -244,6 +244,52 @@ fn companion_costs() {
 }
 
 #[test]
+fn attributes_follow_usage_to_sent_revisions() {
+    let mut fixture = Fixture::new();
+    let source = session(&mut fixture);
+    let mut first = event(START, 10);
+    first
+        .provider_metadata
+        .insert("sailry_media".into(), "image".into());
+    fixture.append([first]);
+    let mut config = source.config.clone();
+    config.provider = ProviderId::new();
+    config.model = "revised-model".into();
+    command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::SetSessionConfig {
+            session: source.id,
+            expected_revision: source.revision,
+            config: config.clone(),
+        },
+    );
+    let mut second = event(START + DAY, 20);
+    second
+        .provider_metadata
+        .insert("sailry_media".into(), "vision".into());
+    fixture.append([second]);
+    for (config, input) in [(&source.config, 10), (&config, 20)] {
+        let mut selected = query();
+        selected.providers = vec![config.provider];
+        selected.models = vec![config.model.clone()];
+        let usage = report(&fixture, &selected);
+        assert_eq!(usage.totals.responses, 1);
+        assert_eq!(usage.totals.tokens.unwrap().input, input);
+        assert_eq!(usage.requests.items.len(), 1);
+    }
+    let overall = report(&fixture, &query());
+    assert_eq!(overall.totals.responses, 2);
+    assert_eq!(overall.totals.tokens.unwrap().input, 30);
+    assert_eq!(
+        super::super::read(&fixture.database.connection, fixture.session)
+            .unwrap()
+            .responses,
+        2
+    );
+}
+
+#[test]
 fn preserves_branch_ownership() {
     let mut fixture = Fixture::new();
     let source = session(&mut fixture);

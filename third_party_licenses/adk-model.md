@@ -15,6 +15,9 @@ when the terminal event omits them, preserving tool calls and reasoning history.
 It also maps ChatGPT's HTTP error details without losing the upstream status.
 Nested Responses stream errors are normalized for the pinned SDK, shared-usage
 failures retain safe static diagnostics, and terminal failures are not replayed.
+The Gemini adapter forwards explicitly requested response modalities through
+ADK's generation extensions; this supports native image output without replacing
+the pinned model client or its authentication implementation.
 
 ADK's Apache-2.0 copyright notice is retained in [adk-LICENSE](adk-LICENSE).
 The Gemini client's original MIT notice, Copyright (c) 2025 Michael Yang,

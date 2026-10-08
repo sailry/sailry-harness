@@ -14,6 +14,7 @@ mod trash;
 mod upload;
 
 struct Fixture {
+    profile: crate::Profile,
     directory: tempfile::TempDir,
     store: Store,
     client: Client,
@@ -27,6 +28,7 @@ impl Fixture {
     ) -> Self {
         let directory =
             tempfile::tempdir_in(std::fs::canonicalize(std::env::temp_dir()).unwrap()).unwrap();
+        let profile = crate::Profile::acquire(&directory.path().join("node-profile")).unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let identity = Identity::open(directory.path()).unwrap();
@@ -34,7 +36,7 @@ impl Fixture {
         let store = Store::start(
             directory.path().join("node.sqlite3"),
             id,
-            None,
+            Some(profile.path.clone()),
             Default::default(),
             Default::default(),
             Default::default(),
@@ -58,6 +60,7 @@ impl Fixture {
             panic!("snapshot expected")
         };
         Self {
+            profile,
             directory,
             store,
             client,
@@ -196,7 +199,7 @@ async fn shutdown_drains() {
     let store = Store::start(
         fixture.directory.path().join("node.sqlite3"),
         first.target,
-        None,
+        Some(fixture.profile.path.clone()),
         Default::default(),
         Default::default(),
         Default::default(),

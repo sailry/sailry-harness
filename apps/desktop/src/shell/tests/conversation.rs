@@ -9,6 +9,7 @@ fn releases_initialized_draft(cx: &mut TestAppContext) {
         crate::theme::init(cx);
         crate::shell::init(cx);
         cx.set_global(crate::backend::Services {
+            profile: fixture.node.profile().to_path_buf(),
             runtime: fixture.runtime.clone(),
             local: fixture.node.local(),
             link: fixture.node.link(),

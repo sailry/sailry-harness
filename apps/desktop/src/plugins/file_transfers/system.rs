@@ -41,6 +41,7 @@ pub(super) async fn prepare(
     access: Access,
     path: String,
     local: bool,
+    temporary: PathBuf,
     stop: CancellationToken,
 ) -> Result<Opened, Fault> {
     access.verify(false).await?;
@@ -50,6 +51,7 @@ pub(super) async fn prepare(
         Some(access.context),
         path,
         local,
+        temporary,
         stop,
     )
     .await
@@ -60,9 +62,10 @@ pub(crate) async fn prepare_core(
     worktree: WorktreeId,
     path: String,
     local: bool,
+    temporary: PathBuf,
     stop: CancellationToken,
 ) -> Result<Opened, Fault> {
-    prepare_in(client, worktree, None, path, local, stop).await
+    prepare_in(client, worktree, None, path, local, temporary, stop).await
 }
 
 async fn prepare_in(
@@ -71,6 +74,7 @@ async fn prepare_in(
     context: Option<plugin::Context>,
     path: String,
     local: bool,
+    temporary: PathBuf,
     stop: CancellationToken,
 ) -> Result<Opened, Fault> {
     valid_path(&path, true)?;
@@ -122,10 +126,22 @@ async fn prepare_in(
         worker::release(&client, download.stream).await;
         return Err(internal());
     }
+    let temporary = temporary
+        .join("open")
+        .join(
+            client
+                .target()
+                .0
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>(),
+        )
+        .join(worktree.to_string());
     let prepared = tokio::task::spawn_blocking(move || {
+        std::fs::create_dir_all(&temporary).map_err(|_| unavailable())?;
         let copy = tempfile::Builder::new()
             .prefix("sailry-open-")
-            .tempdir()
+            .tempdir_in(&temporary)
             .map_err(|_| unavailable())?;
         let name = std::path::Path::new(&path)
             .file_name()

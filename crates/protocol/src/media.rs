@@ -1,8 +1,5 @@
 //! Execution-owned companion models, following Code Pi d9b56405.
-use crate::{
-    Authentication, ProviderId,
-    conversation::{Model, ModelApi, Provider},
-};
+use crate::ProviderId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -18,6 +15,8 @@ pub enum Kind {
 #[serde(rename_all = "snake_case")]
 pub enum Generation {
     Image,
+    /// Hosted image generation through a mainline Responses model.
+    ImageTool,
     Video,
 }
 
@@ -30,26 +29,8 @@ pub struct Binding {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
     pub revision: u64,
-    pub bindings: BTreeMap<Kind, Binding>,
-}
-
-impl Kind {
-    pub fn supports(self, provider: &Provider, model: &Model) -> bool {
-        provider.enabled
-            && provider.authentication == Authentication::ApiKey
-            && match self {
-                Self::Vision => model.vision,
-                Self::Image | Self::Video => {
-                    matches!(
-                        provider.api,
-                        ModelApi::ChatCompletions | ModelApi::Responses
-                    ) && model.generates.contains(&match self {
-                        Self::Image => Generation::Image,
-                        _ => Generation::Video,
-                    })
-                }
-            }
-    }
+    /// Missing roles follow the admitted session model; null disables a role.
+    pub bindings: BTreeMap<Kind, Option<Binding>>,
 }
 
 /// An image source confined to the captured worktree or admitted turn attachments.
@@ -126,6 +107,32 @@ mod tests {
             assert!(extension.actions.contains(&operation.action().unwrap()));
             assert_eq!(operation.read_only(), read_only);
         }
+    }
+
+    #[test]
+    fn distinguishes_follow_override_and_disabled() {
+        let binding = Binding {
+            provider: ProviderId::new(),
+            model: "image-model".into(),
+        };
+        let settings = Settings {
+            revision: 7,
+            bindings: [(Kind::Image, None), (Kind::Vision, Some(binding.clone()))]
+                .into_iter()
+                .collect(),
+        };
+        let value = serde_json::to_value(&settings).unwrap();
+        assert_eq!(value["bindings"]["image"], serde_json::Value::Null);
+        assert!(value["bindings"].get("video").is_none());
+        assert_eq!(
+            value["bindings"]["vision"],
+            serde_json::to_value(binding).unwrap()
+        );
+        assert_eq!(serde_json::from_value::<Settings>(value).unwrap(), settings);
+        assert_eq!(
+            serde_json::to_value(Generation::ImageTool).unwrap(),
+            "image_tool"
+        );
     }
 
     #[test]

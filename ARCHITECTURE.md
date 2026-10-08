@@ -79,6 +79,11 @@ revision-checked command. Resuming elsewhere preserves its effective configurati
 Credentials remain in the execution Node's protected storage, never public events
 or UI caches. Projects remain at registered paths; profiles contain Node storage,
 plugin packages/data and uploaded attachments.
+Disposable command, browser and transfer staging lives under the configurable
+profile's `tmp` directory, separate from durable worktree outputs and attachments.
+Command scratch is scoped to the admitted turn and retained while its commands
+still use it. Remote files opened by a controller use that controller's local
+profile for their retained copies, not the execution Node's temporary directory.
 
 ADK-Rust is the agent execution engine. Node integrates Runner and SessionService
 with one authoritative durable event history. Client and UI projections are

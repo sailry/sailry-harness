@@ -173,6 +173,7 @@ fn lifecycle(cx: &mut TestAppContext, remote: bool) {
         crate::theme::init(cx);
         crate::shell::init(cx);
         cx.set_global(Services {
+            profile: desktop.profile().to_path_buf(),
             runtime: runtime.clone(),
             local: desktop.local(),
             link: desktop.link(),

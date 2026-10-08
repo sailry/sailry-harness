@@ -121,7 +121,7 @@ async fn releases_copies() {
             let staged = std::fs::read_to_string(fixture.root.join("staged.txt")).unwrap();
             assert_eq!(
                 std::path::Path::new(&staged).parent(),
-                Some(fixture.node.profile())
+                Some(fixture.node.profile().join("tmp").as_path())
             );
             assert!(
                 std::path::Path::new(&staged)

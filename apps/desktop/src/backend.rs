@@ -11,6 +11,7 @@ use sailry_node_runtime::{NetworkScope, Node};
 
 #[derive(Clone)]
 pub struct Services {
+    pub profile: PathBuf,
     pub runtime: Arc<tokio::runtime::Runtime>,
     pub link: LinkHandle,
     pub local: Arc<dyn sailry_link::Transport>,
@@ -97,6 +98,7 @@ impl Owner {
             runtime.block_on(Node::start_with_computer(options.data_dir, scope, computer))?;
         Ok(Self {
             services: Services {
+                profile: node.profile().to_path_buf(),
                 runtime,
                 link: node.link(),
                 local: node.local(),

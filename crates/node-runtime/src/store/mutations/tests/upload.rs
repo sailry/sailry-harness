@@ -46,6 +46,15 @@ async fn cancels_durable_publication() {
             else {
                 panic!("upload expected")
             };
+            assert!(fixture.directory.path().join("node-profile/tmp").is_dir());
+            assert!(
+                !fixture
+                    .directory
+                    .path()
+                    .join("project")
+                    .join(&path)
+                    .exists()
+            );
             client
                 .upload(
                     &upload,

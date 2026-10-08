@@ -7,6 +7,7 @@ fn launch(root: &Path, command: &str) -> Launch {
         cwd: String::new(),
         timeout_ms: 5000,
         inputs: None,
+        scratch: None,
     }
 }
 

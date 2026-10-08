@@ -114,6 +114,7 @@ impl Fixture {
     }
     pub fn services(&self) -> crate::backend::Services {
         crate::backend::Services {
+            profile: self.nodes[0].profile().to_path_buf(),
             runtime: self.runtime.clone(),
             link: self.nodes[0].link(),
             local: self.nodes[0].local(),

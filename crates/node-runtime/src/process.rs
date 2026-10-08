@@ -15,6 +15,7 @@ use std::{
     ffi::OsString,
     path::{Path, PathBuf},
     process::{ExitStatus, Stdio},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -41,6 +42,7 @@ pub(crate) struct Launch {
     pub cwd: String,
     pub timeout_ms: u64,
     pub inputs: Option<crate::files::attachments::Inputs>,
+    pub scratch: Option<Arc<tempfile::TempDir>>,
 }
 
 impl Launch {
@@ -131,6 +133,11 @@ impl Environment {
         self.apply(&mut command);
         if let Some(inputs) = inputs {
             command.env("SAILRY_ATTACHMENTS", inputs);
+        }
+        if let Some(scratch) = &launch.scratch {
+            for name in ["TMPDIR", "TMP", "TEMP"] {
+                command.env(name, scratch.path());
+            }
         }
         command
             .current_dir(directory)

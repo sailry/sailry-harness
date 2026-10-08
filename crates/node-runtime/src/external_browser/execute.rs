@@ -101,7 +101,10 @@ impl Call {
             }
             let original_upload = arguments.get("file_path").cloned();
             let upload = if self.action == Action::FileUpload {
-                Some(self.upload(&session.directory, &mut arguments).await?)
+                Some(
+                    self.upload(session.temporary.path(), &mut arguments)
+                        .await?,
+                )
             } else {
                 None
             };

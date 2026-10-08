@@ -120,6 +120,7 @@ fn live_services_authenticate_checks_and_downloads(cx: &mut TestAppContext) {
             node.profile().join("desktop/preferences.json"),
         ));
         cx.set_global(crate::backend::Services {
+            profile: node.profile().to_path_buf(),
             runtime: runtime.clone(),
             link: node.link(),
             local: node.local(),

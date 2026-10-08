@@ -4,9 +4,9 @@ use super::*;
 // Keep the pricing columns aligned with query::ROWS. Frozen providers belong to the original turn,
 // including inherited history, not the viewing session's current configuration.
 const ROWS: &str = "WITH responses AS (SELECT e.body,
-    CASE WHEN json_extract(e.body,'$.event_metadata.sailry_media') IS NULL
+    CASE WHEN json_extract(e.body,'$.event_metadata.sailry_media') IS NULL OR m.value IS NULL
         THEN json_extract(r.config,'$.model') ELSE json_extract(m.value,'$.model') END AS model,
-    CASE WHEN json_extract(e.body,'$.event_metadata.sailry_media') IS NULL
+    CASE WHEN json_extract(e.body,'$.event_metadata.sailry_media') IS NULL OR m.value IS NULL
         THEN a.provider ELSE json_extract(m.value,'$.provider') END AS provider
     FROM conversation_turns h JOIN agent_events e ON e.turn=h.turn
     JOIN turns t ON t.id=e.turn JOIN agent_runs a ON a.turn=t.id

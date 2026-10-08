@@ -25,6 +25,7 @@ fn credentials_and_installation_trust(cx: &mut TestAppContext) {
         .unwrap();
     let server = runtime.block_on(server::Server::start(directory.path().into(), 63));
     let services = Services {
+        profile: node.profile().to_path_buf(),
         runtime: runtime.clone(),
         link: node.link(),
         local: node.local(),
@@ -134,6 +135,7 @@ fn connection_failure_preserves_form_and_retry(cx: &mut TestAppContext) {
         .unwrap();
     let server = runtime.block_on(server::Server::start(directory.path().into(), 64));
     let services = Services {
+        profile: node.profile().to_path_buf(),
         runtime: runtime.clone(),
         link: node.link(),
         local: node.local(),
@@ -259,6 +261,7 @@ fn sidebar_host_filter(cx: &mut TestAppContext) {
         crate::theme::init(cx);
         crate::shell::init(cx);
         cx.set_global(Services {
+            profile: node.profile().to_path_buf(),
             runtime: runtime.clone(),
             link: node.link(),
             local: node.local(),

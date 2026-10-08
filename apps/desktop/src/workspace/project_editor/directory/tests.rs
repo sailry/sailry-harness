@@ -190,6 +190,7 @@ fn host_operations(cx: &mut TestAppContext) {
         crate::theme::init(cx);
         crate::shell::init(cx);
         cx.set_global(crate::backend::Services {
+            profile: node.profile().to_path_buf(),
             runtime: runtime.clone(),
             link: node.link(),
             local: node.local(),

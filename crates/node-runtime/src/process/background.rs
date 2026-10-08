@@ -262,6 +262,58 @@ mod tests {
 
     #[tokio::test]
     #[cfg(unix)]
+    async fn retains_scratch_until_command_exit() {
+        let root = tempfile::tempdir().unwrap();
+        let profile = tempfile::tempdir().unwrap();
+        let controls = crate::agent::Controls::default();
+        let session = SessionId::new();
+        let turn = TurnId::new();
+        controls.register(turn, session, CancellationToken::new());
+        let scratch = controls
+            .scratch(
+                turn,
+                profile.path(),
+                sailry_protocol::WorktreeId::new(),
+                session,
+            )
+            .unwrap();
+        let path = scratch.path().to_owned();
+        let commands = Arc::new(Commands::default());
+        let info = commands
+            .start(
+                RequestId::new(),
+                session,
+                turn,
+                Launch {
+                    root: root.path().canonicalize().unwrap(),
+                    command: "test \"$TMPDIR\" = \"$TMP\" && test \"$TMPDIR\" = \"$TEMP\" && printf started > ready.txt; sleep 60".into(),
+                    cwd: String::new(),
+                    timeout_ms: 1,
+                    inputs: None,
+                    scratch: Some(scratch),
+                },
+                Arc::new(Environment::capture()),
+                CancellationToken::new(),
+            )
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !root.path().join("ready.txt").exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("background command did not start");
+        controls.finish(turn);
+        assert!(path.exists());
+        commands.stop(session, info.id).unwrap();
+        let output = finished(&commands, session, info.id).await;
+        assert_eq!(output.info.status, Status::Finished(Outcome::Cancelled));
+        assert!(!path.exists());
+        commands.close().await;
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
     async fn closes_only_owned_children() {
         let root = tempfile::tempdir().unwrap();
         let commands = Arc::new(Commands::default());
@@ -282,6 +334,7 @@ mod tests {
                         cwd: String::new(),
                         timeout_ms: 1,
                         inputs: None,
+                        scratch: None,
                     },
                     Arc::new(Environment::capture()),
                     CancellationToken::new(),
@@ -329,6 +382,7 @@ mod tests {
                         cwd: String::new(),
                         timeout_ms: 1,
                         inputs: None,
+                        scratch: None,
                     },
                     Arc::new(Environment::capture()),
                     CancellationToken::new(),

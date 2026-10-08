@@ -45,6 +45,7 @@ fn preserves_execution_scope() {
                 worktree.id,
                 "original.bin".into(),
                 index == 0,
+                fixture.nodes[0].profile().join("tmp"),
                 CancellationToken::new(),
             )
             .await
@@ -52,12 +53,21 @@ fn preserves_execution_scope() {
             assert_eq!(std::fs::read(&opened.path).unwrap(), bytes);
             assert_eq!(opened.copy.is_some(), index != 0);
             assert_eq!(opened.path == original.canonicalize().unwrap(), index == 0);
+            if index != 0 {
+                assert!(
+                    opened
+                        .path
+                        .starts_with(fixture.nodes[0].profile().join("tmp/open"))
+                );
+                assert!(!opened.path.starts_with(fixture.nodes[1].profile()));
+            }
             if index == 0 {
                 let directory = prepare_core(
                     client.clone(),
                     worktree.id,
                     String::new(),
                     true,
+                    fixture.nodes[0].profile().join("tmp"),
                     CancellationToken::new(),
                 )
                 .await
@@ -73,6 +83,7 @@ fn preserves_execution_scope() {
                         worktree.id,
                         String::new(),
                         false,
+                        fixture.nodes[0].profile().join("tmp"),
                         CancellationToken::new()
                     )
                     .await
@@ -90,6 +101,7 @@ fn preserves_execution_scope() {
                     worktree.id,
                     "../outside.bin".into(),
                     index == 0,
+                    fixture.nodes[0].profile().join("tmp"),
                     CancellationToken::new()
                 )
                 .await
@@ -105,6 +117,7 @@ fn preserves_execution_scope() {
                     WorktreeId::new(),
                     "original.bin".into(),
                     index == 0,
+                    fixture.nodes[0].profile().join("tmp"),
                     CancellationToken::new()
                 )
                 .await

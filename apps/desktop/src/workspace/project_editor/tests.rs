@@ -71,6 +71,7 @@ fn request_recovery(cx: &mut TestAppContext) {
         crate::theme::init(cx);
         crate::shell::init(cx);
         cx.set_global(crate::backend::Services {
+            profile: node.profile().to_path_buf(),
             runtime: runtime.clone(),
             link: node.link(),
             local: node.local(),
@@ -172,6 +173,7 @@ fn creates_on_the_chosen_host(cx: &mut TestAppContext) {
         crate::theme::init(cx);
         crate::shell::init(cx);
         cx.set_global(crate::backend::Services {
+            profile: local.profile().to_path_buf(),
             runtime: runtime.clone(),
             link: local.link(),
             local: local.local(),

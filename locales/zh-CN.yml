@@ -988,6 +988,7 @@ provider_cap_tools: 工具
 provider_cap_reasoning: 推理
 provider_cap_web: 联网
 provider_cap_image: 生图
+provider_cap_image_tool: 生图工具
 provider_cap_video: 生视频
 provider_effort_invalid: 推理强度无效，请检查名称、重复项和接口支持
 provider_efforts: 推理强度

@@ -43,6 +43,7 @@ pub(super) fn open<'a>(
     cx.update(|cx| {
         crate::shell::init(cx);
         cx.set_global(crate::backend::Services {
+            profile: fixture.node.profile().to_path_buf(),
             runtime: fixture.runtime.clone(),
             link: fixture.node.link(),
             local: fixture.node.local(),

@@ -433,13 +433,14 @@ impl Controller {
                 .detach();
             }
             Operation::Open(path, action) => {
-                let local = cx.global::<crate::backend::Services>().local.target()
-                    == access.client.target();
+                let services = cx.global::<crate::backend::Services>();
+                let local = services.local.target() == access.client.target();
+                let temporary = services.profile.join("tmp");
                 let stopping = stop.clone();
                 let job = access
                     .runtime
                     .clone()
-                    .spawn(system::prepare(access, path, local, stopping));
+                    .spawn(system::prepare(access, path, local, temporary, stopping));
                 cx.spawn(async move |owner, cx| {
                     let result = job.await.unwrap_or(Err(internal()));
                     let result = owner

@@ -70,6 +70,7 @@ impl Profile {
         }
         // Prepare only storage owned by this stage; Link and business stores follow in P2.
         private_directory(&profile.path.join("storage"))?;
+        private_directory(&profile.path.join("tmp"))?;
         Ok(profile)
     }
 }
@@ -87,6 +88,17 @@ fn invalid(path: &Path, reason: &'static str) -> Error {
         path: path.to_owned(),
         reason,
     }
+}
+
+pub(crate) fn temporary(profile: &Path) -> Result<PathBuf, sailry_protocol::Fault> {
+    let directory = profile.join("tmp");
+    private_directory(&directory).map_err(|error| {
+        sailry_protocol::Fault::new(
+            sailry_protocol::ErrorCode::Unavailable,
+            format!("temporary storage is unavailable: {error}"),
+        )
+    })?;
+    Ok(directory)
 }
 
 fn private_directory(path: &Path) -> Result<(), Error> {

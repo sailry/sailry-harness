@@ -13,9 +13,12 @@ use std::collections::BTreeMap;
 pub(crate) struct Model {
     pub provider: Provider,
     pub model: String,
+    #[serde(skip)]
+    pub effort: Option<Effort>,
 }
 
-pub(crate) type Snapshot = BTreeMap<Kind, Model>;
+pub(crate) type Snapshot = BTreeMap<Kind, Option<Model>>;
+pub(crate) type Models = BTreeMap<Kind, Model>;
 
 pub(super) fn read(db: &Connection) -> Result<media::Settings, Fault> {
     let body: Option<Vec<u8>> = db
@@ -41,7 +44,7 @@ pub(super) fn catalog(db: &Connection) -> Result<Vec<media::Candidate>, Fault> {
                 .filter_map(|model| {
                     let kinds: Vec<_> = [Kind::Vision, Kind::Image, Kind::Video]
                         .into_iter()
-                        .filter(|kind| kind.supports(&provider, model))
+                        .filter(|kind| crate::providers::media::supports(*kind, &provider, model))
                         .collect();
                     (!kinds.is_empty()).then(|| media::Candidate {
                         provider: provider.id,
@@ -60,7 +63,10 @@ fn resolve(db: &Connection, settings: &media::Settings) -> Result<Snapshot, Faul
         .bindings
         .iter()
         .map(|(&kind, binding)| {
-            let provider =
+            let Some(binding) = binding else {
+                return Ok((kind, None));
+            };
+            let mut provider =
                 super::agent::providers::get(db, binding.provider)?.ok_or_else(|| {
                     Fault::new(ErrorCode::NotConfigured, "media provider is unavailable")
                 })?;
@@ -71,21 +77,60 @@ fn resolve(db: &Connection, settings: &media::Settings) -> Result<Snapshot, Faul
                 .ok_or_else(|| {
                     Fault::new(ErrorCode::NotConfigured, "media model is unavailable")
                 })?;
-            if !kind.supports(&provider, model) {
+            if !crate::providers::media::supports(kind, &provider, model) {
                 return Err(Fault::new(
                     ErrorCode::InvalidRequest,
                     "model does not support this media role",
                 ));
             }
+            crate::providers::login::capture(&mut provider)?;
             Ok((
                 kind,
-                Model {
+                Some(Model {
                     provider,
                     model: binding.model.clone(),
-                },
+                    effort: None,
+                }),
             ))
         })
         .collect()
+}
+
+/// Follow choices resolve only against the provider and configuration captured
+/// for this turn. Explicit companions retain their session-owned snapshot.
+pub(crate) fn for_turn(
+    snapshot: Snapshot,
+    provider: Option<&Provider>,
+    config: &SessionConfig,
+) -> Models {
+    let mut models: Models = snapshot
+        .iter()
+        .filter_map(|(&kind, model)| model.clone().map(|model| (kind, model)))
+        .collect();
+    if let Some(provider) = provider
+        && let Some(model) = provider
+            .models
+            .iter()
+            .find(|model| model.id == config.model)
+    {
+        for kind in [Kind::Vision, Kind::Image, Kind::Video] {
+            if !snapshot.contains_key(&kind)
+                && crate::providers::media::supports(kind, provider, model)
+            {
+                let mut provider = provider.clone();
+                provider.credential = config.credential.clone();
+                models.insert(
+                    kind,
+                    Model {
+                        provider,
+                        model: config.model.clone(),
+                        effort: Some(config.effort),
+                    },
+                );
+            }
+        }
+    }
+    models
 }
 
 pub(super) fn save(
@@ -144,3 +189,6 @@ pub(super) fn session_models(db: &Connection, session: SessionId) -> Result<Snap
         .map_err(storage_error)?;
     serde_json::from_slice(&body).map_err(storage_error)
 }
+
+#[cfg(test)]
+mod tests;

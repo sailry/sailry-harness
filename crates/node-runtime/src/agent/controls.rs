@@ -1,6 +1,10 @@
 use sailry_link::CancellationToken;
-use sailry_protocol::{SessionId, TurnId};
-use std::{collections::BTreeMap, sync::Mutex};
+use sailry_protocol::{ErrorCode, Fault, SessionId, TurnId, WorktreeId};
+use std::{
+    collections::BTreeMap,
+    path::Path,
+    sync::{Arc, Mutex},
+};
 use tokio::sync::Notify;
 
 struct Active {
@@ -8,6 +12,7 @@ struct Active {
     stop: CancellationToken,
     operations: usize,
     media: Option<super::media::Binding>,
+    scratch: Option<Arc<tempfile::TempDir>>,
     finishing: bool,
     yielded: bool,
 }
@@ -39,6 +44,7 @@ impl Controls {
                 stop,
                 operations: 0,
                 media: None,
+                scratch: None,
                 finishing: false,
                 yielded: false,
             },
@@ -53,6 +59,35 @@ impl Controls {
 
     pub fn media(&self, turn: TurnId) -> Option<super::media::Binding> {
         self.active.lock().unwrap().get(&turn)?.media.clone()
+    }
+
+    pub(crate) fn scratch(
+        &self,
+        turn: TurnId,
+        profile: &Path,
+        worktree: WorktreeId,
+        session: SessionId,
+    ) -> Result<Arc<tempfile::TempDir>, Fault> {
+        let mut runs = self.active.lock().unwrap();
+        let active = runs
+            .get_mut(&turn)
+            .filter(|active| active.session == session)
+            .ok_or_else(|| Fault::new(ErrorCode::Conflict, "turn is not running"))?;
+        if let Some(scratch) = &active.scratch {
+            return Ok(scratch.clone());
+        }
+        let directory = tempfile::Builder::new()
+            .prefix(&format!("command-{worktree}-{session}-{turn}-"))
+            .tempdir_in(crate::profile::temporary(profile)?)
+            .map_err(|error| {
+                Fault::new(
+                    ErrorCode::Unavailable,
+                    format!("command temporary storage is unavailable: {error}"),
+                )
+            })?;
+        let scratch = Arc::new(directory);
+        active.scratch = Some(scratch.clone());
+        Ok(scratch)
     }
 
     pub fn cancel(&self, turn: TurnId) {
@@ -183,6 +218,51 @@ impl Controls {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reuses_scoped_scratch_until_last_lease() {
+        let profile = tempfile::tempdir().unwrap();
+        let controls = Controls::default();
+        let worktree = WorktreeId::new();
+        let session = SessionId::new();
+        let turn = TurnId::new();
+        controls.register(turn, session, CancellationToken::new());
+        let first = controls
+            .scratch(turn, profile.path(), worktree, session)
+            .unwrap();
+        let second = controls
+            .scratch(turn, profile.path(), worktree, session)
+            .unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        let path = first.path().to_owned();
+        assert_eq!(path.parent(), Some(profile.path().join("tmp").as_path()));
+        assert!(
+            controls
+                .scratch(turn, profile.path(), worktree, SessionId::new())
+                .is_err()
+        );
+        let other = TurnId::new();
+        controls.register(other, session, CancellationToken::new());
+        let separate = controls
+            .scratch(other, profile.path(), worktree, session)
+            .unwrap();
+        assert_ne!(separate.path(), path);
+        controls.finish(turn);
+        assert!(
+            controls
+                .scratch(turn, profile.path(), worktree, session)
+                .is_err()
+        );
+        drop(first);
+        assert!(path.exists());
+        drop(second);
+        assert!(!path.exists());
+        let other_path = separate.path().to_owned();
+        drop(separate);
+        assert!(other_path.exists());
+        controls.finish(other);
+        assert!(!other_path.exists());
+    }
 
     #[tokio::test]
     async fn seals_operations_before_completion() {

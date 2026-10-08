@@ -95,6 +95,7 @@ fn captures_targets(cx: &mut TestAppContext) {
         crate::theme::init(cx);
         crate::shell::init(cx);
         cx.set_global(Services {
+            profile: local.profile().to_path_buf(),
             runtime: runtime.clone(),
             link: local.link(),
             local: local.local(),

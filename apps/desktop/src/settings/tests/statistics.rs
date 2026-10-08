@@ -86,6 +86,7 @@ fn host_observation_preserves_header_filters(cx: &mut TestAppContext) {
             fixture.directory.path().join("preferences.json"),
         ));
         cx.set_global(crate::backend::Services {
+            profile: fixture.nodes[0].profile().to_path_buf(),
             runtime: fixture.runtime.clone(),
             local: fixture.nodes[0].local(),
             link: fixture.nodes[0].link(),

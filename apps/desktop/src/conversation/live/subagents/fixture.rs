@@ -200,6 +200,7 @@ impl Fixture {
 
     pub fn services(&self) -> Services {
         Services {
+            profile: self.local.profile().to_path_buf(),
             runtime: self.runtime.clone(),
             local: self.local.local(),
             link: self.local.link(),

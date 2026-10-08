@@ -138,6 +138,10 @@ async fn reads_copies_and_restores_receipts() {
         assert!(!fixture.root.join("forbidden.txt").exists());
         assert!(!fixture.root.join("duplicate.txt").exists());
         let staged = std::fs::read_to_string(fixture.root.join("staged.txt")).unwrap();
+        assert_eq!(
+            std::path::Path::new(&staged).parent(),
+            Some(fixture.node.profile().join("tmp").as_path())
+        );
         assert!(!std::path::Path::new(&staged).exists());
         assert_eq!(download(&client, &input_file).await, bytes);
         let requests = server.requests.lock().unwrap().clone();

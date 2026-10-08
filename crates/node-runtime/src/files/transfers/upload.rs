@@ -45,10 +45,7 @@ impl Transfers {
             if stopping.is_cancelled() {
                 return Err(cancelled());
             }
-            let staging = path::root(profile.as_deref().ok_or_else(unavailable)?)?;
-            let file = cap_tempfile::TempFile::new_anonymous(&staging)
-                .map(cap_std::fs::File::into_std)
-                .map_err(io_error)?;
+            let file = temporary_file(profile.as_deref())?;
             let (attachment, target) =
                 crate::files::attachments::prepare(profile.as_deref(), upload)?;
             if stopping.is_cancelled() {
@@ -256,10 +253,7 @@ fn prepare(
     }
     // Windows anonymous files retain a delete-on-close name. Keep staging in
     // protected Node storage, outside the visible project tree on every platform.
-    let staging = path::root(profile.unwrap_or(root))?;
-    let file = cap_tempfile::TempFile::new_anonymous(&staging)
-        .map(cap_std::fs::File::into_std)
-        .map_err(io_error)?;
+    let file = temporary_file(profile)?;
     Ok(Prepared {
         file,
         size: spec.size,
@@ -271,6 +265,14 @@ fn prepare(
         target: Some(target),
         _permit: permit,
     })
+}
+
+fn temporary_file(profile: Option<&Path>) -> Result<std::fs::File, Fault> {
+    let directory = crate::profile::temporary(profile.ok_or_else(unavailable)?)?;
+    let staging = path::root(&directory)?;
+    cap_tempfile::TempFile::new_anonymous(&staging)
+        .map(cap_std::fs::File::into_std)
+        .map_err(io_error)
 }
 
 fn revision(value: &str) -> Result<String, Fault> {

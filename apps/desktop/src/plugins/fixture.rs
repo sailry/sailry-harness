@@ -484,6 +484,7 @@ impl Fixture {
     pub fn services(&self, remote: bool) -> crate::backend::Services {
         let node = if remote { &self.controller } else { &self.node };
         crate::backend::Services {
+            profile: node.profile().to_path_buf(),
             runtime: self.runtime.clone(),
             local: node.local(),
             link: node.link(),

@@ -23,9 +23,10 @@ impl Inputs {
                 deadline: Instant::now() + Duration::from_secs(30),
             };
             control.check()?;
+            let temporary = crate::profile::temporary(&self.profile)?;
             let directory = tempfile::Builder::new()
                 .prefix("sailry-inputs-")
-                .tempdir_in(&self.profile)
+                .tempdir_in(temporary)
                 .map_err(io_error)?;
             let mut buffer = [0; 64 * 1024];
             for attachment in self.files {

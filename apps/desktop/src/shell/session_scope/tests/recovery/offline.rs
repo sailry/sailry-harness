@@ -73,6 +73,7 @@ fn retains_remote_restart_layout(cx: &mut TestAppContext) {
         panic!("session expected")
     };
     let services = crate::backend::Services {
+        profile: local.profile().to_path_buf(),
         runtime: runtime.clone(),
         link: local.link(),
         local: local.local(),

@@ -30,6 +30,7 @@ pub(super) fn open<'a>(
     cx.update(|cx| {
         crate::shell::init(cx);
         cx.set_global(Services {
+            profile: local.profile().to_path_buf(),
             runtime: fixture.runtime.clone(),
             local: local.local(),
             link: local.link(),

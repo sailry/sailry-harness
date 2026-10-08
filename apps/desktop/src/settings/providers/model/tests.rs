@@ -94,6 +94,35 @@ fn keeps_display_name_separate_from_id(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn preserves_explicit_image_tool_capability(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (_, visual) = cx.add_window_view(|_, _| View);
+    visual.update(|window, cx| {
+        let mut draft = Draft::discovered(
+            0,
+            discovery::Model {
+                id: "image-tool-model".into(),
+                display_name: None,
+                context: None,
+                output: None,
+                capabilities: None,
+            },
+            None,
+            Preset::CompatibleResponses,
+            window,
+            cx,
+        );
+        draft.model.generates = vec![sailry_protocol::media::Generation::ImageTool];
+        draft.missing.generates = false;
+        draft.fill(None, None, Preset::CompatibleResponses, window, cx);
+        assert_eq!(
+            draft.value(cx).unwrap().generates,
+            vec![sailry_protocol::media::Generation::ImageTool]
+        );
+    });
+}
+
+#[gpui::test]
 fn explicit_metadata_precedence(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let (_, visual) = cx.add_window_view(|_, _| View);

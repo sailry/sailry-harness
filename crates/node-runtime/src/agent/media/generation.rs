@@ -1,13 +1,43 @@
-//! Generation uses the historical OpenAI-compatible endpoints, without replay.
+//! Generation stays on the admitted route, without replay or account fallback.
 use super::*;
-use base64::Engine as _;
+use crate::providers::media::{ImageRoute, image_route};
 use reqwest::{Client, Response, StatusCode};
+mod image;
+mod native;
 
 const IMAGE_BYTES: usize = 64 * 1024 * 1024;
 const VIDEO_BYTES: usize = 512 * 1024 * 1024;
 
+enum Generated {
+    File {
+        bytes: Vec<u8>,
+        job: Option<String>,
+        usage: Option<Value>,
+    },
+    Failed {
+        job: String,
+    },
+}
+
 impl Media {
     pub(super) async fn generate(&self, prompt: String, path: String) -> Result<Value, Fault> {
+        let route = if self.kind == Kind::Image {
+            let metadata = self
+                .model
+                .provider
+                .models
+                .iter()
+                .find(|model| model.id == self.model.model)
+                .ok_or_else(|| unavailable("frozen image model is unavailable"))?;
+            Some(image_route(&self.model.provider, metadata).ok_or_else(|| {
+                Fault::new(
+                    ErrorCode::NotConfigured,
+                    "image generation is not configured",
+                )
+            })?)
+        } else {
+            None
+        };
         let root = self.ingress.worktree_root(self.worktree).await?;
         let limit = if self.kind == Kind::Image {
             IMAGE_BYTES
@@ -19,7 +49,53 @@ impl Media {
             .files
             .prepare_media(root, path, limit as u64)
             .await?;
-        let credential = match &self.model.provider.credential {
+        let generated = if route == Some(ImageRoute::Native) {
+            let (bytes, usage) = native::generate(self, prompt).await?;
+            Generated::File {
+                bytes,
+                job: None,
+                usage,
+            }
+        } else {
+            self.http(prompt, route).await?
+        };
+        let (bytes, job, reported_usage) = match generated {
+            Generated::File { bytes, job, usage } => (bytes, job, usage),
+            Generated::Failed { job } => {
+                return Ok(
+                    json!({"job":job,"error":Fault::new(ErrorCode::Unavailable,"video generation failed")}),
+                );
+            }
+        };
+        if self.kind == Kind::Image
+            && file_format::FileFormat::from_bytes(&bytes)
+                != file_format::FileFormat::PortableNetworkGraphics
+        {
+            return Err(unavailable(
+                "image generation returned an unsupported format; PNG required",
+            ));
+        }
+        if self.kind == Kind::Video
+            && !matches!(
+                file_format::FileFormat::from_bytes(&bytes),
+                file_format::FileFormat::Mpeg4Part14 | file_format::FileFormat::Mpeg4Part14Video
+            )
+        {
+            return Err(unavailable(
+                "video generation returned an unsupported format; MP4 required",
+            ));
+        }
+        let path = self
+            .ingress
+            .files
+            .publish_media(output, bytes, self.stop.clone())
+            .await?;
+        Ok(json!({"path":path,"job":job,"usage":reported_usage}))
+    }
+
+    async fn http(&self, prompt: String, route: Option<ImageRoute>) -> Result<Generated, Fault> {
+        let config = vision::configuration(&self.config, &self.model)?;
+        let credential = match &config.credential {
             Some(reference) => Some(
                 self.ingress
                     .resolve_credential(reference.clone(), self.model.provider.id)
@@ -34,17 +110,9 @@ impl Media {
             .build()
             .map_err(|_| unavailable("media HTTP client unavailable"))?;
         let base = self.model.provider.endpoint.trim_end_matches('/');
-        let endpoint = format!(
-            "{base}/{}",
-            if self.kind == Kind::Image {
-                "images/generations"
-            } else {
-                "videos"
-            }
-        );
-        let mut request = client
-            .post(endpoint)
-            .json(&json!({"model":self.model.model,"prompt":prompt}));
+        let (suffix, payload) = image::request(route, &self.model.model, &prompt);
+        let endpoint = format!("{base}/{suffix}");
+        let mut request = client.post(endpoint).json(&payload);
         if let Some(secret) = &credential {
             request = request.bearer_auth(secret.expose());
         }
@@ -64,18 +132,12 @@ impl Media {
         let (bytes, job) = if self.kind == Kind::Image {
             self.record_usage(usage::generation(reported_usage.as_ref()), None)
                 .await?;
-            let image = value
-                .pointer("/data/0")
-                .ok_or_else(|| unavailable("generation returned no image"))?;
-            let bytes = if let Some(encoded) = image.get("b64_json").and_then(Value::as_str) {
-                let bytes = base64::engine::general_purpose::STANDARD
-                    .decode(encoded)
-                    .map_err(|_| unavailable("invalid generated image encoding"))?;
-                if bytes.len() > IMAGE_BYTES {
-                    return Err(unavailable("generated image exceeds the size limit"));
-                }
-                bytes
-            } else if let Some(url) = image.get("url").and_then(Value::as_str) {
+            let bytes = if route == Some(ImageRoute::Responses) {
+                image::completed(&value)?
+            } else if let Some(encoded) = value.pointer("/data/0/b64_json").and_then(Value::as_str)
+            {
+                image::decode(encoded)?
+            } else if let Some(url) = value.pointer("/data/0/url").and_then(Value::as_str) {
                 let url = reqwest::Url::parse(url)
                     .map_err(|_| unavailable("invalid generated image URL"))?;
                 if !matches!(url.scheme(), "http" | "https")
@@ -97,13 +159,6 @@ impl Media {
             } else {
                 return Err(unavailable("generation returned no image content"));
             };
-            if file_format::FileFormat::from_bytes(&bytes)
-                != file_format::FileFormat::PortableNetworkGraphics
-            {
-                return Err(unavailable(
-                    "image generation returned an unsupported format; PNG required",
-                ));
-            }
             (bytes, None)
         } else {
             let id = value
@@ -123,9 +178,7 @@ impl Media {
                     Some("completed") => break,
                     Some("queued" | "in_progress") => {}
                     Some("failed" | "cancelled") => {
-                        return Ok(
-                            json!({"job":id,"error":Fault::new(ErrorCode::Unavailable,"video generation failed")}),
-                        );
+                        return Ok(Generated::Failed { job: id.to_owned() });
                     }
                     _ => return Err(unavailable("video generation returned an invalid status")),
                 }
@@ -160,22 +213,11 @@ impl Media {
                 Some(id.to_owned()),
             )
         };
-        if self.kind == Kind::Video
-            && !matches!(
-                file_format::FileFormat::from_bytes(&bytes),
-                file_format::FileFormat::Mpeg4Part14 | file_format::FileFormat::Mpeg4Part14Video
-            )
-        {
-            return Err(unavailable(
-                "video generation returned an unsupported format; MP4 required",
-            ));
-        }
-        let path = self
-            .ingress
-            .files
-            .publish_media(output, bytes, self.stop.clone())
-            .await?;
-        Ok(json!({"path":path,"job":job,"usage":reported_usage}))
+        Ok(Generated::File {
+            bytes,
+            job,
+            usage: reported_usage,
+        })
     }
 }
 

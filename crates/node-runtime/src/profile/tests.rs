@@ -1,6 +1,34 @@
 use super::*;
 
 #[test]
+fn prepares_private_temporary_storage() {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = Profile::acquire(&directory.path().join("custom-profile")).unwrap();
+    let path = temporary(&profile.path).unwrap();
+    assert_eq!(path, profile.path.join("tmp"));
+    assert!(path.is_dir());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(path.metadata().unwrap().permissions().mode() & 0o777, 0o700);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn rejects_linked_temporary_storage() {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = directory.path().join("profile");
+    private_directory(&profile).unwrap();
+    let outside = directory.path().join("outside");
+    private_directory(&outside).unwrap();
+    std::os::unix::fs::symlink(&outside, profile.join("tmp")).unwrap();
+    assert!(temporary(&profile).is_err());
+    assert!(Profile::acquire(&profile).is_err());
+    assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
+}
+
+#[test]
 fn releases_lock_with_duplicate_handle() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("profile");

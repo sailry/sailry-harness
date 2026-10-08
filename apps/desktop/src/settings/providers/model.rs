@@ -267,6 +267,14 @@ impl Editor {
                         .generates
                         .contains(&sailry_protocol::media::Generation::Video),
                 ),
+                (
+                    6,
+                    "provider_cap_image_tool",
+                    draft
+                        .model
+                        .generates
+                        .contains(&sailry_protocol::media::Generation::ImageTool),
+                ),
             ] {
                 capabilities = capabilities.child(
                     Checkbox::new((label, key))
@@ -296,10 +304,10 @@ impl Editor {
                                 }
                                 _ => {
                                     draft.missing.generates = false;
-                                    let output = if kind == 4 {
-                                        sailry_protocol::media::Generation::Image
-                                    } else {
-                                        sailry_protocol::media::Generation::Video
+                                    let output = match kind {
+                                        4 => sailry_protocol::media::Generation::Image,
+                                        5 => sailry_protocol::media::Generation::Video,
+                                        _ => sailry_protocol::media::Generation::ImageTool,
                                     };
                                     model.generates.retain(|value| *value != output);
                                     if *checked {

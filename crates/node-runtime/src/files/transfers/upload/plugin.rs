@@ -16,10 +16,7 @@ impl Transfers {
         }
         spec.revision = revision(&spec.revision)?;
         let (mut lease, permit, cancel) = self.reserve(caller, PathBuf::new(), closed)?;
-        let staging = path::root(self.profile.as_deref().ok_or_else(unavailable)?)?;
-        let file = cap_tempfile::TempFile::new_anonymous(&staging)
-            .map(cap_std::fs::File::into_std)
-            .map_err(io_error)?;
+        let file = self.staging_file()?;
         let prepared = Prepared {
             file,
             size: spec.size,

@@ -69,6 +69,7 @@ fn empty_resources_stay_unloaded(cx: &mut TestAppContext) {
         let local = if remote { &controller } else { &node };
         cx.update(|cx| {
             cx.set_global(crate::backend::Services {
+                profile: local.profile().to_path_buf(),
                 runtime: runtime.clone(),
                 local: local.local(),
                 link: local.link(),

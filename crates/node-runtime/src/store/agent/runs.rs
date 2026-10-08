@@ -304,6 +304,14 @@ fn claim_with(
         Vec::new()
     };
     let plugin_settings = super::super::plugins::settings::capture(&transaction, &plugins);
+    let provider: Option<Provider> = provider
+        .map(|body| serde_json::from_slice(&body).map_err(storage_error))
+        .transpose()?;
+    let media = super::super::media::for_turn(
+        super::super::media::session_models(&transaction, queued.turn.session)?,
+        provider.as_ref(),
+        &queued.turn.config,
+    );
     let invocation = Invocation {
         automatic: transaction
             .query_row(
@@ -330,11 +338,9 @@ fn claim_with(
         worktree: worktree.parse().map_err(storage_error)?,
         plugins,
         plugin_settings,
-        media: super::super::media::session_models(&transaction, queued.turn.session)?,
+        media,
         turn: queued.turn,
-        provider: provider
-            .map(|body| serde_json::from_slice(&body).map_err(storage_error))
-            .transpose()?,
+        provider,
         message: queued.message,
         child: if recipient.is_some() {
             super::delegation::child(&transaction, run.turn)?

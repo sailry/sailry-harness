@@ -23,7 +23,7 @@ pub(crate) struct Browsers {
 
 pub(crate) struct Session {
     pub browser: Arc<BrowserSession>,
-    pub directory: PathBuf,
+    pub temporary: tempfile::TempDir,
     driver: driver::Driver,
 }
 
@@ -74,7 +74,11 @@ impl Browsers {
                     bundle::install(profile, stop).await?
                 };
                 let directory = profile.join("browser/sessions").join(id.to_string());
-                tokio::fs::create_dir_all(directory.join("downloads"))
+                let temporary = tempfile::Builder::new()
+                    .prefix(&format!("browser-{id}-"))
+                    .tempdir_in(crate::profile::temporary(profile)?)
+                    .map_err(io_error)?;
+                tokio::fs::create_dir_all(temporary.path().join("downloads"))
                     .await
                     .map_err(io_error)?;
                 tokio::fs::create_dir_all(directory.join("profile"))
@@ -100,7 +104,7 @@ impl Browsers {
                 config.chrome_options.insert(
                     "prefs".into(),
                     serde_json::json!({
-                        "download.default_directory": path_text(&directory.join("downloads"))?,
+                        "download.default_directory": path_text(&temporary.path().join("downloads"))?,
                         "download.prompt_for_download": false,
                         "download.directory_upgrade": true,
                     }),
@@ -111,7 +115,7 @@ impl Browsers {
                 })?;
                 *slot = Some(Session {
                     browser,
-                    directory,
+                    temporary,
                     driver,
                 });
             }

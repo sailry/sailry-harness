@@ -24,7 +24,10 @@ pub(super) struct Execution {
 
 pub(super) struct Prepared {
     launch: Launch,
+    profile: std::path::PathBuf,
+    worktree: WorktreeId,
     session: SessionId,
+    turn: TurnId,
     background: bool,
 }
 
@@ -81,17 +84,23 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared
                 .collect::<Result<_, _>>()?,
         })
     };
+    let worktree = worktree.parse().map_err(storage_error)?;
+    let profile = database.profile.clone().ok_or_else(super::unavailable)?;
     let launch = Launch {
-        root: database.worktree_root(worktree.parse().map_err(storage_error)?)?,
+        root: database.worktree_root(worktree)?,
         command: command.clone(),
         cwd: cwd.clone(),
         timeout_ms: *timeout_ms,
         inputs,
+        scratch: None,
     };
     launch.validate()?;
     Ok(Prepared {
         launch,
+        profile,
+        worktree,
         session: session.parse().map_err(storage_error)?,
+        turn: *turn,
         background: *background,
     })
 }
@@ -144,8 +153,16 @@ impl Worker {
         let environment = self.environment.clone();
         let capacity = self.capacity.clone();
         let commands = self.commands.clone();
+        let agents = self.agents.clone();
         self.runtime.spawn(async move {
+            let mut execution = execution;
             let operation = async {
+                execution.launch.launch.scratch = Some(agents.scratch(
+                    execution.launch.turn,
+                    &execution.launch.profile,
+                    execution.launch.worktree,
+                    execution.launch.session,
+                )?);
                 if execution.launch.background {
                     if stop.is_cancelled() || closed.is_cancelled() {
                         return Ok(Output::CommandResult(process::cancelled()));

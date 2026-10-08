@@ -76,6 +76,7 @@ impl Shell {
                 scope.1,
                 path,
                 local,
+                services.profile.join("tmp"),
                 CancellationToken::new(),
             ));
         window

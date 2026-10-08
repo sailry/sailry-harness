@@ -299,9 +299,10 @@ pub(super) fn admit(
             |row| row.get(0),
         )
         .map_err(storage_error)?;
-    let provider = provider
+    let provider: Option<Provider> = provider
         .map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()?;
+    let media = super::super::media::for_turn(media, provider.as_ref(), &turn.config);
     let child_run = runs::get(&tx, turn.id)?;
     let summary = children::get(&tx, &child_run)?.expect("admitted child has an origin");
     let mut envelopes = Vec::with_capacity(2);

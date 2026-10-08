@@ -44,10 +44,10 @@ async fn running(
                 .map(|kind| {
                     (
                         kind,
-                        Binding {
+                        Some(Binding {
                             provider: provider.id,
                             model: "fixture".into(),
-                        },
+                        }),
                     )
                 })
                 .collect(),
@@ -424,10 +424,10 @@ async fn disabled_catalog_preserves_scope() {
                 revision: 0,
                 bindings: [(
                     Kind::Image,
-                    Binding {
+                    Some(Binding {
                         provider: provider.id,
                         model: provider.models[0].id.clone(),
-                    },
+                    }),
                 )]
                 .into(),
             }))
@@ -453,10 +453,10 @@ async fn disabled_catalog_preserves_scope() {
                 revision: 1,
                 bindings: [(
                     Kind::Video,
-                    Binding {
+                    Some(Binding {
                         provider: provider.id,
                         model: provider.models[0].id.clone(),
-                    },
+                    }),
                 )]
                 .into(),
             }))

@@ -196,6 +196,30 @@ async fn workflow(capture: bool) {
             assert!(image.width() > 0 && image.height() > 0);
         }
         assert_eq!(*pages.upload.lock().unwrap(), b"upload fixture");
+        let persistent = fixture
+            .profile()
+            .join("browser/sessions")
+            .join(session.to_string());
+        assert!(persistent.join("profile").is_dir());
+        assert!(!persistent.join("downloads").exists());
+        let temporary: Vec<_> = std::fs::read_dir(fixture.profile().join("tmp"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("browser-")
+            })
+            .collect();
+        assert_eq!(temporary.len(), 1);
+        assert!(temporary[0].join("downloads").is_dir());
+        assert_eq!(
+            std::fs::read_dir(temporary[0].join("downloads"))
+                .unwrap()
+                .count(),
+            0
+        );
         assert!(!processes(&fixture.profile()).is_empty());
         fixture.shutdown().await;
     }
@@ -452,9 +476,30 @@ impl Fixture {
 
     async fn shutdown(self) {
         let profile = self.profile();
+        let temporary: Vec<_> = std::fs::read_dir(profile.join("tmp"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("browser-")
+            })
+            .collect();
+        let persistent = profile
+            .join("browser/sessions")
+            .join(self.session.to_string())
+            .join("profile");
+        let retained = persistent.exists();
         drop(self.client);
         self.controller.close().await.unwrap();
         self.node.shutdown().await.unwrap();
+        for path in temporary {
+            assert!(!path.exists());
+        }
+        if retained {
+            assert!(persistent.is_dir());
+        }
         stopped(&profile).await;
     }
 }

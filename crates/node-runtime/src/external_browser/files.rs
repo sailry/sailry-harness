@@ -75,7 +75,7 @@ impl Call {
         id: RequestId,
         args: &Value,
     ) -> Result<Value> {
-        let directory = session.directory.join("downloads");
+        let directory = session.temporary.path().join("downloads");
         if self.action == Action::Downloads {
             let files = tokio::task::spawn_blocking(move || {
                 let root = crate::files::path::root(&directory)?;

@@ -1,6 +1,8 @@
 use super::*;
 use sailry_protocol::media::{Binding, Generation, Kind, Settings};
 use serde_json::json;
+#[path = "media/follow.rs"]
+mod follow;
 #[path = "media/server.rs"]
 mod server;
 
@@ -148,10 +150,10 @@ async fn restores_frozen_execution() {
                 .map(|kind| {
                     (
                         kind,
-                        Binding {
+                        Some(Binding {
                             provider: provider.id,
                             model: "fixture-a".into(),
-                        },
+                        }),
                     )
                 })
                 .collect(),

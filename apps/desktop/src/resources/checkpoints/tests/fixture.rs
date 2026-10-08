@@ -130,6 +130,7 @@ impl Fixture {
         let local = self.desktop.as_ref().unwrap_or(&self.chat.node);
         cx.update(|cx| {
             cx.set_global(Services {
+                profile: local.profile().to_path_buf(),
                 runtime: self.chat.runtime.clone(),
                 local: local.local(),
                 link: local.link(),

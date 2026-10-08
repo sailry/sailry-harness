@@ -36,11 +36,14 @@ async fn send(transfers: &Arc<Transfers>, caller: NodeId, upload: &FileUpload, d
 #[tokio::test]
 async fn confines_unpublished_staging() {
     let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
-    let transfers = Transfers::new(None);
+    let profile = tempfile::tempdir().unwrap();
+    let transfers = Transfers::new(Some(profile.path().canonicalize().unwrap()));
     let caller = NodeId([1; 32]);
     let other = NodeId([2; 32]);
     let data = b"verified bytes";
     let upload = prepare(&transfers, root.path(), caller, "file", data).await;
+    assert!(profile.path().join("tmp").is_dir());
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
     assert!(!root.path().join("file").exists());
     assert!(transfers.open(other, upload.stream).is_err());
     assert!(
@@ -89,12 +92,46 @@ async fn confines_unpublished_staging() {
     );
     assert_eq!(std::fs::read(root.path().join("file")).unwrap(), data);
     released(&transfers).await;
+    assert_eq!(
+        std::fs::read_dir(profile.path().join("tmp"))
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn requires_temporary_storage() {
+    let root = tempfile::tempdir().unwrap();
+    let transfers = Transfers::new(None);
+    assert_eq!(
+        transfers
+            .upload(
+                NodeId([1; 32]),
+                root.path().canonicalize().unwrap(),
+                FileUploadSpec {
+                    worktree: WorktreeId::new(),
+                    path: "file".into(),
+                    size: 0,
+                    revision: blake3::hash(&[]).to_hex().to_string(),
+                    expected_revision: None,
+                },
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::Unavailable
+    );
+    released(&transfers).await;
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
 }
 
 #[tokio::test]
 async fn releases_malformed_streams() {
     let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
-    let transfers = Transfers::new(None);
+    let profile = tempfile::tempdir().unwrap();
+    let transfers = Transfers::new(Some(profile.path().canonicalize().unwrap()));
     let caller = NodeId([1; 32]);
     for data in [b"sh".as_slice(), b"other", b"too long"] {
         let upload = prepare(&transfers, root.path(), caller, "file", b"valid").await;
@@ -121,7 +158,8 @@ async fn releases_malformed_streams() {
 #[tokio::test]
 async fn extends_staged_expiry() {
     let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
-    let transfers = Transfers::new(None);
+    let profile = tempfile::tempdir().unwrap();
+    let transfers = Transfers::new(Some(profile.path().canonicalize().unwrap()));
     let caller = NodeId([1; 32]);
     let upload = prepare(&transfers, root.path(), caller, "file", &[]).await;
     send(&transfers, caller, &upload, &[]).await;
@@ -173,7 +211,8 @@ async fn extends_staged_expiry() {
 async fn shares_transfer_limits() {
     let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
     std::fs::write(root.path().join("file"), []).unwrap();
-    let transfers = Transfers::new(None);
+    let profile = tempfile::tempdir().unwrap();
+    let transfers = Transfers::new(Some(profile.path().canonicalize().unwrap()));
     let caller = NodeId([1; 32]);
     for index in 0..PER_CALLER {
         prepare(&transfers, root.path(), caller, &format!("{index}"), &[]).await;
@@ -204,7 +243,8 @@ async fn shares_transfer_limits() {
 #[tokio::test]
 async fn releases_cancelled_phases() {
     let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
-    let transfers = Transfers::new(None);
+    let profile = tempfile::tempdir().unwrap();
+    let transfers = Transfers::new(Some(profile.path().canonicalize().unwrap()));
     let caller = NodeId([1; 32]);
     for phase in ["pending", "active", "uploaded"] {
         let upload = prepare(&transfers, root.path(), caller, "file", b"content").await;

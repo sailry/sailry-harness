@@ -53,6 +53,7 @@ fn keeps_execution_selection(cx: &mut TestAppContext) {
         crate::theme::init(cx);
         crate::shell::init(cx);
         cx.set_global(Services {
+            profile: local.profile().to_path_buf(),
             runtime: runtime.clone(),
             local: local.local(),
             link: local.link(),

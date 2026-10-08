@@ -78,7 +78,8 @@ pub(super) async fn install(profile: &Path, stop: &CancellationToken) -> Result<
             {
                 return Err(unavailable("browser archive exceeds the download limit"));
             }
-            let mut archive = tempfile::tempfile().map_err(io_error)?;
+            let mut archive =
+                tempfile::tempfile_in(crate::profile::temporary(profile)?).map_err(io_error)?;
             let mut size = 0;
             while let Some(chunk) = response
                 .chunk()

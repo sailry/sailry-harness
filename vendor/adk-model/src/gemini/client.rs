@@ -11,6 +11,54 @@ use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use futures::TryStreamExt;
 
+fn response_modalities(config: &adk_core::GenerateContentConfig) -> Result<Option<Vec<String>>> {
+    config
+        .extensions
+        .get("gemini")
+        .and_then(|options| options.get("response_modalities"))
+        .map(|value| {
+            serde_json::from_value(value.clone())
+                .map_err(|_| adk_core::AdkError::model("invalid Gemini response modalities"))
+        })
+        .transpose()
+}
+
+#[cfg(test)]
+mod modality_tests {
+    use super::*;
+    use adk_core::GenerateContentConfig;
+
+    #[test]
+    fn forwards_declared_modalities() {
+        let mut config = GenerateContentConfig::default();
+        assert_eq!(response_modalities(&config).unwrap(), None);
+        config.extensions.insert(
+            "gemini".into(),
+            serde_json::json!({"response_modalities":["TEXT", "IMAGE"]}),
+        );
+        let converted = adk_gemini::GenerationConfig {
+            response_modalities: response_modalities(&config).unwrap(),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(converted).unwrap()["responseModalities"],
+            serde_json::json!(["TEXT", "IMAGE"]),
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_modalities() {
+        let mut config = GenerateContentConfig::default();
+        for value in [serde_json::json!("IMAGE"), serde_json::json!(["IMAGE", 1])] {
+            config.extensions.insert(
+                "gemini".into(),
+                serde_json::json!({"response_modalities":value}),
+            );
+            assert!(response_modalities(&config).is_err());
+        }
+    }
+}
+
 #[cfg(feature = "gemini-interactions")]
 use super::interactions_target::InteractionTarget;
 
@@ -1279,6 +1327,7 @@ impl GeminiModel {
 
         // Add generation config
         if let Some(config) = req.config {
+            let response_modalities = response_modalities(&config)?;
             let has_schema = config.response_schema.is_some();
             let gen_config = adk_gemini::GenerationConfig {
                 temperature: config.temperature,
@@ -1292,6 +1341,7 @@ impl GeminiModel {
                     None
                 },
                 thinking_config: self.thinking_config.clone(),
+                response_modalities,
                 ..Default::default()
             };
             builder = builder.with_generation_config(gen_config);

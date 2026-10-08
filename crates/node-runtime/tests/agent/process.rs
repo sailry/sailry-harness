@@ -114,6 +114,54 @@ async fn gone(pid: i32) {
 }
 
 #[tokio::test]
+async fn reuses_turn_scratch() {
+    for remote in [false, true] {
+        let server = Server::tools(vec![
+            (
+                plugin_tool("commands", "run_command"),
+                json!({"command": "test \"$TMPDIR\" = \"$TMP\" && test \"$TMPDIR\" = \"$TEMP\" && printf scratch > \"$TMPDIR/shared.txt\" && printf '%s' \"$TMPDIR\" > scratch-first.txt"}),
+            ),
+            (
+                plugin_tool("commands", "run_command"),
+                json!({"command": "test \"$(cat \"$TMPDIR/shared.txt\")\" = scratch && printf '%s' \"$TMPDIR\" > scratch-second.txt && printf reused"}),
+            ),
+        ])
+        .await;
+        let fixture = Fixture::new(remote, &server).await;
+        let session = fixture.session.id;
+        let turn = approvals::submit(&fixture.client, session).await;
+        for _ in 0..2 {
+            let (_, approval) = approvals::pending(&fixture.client, session).await;
+            decide(&fixture.client, &approval, Decision::Approve).await;
+        }
+        let page = finished(&fixture.client, session, turn).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        let output = results(&page);
+        assert_eq!(output.len(), 2);
+        assert_eq!(output[0].outcome, Outcome::Exited(0));
+        assert_eq!(output[1].outcome, Outcome::Exited(0));
+        assert_eq!(output[1].stdout.text, "reused");
+        let first = std::fs::read_to_string(fixture.root.join("scratch-first.txt")).unwrap();
+        let second = std::fs::read_to_string(fixture.root.join("scratch-second.txt")).unwrap();
+        assert_eq!(first, second);
+        let scratch = Path::new(&first);
+        assert_eq!(
+            scratch.parent(),
+            Some(fixture.node.profile().join("tmp").as_path())
+        );
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while scratch.exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("finished turn retained its temporary storage");
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn bounds_approved_results() {
     for remote in [false, true] {
         let command = "printf '批准的内容 🙂' > created.txt; printf '输出中文 🙂'; printf 'error text' >&2; exit 7";

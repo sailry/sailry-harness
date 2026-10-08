@@ -24,6 +24,7 @@ fn sharing_lifecycle(cx: &mut TestAppContext) {
         gpui_kit::init(cx);
         crate::theme::init(cx);
         cx.set_global(Services {
+            profile: host.profile().to_path_buf(),
             runtime: runtime.clone(),
             link: host.link(),
             local: host.local(),

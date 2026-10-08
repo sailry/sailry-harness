@@ -11,10 +11,7 @@ pub(crate) struct Source {
 
 impl Transfers {
     pub(crate) fn staging_file(&self) -> Result<std::fs::File, Fault> {
-        let staging = path::root(self.profile.as_deref().ok_or_else(unavailable)?)?;
-        cap_tempfile::TempFile::new_anonymous(&staging)
-            .map(cap_std::fs::File::into_std)
-            .map_err(io_error)
+        temporary_file(self.profile.as_deref())
     }
 
     pub(crate) fn upload_ssh(

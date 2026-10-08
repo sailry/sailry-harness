@@ -15,7 +15,7 @@ pub(crate) struct Binding {
     session: SessionId,
     worktree: WorktreeId,
     config: sailry_protocol::SessionConfig,
-    models: crate::store::media::Snapshot,
+    models: crate::store::media::Models,
 }
 
 impl Binding {
