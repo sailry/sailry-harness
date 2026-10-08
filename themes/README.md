@@ -130,10 +130,10 @@ Each light/dark variant may define `effects`, independently of its static assets
 
 ```json
 "effects": {
-  "background.window": [
+  "background.content": [
     {
       "kind": "twinkle", "color": "#8DEAFF", "count": 24,
-      "opacity": 0.25, "size": 1.5, "duration": 12, "seed": 61
+      "opacity": 0.7, "size": 4, "duration": 8, "seed": 61
     }
   ]
 }
@@ -147,6 +147,13 @@ behind the illustration. Window effects paint above the wallpaper and beneath
 the Shell's translucent surfaces. Conversation effects paint beneath content
 and remain clipped to their container. These inert layers do not capture clicks,
 focus, scrolling or text selection.
+
+For clearly visible particles, use `background.content` and `background.sidebar`:
+they paint after the panel tint and before controls. Reserve `background.window`
+for ambient motion behind the glass. Start with 3–5 pixel particles and adjust
+their opacity for the artwork; pale particles suit dark variants, while deeper
+colors remain visible on light surfaces. Do not brighten the wallpaper to
+compensate for particles hidden by a panel tint.
 
 Kinds are `twinkle` (stars), `embers` (rising sparks), `dust` (drifting specks),
 `petals` (falling curved petals), `pulse` (soft halo) and `scan` (moving light line).

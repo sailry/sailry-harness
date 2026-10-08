@@ -3,7 +3,7 @@
   "id": "great-sage",
   "name": "Great Sage",
   "description": "A theme inspired by the Great Sage, with golden accents and ink landscapes",
-  "package_version": "0.1.5",
+  "package_version": "0.1.6",
   "license": {
     "author": "Sailry",
     "name": "Apache-2.0",
@@ -255,42 +255,73 @@
       "background.window": [
         {
           "kind": "embers",
-          "color": "#DAB15F",
-          "count": 28,
-          "opacity": 0.18,
-          "size": 1.8,
+          "color": "#AA6D16",
+          "count": 12,
+          "opacity": 0.35,
+          "size": 3.2,
           "duration": 22,
           "seed": 11
         },
         {
           "kind": "embers",
-          "color": "#E56D47",
-          "count": 8,
-          "opacity": 0.1,
-          "size": 1.4,
-          "duration": 28,
+          "color": "#B84529",
+          "count": 4,
+          "opacity": 0.3,
+          "size": 2.8,
+          "duration": 26,
           "seed": 23
+        }
+      ],
+      "background.content": [
+        {
+          "kind": "embers",
+          "color": "#AA6D16",
+          "count": 32,
+          "opacity": 0.6,
+          "size": 4.2,
+          "duration": 18,
+          "seed": 113
+        },
+        {
+          "kind": "embers",
+          "color": "#B84529",
+          "count": 12,
+          "opacity": 0.55,
+          "size": 3.4,
+          "duration": 22,
+          "seed": 127
+        }
+      ],
+      "background.sidebar": [
+        {
+          "kind": "embers",
+          "color": "#AA6D16",
+          "count": 8,
+          "opacity": 0.42,
+          "size": 3.2,
+          "duration": 24,
+          "seed": 139
         }
       ],
       "hero.new_session": [
         {
           "kind": "pulse",
-          "color": "#E7B55B",
+          "color": "#AA6D16",
           "count": 1,
-          "opacity": 0.09,
+          "opacity": 0.24,
           "size": 6,
-          "duration": 8,
+          "duration": 7,
           "seed": 0
         }
       ],
       "conversation": [
         {
           "kind": "embers",
-          "color": "#DAB15F",
-          "count": 8,
-          "opacity": 0.08,
-          "size": 1.2,
-          "duration": 30,
+          "color": "#AA6D16",
+          "count": 10,
+          "opacity": 0.4,
+          "size": 3.0,
+          "duration": 24,
           "seed": 37
         }
       ]
@@ -542,42 +573,73 @@
       "background.window": [
         {
           "kind": "embers",
-          "color": "#DAB15F",
-          "count": 28,
-          "opacity": 0.32,
-          "size": 1.8,
+          "color": "#FFE2A2",
+          "count": 12,
+          "opacity": 0.6,
+          "size": 3.2,
           "duration": 22,
           "seed": 11
         },
         {
           "kind": "embers",
-          "color": "#E56D47",
-          "count": 8,
-          "opacity": 0.18,
-          "size": 1.4,
-          "duration": 28,
+          "color": "#FF9A72",
+          "count": 4,
+          "opacity": 0.5,
+          "size": 2.8,
+          "duration": 26,
           "seed": 23
+        }
+      ],
+      "background.content": [
+        {
+          "kind": "embers",
+          "color": "#FFE2A2",
+          "count": 32,
+          "opacity": 0.85,
+          "size": 4.2,
+          "duration": 18,
+          "seed": 113
+        },
+        {
+          "kind": "embers",
+          "color": "#FF9A72",
+          "count": 12,
+          "opacity": 0.7,
+          "size": 3.4,
+          "duration": 22,
+          "seed": 127
+        }
+      ],
+      "background.sidebar": [
+        {
+          "kind": "embers",
+          "color": "#FFE2A2",
+          "count": 8,
+          "opacity": 0.6,
+          "size": 3.2,
+          "duration": 24,
+          "seed": 139
         }
       ],
       "hero.new_session": [
         {
           "kind": "pulse",
-          "color": "#E7B55B",
+          "color": "#FFE2A2",
           "count": 1,
-          "opacity": 0.15,
+          "opacity": 0.42,
           "size": 6,
-          "duration": 8,
+          "duration": 7,
           "seed": 0
         }
       ],
       "conversation": [
         {
           "kind": "embers",
-          "color": "#DAB15F",
-          "count": 8,
-          "opacity": 0.12,
-          "size": 1.2,
-          "duration": 30,
+          "color": "#FFE2A2",
+          "count": 10,
+          "opacity": 0.56,
+          "size": 3.0,
+          "duration": 24,
           "seed": 37
         }
       ]

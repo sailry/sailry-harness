@@ -28,9 +28,10 @@ clouds and red ink. The
 content panel repeats the existing 256-pixel grain texture at 8% opacity in
 light mode and 12% in dark mode, so wallpaper gaps still have material detail.
 
-Decorative motion adds sparse gold and vermilion embers, a soft gold halo behind
-the welcome portrait and slower conversation sparks. Light mode uses lower
-opacity. Settings → Appearance → Theme animation controls all these layers.
+Decorative motion adds 3–5 pixel gold and vermilion embers above the content and
+navigation panel tints, with ambient window sparks, a gold halo behind the
+welcome portrait and slower conversation sparks. Light mode uses deeper colors
+and lower opacity. Settings → Appearance → Theme animation controls these layers.
 
 Package checks are independent of Sailry's source and build:
 

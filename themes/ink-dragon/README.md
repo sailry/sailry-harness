@@ -31,8 +31,9 @@ All artwork is compressed transparent PNG. Wallpapers retain their generated
 the generation prompts and provenance. The package's Apache-2.0 license is
 included in `theme.json`.
 
-Decorative motion combines slow silver ink dust with sparse gold glints;
-conversation dust remains subdued. Both variants define their own opacity.
+Decorative motion combines larger silver ink dust with sparse gold glints above
+the content and navigation panel tints. Ambient window and conversation dust
+remain subdued. Light mode uses deeper silver-blue and gold colors for visibility.
 Settings → Appearance → Theme animation controls these layers.
 
 Package checks live here so the theme can move into its own repository:
