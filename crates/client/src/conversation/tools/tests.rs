@@ -140,6 +140,10 @@ fn approval_does_not_imply_execution() {
         index: 0,
         state: sailry_protocol::conversation::ApprovalState::Approved,
         source: sailry_protocol::conversation::ApprovalSource::User,
+        can_remember: false,
+        prefix: None,
+        choice: Some(sailry_protocol::conversation::ApprovalChoice::Once),
+        reason: None,
     };
     page.approvals.push(approval.clone());
     assert_eq!(collect(&page)[0].approval.as_ref(), Some(&approval));
@@ -165,6 +169,10 @@ fn distinguishes_denial_and_interruption() {
         index: 0,
         state: ApprovalState::Interrupted,
         source: ApprovalSource::User,
+        can_remember: false,
+        prefix: None,
+        choice: None,
+        reason: None,
     });
     assert_eq!(collect(&page)[0].state, State::NotExecuted);
     page.approvals[0].state = ApprovalState::Approved;

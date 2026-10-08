@@ -113,7 +113,11 @@ impl<D: Definition + 'static> Tool for Operation<D> {
                 request.id = self
                     .binding
                     .ingress
-                    .authorize(self.binding.turn, authorization)
+                    .authorize(
+                        self.binding.turn,
+                        authorization,
+                        Some(request.command.clone()),
+                    )
                     .await?;
                 if matches!(
                     request.command,

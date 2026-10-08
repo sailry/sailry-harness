@@ -290,6 +290,7 @@ impl HostOperation {
         &self,
         context: &dyn ToolContext,
         arguments: Value,
+        prepared: Option<Command>,
     ) -> Result<sailry_protocol::RequestId, Fault> {
         self.ingress
             .authorize(
@@ -299,6 +300,7 @@ impl HostOperation {
                     function_call_id: Some(context.function_call_id().into()),
                     args: arguments,
                 },
+                prepared,
             )
             .await
     }
@@ -373,7 +375,11 @@ impl HostOperation {
                 .await?;
             if !self.is_read_only() {
                 let id = self
-                    .authorize(context.as_ref(), authorized_arguments)
+                    .authorize(
+                        context.as_ref(),
+                        authorized_arguments,
+                        Some(request.command.clone()),
+                    )
                     .await?;
                 if connections::handles(self.operation) {
                     request = self.prepare(arguments).await?;

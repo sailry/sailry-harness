@@ -4,6 +4,7 @@ use serde_json::json;
 
 mod permissions;
 mod planning;
+mod rules;
 
 struct Fixture {
     _directory: tempfile::TempDir,
@@ -112,7 +113,14 @@ impl Fixture {
     }
 
     fn begin(&mut self) -> Approval {
-        begin(&mut self.database, self.turn, &self.request, &self.events).unwrap()
+        begin(
+            &mut self.database,
+            self.turn,
+            &self.request,
+            None,
+            &self.events,
+        )
+        .unwrap()
     }
 
     fn approve(&mut self, id: ApprovalId) {
@@ -137,6 +145,7 @@ fn consumes_exact_arguments_once() {
             &mut fixture.database,
             fixture.turn,
             &fixture.request,
+            None,
             &fixture.events
         )
         .is_err()
@@ -145,7 +154,8 @@ fn consumes_exact_arguments_once() {
         authorize(
             &mut fixture.database.connection,
             fixture.turn,
-            &fixture.request
+            &fixture.request,
+            None
         )
         .unwrap_err()
         .code,
@@ -155,30 +165,42 @@ fn consumes_exact_arguments_once() {
     let mut changed = fixture.request.clone();
     changed.args["text"] = json!("different content");
     assert_eq!(
-        authorize(&mut fixture.database.connection, fixture.turn, &changed)
-            .unwrap_err()
-            .code,
+        authorize(
+            &mut fixture.database.connection,
+            fixture.turn,
+            &changed,
+            None
+        )
+        .unwrap_err()
+        .code,
         ErrorCode::PermissionDenied
     );
     let mut changed = fixture.request.clone();
     changed.tool_name = "another_tool".into();
     assert_eq!(
-        authorize(&mut fixture.database.connection, fixture.turn, &changed)
-            .unwrap_err()
-            .code,
+        authorize(
+            &mut fixture.database.connection,
+            fixture.turn,
+            &changed,
+            None
+        )
+        .unwrap_err()
+        .code,
         ErrorCode::PermissionDenied
     );
     authorize(
         &mut fixture.database.connection,
         fixture.turn,
         &fixture.request,
+        None,
     )
     .unwrap();
     assert_eq!(
         authorize(
             &mut fixture.database.connection,
             fixture.turn,
-            &fixture.request
+            &fixture.request,
+            None
         )
         .unwrap_err()
         .code,
@@ -207,6 +229,7 @@ fn rejects_invalid_decisions() {
             &mut fixture.database,
             fixture.turn,
             &changed,
+            None,
             &fixture.events
         )
         .is_err()

@@ -191,6 +191,12 @@ approval_rejected: 已拒绝
 approval_cancelled: 已取消
 approval_approve: 允许
 approval_reject: 拒绝
+approval_allow_once: 允许一次
+approval_allow_session: 本会话允许
+approval_allow_prefix: '允许前缀“%{prefix}”'
+approval_deny_reason: 附理由拒绝
+approval_reason: 理由
+approval_reason_cancel: 取消
 approval_count: "待审批 %{count} 项 · 仅演示选择，不执行文件或命令操作"
 approval_summary: "%{state} · %{prompt}"
 approval_preview_menu: 审批交互示例

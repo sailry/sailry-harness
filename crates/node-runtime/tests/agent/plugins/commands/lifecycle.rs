@@ -50,13 +50,12 @@ async fn preserves_frozen_transforms_and_known_results() {
         package(&fixture).await;
         let original =
             include_str!("../../../../../../plugins/commands/dev.sailry.platform/host/main.js");
-        source(
-            &fixture,
-            &original.replace(
-                "export function result({ output }) {",
-                "export function result({ output }) { throw new Error('Presentation failed');",
-            ),
+        let failing = original.replace(
+            "export function result({ output }) {",
+            "export function result({ output }) { throw new Error('Presentation failed');",
         );
+        assert_ne!(failing, original);
+        source(&fixture, &failing);
         let old = update(&fixture, 1).await;
         planning::configure(&mut fixture, WorkMode::Code).await;
         let Output::QueuedTurn(turn) = execute(
@@ -72,13 +71,12 @@ async fn preserves_frozen_transforms_and_known_results() {
             panic!()
         };
         assert!(turn.plugins.contains(&old.summary.reference()));
-        source(
-            &fixture,
-            &original.replace(
-                "return { command, cwd",
-                "return { command: 'touch changed.txt', cwd",
-            ),
+        let transformed = original.replace(
+            "return { command, description, cwd",
+            "return { command: 'touch changed.txt', description, cwd",
         );
+        assert_ne!(transformed, original);
+        source(&fixture, &transformed);
         update(&fixture, 2).await;
         execute(
             &fixture,
@@ -139,6 +137,83 @@ async fn preserves_frozen_transforms_and_known_results() {
         );
         node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn guards_prepared_commands_before_claiming() {
+    use crate::approvals::rules;
+    for remote in [false, true] {
+        for initial in [false, true] {
+            for within in [false, true] {
+                let mut calls = vec![(name("run_command"), json!({"command":"touch seed.txt"}))];
+                if !initial {
+                    calls.push((
+                        name("run_command"),
+                        json!({"command":"touch requested.txt"}),
+                    ));
+                }
+                let expected = calls.len();
+                let server = Server::tools(calls).await;
+                let fixture = Fixture::new(remote, &server).await;
+                let original = include_str!(
+                    "../../../../../../plugins/commands/dev.sailry.platform/host/main.js"
+                );
+                let replacement = if within {
+                    "touch actual.txt"
+                } else {
+                    "mkdir denied-dir"
+                };
+                let transformed = original.replace(
+                    "return { command, description, cwd",
+                    &format!("return {{ command: command === 'touch seed.txt' && {} ? command : {replacement:?}, description, cwd", !initial),
+                );
+                assert_ne!(transformed, original);
+                source(&fixture, &transformed);
+                let installed = update(&fixture, 1).await;
+                let turn = rules::submit(&fixture.client, &fixture.session).await;
+                assert!(turn.plugins.contains(&installed.summary.reference()));
+                let approval = rules::pending(&fixture.client, fixture.session.id).await;
+                assert_eq!(approval.prefix.as_deref(), Some("touch seed.txt"));
+                process::decide(
+                    &fixture.client,
+                    &approval,
+                    Decision::ApprovePrefix("touch".into()),
+                )
+                .await;
+                let page = rules::completed(&fixture.client, fixture.session.id, turn.id).await;
+                let result = results(&page);
+                assert_eq!(result.len(), expected);
+                assert_eq!(page.approvals.len(), expected);
+                let guarded = page.approvals.last().unwrap();
+                assert_eq!(
+                    guarded.source,
+                    if initial {
+                        sailry_protocol::conversation::ApprovalSource::User
+                    } else {
+                        sailry_protocol::conversation::ApprovalSource::PrefixRule
+                    }
+                );
+                assert_eq!(rules::claimed(&fixture.node, guarded).1, within);
+                assert_eq!(fixture.root.join("actual.txt").exists(), within);
+                assert_eq!(fixture.root.join("seed.txt").exists(), !initial);
+                assert!(!fixture.root.join("requested.txt").exists());
+                assert!(!fixture.root.join("denied-dir").exists());
+                let final_result = result.last().unwrap();
+                if within {
+                    assert!(final_result.get("isError").is_none(), "{final_result}");
+                } else {
+                    assert_eq!(final_result["isError"], true);
+                    assert_eq!(final_result["error"]["code"], "permission_denied");
+                    assert_eq!(
+                        final_result["error"]["message"],
+                        "prepared command is outside the approved prefix"
+                    );
+                }
+                fixture.node.shutdown().await.unwrap();
+                fixture.controller.close().await.unwrap();
+            }
+        }
     }
 }
 

@@ -12,6 +12,10 @@ fn recovers_decisions() {
         index: 0,
         state: ApprovalState::Pending,
         source: sailry_protocol::conversation::ApprovalSource::User,
+        can_remember: true,
+        prefix: Some("cargo test".into()),
+        choice: None,
+        reason: None,
     };
     projection
         .apply(1, Update::ConversationSnapshot(snapshot.clone()))
@@ -21,6 +25,7 @@ fn recovers_decisions() {
     assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
     let mut approved = approval.clone();
     approved.state = ApprovalState::Approved;
+    approved.choice = Some(sailry_protocol::conversation::ApprovalChoice::Once);
     assert_eq!(
         projection
             .apply(1, frame(&snapshot, 13, Change::Approval(approved.clone())))
@@ -65,4 +70,94 @@ fn recovers_decisions() {
             .apply(2, frame(&snapshot, 2, Change::Approval(changed)))
             .is_err()
     );
+}
+
+#[test]
+fn preserves_rule_identity() {
+    for change in 0..3 {
+        let (mut projection, mut snapshot, run, _) = fixture();
+        let approval = Approval {
+            id: ApprovalId::new(),
+            session: run.session,
+            turn: run.turn,
+            entry: "canonical-call".into(),
+            index: 0,
+            state: ApprovalState::Pending,
+            source: conversation::ApprovalSource::User,
+            can_remember: true,
+            prefix: Some("cargo test".into()),
+            choice: None,
+            reason: None,
+        };
+        Arc::make_mut(&mut snapshot.page)
+            .approvals
+            .push(approval.clone());
+        projection
+            .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+            .unwrap();
+        let mut changed = approval;
+        match change {
+            0 => changed.source = conversation::ApprovalSource::SessionRule,
+            1 => changed.prefix = Some("cargo build".into()),
+            _ => changed.can_remember = false,
+        }
+        assert!(
+            projection
+                .apply(1, frame(&snapshot, 11, Change::Approval(changed)))
+                .is_err()
+        );
+        assert_eq!(projection.snapshot().unwrap(), &snapshot);
+    }
+}
+
+#[test]
+fn preserves_complete_decision() {
+    use conversation::ApprovalChoice;
+    for (state, choice, reason) in [
+        (ApprovalState::Approved, Some(ApprovalChoice::Session), None),
+        (
+            ApprovalState::Denied,
+            None,
+            Some("Keep 原文 🙂 unchanged".to_owned()),
+        ),
+    ] {
+        for change in 0..2 {
+            let (mut projection, mut snapshot, run, _) = fixture();
+            let approval = Approval {
+                id: ApprovalId::new(),
+                session: run.session,
+                turn: run.turn,
+                entry: "canonical-call".into(),
+                index: 0,
+                state,
+                source: conversation::ApprovalSource::User,
+                can_remember: true,
+                prefix: Some("cargo test".into()),
+                choice: choice.clone(),
+                reason: reason.clone(),
+            };
+            Arc::make_mut(&mut snapshot.page)
+                .approvals
+                .push(approval.clone());
+            projection
+                .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+                .unwrap();
+            projection
+                .apply(1, frame(&snapshot, 11, Change::Approval(approval.clone())))
+                .unwrap();
+            let before = projection.snapshot().unwrap().clone();
+            let mut changed = approval;
+            if change == 0 {
+                changed.choice = Some(ApprovalChoice::Prefix("cargo test".into()));
+            } else {
+                changed.reason = Some("Changed constraint".into());
+            }
+            assert!(
+                projection
+                    .apply(1, frame(&snapshot, 12, Change::Approval(changed)))
+                    .is_err()
+            );
+            assert_eq!(projection.snapshot().unwrap(), &before);
+        }
+    }
 }

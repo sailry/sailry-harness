@@ -195,7 +195,7 @@ async fn waits_for_exact_input_authority() {
                 .execute(fixture.client.prepare(Command::ResolveApproval {
                     session: fixture.session,
                     approval: approval.id,
-                    decision,
+                    decision: decision.clone(),
                 }))
                 .await
                 .unwrap();

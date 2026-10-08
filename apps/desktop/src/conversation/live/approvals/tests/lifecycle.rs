@@ -6,6 +6,7 @@ use std::sync::Mutex;
 struct Lost {
     inner: Arc<dyn Transport>,
     ids: Mutex<Vec<RequestId>>,
+    decisions: Mutex<Vec<Decision>>,
 }
 
 impl Transport for Lost {
@@ -14,9 +15,10 @@ impl Transport for Lost {
     }
     fn dispatch(&self, request: Request) -> Pending<'_, Result<Admission, Fault>> {
         Box::pin(async move {
-            let lose = if matches!(request.command, Command::ResolveApproval { .. }) {
+            let lose = if let Command::ResolveApproval { decision, .. } = &request.command {
                 let mut ids = self.ids.lock().unwrap();
                 ids.push(request.id);
+                self.decisions.lock().unwrap().push(decision.clone());
                 ids.len() == 1
             } else {
                 false
@@ -40,12 +42,19 @@ impl Transport for Lost {
 #[gpui::test]
 fn retries_original_decision(cx: &mut TestAppContext) {
     init(cx);
-    for remote in [false, true] {
+    for (decision, remote) in [
+        Decision::Approve,
+        Decision::DenyWithReason("Read the file first 中文 🙂\nPreserve unrelated changes".into()),
+    ]
+    .into_iter()
+    .flat_map(|decision| [false, true].map(|remote| (decision.clone(), remote)))
+    {
         let fixture = Fixture::new(remote);
         fixture.start();
         let lost = Arc::new(Lost {
             inner: fixture.transport.clone(),
             ids: Mutex::new(Vec::new()),
+            decisions: Mutex::new(Vec::new()),
         });
         let mut binding = fixture.binding.clone();
         binding.client = Arc::new(Client::new(lost.clone()));
@@ -54,11 +63,37 @@ fn retries_original_decision(cx: &mut TestAppContext) {
             view.read(cx).connected() && pending(&view, cx).is_some()
         });
         let id = view.read_with(visual, |_, cx| pending(&view, cx).unwrap());
-        tap(visual, &format!("live-approval-approve-{id}"));
+        if let Decision::DenyWithReason(reason) = &decision {
+            choices::reason(visual, id, reason);
+            tap(visual, &format!("live-approval-reason-submit-{id}"));
+        } else {
+            tap(visual, &format!("live-approval-approve-{id}"));
+        }
         wait(visual, |cx| {
             view.read(cx).approvals.error.is_some()
                 && pending(&view, cx).is_some_and(|next| next != id)
         });
+        if let Decision::DenyWithReason(reason) = &decision {
+            assert_eq!(
+                view.read_with(visual, |view, cx| view.approvals.drafts[&id]
+                    .input
+                    .read(cx)
+                    .value()),
+                reason.as_str()
+            );
+            view.read_with(visual, |view, _| {
+                assert_eq!(
+                    view.history.calls[0]
+                        .approval
+                        .as_ref()
+                        .unwrap()
+                        .reason
+                        .as_ref(),
+                    Some(reason)
+                );
+            });
+            assert!(!fixture.directory.path().join("project/资料.txt").exists());
+        }
         let next = view.read_with(visual, |_, cx| pending(&view, cx).unwrap());
         tap(visual, &format!("live-approval-reject-{next}"));
         assert_eq!(lost.ids.lock().unwrap().len(), 1);
@@ -69,6 +104,11 @@ fn retries_original_decision(cx: &mut TestAppContext) {
         let ids = lost.ids.lock().unwrap().clone();
         assert_eq!(ids.len(), 2);
         assert_eq!(ids[0], ids[1]);
+        assert_eq!(
+            *lost.decisions.lock().unwrap(),
+            vec![decision.clone(), decision]
+        );
+        assert!(!view.read_with(visual, |view, _| view.approvals.drafts.contains_key(&id)));
         tap(visual, &format!("live-approval-reject-{next}"));
         wait(visual, |cx| {
             view.read(cx).active().is_none() && !view.read(cx).approvals.pending

@@ -227,11 +227,22 @@ pub struct QueueUpdate {
     pub runs: Vec<Run>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Decision {
     Approve,
     Deny,
+    ApproveSession,
+    ApprovePrefix(String),
+    DenyWithReason(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalChoice {
+    Once,
+    Session,
+    Prefix(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -252,6 +263,8 @@ pub enum ApprovalSource {
     User,
     Project,
     Full,
+    SessionRule,
+    PrefixRule,
 }
 
 /// Authorization metadata references the exact call in canonical ADK history.
@@ -265,7 +278,14 @@ pub struct Approval {
     pub index: usize,
     pub state: ApprovalState,
     pub source: ApprovalSource,
+    pub choice: Option<ApprovalChoice>,
+    pub reason: Option<String>,
+    pub prefix: Option<String>,
+    pub can_remember: bool,
 }
+
+#[cfg(test)]
+mod approval_tests;
 
 /// Image bytes remain in canonical message history on the execution Node.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

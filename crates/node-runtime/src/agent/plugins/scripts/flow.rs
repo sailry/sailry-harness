@@ -128,7 +128,11 @@ impl Script {
                             .await?;
                         if !approved && !self.is_read_only() {
                             request.id = operation
-                                .authorize(context.as_ref(), arguments.clone())
+                                .authorize(
+                                    context.as_ref(),
+                                    arguments.clone(),
+                                    Some(request.command.clone()),
+                                )
                                 .await?;
                             approved = true;
                         }

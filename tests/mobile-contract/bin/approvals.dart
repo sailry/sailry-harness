@@ -50,6 +50,14 @@ Future<void> main() async {
   });
   final waiting = await until(updates, hasPending);
   final first = pending(waiting);
+  check(
+    first['source'] == 'user' &&
+        first['can_remember'] == true &&
+        first['prefix'] == null &&
+        first['choice'] == null &&
+        first['reason'] == null,
+    'Node rule eligibility crosses FFI without deciding the call',
+  );
   final call = (waiting['calls'] as List).single;
   check(
     call['state'] == 'waiting' && call['approval']['id'] == first['id'],
@@ -125,6 +133,11 @@ Future<void> main() async {
     jsonDecode(allowed)['Ok']?['data']?['state'] == 'approved',
     'approval receipt crosses FFI',
   );
+  check(
+    jsonDecode(allowed)['Ok']?['data']?['source'] == 'user' &&
+        jsonDecode(allowed)['Ok']?['data']?['choice'] == 'once',
+    'the existing approve decision remains a one-time user choice',
+  );
   final next = await until(
     updates,
     (snapshot) =>
@@ -146,7 +159,10 @@ Future<void> main() async {
   check(
     calls.length == 2 &&
         calls[0]['approval']['state'] == 'approved' &&
+        calls[0]['approval']['choice'] == 'once' &&
         calls[1]['approval']['state'] == 'denied' &&
+        calls[1]['approval']['choice'] == null &&
+        calls[1]['approval']['reason'] == null &&
         calls.every((call) => call['state'] == 'returned'),
     'approval decisions remain distinct from returned tool state',
   );

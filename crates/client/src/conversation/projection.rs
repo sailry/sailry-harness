@@ -4,6 +4,7 @@ use sailry_protocol::{
     *,
 };
 use std::sync::Arc;
+pub(super) mod approvals;
 pub(super) mod children;
 mod questions;
 
@@ -278,16 +279,7 @@ impl Projection {
                             .iter_mut()
                             .find(|previous| previous.id == approval.id)
                         {
-                            if previous.turn != approval.turn
-                                || previous.entry != approval.entry
-                                || previous.index != approval.index
-                                || previous.state != conversation::ApprovalState::Pending
-                                    && previous.state != approval.state
-                            {
-                                return Err(sailry_protocol::Fault::invalid(
-                                    "approval identity or terminal decision changed",
-                                ));
-                            }
+                            approvals::check_transition(previous, &approval, false)?;
                             *previous = approval;
                         } else {
                             page.approvals.push(approval);

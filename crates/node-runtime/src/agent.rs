@@ -295,6 +295,7 @@ async fn execute_with(
         stop.clone(),
     );
     let mut catalog = catalog::Catalog::default();
+    let bindings = approval::bindings(&invocation, &extensions.tools)?;
     let mut agent = adk_agent::LlmAgentBuilder::new("assistant")
         .model(model.clone())
         .instruction_provider(Box::new(move |_| {
@@ -302,6 +303,7 @@ async fn execute_with(
             Box::pin(async move { Ok(instruction) })
         }))
         .before_model_callback(guidance::bind(ingress, invocation.turn.id))
+        .before_model_callback(approval::bind(ingress, invocation.turn.id, content.clone()))
         .before_model_callback(preamble);
     extensions.callbacks.push((0, compact));
     extensions.callbacks.sort_by_key(|(order, _)| *order);
@@ -380,6 +382,7 @@ async fn execute_with(
                 ingress: ingress.clone(),
                 turn: invocation.turn.id,
                 stop: stop.clone(),
+                bindings,
             })),
             ..Default::default()
         });

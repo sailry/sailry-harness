@@ -29,6 +29,7 @@ fn rejects_mutating_approvals() {
                 &mut fixture.database,
                 fixture.turn,
                 &fixture.request,
+                None,
                 &fixture.events
             )
             .unwrap_err()
@@ -74,6 +75,7 @@ fn preserves_admitted_authority() {
             &mut fixture.database,
             fixture.turn,
             &fixture.request,
+            None,
             &fixture.events,
         );
         if admitted == WorkMode::Plan {

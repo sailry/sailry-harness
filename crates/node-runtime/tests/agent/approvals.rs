@@ -1,6 +1,13 @@
 use super::*;
 use serde_json::json;
 
+#[path = "approvals/denials.rs"]
+mod denials;
+#[path = "approvals/prefix.rs"]
+mod prefix;
+#[path = "approvals/rules.rs"]
+pub(super) mod rules;
+
 pub(super) async fn prepare(client: &Client, server: &Server, root: &std::path::Path) -> Session {
     let (session, mut provider) = configured(client, &server.endpoint, root).await;
     provider.default_model = "fixture-a".into();

@@ -286,7 +286,10 @@ pub(in crate::store) fn command(database: &mut Database, output: &Output) {
         if let Some((_, reply)) = database.approvals.remove(&approval.id) {
             let decision = match approval.state {
                 ApprovalState::Approved => Decision::Approve,
-                ApprovalState::Denied => Decision::Deny,
+                ApprovalState::Denied => approval
+                    .reason
+                    .clone()
+                    .map_or(Decision::Deny, Decision::DenyWithReason),
                 _ => unreachable!("only resolved approvals are command results"),
             };
             let _ = reply.send(Ok(decision));

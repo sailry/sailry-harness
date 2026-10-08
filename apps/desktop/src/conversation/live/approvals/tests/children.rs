@@ -124,7 +124,12 @@ fn resolves_children_in_parent(cx: &mut TestAppContext) {
                     })
                 })
         });
-        tap(visual, &format!("live-approval-reject-{}", approvals[1].id));
+        let reason = "Keep the approved child's content 中文 🙂";
+        choices::reason(visual, approvals[1].id, reason);
+        tap(
+            visual,
+            &format!("live-approval-reason-submit-{}", approvals[1].id),
+        );
         wait(visual, |cx| {
             !parent.read(cx).approvals.pending
                 && parent.read(cx).active().is_none()
@@ -149,6 +154,20 @@ fn resolves_children_in_parent(cx: &mut TestAppContext) {
                 .unwrap()
                 .state,
             ApprovalState::Denied
+        );
+        let page = fixture.page(approvals[1].session);
+        let denied = page
+            .approvals
+            .iter()
+            .find(|approval| approval.id == approvals[1].id)
+            .unwrap();
+        assert_eq!(denied.session, approvals[1].session);
+        assert_eq!(denied.entry, approvals[1].entry);
+        assert_eq!(denied.index, approvals[1].index);
+        assert_eq!(denied.reason.as_deref(), Some(reason));
+        assert_eq!(
+            std::fs::read_to_string(fixture.directory.path().join("project/child.txt")).unwrap(),
+            "Delegated Unicode content 中文 🙂"
         );
         assert!(visual.debug_bounds("live-approval-trigger").is_none());
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 4);

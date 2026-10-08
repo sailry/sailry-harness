@@ -41,6 +41,8 @@ use sailry_protocol::{conversation::*, *};
 use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot};
 
+pub(crate) use approvals::Binding as ApprovalBinding;
+pub(crate) use approvals::results::{Denial, enrich as enrich_denials};
 pub(super) use delegation::read as delegation;
 pub(super) use feed::{Feeds, command as publish_command, package as invalidate_package};
 pub(super) use history::pages::{read, turn as read_turn};
@@ -116,12 +118,18 @@ pub(super) enum Operation {
     Confirm {
         turn: TurnId,
         request: adk_core::ToolConfirmationRequest,
+        binding: Option<ApprovalBinding>,
         reply: oneshot::Sender<Result<Decision, Fault>>,
     },
     Authorize {
         turn: TurnId,
         request: adk_core::ToolConfirmationRequest,
+        prepared: Option<Command>,
         reply: oneshot::Sender<Result<RequestId, Fault>>,
+    },
+    Denials {
+        turn: TurnId,
+        reply: oneshot::Sender<Result<Vec<Denial>, Fault>>,
     },
     Subscribe {
         session: SessionId,
@@ -474,8 +482,9 @@ pub(super) fn execute(
         Operation::Confirm {
             turn,
             request,
+            binding,
             reply,
-        } => match approvals::begin(database, turn, &request, events) {
+        } => match approvals::begin(database, turn, &request, binding.as_ref(), events) {
             Ok(approval) if approval.state == ApprovalState::Approved => {
                 let _ = reply.send(Ok(Decision::Approve));
             }
@@ -489,13 +498,18 @@ pub(super) fn execute(
         Operation::Authorize {
             turn,
             request,
+            prepared,
             reply,
         } => {
             let _ = reply.send(approvals::authorize(
                 &mut database.connection,
                 turn,
                 &request,
+                prepared.as_ref(),
             ));
+        }
+        Operation::Denials { turn, reply } => {
+            let _ = reply.send(approvals::results::read(&database.connection, turn));
         }
         Operation::Subscribe {
             session,

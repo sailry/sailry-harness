@@ -7,6 +7,26 @@ use sailry_protocol::{
 use serde::de::DeserializeOwned;
 
 pub(super) fn stored(db: &Connection) -> Result<(), Error> {
+    records::<sailry_protocol::conversation::Approval>(
+        db,
+        "agent_approvals.body",
+        "SELECT body FROM agent_approvals",
+    )?;
+    records::<Option<crate::store::agent::ApprovalBinding>>(
+        db,
+        "agent_approvals.binding",
+        "SELECT binding FROM agent_approvals",
+    )?;
+    records::<crate::store::agent::ApprovalBinding>(
+        db,
+        "agent_approval_rules.binding",
+        "SELECT binding FROM agent_approval_rules",
+    )?;
+    records::<sailry_protocol::conversation::ApprovalChoice>(
+        db,
+        "agent_approval_rules.choice",
+        "SELECT choice FROM agent_approval_rules",
+    )?;
     records::<sailry_protocol::notification::Notice>(
         db,
         "notifications.body",

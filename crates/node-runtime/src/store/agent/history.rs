@@ -35,6 +35,7 @@ pub(super) fn append(
         event.llm_response.error_code = Some("provider_error".into());
         event.llm_response.error_message = Some("model response reported an error".into());
     }
+    super::approvals::results::append(&database.connection, turn, &mut event).map_err(adk_error)?;
     let body = encode(&event).map_err(adk_error)?;
     if body.len() > MAX_FRAME_BYTES {
         return Err(AdkError::session("event exceeds the history frame limit"));

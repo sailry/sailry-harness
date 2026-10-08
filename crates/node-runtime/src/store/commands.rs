@@ -256,7 +256,8 @@ pub(super) fn execute(
             approval,
             decision,
         } => {
-            let approval = super::agent::approvals::resolve(db, *session, *approval, *decision)?;
+            let approval =
+                super::agent::approvals::resolve(db, *session, *approval, decision.clone())?;
             Ok((
                 Output::Approval(approval),
                 Some(super::agent::activity::changed(db, *session)?),

@@ -246,9 +246,18 @@ CREATE TABLE IF NOT EXISTS agent_approvals (
     turn TEXT NOT NULL REFERENCES turns(id),
     call TEXT NOT NULL,
     body BLOB NOT NULL,
+    binding BLOB NOT NULL,
     request TEXT NOT NULL,
     claimed INTEGER NOT NULL CHECK(claimed IN (0,1)),
     UNIQUE(turn,call)
+);
+CREATE TABLE IF NOT EXISTS agent_approval_rules (
+    session TEXT NOT NULL REFERENCES sessions(id),
+    worktree TEXT NOT NULL REFERENCES worktrees(id),
+    binding BLOB NOT NULL,
+    choice BLOB NOT NULL,
+    approval TEXT NOT NULL REFERENCES agent_approvals(id),
+    PRIMARY KEY(session,worktree,binding,choice)
 );
 CREATE TABLE IF NOT EXISTS agent_questions (
     id TEXT PRIMARY KEY,

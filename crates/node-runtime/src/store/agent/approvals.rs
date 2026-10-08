@@ -4,6 +4,11 @@ use super::*;
 use adk_core::ToolConfirmationRequest;
 use std::collections::BTreeMap;
 
+mod prefix;
+pub(crate) mod results;
+mod rules;
+pub(crate) use rules::Binding;
+
 #[cfg(test)]
 mod tests;
 
@@ -15,12 +20,14 @@ impl Ingress {
         &self,
         turn: TurnId,
         request: ToolConfirmationRequest,
+        binding: Option<Binding>,
     ) -> Result<Decision, Fault> {
         let (reply, response) = oneshot::channel();
         self.sender
             .send(Job::Agent(Box::new(Operation::Confirm {
                 turn,
                 request,
+                binding,
                 reply,
             })))
             .await
@@ -32,14 +39,25 @@ impl Ingress {
         &self,
         turn: TurnId,
         request: ToolConfirmationRequest,
+        prepared: Option<Command>,
     ) -> Result<RequestId, Fault> {
         let (reply, response) = oneshot::channel();
         self.sender
             .send(Job::Agent(Box::new(Operation::Authorize {
                 turn,
                 request,
+                prepared,
                 reply,
             })))
+            .await
+            .map_err(|_| super::super::unavailable())?;
+        response.await.map_err(|_| super::super::unavailable())?
+    }
+
+    pub(crate) async fn denials(&self, turn: TurnId) -> Result<Vec<results::Denial>, Fault> {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .send(Job::Agent(Box::new(Operation::Denials { turn, reply })))
             .await
             .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
@@ -50,13 +68,29 @@ pub(super) fn begin(
     database: &mut Database,
     turn: TurnId,
     request: &ToolConfirmationRequest,
+    binding: Option<&Binding>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Approval, Fault> {
     let transaction = database.connection.transaction().map_err(storage_error)?;
     let run = active(&transaction, turn)?;
     let call = call_id(request)?;
     let (entry, index) = super::calls::locate(&transaction, turn, request)?;
-    let source = super::permissions::source(&transaction, turn, request)?;
+    let mut source = super::permissions::source(&transaction, turn, request)?;
+    if let Some(binding) = binding {
+        rules::validate(&transaction, turn, request, binding)?;
+    }
+    let can_remember = binding.is_some() && source == ApprovalSource::User;
+    let prefix = binding
+        .and_then(|binding| rules::command(binding, request))
+        .and_then(prefix::offered);
+    let mut choice = None;
+    if source == ApprovalSource::User
+        && let Some(binding) = binding
+        && let Some((matched, remembered)) = rules::matching(&transaction, &run, binding, request)?
+    {
+        source = matched;
+        choice = Some(remembered);
+    }
     let approval = Approval {
         id: ApprovalId::new(),
         session: run.session,
@@ -69,6 +103,10 @@ pub(super) fn begin(
             ApprovalState::Approved
         },
         source,
+        choice,
+        reason: None,
+        prefix,
+        can_remember,
     };
     let exists: bool = transaction
         .query_row(
@@ -83,8 +121,8 @@ pub(super) fn begin(
             "tool call already requested approval",
         ));
     }
-    transaction.execute("INSERT INTO agent_approvals(id,turn,call,body,request,claimed) VALUES(?1,?2,?3,?4,?5,0)",
-        params![approval.id.to_string(), turn.to_string(), call, encode(&approval)?, RequestId::new().to_string()]).map_err(storage_error)?;
+    transaction.execute("INSERT INTO agent_approvals(id,turn,call,body,binding,request,claimed) VALUES(?1,?2,?3,?4,?5,?6,0)",
+        params![approval.id.to_string(), turn.to_string(), call, encode(&approval)?, encode(&binding)?, RequestId::new().to_string()]).map_err(storage_error)?;
     let envelope = changed(&transaction, database.node, run.session)?;
     transaction.commit().map_err(storage_error)?;
     let _ = events.send(envelope);
@@ -109,29 +147,79 @@ pub(in crate::store) fn resolve(
             "approval belongs to another session",
         ));
     }
-    let state = match decision {
-        Decision::Approve => ApprovalState::Approved,
-        Decision::Deny => ApprovalState::Denied,
-    };
-    if approval.state == state {
-        return Ok(approval);
-    }
     if approval.state != ApprovalState::Pending {
+        if matches_decision(&approval, &decision) {
+            return Ok(approval);
+        }
         return Err(Fault::new(
             ErrorCode::Conflict,
             "approval has already closed",
         ));
     }
-    active(db, approval.turn)?;
+    let (state, choice, reason) = match decision {
+        Decision::Approve => (ApprovalState::Approved, Some(ApprovalChoice::Once), None),
+        Decision::Deny => (ApprovalState::Denied, None, None),
+        Decision::ApproveSession => (ApprovalState::Approved, Some(ApprovalChoice::Session), None),
+        Decision::ApprovePrefix(prefix) => {
+            let request = request(db, &approval)?;
+            let binding = rules::read(db, id)?
+                .ok_or_else(|| Fault::invalid("tool approval cannot remember a prefix"))?;
+            let command = rules::command(&binding, &request)
+                .ok_or_else(|| Fault::invalid("tool approval has no shell command"))?;
+            let prefix = prefix::select(command, &prefix)?;
+            (
+                ApprovalState::Approved,
+                Some(ApprovalChoice::Prefix(prefix)),
+                None,
+            )
+        }
+        Decision::DenyWithReason(reason) => {
+            results::validate_reason(&reason)?;
+            (ApprovalState::Denied, None, Some(reason))
+        }
+    };
+    let run = active(db, approval.turn)?;
+    if let Some(choice @ (ApprovalChoice::Session | ApprovalChoice::Prefix(_))) = &choice {
+        if !approval.can_remember || approval.source != ApprovalSource::User {
+            return Err(Fault::invalid("tool approval cannot be remembered"));
+        }
+        let binding = rules::read(db, id)?
+            .ok_or_else(|| Fault::invalid("tool approval has no captured owner"))?;
+        rules::validate(db, approval.turn, &request(db, &approval)?, &binding)?;
+        rules::insert(db, &run, &binding, choice, id)?;
+    }
     approval.state = state;
+    approval.choice = choice;
+    approval.reason = reason;
     put(db, &approval)?;
     Ok(approval)
+}
+
+fn matches_decision(approval: &Approval, decision: &Decision) -> bool {
+    let (state, choice, reason) = match decision {
+        Decision::Approve => (ApprovalState::Approved, Some(ApprovalChoice::Once), None),
+        Decision::ApproveSession => (ApprovalState::Approved, Some(ApprovalChoice::Session), None),
+        Decision::ApprovePrefix(value) => {
+            let Some(words) = prefix::words(value) else {
+                return false;
+            };
+            (
+                ApprovalState::Approved,
+                Some(ApprovalChoice::Prefix(words.join(" "))),
+                None,
+            )
+        }
+        Decision::Deny => (ApprovalState::Denied, None, None),
+        Decision::DenyWithReason(value) => (ApprovalState::Denied, None, Some(value.as_str())),
+    };
+    approval.state == state && approval.choice == choice && approval.reason.as_deref() == reason
 }
 
 pub(super) fn authorize(
     db: &mut Connection,
     turn: TurnId,
     request: &ToolConfirmationRequest,
+    prepared: Option<&Command>,
 ) -> Result<RequestId, Fault> {
     let transaction = db.transaction().map_err(storage_error)?;
     active(&transaction, turn)?;
@@ -174,6 +262,7 @@ pub(super) fn authorize(
             "tool arguments differ from the approved call",
         ));
     }
+    rules::check_prepared(&approval, prepared)?;
     transaction
         .execute(
             "UPDATE agent_approvals SET claimed=1 WHERE id=?1",
@@ -251,4 +340,29 @@ fn put(db: &Connection, approval: &Approval) -> Result<(), Fault> {
     )
     .map_err(storage_error)?;
     Ok(())
+}
+
+pub(super) fn request(
+    db: &Connection,
+    approval: &Approval,
+) -> Result<ToolConfirmationRequest, Fault> {
+    let body: Vec<u8> = db
+        .query_row(
+            "SELECT body FROM agent_events WHERE turn=?1 AND id=?2",
+            params![approval.turn.to_string(), approval.entry],
+            |row| row.get(0),
+        )
+        .map_err(storage_error)?;
+    let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
+    let Some(adk_core::Part::FunctionCall { id, name, args, .. }) = event
+        .content()
+        .and_then(|content| content.parts.get(approval.index))
+    else {
+        return Err(Fault::invalid("approval has no canonical tool call"));
+    };
+    Ok(ToolConfirmationRequest {
+        tool_name: name.clone(),
+        function_call_id: id.clone(),
+        args: args.clone(),
+    })
 }

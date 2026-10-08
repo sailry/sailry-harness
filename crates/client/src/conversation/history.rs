@@ -192,18 +192,7 @@ pub(super) fn merge(current: &mut Page, incoming: Page, keep_current: bool) -> R
             .iter_mut()
             .find(|previous| previous.id == approval.id)
         {
-            if previous.turn != approval.turn
-                || previous.entry != approval.entry
-                || previous.index != approval.index
-                || previous.source != approval.source
-                || previous.state != conversation::ApprovalState::Pending
-                    && approval.state != conversation::ApprovalState::Pending
-                    && previous.state != approval.state
-            {
-                return Err(sailry_protocol::Fault::invalid(
-                    "approval identity or terminal decision changed during pagination",
-                ));
-            }
+            super::projection::approvals::check_transition(previous, &approval, keep_current)?;
             if !keep_current {
                 *previous = approval;
             }

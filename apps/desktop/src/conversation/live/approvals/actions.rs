@@ -10,6 +10,7 @@ pub(in crate::conversation::live) struct Actions {
     pub(in crate::conversation::live) error: Option<&'static str>,
     task: Option<Task<()>>,
     pub(super) children: BTreeMap<SessionId, super::watch::Child>,
+    pub(super) drafts: BTreeMap<ApprovalId, super::draft::Draft>,
 }
 
 impl Actions {
@@ -34,25 +35,28 @@ impl Actions {
             self.open = false;
         }
         self.observed = pending;
+        let attempted = self
+            .attempt
+            .as_ref()
+            .and_then(|request| match &request.command {
+                Command::ResolveApproval { approval, .. } => Some(*approval),
+                _ => None,
+            });
+        self.drafts
+            .retain(|id, _| self.observed.contains(id) || attempted == Some(*id));
     }
 }
 
 impl View {
-    pub(in crate::conversation::live) fn resolve_approval(
-        &mut self,
-        id: ApprovalId,
-        decision: Decision,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn approval_target(&self, id: ApprovalId) -> Option<&Approval> {
         if self.readonly()
             || self.approvals.pending
             || self.approvals.attempt.is_some()
             || !self.connected()
         {
-            return;
+            return None;
         }
-        let Some(history) = std::iter::once(&self.history)
+        let history = std::iter::once(&self.history)
             .chain(self.approvals.children.values().map(|child| &child.history))
             .find(|history| {
                 history.snapshot.as_ref().is_some_and(|snapshot| {
@@ -62,21 +66,13 @@ impl View {
                         .iter()
                         .any(|approval| approval.id == id)
                 })
-            })
-        else {
-            return;
-        };
-        let Some(snapshot) = &history.snapshot else {
-            return;
-        };
-        let Some(approval) = snapshot
+            })?;
+        let snapshot = history.snapshot.as_ref()?;
+        let approval = snapshot
             .page
             .approvals
             .iter()
-            .find(|approval| approval.id == id && approval.state == ApprovalState::Pending)
-        else {
-            return;
-        };
+            .find(|approval| approval.id == id && approval.state == ApprovalState::Pending)?;
         if !history.connected
             || !snapshot
                 .page
@@ -84,10 +80,34 @@ impl View {
                 .iter()
                 .any(|run| run.turn == approval.turn && run.status == Status::Running)
         {
-            return;
+            return None;
         }
+        Some(approval)
+    }
+
+    pub(in crate::conversation::live) fn resolve_approval(
+        &mut self,
+        id: ApprovalId,
+        decision: Decision,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(approval) = self.approval_target(id) else {
+            return;
+        };
+        match &decision {
+            Decision::ApproveSession if !approval.can_remember => return,
+            Decision::ApprovePrefix(prefix)
+                if !approval.can_remember || approval.prefix.as_ref() != Some(prefix) =>
+            {
+                return;
+            }
+            Decision::DenyWithReason(reason) if reason.trim().is_empty() => return,
+            _ => {}
+        }
+        let session = approval.session;
         self.approvals.attempt = Some(self.binding.client.prepare(Command::ResolveApproval {
-            session: approval.session,
+            session,
             approval: id,
             decision,
         }));
@@ -121,13 +141,25 @@ impl View {
             .spawn(async move { client.execute(request).await });
         self.approvals.task = Some(cx.spawn_in(window, async move |view, cx| {
             let result = job.await;
-            let _ = view.update_in(cx, |view, _, cx| {
+            let _ = view.update_in(cx, |view, window, cx| {
                 view.approvals.pending = false;
                 match result {
                     Ok(Ok(Output::Approval(value)))
                         if value.id == approval && value.session == session =>
                     {
                         view.approvals.attempt = None;
+                        view.approvals.drafts.remove(&approval);
+                        let message = tr(if value.state == ApprovalState::Denied {
+                            "approval_rejected"
+                        } else {
+                            "approval_approved"
+                        });
+                        crate::feedback::toast(
+                            window,
+                            message.clone(),
+                            gpui_kit::component::notification::Notification::success(message),
+                            cx,
+                        );
                     }
                     Ok(Err(error)) => {
                         view.approvals.error = Some(match error.code {

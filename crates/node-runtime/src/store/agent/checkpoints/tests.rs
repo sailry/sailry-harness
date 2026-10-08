@@ -89,8 +89,14 @@ fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Request {
         &fixture.events,
     )
     .unwrap();
-    let approval =
-        approvals::begin(&mut fixture.database, turn, &authorization, &fixture.events).unwrap();
+    let approval = approvals::begin(
+        &mut fixture.database,
+        turn,
+        &authorization,
+        None,
+        &fixture.events,
+    )
+    .unwrap();
     approvals::resolve(
         &fixture.database.connection,
         fixture.session,
@@ -98,7 +104,8 @@ fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Request {
         Decision::Approve,
     )
     .unwrap();
-    let id = approvals::authorize(&mut fixture.database.connection, turn, &authorization).unwrap();
+    let id =
+        approvals::authorize(&mut fixture.database.connection, turn, &authorization, None).unwrap();
     let session =
         crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
     let mut request = Request::new(fixture.database.node, command);

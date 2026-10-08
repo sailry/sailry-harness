@@ -134,6 +134,7 @@ impl Tool for Bound {
                             function_call_id: Some(context.function_call_id().into()),
                             args: arguments,
                         },
+                        Some(request.command.clone()),
                     )
                     .await?;
             }

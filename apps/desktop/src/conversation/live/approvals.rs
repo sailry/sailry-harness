@@ -1,6 +1,7 @@
 use super::*;
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
+    input::Textarea,
     popover::Popover,
     scroll::ScrollableElement,
 };
@@ -8,10 +9,12 @@ use gpui_kit::prelude::FluentBuilder as _;
 use sailry_client::conversation::tools::Call;
 use sailry_protocol::{
     ApprovalId,
-    conversation::{ApprovalState, Decision, Page},
+    conversation::{Approval, ApprovalState, Decision, Page},
 };
 
 mod actions;
+mod choices;
+mod draft;
 #[cfg(test)]
 mod tests;
 mod watch;
@@ -136,42 +139,26 @@ impl View {
                                 .child(description),
                         )
                     })
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .pt_2()
-                            .justify_end()
-                            .flex_shrink_0()
-                            .child(
-                                Button::new(format!("approval-reject-{id}"))
-                                    .ghost()
-                                    .small()
-                                    .rounded_full()
-                                    .min_w_12()
-                                    .label(tr("approval_reject"))
-                                    .disabled(disabled)
-                                    .debug_selector(move || format!("live-approval-reject-{id}"))
-                                    .on_click(cx.listener(move |view, _, window, cx| {
-                                        view.resolve_approval(id, Decision::Deny, window, cx)
-                                    })),
+                    .when_some(
+                        self.approvals.drafts.get(&id).filter(|draft| draft.editing),
+                        |row, draft| {
+                            row.child(
+                                div()
+                                    .debug_selector(move || format!("live-approval-reason-{id}"))
+                                    .child(
+                                        Textarea::new(&draft.input)
+                                            .small()
+                                            .aria_label(tr("approval_reason"))
+                                            .disabled(disabled),
+                                    ),
                             )
-                            .child(
-                                Button::new(format!("approval-approve-{id}"))
-                                    .when(position == 0, |button| button.primary())
-                                    .small()
-                                    .rounded_full()
-                                    .min_w_12()
-                                    .label(tr("approval_approve"))
-                                    .disabled(disabled)
-                                    .debug_selector(move || format!("live-approval-approve-{id}"))
-                                    .on_click(cx.listener(move |view, _, window, cx| {
-                                        view.resolve_approval(id, Decision::Approve, window, cx)
-                                    })),
-                            ),
+                        },
                     )
+                    .child(self.decision_controls(approval, position == 0, disabled, cx))
                     .debug_selector(move || format!("live-approval-request-{id}"))
                     .into_any_element()
-            });
+            })
+            .collect::<Vec<_>>();
         let heading = if calls.is_empty() {
             tr("approval_receipt")
         } else {

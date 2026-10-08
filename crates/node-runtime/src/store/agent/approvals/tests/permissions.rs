@@ -209,18 +209,28 @@ fn consumes_automatic_authority_once() {
         assert_eq!(approval.source, source);
         let mut changed = fixture.request.clone();
         changed.args["text"] = json!("unapproved content");
-        assert!(authorize(&mut fixture.database.connection, fixture.turn, &changed).is_err());
+        assert!(
+            authorize(
+                &mut fixture.database.connection,
+                fixture.turn,
+                &changed,
+                None
+            )
+            .is_err()
+        );
         authorize(
             &mut fixture.database.connection,
             fixture.turn,
             &fixture.request,
+            None,
         )
         .unwrap();
         assert!(
             authorize(
                 &mut fixture.database.connection,
                 fixture.turn,
-                &fixture.request
+                &fixture.request,
+                None
             )
             .is_err()
         );
