@@ -9,6 +9,9 @@ publish = false
 license = "Apache-2.0"
 
 [workspace.dependencies]
+anyhow = "=1.0.104"
+ropey = "=2.0.0-beta.1"
+percent-encoding = "=2.3.2"
 embed-resource = "=3.0.11"
 # Official Cua Driver 0.32.0; all driver packages use the unmodified release.
 cua-driver-sdk = { git = "https://github.com/trycua/cua.git", rev = "58aba84b5b83d77e7e2b0f006547699eb594e50d" }
@@ -61,6 +64,12 @@ uuid = { version = "=1.26.0", features = ["serde", "v4"] }
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
 iroh = { version = "=1.3.0", default-features = false, features = ["tls-ring"] }
 iroh-relay = { version = "=1.3.0", default-features = false, features = ["tls-ring"] }
+lsp-types = "=0.97.0"
+flate2 = "=1.1.10"
+tar = "=0.4.46"
+xz2 = "=0.1.7"
+toml = "=1.1.5"
+bytes = "=1.12.1"
 tokio-util = { version = "=0.7.19", features = ["rt", "codec"] }
 reqwest = { version = "=0.13.4", default-features = false, features = ["rustls-no-provider", "json", "stream"] }
 self_update = { version = "=1.3.0", default-features = false, features = ["async", "manifest", "checksums", "signatures", "archive-zip", "compression-zip-deflate"] }
@@ -115,16 +124,18 @@ process-wrap = { version = "=10.0.0", default-features = false, features = ["tok
 libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs.git", rev = "6111c4d72f11f0a1894cf3c5943b9ee25a6d0c61", default-features = false, features = ["kitty-graphics"] }
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO"] }
 windows = { version = "=0.62.2", features = ["Win32_System_Com", "Win32_UI_Shell"] }
-adk-browser = { git = "https://github.com/dux-web/adk-rust.git", rev = "b3e360bbf49ca39d49cccba182c0f7cb4d251970", default-features = false }
-adk-eval = { git = "https://github.com/dux-web/adk-rust.git", rev = "b3e360bbf49ca39d49cccba182c0f7cb4d251970", default-features = false }
+adk-browser = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false }
+adk-eval = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false }
 cpal = "=0.18.2"
-adk-core = { git = "https://github.com/dux-web/adk-rust.git", rev = "b3e360bbf49ca39d49cccba182c0f7cb4d251970", default-features = false }
-adk-session = { git = "https://github.com/dux-web/adk-rust.git", rev = "b3e360bbf49ca39d49cccba182c0f7cb4d251970", default-features = false }
-adk-runner = { git = "https://github.com/dux-web/adk-rust.git", rev = "b3e360bbf49ca39d49cccba182c0f7cb4d251970", default-features = false }
-adk-agent = { git = "https://github.com/dux-web/adk-rust.git", rev = "b3e360bbf49ca39d49cccba182c0f7cb4d251970", default-features = false }
-adk-model = { git = "https://github.com/dux-web/adk-rust.git", rev = "b3e360bbf49ca39d49cccba182c0f7cb4d251970", default-features = false, features = ["openai", "anthropic", "gemini", "deepseek", "opencode", "azure-ai"] }
-adk-tool = { git = "https://github.com/dux-web/adk-rust.git", rev = "b3e360bbf49ca39d49cccba182c0f7cb4d251970", default-features = false, features = ["mcp"] }
+adk-sandbox = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false, features = ["sandbox-macos", "sandbox-linux"] }
+adk-core = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false }
+adk-session = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false }
+adk-runner = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false }
+adk-agent = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false }
+adk-model = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false, features = ["openai", "anthropic", "gemini", "deepseek", "opencode", "azure-ai"] }
+adk-tool = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false, features = ["mcp"] }
 rmcp = { version = "=3.1.4", default-features = false, features = ["auth", "client", "transport-async-rw", "transport-streamable-http-client-reqwest"] }
+adk-acp = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false }
 async-trait = "=0.1.92"
 chrono = { version = "=0.4.45", features = ["serde"] }
 futures = "=0.3.34"

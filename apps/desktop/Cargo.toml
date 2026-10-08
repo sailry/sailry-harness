@@ -12,6 +12,10 @@ workload-tests = ["sailry-node-runtime/test-support"]
 embed-resource.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+ropey.workspace = true
+percent-encoding.workspace = true
+lsp-types.workspace = true
 cpal.workspace = true
 sailry-speech.workspace = true
 sailry-content.workspace = true

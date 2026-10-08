@@ -1,4 +1,4 @@
-# Source: https://github.com/dux-web/adk-rust/tree/b3e360bbf49ca39d49cccba182c0f7cb4d251970/adk-gemini
+# Source: https://github.com/dux-web/adk-rust/tree/ae14f6410e742ff84a73a7b0033a1cb77679b762/adk-gemini
 # Local patch: use the application-provided Rustls crypto provider.
 # Resolve inherited workspace fields; vendored targets contain the library only.
 
@@ -41,7 +41,7 @@ path = "src/lib.rs"
 [dependencies.adk-core]
 version = "2.2.0"
 git = "https://github.com/dux-web/adk-rust.git"
-rev = "b3e360bbf49ca39d49cccba182c0f7cb4d251970"
+rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762"
 
 [dependencies.async-stream]
 version = "0.3"

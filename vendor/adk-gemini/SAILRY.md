@@ -1,7 +1,7 @@
 # Gemini TLS dependency patch
 
 Source: `adk-gemini` from `dux-web/adk-rust` revision
-`b3e360bbf49ca39d49cccba182c0f7cb4d251970`.
+`ae14f6410e742ff84a73a7b0033a1cb77679b762`.
 The committed library source and README are unchanged. The upstream subtree's
 MIT `LICENSE` and the ADK workspace's Apache-2.0 `LICENSE-APACHE` are both retained;
 the manifest keeps its upstream Apache-2.0 declaration.

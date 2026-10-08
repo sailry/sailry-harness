@@ -1,7 +1,7 @@
 # Provider adapter patches
 
 Source: `adk-model` from `dux-web/adk-rust` revision
-`b3e360bbf49ca39d49cccba182c0f7cb4d251970`, under its retained Apache-2.0 license.
+`ae14f6410e742ff84a73a7b0033a1cb77679b762`, under its retained Apache-2.0 license.
 The existing provider patches are described in the retained Cargo manifest.
 
 The default Gemini generateContent transport now routes system-role text through

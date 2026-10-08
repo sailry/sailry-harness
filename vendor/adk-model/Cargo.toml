@@ -1,4 +1,4 @@
-# Source: https://github.com/dux-web/adk-rust/tree/b3e360bbf49ca39d49cccba182c0f7cb4d251970/adk-model
+# Source: https://github.com/dux-web/adk-rust/tree/ae14f6410e742ff84a73a7b0033a1cb77679b762/adk-model
 # Local patch: retain Responses streaming with native tools, expose stream activity,
 # recover final text/refusals without duplicating deltas, and preserve optional
 # function parameters with explicit non-strict declarations. Response headers are
@@ -20,9 +20,9 @@
 "readme" = "README.md"
 
 [dependencies]
-"adk-core" = { "version" = "2.2.0", "git" = "https://github.com/dux-web/adk-rust.git", "rev" = "b3e360bbf49ca39d49cccba182c0f7cb4d251970" }
-"adk-telemetry" = { "version" = "2.2.0", "git" = "https://github.com/dux-web/adk-rust.git", "rev" = "b3e360bbf49ca39d49cccba182c0f7cb4d251970" }
-"adk-gemini" = { "version" = "2.2.0", "optional" = true, "git" = "https://github.com/dux-web/adk-rust.git", "rev" = "b3e360bbf49ca39d49cccba182c0f7cb4d251970" }
+"adk-core" = { "version" = "2.2.0", "git" = "https://github.com/dux-web/adk-rust.git", "rev" = "ae14f6410e742ff84a73a7b0033a1cb77679b762" }
+"adk-telemetry" = { "version" = "2.2.0", "git" = "https://github.com/dux-web/adk-rust.git", "rev" = "ae14f6410e742ff84a73a7b0033a1cb77679b762" }
+"adk-gemini" = { "version" = "2.2.0", "optional" = true, "git" = "https://github.com/dux-web/adk-rust.git", "rev" = "ae14f6410e742ff84a73a7b0033a1cb77679b762" }
 "async-trait" = { "version" = "0.1" }
 "tokio" = { "version" = "1.40", "default-features" = false, "features" = ["sync", "time"] }
 "futures" = { "version" = "0.3" }
@@ -30,7 +30,7 @@
 "serde_json" = { "version" = "1.0" }
 "serde" = { "version" = "1.0", "features" = ["derive"] }
 "async-openai" = { "version" = "0.41", "optional" = true, "default-features" = false, "features" = ["rustls-no-provider", "chat-completion", "responses", "middleware"] }
-"adk-anthropic" = { "version" = "2.2.0", "optional" = true, "git" = "https://github.com/dux-web/adk-rust.git", "rev" = "b3e360bbf49ca39d49cccba182c0f7cb4d251970" }
+"adk-anthropic" = { "version" = "2.2.0", "optional" = true, "git" = "https://github.com/dux-web/adk-rust.git", "rev" = "ae14f6410e742ff84a73a7b0033a1cb77679b762" }
 "reqwest" = { "version" = "0.12", "default-features" = false, "features" = ["json", "stream", "rustls-tls-native-roots-no-provider", "multipart"], "optional" = true }
 "reqwest-openai" = { "package" = "reqwest", "version" = "0.13", "optional" = true, "default-features" = false, "features" = ["rustls-no-provider", "stream"] }
 "http" = { "version" = "1", "optional" = true }
