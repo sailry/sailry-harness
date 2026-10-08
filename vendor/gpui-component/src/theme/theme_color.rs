@@ -257,6 +257,9 @@ pub struct ThemeColor {
     pub success_active: Hsla,
     /// Switch background color.
     pub switch: Hsla,
+    /// Switch background color when checked, independent of primary buttons.
+    #[serde(default)]
+    pub switch_checked: Hsla,
     /// Switch thumb background color.
     pub switch_thumb: Hsla,
     /// Tab background color.
@@ -503,6 +506,7 @@ define_theme_tokens! {
     success_hover,
     success_active,
     switch,
+    switch_checked,
     switch_thumb,
     tab,
     tab_active,

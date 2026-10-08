@@ -52,6 +52,48 @@ fn selects_help() {
 }
 
 #[test]
+fn selects_theme_check() {
+    let path = PathBuf::from("themes/fixture");
+    let Some(Launch::CheckTheme(selected)) =
+        parse(["--check-theme".into(), path.clone().into_os_string()].into_iter()).unwrap()
+    else {
+        panic!("theme check expected")
+    };
+    assert_eq!(selected, path);
+}
+
+#[test]
+fn rejects_mixed_theme_options() {
+    for args in [
+        vec!["--check-theme"],
+        vec!["--check-theme", "fixture", "--check-theme", "other"],
+        vec!["--check-theme", "fixture", "--preview"],
+        vec!["--preview", "--check-theme", "fixture"],
+        vec![
+            "--check-theme",
+            "fixture",
+            "--relay",
+            "https://relay.example",
+        ],
+    ] {
+        assert!(parse(args.into_iter().map(OsString::from)).is_err());
+    }
+    let path = std::env::temp_dir().into_os_string();
+    assert!(
+        parse(
+            [
+                "--data-dir".into(),
+                path,
+                "--check-theme".into(),
+                "fixture".into()
+            ]
+            .into_iter()
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn rejects_ambiguous_options() {
     let path = std::env::temp_dir().into_os_string();
     for args in [

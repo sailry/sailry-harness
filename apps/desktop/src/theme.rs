@@ -10,6 +10,7 @@ use gpui_kit::{App, Global, Hsla, Window, WindowAppearance};
 
 pub(crate) mod cards;
 mod catalog;
+pub(crate) mod check;
 mod composer;
 #[cfg(test)]
 mod controls;

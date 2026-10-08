@@ -554,6 +554,9 @@ pub struct ThemeConfigColors {
     /// Switch background color.
     #[serde(rename = "switch.background")]
     pub switch: Option<SharedString>,
+    /// Checked switch background, falling back to the primary button treatment.
+    #[serde(rename = "switch.checked.background")]
+    pub switch_checked: Option<SharedString>,
     /// Switch thumb background color.
     #[serde(rename = "switch.thumb.background")]
     pub switch_thumb: Option<SharedString>,
@@ -996,6 +999,7 @@ impl ThemeColor {
         apply_background_color!(slider_bar, fallback = tokens.primary);
         apply_background_color!(slider_thumb, fallback = self.primary_foreground);
         apply_background_color!(switch, fallback = tokens.secondary_active);
+        apply_background_color!(switch_checked, fallback = tokens.button_primary);
         apply_background_color!(switch_thumb, fallback = tokens.background);
         apply_background_color!(tab, fallback = tokens.background);
         apply_background_color!(tab_active, fallback = tokens.background);
@@ -1306,6 +1310,30 @@ mod tests {
         );
         assert_ne!(theme.tokens.title_bar.background, theme.title_bar.into());
         assert_ne!(theme.tokens.status_bar.background, theme.status_bar.into());
+    }
+
+    #[test]
+    fn checked_track_is_independent() {
+        let mut config = serde_json::from_value::<ThemeConfig>(serde_json::json!({
+            "name": "Controls", "mode": "dark",
+            "colors": {
+                "button.primary.background": "#18232F",
+                "switch.checked.background": "#986C32"
+            }
+        }))
+        .unwrap();
+        let mut theme = Theme::default();
+        theme.apply_config(&std::rc::Rc::new(config.clone()));
+        assert_eq!(theme.switch_checked, try_parse_color("#986C32").unwrap());
+        assert_eq!(
+            theme.tokens.switch_checked.background,
+            theme.switch_checked.into()
+        );
+        assert_ne!(theme.switch_checked, theme.button_primary);
+
+        config.colors.switch_checked = None;
+        theme.apply_config(&std::rc::Rc::new(config));
+        assert_eq!(theme.tokens.switch_checked, theme.tokens.button_primary);
     }
 
     #[test]

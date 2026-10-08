@@ -5,6 +5,14 @@ Source: `longbridge/gpui-kit`, revision
 The Apache 2.0 license and upstream notices are retained. Workspace manifest
 inheritance is resolved in place; product dependencies use the root lockfile.
 
+The optional `switch.checked.background` semantic color separates a checked
+Switch track from primary buttons. The pinned control otherwise shares the
+primary-button treatment, making tracks indistinct in themes with dark buttons.
+Its omitted-color fallback remains the primary button treatment; explicit
+`Switch::color` overrides still take precedence. The existing unchecked track,
+thumb, geometry, disabled states, accessibility and keyboard handling remain
+owned by Kit. The theme schema test covers both independent color and fallback.
+
 The pinned Segmented Tab and TabBar use the page background for the selected
 fill, including the animated indicator, without a public color override.
 The local patch reads the existing `tab_active` / `tab_active_foreground` theme

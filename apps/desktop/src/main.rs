@@ -125,6 +125,16 @@ fn run(#[cfg(feature = "workload-tests")] workload: workload::Scenario) {
     .unwrap()
     .unwrap();
     let backend = match launch {
+        startup::Launch::CheckTheme(path) => {
+            match theme::check::run(&path) {
+                Ok(report) => println!("{report}"),
+                Err(error) => {
+                    eprintln!("sailry-desktop: {error}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
         startup::Launch::Preview => None,
         startup::Launch::Node(options) => match backend::Owner::start(options) {
             Ok(owner) => Some(owner),

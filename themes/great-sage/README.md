@@ -15,7 +15,10 @@ gold-leaf texture clipped to the button edges through `button.new_session`.
 Ordinary buttons use the global Kit color tokens; they do not inherit this
 artwork slot. Tabs use translucent copper-gold selected fills and separate
 darkened tracks, including segmented controls in dialogs.
-Switch thumbs use warm ivory against distinct dark tracks in both variants.
+Switch thumbs use warm ivory against distinct tracks in both variants. The
+checked track uses `switch.checked.background`: copper gold in dark mode,
+separate from the dark primary buttons. The unchecked dark track is lighter
+warm bronze for contrast against settings panels.
 Send and Stop use ivory fills and dark Kit vector glyphs in dark mode, reversing
 to dark fills and ivory glyphs in light mode. Their colors are independent of
 ordinary buttons. Kit supplies hover, pressed and disabled states.

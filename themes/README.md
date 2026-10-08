@@ -133,3 +133,54 @@ Tabs use `tab.background`, `tab.foreground`, `tab.active.background`,
 `tab.active.foreground`, `tab_bar.background` and
 `tab_bar.segmented.background`. The Great Sage package supplies both normal and
 selected text colors, translucent bars and gold selection fills in both modes.
+
+Switches expose `switch.background` for the unchecked track,
+`switch.checked.background` for the checked track and
+`switch.thumb.background` for the thumb. Omitting the checked-track color uses
+the primary button treatment. This allows bright switch tracks alongside dark
+primary buttons without replacing the Kit control or its interactions.
+
+## Checking packages
+
+Use an existing Desktop binary to validate any theme directory or exported ZIP:
+
+```sh
+./target/debug/sailry-desktop --check-theme /path/to/theme
+./target/debug/sailry-desktop --check-theme /path/to/theme.zip
+```
+
+This read-only command uses the same strict parser and image decoder as Import:
+both variants, supported Kit fields and decoration slots, local resource paths,
+licenses, image decoding and resource budgets. It exits with status 1 on failure
+and does not create a window, start a Node, install the theme or open a profile.
+Use the installed application's binary instead of `target/debug` when available.
+Theme edits do not require rebuilding that binary; changes to the theme contract
+require an updated Sailry build.
+
+The shared audit adds contrast checks for explicit solid hex colors, including
+normal, hover and pressed actions, card text, modal controls and switch tracks:
+
+```sh
+python3 scripts/check-theme.py /path/to/theme --desktop /path/to/sailry-desktop
+```
+
+It accepts multiple theme directories. Without `--desktop`, it audits palettes
+only and explicitly reports that the import schema has not been checked.
+Omitted colors, named colors and gradients remain Kit-resolved; unresolved pairs
+are counted, not treated as passing contrast checks. Measurements use configured
+colors and default panel tint, not rendered UI or user opacity preferences.
+
+Optional image audits require Pillow. They verify referenced image files and
+budgets and sample wallpaper contrast behind the default main-panel tint:
+
+```sh
+python3 -m venv /tmp/sailry-theme-checks
+/tmp/sailry-theme-checks/bin/pip install -r scripts/theme-requirements.txt
+/tmp/sailry-theme-checks/bin/python scripts/check-theme.py /path/to/theme --artwork --desktop /path/to/sailry-desktop
+```
+
+The main repository owns generic loader, interaction and audit tests using
+temporary fixtures. A separate theme repository can invoke these commands by
+absolute path without copying tests. Package-specific checks are optional and
+should cover only distinctive artwork/design requirements. Package checks do
+not establish native interaction or visual acceptance.

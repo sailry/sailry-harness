@@ -3,6 +3,7 @@ use std::{ffi::OsString, path::PathBuf};
 
 pub(crate) enum Launch {
     Preview,
+    CheckTheme(PathBuf),
     Node(Options),
 }
 
@@ -22,16 +23,21 @@ pub(crate) fn parse(args: impl Iterator<Item = OsString>) -> Result<Option<Launc
             return Err("--help cannot be combined with other options".into());
         }
         println!(
-            "Usage: sailry-desktop [--data-dir <absolute private directory>] [--relay <HTTPS URL> ...]\n       sailry-desktop --preview\nDefaults to ~/.sailry. Preview does not start a Node or open user data."
+            "Usage: sailry-desktop [--data-dir <absolute private directory>] [--relay <HTTPS URL> ...]\n       sailry-desktop --preview\n       sailry-desktop --check-theme <directory or ZIP>\nDefaults to ~/.sailry. Preview and theme checks do not start a Node or open user data."
         );
         return Ok(None);
     }
     let mut data_dir = None;
     let mut relays = Vec::new();
     let mut preview = false;
+    let mut theme = None;
     while let Some(flag) = args.next() {
         if flag == "--preview" && !preview {
             preview = true;
+        } else if flag == "--check-theme" && theme.is_none() {
+            theme = Some(PathBuf::from(
+                args.next().ok_or("--check-theme requires a path")?,
+            ));
         } else if flag == "--data-dir" && data_dir.is_none() {
             let path = PathBuf::from(args.next().ok_or("--data-dir requires a path")?);
             if !path.is_absolute() {
@@ -48,6 +54,12 @@ pub(crate) fn parse(args: impl Iterator<Item = OsString>) -> Result<Option<Launc
         } else {
             return Err("unknown or repeated option; use --help for usage".into());
         }
+    }
+    if let Some(path) = theme {
+        if preview || data_dir.is_some() || !relays.is_empty() {
+            return Err("--check-theme cannot be combined with launch options".into());
+        }
+        return Ok(Some(Launch::CheckTheme(path)));
     }
     if preview {
         if data_dir.is_some() || !relays.is_empty() {

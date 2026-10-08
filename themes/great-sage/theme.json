@@ -3,7 +3,7 @@
   "id": "great-sage",
   "name": "Great Sage",
   "description": "A theme inspired by the Great Sage, with golden accents and ink landscapes",
-  "package_version": "0.1.3",
+  "package_version": "0.1.4",
   "license": {
     "author": "Sailry",
     "name": "Apache-2.0",
@@ -16,7 +16,7 @@
       "colors": {
         "background": "#F0E6D2",
         "foreground": "#32281E",
-        "muted.foreground": "#776958",
+        "muted.foreground": "#736351",
         "title_bar.background": "#EDE3D2",
         "sidebar.background": "#F0E7D9",
         "sidebar.foreground": "#32281E",
@@ -61,7 +61,8 @@
         "secondary.foreground": "#533C1D",
         "secondary.hover.background": "#DCC59A99",
         "switch.thumb.background": "#FFF8ED",
-        "switch.background": "#796D5F"
+        "switch.background": "#796D5F",
+        "switch.checked.background": "#8B641F"
       }
     },
     "composer": {
@@ -303,7 +304,8 @@
         "secondary.foreground": "#E5D0A3",
         "secondary.hover.background": "#6B502C70",
         "switch.thumb.background": "#FFF8ED",
-        "switch.background": "#65594B"
+        "switch.background": "#87705A",
+        "switch.checked.background": "#9A773F"
       }
     },
     "composer": {

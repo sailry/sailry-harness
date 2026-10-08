@@ -98,7 +98,7 @@ impl Switch {
     }
 
     /// Set the background color of the switch when checked.
-    /// Defaults to `cx.theme().button_primary`.
+    /// Defaults to `cx.theme().switch_checked`.
     pub fn color(mut self, color: impl Into<Hsla>) -> Self {
         self.color = Some(color.into());
         self
@@ -172,7 +172,7 @@ impl RenderOnce for Switch {
         let checked_bg = self
             .color
             .map(Background::from)
-            .unwrap_or(cx.theme().tokens.button_primary.into());
+            .unwrap_or(cx.theme().tokens.switch_checked.into());
         let unchecked_bg: Background = cx.theme().tokens.switch.into();
         // GPUI's element opacity multiplies each primitive's alpha instead of
         // compositing the subtree as one group, so fading the whole control
