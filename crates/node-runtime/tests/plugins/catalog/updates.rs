@@ -59,7 +59,10 @@ async fn checks_one_index_without_acquiring_packages() {
             assert!(packages.contains(&report.current));
             assert!(!report.manual);
             if report.current.name == "reminders" {
-                assert_eq!(report.available, Some(Candidate::Official(listing.clone())));
+                assert_eq!(
+                    report.available,
+                    Some(Candidate::Official(Box::new(listing.clone())))
+                );
             } else {
                 assert!(report.available.is_none());
             }

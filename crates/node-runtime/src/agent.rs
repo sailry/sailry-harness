@@ -99,10 +99,10 @@ async fn run(
     if main {
         // Background delegation belongs to this session across guidance
         // continuations. Explicit Stop still cancels and settles its work.
-        if token.is_cancelled() || result.is_err() {
-            if !ingress.pending_guidance(turn).await.unwrap_or(false) {
-                controls.cancel_children(session);
-            }
+        if (token.is_cancelled() || result.is_err())
+            && !ingress.pending_guidance(turn).await.unwrap_or(false)
+        {
+            controls.cancel_children(session);
         }
         while controls.has_children(session) {
             if !token.is_cancelled() && ingress.yield_guidance(turn).await.unwrap_or(false) {

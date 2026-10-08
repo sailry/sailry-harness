@@ -59,18 +59,19 @@ async fn rejects_unverified_installer_without_replay() {
         assert_eq!(client.execute(request).await.unwrap_err(), fault);
         assert!(!directory.path().join("installer-executed").exists());
         assert!(!directory.path().join(".sailry-host").exists());
-        let commands = server.commands.lock().unwrap();
-        let installation = commands
-            .iter()
-            .filter(|command| command.contains("releases/download/v"))
-            .collect::<Vec<_>>();
-        assert_eq!(installation.len(), 1);
-        assert!(installation[0].contains(&format!(
-            "install_version='{}'",
-            env!("SAILRY_HOST_VERSION")
-        )));
-        assert!(!commands.iter().any(|command| command.contains("cat >")));
-        drop(commands);
+        {
+            let commands = server.commands.lock().unwrap();
+            let installation = commands
+                .iter()
+                .filter(|command| command.contains("releases/download/v"))
+                .collect::<Vec<_>>();
+            assert_eq!(installation.len(), 1);
+            assert!(installation[0].contains(&format!(
+                "install_version='{}'",
+                env!("SAILRY_HOST_VERSION")
+            )));
+            assert!(!commands.iter().any(|command| command.contains("cat >")));
+        }
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
         server.close().await;

@@ -304,7 +304,7 @@ fn protects_counts_and_staging_paths(cx: &mut TestAppContext) {
             panic!("index update expected")
         };
         assert_eq!(*worktree, fixture.session.worktree);
-        assert_eq!(captured, &[long.clone()]);
+        assert_eq!(captured, std::slice::from_ref(&long));
         assert_eq!(*operation, sailry_protocol::GitIndexChange::Stage);
         assert!(mutations[admitted].plugin.as_ref().is_some_and(|context| {
             context.package.name == "git" && context.worktree == fixture.binding.worktree

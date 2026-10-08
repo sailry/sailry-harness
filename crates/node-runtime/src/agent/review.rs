@@ -18,30 +18,6 @@ pub(super) fn requested(event: &adk_core::Event) -> bool {
         })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn excludes_invalid_model_requests() {
-        for prompt in ["", " ", "A concrete plan"] {
-            let mut event = adk_core::Event::new("fixture");
-            event.set_content(adk_core::Content {
-                role: "model".into(),
-                parts: vec![adk_core::Part::FunctionCall {
-                    id: Some("review".into()),
-                    name: "ask_user".into(),
-                    args: serde_json::json!({"prompt":prompt,"input":{"kind":"plan"}}),
-                    thought_signature: None,
-                }],
-            });
-            assert_eq!(requested(&event), !prompt.trim().is_empty());
-            event.llm_response.partial = true;
-            assert!(!requested(&event));
-        }
-    }
-}
-
 pub(super) async fn wait(
     ingress: &Arc<Ingress>,
     invocation: &Invocation,
@@ -77,5 +53,29 @@ pub(super) async fn wait(
         biased;
         _ = stop.cancelled() => Ok(()),
         result = work => result,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn excludes_invalid_model_requests() {
+        for prompt in ["", " ", "A concrete plan"] {
+            let mut event = adk_core::Event::new("fixture");
+            event.set_content(adk_core::Content {
+                role: "model".into(),
+                parts: vec![adk_core::Part::FunctionCall {
+                    id: Some("review".into()),
+                    name: "ask_user".into(),
+                    args: serde_json::json!({"prompt":prompt,"input":{"kind":"plan"}}),
+                    thought_signature: None,
+                }],
+            });
+            assert_eq!(requested(&event), !prompt.trim().is_empty());
+            event.llm_response.partial = true;
+            assert!(!requested(&event));
+        }
     }
 }

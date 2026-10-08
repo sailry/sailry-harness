@@ -260,7 +260,10 @@ async fn preserves_gemini_summary_instructions() {
                     .count(),
                 1
             );
-            assert_eq!(users(ModelApi::Gemini, &requests[0].body), [task.clone()]);
+            assert_eq!(
+                users(ModelApi::Gemini, &requests[0].body),
+                std::slice::from_ref(&task)
+            );
             let summary = &requests[1];
             assert_eq!(
                 summary.path,

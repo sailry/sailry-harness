@@ -39,11 +39,11 @@ impl Render for Harness {
     }
 }
 
-fn open<'a>(
-    cx: &'a mut TestAppContext,
+fn open(
+    cx: &mut TestAppContext,
     binding: Binding,
     session: Session,
-) -> (Entity<View>, &'a mut VisualTestContext) {
+) -> (Entity<View>, &mut VisualTestContext) {
     let mut entity = None;
     let (_, visual) = cx.add_window_view(|window, cx| {
         let view = cx.new(|cx| View::new(binding, Some(session), window, cx));

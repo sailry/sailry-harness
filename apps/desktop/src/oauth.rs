@@ -19,7 +19,7 @@ pub(crate) fn listen(application: &Application) -> mpsc::UnboundedReceiver<()> {
 pub(crate) fn init(mut receiver: mpsc::UnboundedReceiver<()>, cx: &mut App) {
     cx.spawn(async move |cx| {
         while receiver.next().await.is_some() {
-            let _ = cx.update(activate);
+            cx.update(activate);
         }
     })
     .detach();

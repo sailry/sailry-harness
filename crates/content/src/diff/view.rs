@@ -147,6 +147,9 @@ impl State {
     pub fn len(&self) -> usize {
         self.data.rows.len()
     }
+    pub fn is_empty(&self) -> bool {
+        self.data.rows.is_empty()
+    }
     fn moved(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         if !self.dragging {
             return;

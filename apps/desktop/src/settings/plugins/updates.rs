@@ -549,8 +549,8 @@ async fn inspect(
     Ok(Entry {
         current: report.current,
         candidate: report.available.map(|candidate| match candidate {
-            checks::Candidate::Package(info) => Candidate::Node(info),
-            checks::Candidate::Official(entry) => Candidate::Official(entry),
+            checks::Candidate::Package(info) => Candidate::Node(*info),
+            checks::Candidate::Official(entry) => Candidate::Official(*entry),
         }),
         manual: report.manual,
     })

@@ -133,15 +133,16 @@ async fn retains_capture_through_refresh() {
         assert_eq!(captured(&fixture, &next).oauth, Some(current));
         assert_eq!(answer(&page, next.id), "Authorized Codex response");
         assert_eq!(exchanges.load(Ordering::SeqCst), 2);
-        let requests = server.requests.lock().unwrap();
-        assert_eq!(
-            requests
-                .iter()
-                .filter(|request| request.path == "/responses")
-                .count(),
-            4
-        );
-        drop(requests);
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|request| request.path == "/responses")
+                    .count(),
+                4
+            );
+        }
         fixture.close().await;
     }
 }

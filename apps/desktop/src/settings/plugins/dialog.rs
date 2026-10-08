@@ -10,6 +10,8 @@ use sailry_protocol::{
 mod tests;
 pub(super) mod upload;
 
+type Removed = Box<dyn FnOnce(&mut Window, &mut App)>;
+
 pub(super) struct Editor {
     binding: Binding,
     original: Option<Summary>,
@@ -24,7 +26,7 @@ pub(super) struct Editor {
     request: Option<Request>,
     pending: bool,
     closed: bool,
-    on_removed: Option<Box<dyn FnOnce(&mut Window, &mut App)>>,
+    on_removed: Option<Removed>,
     task: Option<Task<()>>,
 }
 

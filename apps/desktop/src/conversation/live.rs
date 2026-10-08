@@ -219,10 +219,8 @@ impl View {
             })
         });
         let input_events = cx.subscribe_in(&input, window, |view, _, event, window, cx| {
-            if matches!(event, InputEvent::PressEnter { shift: false, .. }) {
-                if !view.readonly() {
-                    view.send(window, cx);
-                }
+            if matches!(event, InputEvent::PressEnter { shift: false, .. }) && !view.readonly() {
+                view.send(window, cx);
             }
             cx.notify();
         });

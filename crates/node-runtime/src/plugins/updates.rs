@@ -72,7 +72,7 @@ impl Host {
                 .ok_or_else(|| Fault::new(ErrorCode::NotFound, "official plugin is unavailable"))?;
             let available = newer(entry.version.as_deref(), current.summary.version.as_deref())?;
             return Ok(Report {
-                available: available.then(|| Candidate::Official(entry.clone())),
+                available: available.then(|| Candidate::Official(Box::new(entry.clone()))),
                 current: current.summary,
                 manual: false,
             });
@@ -140,7 +140,7 @@ impl Host {
         candidate.origin = Some(origin);
         Ok(Report {
             available: (candidate.summary.digest != current.summary.digest)
-                .then_some(Candidate::Package(candidate)),
+                .then_some(Candidate::Package(Box::new(candidate))),
             current: current.summary,
             manual: false,
         })

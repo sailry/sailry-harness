@@ -21,33 +21,6 @@ pub(crate) fn turn_result(status: Status) -> Option<Result<(), Fault>> {
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn distinguishes_termination() {
-        assert_eq!(turn_result(Status::Completed), Some(Ok(())));
-        assert_eq!(
-            turn_result(Status::Continued),
-            Some(Err(Fault::new(
-                ErrorCode::OutcomeUnknown,
-                "task turn continued in another invocation",
-            )))
-        );
-        assert_eq!(
-            turn_result(Status::Cancelled),
-            Some(Err(Fault::new(
-                ErrorCode::Cancelled,
-                "task turn was cancelled",
-            )))
-        );
-        for status in [Status::Queued, Status::Running, Status::Stopping] {
-            assert_eq!(turn_result(status), None);
-        }
-    }
-}
-
 pub(super) async fn wait(
     ingress: &Ingress,
     completion: Completion,
@@ -116,6 +89,33 @@ pub(super) async fn wait(
             {
                 return result.map_err(|error| run.error.unwrap_or(error));
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn distinguishes_termination() {
+        assert_eq!(turn_result(Status::Completed), Some(Ok(())));
+        assert_eq!(
+            turn_result(Status::Continued),
+            Some(Err(Fault::new(
+                ErrorCode::OutcomeUnknown,
+                "task turn continued in another invocation",
+            )))
+        );
+        assert_eq!(
+            turn_result(Status::Cancelled),
+            Some(Err(Fault::new(
+                ErrorCode::Cancelled,
+                "task turn was cancelled",
+            )))
+        );
+        for status in [Status::Queued, Status::Running, Status::Stopping] {
+            assert_eq!(turn_result(status), None);
         }
     }
 }

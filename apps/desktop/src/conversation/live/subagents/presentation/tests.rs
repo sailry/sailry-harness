@@ -63,10 +63,7 @@ fn children(count: usize) -> Vec<Child> {
         .collect()
 }
 
-fn mount<'a>(
-    cx: &'a mut TestAppContext,
-    count: usize,
-) -> (Entity<Harness>, &'a mut VisualTestContext) {
+fn mount(cx: &mut TestAppContext, count: usize) -> (Entity<Harness>, &mut VisualTestContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::theme::init(cx);
@@ -82,11 +79,11 @@ fn mount<'a>(
     (entity.unwrap(), visual)
 }
 
-fn mount_group<'a>(
-    cx: &'a mut TestAppContext,
+fn mount_group(
+    cx: &mut TestAppContext,
     binding: Binding,
     children: Vec<Child>,
-) -> (Entity<Group>, &'a mut VisualTestContext) {
+) -> (Entity<Group>, &mut VisualTestContext) {
     let mut entity = None;
     let (_, visual) = cx.add_window_view(|window, cx| {
         let owner = cx.new(|cx| View::new(binding, None, window, cx));
@@ -169,7 +166,7 @@ fn shows_each_session_once(cx: &mut TestAppContext) {
                 };
                 let strip = visual
                     .debug_bounds(Box::leak(
-                        format!("live-subagent-icons-{}", key(&selected[0])).into_boxed_str(),
+                        format!("live-subagent-icons-{}", key(selected[0])).into_boxed_str(),
                     ))
                     .unwrap();
                 assert_eq!(

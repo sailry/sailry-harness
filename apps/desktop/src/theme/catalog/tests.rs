@@ -96,10 +96,7 @@ mod slider {
             let builtin = cx.global::<Catalog>().packages[0].clone();
             for mode in [ThemeMode::Light, ThemeMode::Dark] {
                 Theme::change(mode, None, cx);
-                let original = (
-                    cx.theme().tokens.slider_bar.clone(),
-                    cx.theme().tokens.slider_thumb.clone(),
-                );
+                let original = (cx.theme().tokens.slider_bar, cx.theme().tokens.slider_thumb);
                 apply_colors(package.clone(), None, cx);
                 let expected = if mode.is_dark() { "#ddbc70" } else { "#b58128" };
                 assert_eq!(cx.theme().primary, Hsla::parse_hex(expected).unwrap());

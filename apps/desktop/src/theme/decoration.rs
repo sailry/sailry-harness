@@ -110,44 +110,6 @@ fn tiles(
     })
 }
 
-#[cfg(test)]
-mod tiling {
-    use super::tiles;
-    use gpui_kit::{Bounds, point, px, size};
-
-    #[test]
-    fn covers_resized_bounds_without_stretching() {
-        let origin = point(px(11.), px(17.));
-        let tile = size(px(64.), px(32.));
-        for dimensions in [size(px(130.), px(65.)), size(px(193.), px(99.))] {
-            let bounds = Bounds::new(origin, dimensions);
-            let targets = tiles(bounds, tile).collect::<Vec<_>>();
-            let columns = (dimensions.width / tile.width).ceil() as usize;
-            let rows = (dimensions.height / tile.height).ceil() as usize;
-            assert_eq!(targets.len(), columns * rows);
-            assert_eq!(targets[0].origin, origin);
-            for (index, target) in targets.iter().enumerate() {
-                assert_eq!(target.size, tile);
-                assert_eq!(
-                    target.left(),
-                    origin.x + tile.width * (index % columns) as f32
-                );
-                assert_eq!(
-                    target.top(),
-                    origin.y + tile.height * (index / columns) as f32
-                );
-            }
-            let last = targets.last().unwrap();
-            assert!(last.right() >= bounds.right() && last.bottom() >= bounds.bottom());
-            assert!(last.left() < bounds.right() && last.top() < bounds.bottom());
-        }
-        assert_eq!(
-            tiles(Bounds::new(origin, size(px(0.), px(0.))), tile).count(),
-            0
-        );
-    }
-}
-
 pub(super) fn corner(slot: &'static str, cx: &App) -> Option<AnyElement> {
     let (decoration, image) = selected(slot, cx)?;
     Some(
@@ -263,4 +225,42 @@ pub fn brand(size: Pixels, cx: &App) -> Option<AnyElement> {
             .child(picture(decoration, image))
             .into_any_element(),
     )
+}
+
+#[cfg(test)]
+mod tiling {
+    use super::tiles;
+    use gpui_kit::{Bounds, point, px, size};
+
+    #[test]
+    fn covers_resized_bounds_without_stretching() {
+        let origin = point(px(11.), px(17.));
+        let tile = size(px(64.), px(32.));
+        for dimensions in [size(px(130.), px(65.)), size(px(193.), px(99.))] {
+            let bounds = Bounds::new(origin, dimensions);
+            let targets = tiles(bounds, tile).collect::<Vec<_>>();
+            let columns = (dimensions.width / tile.width).ceil() as usize;
+            let rows = (dimensions.height / tile.height).ceil() as usize;
+            assert_eq!(targets.len(), columns * rows);
+            assert_eq!(targets[0].origin, origin);
+            for (index, target) in targets.iter().enumerate() {
+                assert_eq!(target.size, tile);
+                assert_eq!(
+                    target.left(),
+                    origin.x + tile.width * (index % columns) as f32
+                );
+                assert_eq!(
+                    target.top(),
+                    origin.y + tile.height * (index / columns) as f32
+                );
+            }
+            let last = targets.last().unwrap();
+            assert!(last.right() >= bounds.right() && last.bottom() >= bounds.bottom());
+            assert!(last.left() < bounds.right() && last.top() < bounds.bottom());
+        }
+        assert_eq!(
+            tiles(Bounds::new(origin, size(px(0.), px(0.))), tile).count(),
+            0
+        );
+    }
 }
