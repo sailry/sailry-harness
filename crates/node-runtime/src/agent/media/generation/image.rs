@@ -21,7 +21,9 @@ pub(super) fn request(
         ),
         Some(ImageRoute::Images) => ("images/generations", json!({"model":model,"prompt":prompt})),
         None => ("videos", json!({"model":model,"prompt":prompt})),
-        Some(ImageRoute::Native) => unreachable!("native generation uses ADK"),
+        Some(ImageRoute::Native | ImageRoute::Authorized) => {
+            unreachable!("native generation uses ADK")
+        }
     }
 }
 
@@ -58,7 +60,7 @@ pub(super) fn decode(encoded: &str) -> Result<Vec<u8>, Fault> {
     decode_bounded(encoded, IMAGE_BYTES)
 }
 
-fn decode_bounded(encoded: &str, limit: usize) -> Result<Vec<u8>, Fault> {
+pub(super) fn decode_bounded(encoded: &str, limit: usize) -> Result<Vec<u8>, Fault> {
     if encoded.len() > limit.div_ceil(3) * 4 {
         return Err(unavailable("generated image exceeds the size limit"));
     }

@@ -86,6 +86,8 @@ fn draw(cx: &mut VisualTestContext) {
 fn brand_channels() {
     for (preset, category) in [
         (Preset::CompatibleResponses, ModelCategory::OpenAi),
+        (Preset::ChatGptOAuth, ModelCategory::OpenAi),
+        (Preset::ChatGpt, ModelCategory::OpenAi),
         (Preset::CompatibleChat, ModelCategory::OpenAi),
         (Preset::CompatibleAnthropic, ModelCategory::Anthropic),
         (Preset::CompatibleGemini, ModelCategory::Gemini),

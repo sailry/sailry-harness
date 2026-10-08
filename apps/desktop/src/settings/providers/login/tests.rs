@@ -187,6 +187,7 @@ fn authorization_lifecycle(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     cx.update(gpui_kit::init);
     for (authentication, api) in [
+        (Authentication::ChatGptOAuth, ModelApi::Responses),
         (Authentication::Copilot, ModelApi::Responses),
         (Authentication::Copilot, ModelApi::ChatCompletions),
     ] {
@@ -230,6 +231,19 @@ fn authorization_lifecycle(cx: &mut TestAppContext) {
             wait(visual, |cx| {
                 matches!(login.read(cx).state(), Some(State::Pending { .. }))
             });
+            if authentication == Authentication::ChatGptOAuth {
+                assert_eq!(
+                    visual.opened_url().as_deref(),
+                    Some("https://auth.openai.com/codex/device")
+                );
+                login.read_with(visual, |login, _| {
+                    assert!(login.callback.is_none());
+                    assert!(matches!(
+                        login.request.command,
+                        Command::BeginProviderLogin { redirect: None, .. }
+                    ));
+                });
+            }
             settle_dialog(visual);
             let card = visual.debug_bounds("provider-login-code").unwrap();
             let text = visual.debug_bounds("provider-login-code-text").unwrap();
@@ -310,6 +324,13 @@ fn authorization_lifecycle(cx: &mut TestAppContext) {
                 panic!("credentials expected")
             };
             assert!(!credentials[0].revoked);
+            assert_eq!(credentials[0].authentication, authentication);
+            if authentication == Authentication::ChatGptOAuth {
+                assert_eq!(
+                    credentials[0].account_label.as_deref(),
+                    Some("device@example.com")
+                );
+            }
             let provider = fixture.provider();
             assert_eq!(provider.models.len(), 2);
             assert_eq!(provider.default_model, "fixture");
@@ -347,10 +368,29 @@ fn authorization_lifecycle(cx: &mut TestAppContext) {
                     .lock()
                     .unwrap()
                     .iter()
-                    .filter(|request| request.path == "/login/device/code")
+                    .filter(|request| request.path
+                        == if authentication == Authentication::ChatGptOAuth {
+                            "/api/accounts/deviceauth/usercode"
+                        } else {
+                            "/login/device/code"
+                        })
                     .count(),
                 3
             );
+            if authentication == Authentication::ChatGptOAuth {
+                assert!(
+                    !fixture
+                        .server
+                        .requests
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .any(|request| {
+                            request.path.starts_with("/login/")
+                                || request.path.starts_with("/copilot_internal/")
+                        })
+                );
+            }
             visual.update(|window, _| window.remove_window());
             fixture.close();
         }

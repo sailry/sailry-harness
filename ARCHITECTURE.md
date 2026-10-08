@@ -95,6 +95,13 @@ missing or expired observations remain unknown. These observations are not sessi
 usage statistics. External tool histories, separate account-quota queries and
 third-party billing are outside that boundary.
 
+ChatGPT OAuth uses device-code authorization and the account-scoped Codex backend
+catalog and Responses endpoint. ChatGPT SIWC uses the official browser flow,
+issued client registration and public OpenAI catalog and Responses endpoint.
+Their credentials and request adapters are distinct; neither falls back to the
+other account or an API key. Backend image generation requires an explicit model
+image-tool capability and retains the admitted model and credential.
+
 ## Runtime behavior
 
 ### Command admission and recovery

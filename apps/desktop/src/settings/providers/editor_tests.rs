@@ -176,8 +176,8 @@ fn names_are_user_owned(cx: &mut TestAppContext) {
 
 #[test]
 fn presets() {
-    assert_eq!(Preset::all().count(), 35);
-    assert_eq!(Preset::all().filter(|p| p.oauth()).count(), 3);
+    assert_eq!(Preset::all().count(), 36);
+    assert_eq!(Preset::all().filter(|p| p.oauth()).count(), 4);
     assert_eq!(Preset::all().filter(|p| p.custom_endpoint()).count(), 6);
 }
 
@@ -204,6 +204,8 @@ fn english_names() {
         }
     }
     for (preset, label) in [
+        (Preset::ChatGptOAuth, "ChatGPT OAuth"),
+        (Preset::ChatGpt, "ChatGPT SIWC"),
         (Preset::CompatibleResponses, "OpenAI Compatible"),
         (Preset::CompatibleAnthropic, "Anthropic Compatible"),
         (Preset::CompatibleGemini, "Gemini Compatible"),
@@ -217,14 +219,14 @@ fn channel_kinds() {
     let kinds = Preset::all()
         .filter(|preset| preset.kind() == *preset)
         .collect::<Vec<_>>();
-    assert_eq!(kinds.len(), 31);
+    assert_eq!(kinds.len(), 32);
     assert_eq!(
         kinds
             .iter()
             .map(|preset| tr(preset.key()))
             .collect::<HashSet<_>>()
             .len(),
-        31
+        32
     );
     for preset in Preset::all() {
         for variant in preset.protocols() {
@@ -234,6 +236,10 @@ fn channel_kinds() {
     }
     assert_eq!(Preset::CompatibleChat.kind(), Preset::CompatibleResponses);
     assert_eq!(Preset::CopilotResponses.kind(), Preset::Copilot);
+    assert_ne!(
+        Preset::ChatGptOAuth.authentication(),
+        Preset::ChatGpt.authentication()
+    );
 }
 
 #[gpui::test]
@@ -320,6 +326,15 @@ fn selects_types_and_protocols(cx: &mut TestAppContext) {
                 assert_eq!(editor.name.read(cx).value(), "My gateway");
                 assert_eq!(editor.endpoint.read(cx).value(), "https://example.com/v1");
                 assert_eq!(editor.credential.read(cx).value(), "synthetic-key");
+            });
+            choose_kind(visual, "provider-kind-preset_chatgpt_oauth");
+            editor.read_with(visual, |editor, cx| {
+                assert_eq!(editor.preset, Preset::ChatGptOAuth);
+                assert_eq!(editor.name.read(cx).value(), "My gateway");
+                assert_eq!(
+                    editor.preset.authentication(),
+                    sailry_protocol::Authentication::ChatGptOAuth
+                );
             });
             choose_kind(visual, "provider-kind-preset_chatgpt");
             assert_eq!(

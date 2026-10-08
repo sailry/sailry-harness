@@ -116,6 +116,7 @@ mod tests {
         assert!(!offered.iter().any(|preset| preset.cloud()));
         assert!(offered.contains(&Preset::CompatibleResponses));
         assert!(offered.contains(&Preset::ChatGpt));
+        assert!(offered.contains(&Preset::ChatGptOAuth));
         assert!(offered.contains(&Preset::OpenCodeGo));
         assert!(offered.contains(&Preset::OpenCodeZen));
         for vendor in super::super::super::vendors::Vendor::FIRST_PARTY {

@@ -5,11 +5,13 @@ use adk_core::{AdkError, LlmRequest, LlmResponseStream, Part};
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::{Value, json};
+mod codex;
 
 pub(super) struct Model {
     pub(super) ingress: Arc<Ingress>,
     pub(super) provider: Provider,
     pub(super) config: SessionConfig,
+    pub(super) session: sailry_protocol::SessionId,
     pub(super) delegated: bool,
     pub(super) effort: Effort,
     pub(super) stop: CancellationToken,
@@ -57,6 +59,14 @@ impl Llm for Model {
                 let adapter: RequestAdapter = Arc::new(move |body, headers| {
                     headers.extend(base.clone());
                     chatgpt(body)
+                });
+                (access, adapter, true)
+            }
+            Grant::ChatGptOAuth { access, .. } => {
+                let session = self.session;
+                let adapter: RequestAdapter = Arc::new(move |body, headers| {
+                    headers.extend(base.clone());
+                    codex::adapt(body, headers, session)
                 });
                 (access, adapter, true)
             }

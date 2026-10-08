@@ -1,5 +1,6 @@
 use super::*;
 use adk_core::{Content, FinishReason, GenerateContentConfig, LlmRequest, LlmResponse, Part};
+use sailry_protocol::conversation::ModelApi;
 
 pub(super) async fn generate(
     media: &Media,
@@ -25,7 +26,12 @@ pub(super) async fn generate(
         &media.stop,
     )
     .await?;
-    let request = request(&config.model, metadata.output, prompt);
+    let request = request(
+        media.model.provider.api,
+        &config.model,
+        metadata.output,
+        prompt,
+    );
     let mut responses = model::timing::generate(&model, request, false)
         .await
         .map_err(model::error)?;
@@ -53,12 +59,22 @@ pub(super) async fn generate(
     ))
 }
 
-fn request(model: &str, output: u32, prompt: String) -> LlmRequest {
+fn request(api: ModelApi, model: &str, output: u32, prompt: String) -> LlmRequest {
     let mut extensions = serde_json::Map::new();
-    extensions.insert(
-        "gemini".into(),
-        json!({"response_modalities":["TEXT","IMAGE"]}),
-    );
+    let mut tools = Default::default();
+    if api == ModelApi::Responses {
+        tools = std::collections::HashMap::from([(
+            "image_generation".into(),
+            json!({
+                "x-adk-openai-tool":{"type":"image_generation","output_format":"png"}
+            }),
+        )]);
+    } else {
+        extensions.insert(
+            "gemini".into(),
+            json!({"response_modalities":["TEXT","IMAGE"]}),
+        );
+    }
     LlmRequest {
         model: model.into(),
         contents: vec![Content::new("user").with_text(prompt)],
@@ -67,7 +83,7 @@ fn request(model: &str, output: u32, prompt: String) -> LlmRequest {
             extensions,
             ..Default::default()
         }),
-        tools: Default::default(),
+        tools,
         previous_response_id: None,
     }
 }
@@ -81,7 +97,16 @@ fn collect_bounded(
     response: &LlmResponse,
     limit: usize,
 ) -> Result<(), Fault> {
-    if response.error_code.is_some() || response.error_message.is_some() || response.interrupted {
+    if response.error_code.is_some()
+        || response.error_message.is_some()
+        || response.interrupted
+        || response.provider_metadata.as_ref().is_some_and(|metadata| {
+            matches!(
+                metadata["openai"]["status"].as_str(),
+                Some("incomplete" | "failed" | "cancelled")
+            )
+        })
+    {
         return Err(unavailable("image generation failed"));
     }
     if !response.partial
@@ -102,23 +127,50 @@ fn collect_bounded(
     }
     if let Some(content) = &response.content {
         for part in &content.parts {
-            if let Part::InlineData {
-                mime_type, data, ..
-            } = part
-            {
-                if mime_type != "image/png" {
-                    return Err(unavailable(
-                        "image generation returned an unsupported format; PNG required",
-                    ));
+            let data = match part {
+                Part::InlineData {
+                    mime_type, data, ..
+                } => {
+                    if mime_type != "image/png" {
+                        return Err(unavailable(
+                            "image generation returned an unsupported format; PNG required",
+                        ));
+                    }
+                    if data.len() > limit {
+                        return Err(unavailable("generated image exceeds the size limit"));
+                    }
+                    data.clone()
                 }
-                if data.len() > limit {
-                    return Err(unavailable("generated image exceeds the size limit"));
+                Part::ServerToolCall {
+                    server_tool_call: call,
+                } if call["type"] == "image_generation_call" => {
+                    if call["status"] != "completed" {
+                        if response.partial {
+                            continue;
+                        }
+                        return Err(unavailable("image generation was not completed"));
+                    }
+                    if call
+                        .get("output_format")
+                        .and_then(Value::as_str)
+                        .is_some_and(|format| format != "png")
+                    {
+                        return Err(unavailable(
+                            "image generation returned an unsupported format; PNG required",
+                        ));
+                    }
+                    let encoded = call
+                        .get("result")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| unavailable("generation returned no image content"))?;
+                    super::image::decode_bounded(encoded, limit)?
                 }
-                if image.is_some() {
-                    return Err(unavailable("generation returned multiple images"));
-                }
-                *image = Some(data.clone());
+                _ => continue,
+            };
+            if image.is_some() {
+                return Err(unavailable("generation returned multiple images"));
             }
+            *image = Some(data);
         }
     }
     Ok(())
@@ -130,7 +182,12 @@ mod tests {
 
     #[test]
     fn requests_native_image_modalities() {
-        let request = request("captured-model", 4096, "Draw a forest".into());
+        let request = request(
+            ModelApi::Gemini,
+            "captured-model",
+            4096,
+            "Draw a forest".into(),
+        );
         assert_eq!(request.model, "captured-model");
         assert!(request.previous_response_id.is_none());
         assert!(request.tools.is_empty());
@@ -140,6 +197,61 @@ mod tests {
             config.extensions["gemini"]["response_modalities"],
             json!(["TEXT", "IMAGE"])
         );
+    }
+
+    #[test]
+    fn requests_backend_image_tool() {
+        let request = request(
+            ModelApi::Responses,
+            "captured-main",
+            4096,
+            "Draw a forest".into(),
+        );
+        assert_eq!(request.model, "captured-main");
+        assert!(request.previous_response_id.is_none());
+        assert_eq!(
+            request.tools["image_generation"]["x-adk-openai-tool"],
+            json!({"type":"image_generation","output_format":"png"})
+        );
+        assert!(request.config.unwrap().extensions.is_empty());
+    }
+
+    #[test]
+    fn requires_completed_backend_image() {
+        let mut response = LlmResponse {
+            content: Some(Content {
+                role: "model".into(),
+                parts: vec![Part::ServerToolCall {
+                    server_tool_call: json!({"type":"image_generation_call","status":"completed","result":"AQID","output_format":"png"}),
+                }],
+            }),
+            turn_complete: true,
+            ..Default::default()
+        };
+        let mut image = None;
+        collect_bounded(&mut image, &response, 3).unwrap();
+        assert_eq!(image, Some(vec![1, 2, 3]));
+        assert!(collect_bounded(&mut None, &response, 2).is_err());
+        let Part::ServerToolCall {
+            server_tool_call: call,
+        } = &mut response.content.as_mut().unwrap().parts[0]
+        else {
+            unreachable!()
+        };
+        call["status"] = "in_progress".into();
+        assert!(collect(&mut None, &response).is_err());
+    }
+
+    #[test]
+    fn rejects_incomplete_backend_status() {
+        for status in ["incomplete", "failed", "cancelled"] {
+            let mut response = response("image/png");
+            response.finish_reason = Some(FinishReason::Stop);
+            response.provider_metadata = Some(json!({"openai":{"status":status}}));
+            let mut image = None;
+            assert!(collect(&mut image, &response).is_err());
+            assert!(image.is_none());
+        }
     }
 
     fn response(mime_type: &str) -> LlmResponse {

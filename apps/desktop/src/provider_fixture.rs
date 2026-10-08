@@ -39,6 +39,21 @@ async fn start(mode: Arc<AtomicU8>, gate: Option<Arc<tokio::sync::Notify>>) -> S
             },
             path if path.starts_with("/models") && mode.load(Ordering::SeqCst) == 6 => Reply::Json(if request.headers.contains_key("editor-version") { json!({"data":[]}) } else { json!({"models":[]}) }),
             path if path.starts_with("/models") => Reply::Json(models(!request.headers.contains_key("editor-version"))),
+            "/api/accounts/deviceauth/usercode" => {
+                let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+                assert_eq!(body, json!({"client_id":identity::CODEX_CLIENT}));
+                Reply::Json(json!({"device_auth_id":"desktop-codex-device","user_code":"SAIL-1234","interval":1,"expires_in":900}))
+            },
+            "/api/accounts/deviceauth/token" => {
+                let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+                assert_eq!(body, json!({"device_auth_id":"desktop-codex-device","user_code":"SAIL-1234"}));
+                match mode.load(Ordering::SeqCst) {
+                    0 => Reply::Raw("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into()),
+                    4 => Reply::Raw("HTTP/1.1 410 Gone\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into()),
+                    _ => Reply::Json(json!({"authorization_code":"desktop-codex-code","code_verifier":"desktop-codex-verifier"})),
+                }
+            },
+            "/oauth/token" => Reply::Json(identity::codex_tokens(request)),
             "/login/device/code" => Reply::Json(json!({"device_code":"desktop-device-secret","user_code":"SAIL-1234","verification_uri":"https://github.com/login/device","interval":1,"expires_in":900})),
             "/login/oauth/access_token" if mode.load(Ordering::SeqCst) == 4 => Reply::Json(json!({"error":"expired_token"})),
             "/api/accounts/oauth/token" | "/login/oauth/access_token" if mode.load(Ordering::SeqCst) == 0 => Reply::Hold,
@@ -75,18 +90,18 @@ pub(crate) fn provider(authentication: Authentication, api: ModelApi) -> Provide
         oauth: None,
         id: ProviderId::new(),
         revision: 0,
-        name: if authentication == Authentication::ChatGpt {
-            "ChatGPT"
-        } else {
-            "GitHub Copilot"
+        name: match authentication {
+            Authentication::ChatGptOAuth => "Codex device fixture",
+            Authentication::ChatGpt => "ChatGPT",
+            _ => "GitHub Copilot",
         }
         .into(),
         api,
         authentication,
-        endpoint: if authentication == Authentication::ChatGpt {
-            "https://api.openai.com/v1"
-        } else {
-            "https://api.githubcopilot.com"
+        endpoint: match authentication {
+            Authentication::ChatGptOAuth => "https://chatgpt.com/backend-api/codex",
+            Authentication::ChatGpt => "https://api.openai.com/v1",
+            _ => "https://api.githubcopilot.com",
         }
         .into(),
         enabled: true,

@@ -91,7 +91,7 @@ async fn keeps_captured_headers_through_restart_and_refresh() {
                 } else if request.path.starts_with("/models") {
                     super::super::oauth::headers(request, &expected);
                     if authentication == Authentication::ChatGpt {
-                        assert_eq!(request.path, "/models?client_version=0.161.0");
+                        assert_eq!(request.path, "/models");
                     }
                     Reply::Json(catalog::models(authentication))
                 } else if matches!(request.path.as_str(), "/responses" | "/chat/completions") {

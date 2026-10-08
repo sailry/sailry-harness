@@ -11,6 +11,7 @@ use std::{
 use url::Url;
 
 const CLIENT: &str = "oaiapp_fixture";
+pub(super) const CODEX_CLIENT: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const SCOPES: &str =
     "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct";
 // RFC 8032 section 7.1 test vector 1; these published bytes are not credentials.
@@ -61,6 +62,40 @@ pub(super) fn tokens(request: &Request) -> Value {
         tokens["id_token"] = json!(signed(
             json!({"iss":issuer(request),"aud":CLIENT,"sub":"isolated-chatgpt-subject","email":"user@example.com","nonce":code["nonce"],"iat":now,"exp":now+3600})
         ));
+    }
+    tokens
+}
+
+pub(super) fn codex_tokens(request: &Request) -> Value {
+    let form: BTreeMap<_, _> = Url::parse(&format!("http://fixture/?{}", request.body))
+        .unwrap()
+        .query_pairs()
+        .into_owned()
+        .collect();
+    assert_eq!(form["client_id"], CODEX_CLIENT);
+    assert!(!form.contains_key("resource"));
+    assert!(!form.contains_key("client_secret"));
+    let mut tokens = json!({"access_token":"desktop-codex-access","refresh_token":"desktop-codex-refresh","token_type":"Bearer","expires_in":3600});
+    if form["grant_type"] == "authorization_code" {
+        assert_eq!(
+            form["redirect_uri"],
+            "https://auth.openai.com/deviceauth/callback"
+        );
+        assert_eq!(form["code"], "desktop-codex-code");
+        assert_eq!(form["code_verifier"], "desktop-codex-verifier");
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        tokens["id_token"] = json!(signed(json!({
+            "iss":issuer(request),"aud":CODEX_CLIENT,"sub":"isolated-codex-subject",
+            "email":"device@example.com","chatgpt_account_id":"isolated-codex-workspace",
+            "iat":now,"exp":now+3600
+        })));
+    } else {
+        assert_eq!(form["grant_type"], "refresh_token");
+        assert_eq!(form["refresh_token"], "desktop-codex-refresh");
+        assert_eq!(form["scope"], "openid profile email");
     }
     tokens
 }

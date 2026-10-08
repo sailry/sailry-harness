@@ -19,18 +19,39 @@ impl Discovery {
 
 async fn fetch(
     api: ModelApi,
-    mut url: Url,
+    url: Url,
     grant: &login::Grant,
     options: &sailry_protocol::conversation::oauth::Options,
 ) -> Result<Vec<discovery::Model>, Fault> {
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|_| unavailable("provider HTTP client failed"))?;
+    let response = request(&client, url, grant, options)?
+        .send()
+        .await
+        .map_err(|_| unavailable("provider request failed"))?;
+    let mut remaining = TOTAL_BYTES;
+    let value = read(response, &mut remaining).await?;
+    parse(grant.authentication(), api, &value)
+}
+
+fn request(
+    client: &reqwest::Client,
+    mut url: Url,
+    grant: &login::Grant,
+    options: &sailry_protocol::conversation::oauth::Options,
+) -> Result<reqwest::RequestBuilder, Fault> {
     url.set_path(&format!("{}/models", url.path().trim_end_matches('/')));
     let mut headers = grant.headers(options)?;
     match grant.authentication() {
-        Authentication::ChatGpt => {
+        Authentication::ChatGptOAuth => {
             if let Some(version) = options.catalog_version() {
                 url.query_pairs_mut().append_pair("client_version", version);
             }
         }
+        Authentication::ChatGpt => {}
         Authentication::Copilot => {
             headers.insert(
                 "openai-intent",
@@ -47,20 +68,7 @@ async fn fetch(
             return Err(invalid("account authorization is required"));
         }
     }
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|_| unavailable("provider HTTP client failed"))?;
-    let response = client
-        .get(url)
-        .headers(headers)
-        .send()
-        .await
-        .map_err(|_| unavailable("provider request failed"))?;
-    let mut remaining = TOTAL_BYTES;
-    let value = read(response, &mut remaining).await?;
-    parse(grant.authentication(), api, &value)
+    Ok(client.get(url).headers(headers))
 }
 
 fn parse(
@@ -68,7 +76,10 @@ fn parse(
     api: ModelApi,
     value: &Value,
 ) -> Result<Vec<discovery::Model>, Fault> {
-    let chatgpt = authentication == Authentication::ChatGpt;
+    let chatgpt = matches!(
+        authentication,
+        Authentication::ChatGpt | Authentication::ChatGptOAuth
+    );
     let entries = value[if chatgpt { "models" } else { "data" }]
         .as_array()
         .ok_or_else(|| unavailable("provider model list has invalid shape"))?;

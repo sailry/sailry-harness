@@ -50,7 +50,12 @@ fn configures_an_empty_account(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     cx.update(gpui_kit::init);
     for remote in [false, true] {
-        for preset in [Preset::ChatGpt, Preset::Copilot, Preset::CopilotResponses] {
+        for preset in [
+            Preset::ChatGptOAuth,
+            Preset::ChatGpt,
+            Preset::Copilot,
+            Preset::CopilotResponses,
+        ] {
             let directory = tempfile::tempdir().unwrap();
             let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
             let mode = Arc::new(AtomicU8::new(1));
@@ -230,7 +235,7 @@ fn configures_an_empty_account(cx: &mut TestAppContext) {
                 assert_eq!(model.efforts, [Effort::Low, Effort::High]);
                 assert_eq!(
                     model.default_effort,
-                    if preset == Preset::ChatGpt {
+                    if matches!(preset, Preset::ChatGpt | Preset::ChatGptOAuth) {
                         Effort::High
                     } else {
                         Effort::Low

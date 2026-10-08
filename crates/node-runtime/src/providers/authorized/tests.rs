@@ -1,6 +1,135 @@
 use super::*;
 use serde_json::json;
 
+fn grant(authentication: Authentication) -> login::Grant {
+    let access = Secret::new("access".into());
+    let refresh = Secret::new("refresh".into());
+    let id_token = Secret::new("identity".into());
+    match authentication {
+        Authentication::ChatGpt => login::Grant::ChatGpt {
+            access,
+            refresh,
+            id_token,
+            expires_at_ms: 1,
+            earliest_refresh_at: None,
+            client_id: "oaiapp_fixture".into(),
+            subject: "subject".into(),
+            email: None,
+            scopes: vec!["resource.invoke".into(), "chatgpt.tokens.use.direct".into()],
+            renewal_pending: false,
+        },
+        Authentication::ChatGptOAuth => login::Grant::ChatGptOAuth {
+            access,
+            refresh,
+            id_token,
+            expires_at_ms: 1,
+            subject: "subject".into(),
+            account_id: "workspace".into(),
+            email: None,
+            renewal_pending: false,
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn separates_catalog_request_identity() {
+    let client = reqwest::Client::new();
+    let legacy = grant(Authentication::ChatGptOAuth);
+    let options = sailry_protocol::conversation::oauth::Options::ChatGptOAuth {
+        catalog_version: Some("0.161.0".into()),
+        user_agent: "CapturedAgent/1".into(),
+    };
+    let built = request(
+        &client,
+        endpoint_url(legacy.endpoint()).unwrap(),
+        &legacy,
+        &options,
+    )
+    .unwrap()
+    .build()
+    .unwrap();
+    assert_eq!(
+        built.url().as_str(),
+        "https://chatgpt.com/backend-api/codex/models?client_version=0.161.0"
+    );
+    assert_eq!(built.headers()["authorization"], "Bearer access");
+    assert_eq!(built.headers()["chatgpt-account-id"], "workspace");
+    assert_eq!(built.headers()["originator"], "codex_cli_rs");
+    assert_eq!(built.headers()["version"], "0.161.0");
+    assert_eq!(built.headers()["user-agent"], "CapturedAgent/1");
+
+    let siwc = grant(Authentication::ChatGpt);
+    let retained = sailry_protocol::conversation::oauth::Options::ChatGpt {
+        catalog_version: Some("0.161.0".into()),
+        user_agent: "CapturedAgent/1".into(),
+    };
+    let built = request(
+        &client,
+        endpoint_url(siwc.endpoint()).unwrap(),
+        &siwc,
+        &retained,
+    )
+    .unwrap()
+    .build()
+    .unwrap();
+    assert_eq!(built.url().as_str(), "https://api.openai.com/v1/models");
+    assert_eq!(built.headers()["authorization"], "Bearer access");
+    assert_eq!(built.headers()["user-agent"], "CapturedAgent/1");
+    for field in ["chatgpt-account-id", "originator", "version"] {
+        assert!(!built.headers().contains_key(field));
+    }
+    assert!(
+        request(
+            &client,
+            endpoint_url(siwc.endpoint()).unwrap(),
+            &siwc,
+            &options
+        )
+        .is_err()
+    );
+    assert!(
+        request(
+            &client,
+            endpoint_url(legacy.endpoint()).unwrap(),
+            &legacy,
+            &retained
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn legacy_keeps_visible_native_metadata() {
+    let value = json!({"models":[
+        {"slug":"z-first","visibility":"list","display_name":"First","context_window":4096,"max_output_tokens":128,"input_modalities":["text","image"],"supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}],"default_reasoning_level":"high"},
+        {"slug":"hidden","visibility":"hide","context_window":false},
+        {"slug":"a-second","visibility":"list","display_name":"Second"},
+        {"slug":"a-second","visibility":"list","display_name":"Second"}
+    ]});
+    let models = parse(Authentication::ChatGptOAuth, ModelApi::Responses, &value).unwrap();
+    assert_eq!(
+        models,
+        parse(Authentication::ChatGpt, ModelApi::Responses, &value).unwrap()
+    );
+    assert_eq!(
+        models
+            .iter()
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>(),
+        ["z-first", "a-second"]
+    );
+    assert_eq!(models[0].capabilities.as_ref().unwrap().vision, Some(true));
+    assert!(
+        parse(
+            Authentication::ChatGptOAuth,
+            ModelApi::Responses,
+            &json!({"data":[]})
+        )
+        .is_err()
+    );
+}
+
 #[test]
 fn preserves_native_metadata() {
     let models = parse(Authentication::ChatGpt, ModelApi::Responses, &json!({"models":[

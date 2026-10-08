@@ -47,9 +47,12 @@ impl Model {
             tools: capabilities
                 .and_then(|value| value.tools)
                 .or(reference.and_then(|model| model.tools))
-                // SIWC supports local function/custom tools even when its account
-                // catalog does not report per-model capability metadata.
-                .unwrap_or(authentication == Authentication::ChatGpt),
+                // Both ChatGPT contracts support local tools when their account
+                // catalogs omit per-model capability metadata.
+                .unwrap_or(matches!(
+                    authentication,
+                    Authentication::ChatGpt | Authentication::ChatGptOAuth
+                )),
             reasoning: capabilities
                 .and_then(|value| value.reasoning)
                 .or(reference.and_then(|model| model.reasoning))

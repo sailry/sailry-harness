@@ -41,7 +41,7 @@ fn preserves_keyboard_and_vendor_defaults(cx: &mut TestAppContext) {
         let owner = cx.new(|cx| Workspace::new(window, cx));
         let editor = super::super::open(owner, None, window, cx);
         editor.update(cx, |editor, cx| {
-            editor.select_preset(Preset::ChatGpt, window, cx)
+            editor.select_preset(Preset::ChatGptOAuth, window, cx)
         });
         editor
     });
@@ -190,6 +190,29 @@ fn preserves_keyboard_and_vendor_defaults(cx: &mut TestAppContext) {
                 editor.oauth.options(editor.preset, cx).unwrap(),
                 Options::defaults(editor.preset.authentication())
             );
+            editor.oauth.catalog_version.update(cx, |input, cx| {
+                input.set_value("ignored SIWC field", window, cx)
+            });
+            assert!(matches!(
+                editor.oauth.options(editor.preset, cx).unwrap(),
+                Some(Options::ChatGpt {
+                    catalog_version: None,
+                    ..
+                })
+            ));
+        });
+    });
+    draw(visual);
+    visual.update(|window, cx| window.click("provider-oauth-advanced", cx));
+    draw(visual);
+    assert!(visual.debug_bounds("provider-oauth-user-agent").is_some());
+    assert!(
+        visual
+            .debug_bounds("provider-oauth-catalog-version")
+            .is_none()
+    );
+    visual.update(|window, cx| {
+        editor.update(cx, |editor, cx| {
             editor.select_preset(Preset::OpenAi, window, cx);
             assert_eq!(editor.oauth.options(editor.preset, cx).unwrap(), None);
         });

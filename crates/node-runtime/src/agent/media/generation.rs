@@ -49,7 +49,7 @@ impl Media {
             .files
             .prepare_media(root, path, limit as u64)
             .await?;
-        let generated = if route == Some(ImageRoute::Native) {
+        let generated = if matches!(route, Some(ImageRoute::Native | ImageRoute::Authorized)) {
             let (bytes, usage) = native::generate(self, prompt).await?;
             Generated::File {
                 bytes,

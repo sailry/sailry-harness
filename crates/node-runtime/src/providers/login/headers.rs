@@ -4,13 +4,16 @@ use reqwest::header::{HeaderMap, HeaderValue};
 impl Grant {
     pub(crate) fn access(&self) -> &Secret {
         match self {
-            Self::ChatGpt { access, .. } | Self::Copilot { access, .. } => access,
+            Self::ChatGpt { access, .. }
+            | Self::ChatGptOAuth { access, .. }
+            | Self::Copilot { access, .. } => access,
         }
     }
 
     pub(crate) fn endpoint(&self) -> &str {
         match self {
             Self::ChatGpt { .. } => CHATGPT_ENDPOINT,
+            Self::ChatGptOAuth { .. } => CODEX_ENDPOINT,
             Self::Copilot { endpoint, .. } => endpoint,
         }
     }
@@ -34,6 +37,23 @@ impl Grant {
                         "ChatGPT plan use is not enabled",
                     ));
                 }
+            }
+            (Self::ChatGptOAuth { account_id, .. }, Options::ChatGptOAuth { .. }) => {
+                // Codex backend identity follows reviewed CC Switch 5ae6ad3 and
+                // CLIProxyAPI 0f96f56; this is not SIWC's public API contract.
+                headers.insert("originator", HeaderValue::from_static("codex_cli_rs"));
+                headers.insert(
+                    "version",
+                    HeaderValue::from_str(options.catalog_version().ok_or_else(|| {
+                        invalid("Codex catalog compatibility revision is required")
+                    })?)
+                    .map_err(|_| invalid("OAuth header value is invalid"))?,
+                );
+                headers.insert(
+                    "chatgpt-account-id",
+                    HeaderValue::from_str(account_id)
+                        .map_err(|_| invalid("authorization account identifier is invalid"))?,
+                );
             }
             (
                 Self::Copilot { .. },

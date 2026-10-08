@@ -9,7 +9,14 @@ pub const DEFAULT_CATALOG_VERSION: &str = "0.160.1";
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Options {
     ChatGpt {
-        /// An unset override uses the supported catalog compatibility revision.
+        /// This setting is not sent to SIWC's public account catalog.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        catalog_version: Option<String>,
+        user_agent: String,
+    },
+    #[serde(rename = "chat_gpt_oauth")]
+    ChatGptOAuth {
+        /// An unset override uses the pinned Codex catalog compatibility revision.
         #[serde(skip_serializing_if = "Option::is_none")]
         catalog_version: Option<String>,
         user_agent: String,
@@ -25,6 +32,10 @@ impl Options {
     pub fn defaults(authentication: Authentication) -> Option<Self> {
         match authentication {
             Authentication::ChatGpt => Some(Self::ChatGpt {
+                catalog_version: None,
+                user_agent: "Sailry/0.1".into(),
+            }),
+            Authentication::ChatGptOAuth => Some(Self::ChatGptOAuth {
                 catalog_version: Some(DEFAULT_CATALOG_VERSION.into()),
                 user_agent: "Sailry/0.1".into(),
             }),
@@ -43,6 +54,11 @@ impl Options {
             (Self::ChatGpt { user_agent, .. }, Authentication::ChatGpt, ModelApi::Responses) => {
                 &[user_agent]
             }
+            (
+                Self::ChatGptOAuth { user_agent, .. },
+                Authentication::ChatGptOAuth,
+                ModelApi::Responses,
+            ) => &[user_agent],
             (
                 Self::Copilot {
                     user_agent,
@@ -76,20 +92,22 @@ impl Options {
 
     pub fn catalog_version(&self) -> Option<&str> {
         match self {
-            Self::ChatGpt {
+            Self::ChatGptOAuth {
                 catalog_version, ..
             } => Some(
                 catalog_version
                     .as_deref()
                     .unwrap_or(DEFAULT_CATALOG_VERSION),
             ),
-            Self::Copilot { .. } => None,
+            Self::ChatGpt { .. } | Self::Copilot { .. } => None,
         }
     }
 
     pub fn user_agent(&self) -> &str {
         match self {
-            Self::ChatGpt { user_agent, .. } | Self::Copilot { user_agent, .. } => user_agent,
+            Self::ChatGpt { user_agent, .. }
+            | Self::ChatGptOAuth { user_agent, .. }
+            | Self::Copilot { user_agent, .. } => user_agent,
         }
     }
 }
@@ -106,6 +124,7 @@ mod tests {
     fn defaults_match_supported_apis() {
         for (authentication, api) in [
             (Authentication::ChatGpt, ModelApi::Responses),
+            (Authentication::ChatGptOAuth, ModelApi::Responses),
             (Authentication::Copilot, ModelApi::Responses),
             (Authentication::Copilot, ModelApi::ChatCompletions),
         ] {
@@ -122,9 +141,9 @@ mod tests {
 
     #[test]
     fn validates_catalog_overrides() {
-        let mut options = Options::defaults(Authentication::ChatGpt).unwrap();
+        let mut options = Options::defaults(Authentication::ChatGptOAuth).unwrap();
         assert_eq!(options.catalog_version(), Some(DEFAULT_CATALOG_VERSION));
-        let Options::ChatGpt {
+        let Options::ChatGptOAuth {
             catalog_version, ..
         } = &mut options
         else {
@@ -132,7 +151,7 @@ mod tests {
         };
         *catalog_version = Some("0.161.0".into());
         options
-            .validate(Authentication::ChatGpt, ModelApi::Responses)
+            .validate(Authentication::ChatGptOAuth, ModelApi::Responses)
             .unwrap();
         assert_eq!(options.catalog_version(), Some("0.161.0"));
         assert_eq!(
@@ -146,7 +165,7 @@ mod tests {
             "0.161.0\r\nx-header: injected",
             "0.161.0.1",
         ] {
-            let Options::ChatGpt {
+            let Options::ChatGptOAuth {
                 catalog_version, ..
             } = &mut options
             else {
@@ -155,10 +174,35 @@ mod tests {
             *catalog_version = Some(version.into());
             assert!(
                 options
-                    .validate(Authentication::ChatGpt, ModelApi::Responses)
+                    .validate(Authentication::ChatGptOAuth, ModelApi::Responses)
                     .is_err()
             );
         }
+    }
+
+    #[test]
+    fn keeps_login_contracts_distinct() {
+        let siwc = Options::defaults(Authentication::ChatGpt).unwrap();
+        let device = Options::defaults(Authentication::ChatGptOAuth).unwrap();
+        assert_eq!(siwc.catalog_version(), None);
+        assert_eq!(device.catalog_version(), Some(DEFAULT_CATALOG_VERSION));
+        assert!(
+            siwc.validate(Authentication::ChatGptOAuth, ModelApi::Responses)
+                .is_err()
+        );
+        assert!(
+            device
+                .validate(Authentication::ChatGpt, ModelApi::Responses)
+                .is_err()
+        );
+        assert_eq!(
+            serde_json::to_value(Authentication::ChatGpt).unwrap(),
+            "chat_gpt"
+        );
+        assert_eq!(
+            serde_json::to_value(Authentication::ChatGptOAuth).unwrap(),
+            "chat_gpt_oauth"
+        );
     }
 
     #[test]

@@ -28,7 +28,12 @@ fn reconnects_revoked_accounts(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     cx.update(gpui_kit::init);
     for remote in [false, true] {
-        for preset in [Preset::ChatGpt, Preset::Copilot, Preset::CopilotResponses] {
+        for preset in [
+            Preset::ChatGptOAuth,
+            Preset::ChatGpt,
+            Preset::Copilot,
+            Preset::CopilotResponses,
+        ] {
             let directory = tempfile::tempdir().unwrap();
             let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
             let server = runtime.block_on(support::server(Arc::new(AtomicU8::new(1))));

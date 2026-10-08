@@ -43,6 +43,28 @@ fn validates_signed_identity_and_nonce() {
     let identity = verified(&signed(&claims()), CLIENT, Some("nonce"), ISSUER, &keys()).unwrap();
     assert_eq!(identity.sub, "verified-subject");
     assert_eq!(identity.email.as_deref(), Some("user@example.com"));
+    assert_eq!(identity.account_id, None);
+}
+
+#[test]
+fn extracts_signed_codex_workspace() {
+    let client = "app_EMoamEEZ73f0CkXaXp7hrann";
+    for nested in [false, true] {
+        let mut claims = claims();
+        claims["aud"] = json!(client);
+        claims.as_object_mut().unwrap().remove("nonce");
+        if nested {
+            claims["https://api.openai.com/auth"] = json!({"chatgpt_account_id":"workspace"});
+        } else {
+            claims["chatgpt_account_id"] = json!("workspace");
+        }
+        let token = signed(&claims);
+        let identity = verified(&token, client, None, ISSUER, &keys()).unwrap();
+        assert_eq!(identity.sub, "verified-subject");
+        assert_eq!(identity.account_id.as_deref(), Some("workspace"));
+        assert!(verified(&token, CLIENT, None, ISSUER, &keys()).is_err());
+        assert!(verified(&token, client, Some("nonce"), ISSUER, &keys()).is_err());
+    }
 }
 
 #[test]

@@ -25,8 +25,11 @@ pub(super) fn seed(
     if crate::store::providers::catalog::status(db)?.revision != 0 {
         for models in models.chunks(100) {
             let mut query = catalog::Query {
-                provider: (provider.authentication == Authentication::ChatGpt)
-                    .then(|| "openai".into()),
+                provider: matches!(
+                    provider.authentication,
+                    Authentication::ChatGpt | Authentication::ChatGptOAuth
+                )
+                .then(|| "openai".into()),
                 ids: models.iter().map(|model| model.id.clone()).collect(),
                 revision: None,
                 after: None,

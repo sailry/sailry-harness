@@ -4,7 +4,7 @@ use reqwest::header::HeaderValue;
 pub(crate) fn capture(provider: &mut Provider) -> Result<(), Fault> {
     if matches!(
         provider.authentication,
-        Authentication::ChatGpt | Authentication::Copilot
+        Authentication::ChatGpt | Authentication::ChatGptOAuth | Authentication::Copilot
     ) {
         provider.oauth = Some(effective(provider)?);
     }
@@ -17,7 +17,7 @@ pub(crate) fn effective(provider: &Provider) -> Result<Options, Fault> {
         .clone()
         .or_else(|| Options::defaults(provider.authentication))
         .ok_or_else(|| invalid("provider does not use OAuth settings"))?;
-    if let Options::ChatGpt {
+    if let Options::ChatGptOAuth {
         catalog_version, ..
     } = &mut options
     {
@@ -36,7 +36,9 @@ pub(super) fn validate(
 ) -> Result<(), Fault> {
     options.validate(authentication, api)?;
     let fields = match options {
-        Options::ChatGpt { user_agent, .. } => vec![user_agent.as_str()],
+        Options::ChatGpt { user_agent, .. } | Options::ChatGptOAuth { user_agent, .. } => {
+            vec![user_agent.as_str()]
+        }
         Options::Copilot {
             user_agent,
             editor_version,
@@ -66,22 +68,25 @@ mod tests {
             revision: 1,
             name: "Catalog fixture".into(),
             api: ModelApi::Responses,
-            authentication: Authentication::ChatGpt,
-            endpoint: CHATGPT_ENDPOINT.into(),
+            authentication: Authentication::ChatGptOAuth,
+            endpoint: CODEX_ENDPOINT.into(),
             enabled: true,
             models: vec![],
             default_model: String::new(),
             credential: None,
             options: None,
-            oauth: Some(Options::ChatGpt {
+            oauth: Some(Options::ChatGptOAuth {
                 catalog_version: None,
                 user_agent: "Sailry/0.1".into(),
             }),
         };
         let mut captured = provider.clone();
         capture(&mut captured).unwrap();
-        assert_eq!(captured.oauth, Options::defaults(Authentication::ChatGpt));
-        let Some(Options::ChatGpt {
+        assert_eq!(
+            captured.oauth,
+            Options::defaults(Authentication::ChatGptOAuth)
+        );
+        let Some(Options::ChatGptOAuth {
             catalog_version, ..
         }) = captured.oauth
         else {
@@ -93,10 +98,37 @@ mod tests {
         );
         assert!(matches!(
             provider.oauth,
-            Some(Options::ChatGpt {
+            Some(Options::ChatGptOAuth {
                 catalog_version: None,
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn preserves_siwc_capture_without_catalog_default() {
+        for catalog_version in [None, Some("0.161.0".into())] {
+            let mut provider = Provider {
+                id: sailry_protocol::ProviderId::new(),
+                revision: 1,
+                name: "SIWC fixture".into(),
+                api: ModelApi::Responses,
+                authentication: Authentication::ChatGpt,
+                endpoint: CHATGPT_ENDPOINT.into(),
+                enabled: true,
+                models: vec![],
+                default_model: String::new(),
+                credential: None,
+                options: None,
+                oauth: Some(Options::ChatGpt {
+                    catalog_version,
+                    user_agent: "CapturedAgent/1".into(),
+                }),
+            };
+            let retained = provider.oauth.clone();
+            capture(&mut provider).unwrap();
+            assert_eq!(provider.oauth, retained);
+            assert_eq!(provider.oauth.as_ref().unwrap().catalog_version(), None);
+        }
     }
 }

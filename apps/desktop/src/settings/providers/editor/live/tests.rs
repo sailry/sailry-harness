@@ -177,6 +177,11 @@ fn preserves_target_and_draft(cx: &mut TestAppContext) {
             "https://generativelanguage.googleapis.com/v1beta",
         ),
         (
+            Preset::ChatGptOAuth,
+            ModelApi::Responses,
+            "https://chatgpt.com/backend-api/codex",
+        ),
+        (
             Preset::ChatGpt,
             ModelApi::Responses,
             "https://api.openai.com/v1",

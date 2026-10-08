@@ -16,6 +16,8 @@ use std::{
 
 #[path = "login/catalog.rs"]
 mod catalog;
+#[path = "login/codex.rs"]
+mod codex;
 #[path = "login/execution.rs"]
 mod execution;
 #[path = "login/identity.rs"]
@@ -159,10 +161,11 @@ async fn provider(client: &Client, authentication: Authentication) -> Provider {
         name: "Authorization fixture".into(),
         api: ModelApi::Responses,
         authentication,
-        endpoint: if authentication == Authentication::ChatGpt {
-            "https://api.openai.com/v1"
-        } else {
-            "https://api.githubcopilot.com"
+        endpoint: match authentication {
+            Authentication::ChatGpt => "https://api.openai.com/v1",
+            Authentication::ChatGptOAuth => "https://chatgpt.com/backend-api/codex",
+            Authentication::Copilot => "https://api.githubcopilot.com",
+            Authentication::ApiKey | Authentication::Host => unreachable!(),
         }
         .into(),
         enabled: true,
@@ -279,6 +282,14 @@ fn no_secrets(value: &impl serde::Serialize) {
         "isolated-verifier-secret",
         "fixture-account",
         "isolated-chatgpt-access",
+        codex::ACCESS,
+        codex::REFRESHED,
+        codex::REFRESH,
+        codex::ROTATED,
+        codex::DEVICE,
+        codex::ACCOUNT,
+        codex::CODE,
+        codex::VERIFIER,
     ] {
         assert!(!body.contains(secret));
     }

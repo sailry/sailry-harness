@@ -15,6 +15,7 @@ impl Editor {
             Preset::OpenAi => "https://api.openai.com/v1".into(),
             Preset::OpenCodeGo => "https://opencode.ai/zen/go/v1".into(),
             Preset::OpenCodeZen => "https://opencode.ai/zen/v1".into(),
+            Preset::ChatGptOAuth => "https://chatgpt.com/backend-api/codex".into(),
             Preset::ChatGpt => "https://api.openai.com/v1".into(),
             Preset::Copilot | Preset::CopilotResponses => "https://api.githubcopilot.com".into(),
             Preset::Hosted(vendor) => vendor.endpoint().into(),

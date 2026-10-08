@@ -264,6 +264,7 @@ pub(crate) fn channel(id: usize, provider: &Provider) -> Channel {
         preset: match (provider.authentication, provider.api) {
             (sailry_protocol::Authentication::Host, ModelApi::Bedrock) => Preset::BedrockIam,
             (sailry_protocol::Authentication::Host, ModelApi::Vertex) => Preset::VertexAdc,
+            (sailry_protocol::Authentication::ChatGptOAuth, _) => Preset::ChatGptOAuth,
             (sailry_protocol::Authentication::ChatGpt, _) => Preset::ChatGpt,
             (sailry_protocol::Authentication::Copilot, ModelApi::Responses) => {
                 Preset::CopilotResponses

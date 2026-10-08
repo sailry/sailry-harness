@@ -122,6 +122,7 @@ pub enum Preset {
     OpenAi,
     CompatibleResponses,
     CompatibleChat,
+    ChatGptOAuth,
     ChatGpt,
     Copilot,
     CopilotResponses,
@@ -148,9 +149,11 @@ impl Preset {
     pub fn api(self) -> sailry_protocol::conversation::ModelApi {
         use sailry_protocol::conversation::ModelApi;
         match self {
-            Self::OpenAi | Self::CompatibleResponses | Self::ChatGpt | Self::CopilotResponses => {
-                ModelApi::Responses
-            }
+            Self::OpenAi
+            | Self::CompatibleResponses
+            | Self::ChatGptOAuth
+            | Self::ChatGpt
+            | Self::CopilotResponses => ModelApi::Responses,
             Self::Hosted(Vendor::DeepSeek) => ModelApi::DeepSeek,
             Self::OpenCodeGo => ModelApi::OpenCodeGo,
             Self::OpenCodeZen => ModelApi::OpenCodeZen,
@@ -164,10 +167,11 @@ impl Preset {
         }
     }
 
-    const CORE: [Self; 18] = [
+    const CORE: [Self; 19] = [
         Self::OpenAi,
         Self::CompatibleResponses,
         Self::CompatibleChat,
+        Self::ChatGptOAuth,
         Self::ChatGpt,
         Self::Copilot,
         Self::CopilotResponses,
@@ -239,6 +243,7 @@ impl Preset {
         match self {
             Self::OpenAi => "preset_openai",
             Self::CompatibleResponses | Self::CompatibleChat => "preset_compatible",
+            Self::ChatGptOAuth => "preset_chatgpt_oauth",
             Self::ChatGpt => "preset_chatgpt",
             Self::Copilot | Self::CopilotResponses => "preset_copilot",
             Self::Anthropic => "preset_anthropic",
@@ -256,7 +261,10 @@ impl Preset {
     }
 
     pub fn oauth(self) -> bool {
-        matches!(self, Self::ChatGpt | Self::Copilot | Self::CopilotResponses)
+        matches!(
+            self,
+            Self::ChatGptOAuth | Self::ChatGpt | Self::Copilot | Self::CopilotResponses
+        )
     }
 
     pub fn cloud(self) -> bool {
@@ -320,6 +328,7 @@ impl Preset {
     pub fn authentication(self) -> sailry_protocol::Authentication {
         use sailry_protocol::Authentication;
         match self {
+            Self::ChatGptOAuth => Authentication::ChatGptOAuth,
             Self::ChatGpt => Authentication::ChatGpt,
             Self::BedrockIam | Self::VertexAdc => Authentication::Host,
             Self::Copilot | Self::CopilotResponses => Authentication::Copilot,

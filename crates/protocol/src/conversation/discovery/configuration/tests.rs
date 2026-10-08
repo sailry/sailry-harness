@@ -14,14 +14,16 @@ fn model() -> Model {
 #[test]
 fn enables_chatgpt_local_tools() {
     let discovered = model();
-    let configured = discovered.configuration(None, ModelApi::Responses, Authentication::ChatGpt);
-    assert!(configured.tools);
-    assert_eq!(configured.id, "gpt-6.1-sol");
-    assert_eq!(configured.display_name.as_deref(), Some("GPT-6.1 Sol"));
-    assert!(discovered.capabilities.is_none());
-    assert!(!configured.vision);
-    assert!(!configured.web_search);
-    assert!(!configured.reasoning);
+    for authentication in [Authentication::ChatGpt, Authentication::ChatGptOAuth] {
+        let configured = discovered.configuration(None, ModelApi::Responses, authentication);
+        assert!(configured.tools);
+        assert_eq!(configured.id, "gpt-6.1-sol");
+        assert_eq!(configured.display_name.as_deref(), Some("GPT-6.1 Sol"));
+        assert!(discovered.capabilities.is_none());
+        assert!(!configured.vision);
+        assert!(!configured.web_search);
+        assert!(!configured.reasoning);
+    }
 }
 
 #[test]
@@ -108,6 +110,7 @@ fn resolves_each_limit_by_source() {
     for authentication in [
         Authentication::ApiKey,
         Authentication::ChatGpt,
+        Authentication::ChatGptOAuth,
         Authentication::Copilot,
     ] {
         for (native, cached, expected) in [
@@ -152,7 +155,11 @@ fn resolves_each_limit_by_source() {
 #[test]
 fn completes_only_missing_capabilities() {
     let reference = reference();
-    for authentication in [Authentication::ApiKey, Authentication::ChatGpt] {
+    for authentication in [
+        Authentication::ApiKey,
+        Authentication::ChatGpt,
+        Authentication::ChatGptOAuth,
+    ] {
         let mut discovered = model();
         let configured =
             discovered.configuration(Some(&reference), ModelApi::Responses, authentication);

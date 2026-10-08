@@ -1,5 +1,6 @@
 //! Node-owned provider authorization and protected credential renewal.
 mod chatgpt;
+mod codex;
 mod copilot;
 mod grant;
 mod headers;
@@ -25,6 +26,7 @@ use zeroize::Zeroizing;
 const DEADLINE: Duration = Duration::from_secs(900);
 const BODY_LIMIT: usize = 64 * 1024;
 pub(crate) const CHATGPT_ENDPOINT: &str = "https://api.openai.com/v1";
+pub(crate) const CODEX_ENDPOINT: &str = "https://chatgpt.com/backend-api/codex";
 pub(crate) const COPILOT_ENDPOINT: &str = "https://api.githubcopilot.com";
 
 #[derive(Clone)]
@@ -56,9 +58,11 @@ impl Service {
         stop: &CancellationToken,
     ) -> Result<Grant, Fault> {
         let operation = async {
+            options::validate(grant.authentication(), ModelApi::Responses, options)?;
             let client = client(options)?;
             let refreshed = match grant {
                 Grant::ChatGpt { .. } => self.refresh_chatgpt(&client, grant).await?,
+                Grant::ChatGptOAuth { .. } => self.refresh_codex(&client, grant).await?,
                 Grant::Copilot { github, .. } => {
                     self.exchange_copilot(&client, github.clone(), options)
                         .await?
@@ -118,6 +122,7 @@ impl Service {
             progress(state)
         };
         let operation = async {
+            options::validate(authentication, ModelApi::Responses, options)?;
             let client = client(options)?;
             let grant = match authentication {
                 Authentication::ChatGpt => {
@@ -128,6 +133,12 @@ impl Service {
                         progress,
                     )
                     .await?
+                }
+                Authentication::ChatGptOAuth => {
+                    if authorization.is_some() {
+                        return Err(invalid("device authorization does not use a callback"));
+                    }
+                    self.codex(&client, progress).await?
                 }
                 Authentication::Copilot => self.copilot(&client, options, progress).await?,
                 Authentication::ApiKey | Authentication::Host => {
@@ -155,6 +166,9 @@ pub(crate) fn validate(provider: &Provider) -> Result<(), Fault> {
         Authentication::ChatGpt => {
             provider.api == ModelApi::Responses && endpoint == CHATGPT_ENDPOINT
         }
+        Authentication::ChatGptOAuth => {
+            provider.api == ModelApi::Responses && endpoint == CODEX_ENDPOINT
+        }
         Authentication::Copilot => {
             matches!(
                 provider.api,
@@ -171,7 +185,7 @@ pub(crate) fn validate(provider: &Provider) -> Result<(), Fault> {
         Some(options) => options::validate(provider.authentication, provider.api, options),
         None if matches!(
             provider.authentication,
-            Authentication::ChatGpt | Authentication::Copilot
+            Authentication::ChatGpt | Authentication::ChatGptOAuth | Authentication::Copilot
         ) =>
         {
             effective(provider).map(|_| ())
@@ -187,7 +201,10 @@ pub(crate) fn transferable(authentication: Authentication) -> Result<(), Fault> 
             "select a cloud identity provider on the execution Node",
         ));
     }
-    if authentication == Authentication::ChatGpt {
+    if matches!(
+        authentication,
+        Authentication::ChatGpt | Authentication::ChatGptOAuth
+    ) {
         // Independent Nodes cannot coordinate a rotating token family after copying it.
         return Err(Fault::new(
             ErrorCode::NotConfigured,

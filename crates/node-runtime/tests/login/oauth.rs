@@ -90,7 +90,7 @@ async fn discovers_with_unsaved_options() {
                 let request = requests.last().unwrap();
                 headers(request, &draft);
                 if authentication == Authentication::ChatGpt {
-                    assert_eq!(request.path, "/models?client_version=0.161.0");
+                    assert_eq!(request.path, "/models");
                     assert!(!request.headers.contains_key("originator"));
                     assert!(!request.headers.contains_key("chatgpt-account-id"));
                 }
@@ -109,7 +109,7 @@ async fn rejects_invalid_options_without_http_or_writes() {
             let provider = provider(&fixture.client, authentication).await;
             let mut invalid = options(authentication, "invalid");
             match &mut invalid {
-                Options::ChatGpt { user_agent, .. } => {
+                Options::ChatGpt { user_agent, .. } | Options::ChatGptOAuth { user_agent, .. } => {
                     *user_agent = "Sailry\r\nx-secret: injected".into()
                 }
                 Options::Copilot { editor_version, .. } => {

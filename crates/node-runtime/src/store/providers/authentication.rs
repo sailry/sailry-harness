@@ -39,15 +39,21 @@ impl Saved {
     }
 
     fn metadata(&self, provider: ProviderId, id: CredentialId) -> Result<Credential, Fault> {
-        let account_label = if self.authentication == Authentication::ChatGpt {
+        let account_label = if matches!(
+            self.authentication,
+            Authentication::ChatGpt | Authentication::ChatGptOAuth
+        ) {
             self.key
                 .as_ref()
                 .map(|key| {
-                    let crate::providers::login::Grant::ChatGpt { email, subject, .. } =
-                        crate::providers::login::Grant::decode(self.authentication, key)?
-                    else {
-                        unreachable!()
-                    };
+                    let (email, subject) =
+                        match crate::providers::login::Grant::decode(self.authentication, key)? {
+                            crate::providers::login::Grant::ChatGpt { email, subject, .. }
+                            | crate::providers::login::Grant::ChatGptOAuth {
+                                email, subject, ..
+                            } => (email, subject),
+                            crate::providers::login::Grant::Copilot { .. } => unreachable!(),
+                        };
                     Ok::<_, Fault>(email.unwrap_or(subject))
                 })
                 .transpose()?

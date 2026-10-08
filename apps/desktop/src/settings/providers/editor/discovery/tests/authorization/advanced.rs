@@ -16,6 +16,10 @@ fn replace(visual: &mut VisualTestContext, selector: &'static str, value: &str) 
 fn custom(preset: Preset) -> Options {
     match preset {
         Preset::ChatGpt => Options::ChatGpt {
+            catalog_version: None,
+            user_agent: "Fixture/9.3".into(),
+        },
+        Preset::ChatGptOAuth => Options::ChatGptOAuth {
             catalog_version: Some("0.161.0".into()),
             user_agent: "Fixture/9.3".into(),
         },
@@ -31,7 +35,8 @@ fn custom(preset: Preset) -> Options {
 fn fill(visual: &mut VisualTestContext, options: &Options) {
     replace(visual, "provider-oauth-user-agent", options.user_agent());
     match options {
-        Options::ChatGpt { .. } => {
+        Options::ChatGpt { .. } => {}
+        Options::ChatGptOAuth { .. } => {
             replace(
                 visual,
                 "provider-oauth-catalog-version",
@@ -57,8 +62,23 @@ fn parameters(request: &crate::discovery_fixture::Request, options: &Options) {
     assert_eq!(request.headers["user-agent"], options.user_agent());
     match options {
         Options::ChatGpt { .. } => {
+            assert_eq!(request.path, "/models");
+            for header in ["chatgpt-account-id", "version", "originator"] {
+                assert!(!request.headers.contains_key(header));
+            }
+        }
+        Options::ChatGptOAuth { .. } => {
             assert_eq!(request.path, "/models?client_version=0.161.0");
-            assert!(!request.headers.contains_key("chatgpt-account-id"));
+            assert_eq!(request.headers["version"], "0.161.0");
+            assert_eq!(request.headers["originator"], "codex_cli_rs");
+            assert_eq!(
+                request.headers["chatgpt-account-id"],
+                "isolated-codex-workspace"
+            );
+            assert_eq!(
+                request.headers["authorization"],
+                "Bearer desktop-codex-access"
+            );
         }
         Options::Copilot {
             editor_version,
@@ -121,7 +141,12 @@ fn queries_and_saves_custom_parameters(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     cx.update(gpui_kit::init);
     for remote in [false, true] {
-        for preset in [Preset::ChatGpt, Preset::Copilot, Preset::CopilotResponses] {
+        for preset in [
+            Preset::ChatGptOAuth,
+            Preset::ChatGpt,
+            Preset::Copilot,
+            Preset::CopilotResponses,
+        ] {
             let directory = tempfile::tempdir().unwrap();
             let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
             let server = runtime.block_on(support::server(Arc::new(AtomicU8::new(1))));
@@ -212,7 +237,12 @@ fn rejects_changed_discovery_drafts(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     cx.update(gpui_kit::init);
     for remote in [false, true] {
-        for preset in [Preset::ChatGpt, Preset::Copilot, Preset::CopilotResponses] {
+        for preset in [
+            Preset::ChatGptOAuth,
+            Preset::ChatGpt,
+            Preset::Copilot,
+            Preset::CopilotResponses,
+        ] {
             let directory = tempfile::tempdir().unwrap();
             let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
             let mode = Arc::new(AtomicU8::new(1));
@@ -298,7 +328,12 @@ fn retains_invalid_drafts_for_retry(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     cx.update(gpui_kit::init);
     for remote in [false, true] {
-        for preset in [Preset::ChatGpt, Preset::Copilot, Preset::CopilotResponses] {
+        for preset in [
+            Preset::ChatGptOAuth,
+            Preset::ChatGpt,
+            Preset::Copilot,
+            Preset::CopilotResponses,
+        ] {
             let directory = tempfile::tempdir().unwrap();
             let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
             let server = runtime.block_on(support::server(Arc::new(AtomicU8::new(1))));
@@ -345,9 +380,9 @@ fn retains_invalid_drafts_for_retry(cx: &mut TestAppContext) {
             tap(visual, "provider-oauth-user-agent");
             visual.simulate_input("Retry/4.2");
             match &mut draft {
-                Options::ChatGpt { user_agent, .. } | Options::Copilot { user_agent, .. } => {
-                    *user_agent = "Retry/4.2".into()
-                }
+                Options::ChatGpt { user_agent, .. }
+                | Options::ChatGptOAuth { user_agent, .. }
+                | Options::Copilot { user_agent, .. } => *user_agent = "Retry/4.2".into(),
             }
             editor.read_with(visual, |editor, cx| {
                 assert_eq!(

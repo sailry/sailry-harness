@@ -17,6 +17,17 @@ pub(crate) enum Grant {
         scopes: Vec<String>,
         renewal_pending: bool,
     },
+    #[serde(rename = "chat_gpt_oauth")]
+    ChatGptOAuth {
+        access: Secret,
+        refresh: Secret,
+        expires_at_ms: u64,
+        subject: String,
+        account_id: String,
+        email: Option<String>,
+        id_token: Secret,
+        renewal_pending: bool,
+    },
     Copilot {
         access: Secret,
         github: Secret,
@@ -36,6 +47,9 @@ impl Grant {
         match self {
             Self::ChatGpt {
                 renewal_pending, ..
+            }
+            | Self::ChatGptOAuth {
+                renewal_pending, ..
             } => *renewal_pending,
             Self::Copilot { .. } => false,
         }
@@ -43,6 +57,9 @@ impl Grant {
 
     pub(crate) fn begin_renewal(&mut self) {
         if let Self::ChatGpt {
+            renewal_pending, ..
+        }
+        | Self::ChatGptOAuth {
             renewal_pending, ..
         } = self
         {
@@ -64,6 +81,18 @@ impl Grant {
                     ..
                 },
             ) => first_client == second_client && first == second,
+            (
+                Self::ChatGptOAuth {
+                    subject: first_subject,
+                    account_id: first_account,
+                    ..
+                },
+                Self::ChatGptOAuth {
+                    subject: second_subject,
+                    account_id: second_account,
+                    ..
+                },
+            ) => first_subject == second_subject && first_account == second_account,
             (Self::Copilot { github: first, .. }, Self::Copilot { github: second, .. }) => {
                 first == second
             }
@@ -72,14 +101,15 @@ impl Grant {
     }
     pub(crate) fn expires_at_ms(&self) -> u64 {
         match self {
-            Self::ChatGpt { expires_at_ms, .. } | Self::Copilot { expires_at_ms, .. } => {
-                *expires_at_ms
-            }
+            Self::ChatGpt { expires_at_ms, .. }
+            | Self::ChatGptOAuth { expires_at_ms, .. }
+            | Self::Copilot { expires_at_ms, .. } => *expires_at_ms,
         }
     }
     pub(crate) fn authentication(&self) -> Authentication {
         match self {
             Self::ChatGpt { .. } => Authentication::ChatGpt,
+            Self::ChatGptOAuth { .. } => Authentication::ChatGptOAuth,
             Self::Copilot { .. } => Authentication::Copilot,
         }
     }
@@ -140,6 +170,27 @@ impl Grant {
                 {
                     return Err(invalid("authorization scopes are invalid"));
                 }
+                (access, refresh, *expires_at_ms)
+            }
+            Self::ChatGptOAuth {
+                access,
+                refresh,
+                expires_at_ms,
+                subject,
+                account_id,
+                email,
+                id_token,
+                ..
+            } => {
+                if [subject, account_id].iter().any(|value| {
+                    value.is_empty() || value.len() > 2048 || value.chars().any(char::is_control)
+                }) || email.as_ref().is_some_and(|value| {
+                    value.is_empty() || value.len() > 1024 || value.chars().any(char::is_control)
+                }) || reqwest::header::HeaderValue::from_str(account_id).is_err()
+                {
+                    return Err(invalid("authorization account identifier is invalid"));
+                }
+                token(id_token)?;
                 (access, refresh, *expires_at_ms)
             }
             Self::Copilot {

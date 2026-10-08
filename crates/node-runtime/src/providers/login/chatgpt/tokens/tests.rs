@@ -12,6 +12,7 @@ fn grant(value: Value, previous: Option<&Grant>) -> Result<Grant, Fault> {
         identity::Identity {
             sub: "subject".into(),
             email: Some("user@example.com".into()),
+            account_id: None,
         },
         previous,
     )

@@ -4,12 +4,16 @@ use super::*;
 fn refreshes_expired_codes(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     cx.update(gpui_kit::init);
-    for api in [ModelApi::Responses, ModelApi::ChatCompletions] {
+    for (authentication, api) in [
+        (Authentication::ChatGptOAuth, ModelApi::Responses),
+        (Authentication::Copilot, ModelApi::Responses),
+        (Authentication::Copilot, ModelApi::ChatCompletions),
+    ] {
         for remote in [false, true] {
             let fixture = Fixture::new(remote);
             fixture.mode.store(4, Ordering::SeqCst);
             fixture.execute(Command::SaveProvider {
-                provider: support::provider(Authentication::Copilot, api),
+                provider: support::provider(authentication, api),
                 expected_revision: 0,
                 secret: None,
             });
@@ -79,7 +83,12 @@ fn refreshes_expired_codes(cx: &mut TestAppContext) {
                     .lock()
                     .unwrap()
                     .iter()
-                    .filter(|request| request.path == "/login/device/code")
+                    .filter(|request| request.path
+                        == if authentication == Authentication::ChatGptOAuth {
+                            "/api/accounts/deviceauth/usercode"
+                        } else {
+                            "/login/device/code"
+                        })
                     .count(),
                 2
             );

@@ -10,6 +10,7 @@ pub(crate) enum ImageRoute {
     Images,
     Responses,
     Native,
+    Authorized,
 }
 
 pub(crate) fn image_route(provider: &Provider, model: &Model) -> Option<ImageRoute> {
@@ -24,6 +25,11 @@ pub(crate) fn image_route(provider: &Provider, model: &Model) -> Option<ImageRou
         )
     {
         return Some(ImageRoute::Native);
+    }
+    if provider.authentication == Authentication::ChatGptOAuth {
+        return (provider.api == ModelApi::Responses
+            && model.generates.contains(&Generation::ImageTool))
+        .then_some(ImageRoute::Authorized);
     }
     if provider.authentication != Authentication::ApiKey {
         return None;
@@ -55,7 +61,9 @@ pub(crate) fn supports(kind: Kind, provider: &Provider, model: &Model) -> bool {
                     Authentication::Host => {
                         matches!(provider.api, ModelApi::Bedrock | ModelApi::Vertex)
                     }
-                    Authentication::ChatGpt => provider.api == ModelApi::Responses,
+                    Authentication::ChatGpt | Authentication::ChatGptOAuth => {
+                        provider.api == ModelApi::Responses
+                    }
                     Authentication::Copilot => matches!(
                         provider.api,
                         ModelApi::ChatCompletions | ModelApi::Responses
@@ -190,12 +198,32 @@ mod tests {
         for (api, authentication) in [
             (ModelApi::Gemini, Authentication::ApiKey),
             (ModelApi::Responses, Authentication::ChatGpt),
+            (ModelApi::Responses, Authentication::ChatGptOAuth),
             (ModelApi::ChatCompletions, Authentication::Copilot),
             (ModelApi::Vertex, Authentication::Host),
         ] {
             let (provider, model) = fixture(api, authentication, "vision-model");
             assert!(supports(Kind::Vision, &provider, &model));
         }
+    }
+
+    #[test]
+    fn requires_declared_backend_generation() {
+        let (mut provider, mut model) = fixture(
+            ModelApi::Responses,
+            Authentication::ChatGptOAuth,
+            "gpt-6.1-sol",
+        );
+        assert_eq!(image_route(&provider, &model), None);
+        model.generates.push(Generation::ImageTool);
+        assert_eq!(image_route(&provider, &model), Some(ImageRoute::Authorized));
+        assert!(supports(Kind::Image, &provider, &model));
+        assert!(!supports(Kind::Video, &provider, &model));
+        provider.api = ModelApi::ChatCompletions;
+        assert_eq!(image_route(&provider, &model), None);
+        provider.api = ModelApi::Responses;
+        provider.authentication = Authentication::ChatGpt;
+        assert_eq!(image_route(&provider, &model), None);
     }
 
     #[test]

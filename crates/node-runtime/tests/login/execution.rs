@@ -218,7 +218,7 @@ async fn configured(
         .unwrap()
 }
 
-async fn session(fixture: &Fixture, provider: &Provider) -> Session {
+pub(super) async fn session(fixture: &Fixture, provider: &Provider) -> Session {
     let root = fixture.directory.path().join(ProjectId::new().to_string());
     std::fs::create_dir(&root).unwrap();
     std::fs::write(root.join("fixture.txt"), "Isolated tool content").unwrap();
@@ -257,7 +257,7 @@ async fn session(fixture: &Fixture, provider: &Provider) -> Session {
     session
 }
 
-async fn submit(client: &Client, session: &Session) -> (Request, QueuedTurn) {
+pub(super) async fn submit(client: &Client, session: &Session) -> (Request, QueuedTurn) {
     let request = client.prepare(Command::SubmitTurn {
         session: session.id,
         expected_revision: session.revision,
@@ -269,7 +269,7 @@ async fn submit(client: &Client, session: &Session) -> (Request, QueuedTurn) {
     (request, turn)
 }
 
-async fn finished(client: &Client, turn: &QueuedTurn, status: Status) -> Page {
+pub(super) async fn finished(client: &Client, turn: &QueuedTurn, status: Status) -> Page {
     finished_within(client, turn, status, Duration::from_secs(10)).await
 }
 
@@ -359,7 +359,7 @@ async fn runs_tools_from_minimal_catalog() {
     for remote in [false, true] {
         let server = Server::start_with_request(ModelApi::Anthropic, |request| {
             match request.path.as_str() {
-                path if path.starts_with("/models?") => Reply::Json(json!({"models":[{
+                "/models" => Reply::Json(json!({"models":[{
                     "slug":"gpt-6.1-sol", "display_name":"GPT-6.1 Sol", "visibility":"list"
                 }]})),
                 "/responses" => {

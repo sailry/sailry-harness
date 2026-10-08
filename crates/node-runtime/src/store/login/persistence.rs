@@ -27,6 +27,23 @@ pub(super) fn save(
         }
     }
     authorized.grant.validate(provider.authentication)?;
+    if provider.authentication == Authentication::ChatGptOAuth
+        && let Some(credential) = credential.filter(|value| !value.revoked)
+    {
+        let (_, previous) = crate::store::providers::authentication::resolve(
+            &transaction,
+            credential.id,
+            provider.id,
+            provider.authentication,
+        )?;
+        let previous = Grant::decode(provider.authentication, &previous)?;
+        if !previous.same_account(&authorized.grant) {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "authorization account changed",
+            ));
+        }
+    }
     let value = Credential {
         id: credential.map_or_else(CredentialId::new, |value| value.id),
         provider: provider.id,

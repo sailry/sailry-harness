@@ -9,7 +9,11 @@ pub enum Authentication {
     ApiKey,
     /// Resolve the execution Node's cloud identity; never a controller credential.
     Host,
+    /// Official Sign in with ChatGPT registration and public API access.
     ChatGpt,
+    /// Codex device authorization and its account-scoped backend.
+    #[serde(rename = "chat_gpt_oauth")]
+    ChatGptOAuth,
     Copilot,
 }
 

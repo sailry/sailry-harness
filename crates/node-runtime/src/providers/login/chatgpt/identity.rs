@@ -9,9 +9,10 @@ struct Discovery {
     jwks_uri: String,
 }
 
-pub(super) struct Identity {
+pub(in crate::providers::login) struct Identity {
     pub sub: String,
     pub email: Option<String>,
+    pub account_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -22,9 +23,17 @@ struct Claims {
     iat: u64,
     aud: serde_json::Value,
     azp: Option<String>,
+    chatgpt_account_id: Option<String>,
+    #[serde(rename = "https://api.openai.com/auth")]
+    auth: Option<Account>,
 }
 
-pub(super) async fn verify(
+#[derive(Deserialize)]
+struct Account {
+    chatgpt_account_id: Option<String>,
+}
+
+pub(in crate::providers::login) async fn verify(
     client: &Client,
     auth: &str,
     token: &Secret,
@@ -135,6 +144,9 @@ fn verified(
     Ok(Identity {
         sub: claims.sub,
         email: claims.email,
+        account_id: claims
+            .chatgpt_account_id
+            .or_else(|| claims.auth.and_then(|auth| auth.chatgpt_account_id)),
     })
 }
 

@@ -1,7 +1,7 @@
 //! Public-client ChatGPT authorization and token renewal for the execution Node.
 use super::*;
 pub(super) mod flow;
-mod identity;
+pub(super) mod identity;
 mod tokens;
 pub(crate) use flow::Authorization;
 
@@ -118,6 +118,7 @@ impl Service {
             identity::Identity {
                 sub: subject.clone(),
                 email: email.clone(),
+                account_id: None,
             }
         };
         tokens.grant(client_id.clone(), identity, Some(previous))
