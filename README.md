@@ -81,23 +81,6 @@ shape the workspace where you use them. Start with the
 Desktop, Host, Mobile, and official plugin source are open under Apache-2.0,
 with third-party licenses preserved.
 
-## How Sailry fits alongside other AI tools
-
-These products share many capabilities. Multi-model support, delegation, plugins,
-and remote access are useful foundations; Sailry's focus is how they come together
-in a native workspace on machines you control.
-
-| Product | What its official documentation emphasizes | Choose Sailry when you want… |
-| --- | --- | --- |
-| [ChatGPT](https://learn.chatgpt.com/docs/use-chatgpt) | General research, files, connected tools, and agent work across local and cloud environments | Your choice of model provider and a self-hosted execution Node, with open desktop, Host, and mobile source |
-| [Claude Code](https://code.claude.com/docs/en/remote-control) | Coding in your local environment, with Remote Control from web and mobile | A native workspace for files, Git, terminals, servers, and data, connected to your own Host across model providers |
-| [OpenCode](https://opencode.ai/docs/) · [Server](https://opencode.ai/docs/server/) | An open-source coding agent with multiple providers, desktop support, and a client/server architecture | Coding, documents, research, and server tools together, with native plugin panels and a mobile controller |
-| [AionUi](https://github.com/iOfficeAI/AionUi) | Cowork with a built-in agent and external CLI agents, Office workflows, remote access, and automation | Native GPUI Kit workspace and plugin controls, with one execution and history path across local and remote work |
-| [DeepSeek Harness / dsh](https://github.com/deepseek-ai/deepseek-harness) | A Cordis-based, everything-is-a-plugin harness, launched through Node.js and a Web UI | A Rust execution service, native desktop workbenches, and direct mobile access to your execution Nodes |
-
-Comparison reflects the linked official documentation reviewed on October 8,
-2026. Availability and requirements vary by product and platform.
-
 ## Put it to work
 
 | Your task | What you work with in Sailry |

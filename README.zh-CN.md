@@ -67,21 +67,6 @@ Rust 负责执行、连接和共享状态，具体工作台通过插件提供。
 
 桌面端、Host、移动端和官方插件源码采用 Apache-2.0 许可证，第三方许可保留。
 
-## 和同类工具相比，Sailry 适合什么选择
-
-这些产品有不少共同能力。多模型、委派、插件和远程访问都是有用的基础；
-Sailry 关注的是，把它们组合成一个运行在自有机器上的原生工作区。
-
-| 产品 | 官方资料强调的方向 | 适合选择 Sailry 的需求 |
-| --- | --- | --- |
-| [ChatGPT](https://learn.chatgpt.com/docs/use-chatgpt) | 通用研究、文件、连接工具，以及本地和云端的智能体任务 | 自选模型供应商和自托管执行节点，桌面端、Host 与移动端源码均开放 |
-| [Claude Code](https://code.claude.com/docs/en/remote-control) | 在本地环境中编码，通过网页和手机远程控制 | 在原生工作区中操作文件、Git、终端、服务器与数据，并跨模型供应商连接自己的 Host |
-| [OpenCode](https://opencode.ai/docs/) · [Server](https://opencode.ai/docs/server/) | 多供应商开源编码智能体、桌面端与客户端／服务端架构 | 把编码、文档、研究和服务器工具放在一处，配合原生插件面板与移动控制端 |
-| [AionUi](https://github.com/iOfficeAI/AionUi) | 内置智能体与外部 CLI 智能体协作、办公任务、远程访问和自动化 | 原生 GPUI Kit 工作区与插件控件，本地和远程共用一套执行与历史 |
-| [DeepSeek Harness / dsh](https://github.com/deepseek-ai/deepseek-harness) | 基于 Cordis 的一切皆插件架构，通过 Node.js 启动 Web UI | Rust 执行服务、原生桌面工作台，以及手机直连执行节点 |
-
-对比依据为 2026 年 10 月 8 日查阅的上述官方资料，具体可用性和要求因产品与平台而异。
-
 ## 可以用它完成什么
 
 | 你的任务 | Sailry 中的工作方式 |
