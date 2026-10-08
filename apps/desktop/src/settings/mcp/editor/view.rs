@@ -26,96 +26,79 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
             .on_close(move |_, window, cx| close.update(cx, |editor, cx| editor.close(window, cx)))
             .child(editor.clone())
             .footer(
-                v_flex()
-                    .w_full()
-                    .gap_2()
-                    .when(state.details, |view| {
-                        view.children(
-                            state.detail.clone().map(|text| {
-                                div().text_xs().max_h_16().overflow_hidden().child(text)
+                state.submission.diagnostics().child(
+                    DialogFooter::new()
+                        .w_full()
+                        .gap_2()
+                        .flex_wrap()
+                        .when_some(
+                            state.original.as_ref().filter(|info| {
+                                info.mcp_source
+                                    .as_ref()
+                                    .is_some_and(|source| source.transport() != McpTransport::Stdio)
                             }),
-                        )
-                    })
-                    .child(
-                        DialogFooter::new()
-                            .w_full()
-                            .gap_2()
-                            .flex_wrap()
-                            .when_some(
-                                state.original.as_ref().filter(|info| {
-                                    info.mcp_source.as_ref().is_some_and(|source| {
-                                        source.transport() != McpTransport::Stdio
-                                    })
-                                }),
-                                |row, info| {
-                                    let binding = state.binding.clone();
-                                    let package = info.summary.reference();
-                                    row.child(
-                                        Button::new("mcp-authorize")
-                                            .ghost()
-                                            .label(tr("mcp_oauth_title"))
-                                            .debug_selector(|| "mcp-authorize".into())
-                                            .disabled(state.locked())
-                                            .on_click(move |_, window, cx| {
-                                                plugins::authorization::open(
-                                                    binding.clone(),
-                                                    package.clone(),
-                                                    "server".into(),
-                                                    window,
-                                                    cx,
-                                                );
-                                            }),
-                                    )
-                                },
-                            )
-                            .when(!state.loaded, |row| {
+                            |row, info| {
+                                let binding = state.binding.clone();
+                                let package = info.summary.reference();
                                 row.child(
-                                    Button::new("mcp-reload")
-                                        .label(tr("plugins_settings_reload"))
-                                        .disabled(state.loading)
-                                        .on_click(move |_, window, cx| {
-                                            reload.update(cx, |editor, cx| editor.load(window, cx))
-                                        }),
-                                )
-                            })
-                            .when(state.detail.is_some(), |row| {
-                                row.child(
-                                    Button::new("mcp-diagnostics")
+                                    Button::new("mcp-authorize")
                                         .ghost()
-                                        .label(tr("plugins_settings_diagnostics"))
-                                        .on_click(move |_, _, cx| {
-                                            details.update(cx, |editor, cx| {
-                                                editor.details = !editor.details;
-                                                cx.notify();
-                                            })
+                                        .label(tr("mcp_oauth_title"))
+                                        .debug_selector(|| "mcp-authorize".into())
+                                        .disabled(state.locked())
+                                        .on_click(move |_, window, cx| {
+                                            plugins::authorization::open(
+                                                binding.clone(),
+                                                package.clone(),
+                                                "server".into(),
+                                                window,
+                                                cx,
+                                            );
                                         }),
                                 )
-                            })
-                            .child(
-                                Button::new("mcp-cancel")
-                                    .debug_selector(|| "mcp-cancel".into())
-                                    .label(tr("settings_cancel"))
+                            },
+                        )
+                        .when(!state.loaded, |row| {
+                            row.child(
+                                Button::new("mcp-reload")
+                                    .label(tr("plugins_settings_reload"))
+                                    .disabled(state.loading)
                                     .on_click(move |_, window, cx| {
-                                        cancel.update(cx, |editor, cx| editor.close(window, cx));
-                                        window.close_dialog(cx);
+                                        reload.update(cx, |editor, cx| editor.load(window, cx))
                                     }),
                             )
-                            .child(
-                                Button::new("mcp-save")
-                                    .primary()
-                                    .debug_selector(|| "mcp-save".into())
-                                    .loading(state.pending)
-                                    .disabled(state.pending || state.loading || !state.loaded)
-                                    .label(tr(if state.request.is_some() {
-                                        "plugins_retry"
-                                    } else {
-                                        "settings_save"
-                                    }))
-                                    .on_click(move |_, window, cx| {
-                                        save.update(cx, |editor, cx| editor.save(window, cx))
+                        })
+                        .when(state.submission.detail.is_some(), |row| {
+                            row.child(
+                                Button::new("mcp-diagnostics")
+                                    .ghost()
+                                    .label(tr("plugins_settings_diagnostics"))
+                                    .on_click(move |_, _, cx| {
+                                        details.update(cx, |editor, cx| {
+                                            editor.submission.details = !editor.submission.details;
+                                            cx.notify();
+                                        })
                                     }),
-                            ),
-                    ),
+                            )
+                        })
+                        .child(
+                            Button::new("mcp-cancel")
+                                .debug_selector(|| "mcp-cancel".into())
+                                .label(tr("settings_cancel"))
+                                .on_click(move |_, window, cx| {
+                                    cancel.update(cx, |editor, cx| editor.close(window, cx));
+                                    window.close_dialog(cx);
+                                }),
+                        )
+                        .child(
+                            state
+                                .submission
+                                .save_button("mcp-save", state.loading, state.loaded)
+                                .on_click(move |_, window, cx| {
+                                    save.update(cx, |editor, cx| editor.save(window, cx))
+                                }),
+                        ),
+                ),
             )
     });
 }

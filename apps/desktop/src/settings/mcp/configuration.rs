@@ -14,12 +14,8 @@ pub(super) struct Editor {
     document: Entity<EditorState>,
     loading: bool,
     loaded: bool,
-    pending: bool,
     closed: bool,
-    request: Option<Request>,
-    error: Option<&'static str>,
-    detail: Option<String>,
-    details: bool,
+    submission: Submission,
     stop: CancellationToken,
     task: Option<Task<()>>,
 }
@@ -38,7 +34,7 @@ pub(super) fn open(
 ) -> Entity<Editor> {
     let editor = cx.new(|cx| {
         crate::feedback::observe(window, cx, |editor: &Editor, _| {
-            editor.error.into_iter().collect()
+            editor.submission.error.into_iter().collect()
         });
         Editor {
             binding,
@@ -50,12 +46,8 @@ pub(super) fn open(
             }),
             loading: false,
             loaded: false,
-            pending: false,
             closed: false,
-            request: None,
-            error: None,
-            detail: None,
-            details: false,
+            submission: Submission::default(),
             stop: CancellationToken::new(),
             task: None,
         }
@@ -67,19 +59,23 @@ pub(super) fn open(
 
 impl Editor {
     fn locked(&self) -> bool {
-        self.loading || !self.loaded || self.pending || self.request.is_some()
+        self.loading || !self.loaded || self.submission.pending || self.submission.request.is_some()
     }
 
     fn load(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.closed || self.loading || self.pending || self.request.is_some() {
+        if self.closed
+            || self.loading
+            || self.submission.pending
+            || self.submission.request.is_some()
+        {
             return;
         }
         let binding = self.binding.clone();
         let package = self.package.clone();
         let stop = self.stop.clone();
         self.loading = true;
-        self.error = None;
-        self.detail = None;
+        self.submission.error = None;
+        self.submission.detail = None;
         let job = binding.runtime.spawn(async move {
             tokio::select! {
                 _ = stop.cancelled() => None,
@@ -102,12 +98,14 @@ impl Editor {
                                 });
                                 editor.loaded = true;
                             }
-                            Err(_) => editor.error = Some("plugins_settings_read_failed"),
+                            Err(_) => {
+                                editor.submission.error = Some("plugins_settings_read_failed")
+                            }
                         }
                     }
-                    Ok(Some(Ok(_))) => editor.error = Some("plugins_settings_conflict"),
+                    Ok(Some(Ok(_))) => editor.submission.error = Some("plugins_settings_conflict"),
                     Ok(Some(Err(error))) => editor.failure(error),
-                    _ => editor.error = Some("plugins_settings_read_failed"),
+                    _ => editor.submission.error = Some("plugins_settings_read_failed"),
                 }
                 cx.notify();
             });
@@ -125,34 +123,18 @@ impl Editor {
     }
 
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.pending || self.loading || self.closed || !self.loaded {
+        if self.submission.pending || self.loading || self.closed || !self.loaded {
             return;
         }
-        if self.request.is_none() {
-            match self.prepare(cx) {
-                Ok(command) => self.request = Some(self.binding.client.prepare(command)),
-                Err(error) => {
-                    self.error = Some(error);
-                    cx.notify();
-                    return;
-                }
-            }
-        }
-        let request = self
-            .request
-            .clone()
-            .expect("MCP configuration request is prepared");
-        let binding = self.binding.clone();
-        self.pending = true;
-        self.error = None;
-        self.detail = None;
-        let job = binding
-            .runtime
-            .spawn(async move { binding.client.execute(request).await });
+        let command = self.submission.request.is_none().then(|| self.prepare(cx));
+        let Some(job) = self.submission.begin(&self.binding, command) else {
+            cx.notify();
+            return;
+        };
         self.task = Some(cx.spawn_in(window, async move |editor, cx| {
             let result = job.await;
             _ = editor.update_in(cx, |editor, window, cx| {
-                editor.pending = false;
+                editor.submission.pending = false;
                 if editor.closed {
                     return;
                 }
@@ -168,12 +150,9 @@ impl Editor {
                         window.close_dialog(cx);
                     }
                     Ok(Err(error)) => {
-                        if !plugins::live::uncertain(&error) {
-                            editor.request = None;
-                        }
                         editor.failure(error);
                     }
-                    _ => editor.error = Some("plugins_unknown"),
+                    _ => editor.submission.error = Some("plugins_unknown"),
                 }
                 cx.notify();
             });
@@ -182,18 +161,18 @@ impl Editor {
     }
 
     fn failure(&mut self, error: Fault) {
-        self.error = Some(match error.code {
+        let key = match error.code {
             sailry_protocol::ErrorCode::InvalidRequest => "mcp_configuration_invalid",
             sailry_protocol::ErrorCode::RevisionConflict => "plugins_settings_conflict",
             _ => plugins::live::error_key(&error),
-        });
-        self.detail = Some(error.message);
+        };
+        self.submission.failure(error, key);
     }
 
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.closed = true;
         self.stop.cancel();
-        self.request = None;
+        self.submission.request = None;
         // Kit resets the value and its undo history together.
         self.document
             .update(cx, |document, cx| document.set_value("", window, cx));

@@ -5,7 +5,7 @@ use super::host::{
 };
 use crate::conversation::live::View;
 use gpui_kit::*;
-use gpui_shell::{HostError, HostModule};
+use gpui_shell::{HostArguments, HostError, HostModule, HostResult};
 use serde_json::Value;
 use std::{cell::RefCell, sync::Arc};
 
@@ -123,30 +123,96 @@ pub(super) fn extend(
         "{}\nexport interface ComposerState {{cursor:string;command:{{name:string;arguments:string;package:import('sailry/sdk').Json}}|null;mode:'plan'|'code';session:string|null;connected:boolean;busy:boolean;readonly:boolean;statistics:Record<string,unknown>|null;context_limit:number|null;compacting:boolean;has_messages:boolean;sidebar:boolean}}\nexport function readComposer():ComposerState;\nexport function nextComposerChange(cursor:string):Promise<ComposerState>;\nexport function setComposerOption(cursor:string,key:'command'|'mode',value:unknown):Promise<ComposerState>;",
         module.declared().unwrap_or_default()
     );
-    let module=module.function("readComposer",move |_| {
-        read_host.check()?;
-        let state=read.as_ref().ok_or_else(||HostError::new("composer read is unavailable"))?;
-        gpui_shell::with_current_app(|cx|state.update(cx,|state,cx| {
-            if !state.matches(&read_host,cx) {return Err(HostError::new("composer scope is unavailable"));}
-            state.refresh(cx); encode(state.changes.borrow().clone())
-        })).ok_or_else(||HostError::new("composer requires an active view"))?
-    }).async_function("nextComposerChange",move |args| {
-        change_host.check()?;let seen=args.string(0)?.to_owned();
-        let state=change.as_ref().ok_or_else(||HostError::new("composer read is unavailable"))?;
-        let mut changes=gpui_shell::with_current_app(|cx|state.read(cx).changes.subscribe()).ok_or_else(||HostError::new("composer requires an active view"))?;
-        let stop=change_host.stop_token();
-        Ok(async move { loop {
-            let state=changes.borrow_and_update().clone();
-            if state["cursor"].as_str()!=Some(&seen) {return encode(state);}
-            tokio::select! {biased; _=stop.cancelled()=>return Err(HostError::new("plugin view is closed")), changed=changes.changed()=>changed.map_err(|_|HostError::new("composer is closed"))?}
-        }})
-    }).async_function("setComposerOption",move |args| {
-        host.check()?;let state=write.clone().ok_or_else(||HostError::new("composer control is unavailable"))?;
-        let cursor=args.string(0)?.to_owned();let key=args.string(1)?.to_owned();let value=decode(args.value(2)?)?;
-        let (reply,receive)=tokio::sync::oneshot::channel();let host=host.clone();
-        gpui_shell::with_current_app(|cx|cx.defer(move |cx|state.update(cx,|_,cx|cx.emit(Request {cursor,key,value,host,reply:RefCell::new(Some(reply))}))))
-            .ok_or_else(||HostError::new("composer requires an active view"))?;
-        Ok(async move {receive.await.map_err(|_|HostError::new("composer is closed"))?.map_err(HostError::new).and_then(encode)})
-    }).declarations(declarations);
+    let module = module
+        .function("readComposer", move |_| read_state(&read_host, &read))
+        .async_function("nextComposerChange", move |args| {
+            changes(args, &change_host, &change)
+        })
+        .async_function("setComposerOption", move |args| {
+            set_option(args, &host, &write)
+        })
+        .declarations(declarations);
     (module, state)
+}
+
+fn read_state(read_host: &Arc<Host>, read: &Option<Entity<State>>) -> HostResult {
+    read_host.check()?;
+    let state = read
+        .as_ref()
+        .ok_or_else(|| HostError::new("composer read is unavailable"))?;
+    gpui_shell::with_current_app(|cx| {
+        state.update(cx, |state, cx| {
+            if !state.matches(read_host, cx) {
+                return Err(HostError::new("composer scope is unavailable"));
+            }
+            state.refresh(cx);
+            encode(state.changes.borrow().clone())
+        })
+    })
+    .ok_or_else(|| HostError::new("composer requires an active view"))?
+}
+
+fn changes(
+    args: &HostArguments,
+    change_host: &Arc<Host>,
+    change: &Option<Entity<State>>,
+) -> Result<impl std::future::Future<Output = HostResult> + Send + 'static + use<>, HostError> {
+    change_host.check()?;
+    let seen = args.string(0)?.to_owned();
+    let state = change
+        .as_ref()
+        .ok_or_else(|| HostError::new("composer read is unavailable"))?;
+    let mut changes = gpui_shell::with_current_app(|cx| state.read(cx).changes.subscribe())
+        .ok_or_else(|| HostError::new("composer requires an active view"))?;
+    let stop = change_host.stop_token();
+    Ok(async move {
+        loop {
+            let state = changes.borrow_and_update().clone();
+            if state["cursor"].as_str() != Some(&seen) {
+                return encode(state);
+            }
+            tokio::select! {
+                biased;
+                _ = stop.cancelled() => return Err(HostError::new("plugin view is closed")),
+                changed = changes.changed() => changed.map_err(|_| HostError::new("composer is closed"))?,
+            }
+        }
+    })
+}
+
+fn set_option(
+    args: &HostArguments,
+    host: &Arc<Host>,
+    write: &Option<Entity<State>>,
+) -> Result<impl std::future::Future<Output = HostResult> + Send + 'static + use<>, HostError> {
+    host.check()?;
+    let state = write
+        .clone()
+        .ok_or_else(|| HostError::new("composer control is unavailable"))?;
+    let cursor = args.string(0)?.to_owned();
+    let key = args.string(1)?.to_owned();
+    let value = decode(args.value(2)?)?;
+    let (reply, receive) = tokio::sync::oneshot::channel();
+    let host = host.clone();
+    gpui_shell::with_current_app(|cx| {
+        cx.defer(move |cx| {
+            state.update(cx, |_, cx| {
+                cx.emit(Request {
+                    cursor,
+                    key,
+                    value,
+                    host,
+                    reply: RefCell::new(Some(reply)),
+                })
+            })
+        })
+    })
+    .ok_or_else(|| HostError::new("composer requires an active view"))?;
+    Ok(async move {
+        receive
+            .await
+            .map_err(|_| HostError::new("composer is closed"))?
+            .map_err(HostError::new)
+            .and_then(encode)
+    })
 }

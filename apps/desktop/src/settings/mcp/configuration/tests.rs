@@ -191,7 +191,7 @@ fn preserves_invalid_and_conflicting_drafts(cx: &mut TestAppContext) {
         let draft = source(&editor, visual);
         tap(visual, "mcp-configuration-save");
         wait(visual, |cx| {
-            editor.read(cx).error == Some("mcp_configuration_invalid")
+            editor.read(cx).submission.error == Some("mcp_configuration_invalid")
         });
         assert_eq!(source(&editor, visual), draft);
         assert!(fixture.transport.requests.lock().unwrap().is_empty());
@@ -208,10 +208,10 @@ fn preserves_invalid_and_conflicting_drafts(cx: &mut TestAppContext) {
         let draft = source(&editor, visual);
         tap(visual, "mcp-configuration-save");
         wait(visual, |cx| {
-            !editor.read(cx).pending && editor.read(cx).request.is_none()
+            !editor.read(cx).submission.pending && editor.read(cx).submission.request.is_none()
         });
         assert_eq!(
-            editor.read_with(visual, |editor, _| editor.error),
+            editor.read_with(visual, |editor, _| editor.submission.error),
             Some("mcp_configuration_invalid")
         );
         assert_eq!(source(&editor, visual), draft);
@@ -225,7 +225,7 @@ fn preserves_invalid_and_conflicting_drafts(cx: &mut TestAppContext) {
         });
         tap(visual, "mcp-configuration-save");
         wait(visual, |cx| {
-            editor.read(cx).error == Some("plugins_settings_conflict")
+            editor.read(cx).submission.error == Some("plugins_settings_conflict")
         });
         assert_eq!(source(&editor, visual), draft);
         assert_eq!(
@@ -257,9 +257,11 @@ fn retries_uncertain_save_on_captured_node(cx: &mut TestAppContext) {
         fixture.transport.mode.store(1, Ordering::SeqCst);
         tap(visual, "mcp-configuration-save");
         wait(visual, |cx| {
-            !editor.read(cx).pending && editor.read(cx).request.is_some()
+            !editor.read(cx).submission.pending && editor.read(cx).submission.request.is_some()
         });
-        let id = editor.read_with(visual, |editor, _| editor.request.as_ref().unwrap().id);
+        let id = editor.read_with(visual, |editor, _| {
+            editor.submission.request.as_ref().unwrap().id
+        });
         assert!(editor.read_with(visual, |editor, _| editor.locked()));
         input(
             visual,

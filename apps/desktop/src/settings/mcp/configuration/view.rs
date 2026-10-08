@@ -18,71 +18,54 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
             .on_close(move |_, window, cx| close.update(cx, |editor, cx| editor.close(window, cx)))
             .child(editor.clone())
             .footer(
-                v_flex()
-                    .w_full()
-                    .gap_2()
-                    .when(state.details, |view| {
-                        view.children(
-                            state.detail.clone().map(|text| {
-                                div().text_xs().max_h_16().overflow_hidden().child(text)
-                            }),
-                        )
-                    })
-                    .child(
-                        DialogFooter::new()
-                            .w_full()
-                            .gap_2()
-                            .flex_wrap()
-                            .when(!state.loaded, |row| {
-                                row.child(
-                                    Button::new("mcp-configuration-reload")
-                                        .debug_selector(|| "mcp-configuration-reload".into())
-                                        .label(tr("plugins_settings_reload"))
-                                        .loading(state.loading)
-                                        .disabled(state.loading)
-                                        .on_click(move |_, window, cx| {
-                                            reload.update(cx, |editor, cx| editor.load(window, cx))
-                                        }),
-                                )
-                            })
-                            .when(state.detail.is_some(), |row| {
-                                row.child(
-                                    Button::new("mcp-configuration-diagnostics")
-                                        .ghost()
-                                        .label(tr("plugins_settings_diagnostics"))
-                                        .on_click(move |_, _, cx| {
-                                            details.update(cx, |editor, cx| {
-                                                editor.details = !editor.details;
-                                                cx.notify();
-                                            })
-                                        }),
-                                )
-                            })
-                            .child(
-                                Button::new("mcp-configuration-cancel")
-                                    .debug_selector(|| "mcp-configuration-cancel".into())
-                                    .label(tr("settings_cancel"))
+                state.submission.diagnostics().child(
+                    DialogFooter::new()
+                        .w_full()
+                        .gap_2()
+                        .flex_wrap()
+                        .when(!state.loaded, |row| {
+                            row.child(
+                                Button::new("mcp-configuration-reload")
+                                    .debug_selector(|| "mcp-configuration-reload".into())
+                                    .label(tr("plugins_settings_reload"))
+                                    .loading(state.loading)
+                                    .disabled(state.loading)
                                     .on_click(move |_, window, cx| {
-                                        cancel.update(cx, |editor, cx| editor.close(window, cx));
-                                        window.close_dialog(cx);
+                                        reload.update(cx, |editor, cx| editor.load(window, cx))
                                     }),
                             )
-                            .child(
-                                Button::new("mcp-configuration-save")
-                                    .primary()
-                                    .debug_selector(|| "mcp-configuration-save".into())
-                                    .loading(state.pending)
-                                    .disabled(state.pending || state.loading || !state.loaded)
-                                    .label(tr(if state.request.is_some() {
-                                        "plugins_retry"
-                                    } else {
-                                        "settings_save"
-                                    }))
-                                    .on_click(move |_, window, cx| {
-                                        save.update(cx, |editor, cx| editor.save(window, cx))
+                        })
+                        .when(state.submission.detail.is_some(), |row| {
+                            row.child(
+                                Button::new("mcp-configuration-diagnostics")
+                                    .ghost()
+                                    .label(tr("plugins_settings_diagnostics"))
+                                    .on_click(move |_, _, cx| {
+                                        details.update(cx, |editor, cx| {
+                                            editor.submission.details = !editor.submission.details;
+                                            cx.notify();
+                                        })
                                     }),
-                            ),
-                    ),
+                            )
+                        })
+                        .child(
+                            Button::new("mcp-configuration-cancel")
+                                .debug_selector(|| "mcp-configuration-cancel".into())
+                                .label(tr("settings_cancel"))
+                                .on_click(move |_, window, cx| {
+                                    cancel.update(cx, |editor, cx| editor.close(window, cx));
+                                    window.close_dialog(cx);
+                                }),
+                        )
+                        .child(
+                            state
+                                .submission
+                                .save_button("mcp-configuration-save", state.loading, state.loaded)
+                                .on_click(move |_, window, cx| {
+                                    save.update(cx, |editor, cx| editor.save(window, cx))
+                                }),
+                        ),
+                ),
             )
     });
 }

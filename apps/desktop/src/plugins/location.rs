@@ -25,6 +25,7 @@ use std::{
 };
 
 type Reply = tokio::sync::oneshot::Sender<Result<Value, String>>;
+mod handlers;
 mod navigation;
 pub(super) struct Scope {
     pub binding: Binding,
@@ -200,38 +201,27 @@ pub(super) fn extend(
         "{}\nexport type ContributionIntent = 'git_branches'|'worktrees'|'create_worktree'|'fork_worktree';\nexport function invokeContribution(intent:ContributionIntent,value?:unknown):Promise<boolean>;\nexport function canInvokeContribution(intent:ContributionIntent):Promise<boolean>;\nexport function readLocation():{{cursor:string;surface:'composer'|'project';node:string;project:string|null;worktree:string|null;session:string|null;revision:string|null;main:boolean;project_name:string;branch:string;can_move:boolean;can_retarget:boolean;git:boolean;connected:boolean}};\nexport function nextLocationChange(cursor:string):Promise<ReturnType<typeof readLocation>>;\nexport function selectLocation(cursor:string,selection:{{worktree?:string;fork?:boolean;projects?:boolean;overview?:boolean;request?:string}}):Promise<boolean>;\nexport function worktreeHasDrafts(worktree:string,request?:string):Promise<boolean>;\nexport function releaseWorktree(worktree:string,request:string):Promise<void>;",
         module.declared().unwrap_or_default()
     );
-    let module=module.async_function("invokeContribution",move|args|{
-        let intent = serde_json::from_value(Value::String(args.string(0)?.to_owned())).map_err(|error|HostError::new(error.to_string()))?;
-        let value = args.get(1).map(decode).transpose()?.unwrap_or(Value::Null);
-        request(&invoke_owner,invoke.clone(),invoke_host.clone(),None,Operation::Invoke(intent,Some(value)))
-    }).async_function("canInvokeContribution",move|args|{
-        let intent = serde_json::from_value(Value::String(args.string(0)?.to_owned())).map_err(|error|HostError::new(error.to_string()))?;
-        request(&available_owner,available.clone(),available_host.clone(),None,Operation::Invoke(intent,None))
-    }).function("readLocation",move|_|{
-        read_host.check()?;
-        gpui_shell::with_current_app(|cx| {let state=read.read(cx);state.check(&read_host,None).map_err(HostError::new)?;encode(state.changes.borrow().clone())}).ok_or_else(||HostError::new("location requires an active view"))?
-    }).async_function("nextLocationChange",move|args|{
-        change_host.check()?;let seen=args.string(0)?.to_owned();
-        let mut changes=gpui_shell::with_current_app(|cx| {let state=changes.read(cx);if !state.read{return Err(HostError::new("location read is unavailable"));}Ok(state.changes.subscribe())}).ok_or_else(||HostError::new("location requires an active view"))??;
-        let stop=change_host.stop_token();Ok(async move {loop {let value=changes.borrow_and_update().clone();if value["cursor"].as_str()!=Some(&seen){return encode(value);}tokio::select!{biased;_=stop.cancelled()=>return Err(HostError::new("plugin view is closed")),result=changes.changed()=>result.map_err(|_|HostError::new("location is closed"))?}}})
-    }).async_function("selectLocation",move|args|{
-        let cursor=args.string(0)?.to_owned();let selection:Selection=serde_json::from_value(decode(args.value(1)?)?).map_err(|error|HostError::new(error.to_string()))?;
-        let prepared=selection.request.map(|id|select_host.prepared(id)).transpose()?;
-        let operation=Operation::Select(selection);
-        let operation=prepared.map_or_else(||operation.clone(),|request|Operation::Confirm(request,Box::new(operation.clone())));
-        request(&select_owner,select.clone(),select_host.clone(),Some(cursor),operation)
-    }).async_function("worktreeHasDrafts",move|args|{
-        let worktree=args.string(0)?.parse().map_err(|_|HostError::new("invalid worktree ID"))?;
-        let operation=Operation::Drafts(worktree);
-        let receipt=args.get(1).map(|value|serde_json::from_value::<Option<RequestId>>(decode(value)?).map_err(|error|HostError::new(error.to_string()))).transpose()?.flatten();
-        let operation=if let Some(id)=receipt {Operation::Confirm(draft_host.prepared(id)?,Box::new(operation))}else{operation};
-        request(&draft_owner,drafts.clone(),draft_host.clone(),None,operation)
-    }).async_function("releaseWorktree",move|args|{
-        let worktree=args.string(0)?.parse().map_err(|_|HostError::new("invalid worktree ID"))?;
-        let id=args.string(1)?.parse::<RequestId>().map_err(|_|HostError::new("invalid request ID"))?;
-        let prepared=release_host.prepared(id)?;
-        request(&owner,release.clone(),release_host.clone(),None,Operation::Release(worktree,prepared))
-    }).declarations(declarations);
+    let module = module
+        .async_function("invokeContribution", move |args| {
+            handlers::invoke(args, &invoke_owner, &invoke, &invoke_host)
+        })
+        .async_function("canInvokeContribution", move |args| {
+            handlers::available(args, &available_owner, &available, &available_host)
+        })
+        .function("readLocation", move |_| handlers::read(&read, &read_host))
+        .async_function("nextLocationChange", move |args| {
+            handlers::changes(args, &changes, &change_host)
+        })
+        .async_function("selectLocation", move |args| {
+            handlers::select(args, &select_owner, &select, &select_host)
+        })
+        .async_function("worktreeHasDrafts", move |args| {
+            handlers::drafts(args, &draft_owner, &drafts, &draft_host)
+        })
+        .async_function("releaseWorktree", move |args| {
+            handlers::release(args, &owner, &release, &release_host)
+        })
+        .declarations(declarations);
     let _ = window;
     (
         navigation::module(module, state.clone(), route_owner, route_host),
@@ -450,10 +440,10 @@ impl Shell {
                     .binding
                     .runtime
                     .spawn(async move { client.outcome(&request).await });
-                cx.spawn_in(window,async move|shell,cx| {let result=job.await;
-                        let confirmed=matches!(result,Ok(Ok(RequestOutcome::Completed(result))) if matches!(*result,Ok(Output::WorktreeRemoved{id}) if id==scope.1));
-                        let result=if confirmed {shell.update_in(cx,|shell,window,cx|{shell.release_worktree(scope,window,cx);Value::Null}).map_err(|_|"window is closed".to_owned())} else{Err("worktree removal is not confirmed".into())};let _=reply.send(result);
-                    }).detach();
+                cx.spawn_in(window, async move |shell, cx| {
+                    release(shell, cx, job, scope, reply).await;
+                })
+                .detach();
             }
             Operation::Select(selection) => {
                 if usize::from(selection.worktree.is_some())
@@ -534,4 +524,26 @@ impl Shell {
             }
         }
     }
+}
+
+async fn release(
+    shell: WeakEntity<Shell>,
+    cx: &mut AsyncWindowContext,
+    job: tokio::task::JoinHandle<Result<RequestOutcome, sailry_protocol::Fault>>,
+    scope: (sailry_protocol::NodeId, WorktreeId),
+    reply: Reply,
+) {
+    let confirmed = matches!(job.await, Ok(Ok(RequestOutcome::Completed(result)))
+        if matches!(*result, Ok(Output::WorktreeRemoved { id }) if id == scope.1));
+    let result = if confirmed {
+        shell
+            .update_in(cx, |shell, window, cx| {
+                shell.release_worktree(scope, window, cx);
+                Value::Null
+            })
+            .map_err(|_| "window is closed".to_owned())
+    } else {
+        Err("worktree removal is not confirmed".into())
+    };
+    let _ = reply.send(result);
 }

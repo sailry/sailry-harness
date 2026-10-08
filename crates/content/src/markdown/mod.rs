@@ -5,6 +5,7 @@ mod files;
 mod images;
 mod inline;
 pub mod parse;
+pub(crate) mod pointer;
 pub mod preview;
 pub mod render;
 mod scroll;

@@ -338,50 +338,178 @@ pub(super) fn module(module: HostModule, stop: CancellationToken, cx: &mut App) 
         module.declared().unwrap_or_default(),
         include_str!("data_table.d.ts")
     );
-    module.component("DataTable",move|args,window,cx| {
-        let Ok(props)=decode(args.props()).and_then(|value|serde_json::from_value::<Props>(value).map_err(|error|HostError::new(error.to_string()))) else{return div().into_any_element();};
-        if props.rows.iter().any(|row|row.len()!=props.columns.len())
-            || !props.cells.is_empty() && (props.cells.len()!=props.rows.len() || props.cells.iter().any(|row|row.len()!=props.columns.len()))
-            || props.row_height.is_some_and(|height|!height.is_finite() || !(32. ..=96.).contains(&height))
-            || props.widths.iter().any(|width| !width.is_finite() || *width < 16. || *width > 4096.)
-            || !props.details.is_empty() && (props.details.len()!=props.rows.len() || props.details.iter().any(|row|row.len()!=props.columns.len()))
-            || !props.row_ids.is_empty() && (props.row_ids.len()!=props.rows.len() || props.row_ids.iter().collect::<BTreeSet<_>>().len()!=props.rows.len())
-        {return div().into_any_element();}
-        let id=args.id().to_owned();
-        let table=window.use_keyed_state(SharedString::from(format!("plugin-table-{id}")),cx,|window,cx|TableState::new(Rows{id:id.clone(),props:props.clone(),selected:Default::default(),anchor:None,cursor:None,events:events.clone()},window,cx).col_movable(false).sortable(false));
-        if table.read(cx).delegate().props != props {
-            table.update(cx,|table,cx| {
-                let rows=table.delegate_mut();
-                if rows.props.revision!=props.revision || rows.props.page!=props.page || rows.props.rows!=props.rows {
-                    let selected: BTreeSet<_> = rows.selected.iter().filter_map(|index| rows.props.row_ids.get(index + rows.props.page * 50)).collect();
-                    let retained: BTreeSet<_> = props.row_ids.iter().skip(props.page * 50).take(50).enumerate()
-                        .filter_map(|(index,id)| selected.contains(id).then_some(index)).collect();
-                    rows.selected=retained;rows.anchor=rows.selected.first().copied();rows.cursor=rows.anchor;
+    module
+        .component("DataTable", move |args, window, cx| {
+            render(args, &events, window, cx)
+        })
+        .async_function("nextTableEvent", move |_| {
+            Ok(next_event(receiver.clone(), stop.clone()))
+        })
+        .declarations(declarations)
+}
+
+fn render(
+    args: gpui_shell::ComponentArgs<'_>,
+    events: &Entity<Events>,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let Ok(props) = decode(args.props()).and_then(|value| {
+        serde_json::from_value::<Props>(value).map_err(|error| HostError::new(error.to_string()))
+    }) else {
+        return div().into_any_element();
+    };
+    if props
+        .rows
+        .iter()
+        .any(|row| row.len() != props.columns.len())
+        || !props.cells.is_empty()
+            && (props.cells.len() != props.rows.len()
+                || props
+                    .cells
+                    .iter()
+                    .any(|row| row.len() != props.columns.len()))
+        || props
+            .row_height
+            .is_some_and(|height| !height.is_finite() || !(32. ..=96.).contains(&height))
+        || props
+            .widths
+            .iter()
+            .any(|width| !width.is_finite() || *width < 16. || *width > 4096.)
+        || !props.details.is_empty()
+            && (props.details.len() != props.rows.len()
+                || props
+                    .details
+                    .iter()
+                    .any(|row| row.len() != props.columns.len()))
+        || !props.row_ids.is_empty()
+            && (props.row_ids.len() != props.rows.len()
+                || props.row_ids.iter().collect::<BTreeSet<_>>().len() != props.rows.len())
+    {
+        return div().into_any_element();
+    }
+    let id = args.id().to_owned();
+    let table = window.use_keyed_state(
+        SharedString::from(format!("plugin-table-{id}")),
+        cx,
+        |window, cx| {
+            TableState::new(
+                Rows {
+                    id: id.clone(),
+                    props: props.clone(),
+                    selected: Default::default(),
+                    anchor: None,
+                    cursor: None,
+                    events: events.clone(),
+                },
+                window,
+                cx,
+            )
+            .col_movable(false)
+            .sortable(false)
+        },
+    );
+    if table.read(cx).delegate().props != props {
+        table.update(cx, |table, cx| {
+            let rows = table.delegate_mut();
+            if rows.props.revision != props.revision
+                || rows.props.page != props.page
+                || rows.props.rows != props.rows
+            {
+                let selected: BTreeSet<_> = rows
+                    .selected
+                    .iter()
+                    .filter_map(|index| rows.props.row_ids.get(index + rows.props.page * 50))
+                    .collect();
+                let retained: BTreeSet<_> = props
+                    .row_ids
+                    .iter()
+                    .skip(props.page * 50)
+                    .take(50)
+                    .enumerate()
+                    .filter_map(|(index, id)| selected.contains(id).then_some(index))
+                    .collect();
+                rows.selected = retained;
+                rows.anchor = rows.selected.first().copied();
+                rows.cursor = rows.anchor;
+            }
+            rows.props = props;
+            table.refresh(cx);
+        });
+    }
+    let stripe = table.read(cx).delegate().props.stripe;
+    let empty_stripes = table.read(cx).delegate().props.empty_stripes;
+    let header = table.read(cx).delegate().props.header;
+    let size = table.read(cx).delegate().size();
+    let owner = table.clone();
+    div()
+        .id(SharedString::from(id.clone()))
+        .debug_selector(move || id.clone())
+        .size_full()
+        .min_h_0()
+        .min_w_0()
+        .on_key_down(move |event: &KeyDownEvent, window, cx| {
+            owner.update(cx, |table, cx| {
+                let rows = table.delegate_mut();
+                let count = rows.count();
+                if count == 0 {
+                    return;
                 }
-                rows.props=props;table.refresh(cx);
-            });
-        }
-        let stripe=table.read(cx).delegate().props.stripe;
-        let empty_stripes=table.read(cx).delegate().props.empty_stripes;
-        let header=table.read(cx).delegate().props.header;
-        let size=table.read(cx).delegate().size();
-        let owner=table.clone();
-        div().id(SharedString::from(id.clone())).debug_selector(move||id.clone()).size_full().min_h_0().min_w_0()
-            .on_key_down(move|event:&KeyDownEvent,window,cx|owner.update(cx,|table,cx| {
-                let rows=table.delegate_mut();let count=rows.count();if count==0{return;}
-                let key=event.keystroke.key.as_str();let modifiers=event.keystroke.modifiers;
-                let command=if cfg!(target_os="macos"){modifiers.platform}else{modifiers.control};
-                if command && key=="a" {rows.selected=(0..count).collect();}
-                else if command && key=="c" {rows.events.read(cx).send(rows.event("copy",rows.selected.first().copied(),None));}
-                else if matches!(key,"up"|"down"|"home"|"end") {
-                    let target=match(key,rows.cursor){("home",_)=>0,("end",_)=>count-1,("up",Some(row))=>row.saturating_sub(1),("down",Some(row))=>(row+1).min(count-1),_=>0};
-                    rows.select(target,modifiers);table.scroll_to_row(target,cx);
-                }else{return;}
-                table.focus_handle(cx).focus(window,cx);cx.stop_propagation();cx.notify();
-            })).child(DataTable::new(&table).with_size(Size::Medium).when(size!=Size::Medium, |table|table.with_size(size)).bordered(false).stripe(stripe).empty_stripes(empty_stripes).scrollbar_visible(header,header)).into_any_element()
-    }).async_function("nextTableEvent",move |_|{let receiver=receiver.clone();let stop=stop.clone();Ok(async move {
-        let value=tokio::select!{biased;_ = stop.cancelled()=>return Err(HostError::new("plugin view is closed")),value=async{receiver.lock().await.recv().await}=>value.ok_or_else(||HostError::new("table is closed"))?};encode(value)
-    })}).declarations(declarations)
+                let key = event.keystroke.key.as_str();
+                let modifiers = event.keystroke.modifiers;
+                let command = if cfg!(target_os = "macos") {
+                    modifiers.platform
+                } else {
+                    modifiers.control
+                };
+                if command && key == "a" {
+                    rows.selected = (0..count).collect();
+                } else if command && key == "c" {
+                    rows.events.read(cx).send(rows.event(
+                        "copy",
+                        rows.selected.first().copied(),
+                        None,
+                    ));
+                } else if matches!(key, "up" | "down" | "home" | "end") {
+                    let target = match (key, rows.cursor) {
+                        ("home", _) => 0,
+                        ("end", _) => count - 1,
+                        ("up", Some(row)) => row.saturating_sub(1),
+                        ("down", Some(row)) => (row + 1).min(count - 1),
+                        _ => 0,
+                    };
+                    rows.select(target, modifiers);
+                    table.scroll_to_row(target, cx);
+                } else {
+                    return;
+                }
+                table.focus_handle(cx).focus(window, cx);
+                cx.stop_propagation();
+                cx.notify();
+            })
+        })
+        .child(
+            DataTable::new(&table)
+                .with_size(Size::Medium)
+                .when(size != Size::Medium, |table| table.with_size(size))
+                .bordered(false)
+                .stripe(stripe)
+                .empty_stripes(empty_stripes)
+                .scrollbar_visible(header, header),
+        )
+        .into_any_element()
+}
+
+async fn next_event(
+    receiver: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<serde_json::Value>>>,
+    stop: CancellationToken,
+) -> gpui_shell::HostResult {
+    let value = tokio::select! {
+        biased;
+        _ = stop.cancelled() => return Err(HostError::new("plugin view is closed")),
+        value = async { receiver.lock().await.recv().await } => value.ok_or_else(|| HostError::new("table is closed"))?,
+    };
+    encode(value)
 }
 
 #[cfg(test)]

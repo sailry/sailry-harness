@@ -21,12 +21,8 @@ pub(super) struct Editor {
     transport: McpTransport,
     loading: bool,
     loaded: bool,
-    pending: bool,
     closed: bool,
-    request: Option<Request>,
-    error: Option<&'static str>,
-    detail: Option<String>,
-    details: bool,
+    submission: Submission,
     task: Option<Task<()>>,
 }
 
@@ -74,7 +70,7 @@ pub(super) fn open(
         }
         let loaded = original.is_none();
         crate::feedback::observe(window, cx, |editor: &Editor, _| {
-            editor.error.into_iter().collect()
+            editor.submission.error.into_iter().collect()
         });
         Editor {
             binding,
@@ -91,12 +87,8 @@ pub(super) fn open(
             transport,
             loading: false,
             loaded,
-            pending: false,
             closed: false,
-            request: None,
-            error: None,
-            detail: None,
-            details: false,
+            submission: Submission::default(),
             task: None,
         }
     });
@@ -159,7 +151,7 @@ impl Slot {
 
 impl Editor {
     fn locked(&self) -> bool {
-        self.loading || self.pending || self.request.is_some()
+        self.loading || self.submission.pending || self.submission.request.is_some()
     }
 
     fn same_kind(&self) -> bool {
@@ -202,7 +194,7 @@ impl Editor {
                 match result {
                     Ok(Ok(Output::PluginSettings(state))) => editor.accept(state),
                     Ok(Err(error)) => editor.failure(error),
-                    _ => editor.error = Some("plugins_settings_read_failed"),
+                    _ => editor.submission.error = Some("plugins_settings_read_failed"),
                 }
                 cx.notify();
             });
@@ -227,8 +219,8 @@ impl Editor {
             slot.keepable = field.is_some_and(|field| state.keepable.contains(field));
             slot.configured = field.is_some_and(|field| state.configured.contains(field));
         }
-        self.error = None;
-        self.detail = None;
+        self.submission.error = None;
+        self.submission.detail = None;
     }
 
     fn add_slot(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -320,31 +312,18 @@ impl Editor {
     }
 
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.pending || self.loading || self.closed || !self.loaded {
+        if self.submission.pending || self.loading || self.closed || !self.loaded {
             return;
         }
-        if self.request.is_none() {
-            match self.prepare(cx) {
-                Ok(command) => self.request = Some(self.binding.client.prepare(command)),
-                Err(error) => {
-                    self.error = Some(error);
-                    cx.notify();
-                    return;
-                }
-            }
-        }
-        let request = self.request.clone().expect("MCP request is prepared");
-        let binding = self.binding.clone();
-        self.pending = true;
-        self.error = None;
-        self.detail = None;
-        let job = binding
-            .runtime
-            .spawn(async move { binding.client.execute(request).await });
+        let command = self.submission.request.is_none().then(|| self.prepare(cx));
+        let Some(job) = self.submission.begin(&self.binding, command) else {
+            cx.notify();
+            return;
+        };
         self.task = Some(cx.spawn_in(window, async move |editor, cx| {
             let result = job.await;
             _ = editor.update_in(cx, |editor, window, cx| {
-                editor.pending = false;
+                editor.submission.pending = false;
                 if editor.closed {
                     return;
                 }
@@ -354,12 +333,9 @@ impl Editor {
                         window.close_dialog(cx);
                     }
                     Ok(Err(error)) => {
-                        if !plugins::live::uncertain(&error) {
-                            editor.request = None;
-                        }
                         editor.failure(error);
                     }
-                    _ => editor.error = Some("plugins_unknown"),
+                    _ => editor.submission.error = Some("plugins_unknown"),
                 }
                 cx.notify();
             });
@@ -368,19 +344,17 @@ impl Editor {
     }
 
     fn failure(&mut self, error: Fault) {
-        self.error = Some(
-            if error.code == sailry_protocol::ErrorCode::InvalidRequest {
-                "mcp_invalid"
-            } else {
-                plugins::live::error_key(&error)
-            },
-        );
-        self.detail = Some(error.message);
+        let key = if error.code == sailry_protocol::ErrorCode::InvalidRequest {
+            "mcp_invalid"
+        } else {
+            plugins::live::error_key(&error)
+        };
+        self.submission.failure(error, key);
     }
 
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.closed = true;
-        self.request = None;
+        self.submission.request = None;
         for slot in &self.slots {
             slot.clear_value(window, cx);
         }

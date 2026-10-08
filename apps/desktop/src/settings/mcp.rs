@@ -19,6 +19,8 @@ use sailry_protocol::{
 
 mod configuration;
 mod editor;
+mod submission;
+use submission::Submission;
 
 pub(super) fn configure(binding: Binding, info: Info, window: &mut Window, cx: &mut App) {
     if info.mcp_source.is_some() {

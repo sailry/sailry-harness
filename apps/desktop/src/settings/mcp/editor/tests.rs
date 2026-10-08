@@ -230,9 +230,11 @@ fn retries_on_captured_node(cx: &mut TestAppContext) {
         fixture.transport.mode.store(1, Ordering::SeqCst);
         tap(visual, "mcp-save");
         wait(visual, |cx| {
-            !editor.read(cx).pending && editor.read(cx).request.is_some()
+            !editor.read(cx).submission.pending && editor.read(cx).submission.request.is_some()
         });
-        let id = editor.read_with(visual, |editor, _| editor.request.as_ref().unwrap().id);
+        let id = editor.read_with(visual, |editor, _| {
+            editor.submission.request.as_ref().unwrap().id
+        });
         assert!(editor.read_with(visual, |editor, _| editor.locked()));
         fixture.bind(&owner, visual, true);
         tap(visual, "mcp-save");
@@ -288,7 +290,8 @@ fn conflicts_and_stale_reads(cx: &mut TestAppContext) {
         });
         tap(visual, "mcp-save");
         wait(visual, |cx| {
-            !editor.read(cx).pending && editor.read(cx).error == Some("plugins_conflict")
+            !editor.read(cx).submission.pending
+                && editor.read(cx).submission.error == Some("plugins_conflict")
         });
         assert_eq!(
             editor.read_with(visual, |editor, cx| editor.url.read(cx).value()),

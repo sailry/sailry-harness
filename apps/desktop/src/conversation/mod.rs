@@ -1,5 +1,6 @@
 mod activity;
 pub(crate) mod approval;
+mod choice;
 mod composer;
 mod context;
 mod disclosure;
