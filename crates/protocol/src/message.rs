@@ -826,6 +826,21 @@ pub enum Command {
         worktree: WorktreeId,
         commit: String,
     },
+    ListGitChanges {
+        worktree: WorktreeId,
+        target: Option<crate::git::GitChangeTarget>,
+        cursor: Option<crate::git::GitChangesCursor>,
+        limit: usize,
+    },
+    ReadGitChange {
+        worktree: WorktreeId,
+        snapshot: crate::git::GitChangeSnapshot,
+        path: String,
+        expected_metadata_revision: String,
+        expected_revision: Option<String>,
+        offset: usize,
+        limit: usize,
+    },
     ReadGitShow {
         worktree: WorktreeId,
         revision: String,
@@ -1220,6 +1235,8 @@ impl Command {
                 | Self::ReadGitLog { .. }
                 | Self::ReadGitCommit { .. }
                 | Self::ReadGitShow { .. }
+                | Self::ListGitChanges { .. }
+                | Self::ReadGitChange { .. }
                 | Self::ReadGitBlame { .. }
                 | Self::ReadGitDiff { .. }
         )
@@ -1447,6 +1464,8 @@ pub enum Output {
     GitLog(crate::GitLog),
     GitCommit(crate::GitCommit),
     GitFile(crate::git::GitFile),
+    GitChanges(crate::git::GitChanges),
+    GitChange(crate::git::GitChange),
     GitBlame(crate::git::GitBlame),
     GitActionCompleted,
     GitOutput {

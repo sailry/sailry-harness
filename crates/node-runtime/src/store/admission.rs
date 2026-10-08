@@ -206,6 +206,8 @@ impl Ingress {
                     | sailry_protocol::Command::ReadGitLog { .. }
                     | sailry_protocol::Command::ReadGitShow { .. }
                     | sailry_protocol::Command::ReadGitBlame { .. }
+                    | sailry_protocol::Command::ListGitChanges { .. }
+                    | sailry_protocol::Command::ReadGitChange { .. }
                     | sailry_protocol::Command::ReadGitCommit { .. }
                     | sailry_protocol::Command::ReadGitDiff { .. }
             ) {

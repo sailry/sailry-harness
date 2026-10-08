@@ -20,6 +20,8 @@ mod http;
 mod operations;
 #[path = "plugins/reminders.rs"]
 mod reminders;
+#[path = "plugins/review.rs"]
+mod review;
 #[path = "plugins/scheduled_tasks.rs"]
 mod scheduled_tasks;
 

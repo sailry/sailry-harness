@@ -4,6 +4,8 @@ use crate::agent::tools::decode;
 use sailry_protocol::{GitDiffScope, GitLogCursor, Output, Worktree, WorktreeId};
 use serde::Deserialize;
 
+mod changes;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Status {
@@ -48,6 +50,27 @@ struct Blame {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct Changes {
+    worktree: Option<WorktreeId>,
+    target: Option<sailry_protocol::GitChangeTarget>,
+    cursor: Option<sailry_protocol::GitChangesCursor>,
+    limit: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Change {
+    worktree: Option<WorktreeId>,
+    snapshot: sailry_protocol::GitChangeSnapshot,
+    path: String,
+    expected_metadata_revision: String,
+    expected_revision: Option<String>,
+    offset: usize,
+    limit: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Empty {}
 
 #[derive(Deserialize)]
@@ -81,6 +104,8 @@ pub(super) fn handles(operation: Operation) -> bool {
             | Operation::ReadGitLog
             | Operation::ReadGitShow
             | Operation::ReadGitBlame
+            | Operation::ListGitChanges
+            | Operation::ReadGitChange
             | Operation::ListWorktrees
             | Operation::CreateManagedWorktree
             | Operation::RegisterWorktree
@@ -97,6 +122,8 @@ pub(super) fn description(operation: Operation) -> &'static str {
             "Read a committed file or bounded commit patch in the current project"
         }
         Operation::ReadGitBlame => "Read committed line authorship in the current project",
+        Operation::ListGitChanges => "List changed file metadata in a frozen Git target",
+        Operation::ReadGitChange => "Read complete mapped diff lines from a frozen Git target",
         Operation::ListWorktrees => "List Git and registered worktrees in the captured project",
         Operation::CreateManagedWorktree => "Create a worktree from the captured checkout",
         Operation::RegisterWorktree => "Register a worktree from the captured repository",
@@ -125,6 +152,22 @@ pub(super) fn parameters(operation: Operation) -> Value {
         Operation::ReadGitBlame => (
             json!({"worktree":target,"revision":{"type":["string","null"]},"path":string,"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":500}}),
             vec!["worktree", "revision", "path", "offset", "limit"],
+        ),
+        Operation::ListGitChanges => (
+            json!({"worktree":target,"target":changes::target(),"cursor":changes::cursor(),"limit":{"type":"integer","minimum":1,"maximum":500}}),
+            vec!["worktree", "target", "cursor", "limit"],
+        ),
+        Operation::ReadGitChange => (
+            json!({"worktree":target,"snapshot":changes::snapshot(),"path":string,"expected_metadata_revision":string,"expected_revision":{"type":["string","null"]},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":500}}),
+            vec![
+                "worktree",
+                "snapshot",
+                "path",
+                "expected_metadata_revision",
+                "expected_revision",
+                "offset",
+                "limit",
+            ],
         ),
         Operation::ListWorktrees => (json!({}), vec![]),
         Operation::CreateManagedWorktree => (
@@ -217,6 +260,27 @@ pub(super) fn command(
                 worktree: target(input.worktree)?,
                 revision: input.revision,
                 path: input.path,
+                offset: input.offset,
+                limit: input.limit,
+            }
+        }
+        Operation::ListGitChanges => {
+            let input: Changes = decode(arguments)?;
+            Command::ListGitChanges {
+                worktree: target(input.worktree)?,
+                target: input.target,
+                cursor: input.cursor,
+                limit: input.limit,
+            }
+        }
+        Operation::ReadGitChange => {
+            let input: Change = decode(arguments)?;
+            Command::ReadGitChange {
+                worktree: target(input.worktree)?,
+                snapshot: input.snapshot,
+                path: input.path,
+                expected_metadata_revision: input.expected_metadata_revision,
+                expected_revision: input.expected_revision,
                 offset: input.offset,
                 limit: input.limit,
             }

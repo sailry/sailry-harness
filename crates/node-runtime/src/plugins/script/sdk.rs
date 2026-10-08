@@ -285,6 +285,8 @@ fn allowed(command: &Command) -> bool {
             | Command::ReadGitLog { .. }
             | Command::ReadGitShow { .. }
             | Command::ReadGitBlame { .. }
+            | Command::ListGitChanges { .. }
+            | Command::ReadGitChange { .. }
             | Command::ReadGitCommit { .. }
             | Command::ListGitBranches { .. }
             | Command::ResolveGitRevision { .. }

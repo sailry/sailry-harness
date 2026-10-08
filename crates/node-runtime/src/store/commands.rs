@@ -557,6 +557,8 @@ pub(super) fn execute(
         | Command::ReadGitLog { .. }
         | Command::ReadGitShow { .. }
         | Command::ReadGitBlame { .. }
+        | Command::ListGitChanges { .. }
+        | Command::ReadGitChange { .. }
         | Command::ReadGitCommit { .. }
         | Command::ReadGitDiff { .. }
         | Command::ListDirectory { .. }

@@ -3,6 +3,7 @@
 //! libgit2 stays on bounded Node workers, without SSH/HTTPS or UI dependencies.
 pub(crate) mod actions;
 pub(crate) mod branches;
+mod changes;
 pub(crate) mod checkout;
 mod cli;
 pub(crate) mod commit;
@@ -138,6 +139,33 @@ impl Git {
                 Command::ReadGitCommit { commit, .. } => {
                     history::commit(&root, &commit, &control).map(Output::GitCommit)
                 }
+                Command::ListGitChanges {
+                    target,
+                    cursor,
+                    limit,
+                    ..
+                } => changes::list(&root, target, cursor, limit, &control).map(Output::GitChanges),
+                Command::ReadGitChange {
+                    snapshot,
+                    path,
+                    expected_metadata_revision,
+                    expected_revision,
+                    offset,
+                    limit,
+                    ..
+                } => changes::read(
+                    &root,
+                    snapshot,
+                    &path,
+                    &expected_metadata_revision,
+                    changes::Page {
+                        expected_revision: expected_revision.as_deref(),
+                        offset,
+                        limit,
+                    },
+                    &control,
+                )
+                .map(Output::GitChange),
                 Command::ReadGitShow {
                     revision,
                     path,

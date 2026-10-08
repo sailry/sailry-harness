@@ -8,6 +8,8 @@ pub(super) fn description(operation: Operation) -> &'static str {
         | Operation::ReadGitLog
         | Operation::ReadGitShow
         | Operation::ReadGitBlame
+        | Operation::ListGitChanges
+        | Operation::ReadGitChange
         | Operation::ListWorktrees
         | Operation::CreateManagedWorktree
         | Operation::RegisterWorktree
@@ -88,6 +90,8 @@ pub(super) fn parameters(operation: Operation) -> Value {
         | Operation::ReadGitLog
         | Operation::ReadGitShow
         | Operation::ReadGitBlame
+        | Operation::ListGitChanges
+        | Operation::ReadGitChange
         | Operation::ListWorktrees
         | Operation::CreateManagedWorktree
         | Operation::RegisterWorktree
@@ -361,6 +365,8 @@ pub(super) fn command(
         | Operation::ReadGitLog
         | Operation::ReadGitShow
         | Operation::ReadGitBlame
+        | Operation::ListGitChanges
+        | Operation::ReadGitChange
         | Operation::ListWorktrees
         | Operation::CreateManagedWorktree
         | Operation::RegisterWorktree

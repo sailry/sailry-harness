@@ -359,6 +359,8 @@ impl Database {
                 | Command::ReadGitLog { worktree, .. }
                 | Command::ReadGitShow { worktree, .. }
                 | Command::ReadGitBlame { worktree, .. }
+                | Command::ListGitChanges { worktree, .. }
+                | Command::ReadGitChange { worktree, .. }
                 | Command::ReadGitDiff { worktree, .. } => (
                     Some(Action::ReadGit),
                     Some(super::repository::read_scope(

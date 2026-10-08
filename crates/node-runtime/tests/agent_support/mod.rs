@@ -20,10 +20,13 @@ mod terminal;
 pub mod web_search;
 mod workload;
 
+type Calls = Vec<(String, Value)>;
+
 pub struct Server {
     pub endpoint: String,
     pub requests: Arc<Mutex<Vec<Value>>>,
     pub authorization: Arc<Mutex<Vec<Option<String>>>>,
+    scripted: Option<Arc<Mutex<Calls>>>,
     stop: CancellationToken,
 }
 
@@ -70,11 +73,13 @@ enum Reply {
     Tools(Arc<Vec<(String, Value)>>),
     ReasonedTools(Arc<Vec<(String, Value)>>),
     TurnTools(Arc<Vec<(String, Value)>>),
+    ScriptedTools(Arc<Mutex<Calls>>),
     PromptTools {
         prompt: Arc<String>,
         calls: Arc<Vec<(String, Value)>>,
     },
     Parallel(Arc<Vec<(String, Value)>>),
+    TurnParallel(Arc<Vec<(String, Value)>>),
     Batch(Arc<Vec<(String, Value)>>),
     Gate(Arc<tokio::sync::Barrier>),
     Held(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>),
@@ -248,6 +253,22 @@ impl Server {
         Self::serve(Reply::TurnTools(Arc::new(calls))).await
     }
 
+    pub async fn scripted_tools(calls: Vec<(String, Value)>) -> Self {
+        let calls = Arc::new(Mutex::new(calls));
+        let mut server = Self::serve(Reply::ScriptedTools(calls.clone())).await;
+        server.scripted = Some(calls);
+        server
+    }
+
+    pub fn replace_tools(&self, calls: Vec<(String, Value)>) {
+        *self
+            .scripted
+            .as_ref()
+            .expect("scripted tools expected")
+            .lock()
+            .unwrap() = calls;
+    }
+
     pub async fn prompt_tools(prompt: String, calls: Vec<(String, Value)>) -> Self {
         Self::serve(Reply::PromptTools {
             prompt: Arc::new(prompt),
@@ -258,6 +279,10 @@ impl Server {
 
     pub async fn parallel(calls: Vec<(String, Value)>) -> Self {
         Self::serve(Reply::Parallel(Arc::new(calls))).await
+    }
+
+    pub async fn turn_parallel(calls: Vec<(String, Value)>) -> Self {
+        Self::serve(Reply::TurnParallel(Arc::new(calls))).await
     }
 
     pub async fn batch(calls: Vec<(String, Value)>) -> Self {
@@ -298,6 +323,7 @@ impl Server {
             endpoint,
             requests,
             authorization,
+            scripted: None,
             stop,
         }
     }
@@ -512,11 +538,13 @@ async fn respond(
         .unwrap()
         .iter()
         .rev()
-        // TurnTools fixtures submit text prompts. Tool image companions use
+        // Turn fixtures submit text prompts. Tool image companions use
         // user-role arrays and must not restart the scripted tool sequence.
         .take_while(|message| {
-            !matches!(reply, Reply::TurnTools(_))
-                || message["role"] != "user"
+            !matches!(
+                reply,
+                Reply::TurnTools(_) | Reply::ScriptedTools(_) | Reply::TurnParallel(_)
+            ) || message["role"] != "user"
                 || !message["content"].is_string()
         })
         .filter(|message| message["role"] == "tool")
@@ -531,10 +559,15 @@ async fn respond(
     } else {
         None
     };
+    let scripted = match &reply {
+        Reply::ScriptedTools(calls) => Some(calls.lock().unwrap().clone()),
+        _ => None,
+    };
     let call = match &reply {
         Reply::Tools(calls) | Reply::ReasonedTools(calls) | Reply::TurnTools(calls) => {
             calls.get(completed)
         }
+        Reply::ScriptedTools(_) => scripted.as_ref().unwrap().get(completed),
         Reply::PromptTools { prompt, calls } => body["messages"]
             .as_array()
             .unwrap()
@@ -546,7 +579,7 @@ async fn respond(
         _ => browser_call.as_ref(),
     };
     let batch = matches!(&reply, Reply::Batch(_) if completed == 0)
-        || (matches!(&reply, Reply::Parallel(_) if completed == 0)
+        || (matches!(&reply, Reply::Parallel(_) | Reply::TurnParallel(_) if completed == 0)
             && body["tools"].as_array().is_some_and(|tools| {
                 tools.iter().any(|tool| {
                     tool["function"]["name"] == plugin_tool("delegation", "spawn_agent")
@@ -555,7 +588,7 @@ async fn respond(
     let delta = match (&reply, batch, call) {
         (Reply::Staged(_), _, _) => json!({"role":"assistant", "content":"First"}),
         (Reply::Markdown(text, ..), _, _) => json!({"role":"assistant", "content":text.as_str()}),
-        (Reply::Parallel(calls) | Reply::Batch(calls), true, _) => {
+        (Reply::Parallel(calls) | Reply::TurnParallel(calls) | Reply::Batch(calls), true, _) => {
             json!({"role": "assistant", "tool_calls": calls.iter().enumerate().map(|(index, (name, args))|
                 json!({"index": index, "id": format!("call-fixture-{index}"), "type": "function", "function": {"name": name, "arguments": args.to_string()}})
             ).collect::<Vec<_>>()})

@@ -8,6 +8,111 @@ pub const MAX_GIT_LINES: usize = 500;
 pub const MAX_GIT_FILE_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    content = "data",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum GitChangeTarget {
+    Worktree { scope: GitDiffScope },
+    Commit { revision: String },
+    Range { base: String, head: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    content = "data",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum GitChangeState {
+    Worktree {
+        scope: GitDiffScope,
+        head: Option<String>,
+        index_revision: String,
+    },
+    Commit {
+        revision: String,
+        parent: Option<String>,
+    },
+    Range {
+        base: String,
+        head: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GitChangeSnapshot {
+    pub target: GitChangeState,
+    pub metadata_revision: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GitChangesCursor {
+    pub snapshot: GitChangeSnapshot,
+    /// Null starts again from the frozen snapshot without resolving references.
+    pub after_path: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitChangeEntry {
+    pub path: String,
+    pub old_path: Option<String>,
+    pub kind: GitChangeKind,
+    pub old_mode: Option<u32>,
+    pub new_mode: Option<u32>,
+    pub metadata_revision: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitChanges {
+    pub snapshot: GitChangeSnapshot,
+    pub entries: Vec<GitChangeEntry>,
+    pub next: Option<GitChangesCursor>,
+    /// True only after every supported path was enumerated without omissions.
+    pub exhausted: bool,
+    /// A lower bound when a scan resource limit prevents counting the rest.
+    pub omitted_paths: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GitChangeLineKind {
+    Added,
+    Deleted,
+    Context,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitChangeLine {
+    pub kind: GitChangeLineKind,
+    pub old_line: Option<u32>,
+    pub new_line: Option<u32>,
+    /// Complete source line, excluding terminal CR/LF and preserving other whitespace.
+    pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitChange {
+    pub snapshot: GitChangeSnapshot,
+    pub path: String,
+    pub old_path: Option<String>,
+    pub metadata_revision: String,
+    /// Strong identity of saved diff bytes; skipped unread resources use metadata identity.
+    pub revision: String,
+    pub offset: usize,
+    pub next: Option<usize>,
+    pub lines: Vec<GitChangeLine>,
+    pub binary: bool,
+    pub skip_reason: Option<String>,
+    pub first_line: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GitFile {
     pub commit: String,
     pub path: String,
@@ -376,6 +481,9 @@ pub enum GitAfterCommit {
     Push,
     Sync,
 }
+
+#[cfg(test)]
+mod changes_tests;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GitTag {

@@ -97,6 +97,10 @@ pub enum Operation {
     ReadGitShow,
     #[serde(rename = "git.blame")]
     ReadGitBlame,
+    #[serde(rename = "git.changes")]
+    ListGitChanges,
+    #[serde(rename = "git.change")]
+    ReadGitChange,
     #[serde(rename = "worktrees.list")]
     ListWorktrees,
     #[serde(rename = "worktrees.create")]
@@ -185,6 +189,8 @@ impl Operation {
             | Self::ReadGitDiff
             | Self::ReadGitLog
             | Self::ReadGitShow
+            | Self::ListGitChanges
+            | Self::ReadGitChange
             | Self::ReadGitBlame => Some(Action::ReadGit),
             Self::ListWorktrees => Some(Action::ReadWorktrees),
             Self::CreateManagedWorktree | Self::RegisterWorktree | Self::RemoveWorktree => {
