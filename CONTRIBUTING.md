@@ -88,6 +88,11 @@ adapted to Sailry's ownership and local/remote boundaries.
 - Keep ordinary tests deterministic and self-contained. Use isolated temporary
   profiles, injected clocks or bounded waits, and clean up spawned workers.
   Do not depend on ignored output directories, user projects or private profiles.
+- Cover data mappings exhaustively in unit tests; use representative integration
+  workflows for each distinct behavior instead of repeating identical setup for
+  every preset. Preserve local and remote paths and meaningful failure cases.
+- Inject offline catalogs and services in ordinary fixtures. External-service
+  acceptance must be explicit and opt-in, not an incidental UI setup dependency.
 - Test conflicts, reconnect and original-request recovery where a changed command
   can cause side effects. Exercise shared behavior through local and remote paths,
   not merely a mocked transport.
@@ -107,24 +112,22 @@ actual prerequisites and results separately. Screenshots are not a default gate.
 
 ## Continuous integration
 
-[GitHub Actions](.github/workflows/ci.yml) checks concise names, workflow and script syntax,
-public-source fixtures, packaged JavaScript tests and the pairing service.
-Pushes and pull requests run only these source checks; they do not establish native
-or platform acceptance. Manually dispatch `Checks` for a final committed candidate
-before publishing a release, and reuse verified results while their relevant inputs
-remain unchanged. Candidate validation and source checks have separate concurrency
-groups, so a routine push does not cancel a candidate run.
+[GitHub Actions](.github/workflows/ci.yml) runs automatically on pushes and pull
+requests. Source checks, native tests and platform builds use the same workflow;
+manual dispatch reruns it without changing the required coverage. A newer run for
+the same ref cancels superseded work. Reuse verified results while their relevant
+inputs remain unchanged.
 
-Candidate validation runs strict Rust checks on both macOS architectures, backend local/remote integration,
-desktop Kit interactions and binary builds with an explicit Xcode SDK.
+Native validation runs strict Rust checks on both macOS architectures, backend
+local/remote integration, desktop Kit interactions and binary builds with an
+explicit Xcode SDK.
 Mobile checks include Flutter analysis and widget tests, native Dart FFI contracts
 and Flutter against an isolated real remote Node. Android builds an ARM64 release
 APK and checks its native libraries; iOS builds an unsigned application. Both
 mobile builds check the Rust dependency boundary. Actions and toolchains are
-pinned; Rust and Flutter use committed lockfiles. `Checks passed` requires the
-source job to succeed on ordinary pushes, with native jobs skipped; a manually
-dispatched candidate requires every job to succeed, including both Desktop
-architectures. Signed release packaging remains tag-only.
+pinned; Rust and Flutter use committed lockfiles. `Checks passed` requires every
+job to succeed, including both Desktop architectures; skipped or cancelled jobs
+do not establish acceptance. Signed release packaging remains tag-only.
 
 Node integration features share eight compiled suites instead of linking a
 binary per feature. Keep feature files focused and register new files in the

@@ -1,5 +1,4 @@
 name: Checks
-run-name: ${{ github.event_name == 'workflow_dispatch' && 'Candidate validation' || 'Source checks' }}
 
 on:
   push:
@@ -11,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: checks-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && 'candidate' || 'source' }}
+  group: checks-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -69,7 +68,6 @@ jobs:
           pnpm build:edgeone
 
   rust:
-    if: github.event_name == 'workflow_dispatch'
     name: Rust ${{ matrix.kind }} (${{ matrix.platform.target }})
     strategy:
       fail-fast: false
@@ -206,7 +204,6 @@ jobs:
         run: sccache --show-stats
 
   mobile:
-    if: github.event_name == 'workflow_dispatch'
     name: Mobile and shared bridge
     runs-on: macos-15
     timeout-minutes: 120
@@ -289,7 +286,6 @@ jobs:
         run: sccache --show-stats
 
   android:
-    if: github.event_name == 'workflow_dispatch'
     name: Mobile Android
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -339,7 +335,6 @@ jobs:
             --code "$(python3 scripts/package/versions.py --android-code)"
 
   ios:
-    if: github.event_name == 'workflow_dispatch'
     name: Mobile iOS
     runs-on: macos-15
     timeout-minutes: 60
@@ -378,25 +373,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Require results for this scope
+      - name: Require all results
         env:
-          CHECK_SCOPE: ${{ github.event_name == 'workflow_dispatch' && 'candidate' || 'source' }}
           CHECK_RESULTS: ${{ toJSON(needs) }}
         run: |
           python3 - <<'PY'
           import json, os
           results = json.loads(os.environ['CHECK_RESULTS'])
-          scope = os.environ['CHECK_SCOPE']
           for name, job in results.items():
               print(f"{name}: {job['result']}")
-          expected = {
-              name: 'success' if scope == 'candidate' or name == 'source' else 'skipped'
-              for name in results
-          }
-          if any(job['result'] != expected[name] for name, job in results.items()):
+          if not results or any(job['result'] != 'success' for job in results.values()):
               raise SystemExit('One or more required checks did not pass')
-          if scope == 'candidate':
-              print('Candidate validation passed')
-          else:
-              print('Source checks passed; native validation was not run')
+          print('Checks passed')
           PY
