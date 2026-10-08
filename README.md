@@ -8,10 +8,10 @@
   English · <a href="README.zh-CN.md">Chinese (Simplified)</a>
 </p>
 
-<p align="center"><strong>A native AI workspace for coding and everyday work</strong></p>
+<p align="center"><strong>A native AI workspace, designed to be light, beautiful, and extensible</strong></p>
 
 <p align="center">
-  Agents run on your own machines. Pick up the work from any device.
+  Your models and tools, in a workspace you can make your own.
 </p>
 
 <p align="center">
@@ -22,54 +22,114 @@
 
 ![Sailry workspace with an English conversation and weekly plan](assets/readme/workspace.png)
 
-Sailry Harness is an **AI agent harness**: it brings models, agents, context,
-tools, and permissions together in one native workspace, and lets you follow and
-steer the work as it happens.
+Sailry Harness brings **AI agents and the tools they work with into a native
+workspace**. Choose a model, connect a project, and work alongside the agent:
+inspect files, review diffs, use a terminal, browse sources, or query a database
+beside the conversation.
 
-Use it to write and review code, research a topic, prepare documents, query a
-database, or keep a long task running on a server. You choose the model provider
-and the computer that does the work. Sailry supplies the workspace around it.
+Bring your preferred models and shape the workspace with plugins and themes.
+Work on your computer or your own server, and return from Desktop or Mobile.
 
-## Why Sailry
+## Native. Light by design. Beautiful. Extensible.
 
-Most AI agent apps tie the work to the window in front of you: close it, switch
-devices, or lose the connection, and the session stays behind. The alternative
-is usually a vendor's cloud. Sailry separates the workspace you see from the
-**execution Node** that does the work, and lets you own both.
+### Native rendering, throughout the workspace
 
-Start a refactor on your Mac, let it run on your own Linux server overnight,
-and check on it from your phone the next morning—the same conversation, files,
-and settings, on hardware you control.
+The desktop shell and plugin panels use **Rust and GPU-rendered GPUI Kit
+controls**, with shared themes, focus, and keyboard behavior. Ghostty powers the
+embedded terminal. Web content and document previews have their own embedded
+webviews.
 
-- **Run work on machines you own.** Use the Node built into Desktop, or install
-  Sailry Host as a headless service on your own server. Desktop's **Add Host**
-  sets it up over SSH and pairs automatically
-- **Continue from any device.** Desktop and the mobile app reconnect to the same
-  Node-owned workspace, conversations, and session settings—not a copied chat
-  history. Phones connect to the Node directly over an end-to-end encrypted
-  link, with no desktop gateway and no Sailry account
-- **Disconnects don't lose work.** Commands are durably admitted before they
-  are acknowledged. Closing a controller only stops observation; admitted work
-  keeps running, and uncertain outcomes are reported instead of replayed
-- **Native from shell to plugins.** A Rust desktop app with GPU-rendered GPUI
-  Kit controls, not Electron. Plugin panels use the same native components;
-  webviews appear only inside browser panes
-- **Bring any model.** 14 built-in provider brands and services, custom endpoints
-  for four common API protocols, local models through compatible gateways, and
-  ChatGPT sign-in where offered. Delegated subagents can each use their own model
-- **Plugins build whole workbenches.** A plugin can add agent tools, navigation
-  entries, panels, embedded assistants, and composer actions. Files, Git,
-  terminals, the browser, SSH, and databases are plugins too, on the same SDK
-  that is open to you
-- **Open source end to end.** Desktop, Host, the mobile controller, and the
-  official plugins are Apache-2.0 licensed
+Files, diffs, terminals, and conversations live together in the app. Plugin
+surfaces use the same native components as the rest of the workspace.
 
-## Run work where it belongs
+### A focused core, with tools you choose
 
-Desktop includes a local execution Node, so you can start without any setup.
-When the files, environment, or long-running work belong somewhere else, connect
-a computer running Sailry Host. Host is a long-running service, not a terminal
-session: it keeps working after you close your laptop.
+Rust owns execution, connections, and shared state. Feature workbenches come from
+plugins: install the tools your work needs and extend from there. Selected
+plugins ship with the app for offline installation and can update independently.
+
+Desktop includes a local execution Node. Host runs that same engine as a service;
+Mobile carries the shared client and controller UI. Execution stays on the
+selected machine as you change controllers.
+
+### Designed to look good while you work
+
+Projects and conversations on the left. The agent in the center. Files, previews,
+and tools on the right. Keep the conversation and its results visible together:
+read a change while discussing it, or inspect query results beside the database
+assistant.
+
+Choose light or dark mode, follow your system appearance, or import a
+[theme package](themes/README.md). Themes can customize colors, backgrounds,
+and visual accents; native controls and plugin panels share the application
+theme.
+
+![An English launch brief open alongside a Sailry conversation](assets/readme/files.png)
+
+### Extend the whole experience
+
+A plugin can contribute **tools, navigation, resource panels, embedded
+assistants, and composer actions**. Files, Git, terminals, SSH, and databases use
+this same extension system. Build a database workbench, a server assistant, or a
+specialized workflow with both agent tools and a native interface.
+
+Skills supply reusable workflows. MCP connects tool servers. Sailry plugins also
+shape the workspace where you use them. Start with the
+[official plugins](https://github.com/sailry/sailry-plugins), or build with the
+[Plugin SDK](sdk/plugins.md).
+
+Desktop, Host, Mobile, and official plugin source are open under Apache-2.0,
+with third-party licenses preserved.
+
+## How Sailry fits alongside other AI tools
+
+These products share many capabilities. Multi-model support, delegation, plugins,
+and remote access are useful foundations; Sailry's focus is how they come together
+in a native workspace on machines you control.
+
+| Product | What its official documentation emphasizes | Choose Sailry when you want… |
+| --- | --- | --- |
+| [ChatGPT](https://learn.chatgpt.com/docs/use-chatgpt) | General research, files, connected tools, and agent work across local and cloud environments | Your choice of model provider and a self-hosted execution Node, with open desktop, Host, and mobile source |
+| [Claude Code](https://code.claude.com/docs/en/remote-control) | Coding in your local environment, with Remote Control from web and mobile | A native workspace for files, Git, terminals, servers, and data, connected to your own Host across model providers |
+| [OpenCode](https://opencode.ai/docs/) · [Server](https://opencode.ai/docs/server/) | An open-source coding agent with multiple providers, desktop support, and a client/server architecture | Coding, documents, research, and server tools together, with native plugin panels and a mobile controller |
+| [AionUi](https://github.com/iOfficeAI/AionUi) | Cowork with a built-in agent and external CLI agents, Office workflows, remote access, and automation | Native GPUI Kit workspace and plugin controls, with one execution and history path across local and remote work |
+| [DeepSeek Harness / dsh](https://github.com/deepseek-ai/deepseek-harness) | A Cordis-based, everything-is-a-plugin harness, launched through Node.js and a Web UI | A Rust execution service, native desktop workbenches, and direct mobile access to your execution Nodes |
+
+Comparison reflects the linked official documentation reviewed on October 8,
+2026. Availability and requirements vary by product and platform.
+
+## Put it to work
+
+| Your task | What you work with in Sailry |
+| --- | --- |
+| Refactor a repository | Project files, Git diffs, worktrees, terminals, and code review beside the agent |
+| Research and prepare a brief | Browser, web search, source files, and document previews in the same workspace |
+| Investigate a server or database | SSH and database resource panels with assistants scoped to those connections |
+| Keep a long task on a server | Start it on Host from Desktop; reconnect from Desktop or Mobile to review progress and guide it |
+| Build a specialized assistant | A plugin with its own tools, native panel, embedded conversation, and Node-owned data |
+
+## Keep control as the agent works
+
+- **Plan and review.** Explore in Plan mode, review the plan, then explicitly
+  switch to making changes
+- **Guide a running task.** Send guidance during execution; it takes effect after
+  the current tool batch, keeping the conversation intact
+- **Delegate with context.** Subagents have their own roles and models, retain
+  history for follow-up work, and can run in the background. The main agent
+  guides and waits for them; their approvals appear in its conversation
+- **Choose permissions.** Configure tool access per session. Plans, permissions,
+  and execution remain separate choices
+
+## One task, multiple controllers
+
+Run locally with the Node built into Desktop, or connect to **Sailry Host on your
+own server**. Desktop's **Add Host** installs the service over SSH and pairs it
+automatically. Keep a long task on Host, close the desktop controller, and return
+to the same conversation from Desktop or Mobile.
+
+The mobile app connects directly to a paired Node over an **end-to-end encrypted
+link**, without a Sailry account or desktop gateway. The Node must remain running
+and awake: the local Node lives inside Desktop, while Host is a separate service.
 
 ```text
           ┌─ in-process ─── local Node inside Desktop
@@ -80,43 +140,19 @@ Mobile ──── encrypted ────┤
                           └── local Node of a paired Desktop
 ```
 
-- **Pair once.** A six-digit code that expires in 60 seconds establishes trust;
-  paired devices reconnect without it. The pairing service only exchanges that
-  ticket; it never sees your conversations
-- **Same commands everywhere.** Local and remote work use one command model, so
-  conversations, files, Git, and terminals behave the same on either Node
-- **Credentials stay put.** Provider keys live in the execution Node's protected
-  storage, never in events or controller caches
-- **Recover from durable history.** Reconnecting resumes from the Node's
-  history, using the original request IDs
+Pair with a six-digit code that expires in 60 seconds. Paired devices reconnect
+without another code. The pairing service exchanges invitation tickets;
+conversations travel over the encrypted Node link. An encrypted data relay can
+carry traffic when a direct connection is unavailable.
 
-The Flutter mobile controller is available for Android; iOS is in testing.
-Mobile steers work on the connected Node rather than running a second agent
-engine on the phone.
+Reconnect to the Node's saved conversation and task state. Disconnecting a
+controller does not cancel admitted work; stopping a task is an explicit action.
+Sailry reports uncertain outcomes without automatically repeating side effects.
+See [Architecture](ARCHITECTURE.md) for execution, recovery, and data boundaries.
 
-## Agents you can steer
+## Build your workspace with plugins
 
-- **Plan, then build.** Plan mode explores without side effects, and every plan
-  is reviewed before the agent switches to making changes
-- **Guide a running task.** Send guidance mid-run; it is applied after the
-  current tool batch, without restarting the conversation
-- **Delegate.** Hand subtasks to subagents, each with its own role, model, and
-  worktree—for example, a fast model to explore and a stronger one to review.
-  Subagents can run in the background while the main agent guides and waits for
-  them, and they keep their history for follow-up work
-- **Stay in control.** Choose tool permissions per session; approvals from
-  subagents appear in the main conversation
-
-## One harness, many workbenches
-
-![An English launch brief open alongside a Sailry conversation](assets/readme/files.png)
-
-Projects and conversations sit on the left, the current conversation in the
-center, and files, previews, and tools alongside it. Plugins decide what that
-workspace can do. Selected official plugins ship with the app for offline
-installation and update independently of it, on local and remote Nodes alike.
-
-| Workbench | Official plugins |
+| Work | Official plugins |
 | --- | --- |
 | Code | Files, Git, Worktrees, Commands and terminals, Code review, GitHub |
 | Research and documents | Browser, Web search, Office documents, Media, Context7 |
@@ -125,28 +161,27 @@ installation and update independently of it, on local and remote Nodes alike.
 | Your computer | Computer control, External browsers |
 | Downtime | Xiangqi, Gomoku, Reversi, Dou Dizhu, Texas Hold'em, Liar's Dice, City Trader |
 
-Browse the [official plugins](https://github.com/sailry/sailry-plugins), or
-build your own with the [Plugin SDK](sdk/plugins.md). Desktop plugin surfaces use
-native GPUI Kit components, not a separate HTML interface. Skills and MCP are
-supported too; they complement the plugin system rather than replace it.
-
 ![Sailry's official plugin marketplace in English](assets/readme/plugins.png)
 
-## Choose providers, not a single ecosystem
+Tool availability follows the selected Node, controller, platform, and permissions.
 
-The add-provider interface covers **14 provider brands and services**, counting
-OpenCode Go and Zen as one service family.
+## Connect your models
 
 | Connection | Built-in choices |
 | --- | --- |
 | Core model services | OpenAI, Anthropic, Google Gemini |
-| 10 additional hosted providers | xAI, DeepSeek, Qwen, Moonshot (Kimi), Mistral, MiniMax, Doubao, Zhipu, Baidu, Cohere |
+| Additional hosted providers | xAI, DeepSeek, Qwen, Moonshot (Kimi), Mistral, MiniMax, Doubao, Zhipu, Baidu, Cohere |
 | Multi-model services | OpenCode Go and OpenCode Zen |
+| Cloud integrations | Azure OpenAI, Amazon Bedrock, Google Vertex AI |
 | Custom-compatible endpoints | OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, Gemini generateContent |
 
-Use your own keys, configure a compatible gateway or local model endpoint, or use
-ChatGPT sign-in where offered. Model availability, reasoning, media, and tool
-support depend on the provider and model you choose.
+Use your own keys, a compatible gateway or local endpoint, or ChatGPT sign-in
+where offered. Give subagent roles different models and instructions for
+exploration, implementation, and review.
+
+Provider credentials stay in the selected Node's protected storage. Requests go
+to the provider you choose; a local endpoint lets you use local inference. Model
+availability, reasoning, media, and tool support depend on the provider and model.
 
 ## Platforms
 
@@ -179,6 +214,11 @@ Screenshots show a fresh English-language demo workspace with illustrative
 conversations, not personal data or previous test sessions.
 
 ### Install Sailry Host
+
+Desktop's **Add Host** installs and pairs over SSH. For manual installation:
+
+<details>
+<summary>Linux requirements, installation, and service commands</summary>
 
 Linux Host is a separate release asset for **amd64** and **arm64**. It requires
 systemd, glibc 2.28 or newer, and the X11/XInput client libraries
@@ -225,17 +265,7 @@ the desktop's release version, verifies the installer and archive checksums, and
 then pairs with the service. For an existing Host, run `sailry share` and pair
 instead of installing again.
 
-Desktop and Host do not bundle Python or Office script libraries. Office
-inspection, previews, and PDF export use Rust. Document skills use the execution
-Node's tools and prepare project-local dependencies only when a task needs them,
-subject to the session's command permissions and network availability.
-
-## Built on native foundations
-
-Rust and GPUI Kit power the desktop; ADK-Rust powers agent execution. Execution,
-transport, shared client state, and presentation have separate owners, so
-Desktop, Host, and Mobile share one execution contract instead of each running
-its own agent engine. See the [architecture](ARCHITECTURE.md) for the boundaries.
+</details>
 
 ## Help shape Sailry Harness
 
