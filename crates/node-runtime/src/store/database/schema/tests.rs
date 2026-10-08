@@ -1,184 +1,97 @@
 use super::*;
 use crate::store::database::Database;
 
-mod additions {
+mod comparison {
     use super::*;
 
+    const CURRENT: &str = "CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT DEFAULT 'Kept'); CREATE INDEX records_value ON records(value);";
+
     #[test]
-    fn uses_the_latest_ddl_and_preserves_values() {
+    fn accepts_matching_definitions() {
         let connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch("CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT); INSERT INTO records VALUES(1,'kept'); CREATE TABLE retained(value TEXT); INSERT INTO retained VALUES('retained')").unwrap();
-        let ddl = "CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT, note TEXT, enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1))); CREATE TABLE added(id INTEGER PRIMARY KEY, value TEXT); CREATE INDEX records_value ON records(value);";
-        let plan = super::super::additions(&connection, Path::new("fixture"), ddl).unwrap();
-        assert_eq!(plan.statements.len(), 4);
-        plan.apply(&connection).unwrap();
-        let values: (String, Option<String>, i64) = connection
-            .query_row("SELECT value,note,enabled FROM records", [], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-            })
-            .unwrap();
-        assert_eq!(values, ("kept".into(), None, 1));
-        assert_eq!(
-            connection
-                .query_row("SELECT value FROM retained", [], |row| row
-                    .get::<_, String>(0))
-                .unwrap(),
-            "retained"
-        );
-        assert!(
-            super::super::additions(&connection, Path::new("fixture"), ddl)
-                .unwrap()
-                .statements
-                .is_empty()
-        );
+        connection.execute_batch("create table records (id integer primary key, /* value */ value text default 'Kept'); create index records_value on records (value);").unwrap();
+        verify(&connection, Path::new("fixture"), CURRENT).unwrap();
     }
 
     #[test]
-    fn keeps_unused_columns() {
-        let connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch("CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT, unused TEXT); INSERT INTO records VALUES(1,'kept','original')").unwrap();
-        let plan = super::super::additions(
-            &connection,
-            Path::new("fixture"),
-            "CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT)",
-        )
-        .unwrap();
-        assert!(plan.statements.is_empty());
-        assert_eq!(
-            connection
-                .query_row("SELECT unused FROM records", [], |row| row
-                    .get::<_, String>(0))
-                .unwrap(),
-            "original"
-        );
-    }
-
-    #[test]
-    fn distinguishes_defaults_from_constraints() {
-        let connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE records(id INTEGER PRIMARY KEY); INSERT INTO records VALUES(1)",
-            )
-            .unwrap();
-        let ddl = "CREATE TABLE records(id INTEGER PRIMARY KEY, unique_note TEXT NOT NULL DEFAULT 'UNIQUE')";
-        let plan = super::super::additions(&connection, Path::new("fixture"), ddl).unwrap();
-        plan.apply(&connection).unwrap();
-        assert_eq!(
-            connection
-                .query_row("SELECT unique_note FROM records", [], |row| row
-                    .get::<_, String>(0))
-                .unwrap(),
-            "UNIQUE"
-        );
-        for default in ["NULL", "(NULL)", "((NULL))"] {
-            let connection = Connection::open_in_memory().unwrap();
-            connection
-                .execute_batch(&format!("CREATE TABLE records(id INTEGER PRIMARY KEY, unused TEXT NOT NULL DEFAULT {default}); INSERT INTO records VALUES(1,'kept')"))
-                .unwrap();
-            assert!(
-                super::super::additions(
-                    &connection,
-                    Path::new("fixture"),
-                    "CREATE TABLE records(id INTEGER PRIMARY KEY)"
-                )
-                .is_err()
-            );
-            assert_eq!(
-                connection
-                    .query_row("SELECT unused FROM records", [], |row| row
-                        .get::<_, String>(0))
-                    .unwrap(),
-                "kept"
-            );
-        }
-    }
-
-    #[test]
-    fn rebuilds_changed_indexes() {
-        let connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch("CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT); CREATE INDEX records_value ON records(id); INSERT INTO records VALUES(1,'kept')").unwrap();
-        let ddl = "CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT); CREATE INDEX records_value ON records(value);";
-        let plan = super::super::additions(&connection, Path::new("fixture"), ddl).unwrap();
-        plan.apply(&connection).unwrap();
-        assert_eq!(
-            connection
-                .query_row(
-                    "SELECT name FROM pragma_index_info('records_value')",
-                    [],
-                    |row| row.get::<_, String>(0)
-                )
-                .unwrap(),
-            "value"
-        );
-        assert!(
-            super::super::additions(&connection, Path::new("fixture"), ddl)
-                .unwrap()
-                .statements
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn rejects_ambiguous_changes_before_writing() {
-        for ddl in [
-            "CREATE TABLE records(id INTEGER PRIMARY KEY, value INTEGER)",
-            "CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT NOT NULL)",
-            "CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT, required TEXT NOT NULL)",
-            "CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT, special TEXT UNIQUE)",
-            "CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT, PRIMARY KEY(value))",
+    fn rejects_missing_objects() {
+        for sql in [
+            "",
+            "CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT DEFAULT 'Kept')",
         ] {
             let connection = Connection::open_in_memory().unwrap();
-            connection.execute_batch("CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT); INSERT INTO records VALUES(1,'00123')").unwrap();
-            assert!(super::super::additions(&connection, Path::new("fixture"), ddl).is_err());
-            assert_eq!(
-                connection
-                    .query_row("SELECT value FROM records", [], |row| row
-                        .get::<_, String>(0))
-                    .unwrap(),
-                "00123"
-            );
-            assert_eq!(
-                connection
-                    .query_row(
-                        "SELECT count(*) FROM pragma_table_info('records')",
-                        [],
-                        |row| row.get::<_, i64>(0)
-                    )
-                    .unwrap(),
-                2
-            );
+            connection.execute_batch(sql).unwrap();
+            let before = objects(&connection).unwrap();
+            assert!(verify(&connection, Path::new("fixture"), CURRENT).is_err());
+            assert_eq!(objects(&connection).unwrap(), before);
         }
     }
 
     #[test]
-    fn rolls_back_failed_index_changes() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch("CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT); INSERT INTO records VALUES(1,'same'),(2,'same'); CREATE INDEX records_value ON records(value);").unwrap();
-        let ddl = "CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT, note TEXT); CREATE UNIQUE INDEX records_value ON records(value)";
-        let plan = super::super::additions(&connection, Path::new("fixture"), ddl).unwrap();
-        {
-            let transaction = connection.transaction().unwrap();
-            assert!(plan.apply(&transaction).is_err());
+    fn rejects_column_changes() {
+        for columns in [
+            "id INTEGER PRIMARY KEY",
+            "id INTEGER PRIMARY KEY, value TEXT DEFAULT 'Kept', unused TEXT",
+            "id INTEGER PRIMARY KEY, value INTEGER DEFAULT 'Kept'",
+            "id INTEGER PRIMARY KEY, value TEXT NOT NULL DEFAULT 'Kept'",
+            "id INTEGER PRIMARY KEY, value TEXT DEFAULT 'Changed'",
+        ] {
+            let connection = Connection::open_in_memory().unwrap();
+            connection
+                .execute_batch(&format!("CREATE TABLE records({columns})"))
+                .unwrap();
+            let before = objects(&connection).unwrap();
+            assert!(verify(&connection, Path::new("fixture"), CURRENT).is_err());
+            assert_eq!(objects(&connection).unwrap(), before);
         }
-        assert_eq!(
-            connection
-                .query_row(
-                    "SELECT count(*) FROM pragma_table_info('records')",
-                    [],
-                    |row| row.get::<_, i64>(0)
-                )
-                .unwrap(),
-            2
-        );
-        assert!(!connection.query_row("SELECT \"unique\" FROM pragma_index_list('records') WHERE name='records_value'", [], |row| row.get::<_, bool>(0)).unwrap());
-        assert_eq!(
-            connection
-                .query_row("SELECT count(*) FROM records", [], |row| row
-                    .get::<_, i64>(0))
-                .unwrap(),
-            2
-        );
+    }
+
+    #[test]
+    fn rejects_constraint_changes() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT DEFAULT 'Kept', UNIQUE(value)); CREATE INDEX records_value ON records(value);").unwrap();
+        let before = objects(&connection).unwrap();
+        assert!(verify(&connection, Path::new("fixture"), CURRENT).is_err());
+        assert_eq!(objects(&connection).unwrap(), before);
+    }
+
+    #[test]
+    fn rejects_index_changes() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT DEFAULT 'Kept'); CREATE INDEX records_value ON records(id);").unwrap();
+        let before = objects(&connection).unwrap();
+        assert!(verify(&connection, Path::new("fixture"), CURRENT).is_err());
+        assert_eq!(objects(&connection).unwrap(), before);
+    }
+
+    #[test]
+    fn rejects_unexpected_objects() {
+        for sql in [
+            "CREATE TABLE retained(value TEXT)",
+            "CREATE TABLE sqlitex_retained(value TEXT)",
+            "CREATE INDEX retained ON records(id)",
+            "CREATE VIEW retained AS SELECT value FROM records",
+            "CREATE TRIGGER retained AFTER INSERT ON records BEGIN DELETE FROM records; END",
+        ] {
+            let connection = Connection::open_in_memory().unwrap();
+            connection.execute_batch(CURRENT).unwrap();
+            connection.execute_batch(sql).unwrap();
+            let before = objects(&connection).unwrap();
+            assert!(verify(&connection, Path::new("fixture"), CURRENT).is_err());
+            assert_eq!(objects(&connection).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn rejects_trigger_matching_index_name() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(CURRENT).unwrap();
+        connection.execute_batch("DROP INDEX records_value; CREATE TRIGGER records_value AFTER INSERT ON records BEGIN DELETE FROM records; END; CREATE INDEX records_value ON records(value);").unwrap();
+        let before = objects(&connection).unwrap();
+        assert_eq!(before.len(), 3);
+        let error = verify(&connection, Path::new("fixture"), CURRENT).unwrap_err();
+        assert!(error.to_string().contains("records_value\" (trigger)"));
+        assert_eq!(objects(&connection).unwrap(), before);
     }
 }
 
@@ -206,112 +119,131 @@ mod declarations {
     fn inspects_all_current_tables() {
         let connection = Connection::open_in_memory().unwrap();
         connection.execute_batch(DDL).unwrap();
-        for (_, (kind, sql)) in objects(&connection).unwrap() {
+        for ((kind, _), sql) in objects(&connection).unwrap() {
             if kind == "table" {
                 assert!(!Table::parse(&sql).unwrap().columns.is_empty());
             }
         }
-        assert!(
-            super::super::additions(&connection, Path::new("fixture"), DDL)
-                .unwrap()
-                .statements
-                .is_empty()
-        );
+        verify(&connection, Path::new("fixture"), DDL).unwrap();
     }
 }
 
 mod startup {
     use super::*;
+    use sailry_protocol::RequestId;
+    use std::{ffi::OsString, path::PathBuf};
 
     #[test]
-    fn rejects_obsolete_delegations_without_writing() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("database.sqlite3");
-        let node = NodeId([65; 32]);
-        let database = Database::open(&path, node, None).unwrap();
-        database
-            .connection
-            .execute_batch(
-                "CREATE TABLE session_delegations(session TEXT PRIMARY KEY, body BLOB NOT NULL); \
-                 INSERT INTO session_delegations VALUES('retained','kept'); \
-                 DROP TABLE agent_delegations; DROP TABLE model_catalog_status",
-            )
-            .unwrap();
-        database.close().unwrap();
-        let before = std::fs::read(&path).unwrap();
-        let error = Database::open(&path, node, None).err().unwrap();
-        assert!(error.to_string().contains("per-turn associations"));
-        assert_eq!(std::fs::read(&path).unwrap(), before);
-        assert!(snapshots(directory.path()).is_empty());
-        let connection = Connection::open(&path).unwrap();
-        assert_eq!(
-            connection
-                .query_row("SELECT body FROM session_delegations", [], |row| {
-                    row.get::<_, String>(0)
-                })
-                .unwrap(),
-            "kept"
-        );
-        for table in ["agent_delegations", "model_catalog_status"] {
-            assert!(
-                !connection
-                    .query_row(
-                        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
-                        [table],
-                        |row| row.get::<_, bool>(0),
-                    )
-                    .unwrap()
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_removed_storage_without_writing() {
-        for table in ["credentials", "plugin_credentials"] {
-            let directory = tempfile::tempdir().unwrap();
-            let path = directory
-                .path()
-                .canonicalize()
-                .unwrap()
-                .join("database.sqlite3");
-            let node = NodeId([64; 32]);
-            let database = Database::open(&path, node, None).unwrap();
-            database
-                .connection
-                .execute_batch(&format!("CREATE TABLE {table}(value TEXT); INSERT INTO {table} VALUES('kept'); DROP TABLE model_catalog_status"))
-                .unwrap();
-            database.close().unwrap();
-            let before = std::fs::read(&path).unwrap();
-            let error = Database::open(&path, node, None).err().unwrap();
-            assert!(
-                error
-                    .to_string()
-                    .contains("incompatible development database")
-            );
-            assert_eq!(std::fs::read(&path).unwrap(), before);
-            assert!(snapshots(directory.path()).is_empty());
-            let connection = Connection::open(&path).unwrap();
-            assert_eq!(
-                connection
-                    .query_row(&format!("SELECT value FROM {table}"), [], |row| row
-                        .get::<_, String>(0))
-                    .unwrap(),
-                "kept"
-            );
+    fn missing_tables_preserve_profile() {
+        for table in [
+            "agent_continuations",
+            "plugin_conversation_records",
+            "plugin_conversation_history",
+            "plugin_conversation_values",
+            "plugin_values",
+            "dispatch_jobs",
+            "model_catalog_status",
+        ] {
+            let (directory, path, node) = fixture(&format!("DROP TABLE {table}"));
+            let connection = rejected(directory.path(), &path, node, table);
             assert!(
                 connection
-                    .prepare("SELECT body FROM model_catalog_status")
+                    .prepare(&format!("SELECT * FROM {table}"))
                     .is_err()
             );
         }
     }
 
     #[test]
-    fn synchronizes_once_and_keeps_a_private_snapshot() {
+    fn missing_columns_preserve_profile() {
+        for (table, column) in [
+            ("agent_runs", "provider"),
+            ("plugin_values", "index_data"),
+            ("sessions", "state"),
+        ] {
+            let (directory, path, node) =
+                fixture(&format!("ALTER TABLE {table} DROP COLUMN {column}"));
+            let connection = rejected(directory.path(), &path, node, &format!("{table}.{column}"));
+            assert!(
+                connection
+                    .prepare(&format!("SELECT {column} FROM {table}"))
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn index_changes_preserve_profile() {
+        for sql in [
+            "DROP INDEX dispatch_handlers_source",
+            "DROP INDEX dispatch_handlers_source; CREATE INDEX dispatch_handlers_source ON dispatch_handlers(topic,source)",
+        ] {
+            let (directory, path, node) = fixture(sql);
+            rejected(directory.path(), &path, node, "dispatch_handlers_source");
+        }
+    }
+
+    #[test]
+    fn unexpected_storage_preserves_profile() {
+        for (sql, name) in [
+            (
+                "CREATE TABLE retained(value TEXT); INSERT INTO retained VALUES('kept')",
+                "retained",
+            ),
+            (
+                "CREATE TABLE sqlitex_retained(value TEXT); INSERT INTO sqlitex_retained VALUES('kept')",
+                "sqlitex_retained",
+            ),
+            (
+                "ALTER TABLE agent_runs ADD COLUMN unused BLOB",
+                "agent_runs.unused",
+            ),
+            (
+                "CREATE VIEW retained AS SELECT id FROM sessions",
+                "retained",
+            ),
+            (
+                "CREATE TRIGGER retained AFTER INSERT ON events BEGIN DELETE FROM events; END",
+                "retained",
+            ),
+        ] {
+            let (directory, path, node) = fixture(sql);
+            rejected(directory.path(), &path, node, name);
+        }
+    }
+
+    #[test]
+    fn unowned_storage_is_not_fresh() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("database.sqlite3");
+        let connection = Connection::open(&path).unwrap();
+        connection.execute_batch("CREATE TABLE sqlitex_retained(value TEXT); INSERT INTO sqlitex_retained VALUES('kept')").unwrap();
+        connection.close().unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let files = entries(directory.path());
+        let error = Database::open(&path, NodeId([65; 32]), None)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains("application_id is 0x0"), "{error}");
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(entries(directory.path()), files);
+        let connection =
+            Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        assert_eq!(
+            connection
+                .query_row("SELECT value FROM sqlitex_retained", [], |row| row
+                    .get::<_, String>(0))
+                .unwrap(),
+            "kept"
+        );
+    }
+
+    fn fixture(sql: &str) -> (tempfile::TempDir, PathBuf, NodeId) {
         let directory = tempfile::tempdir().unwrap();
         let path = directory
             .path()
@@ -320,168 +252,70 @@ mod startup {
             .join("database.sqlite3");
         let node = NodeId([63; 32]);
         let database = Database::open(&path, node, None).unwrap();
-        // Optional metadata can be added; historical initialization markers must stay intact.
-        database.connection.execute_batch("UPDATE node SET plugin_defaults=1; ALTER TABLE agent_runs DROP COLUMN provider; DROP INDEX dispatch_handlers_source; DROP TABLE model_catalog_status").unwrap();
+        database
+            .connection
+            .execute(
+                "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')",
+                rusqlite::params![
+                    &node.0[..],
+                    RequestId::new().to_string(),
+                    b"kept".as_slice()
+                ],
+            )
+            .unwrap();
+        database.connection.execute_batch(sql).unwrap();
         database.close().unwrap();
-        let database = Database::open(&path, node, None).unwrap();
-        assert_eq!(
-            database
-                .connection
-                .query_row("SELECT plugin_defaults FROM node", [], |row| row
-                    .get::<_, i64>(0))
-                .unwrap(),
-            1
-        );
-        assert_eq!(
-            database
-                .connection
-                .query_row(
-                    "SELECT count(*) FROM pragma_table_info('agent_runs') WHERE name='provider'",
-                    [],
-                    |row| row.get::<_, i64>(0)
-                )
-                .unwrap(),
-            1
-        );
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .pragma_update(None, "journal_mode", "DELETE")
+            .unwrap();
+        connection.close().unwrap();
+        (directory, path, node)
+    }
+
+    fn rejected(directory: &Path, path: &Path, node: NodeId, detail: &str) -> Connection {
+        let before = std::fs::read(path).unwrap();
+        let files = entries(directory);
+        let error = Database::open(path, node, None).err().unwrap().to_string();
         assert!(
-            database
-                .connection
-                .prepare("SELECT body FROM model_catalog_status")
-                .is_ok()
+            error.contains("incompatible development database"),
+            "{error}"
         );
-        assert!(database.connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='dispatch_handlers_source')", [], |row| row.get::<_, bool>(0)).unwrap());
-        database.close().unwrap();
-        let snapshots = snapshots(directory.path());
-        assert_eq!(snapshots.len(), 1);
-        let snapshot = Connection::open(&snapshots[0]).unwrap();
+        assert!(error.contains(detail), "{error}");
+        assert!(error.contains("existing data was not changed"), "{error}");
+        assert_eq!(std::fs::read(path).unwrap(), before);
+        assert_eq!(entries(directory), files);
+        let connection =
+            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
         assert_eq!(
-            snapshot
+            connection
+                .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))
+                .unwrap(),
+            "delete"
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT status FROM requests", [], |row| row
+                    .get::<_, String>(0))
+                .unwrap(),
+            "admitted"
+        );
+        assert_eq!(
+            connection
                 .query_row("SELECT identity FROM node", [], |row| row
                     .get::<_, Vec<u8>>(0))
                 .unwrap(),
             node.0
         );
-        assert_eq!(
-            snapshot
-                .query_row(
-                    "SELECT count(*) FROM pragma_table_info('agent_runs') WHERE name='provider'",
-                    [],
-                    |row| row.get::<_, i64>(0)
-                )
-                .unwrap(),
-            0
-        );
-        assert!(
-            !snapshot
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='model_catalog_status')",
-                    [],
-                    |row| row.get::<_, bool>(0)
-                )
-                .unwrap()
-        );
-        drop(snapshot);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                std::fs::metadata(&snapshots[0])
-                    .unwrap()
-                    .permissions()
-                    .mode()
-                    & 0o777,
-                0o600
-            );
-        }
-        Database::open(&path, node, None).unwrap().close().unwrap();
-        assert_eq!(self::snapshots(directory.path()), snapshots);
+        connection
     }
 
-    #[test]
-    fn snapshot_includes_committed_wal_records() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory
-            .path()
-            .canonicalize()
+    fn entries(directory: &Path) -> Vec<OsString> {
+        let mut entries = std::fs::read_dir(directory)
             .unwrap()
-            .join("database.sqlite3");
-        let connection = Connection::open(&path).unwrap();
-        connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE records(value TEXT); INSERT INTO records VALUES('committed')").unwrap();
-        let plan = Plan {
-            fresh: false,
-            statements: vec!["CREATE TABLE added(value TEXT)".into()],
-        };
-        let snapshot = plan.backup(&connection, &path).unwrap().unwrap();
-        let copy = Connection::open(snapshot).unwrap();
-        assert_eq!(
-            copy.query_row("SELECT value FROM records", [], |row| row
-                .get::<_, String>(0))
-                .unwrap(),
-            "committed"
-        );
-        assert!(
-            !copy
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='added')",
-                    [],
-                    |row| row.get::<_, bool>(0)
-                )
-                .unwrap()
-        );
-    }
-
-    #[test]
-    fn failed_preflight_does_not_mutate_the_profile() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("database.sqlite3");
-        let node = NodeId([64; 32]);
-        let database = Database::open(&path, node, None).unwrap();
-        database.connection.execute_batch("DROP TABLE model_catalog_status; CREATE TABLE retained(value TEXT); INSERT INTO retained VALUES('kept');").unwrap();
-        database
-            .connection
-            .execute(
-                "INSERT INTO events(body) VALUES(?1)",
-                [b"invalid".as_slice()],
-            )
-            .unwrap();
-        database.close().unwrap();
-        let before = std::fs::read(&path).unwrap();
-        assert!(Database::open(&path, node, None).is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), before);
-        assert!(snapshots(directory.path()).is_empty());
-        let connection = Connection::open(&path).unwrap();
-        assert!(
-            !connection
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='model_catalog_status')",
-                    [],
-                    |row| row.get::<_, bool>(0)
-                )
-                .unwrap()
-        );
-        assert_eq!(
-            connection
-                .query_row("SELECT value FROM retained", [], |row| row
-                    .get::<_, String>(0))
-                .unwrap(),
-            "kept"
-        );
-    }
-
-    fn snapshots(directory: &Path) -> Vec<PathBuf> {
-        std::fs::read_dir(directory)
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .filter(|path| {
-                path.file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .starts_with("schema-backup-")
-            })
-            .collect()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        entries.sort();
+        entries
     }
 }

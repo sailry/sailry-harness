@@ -182,62 +182,6 @@ mod tests {
     }
 
     #[test]
-    fn adds_missing_continuation_storage() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("database.sqlite3");
-        let node = NodeId([56; 32]);
-        let database = Database::open(&path, node, None).unwrap();
-        database
-            .connection
-            .execute_batch("DROP TABLE agent_continuations")
-            .unwrap();
-        database.close().unwrap();
-        let database = Database::open(&path, node, None).unwrap();
-        assert!(
-            database
-                .connection
-                .prepare("SELECT turn,body FROM agent_continuations")
-                .is_ok()
-        );
-        assert_eq!(database.node, node);
-    }
-
-    #[test]
-    fn adds_missing_conversation_storage() {
-        for table in [
-            "plugin_conversation_records",
-            "plugin_conversation_history",
-            "plugin_conversation_values",
-        ] {
-            let directory = tempfile::tempdir().unwrap();
-            let path = directory
-                .path()
-                .canonicalize()
-                .unwrap()
-                .join("database.sqlite3");
-            let node = NodeId([57; 32]);
-            let database = Database::open(&path, node, None).unwrap();
-            database
-                .connection
-                .execute_batch(&format!("DROP TABLE {table}"))
-                .unwrap();
-            database.close().unwrap();
-            let database = Database::open(&path, node, None).unwrap();
-            assert!(
-                database
-                    .connection
-                    .prepare(&format!("SELECT * FROM {table}"))
-                    .is_ok()
-            );
-            assert_eq!(database.node, node);
-        }
-    }
-
-    #[test]
     fn missing_continuation_scope_preserves_profile() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory
@@ -271,56 +215,6 @@ mod tests {
                 .contains("invalid stored JSON in agent_continuations.body")
         );
         assert_eq!(std::fs::read(&path).unwrap(), before);
-    }
-
-    #[test]
-    fn adds_missing_plugin_storage() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("database.sqlite3");
-        let node = NodeId([50; 32]);
-        let database = Database::open(&path, node, None).unwrap();
-        database
-            .connection
-            .execute_batch("DROP TABLE plugin_values")
-            .unwrap();
-        database.close().unwrap();
-        let database = Database::open(&path, node, None).unwrap();
-        assert!(
-            database
-                .connection
-                .prepare("SELECT name,key,revision,value,index_data FROM plugin_values")
-                .is_ok()
-        );
-        assert_eq!(database.node, node);
-    }
-
-    #[test]
-    fn adds_missing_dispatch_storage() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("database.sqlite3");
-        let node = NodeId([51; 32]);
-        let database = Database::open(&path, node, None).unwrap();
-        database
-            .connection
-            .execute_batch("DROP TABLE dispatch_jobs")
-            .unwrap();
-        database.close().unwrap();
-        let database = Database::open(&path, node, None).unwrap();
-        assert!(
-            database
-                .connection
-                .prepare("SELECT body,callback,reference FROM dispatch_jobs")
-                .is_ok()
-        );
-        assert_eq!(database.node, node);
     }
 
     #[test]
@@ -930,52 +824,6 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(admitted, 1);
-        }
-
-        #[test]
-        fn adds_missing_plugin_index() {
-            let (_directory, path, node) =
-                fixture("ALTER TABLE plugin_values DROP COLUMN index_data");
-            let database = Database::open(&path, node, None).unwrap();
-            assert!(
-                database
-                    .connection
-                    .prepare("SELECT index_data FROM plugin_values")
-                    .is_ok()
-            );
-            assert_eq!(
-                database
-                    .connection
-                    .query_row(
-                        "SELECT count(*) FROM requests WHERE status='unknown'",
-                        [],
-                        |row| row.get::<_, i64>(0)
-                    )
-                    .unwrap(),
-                1
-            );
-        }
-
-        #[test]
-        fn retains_unused_storage() {
-            for (sql, query) in [
-                (
-                    "CREATE TABLE decision_settings (singleton INTEGER PRIMARY KEY, body BLOB)",
-                    "SELECT body FROM decision_settings",
-                ),
-                (
-                    "CREATE TABLE decision_credentials (id TEXT PRIMARY KEY, secret TEXT)",
-                    "SELECT secret FROM decision_credentials",
-                ),
-                (
-                    "ALTER TABLE agent_runs ADD COLUMN decision BLOB",
-                    "SELECT decision FROM agent_runs",
-                ),
-            ] {
-                let (_directory, path, node) = fixture(sql);
-                let database = Database::open(&path, node, None).unwrap();
-                assert!(database.connection.prepare(query).is_ok());
-            }
         }
 
         #[test]

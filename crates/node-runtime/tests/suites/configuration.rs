@@ -15,5 +15,5 @@ mod login;
 mod model_requests;
 #[path = "../roles.rs"]
 mod roles;
-#[path = "../schema_sync.rs"]
-mod schema_sync;
+#[path = "../schema.rs"]
+mod schema;

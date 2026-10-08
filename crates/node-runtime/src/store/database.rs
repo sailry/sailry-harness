@@ -185,12 +185,11 @@ impl Database {
         )?;
         connection.busy_timeout(Duration::from_secs(1))?;
         let schema = schema::prepare(&connection, path, node)?;
-        let _backup = schema.backup(&connection, path)?;
         connection.pragma_update(None, "journal_mode", "WAL")?;
         connection.pragma_update(None, "synchronous", "FULL")?;
         connection.pragma_update(None, "foreign_keys", true)?;
         let transaction = connection.transaction()?;
-        schema.apply(&transaction)?;
+        schema.initialize(&transaction)?;
         transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
         transaction.pragma_update(None, "user_version", 1)?;
         let stored: Option<Vec<u8>> = transaction

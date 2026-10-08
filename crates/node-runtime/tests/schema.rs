@@ -2,9 +2,10 @@ use sailry_client::Client;
 use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
 use sailry_protocol::{Command, Output};
+use std::{ffi::OsString, path::Path};
 
 #[tokio::test]
-async fn keeps_resources_and_configuration_on_both_paths() {
+async fn preserves_current_resources_on_both_paths() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let profile = directory.path().join("node");
@@ -58,17 +59,7 @@ async fn keeps_resources_and_configuration_on_both_paths() {
         };
         drop(client);
         node.shutdown().await.unwrap();
-
-        let database_path = profile.join("storage/node.sqlite3");
-        let database = rusqlite::Connection::open(&database_path).unwrap();
-        database.execute_batch("ALTER TABLE plugin_values DROP COLUMN index_data; DROP INDEX agent_events_turn; DROP TABLE model_catalog_status; CREATE TABLE retained(value BLOB NOT NULL)").unwrap();
-        database
-            .execute(
-                "INSERT INTO retained(value) VALUES(?1)",
-                [b"unmodified".as_slice()],
-            )
-            .unwrap();
-        database.close().unwrap();
+        let files = entries(&profile.join("storage"));
 
         let node = Node::start(&profile).await.unwrap();
         assert_eq!(node.id(), identity);
@@ -93,59 +84,81 @@ async fn keeps_resources_and_configuration_on_both_paths() {
             panic!("plugin information expected");
         };
         assert_eq!(restored, goals);
-        drop(client);
-        node.shutdown().await.unwrap();
-
-        let database = rusqlite::Connection::open(&database_path).unwrap();
-        assert!(
-            database
-                .prepare("SELECT index_data FROM plugin_values")
-                .is_ok()
-        );
-        assert!(
-            database
-                .prepare("SELECT body FROM model_catalog_status")
-                .is_ok()
-        );
-        assert!(
-            database
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='agent_events_turn')",
-                    [],
-                    |row| row.get::<_, bool>(0)
-                )
-                .unwrap()
-        );
-        assert_eq!(
-            database
-                .query_row("SELECT value FROM retained", [], |row| row
-                    .get::<_, Vec<u8>>(0))
-                .unwrap(),
-            b"unmodified"
-        );
+        let database = rusqlite::Connection::open_with_flags(
+            profile.join("storage/node.sqlite3"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
         assert_eq!(
             database
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
             1
         );
-        let backups = std::fs::read_dir(profile.join("storage"))
-            .unwrap()
-            .filter(|entry| {
-                entry
-                    .as_ref()
-                    .unwrap()
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with("schema-backup-")
-            })
-            .count();
-        assert_eq!(backups, 1);
         database.close().unwrap();
+        drop(client);
+        node.shutdown().await.unwrap();
+        assert_eq!(entries(&profile.join("storage")), files);
         controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn rejects_changes_without_rewriting_profile() {
+    for (sql, detail) in [
+        ("DROP TABLE model_catalog_status", "model_catalog_status"),
+        (
+            "ALTER TABLE plugin_values DROP COLUMN index_data",
+            "plugin_values.index_data",
+        ),
+        ("DROP INDEX agent_events_turn", "agent_events_turn"),
+        (
+            "ALTER TABLE agent_runs ADD COLUMN unused BLOB",
+            "agent_runs.unused",
+        ),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let profile = directory.path().join("node");
+        let node = Node::start(&profile).await.unwrap();
+        node.shutdown().await.unwrap();
+        let path = profile.join("storage/node.sqlite3");
+        let database = rusqlite::Connection::open(&path).unwrap();
+        database.execute_batch(sql).unwrap();
+        database
+            .pragma_update(None, "journal_mode", "DELETE")
+            .unwrap();
+        database.close().unwrap();
+
+        let before = std::fs::read(&path).unwrap();
+        let files = entries(&profile.join("storage"));
+        let error = Node::start(&profile)
+            .await
+            .err()
+            .expect("incompatible profile must be rejected");
+        let message = error.to_string();
+        assert!(
+            message.contains("incompatible development database"),
+            "{message}"
+        );
+        assert!(message.contains(detail), "{message}");
+        assert!(
+            message.contains("existing data was not changed"),
+            "{message}"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(entries(&profile.join("storage")), files);
     }
 }
 
 async fn execute(client: &Client, command: Command) -> Output {
     client.execute(client.prepare(command)).await.unwrap()
+}
+
+fn entries(directory: &Path) -> Vec<OsString> {
+    let mut entries = std::fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    entries
 }

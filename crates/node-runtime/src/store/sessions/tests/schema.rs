@@ -3,41 +3,24 @@ use crate::store::database::Database;
 use std::path::{Path, PathBuf};
 
 #[test]
-fn synchronizes_empty_structure() {
+fn rejects_missing_state_for_empty_sessions() {
     let (directory, path, node, database) = fixture();
     let request = admit(&database);
-    database.connection.execute_batch("ALTER TABLE sessions DROP COLUMN state; DROP TABLE plugin_settings; DROP TABLE model_catalog; DROP TABLE model_catalog_status").unwrap();
+    database
+        .connection
+        .execute_batch("ALTER TABLE sessions DROP COLUMN state")
+        .unwrap();
     close(database, &path);
 
-    let database = Database::open(&path, node, None).unwrap();
-    assert_eq!(database.node, node);
+    let connection = rejected(directory.path(), &path, node, request, "sessions.state");
+    assert!(connection.prepare("SELECT state FROM sessions").is_err());
     assert_eq!(
-        database
-            .connection
-            .query_row("SELECT count(state) FROM sessions", [], |row| row
+        connection
+            .query_row("SELECT count(*) FROM sessions", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
         0
     );
-    for query in [
-        "SELECT body FROM plugin_settings",
-        "SELECT body FROM model_catalog",
-        "SELECT body FROM model_catalog_status",
-    ] {
-        assert!(database.connection.prepare(query).is_ok());
-    }
-    assert_eq!(status(&database.connection, request), "unknown");
-    database.close().unwrap();
-    let snapshots = snapshots(directory.path());
-    assert_eq!(snapshots.len(), 1);
-    let snapshot = Connection::open(&snapshots[0]).unwrap();
-    assert!(snapshot.prepare("SELECT state FROM sessions").is_err());
-    assert!(
-        snapshot
-            .prepare("SELECT body FROM plugin_settings")
-            .is_err()
-    );
-    assert_eq!(status(&snapshot, request), "admitted");
 }
 
 #[test]
@@ -48,19 +31,11 @@ fn rejects_missing_state_for_existing_sessions() {
         let request = admit(&database);
         database
             .connection
-            .execute_batch(
-                "ALTER TABLE sessions DROP COLUMN state; DROP TABLE model_catalog_status",
-            )
+            .execute_batch("ALTER TABLE sessions DROP COLUMN state")
             .unwrap();
         close(database, &path);
 
-        let connection = rejected(
-            directory.path(),
-            &path,
-            node,
-            request,
-            "session lifecycle state is missing",
-        );
+        let connection = rejected(directory.path(), &path, node, request, "sessions.state");
         assert_eq!(
             connection
                 .query_row("SELECT id FROM sessions", [], |row| row.get::<_, String>(0))
@@ -68,11 +43,6 @@ fn rejects_missing_state_for_existing_sessions() {
             session.to_string()
         );
         assert!(connection.prepare("SELECT state FROM sessions").is_err());
-        assert!(
-            connection
-                .prepare("SELECT body FROM model_catalog_status")
-                .is_err()
-        );
     }
 }
 
