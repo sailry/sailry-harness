@@ -36,7 +36,7 @@ async fn preserves_video_and_audio_references() {
             .capabilities
             .get_or_insert_with(Default::default)
             .vision = Some(false);
-        provider.models[0].tools = true;
+        provider.models[0].capabilities.as_mut().unwrap().tools = Some(true);
         client
             .execute(client.prepare(Command::PutProvider {
                 expected_revision: provider.revision,
@@ -139,7 +139,7 @@ async fn preserves_unsupported_media_history() {
                     .any(|part| *part == Part::Attachment(attachment.clone()))
             );
         }
-        provider.models[0].tools = true;
+        provider.models[0].capabilities.as_mut().unwrap().tools = Some(true);
         client
             .execute(client.prepare(Command::PutProvider {
                 expected_revision: provider.revision,

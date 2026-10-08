@@ -2,6 +2,20 @@ use super::*;
 
 #[tokio::test]
 async fn catalog_preserves_localized_metadata() {
+    let index: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../plugins/catalog.json")).unwrap();
+    let mut expected: Vec<_> = index["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|package| {
+            (
+                package["id"].as_str().unwrap(),
+                package["manifest"]["name"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    expected.sort_unstable();
     for remote in [false, true] {
         let (_directory, node, controller, client, _) = fixture(remote).await;
         let Output::PluginCatalog(catalog) = execute(
@@ -16,7 +30,13 @@ async fn catalog_preserves_localized_metadata() {
         else {
             panic!("catalog expected");
         };
-        assert_eq!(catalog.entries.len(), 29);
+        let mut actual: Vec<_> = catalog
+            .entries
+            .iter()
+            .map(|entry| (entry.id.as_str(), entry.name.as_str()))
+            .collect();
+        actual.sort_unstable();
+        assert_eq!(actual, expected);
         assert!(catalog.entries.iter().all(|entry| {
             !["project-summary", "task-notes", "tool-content"].contains(&entry.name.as_str())
         }));

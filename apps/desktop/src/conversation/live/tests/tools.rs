@@ -27,7 +27,7 @@ fn compact_file_queries(cx: &mut TestAppContext) {
         .unwrap();
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
         let node = runtime
-            .block_on(Node::start(directory.path().join("node")))
+            .block_on(Node::start_isolated(directory.path().join("node")))
             .unwrap();
         let controller = runtime
             .block_on(Link::controller(
@@ -48,6 +48,15 @@ fn compact_file_queries(cx: &mut TestAppContext) {
             node.local()
         };
         let client = Arc::new(Client::new(transport));
+        for name in ["context7", "github"] {
+            runtime
+                .block_on(client.execute(client.prepare(Command::SetPluginEnabled {
+                    name: name.into(),
+                    expected_revision: 1,
+                    enabled: false,
+                })))
+                .unwrap();
+        }
         let server = runtime.block_on(support::Server::tools(vec![
             (
                 plugin_tool("files", "read_file"),

@@ -518,7 +518,7 @@ fn restores_package_binding_and_shell_process(cx: &mut TestAppContext) {
         } = fixture;
         runtime.block_on(node.shutdown()).unwrap();
         let node = runtime
-            .block_on(sailry_node_runtime::Node::start(
+            .block_on(sailry_node_runtime::Node::start_isolated(
                 directory.path().join("node"),
             ))
             .unwrap();

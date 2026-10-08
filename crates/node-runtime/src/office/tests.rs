@@ -62,7 +62,9 @@ fn reads_long_unicode_parts_through_continuations() {
     use std::io::Write as _;
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().canonicalize().unwrap();
-    let text = "中文长文 ".repeat(100_000);
+    let chunk = "中文长文 ";
+    // Cross the eight-section response boundary with one Unicode part.
+    let text = chunk.repeat(8 * TEXT_LIMIT / chunk.len() + 1);
     let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
     zip.start_file(
         "word/document.xml",
@@ -74,6 +76,7 @@ fn reads_long_unicode_parts_through_continuations() {
     std::fs::write(root.join("long.docx"), zip.finish().unwrap().into_inner()).unwrap();
     let mut offset = 0;
     let mut content = String::new();
+    let mut pages = 0;
     loop {
         let page = read(
             &root,
@@ -83,6 +86,7 @@ fn reads_long_unicode_parts_through_continuations() {
             },
         )
         .unwrap();
+        pages += 1;
         for section in page.sections {
             assert!(section.text.len() <= TEXT_LIMIT);
             content.push_str(&section.text);
@@ -91,5 +95,6 @@ fn reads_long_unicode_parts_through_continuations() {
         assert!(next > offset);
         offset = next;
     }
+    assert!(pages >= 2);
     assert_eq!(content, text);
 }

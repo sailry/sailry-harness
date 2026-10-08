@@ -24,6 +24,25 @@ async fn session(
     endpoint: &str,
     api: ModelApi,
 ) -> (Session, Provider) {
+    for name in ["context7", "github"] {
+        let Output::Plugin(package) = client
+            .execute(client.prepare(Command::ReadPlugin { name: name.into() }))
+            .await
+            .unwrap()
+        else {
+            panic!("shipped package expected")
+        };
+        if package.summary.enabled {
+            client
+                .execute(client.prepare(Command::SetPluginEnabled {
+                    name: package.summary.name,
+                    expected_revision: package.summary.revision,
+                    enabled: false,
+                }))
+                .await
+                .unwrap();
+        }
+    }
     let provider = Provider {
         oauth: None,
         options: match api {
@@ -61,7 +80,13 @@ async fn session(
             web_search: false,
             generates: vec![],
             efforts: vec![],
-            capabilities: None,
+            capabilities: Some(sailry_protocol::conversation::discovery::Capabilities {
+                vision: Some(true),
+                tools: Some(api == ModelApi::Bedrock),
+                reasoning: Some(false),
+                web_search: Some(false),
+                ..Default::default()
+            }),
             custom_efforts: false,
             default_effort: sailry_protocol::Effort::Default,
         }],

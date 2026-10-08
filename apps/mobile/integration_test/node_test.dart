@@ -38,7 +38,7 @@ void main({bool host = false}) {
   WidgetController.hitTestWarningShouldBeFatal = true;
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   if (host) binding.testTextInput.register();
-  gridTests();
+  if (!host) gridTests();
   testWidgets(
     'remote conversation creation and resume',
     (tester) async {

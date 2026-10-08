@@ -231,14 +231,20 @@ fn preserves_reader_and_draft(cx: &mut TestAppContext) {
 #[gpui::test]
 fn preserves_remount_height(cx: &mut TestAppContext) {
     init(cx);
-    let fixture = Fixture::with_tools(false, vec![]);
+    let fixture = Fixture::with_server(false, |runtime| {
+        runtime.block_on(crate::agent_fixture::Server::markdown(
+            "Long document paragraph with Unicode 中文 🙂 and enough content for asynchronous parsing.\n\n".repeat(80),
+        ))
+    });
     let mut turns = Vec::new();
     for index in 0..6 {
         let Output::QueuedTurn(turn) = fixture.execute(Command::SubmitTurn {
             session: fixture.session.id,
             expected_revision: 1,
-            message: format!("History {index}\n\n{}", "Long document paragraph with Unicode 中文 🙂 and enough content for asynchronous parsing.\n\n".repeat(80)).into(),
-        }) else { panic!("turn expected") };
+            message: format!("History {index}").into(),
+        }) else {
+            panic!("turn expected")
+        };
         complete(&fixture, turn.id);
         turns.push(turn.id);
     }
@@ -284,11 +290,18 @@ fn preserves_remount_height(cx: &mut TestAppContext) {
 #[gpui::test]
 fn upward_scrolling(cx: &mut TestAppContext) {
     init(cx);
-    let fixture = Fixture::with_tools(false, vec![]);
+    let fixture = Fixture::with_server(false, |runtime| {
+        runtime.block_on(crate::agent_fixture::Server::markdown(
+            "Long document paragraph with Unicode 中文 🙂 and enough content for asynchronous parsing.\n\n".repeat(160),
+        ))
+    });
     let Output::QueuedTurn(turn) = fixture.execute(Command::SubmitTurn {
-        session: fixture.session.id, expected_revision: 1,
-        message: "Long document paragraph with Unicode 中文 🙂 and enough content for asynchronous parsing.\n\n".repeat(160).into(),
-    }) else { panic!("turn expected") };
+        session: fixture.session.id,
+        expected_revision: 1,
+        message: "Read the long document".into(),
+    }) else {
+        panic!("turn expected")
+    };
     complete(&fixture, turn.id);
     let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
     wait(visual, |cx| view.read(cx).connected());

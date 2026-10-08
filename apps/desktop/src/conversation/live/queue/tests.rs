@@ -5,7 +5,6 @@ use sailry_link::{Link, NetworkScope, Transport};
 use sailry_node_runtime::Node;
 use sailry_protocol::conversation::Part;
 
-mod children;
 mod guidance;
 mod lifecycle;
 
@@ -26,7 +25,7 @@ impl Fixture {
         let directory = tempfile::tempdir().unwrap();
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
         let node = runtime
-            .block_on(Node::start(directory.path().join("node")))
+            .block_on(Node::start_isolated(directory.path().join("node")))
             .unwrap();
         let controller = runtime
             .block_on(Link::controller(
@@ -52,6 +51,13 @@ impl Fixture {
                 .block_on(client.execute(client.prepare(command)))
                 .unwrap()
         };
+        for name in ["context7", "github"] {
+            execute(Command::SetPluginEnabled {
+                name: name.into(),
+                expected_revision: 1,
+                enabled: false,
+            });
+        }
         let server = runtime.block_on(support::Server::start(false));
         let provider = provider(&server.endpoint, "queue-model");
         let config = SessionConfig {

@@ -38,10 +38,10 @@ impl Fixture {
         let directory = tempfile::tempdir().unwrap();
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
         let local = runtime
-            .block_on(Node::start(directory.path().join("local")))
+            .block_on(Node::start_isolated(directory.path().join("local")))
             .unwrap();
         let node = runtime
-            .block_on(Node::start(directory.path().join("remote")))
+            .block_on(Node::start_isolated(directory.path().join("remote")))
             .unwrap();
         let address = runtime
             .block_on(local.link().pair(node.link().invite().unwrap().ticket()))
@@ -56,6 +56,13 @@ impl Fixture {
                 .block_on(client.execute(client.prepare(command)))
                 .unwrap()
         };
+        for name in ["context7", "github"] {
+            execute(Command::SetPluginEnabled {
+                name: name.into(),
+                expected_revision: 1,
+                enabled: false,
+            });
+        }
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let Output::Project(project) = execute(Command::RegisterProject {

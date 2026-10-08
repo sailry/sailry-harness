@@ -14,6 +14,13 @@ fn populate(fixture: &Fixture, index: usize, endpoint: &str) {
             .block_on(client.execute(client.prepare(command)))
             .unwrap()
     };
+    for name in ["context7", "github"] {
+        execute(Command::SetPluginEnabled {
+            name: name.into(),
+            expected_revision: 1,
+            enabled: false,
+        });
+    }
     let mut provider = fixture.providers[index].clone();
     let revision = provider.revision;
     provider.endpoint = endpoint.into();
@@ -137,11 +144,11 @@ fn host_observation_preserves_header_filters(cx: &mut TestAppContext) {
             entry.navigation.surface,
             sailry_protocol::plugin::desktop::Surface::Workspace
         );
+        let selector: &'static str =
+            Box::leak(format!("more-{}", entry.selector()).into_boxed_str());
         tap(visual, "navigation-more");
-        tap(
-            visual,
-            Box::leak(format!("more-{}", entry.selector()).into_boxed_str()),
-        );
+        shown(visual, selector, true);
+        tap(visual, selector);
         wait(visual, |cx| {
             owner
                 .read(cx)
@@ -279,11 +286,14 @@ fn host_observation_preserves_header_filters(cx: &mut TestAppContext) {
             });
         }
         assert!(released.upgrade().is_none());
+        wait(visual, |cx| {
+            owner.read(cx).extension_entries(cx).iter().any(|entry| {
+                entry.node == fixture.nodes[index].id() && entry.package.name == "statistics"
+            })
+        });
         tap(visual, "navigation-more");
-        tap(
-            visual,
-            Box::leak(format!("more-{}", entry.selector()).into_boxed_str()),
-        );
+        shown(visual, selector, true);
+        tap(visual, selector);
         let current = owner.read_with(visual, |owner, _| {
             owner.extensions.as_ref().unwrap().panel.clone().unwrap()
         });

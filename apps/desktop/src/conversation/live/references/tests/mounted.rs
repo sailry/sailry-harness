@@ -6,7 +6,9 @@ use sailry_protocol::Session;
 pub(super) fn desktop(fixture: &Fixture) -> Node {
     let desktop = fixture
         .runtime
-        .block_on(Node::start(fixture.directory.path().join("desktop")))
+        .block_on(Node::start_isolated(
+            fixture.directory.path().join("desktop"),
+        ))
         .unwrap();
     fixture
         .runtime

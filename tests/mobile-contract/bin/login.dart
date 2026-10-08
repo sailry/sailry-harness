@@ -15,6 +15,7 @@ void publicOnly(Object? value) {
     'ffi-refresh-secret',
     'ffi-github-secret',
     'ffi-copilot-access',
+    'ffi-codex-access',
     'ffi-account',
   ]) {
     check(!text.contains(secret), 'authorization secrets stay on Node');
@@ -60,7 +61,7 @@ Future<void> main() async {
       'name': 'FFI sign-in',
       'api': 'responses',
       'authentication': authentication,
-      'endpoint': authentication == 'chat_gpt'
+      'endpoint': authentication == 'chat_gpt_oauth'
           ? 'https://chatgpt.com/backend-api/codex'
           : 'https://api.githubcopilot.com',
       'enabled': true,
@@ -179,7 +180,7 @@ Future<void> main() async {
   );
   check(
     capabilities['default_effort'] ==
-        (authentication == 'chat_gpt' ? 'high' : null),
+        (authentication == 'chat_gpt_oauth' ? 'high' : null),
     'unknown defaults remain unknown',
   );
   final validation = (await execute(connection, 'validate_provider', {

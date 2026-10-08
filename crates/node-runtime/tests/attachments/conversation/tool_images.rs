@@ -46,8 +46,9 @@ async fn restores(direct: bool) {
             ModelApi::ChatCompletions,
         )
         .await;
-        provider.models[0].tools = true;
-        provider.models[0].vision = !direct;
+        let capabilities = provider.models[0].capabilities.as_mut().unwrap();
+        capabilities.tools = Some(true);
+        capabilities.vision = Some(!direct);
         client
             .execute(client.prepare(Command::PutProvider {
                 expected_revision: provider.revision,

@@ -189,14 +189,26 @@ fn section_alignment(cx: &mut TestAppContext) {
             cx.run_until_parked();
             cx.update(|window, cx| window.draw(cx).clear(cx));
             let row = cx.debug_bounds("host-0").unwrap();
-            for (label, arrow, add) in [
-                ("hosts-label", "hosts-disclosure", "host-add"),
-                ("projects-label", "projects-disclosure", "project-add"),
+            for (label, icon, arrow, add) in [
+                (
+                    "hosts-label",
+                    "sidebar-group-hosts",
+                    "hosts-disclosure",
+                    "host-add",
+                ),
+                (
+                    "projects-label",
+                    "sidebar-group-projects",
+                    "projects-disclosure",
+                    "project-add",
+                ),
             ] {
                 let title = cx.debug_bounds(label).unwrap();
+                let icon = cx.debug_bounds(icon).unwrap();
                 let disclosure = cx.debug_bounds(arrow).unwrap();
                 let plus = cx.debug_bounds(add).unwrap();
-                assert_eq!(title.left(), row.left() + px(8.));
+                assert_eq!(icon.left(), row.left() + px(8.));
+                assert_eq!(title.left(), icon.right() + px(4.));
                 assert!(title.right() < plus.left());
                 assert_eq!(disclosure.left(), plus.right() + px(4.));
                 assert_eq!(disclosure.right(), row.right() - px(8.));

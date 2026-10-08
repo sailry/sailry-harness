@@ -1,11 +1,45 @@
 use super::*;
-use crate::conversation::live::tests::fixture::{init, open_session};
+use crate::conversation::live::tests::fixture::{init as init_view, open_session};
 use sailry_link::{Admission, Pending as Future, Subscription};
 use sailry_protocol::{ErrorCode, Fault, RequestId, Topic};
 use std::sync::Mutex;
 
 mod fixture;
 use fixture::Fixture;
+
+fn init(cx: &mut TestAppContext) {
+    init_view(cx);
+    // Account selection exercises credentials, not animated picker geometry.
+    cx.update(|cx| cx.set_reduce_motion(true));
+}
+
+#[track_caller]
+fn shown(cx: &mut VisualTestContext, selector: &'static str, expected: bool) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        wait(cx, |_| true);
+        if cx.debug_bounds(selector).is_some() == expected {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "account selector deadline: {selector}, expected {expected}; controls={}, chooser={}, picker={}",
+            cx.debug_bounds("model-controls").is_some(),
+            cx.debug_bounds("model-controls-choose").is_some(),
+            cx.debug_bounds("composer-model-picker").is_some(),
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[track_caller]
+fn open_models(cx: &mut VisualTestContext) {
+    shown(cx, "model-controls", false);
+    click(cx, "live-chat-model");
+    shown(cx, "model-controls-choose", true);
+    click(cx, "model-controls-choose");
+    shown(cx, "composer-model-picker", true);
+}
 
 #[gpui::test]
 fn selects_discovered_models(cx: &mut TestAppContext) {
@@ -48,6 +82,7 @@ fn selects_discovered_models(cx: &mut TestAppContext) {
             1 => "composer-model-option-1-unknown",
             _ => panic!("unexpected account channel"),
         };
+        shown(visual, option, true);
         click(visual, option);
         assert_eq!(
             view.read_with(visual, |view, _| view
@@ -88,6 +123,7 @@ fn selects_discovered_models(cx: &mut TestAppContext) {
     }
 }
 
+#[track_caller]
 fn choose(visual: &mut VisualTestContext, view: &Entity<View>, node: NodeId, provider: ProviderId) {
     let option = view.read_with(visual, |view, _| {
         match view.provider_ids[&(node, provider)] {
@@ -97,10 +133,12 @@ fn choose(visual: &mut VisualTestContext, view: &Entity<View>, node: NodeId, pro
         }
     });
     open_models(visual);
+    shown(visual, option, true);
     click(visual, option);
     assert_eq!(view.read_with(visual, |view, _| view.config_owner), node);
     assert!(visual.debug_bounds("model-controls").is_some());
     visual.simulate_keystrokes("escape");
+    shown(visual, "model-controls", false);
 }
 
 fn completed(visual: &mut VisualTestContext, view: &Entity<View>, count: usize) {

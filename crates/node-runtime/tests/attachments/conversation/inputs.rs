@@ -10,7 +10,7 @@ async fn configure(
     mut provider: Provider,
     permission: Permission,
 ) -> Session {
-    provider.models[0].tools = true;
+    provider.models[0].capabilities.as_mut().unwrap().tools = Some(true);
     provider.models[0]
         .capabilities
         .get_or_insert_with(Default::default)

@@ -87,10 +87,10 @@ impl Fixture {
         let directory = tempfile::tempdir().unwrap();
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
         let node = runtime
-            .block_on(Node::start(directory.path().join("node")))
+            .block_on(Node::start_isolated(directory.path().join("node")))
             .unwrap();
         let other = runtime
-            .block_on(Node::start(directory.path().join("other")))
+            .block_on(Node::start_isolated(directory.path().join("other")))
             .unwrap();
         let controller = runtime
             .block_on(Link::controller(

@@ -97,7 +97,7 @@ impl Fixture {
         let desktop = remote.then(|| {
             let node = chat
                 .runtime
-                .block_on(Node::start(chat.directory.path().join("desktop")))
+                .block_on(Node::start_isolated(chat.directory.path().join("desktop")))
                 .unwrap();
             chat.runtime
                 .block_on(

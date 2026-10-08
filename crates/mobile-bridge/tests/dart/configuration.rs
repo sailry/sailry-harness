@@ -106,6 +106,18 @@ fn resumes_without_source() {
             .unwrap();
         let origin = Client::new(source.local());
         let destination = Client::new(target.local());
+        for execution in [&origin, &destination] {
+            for name in ["context7", "github"] {
+                execution
+                    .execute(execution.prepare(Command::SetPluginEnabled {
+                        name: name.into(),
+                        expected_revision: 1,
+                        enabled: false,
+                    }))
+                    .await
+                    .unwrap();
+            }
+        }
         let selected = provider(&origin, &selected.endpoint, "ffi-source").await;
         let defaults = provider(&destination, &defaults.endpoint, "ffi-default").await;
         role(&origin, &selected, "source-review").await;

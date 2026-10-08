@@ -33,10 +33,10 @@ fn retains_remote_restart_layout(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
     let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
     let local = runtime
-        .block_on(Node::start(directory.path().join("controller")))
+        .block_on(Node::start_isolated(directory.path().join("controller")))
         .unwrap();
     let profile = directory.path().join("remote");
-    let remote = runtime.block_on(Node::start(&profile)).unwrap();
+    let remote = runtime.block_on(Node::start_isolated(&profile)).unwrap();
     let node = remote.id();
     let address = runtime
         .block_on(local.link().pair(remote.link().invite().unwrap().ticket()))

@@ -14481,6 +14481,7 @@ dependencies = [
  "blake3",
  "flutter_rust_bridge",
  "jni 0.22.4",
+ "jsonwebtoken",
  "mysql_async",
  "objc2-foundation 0.3.2",
  "portable-pty",

@@ -119,7 +119,22 @@ impl Node {
         .map_err(|error| Error::Worker(error.to_string()))?
     }
 
-    /// Uses an isolated reference-catalog fixture for service and controller acceptance.
+    /// Starts an isolated service fixture without external reference-catalog reads.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn start_isolated(path: impl AsRef<Path>) -> Result<Self, Error> {
+        tokio::spawn(Self::start_owned(
+            path.as_ref().to_owned(),
+            NetworkScope::default(),
+            providers::catalog::Catalog::empty(),
+            Default::default(),
+            Default::default(),
+            None,
+        ))
+        .await
+        .map_err(|error| Error::Worker(error.to_string()))?
+    }
+
+    /// Uses an isolated HTTP reference catalog for service and controller acceptance.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn start_with_catalog(path: impl AsRef<Path>, endpoint: &str) -> Result<Self, Error> {
         tokio::spawn(Self::start_owned(
@@ -143,7 +158,7 @@ impl Node {
         tokio::spawn(Self::start_owned(
             path.as_ref().to_owned(),
             NetworkScope::default(),
-            Default::default(),
+            providers::catalog::Catalog::empty(),
             providers::login::Service::fixture(endpoint),
             Default::default(),
             None,
@@ -161,7 +176,7 @@ impl Node {
         tokio::spawn(Self::start_owned(
             path.as_ref().to_owned(),
             NetworkScope::default(),
-            Default::default(),
+            providers::catalog::Catalog::empty(),
             Default::default(),
             crate::plugins::github::Github::fixture(endpoint),
             None,
@@ -179,7 +194,7 @@ impl Node {
         tokio::spawn(Self::start_owned(
             path.as_ref().to_owned(),
             NetworkScope::default(),
-            Default::default(),
+            providers::catalog::Catalog::empty(),
             Default::default(),
             crate::plugins::github::Github::catalog_fixture(endpoint),
             None,

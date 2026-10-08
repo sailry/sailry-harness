@@ -78,10 +78,10 @@ fn input_and_remount(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
     let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
     let local = runtime
-        .block_on(Node::start(directory.path().join("local")))
+        .block_on(Node::start_isolated(directory.path().join("local")))
         .unwrap();
     let remote = runtime
-        .block_on(Node::start(directory.path().join("remote")))
+        .block_on(Node::start_isolated(directory.path().join("remote")))
         .unwrap();
     let address = runtime
         .block_on(local.link().pair(remote.link().invite().unwrap().ticket()))

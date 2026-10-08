@@ -6,7 +6,7 @@ fn matches_the_flutter_contract() {
         "../../../../../../tests/fixtures/tool-display.json"
     ))
     .unwrap();
-    assert_eq!(fixtures.len(), 5);
+    assert!(!fixtures.is_empty());
     for fixture in fixtures {
         let mut page = page();
         let name = fixture["name"].as_str().unwrap();

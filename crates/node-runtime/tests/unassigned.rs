@@ -171,6 +171,16 @@ async fn reports_usage_after_restart() {
             node.local()
         });
         let server = agent_support::Server::start(false).await;
+        for name in ["context7", "github"] {
+            client
+                .execute(client.prepare(Command::SetPluginEnabled {
+                    name: name.into(),
+                    expected_revision: 1,
+                    enabled: false,
+                }))
+                .await
+                .unwrap();
+        }
         let Output::Provider(provider) = client
             .execute(client.prepare(Command::PutProvider {
                 provider: conversation::Provider {

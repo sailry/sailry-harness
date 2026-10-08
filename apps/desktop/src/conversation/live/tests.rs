@@ -142,7 +142,7 @@ fn resumes_after_close(cx: &mut TestAppContext) {
         let directory = tempfile::tempdir().unwrap();
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
         let node = runtime
-            .block_on(Node::start(directory.path().join("node")))
+            .block_on(Node::start_isolated(directory.path().join("node")))
             .unwrap();
         let controller = runtime
             .block_on(Link::controller(
@@ -163,6 +163,15 @@ fn resumes_after_close(cx: &mut TestAppContext) {
             node.local()
         };
         let client = Arc::new(Client::new(transport));
+        for name in ["context7", "github"] {
+            runtime
+                .block_on(client.execute(client.prepare(Command::SetPluginEnabled {
+                    name: name.into(),
+                    expected_revision: 1,
+                    enabled: false,
+                })))
+                .unwrap();
+        }
         let fast = runtime.block_on(support::Server::start(false));
         let slow = runtime.block_on(support::Server::start(true));
         let first = provider(&fast.endpoint, "fast-model");

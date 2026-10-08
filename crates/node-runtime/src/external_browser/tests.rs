@@ -11,9 +11,7 @@ fn package_preserves_actions_and_schemas() {
     .unwrap();
     let extension: Extension =
         serde_json::from_value(manifest["extensions"]["dev.sailry.platform"].clone()).unwrap();
-    assert_eq!(extension.tools.len(), 49);
     let mut actions = std::collections::BTreeSet::new();
-    let mut reads = 0;
     for declaration in &extension.tools {
         let handler = declaration.handler.as_ref().unwrap();
         let action: Action = serde_json::from_value(json!(handler.name)).unwrap();
@@ -27,13 +25,26 @@ fn package_preserves_actions_and_schemas() {
                 Operation::ControlExternalBrowser
             })
         );
-        reads += usize::from(action.read_only());
     }
-    assert_eq!(reads, 19);
     let native =
         adk_browser::BrowserToolset::new(Arc::new(BrowserSession::new(BrowserConfig::default())))
             .all_tools();
-    assert_eq!(native.len(), 46);
+    let local = [
+        "browser_close_session",
+        "browser_downloads",
+        "browser_save_download",
+    ];
+    let expected = native
+        .iter()
+        .map(|tool| tool.name())
+        .chain(local)
+        .collect::<std::collections::BTreeSet<_>>();
+    let declared = extension
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(declared, expected);
     for tool in native {
         let declaration = extension
             .tools
@@ -47,11 +58,7 @@ fn package_preserves_actions_and_schemas() {
             tool.name()
         );
     }
-    for name in [
-        "browser_close_session",
-        "browser_downloads",
-        "browser_save_download",
-    ] {
+    for name in local {
         let declaration = extension
             .tools
             .iter()

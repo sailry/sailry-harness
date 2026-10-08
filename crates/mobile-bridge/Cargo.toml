@@ -23,6 +23,7 @@ jni.workspace = true
 rustls-platform-verifier.workspace = true
 
 [dev-dependencies]
+jsonwebtoken.workspace = true
 mysql_async.workspace = true
 russh.workspace = true
 portable-pty.workspace = true

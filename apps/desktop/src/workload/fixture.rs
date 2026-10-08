@@ -12,8 +12,8 @@ pub(super) async fn prepare(
     browser: Option<String>,
     capture: bool,
 ) -> (Node, crate::agent_fixture::Server, [(NodeId, Session); 2]) {
-    let local = Node::start(root.join("local")).await.unwrap();
-    let remote = Node::start(root.join("remote")).await.unwrap();
+    let local = Node::start_isolated(root.join("local")).await.unwrap();
+    let remote = Node::start_isolated(root.join("remote")).await.unwrap();
     local
         .link()
         .pair(remote.link().invite().unwrap().ticket())
@@ -38,6 +38,17 @@ pub(super) async fn prepare(
         )
         .unwrap();
         let client = Client::new(node.local());
+        for name in ["context7", "github"] {
+            execute(
+                &client,
+                Command::SetPluginEnabled {
+                    name: name.into(),
+                    expected_revision: 1,
+                    enabled: false,
+                },
+            )
+            .await;
+        }
         let Output::Project(project) = execute(
             &client,
             Command::RegisterProject {

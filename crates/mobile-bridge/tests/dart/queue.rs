@@ -12,6 +12,16 @@ fn edits_and_resumes() {
     let (node, session) = runtime.block_on(async {
         let node = Node::start(directory.path().join("node")).await.unwrap();
         let client = Client::new(node.local());
+        for name in ["context7", "github"] {
+            client
+                .execute(client.prepare(Command::SetPluginEnabled {
+                    name: name.into(),
+                    expected_revision: 1,
+                    enabled: false,
+                }))
+                .await
+                .unwrap();
+        }
         let selected = provider(&client, &server.endpoint, "ffi-queue").await;
         let Output::Project(project) = client
             .execute(client.prepare(Command::RegisterProject {

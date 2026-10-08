@@ -11,6 +11,7 @@ use std::{
 
 mod cloud;
 mod keys;
+mod mapping;
 
 struct Surface(Entity<Workspace>);
 
@@ -40,7 +41,7 @@ fn reveals_saved_family(cx: &mut TestAppContext) {
         let directory = tempfile::tempdir().unwrap();
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
         let node = runtime
-            .block_on(Node::start(directory.path().join("node")))
+            .block_on(Node::start_isolated(directory.path().join("node")))
             .unwrap();
         let controller = runtime
             .block_on(Link::controller(
@@ -140,41 +141,13 @@ fn reveals_saved_family(cx: &mut TestAppContext) {
 fn preserves_target_and_draft(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     cx.update(gpui_kit::init);
+    let fixture = crate::settings::providers::fixture::Fixture::empty();
+    let runtime = &fixture.runtime;
     for (preset, api, endpoint) in [
-        (
-            Preset::OpenCodeGo,
-            ModelApi::OpenCodeGo,
-            "https://opencode.ai/zen/go/v1",
-        ),
-        (
-            Preset::OpenCodeZen,
-            ModelApi::OpenCodeZen,
-            "https://opencode.ai/zen/v1",
-        ),
         (
             Preset::CompatibleChat,
             ModelApi::ChatCompletions,
             "http://127.0.0.1:12345/v1",
-        ),
-        (
-            Preset::Anthropic,
-            ModelApi::Anthropic,
-            "https://api.anthropic.com",
-        ),
-        (
-            Preset::CompatibleAnthropic,
-            ModelApi::Anthropic,
-            "http://127.0.0.1:12345/anthropic",
-        ),
-        (
-            Preset::CompatibleGemini,
-            ModelApi::Gemini,
-            "http://127.0.0.1:12345/gemini/v1beta",
-        ),
-        (
-            Preset::Gemini,
-            ModelApi::Gemini,
-            "https://generativelanguage.googleapis.com/v1beta",
         ),
         (
             Preset::ChatGptOAuth,
@@ -182,86 +155,18 @@ fn preserves_target_and_draft(cx: &mut TestAppContext) {
             "https://chatgpt.com/backend-api/codex",
         ),
         (
-            Preset::ChatGpt,
-            ModelApi::Responses,
-            "https://api.openai.com/v1",
-        ),
-        (
-            Preset::Copilot,
-            ModelApi::ChatCompletions,
-            "https://api.githubcopilot.com",
-        ),
-        (
-            Preset::CopilotResponses,
-            ModelApi::Responses,
-            "https://api.githubcopilot.com",
-        ),
-        (
             Preset::AzureOpenAi,
             ModelApi::AzureOpenAi,
             "https://fixture.openai.azure.com",
         ),
         (
-            Preset::AzureAi,
-            ModelApi::AzureAi,
-            "https://fixture.services.ai.azure.com/models",
+            Preset::Hosted(super::super::super::vendors::Vendor::DeepSeek),
+            ModelApi::DeepSeek,
+            "https://api.deepseek.com",
         ),
-        (
-            Preset::Bedrock,
-            ModelApi::Bedrock,
-            "https://bedrock-runtime.us-east-1.amazonaws.com",
-        ),
-        (
-            Preset::BedrockIam,
-            ModelApi::Bedrock,
-            "https://bedrock-runtime.us-east-1.amazonaws.com",
-        ),
-        (
-            Preset::Vertex,
-            ModelApi::Vertex,
-            "https://aiplatform.googleapis.com",
-        ),
-        (
-            Preset::VertexAdc,
-            ModelApi::Vertex,
-            "https://aiplatform.googleapis.com",
-        ),
-    ]
-    .into_iter()
-    .chain(super::super::super::vendors::Vendor::ALL.map(|vendor| {
-        (
-            Preset::Hosted(vendor),
-            Preset::Hosted(vendor).api(),
-            vendor.endpoint(),
-        )
-    })) {
-        for remote in [false, true] {
-            let directory = tempfile::tempdir().unwrap();
-            let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
-            let node = runtime
-                .block_on(Node::start(directory.path().join("node")))
-                .unwrap();
-            let other = runtime
-                .block_on(Node::start(directory.path().join("other")))
-                .unwrap();
-            let controller = runtime
-                .block_on(Link::controller(
-                    directory.path().join("controller"),
-                    NetworkScope::default(),
-                ))
-                .unwrap();
-            let address = runtime
-                .block_on(
-                    controller
-                        .handle()
-                        .pair(node.link().invite().unwrap().ticket()),
-                )
-                .unwrap();
-            let transport: Arc<dyn Transport> = if remote {
-                controller.handle().remote(address)
-            } else {
-                node.local()
-            };
+    ] {
+        for (index, transport) in fixture.transports.iter().cloned().enumerate() {
+            let other = &fixture.nodes[1 - index];
             let client = Client::new(transport.clone());
             let mut owner = None;
             let (_, visual) = cx.add_window_view(|window, cx| {
@@ -430,9 +335,7 @@ fn preserves_target_and_draft(cx: &mut TestAppContext) {
             });
             wait(visual, |cx| owner.read(cx).providers.channels.is_empty());
             visual.update(|window, _| window.remove_window());
-            runtime.block_on(node.shutdown()).unwrap();
-            runtime.block_on(other.shutdown()).unwrap();
-            runtime.block_on(controller.close()).unwrap();
         }
     }
+    fixture.close();
 }

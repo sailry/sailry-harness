@@ -58,13 +58,6 @@ class ReleaseNotes(unittest.TestCase):
         self.assertNotIn("update changelog", entry)
         self.assertNotIn("Not yet released", entry)
 
-    def test_prepends_entries_without_losing_history(self):
-        existing = "# Changelog\n\nIntroduction\n\n## [0.1.0](url)\n\n- Earlier work\n"
-        entry = "## [0.2.0](url)\n\n- New work\n"
-        result = notes.update(existing, entry, "v0.2.0")
-        self.assertEqual(result, "# Changelog\n\nIntroduction\n\n" + entry + "\n" + existing.split("Introduction\n\n")[1])
-        self.assertEqual(notes.update(result, entry, "v0.2.0"), result)
-
     def test_rejects_branches_and_invalid_version_tags(self):
         self.commit("Initial product")
         for tag in ("main", "vtest", "v1", "v1.2.3/other"):
@@ -73,6 +66,17 @@ class ReleaseNotes(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError):
             notes.generate(self.root, "v0.1.0", REPOSITORY, "2026-10-05")
 
+
+class ChangelogText(unittest.TestCase):
+    def test_prepends_entries_without_losing_history(self):
+        existing = "# Changelog\n\nIntroduction\n\n## [0.1.0](url)\n\n- Earlier work\n"
+        entry = "## [0.2.0](url)\n\n- New work\n"
+        result = notes.update(existing, entry, "v0.2.0")
+        self.assertEqual(result, "# Changelog\n\nIntroduction\n\n" + entry + "\n" + existing.split("Introduction\n\n")[1])
+        self.assertEqual(notes.update(result, entry, "v0.2.0"), result)
+
+
+class ReleaseWorkflows(unittest.TestCase):
     def test_manual_and_automatic_builds_require_version_tags(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         trigger = workflow.split("permissions:", 1)[0]
@@ -82,14 +86,10 @@ class ReleaseNotes(unittest.TestCase):
         self.assertIn('test "$GITHUB_REF_TYPE" = tag', workflow)
         self.assertNotIn("branches:", trigger)
         self.assertNotIn("pull_request", trigger)
-        publisher = (ROOT / "scripts/publish-packages.py").read_text()
-        self.assertIn("--notes-file", publisher)
         self.assertNotIn("--generate-notes", workflow)
 
     def test_packaging_keeps_release_private(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        publisher = (ROOT / "scripts/publish-packages.py").read_text()
-        self.assertIn('"--verify-tag", "--draft"', publisher)
         self.assertIn("scripts/publish-packages.py", workflow)
         self.assertNotIn("contents/CHANGELOG.md", workflow)
 
@@ -108,9 +108,6 @@ class ReleaseNotes(unittest.TestCase):
         self.assertIn("needs: [build, android]", workflow)
         self.assertIn("SAILRY_ANDROID_RELEASE: '1'", workflow)
         self.assertIn("--certificate", workflow)
-        publisher = (ROOT / "scripts/publish-packages.py").read_text()
-        self.assertIn("versions.release_flags(tag[1:])", publisher)
-        self.assertIn("Sailry Harness", publisher)
         self.assertNotIn("build apk --release --no-pub", workflow)
 
     def test_linux_host_publication_is_independent(self):

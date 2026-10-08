@@ -116,7 +116,10 @@ fn restores_sources(cx: &mut TestAppContext) {
             provider.api = api;
             provider.endpoint = server.endpoint.clone();
             provider.models[0].web_search = true;
-            provider.models[0].tools = false;
+            provider.models[0]
+                .capabilities
+                .get_or_insert_with(Default::default)
+                .tools = Some(false);
             fixture.execute(Command::PutProvider {
                 expected_revision: provider.revision,
                 provider,

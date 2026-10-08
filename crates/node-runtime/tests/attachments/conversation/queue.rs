@@ -25,7 +25,7 @@ async fn freezes_native_input_support() {
             .capabilities
             .get_or_insert_with(Default::default)
             .vision = Some(false);
-        provider.models[0].tools = true;
+        provider.models[0].capabilities.as_mut().unwrap().tools = Some(true);
         client
             .execute(client.prepare(Command::PutProvider {
                 provider,

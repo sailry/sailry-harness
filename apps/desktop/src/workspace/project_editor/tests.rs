@@ -64,7 +64,7 @@ fn request_recovery(cx: &mut TestAppContext) {
     let root = temp.path().canonicalize().unwrap();
     let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
     let node = runtime
-        .block_on(sailry_node_runtime::Node::start(root.join("node")))
+        .block_on(sailry_node_runtime::Node::start_isolated(root.join("node")))
         .unwrap();
     cx.update(|cx| {
         gpui_kit::init(cx);
@@ -160,10 +160,14 @@ fn creates_on_the_chosen_host(cx: &mut TestAppContext) {
     let root = temp.path().canonicalize().unwrap();
     let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
     let local = runtime
-        .block_on(sailry_node_runtime::Node::start(root.join("local")))
+        .block_on(sailry_node_runtime::Node::start_isolated(
+            root.join("local"),
+        ))
         .unwrap();
     let remote = runtime
-        .block_on(sailry_node_runtime::Node::start(root.join("remote")))
+        .block_on(sailry_node_runtime::Node::start_isolated(
+            root.join("remote"),
+        ))
         .unwrap();
     runtime
         .block_on(local.link().pair(remote.link().invite().unwrap().ticket()))

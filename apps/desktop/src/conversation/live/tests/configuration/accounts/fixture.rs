@@ -83,6 +83,19 @@ impl Fixture {
         };
         let client = Arc::new(Client::new(transport.clone()));
         let origin = Arc::new(Client::new(source.local()));
+        for execution in [&origin, &client] {
+            for name in ["context7", "github"] {
+                runtime
+                    .block_on(
+                        execution.execute(execution.prepare(Command::SetPluginEnabled {
+                            name: name.into(),
+                            expected_revision: 1,
+                            enabled: false,
+                        })),
+                    )
+                    .unwrap();
+            }
+        }
         let mut draft = provider_fixture::provider(Authentication::ChatGpt, ModelApi::Responses);
         draft.models = models;
         let source_provider = runtime.block_on(provider_fixture::connect(&origin, draft.clone()));
@@ -183,8 +196,11 @@ impl Fixture {
             .collect();
         assert_eq!(generations.len(), count);
         for request in generations {
-            assert_eq!(request.headers["chatgpt-account-id"], "desktop-fixture");
-            assert!(request.headers["authorization"].starts_with("Bearer e30."));
+            assert!(!request.headers.contains_key("chatgpt-account-id"));
+            assert_eq!(
+                request.headers["authorization"],
+                "Bearer desktop-chatgpt-secret"
+            );
             let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
             assert_eq!(body["model"], "fixture");
             assert_eq!(body["store"], false);

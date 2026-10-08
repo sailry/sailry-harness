@@ -19,7 +19,7 @@ fn credentials_and_installation_trust(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
     let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
     let node = runtime
-        .block_on(sailry_node_runtime::Node::start(
+        .block_on(sailry_node_runtime::Node::start_isolated(
             directory.path().join("node"),
         ))
         .unwrap();
@@ -129,7 +129,7 @@ fn connection_failure_preserves_form_and_retry(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
     let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
     let node = runtime
-        .block_on(sailry_node_runtime::Node::start(
+        .block_on(sailry_node_runtime::Node::start_isolated(
             directory.path().join("node"),
         ))
         .unwrap();
@@ -234,7 +234,7 @@ fn sidebar_host_filter(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
     let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
     let node = runtime
-        .block_on(sailry_node_runtime::Node::start(
+        .block_on(sailry_node_runtime::Node::start_isolated(
             directory.path().join("node"),
         ))
         .unwrap();

@@ -10,7 +10,9 @@ pub(super) fn documents(output: &std::path::Path) -> Vec<(String, Vec<u8>, Strin
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_isolated(directory.path().join("node"))
+            .await
+            .unwrap();
         let client = Client::new(node.local());
         client
             .execute(client.prepare(Command::RegisterProject {

@@ -121,11 +121,11 @@ fn lifecycle(cx: &mut TestAppContext, remote: bool) {
     let directory = tempfile::tempdir().unwrap();
     let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
     let node = runtime
-        .block_on(Node::start(directory.path().join("node")))
+        .block_on(Node::start_isolated(directory.path().join("node")))
         .unwrap();
     let controller = remote.then(|| {
         let controller = runtime
-            .block_on(Node::start(directory.path().join("controller")))
+            .block_on(Node::start_isolated(directory.path().join("controller")))
             .unwrap();
         runtime
             .block_on(

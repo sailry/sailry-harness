@@ -20,7 +20,7 @@ impl Fixture {
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
         let nodes = ["local", "remote"].map(|name| {
             runtime
-                .block_on(Node::start(directory.path().join(name)))
+                .block_on(Node::start_isolated(directory.path().join(name)))
                 .unwrap()
         });
         runtime

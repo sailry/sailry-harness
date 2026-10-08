@@ -15,10 +15,10 @@ fn sharing_lifecycle(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
     let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
     let host = runtime
-        .block_on(Node::start(directory.path().join("host")))
+        .block_on(Node::start_isolated(directory.path().join("host")))
         .unwrap();
     let client = runtime
-        .block_on(Node::start(directory.path().join("client")))
+        .block_on(Node::start_isolated(directory.path().join("client")))
         .unwrap();
     cx.update(|cx| {
         gpui_kit::init(cx);
@@ -82,7 +82,7 @@ fn sharing_lifecycle(cx: &mut TestAppContext) {
     );
     assert!(view.read_with(visual, |view, _| view.code.is_none() && view.stop.is_none()));
     let target = runtime
-        .block_on(Node::start(directory.path().join("target")))
+        .block_on(Node::start_isolated(directory.path().join("target")))
         .unwrap();
     let mut invitation = target.link().invite().unwrap();
     let code = runtime

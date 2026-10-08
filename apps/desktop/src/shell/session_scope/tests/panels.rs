@@ -219,6 +219,9 @@ fn retains_file_preview_per_session(cx: &mut TestAppContext) {
             size: None,
             revision: None,
         };
+        wait(visual, |cx| {
+            source.read(cx).preview_available(&file.mime, cx)
+        });
         visual.update(|_, cx| {
             source.update(cx, |_, cx| {
                 cx.emit(crate::conversation::live::Event::Artifact(

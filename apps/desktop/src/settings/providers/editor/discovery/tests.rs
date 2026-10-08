@@ -45,7 +45,7 @@ impl Fixture {
                 if let Some(endpoint) = endpoint {
                     Node::start_with_catalog(directory.path().join("node"), endpoint).await
                 } else {
-                    Node::start(directory.path().join("node")).await
+                    Node::start_isolated(directory.path().join("node")).await
                 }
             })
             .unwrap();

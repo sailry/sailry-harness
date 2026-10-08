@@ -154,11 +154,16 @@ fn hides_display_and_expires_without_requests(cx: &mut TestAppContext) {
         });
         let owner = owner.unwrap();
         wait(visual, |cx| {
+            let owner = owner.read(cx);
             owner
-                .read(cx)
                 .provider_link
                 .as_ref()
                 .is_some_and(|live| live.connected && live.catalog.refresh.is_none())
+                && owner
+                    .plugin_catalog
+                    .metadata
+                    .as_ref()
+                    .is_some_and(|metadata| metadata.read(cx).settled())
         });
         owner.update(visual, |owner, _| {
             owner.provider_link.as_ref().unwrap().stop.cancel()

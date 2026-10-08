@@ -177,7 +177,9 @@ fn retries_original_attempt(cx: &mut TestAppContext) {
         });
         let other = fixture
             .runtime
-            .block_on(Node::start(fixture._directory.path().join("other")))
+            .block_on(Node::start_isolated(
+                fixture._directory.path().join("other"),
+            ))
             .unwrap();
         let loss = Arc::new(Loss {
             inner: fixture.transport.clone(),

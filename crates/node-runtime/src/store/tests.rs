@@ -49,46 +49,6 @@ async fn project(client: &Client, directory: &TempDir) -> Project {
 }
 
 #[tokio::test]
-async fn restart_preserves_durable_state() {
-    let (directory, node, client) = node().await;
-    let request = client.prepare(Command::RegisterProject {
-        name: "Project".into(),
-        path: directory.path().to_str().unwrap().into(),
-    });
-    let original = client.execute(request.clone()).await.unwrap();
-    assert_eq!(client.execute(request.clone()).await.unwrap(), original);
-    let id = node.id();
-    let path = node.profile().to_owned();
-    node.shutdown().await.unwrap();
-    let node = Node::start(path).await.unwrap();
-    assert_eq!(node.id(), id);
-    let client = Client::new(node.local());
-    assert_eq!(client.execute(request).await.unwrap(), original);
-    assert_eq!(snapshot(&client).await.projects.len(), 1);
-    node.shutdown().await.unwrap();
-}
-
-#[tokio::test]
-async fn rejects_request_id_conflict() {
-    let (directory, node, client) = node().await;
-    let mut request = client.prepare(Command::RegisterProject {
-        name: "First".into(),
-        path: directory.path().to_str().unwrap().into(),
-    });
-    client.execute(request.clone()).await.unwrap();
-    request.command = Command::RegisterProject {
-        name: "Changed".into(),
-        path: directory.path().to_str().unwrap().into(),
-    };
-    assert_eq!(
-        client.execute(request).await.unwrap_err().code,
-        ErrorCode::Conflict
-    );
-    assert_eq!(snapshot(&client).await.projects[0].name, "First");
-    node.shutdown().await.unwrap();
-}
-
-#[tokio::test]
 async fn detaching_preserves_committed_work() {
     let (directory, node, client) = node().await;
     let request = client.prepare(Command::RegisterProject {

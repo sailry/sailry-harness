@@ -216,7 +216,7 @@ fn restores_calls_after_restart(cx: &mut TestAppContext) {
             fixture.runtime.block_on(fixture.node.shutdown()).unwrap();
             fixture.node = fixture
                 .runtime
-                .block_on(Node::start(fixture.directory.path().join("node")))
+                .block_on(Node::start_isolated(fixture.directory.path().join("node")))
                 .unwrap();
             let address = fixture
                 .runtime

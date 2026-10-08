@@ -39,10 +39,10 @@ fn project_empty_state(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
     let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
     let local = runtime
-        .block_on(Node::start(directory.path().join("local")))
+        .block_on(Node::start_isolated(directory.path().join("local")))
         .unwrap();
     let remote = runtime
-        .block_on(Node::start(directory.path().join("remote")))
+        .block_on(Node::start_isolated(directory.path().join("remote")))
         .unwrap();
     let invitation = remote.link().invite().unwrap();
     runtime
@@ -246,6 +246,16 @@ fn welcome(cx: &mut VisualTestContext, shell: &Entity<Shell>) -> SharedString {
         shell.read_with(cx, |shell, _| shell.page),
         crate::preview::Page::Conversation
     );
+    crate::conversation::live::tests::wait(cx, |cx| {
+        let Some(chat) = shell.read(cx).current_chat() else {
+            return false;
+        };
+        let view = chat.read(cx);
+        view.connected()
+            && crate::conversation::live::tests::contributions(view)
+                .read(cx)
+                .ready(cx)
+    });
     for mode in [ThemeMode::Light, ThemeMode::Dark] {
         for width in [760., 1280.] {
             let handle = cx.update(|window, cx| {
@@ -318,10 +328,10 @@ fn pairs_and_switches_registered_hosts(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
     let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
     let local = runtime
-        .block_on(Node::start(directory.path().join("local")))
+        .block_on(Node::start_isolated(directory.path().join("local")))
         .unwrap();
     let remote = runtime
-        .block_on(Node::start(directory.path().join("remote")))
+        .block_on(Node::start_isolated(directory.path().join("remote")))
         .unwrap();
     // GPUI's test selector API requires static strings; two bounded fixture IDs.
     let remote_selector =

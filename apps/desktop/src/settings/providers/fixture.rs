@@ -1,4 +1,3 @@
-use crate::discovery_fixture::{Reply, Server};
 use sailry_client::Client;
 use sailry_link::Transport;
 use sailry_node_runtime::Node;
@@ -10,7 +9,6 @@ use sailry_protocol::{
 use std::sync::Arc;
 
 pub struct Fixture {
-    catalog: Server,
     pub runtime: Arc<tokio::runtime::Runtime>,
     pub nodes: Vec<Node>,
     pub transports: Vec<Arc<dyn Transport>>,
@@ -19,22 +17,14 @@ pub struct Fixture {
 }
 
 impl Fixture {
-    pub fn new() -> Self {
+    pub fn empty() -> Self {
         let directory = tempfile::tempdir().unwrap();
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
-        let catalog = runtime.block_on(Server::start(ModelApi::Anthropic, |path| {
-            assert_eq!(path, "/api.json");
-            Reply::Json(serde_json::json!({"fixture": {"models": {}}}))
-        }));
-        let endpoint = format!("{}/api.json", catalog.endpoint);
         let nodes: Vec<_> = ["local", "remote"]
             .into_iter()
             .map(|name| {
                 runtime
-                    .block_on(Node::start_with_catalog(
-                        directory.path().join(name),
-                        &endpoint,
-                    ))
+                    .block_on(Node::start_isolated(directory.path().join(name)))
                     .unwrap()
             })
             .collect();
@@ -46,7 +36,19 @@ impl Fixture {
             )
             .unwrap();
         let transports = vec![nodes[0].local(), nodes[0].link().remote(address)];
-        let providers = nodes
+        Self {
+            directory,
+            runtime,
+            nodes,
+            transports,
+            providers: Vec::new(),
+        }
+    }
+
+    pub fn new() -> Self {
+        let fixture = Self::empty();
+        let providers = fixture
+            .nodes
             .iter()
             .enumerate()
             .map(|(index, node)| {
@@ -91,7 +93,8 @@ impl Fixture {
                         })
                         .collect(),
                 };
-                let Output::Provider(provider) = runtime
+                let Output::Provider(provider) = fixture
+                    .runtime
                     .block_on(client.execute(client.prepare(Command::PutProvider {
                         provider,
                         expected_revision: 0,
@@ -104,17 +107,12 @@ impl Fixture {
             })
             .collect();
         Self {
-            catalog,
-            directory,
-            runtime,
-            nodes,
-            transports,
             providers,
+            ..fixture
         }
     }
 
     pub fn close(self) {
-        drop(self.catalog);
         drop(self.transports);
         for node in self.nodes {
             self.runtime.block_on(node.shutdown()).unwrap();

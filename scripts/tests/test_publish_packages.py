@@ -25,10 +25,11 @@ class DraftAssets(unittest.TestCase):
         with patch.object(publisher, "invoke", side_effect=[response(1), response(), response(), response()]) as invoke:
             self.publish()
         calls = [call.args for call in invoke.call_args_list]
-        self.assertIn("--draft", calls[1])
-        self.assertIn("--verify-tag", calls[1])
-        self.assertIn("--prerelease", calls[1])
-        self.assertIn("--latest=false", calls[1])
+        self.assertEqual(calls[1], (
+            "release", "create", "v0.1.0-alpha.1", "--verify-tag", "--draft",
+            "--title", "Sailry Harness 0.1.0-alpha.1", "--notes-file", "notes.md",
+            "--prerelease", "--latest=false",
+        ))
         self.assertEqual(calls[-1], ("release", "upload", "v0.1.0-alpha.1", "Host.tar.gz"))
         self.assertNotIn("--clobber", calls[-1])
 

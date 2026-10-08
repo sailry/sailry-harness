@@ -101,7 +101,7 @@ fn live_services_authenticate_checks_and_downloads(cx: &mut TestAppContext) {
     let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
     let directory = tempfile::tempdir().unwrap();
     let node = runtime
-        .block_on(sailry_node_runtime::Node::start(
+        .block_on(sailry_node_runtime::Node::start_isolated(
             directory.path().join("node"),
         ))
         .unwrap();

@@ -13,10 +13,10 @@ fn remote_defaults_and_resume(cx: &mut TestAppContext) {
         let directory = tempfile::tempdir().unwrap();
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
         let source = runtime
-            .block_on(Node::start(directory.path().join("source")))
+            .block_on(Node::start_isolated(directory.path().join("source")))
             .unwrap();
         let target = runtime
-            .block_on(Node::start(directory.path().join("target")))
+            .block_on(Node::start_isolated(directory.path().join("target")))
             .unwrap();
         runtime
             .block_on(source.link().pair(target.link().invite().unwrap().ticket()))
@@ -40,10 +40,30 @@ fn remote_defaults_and_resume(cx: &mut TestAppContext) {
             target.local()
         }));
         let origin = Arc::new(Client::new(source.local()));
+        for execution in [&origin, &client] {
+            for name in ["context7", "github"] {
+                runtime
+                    .block_on(
+                        execution.execute(execution.prepare(Command::SetPluginEnabled {
+                            name: name.into(),
+                            expected_revision: 1,
+                            enabled: false,
+                        })),
+                    )
+                    .unwrap();
+            }
+        }
         let source_server = runtime.block_on(support::Server::start(false));
         let target_server = runtime.block_on(support::Server::start(false));
-        let selected = provider(&source_server.endpoint, "source-model");
+        let mut selected = provider(&source_server.endpoint, "source-model");
+        selected.models[0].capabilities =
+            Some(sailry_protocol::conversation::discovery::Capabilities {
+                tools: Some(false),
+                reasoning: Some(true),
+                ..Default::default()
+            });
         let mut other = provider(&target_server.endpoint, "target-model");
+        other.models[0].capabilities = selected.models[0].capabilities.clone();
         other.models[0].efforts = vec![Effort::Default];
         other.models[0].default_effort = Effort::Default;
         for (client, provider) in [(&origin, &selected), (&client, &other)] {

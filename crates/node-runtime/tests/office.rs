@@ -36,6 +36,12 @@ async fn reads_and_previews_locally_and_remotely() {
     let remote = Client::new(controller.handle().remote(address));
     let cases: Vec<serde_json::Value> =
         serde_json::from_str(include_str!("../src/office/fixtures.json")).unwrap();
+    let cases = ["report.docx", "report.pdf"].map(|path| {
+        cases
+            .iter()
+            .find(|case| case["path"] == path)
+            .expect("office transport fixture")
+    });
     local
         .execute(local.prepare(Command::SetPluginEnabled {
             name: "office".into(),

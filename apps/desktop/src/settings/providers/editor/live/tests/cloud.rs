@@ -14,36 +14,15 @@ fn keeps_override(cx: &mut TestAppContext) {
 fn saves_regions(cx: &mut TestAppContext, override_address: Option<&str>) {
     cx.executor().allow_parking();
     cx.update(gpui_kit::init);
-    for remote in [false, true] {
+    let fixture = crate::settings::providers::fixture::Fixture::empty();
+    let runtime = &fixture.runtime;
+    for transport in &fixture.transports {
         for preset in [
             Preset::Bedrock,
             Preset::BedrockIam,
             Preset::Vertex,
             Preset::VertexAdc,
         ] {
-            let directory = tempfile::tempdir().unwrap();
-            let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
-            let node = runtime
-                .block_on(Node::start(directory.path().join("node")))
-                .unwrap();
-            let controller = runtime
-                .block_on(Link::controller(
-                    directory.path().join("controller"),
-                    NetworkScope::default(),
-                ))
-                .unwrap();
-            let address = runtime
-                .block_on(
-                    controller
-                        .handle()
-                        .pair(node.link().invite().unwrap().ticket()),
-                )
-                .unwrap();
-            let transport: Arc<dyn Transport> = if remote {
-                controller.handle().remote(address)
-            } else {
-                node.local()
-            };
             let client = Client::new(transport.clone());
             let mut owner = None;
             let (_, visual) = cx.add_window_view(|window, cx| {
@@ -163,9 +142,20 @@ fn saves_regions(cx: &mut TestAppContext, override_address: Option<&str>) {
                 assert_eq!(provider.endpoint, override_address.unwrap_or(&endpoint));
                 assert_eq!(provider.authentication, preset.authentication());
             }
+            let Output::Providers(providers) = runtime
+                .block_on(client.execute(client.prepare(Command::ListProviders)))
+                .unwrap()
+            else {
+                panic!("providers expected")
+            };
+            runtime
+                .block_on(client.execute(client.prepare(Command::RemoveProvider {
+                    provider: providers[0].id,
+                    expected_revision: providers[0].revision,
+                })))
+                .unwrap();
             visual.update(|window, _| window.remove_window());
-            runtime.block_on(controller.close()).unwrap();
-            runtime.block_on(node.shutdown()).unwrap();
         }
     }
+    fixture.close();
 }

@@ -170,7 +170,7 @@ fn host_operations(cx: &mut TestAppContext) {
     let root = temp.path().canonicalize().unwrap();
     let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
     let node = runtime
-        .block_on(sailry_node_runtime::Node::start(root.join("node")))
+        .block_on(sailry_node_runtime::Node::start_isolated(root.join("node")))
         .unwrap();
     let controller = runtime
         .block_on(sailry_link::Link::controller(
