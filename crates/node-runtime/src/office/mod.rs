@@ -1,4 +1,4 @@
-//! Native Office inspection and PDF conversion on the execution Node.
+//! Native Office inspection on the execution Node.
 use sailry_protocol::{ErrorCode, Fault, office::*};
 use std::{
     io::{Cursor, Read as _},
@@ -86,34 +86,4 @@ pub(crate) fn read(root: &Path, options: &Read) -> Result<Inspection, Fault> {
         sections,
         next,
     })
-}
-
-pub(crate) fn preview(root: &Path, path: &str) -> Result<(Vec<u8>, String, Vec<String>), Fault> {
-    let ext = extension(path)?;
-    let bytes = bytes(root, path)?;
-    let revision = blake3::hash(&bytes).to_hex().to_string();
-    let (pdf, warnings) = if ext == "pdf" {
-        (bytes, Vec::new())
-    } else {
-        pdf::convert(&bytes, ext)?
-    };
-    if pdf.len() > LIMIT {
-        return Err(invalid("PDF exceeds 32 MiB"));
-    }
-    Ok((pdf, revision, warnings))
-}
-
-pub(crate) fn export(root: &Path, options: &Export) -> Result<Written, Fault> {
-    if extension(&options.path)? != "pdf" || options.path == options.source {
-        return Err(invalid("PDF export needs a separate .pdf destination"));
-    }
-    let (bytes, _, warnings) = preview(root, &options.source)?;
-    let file = crate::files::write_binary(
-        root,
-        &options.path,
-        &bytes,
-        options.expected_revision.as_deref(),
-        LIMIT,
-    )?;
-    Ok(Written { file, warnings })
 }

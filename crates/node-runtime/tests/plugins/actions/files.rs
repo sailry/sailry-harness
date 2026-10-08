@@ -442,7 +442,7 @@ async fn confines_directory_changes_to_both_captured_paths() {
 }
 
 #[tokio::test]
-async fn office_reads_and_exports_require_grants() {
+async fn office_reads_and_file_writes_require_grants() {
     for remote in [false, true] {
         let (directory, node, controller, client, worktree) = fixture(remote).await;
         let root = directory.path().join("source");
@@ -480,10 +480,10 @@ async fn office_reads_and_exports_require_grants() {
                 .iter()
                 .any(|section| section.text.contains("English text"))
         );
-        let Output::OfficePreview(preview) = client
+        let Output::FileDownload(download) = client
             .execute(
                 client
-                    .prepare(Command::PreviewOffice {
+                    .prepare(Command::DownloadFile {
                         worktree,
                         path: "report.docx".into(),
                     })
@@ -492,38 +492,32 @@ async fn office_reads_and_exports_require_grants() {
             .await
             .unwrap()
         else {
-            panic!("Office preview expected")
+            panic!("download expected")
         };
-        assert_eq!(preview.download.worktree, worktree);
-        assert_eq!(preview.download.path, "report.docx");
-        let mut preview_bytes = Vec::new();
+        assert_eq!(download.worktree, worktree);
+        assert_eq!(download.path, "report.docx");
+        assert_eq!(download.revision, content.revision);
+        let mut bytes = Vec::new();
         client
-            .download(
-                &preview.download,
-                &mut preview_bytes,
-                CancellationToken::new(),
-                |_| {},
-            )
+            .download(&download, &mut bytes, CancellationToken::new(), |_| {})
             .await
             .unwrap();
-        assert!(preview_bytes.starts_with(b"%PDF-"));
-        let export = Command::ExportPdf {
+        assert_eq!(bytes, fs::read(root.join("report.docx")).unwrap());
+        let write = Command::WriteFile {
             worktree,
-            options: office::Export {
-                source: "report.docx".into(),
-                path: "export.pdf".into(),
-                expected_revision: None,
-            },
+            path: "report.txt".into(),
+            text: "Document summary".into(),
+            expected_revision: None,
         };
         assert_eq!(
             client
-                .execute(client.prepare(export.clone()).with_plugin(context))
+                .execute(client.prepare(write.clone()).with_plugin(context))
                 .await
                 .unwrap_err()
                 .code,
             ErrorCode::PermissionDenied
         );
-        assert!(!root.join("export.pdf").exists());
+        assert!(!root.join("report.txt").exists());
         let context = install_actions(
             &client,
             &root.join("package"),
@@ -533,7 +527,7 @@ async fn office_reads_and_exports_require_grants() {
         )
         .await;
         for command in [
-            Command::PreviewOffice {
+            Command::DownloadFile {
                 worktree: WorktreeId::new(),
                 path: "report.docx".into(),
             },
@@ -544,13 +538,11 @@ async fn office_reads_and_exports_require_grants() {
                     offset: 0,
                 },
             },
-            Command::ExportPdf {
+            Command::WriteFile {
                 worktree: WorktreeId::new(),
-                options: office::Export {
-                    source: "report.docx".into(),
-                    path: "wrong.pdf".into(),
-                    expected_revision: None,
-                },
+                path: "wrong.txt".into(),
+                text: "Wrong worktree".into(),
+                expected_revision: None,
             },
         ] {
             assert_eq!(
@@ -562,7 +554,7 @@ async fn office_reads_and_exports_require_grants() {
                 ErrorCode::PermissionDenied
             );
         }
-        let request = client.prepare(export).with_plugin(context);
+        let request = client.prepare(write).with_plugin(context);
         let admission = client.dispatch(request.clone()).await.unwrap();
         assert!(admission.receipt.durable);
         drop(admission.completion);
@@ -576,16 +568,18 @@ async fn office_reads_and_exports_require_grants() {
         })
         .await
         .unwrap();
-        assert!(matches!(result, Output::OfficeWritten(_)));
-        let bytes = fs::read(root.join("export.pdf")).unwrap();
-        assert!(bytes.starts_with(b"%PDF-"));
-        fs::write(root.join("export.pdf"), "External replacement").unwrap();
+        assert!(matches!(result, Output::FileWritten(_)));
+        assert_eq!(
+            fs::read_to_string(root.join("report.txt")).unwrap(),
+            "Document summary"
+        );
+        fs::write(root.join("report.txt"), "External replacement").unwrap();
         assert_eq!(client.execute(request).await.unwrap(), result);
         assert_eq!(
-            fs::read_to_string(root.join("export.pdf")).unwrap(),
+            fs::read_to_string(root.join("report.txt")).unwrap(),
             "External replacement"
         );
-        assert!(!root.join("wrong.pdf").exists());
+        assert!(!root.join("wrong.txt").exists());
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

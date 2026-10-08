@@ -49,7 +49,7 @@ fn fixed_categories(cx: &mut TestAppContext) {
                 Preset::OpenAi,
                 Preset::ChatGpt,
                 Preset::Anthropic,
-                Preset::Bedrock,
+                Preset::AzureOpenAi,
             ] {
                 owner.providers.save(
                     None,

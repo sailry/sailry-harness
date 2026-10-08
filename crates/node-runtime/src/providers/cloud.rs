@@ -1,9 +1,6 @@
 //! Validate cloud routing before saving or invoking a frozen configuration.
 use super::*;
-use sailry_protocol::{
-    Authentication,
-    conversation::{Provider, cloud::Options},
-};
+use sailry_protocol::conversation::{Provider, cloud::Options};
 
 fn segment(value: &str) -> bool {
     !value.is_empty()
@@ -19,31 +16,16 @@ pub(crate) fn validate(provider: &Provider) -> Result<(), Fault> {
         (ModelApi::AzureOpenAi, Some(Options::AzureOpenAi { api_version })) => {
             segment(api_version) && provider.models.iter().all(|model| segment(&model.id))
         }
-        (ModelApi::Bedrock, Some(Options::Bedrock { region })) => segment(region),
-        (ModelApi::Vertex, Some(Options::Vertex { project, location })) => {
-            segment(project) && segment(location)
-        }
-        (ModelApi::AzureOpenAi | ModelApi::Bedrock | ModelApi::Vertex, _) => false,
+        (ModelApi::AzureOpenAi, _) => false,
         (_, None) => true,
         _ => false,
     };
     if !valid {
         return Err(invalid("cloud routing options do not match the provider"));
     }
-    if provider.authentication == Authentication::Host
-        && (!matches!(provider.api, ModelApi::Bedrock | ModelApi::Vertex)
-            || provider.credential.is_some())
-    {
-        return Err(invalid(
-            "host identity requires a cloud provider without a stored credential",
-        ));
-    }
     Ok(())
 }
 
 pub(crate) fn deployment(api: ModelApi) -> bool {
-    matches!(
-        api,
-        ModelApi::AzureOpenAi | ModelApi::AzureAi | ModelApi::Bedrock | ModelApi::Vertex
-    )
+    matches!(api, ModelApi::AzureOpenAi | ModelApi::AzureAi)
 }

@@ -36,6 +36,7 @@ async fn run(model: &OpenAIResponsesClient, streaming: bool) {
 }
 
 fn model(server: &Server, mode: &str) -> OpenAIResponsesClient {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let config = OpenAIResponsesConfig::new("isolated-key", "fixture")
         .with_base_url(&server.endpoint)
         .with_open_responses_mode(mode == "compatible");

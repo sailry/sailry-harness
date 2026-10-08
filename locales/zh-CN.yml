@@ -795,24 +795,14 @@ provider_gemini: Gemini
 provider_azure: Azure
 provider_azure_openai: Azure OpenAI
 provider_azure_ai: Azure AI Inference
-provider_bedrock: Amazon Bedrock
-provider_vertex: Vertex AI
 provider_api_version: API 版本
 provider_oauth_advanced: 高级设置
 provider_oauth_catalog_version: 模型目录兼容版本
 provider_oauth_user_agent: User-Agent
 provider_oauth_editor_version: 编辑器版本
 provider_oauth_editor_plugin_version: 编辑器插件版本
-provider_region: 区域
-provider_cloud_project: 项目 ID
-provider_cloud_endpoint: 地址（可选）
-provider_cloud_endpoint_hint: 默认区域地址
 provider_azure_openai_hint: https://resource.openai.azure.com
 provider_azure_ai_hint: https://resource.services.ai.azure.com/models
-provider_authentication: 认证方式
-provider_aws_identity: 主机 IAM
-provider_google_identity: 主机 ADC
-provider_host_identity_note: 使用执行主机的云身份
 provider_cloud_required: 请填写云渠道配置
 provider_metadata_fill: 补全信息
 provider_deployment_id: 部署名
@@ -2154,9 +2144,6 @@ form_source_path_hint: 源文件路径
 form_destination_path_hint: 目标文件路径
 form_local_port_hint: 0 表示自动分配
 form_api_version_hint: 如 2024-10-21
-form_region_hint: 如 us-east-1
-form_cloud_project_hint: 云项目 ID
-form_location_hint: 如 global 或 us-central1
 form_model_hint: 模型 ID
 form_tokens_hint: Token 数量
 form_package_hint: 插件包名称或路径
@@ -2597,7 +2584,6 @@ artifact_preview: 预览
 artifact_preview_unavailable: 此文件暂不支持预览
 artifact_preview_failed: 预览加载失败
 artifact_preview_changed: 文件已修改
-artifact_preview_warnings: 预览详情
 artifact_preview_loading: 正在加载预览
 artifact_preview_large: 文件过大，无法预览
 artifact_preview_password: 请用其他应用打开加密文件
@@ -2609,7 +2595,6 @@ artifact_fit_width: 适应宽度
 artifact_reload: 刷新预览
 
 tool_office_read: 读取文档
-tool_office_export: 导出 PDF
 
 artifact_request_edit: "请求修改"
 artifact_selection_context: "预览第 %{page} 页选中内容"

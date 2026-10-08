@@ -60,6 +60,7 @@ impl Relay {
         scope: Scope,
         journal: Option<PathBuf>,
     ) -> Self {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         // The only real credential stays here in memory. The isolated Node gets
         // a dummy credential and a loopback endpoint, including in its history.
         assert!(!secret.expose().is_empty(), "upstream credential required");

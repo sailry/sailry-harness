@@ -121,18 +121,6 @@ impl Ingress {
                 }
                 Output::AttachmentDownload(prepared)
             }
-            Command::PreviewOffice { worktree, path } => {
-                let root = self.worktree_root_with(worktree, internal).await?;
-                let preview = self
-                    .transfers
-                    .office(caller, worktree, root.clone(), path, self.closed.clone())
-                    .await?;
-                if self.worktree_root_with(worktree, internal).await.as_ref() != Ok(&root) {
-                    let _ = self.transfers.cancel(caller, preview.download.stream);
-                    return Err(unavailable());
-                }
-                Output::OfficePreview(preview)
-            }
             Command::DownloadFile { worktree, path } => {
                 let root = self.worktree_root_with(worktree, internal).await?;
                 let prepared = self

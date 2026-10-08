@@ -1,4 +1,4 @@
-//! Native Office inspection and PDF conversion.
+//! Native Office inspection.
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -9,27 +9,6 @@ pub struct Read {
     /// Zero-based section offset. Long document parts continue in subsequent sections.
     #[serde(default)]
     pub offset: usize,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct Export {
-    pub source: String,
-    pub path: String,
-    pub expected_revision: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Written {
-    pub file: crate::FileWritten,
-    pub warnings: Vec<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Preview {
-    pub download: crate::FileDownload,
-    pub source_revision: String,
-    pub warnings: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

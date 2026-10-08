@@ -8,15 +8,6 @@ pub(super) fn items(entry: &Entry, root: Option<&str>) -> Vec<Target> {
             Part::Attachment(value) => push(&mut items, Target::Attachment(value.clone())),
             Part::Image(value) => push(&mut items, Target::Image(value.clone())),
             Part::ToolResult { result, images, .. } => {
-                {
-                    let file = match serde_json::from_value(result.clone()) {
-                        Ok(Output::OfficeWritten(written)) => Some(written.file),
-                        _ => None,
-                    };
-                    if let Some(file) = file {
-                        push(&mut items, Target::File { path: file.path });
-                    }
-                }
                 if let Some(content) = sailry_protocol::tool::Presentation::Content.content(result)
                 {
                     for block in content.blocks {

@@ -1,7 +1,7 @@
 //! Native WebKit acceptance uses an isolated HTML fixture, never user files or screenshots.
 use super::*;
 use gpui_kit::prelude::FluentBuilder;
-use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType};
+use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType, NSView};
 use objc2_foundation::NSPoint;
 use std::{path::Path, time::Duration};
 use wry::WebViewExtMacOS;
@@ -97,8 +97,9 @@ pub(in crate::content::files) fn run(output: &Path) {
                 window.spawn(cx, async move |cx| {
                     verify(&probe, cx).await;
                     verify_documents(&probe, documents, cx).await;
-                    std::fs::write(output.join("file-preview.json"), "{\"controlled_frames\":true,\"webkit\":true,\"javascript\":true,\"host_hover\":true,\"clipping\":true,\"overlays\":true,\"unmount\":true,\"pdf\":true,\"docx\":true,\"xlsx\":true,\"pptx\":true,\"pagination\":true,\"zoom\":true}\n").unwrap();
-                    println!("File preview: HTML, PDF, DOCX, XLSX, PPTX, pagination, zoom, host hover, clipping, overlays and unmount verified");
+                    verify_unattached(&probe, cx);
+                    std::fs::write(output.join("file-preview.json"), "{\"controlled_frames\":true,\"webkit\":true,\"javascript\":true,\"host_hover\":true,\"clipping\":true,\"overlays\":true,\"unmount\":true,\"unattached\":true,\"pdf\":true,\"docx\":true,\"xlsx\":true,\"pptx\":true,\"pagination\":true,\"zoom\":true}\n").unwrap();
+                    println!("File preview: HTML, PDF, DOCX, XLSX, PPTX, pagination, zoom, host hover, clipping, overlays, unmount and unattached failure verified");
                     probe.update(cx, |view, cx| { view.mounted = false; view.native.take(); cx.notify(); });
                     pause(cx).await;
                     cx.update(|window, cx| { window.refresh(); window.draw(cx).clear(cx); cx.quit(); }).unwrap();
@@ -109,6 +110,19 @@ pub(in crate::content::files) fn run(output: &Path) {
     });
 }
 
+fn verify_unattached(view: &Entity<Harness>, cx: &mut AsyncWindowContext) {
+    cx.update(|_, cx| {
+        let view = view.read(cx);
+        let page = &view.native.as_ref().unwrap().page;
+        page.webview().removeFromSuperview();
+        assert!(
+            pointer::Pointer::attach(page).is_err(),
+            "an unattached preview must fail without panicking"
+        );
+    })
+    .unwrap();
+}
+
 async fn verify_documents(
     view: &Entity<Harness>,
     documents: Vec<(String, Vec<u8>, String)>,
@@ -116,11 +130,19 @@ async fn verify_documents(
 ) {
     documents::assets::bundle().unwrap();
     for (name, bytes, expected) in documents {
-        let mime = "application/pdf";
-        let text_check = format!(
-            "document.querySelector('canvas')?.width > 0 && [...document.querySelectorAll('.textLayer')].some(layer => layer.textContent.includes({}))",
-            serde_json::to_string(&expected).unwrap()
-        );
+        let mime = mime_guess::from_path(&name).first_raw().unwrap();
+        documents::assets::validate(mime, &bytes).unwrap();
+        let text_check = if mime == "application/pdf" {
+            format!(
+                "document.querySelector('canvas')?.width > 0 && [...document.querySelectorAll('.textLayer')].some(layer => layer.textContent.includes({}))",
+                serde_json::to_string(&expected).unwrap()
+            )
+        } else {
+            format!(
+                "[...document.querySelectorAll('.preview-page')].some(page => page.offsetWidth > 0 && page.offsetHeight > 0 && page.textContent.includes({}))",
+                serde_json::to_string(&expected).unwrap()
+            )
+        };
         let status = Rc::new(std::cell::RefCell::new(String::new()));
         let received = status.clone();
         let previous = view.update(cx, |view, _| view.native.clone().unwrap());
@@ -238,7 +260,25 @@ fn hidden(view: &Entity<Harness>, cx: &mut AsyncWindowContext) -> bool {
 }
 
 async fn verify(view: &Entity<Harness>, cx: &mut AsyncWindowContext) {
-    pause(cx).await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        pause(cx).await;
+        let loaded = cx
+            .update(|_, cx| {
+                let page = view.read(cx).native.as_ref().unwrap().page.webview();
+                // SAFETY: Wry retains this view, and GPUI runs the update on its AppKit thread.
+                unsafe { !page.isLoading() && page.estimatedProgress() == 1. }
+            })
+            .unwrap();
+        if loaded {
+            break;
+        }
+        // Pinned Wry queues pre-commit scripts without retaining their callbacks.
+        assert!(
+            std::time::Instant::now() < deadline,
+            "HTML fixture did not finish loading"
+        );
+    }
     evaluate(view, "window.fixtureReady=false;window.fixtureClicked=false;addEventListener('message',e=>{if(e.data==='fixture-ready')window.fixtureReady=true;if(e.data==='fixture-clicked')window.fixtureClicked=true;});true", cx).await;
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     while evaluate(view, "window.fixtureReady", cx).await != "true" {
@@ -342,6 +382,24 @@ async fn verify(view: &Entity<Harness>, cx: &mut AsyncWindowContext) {
 }
 
 async fn check_pointer(view: &Entity<Harness>, cx: &mut AsyncWindowContext) {
+    cx.update(|window, cx| {
+        cx.activate(true);
+        window.activate_window();
+        window.refresh();
+    })
+    .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        pause(cx).await;
+        let (active, _, _, detail) = pointer_state(view, cx);
+        if active {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "pointer fixture did not become active: {detail}"
+        );
+    }
     let target = cx
         .update(|_, cx| {
             let view = view.read(cx);
@@ -349,18 +407,88 @@ async fn check_pointer(view: &Entity<Harness>, cx: &mut AsyncWindowContext) {
             view.trigger.get().center()
         })
         .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        pause(cx).await;
+        let (active, focused, _, detail) = pointer_state(view, cx);
+        if active && focused {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "pointer fixture did not retain WebKit focus: {detail}"
+        );
+    }
+    wait_hover(
+        view,
+        target,
+        true,
+        "host hover works while WebKit owns keyboard focus",
+        cx,
+    )
+    .await;
+    wait_hover(
+        view,
+        point(px(10.), px(10.)),
+        false,
+        "moving into HTML clears host hover",
+        cx,
+    )
+    .await;
+}
+
+async fn wait_hover(
+    view: &Entity<Harness>,
+    target: Point<Pixels>,
+    expected: bool,
+    message: &str,
+    cx: &mut AsyncWindowContext,
+) {
+    let before = pointer_state(view, cx).3;
     move_pointer(view, target, cx);
-    pause(cx).await;
-    assert!(
-        cx.update(|_, cx| view.read(cx).hovered.get()).unwrap(),
-        "host hover works while WebKit owns keyboard focus"
-    );
-    move_pointer(view, point(px(10.), px(10.)), cx);
-    pause(cx).await;
-    assert!(
-        !cx.update(|_, cx| view.read(cx).hovered.get()).unwrap(),
-        "moving into HTML clears host hover"
-    );
+    let immediate = pointer_state(view, cx).3;
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        pause(cx).await;
+        let (active, focused, hovered, detail) = pointer_state(view, cx);
+        if active && focused && hovered == expected {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{message}: target={target:?}, before={before}, immediate={immediate}, after={detail}"
+        );
+    }
+}
+
+fn pointer_state(
+    view: &Entity<Harness>,
+    cx: &mut AsyncWindowContext,
+) -> (bool, bool, bool, String) {
+    cx.update(|window, cx| {
+        let view = view.read(cx);
+        let page = view.native.as_ref().unwrap().page.webview();
+        let native = page.window().unwrap();
+        let responder = native.firstResponder();
+        let focused = responder
+            .as_deref()
+            .and_then(|responder| responder.downcast_ref::<NSView>())
+            .is_some_and(|focused| focused.isDescendantOf(&page));
+        let key = native.isKeyWindow();
+        let active = window.is_window_active();
+        let hovered = view.hovered.get();
+        let detail = format!(
+            "key={key}, main={}, active={active}, focused={focused}, hidden={}, first_responder={responder:?}, cursor={:?}, physical_cursor={:?}, keyboard={}, trigger={:?}, hovered={hovered}",
+            native.isMainWindow(),
+            page.isHidden(),
+            window.mouse_position(),
+            native.mouseLocationOutsideOfEventStream(),
+            window.last_input_was_keyboard(),
+            view.trigger.get(),
+        );
+        (key && active, focused, hovered, detail)
+    })
+    .unwrap()
 }
 
 fn move_pointer(view: &Entity<Harness>, position: Point<Pixels>, cx: &mut AsyncWindowContext) {

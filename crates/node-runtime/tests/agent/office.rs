@@ -116,11 +116,7 @@ async fn scripts_use_node_environment() {
             .iter()
             .filter_map(|tool| tool["function"]["name"].as_str())
             .collect();
-        for required in [
-            "load_skill",
-            plugin_tool("files", "read_office").as_str(),
-            plugin_tool("files", "export_pdf").as_str(),
-        ] {
+        for required in ["load_skill", plugin_tool("files", "read_office").as_str()] {
             assert!(names.contains(&required));
         }
         assert!(names.contains(&plugin_tool("commands", "run_command").as_str()));

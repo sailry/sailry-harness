@@ -40,16 +40,6 @@ fn reads_original_large_output_and_joined_rows() {
             json!({"data":{"matches":[{"path":"目录/a.txt","line_number":42,"line":"  match\t"}]}}),
             "目录/a.txt:42    match\t",
         ),
-        (
-            "export_pdf",
-            json!({"data":{"file":{"path":"report.pdf"},"warnings":[]}}),
-            "report.pdf",
-        ),
-        (
-            "export_pdf",
-            json!({"data":{"file":{"path":"report.pdf"},"warnings":["first warning","second warning"]}}),
-            "report.pdf\nfirst warning\nsecond warning",
-        ),
     ] {
         let projection = display(name).output.unwrap();
         assert_eq!(
@@ -91,7 +81,7 @@ fn preserves_partial_notices_and_literal_inputs() {
 
 #[test]
 fn prompts_interpolate_once_and_use_captured_arguments() {
-    let display = display("export_pdf");
+    let display = display("write_file");
     for (revision, expected) in [
         (Value::Null, "创建 目录/%{path}.pdf"),
         (json!("current"), "覆盖 目录/%{path}.pdf"),

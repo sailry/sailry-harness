@@ -5,7 +5,10 @@ async fn setup(remote: bool, reply: anthropic::Reply, tools: bool) -> (Fixture, 
     let server = SearchServer::anthropic(reply).await;
     let mut fixture = Fixture::new(remote, ModelApi::Anthropic, &server.endpoint).await;
     fixture.provider.models[0].web_search = true;
-    fixture.provider.models[0].tools = tools;
+    fixture.provider.models[0]
+        .capabilities
+        .get_or_insert_with(Default::default)
+        .tools = Some(tools);
     let Output::Provider(provider) = execute(
         &fixture.client,
         Command::PutProvider {

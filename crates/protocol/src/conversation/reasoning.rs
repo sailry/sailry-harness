@@ -21,12 +21,11 @@ impl Effort {
     /// Check the API surface and output limit, without guessing model capabilities.
     pub fn validate(self, api: ModelApi, output: u32) -> Result<(), Fault> {
         let supported = match (api, self) {
-            (ModelApi::AzureAi | ModelApi::Bedrock, Self::Default) => true,
-            (ModelApi::AzureAi | ModelApi::Bedrock, _) => false,
+            (ModelApi::AzureAi, Self::Default) => true,
+            (ModelApi::AzureAi, _) => false,
             (ModelApi::AzureOpenAi, effort) => {
                 return effort.validate(ModelApi::ChatCompletions, output);
             }
-            (ModelApi::Vertex, effort) => return effort.validate(ModelApi::Gemini, output),
             (
                 ModelApi::DeepSeek,
                 Self::Default | Self::Disabled | Self::Low | Self::High | Self::Max,

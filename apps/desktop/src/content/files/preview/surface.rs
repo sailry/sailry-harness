@@ -30,7 +30,7 @@ impl Native {
             .map_err(|_| ())?;
         Ok(Self {
             #[cfg(target_os = "macos")]
-            _pointer: pointer::Pointer::attach(&page),
+            _pointer: pointer::Pointer::attach(&page)?,
             page,
             frame: Cell::new(None),
             visible: Cell::new(false),

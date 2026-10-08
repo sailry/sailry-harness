@@ -202,7 +202,6 @@ artifact_preview: Preview
 artifact_preview_unavailable: Preview unavailable for this file
 artifact_preview_failed: Could not load preview
 artifact_preview_changed: File has changed
-artifact_preview_warnings: Preview details
 artifact_preview_loading: Loading preview
 artifact_preview_large: File too large to preview
 artifact_preview_password: Open this password-protected file in another app
@@ -217,7 +216,6 @@ send: Send
 more: More actions
 
 tool_office_read: Read document
-tool_office_export: Export PDF
 
 artifact_request_edit: "Request edit"
 artifact_selection_context: "Selected text on preview page %{page}"

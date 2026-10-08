@@ -1,5 +1,5 @@
 use super::*;
-use sailry_protocol::{conversation::checkpoint, plugin};
+use sailry_protocol::{conversation::checkpoint, plugin, tool::Operation};
 use serde_json::{Value, json};
 use std::io::{Cursor, Write as _};
 
@@ -48,7 +48,26 @@ async fn install(fixture: &process::Fixture) -> plugin::Info {
         };
         package
     };
-    assert_eq!(package.extension.as_ref().unwrap().tools.len(), 6);
+    assert_eq!(
+        package
+            .extension
+            .as_ref()
+            .unwrap()
+            .tools
+            .iter()
+            .map(|tool| {
+                let handler = tool.handler.as_ref().unwrap();
+                (tool.name.as_str(), handler.name.as_str(), handler.operation)
+            })
+            .collect::<Vec<_>>(),
+        [
+            ("list_directory", "list", Some(Operation::ListDirectory)),
+            ("read_file", "read", Some(Operation::ReadFile)),
+            ("write_file", "write", Some(Operation::WriteFile)),
+            ("search_files", "search", Some(Operation::SearchFiles)),
+            ("read_office", "office", Some(Operation::ReadOffice)),
+        ]
+    );
     package
 }
 
@@ -359,9 +378,7 @@ async fn preserves_ask_and_plan_policy() {
         for read in ["list_directory", "read_file", "search_files", "read_office"] {
             assert!(names.contains(&name(read).as_str()));
         }
-        for write in ["write_file", "export_pdf"] {
-            assert!(!names.contains(&name(write).as_str()));
-        }
+        assert!(!names.contains(&name("write_file").as_str()));
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

@@ -20,8 +20,7 @@ pub(super) fn description(operation: Operation) -> &'static str {
         | Operation::ReadFile
         | Operation::WriteFile
         | Operation::SearchFiles
-        | Operation::ReadOffice
-        | Operation::ExportPdf => files::description(operation),
+        | Operation::ReadOffice => files::description(operation),
         Operation::InspectMedia => "Inspect an image with the model captured by this turn",
         Operation::GenerateImage => "Generate a PNG with the model captured by this turn",
         Operation::GenerateVideo => "Generate an MP4 with the model captured by this turn",
@@ -73,7 +72,6 @@ pub(super) fn parameters(operation: Operation) -> Value {
             | Operation::WriteFile
             | Operation::SearchFiles
             | Operation::ReadOffice
-            | Operation::ExportPdf
     ) {
         return files::parameters(operation);
     }
@@ -162,8 +160,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
         | Operation::ReadFile
         | Operation::WriteFile
         | Operation::SearchFiles
-        | Operation::ReadOffice
-        | Operation::ExportPdf => unreachable!("file parameters handled above"),
+        | Operation::ReadOffice => unreachable!("file parameters handled above"),
     };
     json!({"type":"object", "additionalProperties":false, "properties":properties, "required":required})
 }
@@ -178,8 +175,7 @@ pub(super) fn command(
         | Operation::ReadFile
         | Operation::WriteFile
         | Operation::SearchFiles
-        | Operation::ReadOffice
-        | Operation::ExportPdf => return files::command(operation, arguments, context),
+        | Operation::ReadOffice => return files::command(operation, arguments, context),
         Operation::InspectMedia | Operation::GenerateImage | Operation::GenerateVideo => {
             let mut arguments = arguments.as_object().cloned().ok_or_else(|| {
                 Fault::new(
@@ -414,7 +410,6 @@ pub(super) fn command(
         | Operation::WriteFile
         | Operation::SearchFiles
         | Operation::ReadOffice
-        | Operation::ExportPdf
         | Operation::InspectMedia
         | Operation::GenerateImage
         | Operation::GenerateVideo

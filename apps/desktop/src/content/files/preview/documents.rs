@@ -1,6 +1,6 @@
-//! Office rendering stays in the existing side-panel WebView. Kit b79f4ce has no
-//! PDF renderer; its native controls still own navigation and zoom.
-//! The execution Node converts Office files to PDF before this viewer mounts.
+//! Office rendering stays in the existing side-panel WebView. The pinned Kit has
+//! no Office/PDF renderer; its native controls still own navigation and zoom.
+//! Original file bytes use the same authenticated local/remote download path.
 use super::*;
 use futures::StreamExt;
 use serde::Deserialize;
@@ -8,6 +8,8 @@ use std::sync::Arc;
 
 #[path = "documents/assets.rs"]
 pub(super) mod assets;
+#[path = "documents/package.rs"]
+mod package;
 #[cfg(test)]
 #[path = "documents/tests.rs"]
 mod tests;
@@ -39,9 +41,9 @@ struct Document {
     bytes: Option<Arc<[u8]>>,
     native: Option<Rc<surface::Native>>,
     error: Option<&'static str>,
+    observing: bool,
     status: Status,
     background: String,
-    warnings: Vec<String>,
     stop: CancellationToken,
     _load: Task<()>,
     _events: Option<Task<()>>,
@@ -69,9 +71,9 @@ impl Document {
             bytes: None,
             native: None,
             error: None,
+            observing: false,
             status: Status::default(),
             background: String::new(),
-            warnings: Vec::new(),
             stop: CancellationToken::new(),
             _load: Task::ready(()),
             _events: None,
@@ -83,37 +85,19 @@ impl Document {
     fn load(&mut self, cx: &mut Context<Self>) {
         self.stop.cancel();
         self.stop = CancellationToken::new();
-        self.native = None;
         self.bytes = None;
-        self._events = None;
         self.error = None;
-        self.warnings.clear();
-        self.status = Status::default();
         let binding = self.binding.clone();
         let file = self.file.clone();
         let context = self.context.clone();
         let stop = self.stop.clone();
         let job = self.binding.runtime.spawn(async move {
-            let (bytes, warnings) = if file.mime == PDF {
-                (
-                    read(
-                        binding.client,
-                        binding.worktree,
-                        file.clone(),
-                        context,
-                        stop,
-                        LIMIT,
-                    )
-                    .await?,
-                    Vec::new(),
-                )
-            } else {
-                converted(binding.client, binding.worktree, file, context, stop).await?
-            };
+            let mime = file.mime.clone();
+            let bytes = read(binding.client, binding.worktree, file, context, stop, LIMIT).await?;
             tokio::task::spawn_blocking(move || {
-                assets::validate(PDF, &bytes)?;
+                assets::validate(&mime, &bytes)?;
                 assets::bundle()?;
-                Ok::<_, &'static str>((Arc::from(bytes), warnings))
+                Ok::<_, &'static str>(Arc::from(bytes))
             })
             .await
             .unwrap_or(Err("artifact_preview_failed"))
@@ -122,9 +106,8 @@ impl Document {
             let result = job.await.unwrap_or(Err("artifact_preview_failed"));
             let _ = view.update(cx, |view, cx| {
                 match result {
-                    Ok((bytes, warnings)) => {
+                    Ok(bytes) => {
                         view.bytes = Some(bytes);
-                        view.warnings = warnings;
                     }
                     Err(key) => view.error = Some(key),
                 }
@@ -140,7 +123,7 @@ impl Document {
         let (send, mut receive) = futures::channel::mpsc::unbounded();
         match assets::native(
             bytes,
-            PDF,
+            &self.file.mime,
             &self.background,
             move |body| {
                 if let Ok(status) = serde_json::from_str::<Status>(body) {
@@ -149,8 +132,14 @@ impl Document {
             },
             window,
         ) {
-            Ok(native) => self.native = Some(Rc::new(native)),
-            Err(()) => self.error = Some("artifact_preview_failed"),
+            Ok(native) => {
+                self.native = Some(Rc::new(native));
+                self.status = Status::default();
+            }
+            Err(()) => {
+                self.error = Some("artifact_preview_failed");
+                return;
+            }
         }
         self._events = Some(cx.spawn(async move |view, cx| {
             while let Some(status) = receive.next().await {
@@ -188,6 +177,10 @@ impl Document {
 
 impl Render for Document {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !self.observing {
+            self.observing = true;
+            crate::feedback::observe(window, cx, |view, _| view.error.into_iter().collect());
+        }
         let color = cx.theme().muted.to_rgb();
         let background = format!(
             "rgb({:.0} {:.0} {:.0})",
@@ -315,25 +308,10 @@ impl Render for Document {
                         cx.notify();
                     })),
             );
-        if !self.warnings.is_empty() {
-            toolbar = toolbar.child(
-                Button::new("compatibility")
-                    .ghost()
-                    .small()
-                    .icon(IconName::Info)
-                    .accessibility_label(tr("artifact_preview_warnings"))
-                    .tooltip(self.warnings.join("\n")),
-            );
-        }
-        let content = if let Some(key) = self.error {
-            div()
-                .p_4()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(tr(key))
-                .into_any_element()
-        } else if let Some(native) = &self.native {
+        let content = if let Some(native) = &self.native {
             surface::render(native.clone(), window, cx)
+        } else if self.error.is_some() {
+            div().into_any_element()
         } else {
             div()
                 .p_4()
@@ -348,55 +326,6 @@ impl Render for Document {
             .child(toolbar)
             .child(div().flex_1().min_h_0().overflow_hidden().child(content))
     }
-}
-
-async fn converted(
-    client: Arc<sailry_client::Client>,
-    worktree: Option<WorktreeId>,
-    file: File,
-    context: Option<sailry_protocol::plugin::Context>,
-    stop: CancellationToken,
-) -> Result<(Vec<u8>, Vec<String>), &'static str> {
-    let worktree = worktree.ok_or("artifact_preview_failed")?;
-    let mut request = client.prepare(Command::PreviewOffice {
-        worktree,
-        path: file.path.clone(),
-    });
-    if let Some(context) = context {
-        request = request.with_plugin(context);
-    }
-    let response = tokio::select! {
-        _ = stop.cancelled() => return Err("artifact_preview_failed"),
-        response = client.execute(request) => response.map_err(|_| "artifact_preview_failed")?,
-    };
-    let Output::OfficePreview(preview) = response else {
-        return Err("artifact_preview_failed");
-    };
-    let error = if preview.download.size > LIMIT {
-        Some("artifact_preview_large")
-    } else if file
-        .revision
-        .as_ref()
-        .is_some_and(|r| *r != preview.source_revision)
-    {
-        Some("artifact_preview_changed")
-    } else {
-        None
-    };
-    if let Some(error) = error {
-        let _ = client
-            .execute(client.prepare(Command::CancelFileTransfer {
-                stream: preview.download.stream,
-            }))
-            .await;
-        return Err(error);
-    }
-    let mut bytes = Vec::new();
-    client
-        .download(&preview.download, &mut bytes, stop, |_| {})
-        .await
-        .map_err(|_| "artifact_preview_failed")?;
-    Ok((bytes, preview.warnings))
 }
 
 pub(super) fn create(

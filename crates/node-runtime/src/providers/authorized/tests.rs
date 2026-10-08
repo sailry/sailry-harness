@@ -34,6 +34,7 @@ fn grant(authentication: Authentication) -> login::Grant {
 
 #[test]
 fn separates_catalog_request_identity() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let client = reqwest::Client::new();
     let legacy = grant(Authentication::ChatGptOAuth);
     let options = sailry_protocol::conversation::oauth::Options::ChatGptOAuth {

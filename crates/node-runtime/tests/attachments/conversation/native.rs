@@ -3,13 +3,7 @@ use base64::Engine;
 
 #[tokio::test]
 async fn cloud_images_survive_restart() {
-    for api in [
-        ModelApi::DeepSeek,
-        ModelApi::AzureOpenAi,
-        ModelApi::AzureAi,
-        ModelApi::Bedrock,
-        ModelApi::Vertex,
-    ] {
+    for api in [ModelApi::DeepSeek, ModelApi::AzureOpenAi, ModelApi::AzureAi] {
         let mut fixture = Fixture::start().await;
         let server = provider::Server::start(api, provider::Reply::Text).await;
         let bytes = png();
@@ -41,23 +35,6 @@ async fn cloud_images_survive_restart() {
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 4);
         for request in requests {
-            if api == ModelApi::Vertex {
-                let parts = request.body["contents"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .flat_map(|message| message["parts"].as_array().unwrap())
-                    .collect::<Vec<_>>();
-                let image = parts
-                    .iter()
-                    .find(|part| part["inlineData"]["mimeType"] == "image/png")
-                    .unwrap();
-                assert_eq!(
-                    image["inlineData"]["data"],
-                    base64::engine::general_purpose::STANDARD.encode(&bytes)
-                );
-                continue;
-            }
             let parts = request.body["messages"]
                 .as_array()
                 .unwrap()
@@ -66,15 +43,6 @@ async fn cloud_images_survive_restart() {
                 .filter_map(|message| message["content"].as_array())
                 .flatten()
                 .collect::<Vec<_>>();
-            if api == ModelApi::Bedrock {
-                let image = parts.iter().find(|part| part["image"].is_object()).unwrap();
-                assert_eq!(image["image"]["format"], "png");
-                assert_eq!(
-                    image["image"]["source"]["bytes"],
-                    base64::engine::general_purpose::STANDARD.encode(&bytes)
-                );
-                continue;
-            }
             let image = parts
                 .iter()
                 .find(|part| part["type"] == "image_url")

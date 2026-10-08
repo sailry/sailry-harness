@@ -184,9 +184,6 @@ pub(super) fn import(
         ));
     }
     let mut provider = bundle.provider.clone();
-    if provider.authentication == Authentication::Host {
-        crate::providers::login::transferable(provider.authentication)?;
-    }
     // Private IDs cannot alias a provider configured independently on this Node.
     provider.id = ProviderId::new();
     provider.credential = None;

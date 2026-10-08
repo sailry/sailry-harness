@@ -22,3 +22,8 @@ This lets Sailry distinguish an unsupported media request from authentication,
 quota and server failures without publishing unchecked provider bodies or
 replaying uncertain work. Remove these changes when upstream preserves the
 same structured error facts.
+
+Selected TLS dependencies defer the process crypto provider to the application
+instead of forcing AWS-LC through Reqwest or async-openai. No request, retry or
+conversion behavior changes. Sailry does not enable the upstream Bedrock or
+Vertex SDK features.

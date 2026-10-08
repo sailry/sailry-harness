@@ -81,7 +81,6 @@ zip.workspace = true
 roxmltree.workspace = true
 umya-spreadsheet.workspace = true
 lopdf.workspace = true
-office2pdf.workspace = true
 sysinfo.workspace = true
 cap-std.workspace = true
 cap-fs-ext.workspace = true
@@ -139,8 +138,6 @@ hyper-util.workspace = true
 http-body-util.workspace = true
 eventsource-stream.workspace = true
 adk-eval.workspace = true
-aws-smithy-eventstream.workspace = true
-aws-smithy-types.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 image.workspace = true
 iroh.workspace = true

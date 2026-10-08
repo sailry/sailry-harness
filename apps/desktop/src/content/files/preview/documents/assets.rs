@@ -8,7 +8,7 @@ use std::{
 
 type Bundle = BTreeMap<String, Vec<u8>>;
 const ARCHIVE: &[u8] = include_bytes!("../web/viewers.zip");
-const CSP: &str = "default-src 'none'; script-src 'self' blob: 'wasm-unsafe-eval'; worker-src blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'none'";
+const CSP: &str = "default-src 'none'; script-src 'self' blob: 'wasm-unsafe-eval' 'sha256-IBrtyYCzGTDaWM6ODCra0HbxOzpedBDywXyxe95wzWk='; worker-src blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'none'";
 
 pub(in crate::content::files::html) fn bundle() -> Result<&'static Bundle, &'static str> {
     static BUNDLE: OnceLock<Result<Bundle, &'static str>> = OnceLock::new();
@@ -32,14 +32,61 @@ pub(in crate::content::files::html) fn bundle() -> Result<&'static Bundle, &'sta
         .map_err(|key| *key)
 }
 
-pub(super) fn validate(mime: &str, bytes: &[u8]) -> Result<(), &'static str> {
-    if mime != PDF {
-        return Err("artifact_preview_unavailable");
+pub(in crate::content::files::html) fn validate(
+    mime: &str,
+    bytes: &[u8],
+) -> Result<(), &'static str> {
+    let format = format(mime).ok_or("artifact_preview_unavailable")?;
+    if format == "pdf" {
+        return bytes
+            .starts_with(b"%PDF-")
+            .then_some(())
+            .ok_or("artifact_preview_failed");
     }
-    if bytes.starts_with(b"%PDF-") {
-        Ok(())
-    } else {
-        Err("artifact_preview_failed")
+    // Direct rendering must retain the former Node conversion path's ZIP limits
+    // before a browser library expands any file-authored part in memory.
+    let mut archive =
+        zip::ZipArchive::new(Cursor::new(bytes)).map_err(|_| "artifact_preview_failed")?;
+    if archive.len() > 4096 {
+        return Err("artifact_preview_large");
+    }
+    let part = match format {
+        "docx" => "word/document.xml",
+        "xlsx" => "xl/workbook.xml",
+        _ => "ppt/presentation.xml",
+    };
+    let mut names = std::collections::BTreeSet::new();
+    let mut total = 0;
+    for index in 0..archive.len() {
+        let file = archive
+            .by_index(index)
+            .map_err(|_| "artifact_preview_failed")?;
+        if !names.insert(file.name().to_owned()) {
+            return Err("artifact_preview_failed");
+        }
+        if file.size() > LIMIT {
+            return Err("artifact_preview_large");
+        }
+        let size = std::io::copy(&mut file.take(LIMIT + 1), &mut std::io::sink())
+            .map_err(|_| "artifact_preview_failed")?;
+        total += size;
+        if size > LIMIT || total > 128 * 1024 * 1024 {
+            return Err("artifact_preview_large");
+        }
+    }
+    if !names.contains(part) {
+        return Err("artifact_preview_failed");
+    }
+    package::validate(mime, bytes)
+}
+
+fn format(mime: &str) -> Option<&'static str> {
+    match mime {
+        PDF => Some("pdf"),
+        DOCX => Some("docx"),
+        XLSX => Some("xlsx"),
+        PPTX => Some("pptx"),
+        _ => None,
     }
 }
 
@@ -48,6 +95,9 @@ fn resource(path: &str) -> Option<(&'static str, Cow<'static, [u8]>)> {
         "/index.html" => include_bytes!("../web/index.html"),
         "/viewer.mjs" => include_bytes!("../web/viewer.mjs"),
         "/pdf.mjs" => include_bytes!("../web/pdf.mjs"),
+        "/office.mjs" => include_bytes!("../web/office.mjs"),
+        "/pages.mjs" => include_bytes!("../web/pages.mjs"),
+        "/jszip.mjs" => include_bytes!("../web/jszip.mjs"),
         "/viewer.css" => include_bytes!("../web/viewer.css"),
         _ => bundle().ok()?.get(path.strip_prefix('/')?)?,
     };
@@ -72,11 +122,9 @@ pub(in crate::content::files::html) fn native(
     status: impl Fn(&str) + 'static,
     window: &Window,
 ) -> Result<surface::Native, ()> {
-    if mime != PDF {
-        return Err(());
-    }
+    let format = format(mime).ok_or(())?;
     // Wry maps this scheme to http://sailry-preview.localhost on Windows.
-    let url = "sailry-preview://localhost/index.html#pdf";
+    let url = format!("sailry-preview://localhost/index.html#{format}");
     let mime = mime.to_owned();
     let builder = wry::WebViewBuilder::new()
         .with_initialization_script(format!(
@@ -107,6 +155,6 @@ pub(in crate::content::files::html) fn native(
             url.starts_with("sailry-preview://localhost/index.html#")
                 || url.starts_with("http://sailry-preview.localhost/index.html#")
         })
-        .with_url(url);
+        .with_url(&url);
     surface::Native::build(builder, window)
 }

@@ -31,22 +31,20 @@ pub(crate) fn image_api(provider: &Provider) -> Option<ImageRoute> {
         Authentication::ApiKey => match provider.api {
             ModelApi::ChatCompletions => Some(ImageRoute::Images),
             ModelApi::Responses => Some(ImageRoute::Responses),
-            ModelApi::Gemini | ModelApi::Vertex => Some(ImageRoute::Native),
+            ModelApi::Gemini => Some(ImageRoute::Native),
             // These adapters do not share generic bearer-authenticated media
-            // routing. Cloud deployment, Converse, Messages and OpenCode
+            // routing. Cloud deployment, Messages and OpenCode
             // conversation contracts must not be sent to /images/generations.
             ModelApi::Anthropic
             | ModelApi::DeepSeek
             | ModelApi::OpenCodeGo
             | ModelApi::OpenCodeZen
             | ModelApi::AzureOpenAi
-            | ModelApi::AzureAi
-            | ModelApi::Bedrock => None,
+            | ModelApi::AzureAi => None,
         },
         Authentication::ChatGptOAuth | Authentication::Copilot => {
             (provider.api == ModelApi::Responses).then_some(ImageRoute::Authorized)
         }
-        Authentication::Host => (provider.api == ModelApi::Vertex).then_some(ImageRoute::Native),
         Authentication::ChatGpt => None,
     }
 }
@@ -65,9 +63,6 @@ pub(crate) fn supports_api(kind: Kind, provider: &Provider) -> bool {
     match kind {
         Kind::Vision => match provider.authentication {
             Authentication::ApiKey => true,
-            Authentication::Host => {
-                matches!(provider.api, ModelApi::Bedrock | ModelApi::Vertex)
-            }
             Authentication::ChatGpt | Authentication::ChatGptOAuth => {
                 provider.api == ModelApi::Responses
             }
@@ -142,7 +137,7 @@ mod tests {
         }
     }
 
-    fn routes() -> [(ModelApi, Option<ImageRoute>, bool); 11] {
+    fn routes() -> [(ModelApi, Option<ImageRoute>, bool); 9] {
         [
             (ModelApi::ChatCompletions, Some(ImageRoute::Images), true),
             (ModelApi::Responses, Some(ImageRoute::Responses), true),
@@ -153,8 +148,6 @@ mod tests {
             (ModelApi::OpenCodeZen, None, false),
             (ModelApi::AzureOpenAi, None, false),
             (ModelApi::AzureAi, None, false),
-            (ModelApi::Bedrock, None, false),
-            (ModelApi::Vertex, Some(ImageRoute::Native), false),
         ]
     }
 
@@ -190,16 +183,6 @@ mod tests {
             ),
             (ModelApi::Responses, Authentication::ChatGpt, None, true),
             (ModelApi::Gemini, Authentication::ChatGptOAuth, None, false),
-            (ModelApi::Bedrock, Authentication::Host, None, true),
-            (
-                ModelApi::Vertex,
-                Authentication::Host,
-                Some(ImageRoute::Native),
-                true,
-            ),
-            (ModelApi::ChatCompletions, Authentication::Host, None, false),
-            (ModelApi::Responses, Authentication::Host, None, false),
-            (ModelApi::Gemini, Authentication::Host, None, false),
         ] {
             let (provider, mut model) = fixture(api, authentication, "custom-model");
             model.generates = vec![Generation::Image, Generation::ImageTool, Generation::Video];

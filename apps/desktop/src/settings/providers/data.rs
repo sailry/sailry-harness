@@ -10,8 +10,6 @@ pub enum Family {
     OpenCodeGo,
     OpenCodeZen,
     Azure,
-    Bedrock,
-    Vertex,
     Hosted(Vendor),
 }
 
@@ -38,8 +36,6 @@ impl Family {
             Self::OpenCodeGo,
             Self::OpenCodeZen,
             Self::Azure,
-            Self::Bedrock,
-            Self::Vertex,
         ]
         .into_iter()
         .chain(Vendor::ALL.map(Self::Hosted))
@@ -53,8 +49,6 @@ impl Family {
             Self::OpenCodeGo => "provider_opencode_go",
             Self::OpenCodeZen => "provider_opencode_zen",
             Self::Azure => "provider_azure",
-            Self::Bedrock => "provider_bedrock",
-            Self::Vertex => "provider_vertex",
             Self::Hosted(vendor) => vendor.key(),
         }
     }
@@ -134,10 +128,6 @@ pub enum Preset {
     CompatibleGemini,
     AzureOpenAi,
     AzureAi,
-    Bedrock,
-    BedrockIam,
-    Vertex,
-    VertexAdc,
     Hosted(Vendor),
 }
 
@@ -159,15 +149,13 @@ impl Preset {
             Self::OpenCodeZen => ModelApi::OpenCodeZen,
             Self::AzureOpenAi => ModelApi::AzureOpenAi,
             Self::AzureAi => ModelApi::AzureAi,
-            Self::Bedrock | Self::BedrockIam => ModelApi::Bedrock,
-            Self::Vertex | Self::VertexAdc => ModelApi::Vertex,
             Self::CompatibleChat | Self::Copilot | Self::Hosted(_) => ModelApi::ChatCompletions,
             Self::Anthropic | Self::CompatibleAnthropic => ModelApi::Anthropic,
             Self::Gemini | Self::CompatibleGemini => ModelApi::Gemini,
         }
     }
 
-    const CORE: [Self; 19] = [
+    const CORE: [Self; 15] = [
         Self::OpenAi,
         Self::CompatibleResponses,
         Self::CompatibleChat,
@@ -183,10 +171,6 @@ impl Preset {
         Self::CompatibleGemini,
         Self::AzureOpenAi,
         Self::AzureAi,
-        Self::Bedrock,
-        Self::BedrockIam,
-        Self::Vertex,
-        Self::VertexAdc,
     ];
 
     pub fn all() -> impl Iterator<Item = Self> {
@@ -207,8 +191,6 @@ impl Preset {
             Self::OpenCodeGo => Family::OpenCodeGo,
             Self::OpenCodeZen => Family::OpenCodeZen,
             Self::AzureOpenAi | Self::AzureAi => Family::Azure,
-            Self::Bedrock | Self::BedrockIam => Family::Bedrock,
-            Self::Vertex | Self::VertexAdc => Family::Vertex,
             Self::Hosted(vendor) => Family::Hosted(vendor),
             _ => Family::OpenAi,
         }
@@ -218,8 +200,6 @@ impl Preset {
         match self {
             Self::CompatibleChat => Self::CompatibleResponses,
             Self::CopilotResponses => Self::Copilot,
-            Self::BedrockIam => Self::Bedrock,
-            Self::VertexAdc => Self::Vertex,
             _ => self,
         }
     }
@@ -254,8 +234,6 @@ impl Preset {
             Self::CompatibleGemini => "preset_gemini_compatible",
             Self::AzureOpenAi => "provider_azure_openai",
             Self::AzureAi => "provider_azure_ai",
-            Self::Bedrock | Self::BedrockIam => "provider_bedrock",
-            Self::Vertex | Self::VertexAdc => "provider_vertex",
             Self::Hosted(vendor) => vendor.key(),
         }
     }
@@ -268,15 +246,7 @@ impl Preset {
     }
 
     pub fn cloud(self) -> bool {
-        matches!(
-            self,
-            Self::AzureOpenAi
-                | Self::AzureAi
-                | Self::Bedrock
-                | Self::BedrockIam
-                | Self::Vertex
-                | Self::VertexAdc
-        )
+        matches!(self, Self::AzureOpenAi | Self::AzureAi)
     }
 
     pub fn key_auth(self) -> bool {
@@ -296,12 +266,6 @@ impl Preset {
     }
 
     pub fn endpoint_hint(self) -> &'static str {
-        if matches!(
-            self,
-            Self::Bedrock | Self::BedrockIam | Self::Vertex | Self::VertexAdc
-        ) {
-            return "provider_cloud_endpoint_hint";
-        }
         match self.api() {
             sailry_protocol::conversation::ModelApi::AzureOpenAi => "provider_azure_openai_hint",
             sailry_protocol::conversation::ModelApi::AzureAi => "provider_azure_ai_hint",
@@ -330,7 +294,6 @@ impl Preset {
         match self {
             Self::ChatGptOAuth => Authentication::ChatGptOAuth,
             Self::ChatGpt => Authentication::ChatGpt,
-            Self::BedrockIam | Self::VertexAdc => Authentication::Host,
             Self::Copilot | Self::CopilotResponses => Authentication::Copilot,
             _ => Authentication::ApiKey,
         }

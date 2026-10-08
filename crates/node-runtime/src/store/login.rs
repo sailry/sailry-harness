@@ -153,10 +153,7 @@ impl Worker {
             let provider =
                 super::providers::current(&database.connection, provider, expected_revision)?;
             crate::providers::login::validate(&provider)?;
-            if matches!(
-                provider.authentication,
-                Authentication::ApiKey | Authentication::Host
-            ) {
+            if provider.authentication == Authentication::ApiKey {
                 return Err(Fault::new(
                     ErrorCode::InvalidRequest,
                     "provider does not use browser authorization",

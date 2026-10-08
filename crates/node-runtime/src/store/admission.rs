@@ -175,7 +175,6 @@ impl Ingress {
             if matches!(
                 request.command,
                 sailry_protocol::Command::DownloadFile { .. }
-                    | sailry_protocol::Command::PreviewOffice { .. }
                     | sailry_protocol::Command::UploadPlugin(_)
                     | sailry_protocol::Command::InspectPluginUpload { .. }
                     | sailry_protocol::Command::UploadFile(_)

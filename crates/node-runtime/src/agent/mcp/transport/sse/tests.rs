@@ -62,6 +62,7 @@ async fn source(
 }
 
 async fn connect(url: &str) -> io::Result<Connection> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()

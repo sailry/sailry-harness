@@ -19,11 +19,6 @@ impl Editor {
             Preset::ChatGpt => "https://api.openai.com/v1".into(),
             Preset::Copilot | Preset::CopilotResponses => "https://api.githubcopilot.com".into(),
             Preset::Hosted(vendor) => vendor.endpoint().into(),
-            Preset::Bedrock | Preset::BedrockIam | Preset::Vertex | Preset::VertexAdc
-                if endpoint.is_empty() =>
-            {
-                self.cloud.endpoint(self.preset, cx)?
-            }
             Preset::Anthropic if endpoint.is_empty() => "https://api.anthropic.com".into(),
             Preset::Gemini if endpoint.is_empty() => {
                 "https://generativelanguage.googleapis.com/v1beta".into()

@@ -16,7 +16,7 @@ mod version;
 pub(crate) mod watch;
 pub(crate) use create::directory;
 pub(crate) use rename::rename;
-pub(crate) use save::{save, write_binary};
+pub(crate) use save::save;
 pub(crate) use trash::remove_verified;
 pub(crate) use trash::trash;
 

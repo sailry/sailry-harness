@@ -20,6 +20,7 @@ self_update.workspace = true
 ed25519-dalek.workspace = true
 semver.workspace = true
 reqwest.workspace = true
+rustls.workspace = true
 roxmltree.workspace = true
 base64.workspace = true
 gpui-kit.workspace = true

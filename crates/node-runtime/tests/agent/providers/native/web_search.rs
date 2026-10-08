@@ -39,7 +39,10 @@ async fn combines_search_and_tools() {
             let server = SearchServer::web_search().await;
             let mut fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
             fixture.provider.models[0].web_search = true;
-            fixture.provider.models[0].tools = tools;
+            fixture.provider.models[0]
+                .capabilities
+                .get_or_insert_with(Default::default)
+                .tools = Some(tools);
             std::fs::write(fixture.root.join("native.txt"), "Search companion content").unwrap();
             execute(
                 &fixture.client,

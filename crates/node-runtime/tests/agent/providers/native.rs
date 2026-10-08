@@ -69,7 +69,7 @@ impl Fixture {
         let (mut session, mut provider) = configured(&client, endpoint, &root).await;
         provider.api = api;
         provider.options = cloud::options(api);
-        let effort = if matches!(api, ModelApi::Bedrock | ModelApi::AzureAi) {
+        let effort = if api == ModelApi::AzureAi {
             Effort::Default
         } else {
             Effort::High
@@ -141,6 +141,65 @@ impl Fixture {
             panic!("turn expected")
         };
         turn.id
+    }
+}
+
+#[tokio::test]
+async fn compatible_aws_endpoint_uses_api_key() {
+    for remote in [false, true] {
+        for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
+            let server = if api == ModelApi::Responses {
+                completion::server(vec![serde_json::json!({
+                    "type":"response.completed", "sequence_number":10,
+                    "response":{"id":"completed", "object":"response", "created_at":1,
+                        "model":"fixture-a", "status":"completed", "output":[{
+                            "type":"message", "id":"answer", "role":"assistant",
+                            "status":"completed", "content":[{
+                                "type":"output_text", "text":server::ANSWER, "annotations":[]
+                            }]
+                        }]}
+                })])
+                .await
+            } else {
+                Server::start(api, Reply::Text).await
+            };
+            let base = server.endpoint.strip_suffix("/v1").unwrap();
+            let endpoint = format!("{base}/bedrock-runtime.us-east-1.amazonaws.com/openai/v1/");
+            let fixture = Fixture::new(remote, api, &endpoint).await;
+            assert_eq!(fixture.provider.authentication, Authentication::ApiKey);
+            assert!(fixture.provider.options.is_none());
+            let turn = fixture.submit("Read the greeting").await;
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            assert_eq!(
+                page.runs.last().unwrap().status,
+                Status::Completed,
+                "{api:?}, remote={remote}: {:?}",
+                page.runs
+            );
+            assert!(text(&page).contains(server::ANSWER));
+            assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
+            let requests = server.requests.lock().unwrap().clone();
+            assert_eq!(requests.len(), 1);
+            let request = &requests[0];
+            let route = if api == ModelApi::Responses {
+                "responses"
+            } else {
+                "chat/completions"
+            };
+            assert_eq!(
+                request.path,
+                format!("/bedrock-runtime.us-east-1.amazonaws.com/openai/v1/{route}")
+            );
+            assert_eq!(request.body["model"], "fixture-a");
+            assert_eq!(
+                request.headers["authorization"],
+                format!("Bearer {}", server::KEY)
+            );
+            assert!(!request.headers.contains_key("x-amz-date"));
+            assert!(!request.headers.contains_key("x-goog-api-key"));
+            fixture.controller.close().await.unwrap();
+            fixture.node.shutdown().await.unwrap();
+        }
     }
 }
 

@@ -223,6 +223,13 @@ async fn preserves_uncertain_rotation() {
             if mode != "shutdown" {
                 finished(&fixture.client, &turn, Status::Failed).await;
             }
+            if mode == "save" {
+                let db = rusqlite::Connection::open(
+                    fixture.directory.path().join("node/storage/node.sqlite3"),
+                )
+                .unwrap();
+                db.execute_batch("DROP TRIGGER reject_refresh;").unwrap();
+            }
             let fixture = restart(fixture, &server, remote).await;
             if mode == "shutdown" {
                 server.wait_closed(1).await;

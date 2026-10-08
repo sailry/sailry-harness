@@ -165,7 +165,7 @@ async fn provider(client: &Client, authentication: Authentication) -> Provider {
             Authentication::ChatGpt => "https://api.openai.com/v1",
             Authentication::ChatGptOAuth => "https://chatgpt.com/backend-api/codex",
             Authentication::Copilot => "https://api.githubcopilot.com",
-            Authentication::ApiKey | Authentication::Host => unreachable!(),
+            Authentication::ApiKey => unreachable!(),
         }
         .into(),
         enabled: true,

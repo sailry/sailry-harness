@@ -24,15 +24,12 @@ fn attempts_unknown_input_and_tools() {
         ModelApi::OpenCodeZen,
         ModelApi::AzureOpenAi,
         ModelApi::AzureAi,
-        ModelApi::Bedrock,
-        ModelApi::Vertex,
     ] {
         for authentication in [
             Authentication::ApiKey,
             Authentication::ChatGpt,
             Authentication::ChatGptOAuth,
             Authentication::Copilot,
-            Authentication::Host,
         ] {
             let configured = discovered.configuration(None, api, authentication);
             assert!(configured.tools && configured.vision);

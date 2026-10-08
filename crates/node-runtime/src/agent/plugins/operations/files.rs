@@ -41,7 +41,6 @@ pub(super) fn description(operation: Operation) -> &'static str {
         Operation::WriteFile => "Write UTF-8 text using the expected file revision",
         Operation::SearchFiles => "Search text in the captured worktree",
         Operation::ReadOffice => "Read document sections in the captured worktree",
-        Operation::ExportPdf => "Export a document to PDF in the captured worktree",
         _ => unreachable!("not a file operation"),
     }
 }
@@ -64,10 +63,6 @@ pub(super) fn parameters(operation: Operation) -> Value {
         ),
         Operation::ReadOffice => {
             return serde_json::to_value(schemars::schema_for!(office::Read))
-                .expect("Office schema is JSON");
-        }
-        Operation::ExportPdf => {
-            return serde_json::to_value(schemars::schema_for!(office::Export))
                 .expect("Office schema is JSON");
         }
         _ => unreachable!("not a file operation"),
@@ -124,10 +119,6 @@ pub(super) fn command(
             }
         }
         Operation::ReadOffice => Command::ReadOffice {
-            worktree,
-            options: decode(arguments)?,
-        },
-        Operation::ExportPdf => Command::ExportPdf {
             worktree,
             options: decode(arguments)?,
         },

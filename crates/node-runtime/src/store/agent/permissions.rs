@@ -58,13 +58,7 @@ pub(super) fn source(
             ApprovalSource::Full
         }
         (Permission::Project, _)
-            if matches!(
-                operation,
-                Some(
-                    sailry_protocol::tool::Operation::WriteFile
-                        | sailry_protocol::tool::Operation::ExportPdf
-                )
-            ) =>
+            if matches!(operation, Some(sailry_protocol::tool::Operation::WriteFile)) =>
         {
             ApprovalSource::Project
         }

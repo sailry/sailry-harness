@@ -4,7 +4,7 @@ use sailry_node_runtime::Node;
 use sailry_protocol::{office::*, *};
 
 #[tokio::test]
-async fn reads_and_previews_locally_and_remotely() {
+async fn reads_and_downloads_locally_and_remotely() {
     let fixture = tempfile::tempdir().unwrap();
     let root = fixture.path().join("project");
     std::fs::create_dir(&root).unwrap();
@@ -36,12 +36,6 @@ async fn reads_and_previews_locally_and_remotely() {
     let remote = Client::new(controller.handle().remote(address));
     let cases: Vec<serde_json::Value> =
         serde_json::from_str(include_str!("../src/office/fixtures.json")).unwrap();
-    let cases = ["report.docx", "report.pdf"].map(|path| {
-        cases
-            .iter()
-            .find(|case| case["path"] == path)
-            .expect("office transport fixture")
-    });
     local
         .execute(local.prepare(Command::SetPluginEnabled {
             name: "office".into(),
@@ -94,20 +88,23 @@ async fn reads_and_previews_locally_and_remotely() {
                     .any(|s| s.text.contains(case["text"].as_str().unwrap()))
             );
             let admission = client
-                .dispatch(client.prepare(Command::PreviewOffice {
+                .dispatch(client.prepare(Command::DownloadFile {
                     worktree,
                     path: path.clone(),
                 }))
                 .await
                 .unwrap();
             assert!(!admission.receipt.durable);
-            let Output::OfficePreview(preview) = admission.completion.await.unwrap().unwrap()
+            let Output::FileDownload(download) = admission.completion.await.unwrap().unwrap()
             else {
-                panic!("preview expected")
+                panic!("download expected")
             };
-            assert_eq!(preview.source_revision, content.revision);
+            assert_eq!(download.worktree, worktree);
+            assert_eq!(download.path, path);
+            assert_eq!(download.revision, content.revision);
+            assert_eq!(download.size, source.len() as u64);
             assert!(matches!(
-                other.open(preview.download.stream).await,
+                other.open(download.stream).await,
                 Err(Fault {
                     code: ErrorCode::NotFound,
                     ..
@@ -115,41 +112,11 @@ async fn reads_and_previews_locally_and_remotely() {
             ));
             let mut bytes = Vec::new();
             client
-                .download(
-                    &preview.download,
-                    &mut bytes,
-                    CancellationToken::new(),
-                    |_| {},
-                )
+                .download(&download, &mut bytes, CancellationToken::new(), |_| {})
                 .await
                 .unwrap();
-            let pdf = lopdf::Document::load_mem(&bytes).unwrap();
-            assert_eq!(pdf.get_pages().len(), 2, "{path}");
-            let text = pdf.extract_text(&[1, 2]).unwrap();
-            assert!(
-                text.contains(case["text"].as_str().unwrap()),
-                "{path}: {text}"
-            );
-
+            assert_eq!(bytes, source);
             assert_eq!(std::fs::read(root.join(&path)).unwrap(), source);
-
-            if !path.ends_with(".pdf") {
-                let export = client.prepare(Command::ExportPdf {
-                    worktree,
-                    options: Export {
-                        source: path.clone(),
-                        path: format!("exports/{path}.pdf"),
-                        expected_revision: None,
-                    },
-                });
-                let result = client.execute(export.clone()).await.unwrap();
-                assert_eq!(client.execute(export).await.unwrap(), result);
-                assert!(
-                    std::fs::read(root.join(format!("exports/{path}.pdf")))
-                        .unwrap()
-                        .starts_with(b"%PDF-")
-                );
-            }
         }
     }
     node.shutdown().await.unwrap();

@@ -49,9 +49,6 @@ pub(super) fn prepare(db: &Database, caller: NodeId, request: &Request) -> Resul
     super::commands::validate_config(&db.connection, db.node, config)?;
     // The explicit selection is authoritative, including an absent credential.
     provider.credential = config.credential.clone();
-    if provider.authentication == Authentication::Host {
-        crate::providers::login::transferable(provider.authentication)?;
-    }
     let (secret, expires_at_ms) = if let Some(reference) = &config.credential {
         crate::providers::login::transferable(provider.authentication)?;
         let secret = db.resolve_credential(reference, config.provider, provider.authentication)?;

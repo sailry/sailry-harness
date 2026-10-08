@@ -869,14 +869,6 @@ pub enum Command {
         worktree: WorktreeId,
         path: String,
     },
-    PreviewOffice {
-        worktree: WorktreeId,
-        path: String,
-    },
-    ExportPdf {
-        worktree: WorktreeId,
-        options: crate::office::Export,
-    },
     ReadOffice {
         worktree: WorktreeId,
         options: crate::office::Read,
@@ -1179,7 +1171,6 @@ impl Command {
                 | Self::BrowseFiles { .. }
                 | Self::ReadFile { .. }
                 | Self::ReadOffice { .. }
-                | Self::PreviewOffice { .. }
                 | Self::DownloadFile { .. }
                 | Self::UploadFile(_)
                 | Self::UploadAttachment(_)
@@ -1387,8 +1378,6 @@ pub enum Output {
     },
     FileWritten(crate::FileWritten),
     OfficeContent(crate::office::Inspection),
-    OfficeWritten(crate::office::Written),
-    OfficePreview(crate::office::Preview),
     DirectoryCreated {
         path: String,
     },

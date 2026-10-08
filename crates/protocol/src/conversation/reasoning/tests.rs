@@ -48,9 +48,6 @@ fn enforces_native_bounds_and_choices() {
         (ModelApi::AzureOpenAi, Effort::High, 4096, true),
         (ModelApi::AzureAi, Effort::Default, 4096, true),
         (ModelApi::AzureAi, Effort::High, 4096, false),
-        (ModelApi::Bedrock, Effort::High, 4096, false),
-        (ModelApi::Bedrock, Effort::Default, 4096, true),
-        (ModelApi::Vertex, Effort::Budget(2048), 4096, true),
     ] {
         assert_eq!(
             effort.validate(api, output).is_ok(),

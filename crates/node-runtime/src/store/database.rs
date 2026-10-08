@@ -601,10 +601,7 @@ impl Database {
         ) {
             // Keep replay identity without making the admission ledger another secret store.
             format!("credential-v1:{}", blake3::hash(&encoded).to_hex()).into_bytes()
-        } else if matches!(
-            request.command,
-            Command::WriteFile { .. } | Command::ExportPdf { .. }
-        ) {
+        } else if matches!(request.command, Command::WriteFile { .. }) {
             // The ledger owns replay identity, not another copy of project content.
             format!("file-v1:{}", blake3::hash(&encoded).to_hex()).into_bytes()
         } else if matches!(

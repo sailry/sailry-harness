@@ -86,69 +86,6 @@ impl Drop for Lease {
 }
 
 impl Transfers {
-    pub(crate) async fn office(
-        self: &Arc<Self>,
-        caller: NodeId,
-        worktree: WorktreeId,
-        root: PathBuf,
-        path: String,
-        closed: CancellationToken,
-    ) -> Result<sailry_protocol::office::Preview, Fault> {
-        let (mut lease, permit, cancel) = self.reserve(caller, root.clone(), closed)?;
-        let source = path.clone();
-        let stopping = cancel.clone();
-        let profile = self.profile.clone();
-        let worker = tokio::task::spawn_blocking(move || {
-            // Conversion retains a transfer permit until CPU work has really ended.
-            let source_path = root
-                .join(&source)
-                .canonicalize()
-                .map_err(crate::files::io_error)?;
-            if profile
-                .as_ref()
-                .is_some_and(|profile| source_path.starts_with(profile))
-            {
-                return Err(Fault::new(
-                    ErrorCode::PermissionDenied,
-                    "Node storage is not a previewable file",
-                ));
-            }
-            let (bytes, revision, warnings) = crate::office::preview(&root, &source)?;
-            if stopping.is_cancelled() {
-                return Err(cancelled());
-            }
-            let prepared = Prepared {
-                size: bytes.len() as u64,
-                revision: blake3::hash(&bytes).to_hex().to_string(),
-                stamp: String::new(),
-                source: Source::Bytes(bytes),
-                _permit: permit,
-            };
-            Ok::<_, Fault>((prepared, revision, warnings))
-        });
-        let (prepared, source_revision, warnings) = tokio::select! {
-            biased;
-            _ = cancel.cancelled() => return Err(cancelled()),
-            result = tokio::time::timeout(Duration::from_secs(120), worker) => result
-                .map_err(|_| Fault::new(ErrorCode::Busy, "Office conversion timed out"))?
-                .map_err(|_| unavailable())??,
-        };
-        let output = sailry_protocol::office::Preview {
-            download: FileDownload {
-                stream: lease.stream,
-                worktree,
-                path,
-                size: prepared.size,
-                revision: prepared.revision.clone(),
-                stamp: String::new(),
-            },
-            source_revision,
-            warnings,
-        };
-        self.ready(&mut lease, Resource::Download(prepared), cancel)?;
-        Ok(output)
-    }
-
     pub(crate) fn new(profile: Option<PathBuf>) -> Arc<Self> {
         Arc::new(Self {
             entries: Mutex::new(Registry::default()),

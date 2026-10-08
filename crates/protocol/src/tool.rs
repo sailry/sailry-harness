@@ -128,8 +128,6 @@ pub enum Operation {
     SearchFiles,
     #[serde(rename = "office.read")]
     ReadOffice,
-    #[serde(rename = "office.export")]
-    ExportPdf,
     #[serde(rename = "media.inspect")]
     InspectMedia,
     #[serde(rename = "media.image")]
@@ -194,7 +192,7 @@ impl Operation {
             Self::ListDirectory | Self::ReadFile | Self::SearchFiles | Self::ReadOffice => {
                 Some(Action::ReadFiles)
             }
-            Self::WriteFile | Self::ExportPdf => Some(Action::WriteFiles),
+            Self::WriteFile => Some(Action::WriteFiles),
             Self::InspectMedia => Some(Action::InspectMedia),
             Self::GenerateImage => Some(Action::GenerateImage),
             Self::GenerateVideo => Some(Action::GenerateVideo),
@@ -228,7 +226,6 @@ impl Operation {
                 | Self::RunSsh
                 | Self::TransferSsh
                 | Self::WriteFile
-                | Self::ExportPdf
                 | Self::GenerateImage
                 | Self::GenerateVideo
                 | Self::Http

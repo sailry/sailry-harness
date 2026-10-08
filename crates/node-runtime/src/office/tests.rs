@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn reads_and_converts_four_formats() {
+fn reads_four_formats() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().canonicalize().unwrap();
     let cases: Vec<serde_json::Value> =
@@ -9,7 +9,6 @@ fn reads_and_converts_four_formats() {
     for case in cases {
         let name = case["path"].as_str().unwrap();
         let expected = case["text"].as_str().unwrap();
-        let start = std::time::Instant::now();
         let source = std::fs::read(
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("src/office/fixtures")
@@ -17,7 +16,7 @@ fn reads_and_converts_four_formats() {
         )
         .unwrap();
         let revision = blake3::hash(&source).to_hex().to_string();
-        std::fs::write(root.join(name), source).unwrap();
+        std::fs::write(root.join(name), &source).unwrap();
         let inspection = read(
             &root,
             &Read {
@@ -35,25 +34,7 @@ fn reads_and_converts_four_formats() {
             "{name}: {:?}",
             inspection.sections
         );
-        let source = std::fs::read(root.join(name)).unwrap();
-        let (pdf, rendered_revision, warnings) = preview(&root, name).unwrap();
-        assert_eq!(rendered_revision, revision);
-        let pdf = lopdf::Document::load_mem(&pdf).unwrap();
-        assert!(!pdf.get_pages().is_empty());
-        assert_eq!(
-            pdf.get_pages().len(),
-            case["pages"].as_u64().unwrap() as usize,
-            "{name}"
-        );
-        let text = pdf
-            .extract_text(&pdf.get_pages().keys().copied().collect::<Vec<_>>())
-            .unwrap();
-        assert!(text.contains(expected), "{name} PDF: {text}");
         assert_eq!(std::fs::read(root.join(name)).unwrap(), source);
-        eprintln!(
-            "Office {name}: inspection and PDF conversion {:?}; warnings: {warnings:?}",
-            start.elapsed()
-        );
     }
 }
 

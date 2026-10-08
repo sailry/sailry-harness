@@ -273,7 +273,7 @@ fn distinguishes_deliveries_from_navigation() {
 }
 
 #[test]
-fn indexes_office_outputs() {
+fn ignores_document_write_receipts() {
     let mut fixture = Fixture::new();
     fixture.completed(&["fixture"]);
     let mut entry = fixture.read(None, 1).page.entries[0].clone();
@@ -284,11 +284,8 @@ fn indexes_office_outputs() {
     };
     {
         let (name, output) = (
-            crate::plugins::tools::alias("files", "export_pdf"),
-            Output::OfficeWritten(sailry_protocol::office::Written {
-                file: file.clone(),
-                warnings: vec!["Font substituted".into()],
-            }),
+            crate::plugins::tools::alias("files", "write_file"),
+            Output::FileWritten(file.clone()),
         );
         entry.parts = vec![Part::ToolResult {
             id: None,
@@ -296,12 +293,7 @@ fn indexes_office_outputs() {
             result: serde_json::to_value(output).unwrap(),
             images: vec![],
         }];
-        assert_eq!(
-            extract::items(&entry, Some("/project")),
-            [Target::File {
-                path: file.path.clone()
-            }]
-        );
+        assert!(extract::items(&entry, Some("/project")).is_empty());
     }
 }
 

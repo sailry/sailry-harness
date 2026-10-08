@@ -44,16 +44,7 @@ impl Fixture {
         });
         let (base, mut provider) = configured(&client, &server.endpoint, &root).await;
         provider.api = api;
-        provider.options = match api {
-            ModelApi::Bedrock => Some(cloud::Options::Bedrock {
-                region: "us-east-1".into(),
-            }),
-            ModelApi::Vertex => Some(cloud::Options::Vertex {
-                project: "fixture-project".into(),
-                location: "global".into(),
-            }),
-            _ => None,
-        };
+        provider.options = None;
         provider.models = ["follow-a", "follow-b"]
             .into_iter()
             .map(|id| {
@@ -329,23 +320,12 @@ fn registered(request: &wire::Request) -> bool {
 }
 
 fn assert_route(request: &wire::Request, api: ModelApi, model: &str) {
-    if matches!(api, ModelApi::Gemini | ModelApi::Vertex) {
-        let path = if api == ModelApi::Vertex {
-            format!(
-                "/v1/v1/projects/fixture-project/locations/global/publishers/google/models/{model}:generateContent?%24alt=json%3Benum-encoding%3Dint"
-            )
-        } else {
-            format!("/v1/models/{model}:generateContent")
-        };
-        assert_eq!(request.path, path);
+    if api == ModelApi::Gemini {
+        assert_eq!(request.path, format!("/v1/models/{model}:generateContent"));
         assert_eq!(request.headers["x-goog-api-key"], wire::KEY);
         assert_eq!(
             request.body["generationConfig"]["responseModalities"],
-            if api == ModelApi::Vertex {
-                json!([1, 2])
-            } else {
-                json!(["TEXT", "IMAGE"])
-            }
+            json!(["TEXT", "IMAGE"])
         );
     } else if api == ModelApi::Responses {
         assert_eq!(request.path, "/v1/responses");
@@ -379,7 +359,6 @@ async fn resolves_admitted_and_future_models() {
         for api in [
             ModelApi::Responses,
             ModelApi::Gemini,
-            ModelApi::Vertex,
             ModelApi::ChatCompletions,
         ] {
             let fixture = Fixture::new(remote, api).await;
@@ -417,15 +396,11 @@ async fn resolves_admitted_and_future_models() {
                 assert_eq!(primary.len(), 2);
                 assert_eq!(generated.len(), 2);
                 for (index, model) in ["follow-a", "follow-b"].into_iter().enumerate() {
-                    if matches!(api, ModelApi::Gemini | ModelApi::Vertex) {
-                        let path = if api == ModelApi::Vertex {
-                            format!(
-                                "/v1/v1/projects/fixture-project/locations/global/publishers/google/models/{model}:streamGenerateContent?alt=sse"
-                            )
-                        } else {
+                    if api == ModelApi::Gemini {
+                        assert_eq!(
+                            primary[index].path,
                             format!("/v1/models/{model}:streamGenerateContent?alt=sse")
-                        };
-                        assert_eq!(primary[index].path, path);
+                        );
                         assert_eq!(
                             primary[index].headers["x-goog-api-key"],
                             generated[index].headers["x-goog-api-key"]
@@ -537,13 +512,13 @@ async fn does_not_repeat_same_fallback() {
 #[tokio::test]
 async fn failures_never_use_companion() {
     for remote in [false, true] {
-        for api in [ModelApi::Responses, ModelApi::Gemini, ModelApi::Vertex] {
+        for api in [ModelApi::Responses, ModelApi::Gemini] {
             let fixture = Fixture::new(remote, api).await;
             let (companion, _) = fixture.companion().await;
             let session = fixture.create().await;
             let turn = fixture.queue(&session).await;
             fixture.begin(&turn).await;
-            let mut outcomes = vec![
+            let outcomes = [
                 wire::Outcome::Rejected(401, "invalid_api_key"),
                 wire::Outcome::Rejected(403, "access_denied"),
                 wire::Outcome::Rejected(429, "rate_limit_exceeded"),
@@ -555,14 +530,10 @@ async fn failures_never_use_companion() {
                 wire::Outcome::Invalid,
                 wire::Outcome::Empty,
                 wire::Outcome::Incomplete,
+                wire::Outcome::Rejected(401, "unsupported_capability"),
+                wire::Outcome::Rejected(403, "unsupported_capability"),
+                wire::Outcome::Rejected(429, "unsupported_capability"),
             ];
-            if api == ModelApi::Vertex {
-                outcomes.extend([
-                    wire::Outcome::Rejected(401, "unsupported_capability"),
-                    wire::Outcome::Rejected(403, "unsupported_capability"),
-                    wire::Outcome::Rejected(429, "unsupported_capability"),
-                ]);
-            }
             for (index, outcome) in outcomes.into_iter().enumerate() {
                 fixture.server.set_outcome(outcome);
                 let path = format!("assets/generated/failure-{index}.png");
@@ -600,10 +571,8 @@ async fn uses_companion_only_when_unsupported() {
         for api in [
             ModelApi::Responses,
             ModelApi::Gemini,
-            ModelApi::Vertex,
             ModelApi::ChatCompletions,
             ModelApi::Anthropic,
-            ModelApi::Bedrock,
         ] {
             let fixture = Fixture::new(remote, api).await;
             let (companion, _) = fixture.companion().await;
@@ -615,7 +584,7 @@ async fn uses_companion_only_when_unsupported() {
                 }))
                 .await;
             let without_companion = fixture.create().await;
-            let unsupported = matches!(api, ModelApi::Anthropic | ModelApi::Bedrock);
+            let unsupported = api == ModelApi::Anthropic;
             let mut outcomes = vec![wire::Outcome::Completed];
             if !unsupported {
                 outcomes.push(wire::Outcome::Rejected(400, "unsupported_capability"));

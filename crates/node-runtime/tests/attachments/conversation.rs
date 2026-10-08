@@ -51,13 +51,6 @@ async fn session(
                     api_version: "2024-10-21".into(),
                 })
             }
-            ModelApi::Bedrock => Some(sailry_protocol::conversation::cloud::Options::Bedrock {
-                region: "us-east-1".into(),
-            }),
-            ModelApi::Vertex => Some(sailry_protocol::conversation::cloud::Options::Vertex {
-                project: "fixture-project".into(),
-                location: "global".into(),
-            }),
             _ => None,
         },
         id: ProviderId::new(),
@@ -75,14 +68,14 @@ async fn session(
             context: 128000,
             output: 64,
             vision: true,
-            tools: api == ModelApi::Bedrock,
+            tools: false,
             reasoning: false,
             web_search: false,
             generates: vec![],
             efforts: vec![],
             capabilities: Some(sailry_protocol::conversation::discovery::Capabilities {
                 vision: Some(true),
-                tools: Some(api == ModelApi::Bedrock),
+                tools: Some(false),
                 reasoning: Some(false),
                 web_search: Some(false),
                 ..Default::default()
@@ -91,10 +84,7 @@ async fn session(
             default_effort: sailry_protocol::Effort::Default,
         }],
     };
-    let command = if matches!(
-        api,
-        ModelApi::AzureOpenAi | ModelApi::AzureAi | ModelApi::Bedrock | ModelApi::Vertex
-    ) {
+    let command = if matches!(api, ModelApi::AzureOpenAi | ModelApi::AzureAi) {
         Command::SaveProvider {
             provider,
             expected_revision: 0,

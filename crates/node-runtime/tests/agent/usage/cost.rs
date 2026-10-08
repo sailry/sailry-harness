@@ -8,7 +8,6 @@ async fn restores_catalog_estimates() {
         Authentication::ApiKey,
         Authentication::ChatGpt,
         Authentication::Copilot,
-        Authentication::Host,
     ] {
         for (remote, catalog) in [(false, false), (true, false), (false, true), (true, true)] {
             let directory = tempfile::tempdir().unwrap();

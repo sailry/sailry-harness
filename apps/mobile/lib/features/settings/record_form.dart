@@ -266,8 +266,6 @@ class _RecordFormState extends State<RecordForm> {
                       'open_code_zen',
                       'azure_open_ai',
                       'azure_ai',
-                      'bedrock',
-                      'vertex',
                     ]
                     .map(
                       (api) => (

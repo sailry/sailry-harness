@@ -141,7 +141,7 @@ impl Service {
                     self.codex(&client, progress).await?
                 }
                 Authentication::Copilot => self.copilot(&client, options, progress).await?,
-                Authentication::ApiKey | Authentication::Host => {
+                Authentication::ApiKey => {
                     return Err(invalid("provider does not use device authorization"));
                 }
             };
@@ -162,7 +162,7 @@ impl Service {
 pub(crate) fn validate(provider: &Provider) -> Result<(), Fault> {
     let endpoint = provider.endpoint.trim_end_matches('/');
     let valid = match provider.authentication {
-        Authentication::ApiKey | Authentication::Host => true,
+        Authentication::ApiKey => true,
         Authentication::ChatGpt => {
             provider.api == ModelApi::Responses && endpoint == CHATGPT_ENDPOINT
         }
@@ -195,12 +195,6 @@ pub(crate) fn validate(provider: &Provider) -> Result<(), Fault> {
 }
 
 pub(crate) fn transferable(authentication: Authentication) -> Result<(), Fault> {
-    if authentication == Authentication::Host {
-        return Err(Fault::new(
-            ErrorCode::NotConfigured,
-            "select a cloud identity provider on the execution Node",
-        ));
-    }
     if matches!(
         authentication,
         Authentication::ChatGpt | Authentication::ChatGptOAuth

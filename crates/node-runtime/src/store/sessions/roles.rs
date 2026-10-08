@@ -90,11 +90,6 @@ pub(in crate::store) fn export(
     database: &Database,
     snapshot: &role::Snapshot,
 ) -> Result<Vec<role::ProviderSecret>, Fault> {
-    for provider in &snapshot.providers {
-        if provider.authentication == Authentication::Host {
-            crate::providers::login::transferable(provider.authentication)?;
-        }
-    }
     snapshot
         .providers
         .iter()
@@ -158,9 +153,6 @@ pub(in crate::store) fn import(
     let mut snapshot = snapshot.clone();
     for provider in &mut snapshot.providers {
         crate::providers::login::capture(provider)?;
-        if provider.authentication == Authentication::Host {
-            crate::providers::login::transferable(provider.authentication)?;
-        }
         let original = provider.id;
         provider.id = ProviderId::new();
         provider.credential = None;

@@ -50,37 +50,6 @@ pub(crate) fn save(
     )
 }
 
-/// Binary artifacts share the same create-only and revision-checked publication.
-pub(crate) fn write_binary(
-    root: &Path,
-    path: &str,
-    bytes: &[u8],
-    expected: Option<&str>,
-    limit: usize,
-) -> Result<FileWritten, Fault> {
-    if bytes.len() > limit
-        || expected.is_some_and(|value| {
-            value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
-        })
-    {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid artifact size or revision",
-        ));
-    }
-    if expected.is_none() {
-        path::create_parents(root, path)?;
-    }
-    let revision = blake3::hash(bytes).to_hex().to_string();
-    Target::prepare(root, path, expected, limit as u64, None)?.write(
-        bytes,
-        bytes.len() as u64,
-        &revision,
-        #[cfg(test)]
-        &|_| {},
-    )
-}
-
 #[cfg(test)]
 pub(super) enum Phase {
     Prepared,

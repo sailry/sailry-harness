@@ -998,7 +998,6 @@
             "files.write",
             "files.search",
             "office.read",
-            "office.export",
             "media.inspect",
             "media.image",
             "media.video",

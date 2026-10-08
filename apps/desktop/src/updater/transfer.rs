@@ -27,6 +27,7 @@ pub(super) struct Staged {
 }
 
 pub(super) fn client() -> Result<reqwest::Client> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::Client::builder()
         .no_proxy()
         .referer(false)

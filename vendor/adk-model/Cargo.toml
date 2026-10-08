@@ -3,6 +3,7 @@
 # recover final text/refusals without duplicating deltas, and preserve optional
 # function parameters with explicit non-strict declarations. Response headers are
 # observable before status handling and body consumption without adding retries.
+# Selected HTTP transports use the application's crypto provider.
 
 [package]
 "name" = "adk-model"
@@ -28,10 +29,10 @@
 "async-stream" = { "version" = "0.3" }
 "serde_json" = { "version" = "1.0" }
 "serde" = { "version" = "1.0", "features" = ["derive"] }
-"async-openai" = { "version" = "0.41", "optional" = true, "default-features" = false, "features" = ["rustls", "chat-completion", "responses", "middleware"] }
+"async-openai" = { "version" = "0.41", "optional" = true, "default-features" = false, "features" = ["rustls-no-provider", "chat-completion", "responses", "middleware"] }
 "adk-anthropic" = { "version" = "2.2.0", "optional" = true, "git" = "https://github.com/dux-web/adk-rust.git", "rev" = "b3e360bbf49ca39d49cccba182c0f7cb4d251970" }
-"reqwest" = { "version" = "0.12", "default-features" = false, "features" = ["json", "stream", "rustls-tls-native-roots", "multipart"], "optional" = true }
-"reqwest-openai" = { "package" = "reqwest", "version" = "0.13", "optional" = true, "default-features" = false, "features" = ["rustls", "stream"] }
+"reqwest" = { "version" = "0.12", "default-features" = false, "features" = ["json", "stream", "rustls-tls-native-roots-no-provider", "multipart"], "optional" = true }
+"reqwest-openai" = { "package" = "reqwest", "version" = "0.13", "optional" = true, "default-features" = false, "features" = ["rustls-no-provider", "stream"] }
 "http" = { "version" = "1", "optional" = true }
 "tower" = { "version" = "0.5", "optional" = true, "features" = ["util"] }
 "tokio-tungstenite" = { "version" = "0.28", "features" = ["rustls-tls-native-roots", "connect"], "optional" = true }

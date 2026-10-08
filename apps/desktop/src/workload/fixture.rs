@@ -77,6 +77,7 @@ pub(super) async fn prepare(
                     enabled: true,
                     models: vec![Model {
                         id: "fixture".into(),
+                        display_name: None,
                         context: 262144,
                         output: 4096,
                         capabilities: None,

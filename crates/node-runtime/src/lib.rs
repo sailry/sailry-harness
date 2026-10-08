@@ -211,6 +211,7 @@ impl Node {
         skills: crate::plugins::github::Github,
         computer: Option<ComputerWorker>,
     ) -> Result<Self, Error> {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let (profile, identity) = tokio::task::spawn_blocking(move || {
             let profile = Profile::acquire(&path)?;
             let identity = sailry_link::Identity::open(&profile.path)?;

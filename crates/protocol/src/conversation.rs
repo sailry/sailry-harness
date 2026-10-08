@@ -65,8 +65,6 @@ pub enum ModelApi {
     OpenCodeZen,
     AzureOpenAi,
     AzureAi,
-    Bedrock,
-    Vertex,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -55,6 +55,7 @@ pub async fn prepare_with_progress(
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
+    let _ = rustls::crypto::ring::default_provider().install_default();
     tokio::fs::create_dir_all(directory)
         .await
         .map_err(|_| Error::Storage)?;

@@ -41,8 +41,6 @@ fn attempts_unknown_features() {
         ModelApi::OpenCodeZen,
         ModelApi::AzureOpenAi,
         ModelApi::AzureAi,
-        ModelApi::Bedrock,
-        ModelApi::Vertex,
     ] {
         let mut model = model();
         resolve(&mut model, None, api, Authentication::ApiKey);

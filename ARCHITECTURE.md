@@ -219,8 +219,15 @@ the official installer verifies versioned assets and starts systemd or launchd.
 Desktop's Add Host command invokes that installer through Node-owned SSH, then
 pairs through a private bootstrap ticket. It never uploads a bundled Host or
 overwrites an existing profile. Desktop still includes its own local Node.
-Office inspection and PDF conversion use Rust; document skills use the execution
-Node's command tools and project-local dependencies, not a bundled interpreter.
+Office inspection uses Rust. Desktop previews original Office files and PDFs
+offline in its sidebar WebView; it does not require conversion or provide a native
+PDF export command. Document skills use the execution Node's command tools and
+project-local dependencies, not a bundled interpreter.
+Model execution uses ADK's native OpenAI, Anthropic, Gemini, DeepSeek and Azure
+adapters or shared compatible endpoints. Sailry does not enable the Bedrock or
+Vertex SDKs or provide their IAM/ADC credential flows. Supported compatible
+endpoints can use the ordinary API-key configuration. HTTP clients use the
+shared ring TLS provider.
 
 The `sailry` management command controls the installed service. Sharing uses a
 profile-private Unix socket to request an invitation from the running Host; the

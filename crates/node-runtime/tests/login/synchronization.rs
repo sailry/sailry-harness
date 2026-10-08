@@ -264,6 +264,18 @@ async fn completes_from_the_cached_reference() {
             assert!(native.vision && native.reasoning);
             assert_eq!(native.efforts, [Effort::Low, Effort::High]);
             assert_eq!(native.tools, authentication == Authentication::Copilot);
+            assert_eq!(
+                native.capabilities,
+                Some(discovery::Capabilities {
+                    vision: Some(true),
+                    tools: (authentication == Authentication::Copilot).then_some(true),
+                    reasoning: Some(true),
+                    efforts: Some(vec![Effort::Low, Effort::High]),
+                    default_effort: (authentication == Authentication::ChatGpt)
+                        .then_some(Effort::High),
+                    ..Default::default()
+                })
+            );
             let unknown = &provider.models[1];
             assert_eq!(
                 (unknown.context, unknown.output),
@@ -277,11 +289,21 @@ async fn completes_from_the_cached_reference() {
             assert_eq!(unknown.tools, authentication == Authentication::ChatGpt);
             assert_eq!(unknown.efforts, [Effort::Low, Effort::High]);
             assert_eq!(unknown.default_effort, Effort::Low);
+            assert_eq!(
+                unknown.capabilities,
+                Some(discovery::Capabilities::default())
+            );
             let fallback = &provider.models[2];
+            assert_eq!(fallback.id, "unreferenced");
             assert_eq!((fallback.context, fallback.output), (200_000, 16_384));
-            assert!(!fallback.vision && !fallback.reasoning);
-            assert_eq!(fallback.tools, authentication == Authentication::ChatGpt);
+            assert!(fallback.vision && fallback.tools);
+            assert!(!fallback.reasoning);
             assert!(fallback.efforts.is_empty());
+            assert_eq!(fallback.default_effort, Effort::Default);
+            assert_eq!(
+                fallback.capabilities,
+                Some(discovery::Capabilities::default())
+            );
             assert_eq!(server.requests.lock().unwrap().len(), 4);
             fixture.close().await;
         }

@@ -155,7 +155,7 @@ Tool availability follows the selected Node, controller, platform, and permissio
 | Core model services | OpenAI, Anthropic, Google Gemini |
 | Additional hosted providers | xAI, DeepSeek, Qwen, Moonshot (Kimi), Mistral, MiniMax, Doubao, Zhipu, Baidu, Cohere |
 | Multi-model services | OpenCode Go and OpenCode Zen |
-| Cloud integrations | Azure OpenAI, Amazon Bedrock, Google Vertex AI |
+| Cloud integrations | Azure OpenAI |
 | Custom-compatible endpoints | OpenAI Responses, OpenAI Chat Completions, Anthropic Messages, Gemini generateContent |
 
 Use your own keys, a compatible gateway or local endpoint, or ChatGPT sign-in

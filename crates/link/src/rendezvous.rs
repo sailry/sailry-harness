@@ -56,6 +56,7 @@ struct Redemption {
 impl Relay {
     /// HTTPS is required except for literal loopback addresses used in local tests.
     pub fn new(address: &str) -> Result<Self, Fault> {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let base = Url::parse(address).map_err(|_| invalid())?;
         let loopback = base.host_str().is_some_and(|host| {
             host.trim_matches(['[', ']'])

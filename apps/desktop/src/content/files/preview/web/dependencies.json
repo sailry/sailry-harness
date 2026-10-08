@@ -1,4 +1,21 @@
 {
+  "docx-preview": {
+    "version": "0.4.1",
+    "integrity": "sha512-Dv4g+LeE0swHpPvNC0lAT0YsR5Zq5pAxw7d3vHQ8EChBLgIrqqe9VPL5nVt2HBJap8bEZbXUI0TJob7kBeNU9w=="
+  },
+  "jszip": {
+    "version": "3.10.2",
+    "integrity": "sha512-3l+rb15IOWtUhU0H5MFqES/T6Kh7abYwjosBey/vD6hDt8zoEffkSC5Ws5SGtgVw3gBx2NEbhTeSW1+kWkpyTQ=="
+  },
+  "@jvmr/pptx-to-html": {
+    "version": "1.1.2",
+    "integrity": "sha512-ixZ6ikF8j7uNNA1QdF0wWnZUd7nzhJhBnzjzKILwrCr73xb8b1h8ciZW+BCae+9OwMMF/Af9SiIdWkq5Zcg7Yw=="
+  },
+  "xlsx": {
+    "version": "0.20.3",
+    "url": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "integrity": "sha512-oLDq3jw7AcLqKWH2AhCpVTZl8mf6X2YReP+Neh0SJUzV/BdZYjth94tG5toiMB1PPrYtxOCfaoUCkvtuH+3AJA=="
+  },
   "pdfjs-dist": {
     "version": "6.3.289",
     "integrity": "sha512-ZHjSVpDa3D6izMq8/04lvkhkATUmL9px6ChPaXc1k6nU2Mrhlg1/7F0bdUqCwUjw3NsPTfPZsMDUU6ZIcRaeQw=="

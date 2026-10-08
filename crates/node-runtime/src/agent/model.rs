@@ -59,11 +59,8 @@ pub(super) async fn build(
         ingress: ingress.clone(),
         turn: invocation.turn.id,
         vision: metadata.is_none_or(|model| model.vision),
-        api: matches!(
-            provider.authentication,
-            Authentication::ApiKey | Authentication::Host
-        )
-        .then_some(opencode::api(provider.api, &config.model)?),
+        api: (provider.authentication == Authentication::ApiKey)
+            .then_some(opencode::api(provider.api, &config.model)?),
         tools: metadata.is_none_or(|model| model.tools),
         stop: stop.clone(),
     }))
@@ -122,13 +119,6 @@ pub(super) async fn configured(
         } else {
             native(provider, config, key, effort, None, None)?
         }
-    } else if provider.authentication == Authentication::Host {
-        tokio::select! {
-            biased;
-            _ = stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "cloud initialization cancelled")),
-            result = tokio::time::timeout(std::time::Duration::from_secs(30), cloud::host(provider, &config.model, effort)) =>
-                result.map_err(|_| Fault::new(ErrorCode::Unavailable, "cloud identity initialization timed out"))??,
-        }
     } else {
         crate::providers::login::validate(provider)?;
         Arc::new(authorization::Model {
@@ -159,7 +149,7 @@ pub(super) fn native(
                 "OpenCode requires a conversation identity",
             ));
         }
-        ModelApi::AzureOpenAi | ModelApi::AzureAi | ModelApi::Bedrock | ModelApi::Vertex => {
+        ModelApi::AzureOpenAi | ModelApi::AzureAi => {
             cloud::keyed(provider, &config.model, key, effort)?
         }
         ModelApi::DeepSeek => Arc::new(

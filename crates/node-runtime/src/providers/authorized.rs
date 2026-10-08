@@ -64,7 +64,7 @@ fn request(
                     .map_err(|_| invalid("discovery request identifier is invalid"))?,
             );
         }
-        Authentication::ApiKey | Authentication::Host => {
+        Authentication::ApiKey => {
             return Err(invalid("account authorization is required"));
         }
     }

@@ -55,14 +55,12 @@ fn native(format: &FileFormat, vision: bool, api: Option<ModelApi>) -> Option<&s
                             | ModelApi::Anthropic
                             | ModelApi::Gemini
                             | ModelApi::AzureOpenAi
-                            | ModelApi::Vertex
-                            | ModelApi::Bedrock
                     )
                 ) =>
         {
             Some("application/pdf")
         }
-        _ if matches!(api, Some(ModelApi::Gemini | ModelApi::Vertex)) => match format {
+        _ if matches!(api, Some(ModelApi::Gemini)) => match format {
             WaveformAudio => Some("audio/wav"),
             AudioInterchangeFileFormat => Some("audio/aiff"),
             Mpeg12AudioLayer3 | AdvancedAudioCoding | FreeLosslessAudioCodec => {

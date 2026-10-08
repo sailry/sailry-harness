@@ -161,8 +161,7 @@ pub(super) fn target(command: &Command) -> Option<Target> {
         Command::CreateWorktree { project, .. } | Command::RegisterWorktree { project, .. } => {
             Some(Target::Project(*project))
         }
-        Command::ExportPdf { worktree, .. }
-        | Command::WriteFile { worktree, .. }
+        Command::WriteFile { worktree, .. }
         | Command::InstallPlugin { worktree, .. }
         | Command::RestoreFileCheckpoint { worktree, .. }
         | Command::FinishFileUpload { worktree, .. }
@@ -356,9 +355,6 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
                     to: to.clone(),
                 }
             })
-        }
-        Command::ExportPdf { options, .. } => {
-            crate::office::export(root, options).map(Output::OfficeWritten)
         }
         Command::WriteFile {
             path,

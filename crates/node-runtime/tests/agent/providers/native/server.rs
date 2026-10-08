@@ -43,6 +43,7 @@ pub struct Server {
 
 impl Server {
     pub async fn start(api: ModelApi, reply: Reply) -> Self {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let suffix = if api == ModelApi::Anthropic {
             ""
@@ -157,15 +158,9 @@ async fn respond(
         }
         return stream.shutdown().await;
     }
-    let content_type = if api == ModelApi::Bedrock {
-        "application/json"
-    } else {
-        "text/event-stream"
-    };
     stream
         .write_all(
-            format!("HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nConnection: close\r\n\r\n")
-                .as_bytes(),
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
         )
         .await?;
     if let Reply::Wait(closed) = reply {
@@ -175,7 +170,10 @@ async fn respond(
         return Ok(());
     }
     match api {
-        ModelApi::DeepSeek | ModelApi::AzureAi | ModelApi::AzureOpenAi => {
+        ModelApi::ChatCompletions
+        | ModelApi::DeepSeek
+        | ModelApi::AzureAi
+        | ModelApi::AzureOpenAi => {
             let delta = if tool {
                 json!({"reasoning_content":"Inspect the file 🙂", "tool_calls":[{"index":0, "id":"native-call", "type":"function", "function":{"name":plugin_tool("files", "read_file"), "arguments":"{\"path\":\"native.txt\"}"}}]})
             } else {
@@ -237,7 +235,7 @@ async fn respond(
                 event_bytes(&mut stream, format!("event: {name}\ndata: {event}\n\n")).await?;
             }
         }
-        ModelApi::Gemini | ModelApi::Vertex => {
+        ModelApi::Gemini => {
             let usage = if matches!(reply, Reply::Usage) {
                 json!({"promptTokenCount":16, "candidatesTokenCount":3, "thoughtsTokenCount":1, "cachedContentTokenCount":6, "totalTokenCount":20})
             } else {
@@ -253,19 +251,6 @@ async fn respond(
                 event["candidates"][0]["groundingMetadata"] = grounding_metadata();
             }
             event_bytes(&mut stream, format!("data: {event}\n\n")).await?;
-        }
-        ModelApi::Bedrock => {
-            let content = if tool {
-                json!([{"toolUse":{"toolUseId":"native-call","name":plugin_tool("files", "read_file"),"input":{"path":"native.txt"}}}])
-            } else {
-                json!([{"text":ANSWER}])
-            };
-            let usage = if matches!(reply, Reply::Usage) {
-                json!({"inputTokens":16,"outputTokens":4,"totalTokens":20,"cacheReadInputTokens":6})
-            } else {
-                json!({"inputTokens":8,"outputTokens":4,"totalTokens":12})
-            };
-            stream.write_all(json!({"output":{"message":{"role":"assistant","content":content}}, "stopReason": if tool { "tool_use" } else { "end_turn" }, "usage":usage, "metrics":{"latencyMs":1}}).to_string().as_bytes()).await?;
         }
         _ => unreachable!(),
     }

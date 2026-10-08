@@ -115,7 +115,6 @@ fn estimates_custom_endpoints() {
         Authentication::ApiKey,
         Authentication::ChatGpt,
         Authentication::Copilot,
-        Authentication::Host,
     ] {
         fixture
             .database

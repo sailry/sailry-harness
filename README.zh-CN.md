@@ -133,7 +133,7 @@ Mobile ──── 加密连接 ──┤
 | 核心模型服务 | OpenAI、Anthropic、Google Gemini |
 | 其他托管供应商 | xAI、DeepSeek、Qwen、Moonshot（Kimi）、Mistral、MiniMax、Doubao、Zhipu、Baidu、Cohere |
 | 多模型服务 | OpenCode Go 与 OpenCode Zen |
-| 云服务集成 | Azure OpenAI、Amazon Bedrock、Google Vertex AI |
+| 云服务集成 | Azure OpenAI |
 | 自定义兼容接口 | OpenAI Responses、OpenAI Chat Completions、Anthropic Messages、Gemini generateContent |
 
 使用自己的密钥、兼容网关、本地接口，或在提供该选项时使用 ChatGPT 登录。

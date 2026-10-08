@@ -85,6 +85,7 @@ fn tr(key: &str) -> SharedString {
 }
 
 fn main() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     if updater::run_helper() {
         return;
     }

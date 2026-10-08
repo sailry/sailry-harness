@@ -262,8 +262,6 @@ pub(crate) fn channel(id: usize, provider: &Provider) -> Channel {
         id,
         name: provider.name.clone(),
         preset: match (provider.authentication, provider.api) {
-            (sailry_protocol::Authentication::Host, ModelApi::Bedrock) => Preset::BedrockIam,
-            (sailry_protocol::Authentication::Host, ModelApi::Vertex) => Preset::VertexAdc,
             (sailry_protocol::Authentication::ChatGptOAuth, _) => Preset::ChatGptOAuth,
             (sailry_protocol::Authentication::ChatGpt, _) => Preset::ChatGpt,
             (sailry_protocol::Authentication::Copilot, ModelApi::Responses) => {
@@ -273,8 +271,6 @@ pub(crate) fn channel(id: usize, provider: &Provider) -> Channel {
             (_, api) => match api {
                 ModelApi::AzureOpenAi => Preset::AzureOpenAi,
                 ModelApi::AzureAi => Preset::AzureAi,
-                ModelApi::Bedrock => Preset::Bedrock,
-                ModelApi::Vertex => Preset::Vertex,
                 ModelApi::DeepSeek => Preset::Hosted(super::vendors::Vendor::DeepSeek),
                 ModelApi::OpenCodeGo => Preset::OpenCodeGo,
                 ModelApi::OpenCodeZen => Preset::OpenCodeZen,

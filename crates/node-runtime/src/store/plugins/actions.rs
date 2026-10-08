@@ -265,11 +265,8 @@ impl Database {
                 | Command::SearchFiles { worktree, .. } => {
                     (Some(Action::ReadFiles), Some(*worktree), None)
                 }
-                Command::ReadOffice { worktree, .. } | Command::PreviewOffice { worktree, .. } => {
+                Command::ReadOffice { worktree, .. } => {
                     (Some(Action::ReadFiles), Some(*worktree), None)
-                }
-                Command::ExportPdf { worktree, .. } => {
-                    (Some(Action::WriteFiles), Some(*worktree), None)
                 }
                 Command::UploadFile(spec) => (Some(Action::WriteFiles), Some(spec.worktree), None),
                 Command::WriteFile { worktree, .. }

@@ -85,26 +85,6 @@ fn maps_preset_payloads(cx: &mut TestAppContext) {
             "https://fixture.services.ai.azure.com/models",
         ),
         (
-            Preset::Bedrock,
-            ModelApi::Bedrock,
-            "https://bedrock-runtime.us-east-1.amazonaws.com",
-        ),
-        (
-            Preset::BedrockIam,
-            ModelApi::Bedrock,
-            "https://bedrock-runtime.us-east-1.amazonaws.com",
-        ),
-        (
-            Preset::Vertex,
-            ModelApi::Vertex,
-            "https://aiplatform.googleapis.com",
-        ),
-        (
-            Preset::VertexAdc,
-            ModelApi::Vertex,
-            "https://aiplatform.googleapis.com",
-        ),
-        (
             Preset::Hosted(Vendor::Qwen),
             ModelApi::ChatCompletions,
             "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -211,7 +191,6 @@ fn maps_preset_payloads(cx: &mut TestAppContext) {
                     Preset::ChatGptOAuth => Authentication::ChatGptOAuth,
                     Preset::ChatGpt => Authentication::ChatGpt,
                     Preset::Copilot | Preset::CopilotResponses => Authentication::Copilot,
-                    Preset::BedrockIam | Preset::VertexAdc => Authentication::Host,
                     _ => Authentication::ApiKey,
                 };
                 let custom_endpoint = matches!(
@@ -240,9 +219,6 @@ fn maps_preset_payloads(cx: &mut TestAppContext) {
                         .endpoint
                         .update(cx, |input, cx| input.set_value(endpoint, window, cx));
                 }
-                editor.cloud.project.update(cx, |input, cx| {
-                    input.set_value("fixture-project", window, cx)
-                });
                 if authentication == Authentication::ApiKey {
                     editor.credential.update(cx, |input, cx| {
                         input.set_value("synthetic-editor-secret", window, cx)
@@ -271,13 +247,6 @@ fn maps_preset_payloads(cx: &mut TestAppContext) {
                 let options = match preset {
                     Preset::AzureOpenAi => Some(Options::AzureOpenAi {
                         api_version: "2024-10-21".into(),
-                    }),
-                    Preset::Bedrock | Preset::BedrockIam => Some(Options::Bedrock {
-                        region: "us-east-1".into(),
-                    }),
-                    Preset::Vertex | Preset::VertexAdc => Some(Options::Vertex {
-                        project: "fixture-project".into(),
-                        location: "global".into(),
                     }),
                     _ => None,
                 };

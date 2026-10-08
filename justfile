@@ -15,6 +15,7 @@ test-ui:
 
 test-source:
     bash scripts/python.sh -m unittest discover -s scripts/tests -v
+    bash scripts/python.sh -m unittest discover -s apps/desktop/src/content/files/preview/web -v
 
 test-plugins:
     bash scripts/python.sh scripts/test-plugins.py

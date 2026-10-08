@@ -14,6 +14,7 @@ async fn response(
     body: Vec<u8>,
     hold: bool,
 ) -> Result<StreamableHttpPostResponse, StreamableHttpError<reqwest::Error>> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let uri = format!("http://{}/mcp", listener.local_addr().unwrap());
     let peer = tokio::spawn(async move {

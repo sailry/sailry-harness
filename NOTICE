@@ -7,6 +7,8 @@ and Sailry Platform implementations, is licensed under Apache-2.0.
 Third-party materials retain their own licenses and attribution. See
 third_party_licenses/ and the notices alongside vendor/ and bundled assets.
 These include GPUI Kit/GPUI, ADK, Ghostty, fonts, icons and other dependencies.
+Focused ADK TLS patches retain their upstream sources and licenses in
+vendor/adk-model/ and vendor/adk-gemini/.
 Imported Ghostty shell integration contains GPL-3.0-or-later material; the root
 Apache license does not relicense those scripts. Relevant notices and GPL text
 remain in third_party_licenses/.

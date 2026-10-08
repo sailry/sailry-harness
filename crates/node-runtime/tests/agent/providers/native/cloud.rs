@@ -1,32 +1,14 @@
 use super::*;
 use sailry_protocol::conversation::cloud::Options;
-#[path = "cloud/identity.rs"]
-mod identity;
 #[path = "cloud/requests.rs"]
 mod requests;
-#[path = "cloud/streaming.rs"]
-mod streaming;
-#[path = "cloud/transfers.rs"]
-mod transfers;
 
-const APIS: [ModelApi; 4] = [
-    ModelApi::AzureOpenAi,
-    ModelApi::AzureAi,
-    ModelApi::Bedrock,
-    ModelApi::Vertex,
-];
+const APIS: &[ModelApi] = &[ModelApi::AzureOpenAi, ModelApi::AzureAi];
 
 pub(super) fn options(api: ModelApi) -> Option<Options> {
     match api {
         ModelApi::AzureOpenAi => Some(Options::AzureOpenAi {
             api_version: "2024-10-21".into(),
-        }),
-        ModelApi::Bedrock => Some(Options::Bedrock {
-            region: "us-east-1".into(),
-        }),
-        ModelApi::Vertex => Some(Options::Vertex {
-            project: "fixture-project".into(),
-            location: "global".into(),
         }),
         _ => None,
     }
@@ -34,7 +16,7 @@ pub(super) fn options(api: ModelApi) -> Option<Options> {
 
 #[tokio::test]
 async fn restores_frozen_requests() {
-    for api in APIS {
+    for &api in APIS {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Text).await;
             let fixture = Fixture::new(remote, api, &server.endpoint).await;
@@ -65,8 +47,6 @@ async fn restores_frozen_requests() {
             if let Some(options) = &mut changed.options {
                 match options {
                     Options::AzureOpenAi { api_version } => *api_version = "2020-01-01".into(),
-                    Options::Bedrock { region } => *region = "eu-west-1".into(),
-                    Options::Vertex { project, .. } => *project = "changed-project".into(),
                 }
             }
             execute(
@@ -134,26 +114,6 @@ async fn restores_frozen_requests() {
                         assert_eq!(request.body["model"], "fixture-a");
                         assert_eq!(request.body["max_tokens"], 512);
                     }
-                    ModelApi::Bedrock => {
-                        assert_eq!(request.path, "/v1/model/fixture-a/converse");
-                        assert_eq!(
-                            request.headers["authorization"],
-                            format!("Bearer {}", server::KEY)
-                        );
-                        assert_eq!(request.body["inferenceConfig"]["maxTokens"], 512);
-                    }
-                    ModelApi::Vertex => {
-                        assert_eq!(
-                            request.path,
-                            "/v1/v1/projects/fixture-project/locations/global/publishers/google/models/fixture-a:streamGenerateContent?alt=sse"
-                        );
-                        assert_eq!(request.headers["x-goog-api-key"], server::KEY);
-                        assert_eq!(request.body["generationConfig"]["maxOutputTokens"], 512);
-                        assert_eq!(
-                            request.body["generationConfig"]["thinkingConfig"]["thinkingLevel"],
-                            "high"
-                        );
-                    }
                     _ => unreachable!(),
                 }
             }
@@ -165,7 +125,7 @@ async fn restores_frozen_requests() {
 
 #[tokio::test]
 async fn records_usage_and_cancels_requests() {
-    for api in APIS {
+    for &api in APIS {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Usage).await;
             let fixture = Fixture::new(remote, api, &server.endpoint).await;
@@ -183,7 +143,7 @@ async fn records_usage_and_cancels_requests() {
                     input: 16,
                     output: 4,
                     cached_input: 6,
-                    reasoning: u64::from(api != ModelApi::Bedrock)
+                    reasoning: 1
                 }],
                 "{api:?}"
             );

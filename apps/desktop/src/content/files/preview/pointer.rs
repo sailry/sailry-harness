@@ -1,6 +1,5 @@
-//! GPUI's normal macOS window has no tracking area. Once a native child owns
-//! the responder, AppKit can stop delivering mouse moves to GPUI. Kit b79f4ce
-//! has no child-view event adapter; share one parent tracking area per window.
+//! Native previews share one key-window tracking area on their parent view.
+//! Each child retains the adapter; the last preview removes its tracking area.
 use objc2::{AnyThread, rc::Retained};
 use objc2_app_kit::{NSTrackingArea, NSTrackingAreaOptions, NSView};
 use std::{
@@ -20,10 +19,11 @@ pub(super) struct Pointer {
 }
 
 impl Pointer {
-    pub(super) fn attach(page: &wry::WebView) -> Rc<Self> {
-        let parent = unsafe { page.webview().superview() }.expect("preview has a native parent");
+    pub(super) fn attach(page: &wry::WebView) -> Result<Rc<Self>, ()> {
+        // SAFETY: Wry retains the view, and preview mounting runs on AppKit's thread.
+        let parent = unsafe { page.webview().superview() }.ok_or(())?;
         let key = Retained::as_ptr(&parent) as usize;
-        PARENTS.with(|parents| {
+        Ok(PARENTS.with(|parents| {
             let mut parents = parents.borrow_mut();
             if let Some(existing) = parents.get(&key).and_then(Weak::upgrade) {
                 return existing;
@@ -45,7 +45,7 @@ impl Pointer {
             let pointer = Rc::new(Self { parent, area });
             parents.insert(key, Rc::downgrade(&pointer));
             pointer
-        })
+        }))
     }
 }
 

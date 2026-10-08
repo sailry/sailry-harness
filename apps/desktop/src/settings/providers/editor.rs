@@ -8,7 +8,6 @@ mod layout_tests;
 mod tests;
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{
-    alert::Alert,
     button::{Button, ButtonVariants},
     dialog::DialogFooter,
     form::{Field, Form},
@@ -153,12 +152,6 @@ impl Editor {
         let name = initial.as_ref().map(|c| c.name.clone()).unwrap_or_default();
         let endpoint = initial
             .as_ref()
-            // The saved endpoint is resolved for execution. A matching regional
-            // default remains automatic in the editor; custom overrides stay fixed.
-            .filter(|channel| {
-                cloud::endpoint(channel.options.as_ref()).as_deref()
-                    != Some(channel.endpoint.as_str())
-            })
             .map(|c| c.endpoint.clone())
             .unwrap_or_default();
         let configured = initial.as_ref().is_some_and(|c| c.credential_configured);
@@ -458,7 +451,7 @@ impl Render for Editor {
                 ),
             );
         }
-        form = self.cloud_form(form, cx);
+        form = self.cloud_form(form);
         if preset.key_auth() {
             form = form.child(
                 Field::new().label(tr("provider_api_key")).child(
@@ -498,15 +491,6 @@ impl Render for Editor {
             .when(preset.oauth(), |body| {
                 body.child(self.oauth_form(window, cx))
             })
-            .when(
-                preset.authentication() == sailry_protocol::Authentication::Host,
-                |body| {
-                    body.child(
-                        Alert::info("cloud-identity-note", tr("provider_host_identity_note"))
-                            .small(),
-                    )
-                },
-            )
             .child(
                 h_flex()
                     .gap_2()

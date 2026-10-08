@@ -316,12 +316,12 @@ fn rejects_planned_worktree_changes() {
 }
 
 #[test]
-fn scopes_office_writes_to_project_authority() {
+fn scopes_file_writes_to_project_authority() {
     for mode in [WorkMode::Code, WorkMode::Plan] {
         for permission in [Permission::Ask, Permission::Project, Permission::Full] {
             let fixture = Fixture::with_mode(permission, mode);
             {
-                let tool = crate::plugins::tools::alias("files", "export_pdf");
+                let tool = crate::plugins::tools::alias("files", "write_file");
                 let mut request = fixture.request.clone();
                 request.tool_name = tool;
                 let source = crate::store::agent::permissions::source(

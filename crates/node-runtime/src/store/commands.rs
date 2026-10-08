@@ -557,8 +557,6 @@ pub(super) fn execute(
         | Command::ListDirectory { .. }
         | Command::ReadFile { .. }
         | Command::ReadOffice { .. }
-        | Command::ExportPdf { .. }
-        | Command::PreviewOffice { .. }
         | Command::DownloadFile { .. }
         | Command::UploadFile(_)
         | Command::StageSshUpload(_)

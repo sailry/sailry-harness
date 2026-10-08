@@ -9,7 +9,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-mod cloud;
 mod keys;
 mod mapping;
 
@@ -199,9 +198,6 @@ fn preserves_target_and_draft(cx: &mut TestAppContext) {
                             .endpoint
                             .update(cx, |input, cx| input.set_value(endpoint, window, cx));
                     }
-                    editor.cloud.project.update(cx, |input, cx| {
-                        input.set_value("fixture-project", window, cx)
-                    });
                     if preset.key_auth() {
                         editor.credential.update(cx, |input, cx| {
                             input.set_value("synthetic-editor-secret", window, cx)

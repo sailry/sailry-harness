@@ -19,8 +19,9 @@ try {
   const response = await fetch('document');
   if (!response.ok) throw new Error('Document download failed');
   const data = await response.arrayBuffer();
-  const renderer = await import('./pdf.mjs');
-  await renderer.open(data, report);
+  const format = location.hash.slice(1);
+  const renderer = await import(format === 'pdf' ? './pdf.mjs' : './office.mjs');
+  await renderer.open(data, report, format);
 } catch (error) {
   console.error('Document preview failed', error);
   report({ error: error?.name === 'PasswordException' ? 'password' : 'failed', diagnostic: String(error) });

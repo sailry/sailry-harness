@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn completes_tools() {
-    for api in APIS {
+    for &api in APIS {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Tool).await;
             let fixture = Fixture::new(remote, api, &server.endpoint).await;
@@ -34,7 +34,7 @@ async fn completes_tools() {
 
 #[tokio::test]
 async fn bounds_transient_failure_retries() {
-    for api in APIS {
+    for &api in APIS {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Failure).await;
             let fixture = Fixture::new(remote, api, &server.endpoint).await;
@@ -53,8 +53,7 @@ async fn bounds_transient_failure_retries() {
                 page.runs
             );
             assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
-            let attempts = if api == ModelApi::Bedrock { 1 } else { 6 };
-            assert_eq!(server.requests.lock().unwrap().len(), attempts, "{api:?}");
+            assert_eq!(server.requests.lock().unwrap().len(), 6, "{api:?}");
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
         }
@@ -63,7 +62,7 @@ async fn bounds_transient_failure_retries() {
 
 #[tokio::test]
 async fn rejects_redirects() {
-    for api in APIS {
+    for &api in APIS {
         for remote in [false, true] {
             let target = Server::start(api, Reply::Text).await;
             let server = Server::start(api, Reply::Redirect(target.endpoint.clone())).await;

@@ -10,12 +10,7 @@ fn refreshes_metadata_preserves_limits(cx: &mut TestAppContext) {
         Reply::Json(catalog::metadata())
     }));
     for remote in [false, true] {
-        for preset in [
-            Preset::AzureOpenAi,
-            Preset::AzureAi,
-            Preset::BedrockIam,
-            Preset::VertexAdc,
-        ] {
+        for preset in [Preset::AzureOpenAi, Preset::AzureAi] {
             let fixture = Fixture::with_catalog(remote, Some(&catalog.endpoint));
             fixture.execute(Command::RefreshModelCatalog);
             let manual = super::super::super::super::data::Model {

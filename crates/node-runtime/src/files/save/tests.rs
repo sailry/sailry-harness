@@ -190,25 +190,13 @@ mod unix {
 }
 
 #[test]
-fn creates_missing_parents_for_text_and_artifacts() {
+fn creates_missing_parents_for_text() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().canonicalize().unwrap();
     save(&root, "output/资料/report.txt", "Report", None).unwrap();
-    write_binary(
-        &root,
-        "images/nested/image.png",
-        b"binary fixture",
-        None,
-        1024,
-    )
-    .unwrap();
     assert_eq!(
         std::fs::read_to_string(root.join("output/资料/report.txt")).unwrap(),
         "Report"
-    );
-    assert_eq!(
-        std::fs::read(root.join("images/nested/image.png")).unwrap(),
-        b"binary fixture"
     );
     assert!(
         save(

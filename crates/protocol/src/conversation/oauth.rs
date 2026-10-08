@@ -44,7 +44,7 @@ impl Options {
                 editor_version: "vscode/1.107.0".into(),
                 editor_plugin_version: "copilot-chat/0.35.0".into(),
             }),
-            Authentication::ApiKey | Authentication::Host => None,
+            Authentication::ApiKey => None,
         }
     }
 
@@ -136,7 +136,6 @@ mod tests {
             );
         }
         assert!(Options::defaults(Authentication::ApiKey).is_none());
-        assert!(Options::defaults(Authentication::Host).is_none());
     }
 
     #[test]

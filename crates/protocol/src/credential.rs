@@ -7,8 +7,6 @@ use crate::{CredentialId, ProviderId};
 #[serde(rename_all = "snake_case")]
 pub enum Authentication {
     ApiKey,
-    /// Resolve the execution Node's cloud identity; never a controller credential.
-    Host,
     /// Official Sign in with ChatGPT registration and public API access.
     ChatGpt,
     /// Codex device authorization and its account-scoped backend.

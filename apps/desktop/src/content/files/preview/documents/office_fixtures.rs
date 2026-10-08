@@ -44,8 +44,8 @@ pub(super) fn documents(output: &std::path::Path) -> Vec<(String, Vec<u8>, Strin
                 root.join(&path),
             )
             .unwrap();
-            let Output::OfficePreview(preview) = client
-                .execute(client.prepare(Command::PreviewOffice {
+            let Output::FileDownload(download) = client
+                .execute(client.prepare(Command::DownloadFile {
                     worktree,
                     path: path.clone(),
                 }))
@@ -56,16 +56,10 @@ pub(super) fn documents(output: &std::path::Path) -> Vec<(String, Vec<u8>, Strin
             };
             let mut bytes = Vec::new();
             client
-                .download(
-                    &preview.download,
-                    &mut bytes,
-                    CancellationToken::new(),
-                    |_| {},
-                )
+                .download(&download, &mut bytes, CancellationToken::new(), |_| {})
                 .await
                 .unwrap();
             std::fs::copy(root.join(&path), output.join(&path)).unwrap();
-            std::fs::write(output.join(format!("preview-{path}.pdf")), &bytes).unwrap();
             documents.push((path, bytes, case["text"].as_str().unwrap().to_owned()));
         }
         node.shutdown().await.unwrap();
