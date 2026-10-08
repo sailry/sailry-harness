@@ -285,6 +285,7 @@ fn composer_action_states(cx: &mut TestAppContext) {
                 Theme::change(mode, Some(window), cx);
                 controls.update(cx, |view, cx| {
                     view.active = active;
+                    view.disabled = false;
                     cx.notify();
                 });
                 let composer = &variant(cx).unwrap().composer;
@@ -307,6 +308,31 @@ fn composer_action_states(cx: &mut TestAppContext) {
             assert_action_fill(visual, &style.active);
             visual.simulate_mouse_up(bounds.center(), MouseButton::Left, Modifiers::default());
             settle(visual);
+            // Leaving hover must restore the solid idle fill, not Kit's
+            // translucent custom default.
+            visual.simulate_mouse_move(point(px(300.), px(100.)), None, Modifiers::default());
+            settle(visual);
+            assert_action_fill(visual, &style.background);
+            visual.update(|_, cx| {
+                controls.update(cx, |view, cx| {
+                    view.disabled = true;
+                    cx.notify();
+                });
+            });
+            settle(visual);
+            let disabled_fill = visual.update(|_, cx| {
+                if mode.is_dark() {
+                    gpui_kit::component::theme::try_parse_color(&style.background)
+                        .unwrap()
+                        .opacity(0.15)
+                } else {
+                    cx.theme().secondary_active
+                }
+            });
+            assert_painted_fill(visual, disabled_fill.into());
+            visual.simulate_mouse_move(bounds.center(), None, Modifiers::default());
+            settle(visual);
+            assert_painted_fill(visual, disabled_fill.into());
         }
     }
 }
@@ -315,13 +341,17 @@ fn assert_action_fill(cx: &mut VisualTestContext, color: &str) {
     let expected: Background = gpui_kit::component::theme::try_parse_color(color)
         .unwrap()
         .into();
+    assert_painted_fill(cx, expected);
+}
+
+fn assert_painted_fill(cx: &mut VisualTestContext, expected: Background) {
     cx.update(|window, _| {
         assert!(
             window
                 .painted_quads()
                 .iter()
                 .any(|quad| quad.background == expected),
-            "composer action did not paint {color}"
+            "composer action did not paint the expected fill: {expected:?}"
         );
     });
 }

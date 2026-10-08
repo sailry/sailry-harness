@@ -42,7 +42,15 @@ pub(super) fn content(button: Button, disabled: bool, active: bool, cx: &App) ->
         }
     });
     let button = if let Some(style) = style {
-        button.custom(appearance(style, cx))
+        // Kit's custom variant mixes its idle fill to 20% alpha. Replay the
+        // package's exact fill for enabled actions; Kit still owns pointer
+        // states and disabled appearance.
+        let button = button.custom(appearance(style, cx));
+        if disabled {
+            button
+        } else {
+            button.bg(color(&style.background))
+        }
     } else {
         button
     };
