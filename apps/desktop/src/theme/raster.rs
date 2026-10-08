@@ -1,5 +1,5 @@
 use super::package::{Decoration, Fit};
-use gpui_kit::{Size, component::*, *};
+use gpui_kit::{Size, *};
 use std::sync::Arc;
 
 #[cfg(test)]
