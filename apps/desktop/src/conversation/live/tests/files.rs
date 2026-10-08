@@ -10,6 +10,12 @@ fn markdown_cards_open_locally_and_remotely(cx: &mut TestAppContext) {
         ("slides.pptx", "Slides"),
         ("report.pdf", "Report"),
         ("preview.html", "Preview"),
+        ("report.md", "Markdown report"),
+        ("notes.txt", "Notes"),
+        ("data.json", "Data"),
+        ("stats.py", "Script"),
+        ("execution.log", "Log"),
+        ("README", "Readme"),
     ] {
         for remote in [false, true] {
             let fixture = fixture::Fixture::with_server(remote, |runtime| {

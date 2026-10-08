@@ -25,7 +25,7 @@ enum Operation {
     Move(String, String),
     Upload(String),
     Download(String),
-    Open(String),
+    Open(String, system::Action),
     Action(RequestId, Action),
 }
 
@@ -81,7 +81,7 @@ pub(in crate::plugins) fn module(scope: Scope, host: Arc<Host>, cx: &mut App) ->
         .async_function("prepareMove",move |args|send(&moving,Operation::Move(args.string(0)?.into(),args.string(1)?.into()),true).map(complete))
         .async_function("selectUpload",move |args|send(&upload,Operation::Upload(args.string(0)?.into()),true).map(complete))
         .async_function("startDownload",move |args|send(&download,Operation::Download(args.string(0)?.into()),false).map(complete))
-        .async_function("openSystem",move |args|send(&open,Operation::Open(args.string(0)?.into()),false).map(complete))
+        .async_function("openSystem",move |args|send(&open,Operation::Open(args.string(0)?.into(),system::Action::Open),false).map(complete))
         .async_function("transferAction",move |args| {
             let id=args.string(0)?.parse().map_err(HostError::new)?;
             let value=serde_json::from_value(decode(args.value(1)?)?).map_err(|error|HostError::new(error.to_string()))?;
@@ -432,7 +432,7 @@ impl Controller {
                 })
                 .detach();
             }
-            Operation::Open(path) => {
+            Operation::Open(path, action) => {
                 let local = cx.global::<crate::backend::Services>().local.target()
                     == access.client.target();
                 let stopping = stop.clone();
@@ -451,7 +451,7 @@ impl Controller {
                             if let Some(copy) = opened.copy {
                                 owner.copies.push(copy);
                             }
-                            cx.open_with_system(&opened.path);
+                            system::show(action, &opened.path, cx);
                             Ok(Value::Null)
                         })
                         .unwrap_or(Err(unavailable()));
@@ -467,6 +467,7 @@ pub(in crate::plugins) fn open_captured(
     binding: &Binding,
     host: &Arc<Host>,
     path: String,
+    action: system::Action,
     cx: &mut App,
 ) -> tokio::sync::oneshot::Receiver<Result<Value, Fault>> {
     let (reply, receive) = tokio::sync::oneshot::channel();
@@ -483,7 +484,7 @@ pub(in crate::plugins) fn open_captured(
     registry(cx).update(cx, |controller, cx| {
         controller.request(
             access,
-            Operation::Open(path),
+            Operation::Open(path, action),
             host.stop_token(),
             false,
             reply,

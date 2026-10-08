@@ -90,6 +90,65 @@ fn submit_to(fixture: &Fixture, session: SessionId, text: String) -> TurnId {
 }
 
 #[gpui::test]
+fn excludes_project_writes(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let mut fixture = Fixture::with_tools(remote, ["main.rs", "data.json"].into_iter().map(|path| (
+            crate::agent_fixture::plugin_tool("files", "write_file"),
+            serde_json::json!({"path": path, "text": "written fixture", "expected_revision": null}),
+        )).collect());
+        let mut config = fixture.session.config.clone();
+        config.permission = sailry_protocol::Permission::Full;
+        let Output::Session(session) = fixture.execute(Command::SetSessionConfig {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            config,
+        }) else {
+            panic!("session expected")
+        };
+        fixture.session = session;
+        let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
+        fixture.execute(Command::SubmitTurn {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            message: "Write the fixture files".into(),
+        });
+        wait(visual, |cx| {
+            view.read(cx)
+                .history
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot
+                        .page
+                        .runs
+                        .iter()
+                        .any(|run| run.status == Status::Completed)
+                })
+        });
+        for path in ["main.rs", "data.json"] {
+            assert_eq!(
+                std::fs::read_to_string(fixture.directory.path().join("project").join(path))
+                    .unwrap(),
+                "written fixture"
+            );
+        }
+        tap(visual, "live-assets");
+        let panel = view.read_with(visual, |view, _| view.assets.clone());
+        wait(visual, |cx| !panel.read(cx).loading);
+        panel.read_with(visual, |panel, _| {
+            assert!(!panel.failed);
+            assert!(
+                panel.groups.is_empty(),
+                "ordinary file writes are not deliveries"
+            );
+            assert!(panel.before.is_none());
+        });
+        fixture.close();
+    }
+}
+
+#[gpui::test]
 fn browsing_preserves_drafts(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
@@ -163,12 +222,33 @@ fn browsing_preserves_drafts(cx: &mut TestAppContext) {
             cx.notify();
         });
         wait(visual, |_| true);
+        let outputs = panel.read_with(visual, |panel, _| {
+            panel
+                .groups
+                .iter()
+                .filter(|group| group.kind == Kind::Artifact)
+                .map(|group| format!("asset-{}-0", group.sequence))
+                .collect::<Vec<_>>()
+        });
+        assert!(
+            visual
+                .debug_bounds(Box::leak(outputs[0].clone().into_boxed_str()))
+                .is_some()
+        );
+        for duplicate in outputs.into_iter().skip(1) {
+            assert!(
+                visual
+                    .debug_bounds(Box::leak(duplicate.into_boxed_str()))
+                    .is_none(),
+                "repeated outputs must stay hidden across loaded pages"
+            );
+        }
         let chosen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let captured = chosen.clone();
         visual.update(|_, cx| {
             cx.subscribe(&view, move |_, event, _| {
-                if let Event::FileAt(worktree, path) = event {
-                    captured.borrow_mut().push((*worktree, path.clone()));
+                if let Event::Artifact(worktree, file) = event {
+                    captured.borrow_mut().push((*worktree, file.clone()));
                 }
             })
             .detach();
@@ -182,10 +262,11 @@ fn browsing_preserves_drafts(cx: &mut TestAppContext) {
             format!("asset-{}-0", group.sequence)
         });
         tap(visual, Box::leak(selector.into_boxed_str()));
-        assert_eq!(
-            &*chosen.borrow(),
-            &[(fixture.session.worktree, "report.md".into())]
-        );
+        let chosen = chosen.borrow();
+        assert_eq!(chosen.len(), 1);
+        assert_eq!(chosen[0].0, fixture.session.worktree);
+        assert_eq!(chosen[0].1.path, "report.md");
+        assert_eq!(chosen[0].1.mime, "text/markdown");
         assert!(visual.debug_bounds("asset-panel").is_none());
         assert_eq!(
             view.read_with(visual, |view, cx| view.draft(cx).to_string()),

@@ -23,6 +23,39 @@ fn hit(sequence: u64) -> assets::Group {
     }
 }
 
+#[test]
+fn unique_outputs_preserve_scope_and_latest_origin() {
+    let newest = hit(30);
+    let mut older = newest.clone();
+    older.sequence = 20;
+    older.turn = TurnId::new();
+    older.items.push(assets::Target::File {
+        path: "data.json".into(),
+    });
+    let mut input = newest.clone();
+    input.sequence = 10;
+    input.kind = assets::Kind::Resource;
+    let mut elsewhere = newest.clone();
+    elsewhere.sequence = 5;
+    elsewhere.worktree = WorktreeId::new();
+    let groups = [newest, older, input, elsewhere];
+    let visible = unique(&groups)
+        .map(|(group, index, _)| (group.sequence, index))
+        .collect::<Vec<_>>();
+    assert_eq!(visible, [(30, 0), (20, 1), (10, 0), (5, 0)]);
+    assert_eq!(unique(&groups[..1]).count(), 1);
+    assert_eq!(
+        unique(&groups[..2]).count(),
+        2,
+        "loading older pages must not duplicate outputs"
+    );
+    assert_eq!(
+        groups[1].items.len(),
+        2,
+        "canonical page metadata stays intact"
+    );
+}
+
 struct Scans {
     pages: Mutex<std::collections::VecDeque<assets::Page>>,
     queries: Mutex<Vec<Query>>,

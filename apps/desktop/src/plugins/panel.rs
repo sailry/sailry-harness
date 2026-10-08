@@ -19,7 +19,7 @@ pub(crate) struct Panel {
     pub(crate) resource: Option<Entity<super::resource::State>>,
     browser: Option<Entity<crate::browser::Browser>>,
     pub(crate) documents: Option<Entity<super::documents::Controller>>,
-    pub(crate) pending_document: Option<(String, Option<usize>)>,
+    pub(crate) pending_document: Option<super::documents::routes::OpenTarget>,
     pub(crate) artifact: Option<super::previews::Resource>,
     pub(super) pane: Option<super::panes::Resource>,
     pub(super) pane_events: super::panes::Events,

@@ -15,7 +15,7 @@ fn page(fixture: &Fixture, query: Query) -> assets::Page {
 #[test]
 fn extracts_explicit_files_and_deduplicates() {
     let mut fixture = Fixture::new();
-    fixture.completed(&["[Report](report.md) ![Image](image.png) [Again](./report.md#L3) `![Code](code.png)` [Outside](../secret) [Web](https://example.test/a.png) plain.txt"]);
+    fixture.completed(&["[Report](report.md)\n\n![Image](image.png)\n\n[Again](./report.md)\n\nSource: [Code](src/main.rs#L3) `![Code](code.png)` [Outside](../secret) [Web](https://example.test/a.png) plain.txt"]);
     let result = page(&fixture, query());
     assert_eq!(result.groups.len(), 1);
     assert_eq!(
@@ -48,7 +48,10 @@ fn includes_inputs_and_inline_images() {
     let mut fixture = Fixture::new();
     let mut user = AdkEvent::new("asset-input");
     user.author = "user".into();
-    user.set_content(adk_core::Content::new("user").with_text("[Input](input.txt)"));
+    user.set_content(
+        adk_core::Content::new("user")
+            .with_text("See [Input](input.txt)\n\n> [Quoted](quoted.txt)"),
+    );
     let mut assistant = AdkEvent::new("asset-image");
     assistant.author = "assistant".into();
     let mut image = std::io::Cursor::new(Vec::new());
@@ -69,6 +72,17 @@ fn includes_inputs_and_inline_images() {
     assert_eq!(result.groups[0].kind, Kind::Artifact);
     assert!(matches!(result.groups[0].items[0], Target::Image(_)));
     assert_eq!(result.groups[1].kind, Kind::Resource);
+    assert_eq!(
+        result.groups[1].items,
+        [
+            Target::File {
+                path: "input.txt".into()
+            },
+            Target::File {
+                path: "quoted.txt".into()
+            },
+        ]
+    );
     assert_eq!(
         page(
             &fixture,
@@ -170,7 +184,7 @@ fn validates_bounds_and_uses_read_only_dispatch() {
 }
 
 #[test]
-fn preserves_literal_reference_and_written_paths() {
+fn preserves_literal_references_without_indexing_writes() {
     let mut fixture = Fixture::new();
     fixture.completed(&["fixture"]);
     let mut entry = fixture.read(None, 1).page.entries[0].clone();
@@ -201,6 +215,60 @@ fn preserves_literal_reference_and_written_paths() {
     assert_eq!(
         extract::items(&entry, Some("/project")),
         [Target::File { path: path.into() }]
+    );
+}
+
+#[test]
+fn project_writes_are_not_outputs() {
+    let mut fixture = Fixture::new();
+    fixture.completed(&["fixture"]);
+    let mut entry = fixture.read(None, 1).page.entries[0].clone();
+    entry.parts = (0..3_000)
+        .map(|index| Part::ToolResult {
+            id: None,
+            name: crate::plugins::tools::alias("files", "write_file"),
+            result: serde_json::to_value(Output::FileWritten(FileWritten {
+                path: format!("src/module_{index}.rs"),
+                revision: "written".into(),
+                size: 7,
+            }))
+            .unwrap(),
+            images: vec![],
+        })
+        .collect();
+    assert!(extract::items(&entry, Some("/project")).is_empty());
+    entry.parts.push(Part::Text("Changed [Source](src/main.rs).\n\n[Data](output/data.json)\n\n[Script](output/stats.py)\n\n[Log](output/execution.log)".into()));
+    assert_eq!(
+        extract::items(&entry, Some("/project")),
+        [
+            Target::File {
+                path: "output/data.json".into()
+            },
+            Target::File {
+                path: "output/stats.py".into()
+            },
+            Target::File {
+                path: "output/execution.log".into()
+            },
+        ]
+    );
+}
+
+#[test]
+fn distinguishes_deliveries_from_navigation() {
+    let mut fixture = Fixture::new();
+    fixture.completed(&["[Line](src/main.rs:42)\n\n[Section](guide.md#intro)\n\n[One](a.json) [Two](b.json)\n\nSee [Report](report.pdf)\n\n> [Source](src/quoted.rs)\n\n> > [Nested](src/nested.rs)\n\n`[Code](code.py)`\n\n[Web](https://example.test) [Mixed](mixed.json)\n\n- [Report](report.pdf)\n- [Data](data.json)"]);
+    let result = page(&fixture, query());
+    assert_eq!(
+        result.groups[0].items,
+        [
+            Target::File {
+                path: "report.pdf".into()
+            },
+            Target::File {
+                path: "data.json".into()
+            },
+        ]
     );
 }
 

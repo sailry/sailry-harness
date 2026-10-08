@@ -336,6 +336,27 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let binding = source.read(cx).binding();
+        let preview = source.read(cx).preview_available(&file.mime, cx);
+        let image = crate::content::images::supports(&file.path);
+        if image {
+            source.update(cx, |view, cx| {
+                view.open_file_image(worktree, file.path, window, cx)
+            });
+            return;
+        }
+        let document = source.read(cx).renderer_available(
+            sailry_protocol::plugin::desktop::ResourceKind::Documents,
+            cx,
+        );
+        if !preview && (crate::content::files::external(&file.path) || !document) {
+            self.reveal_file_in_system((binding.client.target(), worktree), file.path, window, cx);
+            return;
+        }
+        if crate::content::files::markdown(&file.path) || !preview {
+            self.open_artifact_document((binding.client.target(), worktree), file.path, window, cx);
+            return;
+        }
         let original = source.clone();
         let retry = file.clone();
         if self.guard_file_navigation(window, cx, move |shell, window, cx| {
@@ -343,7 +364,6 @@ impl Shell {
         }) {
             return;
         }
-        let binding = source.read(cx).binding();
         let panel =
             cx.new(|cx| crate::content::files::Panel::new(source, binding, worktree, file, cx));
         self.side_resource = Some(SideResource::Artifact(panel));

@@ -19,6 +19,42 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.show_file_in_system(
+            scope,
+            path,
+            directory,
+            crate::plugins::file_transfers::system::Action::Open,
+            window,
+            cx,
+        );
+    }
+
+    pub(crate) fn reveal_file_in_system(
+        &mut self,
+        scope: (NodeId, WorktreeId),
+        path: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_file_in_system(
+            scope,
+            path,
+            false,
+            crate::plugins::file_transfers::system::Action::Reveal,
+            window,
+            cx,
+        );
+    }
+
+    fn show_file_in_system(
+        &mut self,
+        scope: (NodeId, WorktreeId),
+        path: String,
+        directory: bool,
+        action: crate::plugins::file_transfers::system::Action,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(transport) = self
             .live
             .as_ref()
@@ -57,7 +93,7 @@ impl Shell {
                             }
                             cx.global_mut::<Copies>().0.push(copy);
                         }
-                        cx.open_with_system(&opened.path);
+                        crate::plugins::file_transfers::system::show(action, &opened.path, cx);
                     }
                     Err(key) => failure(key, window, cx),
                 });

@@ -41,15 +41,7 @@ impl Panel {
             .read(cx)
             .entries
             .values()
-            .find(|info| {
-                info.summary.enabled
-                    && info.extension.as_ref().is_some_and(|extension| {
-                        extension.desktop.as_ref().is_some_and(|desktop| {
-                            desktop.entry.is_some()
-                                && desktop.previews.contains(&resource.file.mime)
-                        })
-                    })
-            })
+            .find(|info| accepts(info, &resource.file.mime))
             .map(|info| info.summary.reference());
         if let Some(package) = package
             && self.selected.as_ref() != Some(&package)
@@ -57,6 +49,15 @@ impl Panel {
             self.open(package, window, cx);
         }
     }
+}
+
+pub(super) fn accepts(info: &sailry_protocol::plugin::Info, mime: &str) -> bool {
+    info.summary.enabled
+        && info.extension.as_ref().is_some_and(|extension| {
+            extension.desktop.as_ref().is_some_and(|desktop| {
+                desktop.entry.is_some() && desktop.previews.iter().any(|value| value == mime)
+            })
+        })
 }
 
 pub(super) fn module(

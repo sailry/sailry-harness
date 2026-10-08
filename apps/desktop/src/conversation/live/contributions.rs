@@ -18,6 +18,16 @@ enum Provider {
 }
 
 impl View {
+    pub(crate) fn preview_available(&self, mime: &str, cx: &App) -> bool {
+        if matches!(mime, "text/markdown" | "text/x-markdown") {
+            return self.contributions.read(cx).renderer_available(
+                sailry_protocol::plugin::desktop::ResourceKind::Documents,
+                cx,
+            );
+        }
+        self.contributions.read(cx).preview_available(mime, cx)
+    }
+
     pub(crate) fn renderer_shortcuts(
         &self,
         cx: &App,
@@ -110,7 +120,6 @@ impl View {
         self.contributions.read(cx).intent(intent, cx).is_some()
     }
 
-    #[cfg(test)]
     pub(crate) fn renderer_available(
         &self,
         resource: sailry_protocol::plugin::desktop::ResourceKind,

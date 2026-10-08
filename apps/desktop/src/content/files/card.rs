@@ -91,22 +91,38 @@ impl RenderOnce for Card {
                             .icon(IconName::Ellipsis)
                             .accessibility_label(tr("more"))
                             .debug_selector(|| "artifact-file-more".into())
-                            .dropdown_menu(move |menu, _, _| {
+                            .dropdown_menu(move |menu, _, cx| {
+                                let preview = owner.upgrade().is_some_and(|source| {
+                                    source.read(cx).preview_available(&actions.mime, cx)
+                                        || ((actions.mime.starts_with("text/")
+                                            || matches!(actions.mime.as_str(), "application/json" | "application/xml" | "application/javascript"))
+                                            && source.read(cx).renderer_available(
+                                                sailry_protocol::plugin::desktop::ResourceKind::Documents,
+                                                cx,
+                                            ))
+                                });
                                 let source = owner.clone();
                                 let file = actions.clone();
                                 let download_file = actions.clone();
                                 let download_binding = binding.clone();
                                 let system_source = owner.clone();
                                 let system_file = actions.clone();
-                                menu.item(PopupMenuItem::new(tr("artifact_preview")).on_click(
-                                    move |_, _, cx| {
-                                        if let Some(worktree) = worktree {
-                                            let _ = source.update(cx, |_, cx| {
-                                                cx.emit(Event::Artifact(worktree, file.clone()))
-                                            });
-                                        }
-                                    },
-                                ))
+                                menu.item(
+                                    PopupMenuItem::new(tr(if preview {
+                                        "artifact_preview"
+                                    } else {
+                                        "artifact_open"
+                                    }))
+                                    .on_click(
+                                        move |_, _, cx| {
+                                            if let Some(worktree) = worktree {
+                                                let _ = source.update(cx, |_, cx| {
+                                                    cx.emit(Event::Artifact(worktree, file.clone()))
+                                                });
+                                            }
+                                        },
+                                    ),
+                                )
                                 .item(PopupMenuItem::new(tr("files_open_system")).on_click(
                                     move |_, _, cx| {
                                         if let Some(worktree) = worktree {

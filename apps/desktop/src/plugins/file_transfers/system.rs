@@ -1,6 +1,37 @@
 //! The selected Node owns resolution; remote files use a retained verified copy.
 use super::*;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Action {
+    Open,
+    Reveal,
+}
+
+/// Keep native dispatch at one boundary; GPUI's test platform has no file manager.
+pub(crate) fn show(action: Action, path: &std::path::Path, cx: &mut App) {
+    #[cfg(test)]
+    {
+        cx.default_global::<Observed>()
+            .0
+            .push((action, path.to_path_buf()));
+    }
+    #[cfg(not(test))]
+    match action {
+        Action::Open => cx.open_with_system(path),
+        Action::Reveal => cx.reveal_path(path),
+    }
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct Observed(Vec<(Action, PathBuf)>);
+#[cfg(test)]
+impl Global for Observed {}
+#[cfg(test)]
+pub(crate) fn take(cx: &mut App) -> Vec<(Action, PathBuf)> {
+    std::mem::take(&mut cx.default_global::<Observed>().0)
+}
+
 pub(crate) struct Opened {
     pub path: PathBuf,
     pub copy: Option<tempfile::TempDir>,

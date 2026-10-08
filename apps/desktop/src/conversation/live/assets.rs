@@ -7,6 +7,28 @@ mod render;
 #[cfg(test)]
 mod tests;
 
+impl View {
+    pub(crate) fn open_file_image(
+        &self,
+        worktree: WorktreeId,
+        path: String,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        Images::open_on_close(
+            &self.images,
+            ImageSource::File {
+                worktree,
+                path,
+                context: None,
+            },
+            |_, _| {},
+            window,
+            cx,
+        );
+    }
+}
+
 pub(crate) struct Assets {
     owner: WeakEntity<View>,
     binding: Binding,
@@ -175,6 +197,7 @@ impl Assets {
     fn select(
         &mut self,
         target: Target,
+        kind: Kind,
         worktree: WorktreeId,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -188,9 +211,21 @@ impl Assets {
             Target::File { path } => {
                 if !crate::content::images::supports(&path) {
                     self.set_open(false, window, cx);
-                    let _ = self
-                        .owner
-                        .update(cx, |_, cx| cx.emit(Event::FileAt(worktree, path)));
+                    let event = if kind == Kind::Artifact {
+                        Event::Artifact(
+                            worktree,
+                            sailry_protocol::tool::File {
+                                mime: crate::content::files::mime(&path),
+                                path,
+                                name: None,
+                                size: None,
+                                revision: None,
+                            },
+                        )
+                    } else {
+                        Event::FileAt(worktree, path)
+                    };
+                    let _ = self.owner.update(cx, |_, cx| cx.emit(event));
                     return;
                 }
                 ImageSource::File {

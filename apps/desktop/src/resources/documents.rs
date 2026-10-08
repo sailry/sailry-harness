@@ -1,6 +1,9 @@
 //! File links and the launcher mount an ordinary declared document renderer.
 use super::SideResource;
-use crate::{plugins::Panel, shell::Shell};
+use crate::{
+    plugins::{Panel, documents::routes::OpenTarget},
+    shell::Shell,
+};
 use gpui_kit::*;
 use sailry_protocol::{NodeId, SessionId, WorktreeId, plugin::desktop::ResourceKind};
 
@@ -17,7 +20,13 @@ impl Shell {
                 .then(|| source.read(cx).session())
                 .flatten()
         });
-        self.show_documents(scope, target, session, window, cx);
+        self.show_documents(
+            scope,
+            target.map(|(path, line)| OpenTarget::new(path, line)),
+            session,
+            window,
+            cx,
+        );
     }
 
     pub(crate) fn open_historical_document(
@@ -28,13 +37,33 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.show_documents(scope, Some((path, line)), None, window, cx);
+        self.show_documents(scope, Some(OpenTarget::new(path, line)), None, window, cx);
+    }
+
+    pub(crate) fn open_artifact_document(
+        &mut self,
+        scope: (NodeId, WorktreeId),
+        path: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_documents(
+            scope,
+            Some(OpenTarget {
+                path,
+                line: None,
+                reveal_unsupported: true,
+            }),
+            None,
+            window,
+            cx,
+        );
     }
 
     fn show_documents(
         &mut self,
         scope: (NodeId, WorktreeId),
-        target: Option<(String, Option<usize>)>,
+        target: Option<OpenTarget>,
         session: Option<SessionId>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -86,7 +115,7 @@ impl Shell {
                 { panel.update(cx, |panel, cx| panel.open(package, window, cx)); }
                 if panel.read(cx).resource_active() {
                     let target = panel.update(cx, |panel, _| panel.pending_document.take());
-                    if let Some((path, line)) = target { Self::reveal_document(&panel, path, line, window, cx); }
+                    if let Some(target) = target { Self::reveal_document(&panel, target, window, cx); }
                 }
                 if matches!(&shell.side_resource, Some(SideResource::Plugin(current)) if current == &panel) { cx.notify(); }
             }).detach();
@@ -101,13 +130,16 @@ impl Shell {
 
     pub(crate) fn reveal_document(
         panel: &Entity<Panel>,
-        path: String,
-        line: Option<usize>,
+        target: OpenTarget,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(receive) = panel.update(cx, |panel, cx| {
-            panel.open_document_target(path.clone(), line, window, cx)
+            if target.reveal_unsupported {
+                panel.open_artifact_target(target.path.clone(), window, cx)
+            } else {
+                panel.open_document_target(target.path.clone(), target.line, window, cx)
+            }
         }) else {
             return;
         };
@@ -116,7 +148,10 @@ impl Shell {
             let mut result = receive.await;
             if matches!(&result, Ok(Err(fault)) if fault.code == sailry_protocol::ErrorCode::InvalidRequest)
                 && let Ok(Some(receive)) = cx.update(|_, cx| {
-                    panel.upgrade().and_then(|panel| panel.update(cx, |panel, cx| panel.open_system_file(path, cx)))
+                    panel.upgrade().and_then(|panel| panel.update(cx, |panel, cx| {
+                        if target.reveal_unsupported { panel.reveal_system_file(target.path, cx) }
+                        else { panel.open_system_file(target.path, cx) }
+                    }))
                 }) { result = receive.await; }
             if !matches!(result, Ok(Ok(_))) {
                 let _ = cx.update(|window, cx| {

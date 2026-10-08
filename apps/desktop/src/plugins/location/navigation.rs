@@ -165,10 +165,17 @@ impl Shell {
                     return;
                 };
                 if panel.read(cx).resource_active() {
-                    Self::reveal_document(&panel, path.clone(), line, window, cx);
+                    Self::reveal_document(
+                        &panel,
+                        crate::plugins::documents::routes::OpenTarget::new(path.clone(), line),
+                        window,
+                        cx,
+                    );
                 } else {
                     panel.update(cx, |panel, _| {
-                        panel.pending_document = Some((path.clone(), line))
+                        panel.pending_document = Some(
+                            crate::plugins::documents::routes::OpenTarget::new(path.clone(), line),
+                        )
                     });
                 }
             },

@@ -4,6 +4,7 @@ mod observer;
 mod projection;
 mod search;
 pub mod tools;
+pub use assets::unique as unique_assets;
 pub use projection::Projection;
 
 use crate::Client;

@@ -166,16 +166,14 @@ impl Assets {
         let mut sources = section("sources", "chat_assets_sources");
         let mut output_count = 0;
         let mut source_count = overview.sources.len();
-        for group in &self.groups {
-            for (index, target) in group.items.iter().enumerate() {
-                let row = self.asset(group, index, target, cx);
-                if group.kind == Kind::Artifact {
-                    output = output.child(row);
-                    output_count += 1;
-                } else {
-                    sources = sources.child(row);
-                    source_count += 1;
-                }
+        for (group, index, target) in sailry_client::conversation::unique_assets(&self.groups) {
+            let row = self.asset(group, index, target, cx);
+            if group.kind == Kind::Artifact {
+                output = output.child(row);
+                output_count += 1;
+            } else {
+                sources = sources.child(row);
+                source_count += 1;
             }
         }
         for (index, source) in overview.sources.into_iter().enumerate() {
@@ -292,6 +290,7 @@ impl Assets {
         };
         let target = target.clone();
         let worktree = group.worktree;
+        let kind = group.kind;
         let key = format!("asset-{}-{index}", group.sequence);
         let selector = key.clone();
         let mut row = h_flex().w_full().min_w_0().gap_2();
@@ -314,7 +313,7 @@ impl Assets {
             .accessibility_label(name.clone())
             .child(row.child(div().flex_1().min_w_0().truncate().text_left().child(name)))
             .on_click(cx.listener(move |panel, _, window, cx| {
-                panel.select(target.clone(), worktree, window, cx)
+                panel.select(target.clone(), kind, worktree, window, cx)
             }))
             .into_any_element()
     }

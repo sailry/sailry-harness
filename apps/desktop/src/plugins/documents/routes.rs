@@ -2,6 +2,23 @@
 use super::*;
 use crate::{conversation::live::View as Chat, plugins::Panel};
 
+#[derive(Clone)]
+pub(crate) struct OpenTarget {
+    pub path: String,
+    pub line: Option<usize>,
+    pub reveal_unsupported: bool,
+}
+
+impl OpenTarget {
+    pub(crate) fn new(path: String, line: Option<usize>) -> Self {
+        Self {
+            path,
+            line,
+            reveal_unsupported: false,
+        }
+    }
+}
+
 impl Panel {
     pub(crate) fn document_page(
         source: Entity<Chat>,
@@ -60,6 +77,41 @@ impl Panel {
         }
     }
 
+    pub(crate) fn open_artifact_target(
+        &self,
+        path: String,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<tokio::sync::oneshot::Receiver<Result<Value, Fault>>> {
+        if !self.resource_active() {
+            return None;
+        }
+        if crate::content::images::supports(&path) {
+            self.open_document_target(path, None, window, cx)
+        } else if crate::content::files::external(&path) {
+            self.reveal_system_file(path, cx)
+        } else {
+            self.reveal_document(path, None, cx)
+        }
+    }
+
+    pub(crate) fn reveal_system_file(
+        &self,
+        path: String,
+        cx: &mut App,
+    ) -> Option<tokio::sync::oneshot::Receiver<Result<Value, Fault>>> {
+        if !self.resource_active() {
+            return None;
+        }
+        Some(crate::plugins::file_transfers::open_captured(
+            &self.binding,
+            &self.mounted.as_ref()?.host(),
+            path,
+            crate::plugins::file_transfers::system::Action::Reveal,
+            cx,
+        ))
+    }
+
     pub(crate) fn open_system_file(
         &self,
         path: String,
@@ -72,6 +124,7 @@ impl Panel {
             &self.binding,
             &self.mounted.as_ref()?.host(),
             path,
+            crate::plugins::file_transfers::system::Action::Open,
             cx,
         ))
     }

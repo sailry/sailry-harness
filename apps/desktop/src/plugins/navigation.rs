@@ -769,8 +769,8 @@ impl Shell {
                 }
                 if panel.read(cx).resource_active() {
                     let target = panel.update(cx, |panel, _| panel.pending_document.take());
-                    if let Some((path, line)) = target {
-                        Self::reveal_document(&panel, path, line, window, cx);
+                    if let Some(target) = target {
+                        Self::reveal_document(&panel, target, window, cx);
                     }
                 }
                 cx.notify();

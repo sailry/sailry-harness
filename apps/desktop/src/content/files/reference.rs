@@ -9,14 +9,10 @@ pub(crate) fn from_link(url: &str, label: &str, root: &str) -> Option<File> {
     let Target::Workspace { path, line: None } = file_reference::resolve(url, root)? else {
         return None;
     };
-    if std::path::Path::new(&path).extension().is_none() || crate::content::images::supports(&path)
-    {
+    if crate::content::images::supports(&path) {
         return None;
     }
-    let mime = mime_guess::from_path(&path)
-        .first_or_octet_stream()
-        .essence_str()
-        .to_owned();
+    let mime = mime(&path);
     let file = File {
         path,
         name: (!label.trim().is_empty()).then(|| label.to_owned()),
@@ -50,10 +46,26 @@ mod tests {
             "file:///outside/a.html",
             "src/main.rs#L2",
             "guide.md#section",
-            "dir",
             "photo.png",
         ] {
             assert!(from_link(url, "File", "/work").is_none(), "{url}");
+        }
+        for path in ["HANDOFF.md", "report.MD", "report.markdown", "report.mdown"] {
+            assert_eq!(
+                from_link(path, "Report", "/work").unwrap().mime,
+                "text/markdown"
+            );
+        }
+        for path in [
+            "README",
+            "notes.txt",
+            "data.json",
+            "stats.py",
+            "verify.cjs",
+            "execution.log",
+            "bundle.zip",
+        ] {
+            assert_eq!(from_link(path, "Output", "/work").unwrap().path, path);
         }
     }
 }

@@ -47,7 +47,30 @@ fn kind(file: &File) -> SharedString {
         "pptx" | "ppt" => "PowerPoint".into(),
         "pdf" => "PDF".into(),
         "html" | "htm" => "HTML".into(),
+        "md" | "markdown" | "mdown" => tr("content_document"),
         _ => file.mime.clone().into(),
+    }
+}
+
+pub(crate) fn markdown(path: &str) -> bool {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| {
+            ["md", "markdown", "mdown"]
+                .iter()
+                .any(|value| extension.eq_ignore_ascii_case(value))
+        })
+}
+
+pub(crate) fn mime(path: &str) -> String {
+    if markdown(path) {
+        "text/markdown".to_owned()
+    } else {
+        mime_guess::from_path(path)
+            .first_or_octet_stream()
+            .essence_str()
+            .to_owned()
     }
 }
 

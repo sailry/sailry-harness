@@ -89,6 +89,14 @@ pub(crate) struct Registry {
 impl EventEmitter<Event> for Registry {}
 
 impl Registry {
+    pub(crate) fn preview_available(&self, mime: &str, cx: &App) -> bool {
+        self.metadata
+            .read(cx)
+            .entries
+            .values()
+            .any(|info| super::previews::accepts(info, mime))
+    }
+
     #[cfg(test)]
     pub(crate) fn test_panel(&self, name: &str) -> Option<Entity<Panel>> {
         self.mounted.get(name).map(|mounted| mounted.panel.clone())

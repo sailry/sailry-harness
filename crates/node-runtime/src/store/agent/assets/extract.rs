@@ -1,5 +1,5 @@
 use super::*;
-use pulldown_cmark::{Event, Parser, Tag};
+use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 
 pub(super) fn items(entry: &Entry, root: Option<&str>) -> Vec<Target> {
     let mut items = Vec::new();
@@ -10,7 +10,6 @@ pub(super) fn items(entry: &Entry, root: Option<&str>) -> Vec<Target> {
             Part::ToolResult { result, images, .. } => {
                 {
                     let file = match serde_json::from_value(result.clone()) {
-                        Ok(Output::FileWritten(file)) => Some(file),
                         Ok(Output::OfficeWritten(written)) => Some(written.file),
                         _ => None,
                     };
@@ -36,20 +35,72 @@ pub(super) fn items(entry: &Entry, root: Option<&str>) -> Vec<Target> {
                 }
             }
             Part::Text(text) => {
-                // Only explicit Markdown destinations count; prose and code are not file evidence.
-                for event in Parser::new(text) {
-                    if let Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) =
-                        event
-                        && let Some(path) = path_target(&dest_url, root)
-                    {
-                        push(&mut items, Target::File { path });
-                    }
-                }
+                markdown(&mut items, text, root, entry.author == "user");
             }
             _ => {}
         }
     }
     items
+}
+
+fn markdown(items: &mut Vec<Target>, text: &str, root: Option<&str>, input: bool) {
+    let mut paragraph = false;
+    let mut link = false;
+    let mut standalone = false;
+    let mut delivery = None;
+    let mut links = 0;
+    let mut quotes = 0;
+    for event in Parser::new(text) {
+        match event {
+            Event::Start(Tag::BlockQuote(_)) => quotes += 1,
+            Event::End(TagEnd::BlockQuote(_)) => quotes -= 1,
+            Event::Start(Tag::Paragraph | Tag::Item) => {
+                paragraph = true;
+                standalone = quotes == 0;
+                delivery = None;
+                links = 0;
+            }
+            Event::Start(Tag::Link { dest_url, .. }) => {
+                link = true;
+                if input {
+                    if let Some(path) = path_target(&dest_url, root) {
+                        push(items, Target::File { path });
+                    }
+                } else if paragraph {
+                    links += 1;
+                    if links > 1 {
+                        standalone = false;
+                    }
+                    // A section or source-line link is navigation, not a delivery.
+                    let line = dest_url.rsplit_once(':').is_some_and(|(_, value)| {
+                        !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
+                    });
+                    delivery = (!dest_url.contains(['#', '?']) && !line)
+                        .then(|| path_target(&dest_url, root))
+                        .flatten()
+                        .map(|path| Target::File { path });
+                }
+            }
+            Event::End(TagEnd::Link) => link = false,
+            Event::Start(Tag::Image { dest_url, .. }) => {
+                standalone = false;
+                if let Some(path) = path_target(&dest_url, root) {
+                    push(items, Target::File { path });
+                }
+            }
+            Event::Text(value) | Event::Code(value) if !link && !value.trim().is_empty() => {
+                standalone = false;
+            }
+            Event::Html(_) | Event::InlineHtml(_) => standalone = false,
+            Event::End(TagEnd::Paragraph | TagEnd::Item) => {
+                if standalone && let Some(target) = delivery.take() {
+                    push(items, target);
+                }
+                paragraph = false;
+            }
+            _ => {}
+        }
+    }
 }
 
 fn push(items: &mut Vec<Target>, item: Target) {

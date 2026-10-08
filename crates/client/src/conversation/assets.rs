@@ -6,6 +6,43 @@ use sailry_protocol::{
     *,
 };
 
+/// Keep the newest occurrence across loaded pages, without merging worktrees or
+/// input resources with outputs. Groups must be in descending event order.
+pub fn unique(
+    groups: &[assets::Group],
+) -> impl Iterator<Item = (&assets::Group, usize, &assets::Target)> {
+    #[derive(Hash, PartialEq, Eq)]
+    enum Identity<'a> {
+        File(&'a str),
+        Attachment(AttachmentId),
+        Image(&'a str, usize, usize),
+    }
+    let mut seen = std::collections::HashSet::new();
+    groups
+        .iter()
+        .flat_map(|group| {
+            group
+                .items
+                .iter()
+                .enumerate()
+                .map(move |(index, target)| (group, index, target))
+        })
+        .filter(move |(group, _, target)| {
+            let identity = match target {
+                assets::Target::File { path } => Identity::File(path),
+                assets::Target::Attachment(attachment) => Identity::Attachment(attachment.id),
+                assets::Target::Image(image) => {
+                    Identity::Image(&image.entry, image.part, image.index)
+                }
+            };
+            seen.insert((
+                group.kind == assets::Kind::Artifact,
+                group.worktree,
+                identity,
+            ))
+        })
+}
+
 impl Client {
     pub async fn conversation_assets(
         &self,
