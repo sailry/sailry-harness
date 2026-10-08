@@ -1,0 +1,21 @@
+{
+  "$id": "urn:sailry:schema:plugin:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    {
+      "$ref": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+    },
+    {
+      "properties": {
+        "extensions": {
+          "properties": {
+            "dev.sailry.platform": {
+              "$ref": "urn:sailry:schema:extension:v1"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "title": "Sailry Plugin"
+}

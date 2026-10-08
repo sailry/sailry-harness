@@ -12663,7 +12663,6 @@ dependencies = [
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-av-foundation",
- "objc2-core-foundation",
  "objc2-foundation 0.3.2",
  "objc2-web-kit",
  "pbkdf2 0.12.2",
@@ -12707,8 +12706,6 @@ name = "sailry-host"
 version = "0.1.0-alpha.1"
 dependencies = [
  "blake3",
- "cua-driver-sdk",
- "platform-macos",
  "sailry-client",
  "sailry-link",
  "sailry-node-runtime",
@@ -12716,7 +12713,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "uuid",
 ]
 
 [[package]]
@@ -12803,13 +12799,13 @@ dependencies = [
  "lopdf",
  "mysql_async",
  "notify 8.2.0",
- "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-application-services",
  "objc2-core-foundation",
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
  "objc2-io-kit",
+ "platform-macos",
  "portable-pty",
  "process-wrap 10.0.0",
  "pulldown-cmark",

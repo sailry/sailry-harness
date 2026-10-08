@@ -12,7 +12,7 @@ pub(crate) fn remove(
     expected_branch: Option<&str>,
 ) -> Result<(), Fault> {
     if name.len() > 1024 || !Branch::name_is_valid(name).map_err(fault)? {
-        return Err(Fault::new(ErrorCode::InvalidRequest, "invalid branch name"));
+        return Err(Fault::invalid("invalid branch name"));
     }
     let tip = full_oid(commit)?;
     let head = full_oid(expected_head)?;
@@ -21,10 +21,7 @@ pub(crate) fn remove(
         .as_ref()
         .is_some_and(|name| !Reference::is_valid_name(name))
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid current branch name",
-        ));
+        return Err(Fault::invalid("invalid current branch name"));
     }
     let retained = path::root(root)?;
     let repository = open(root)?;
@@ -77,10 +74,7 @@ pub(crate) fn remove(
 
 fn full_oid(value: &str) -> Result<Oid, Fault> {
     if value.len() != 40 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "expected a full commit identifier",
-        ));
+        return Err(Fault::invalid("expected a full commit identifier"));
     }
     Oid::from_str(value).map_err(fault)
 }

@@ -29,8 +29,7 @@ pub(super) fn save(
 ) -> Result<Info, Fault> {
     let mut info = settings::current(db, package)?;
     if info.mcp_source.is_some() {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
+        return Err(Fault::invalid(
             "standalone MCP settings use their declared form",
         ));
     }
@@ -58,10 +57,7 @@ pub(super) fn save(
             .filter_map(|field| field.secret.as_ref())
         {
             if field.server.is_some() && (field.header.is_some() || field.env.is_some()) {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "MCP slots use the plugin settings form",
-                ));
+                return Err(Fault::invalid("MCP slots use the plugin settings form"));
             }
         }
     }

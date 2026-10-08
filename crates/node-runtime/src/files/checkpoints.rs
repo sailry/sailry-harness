@@ -9,7 +9,7 @@ pub(crate) fn restore(
 ) -> Result<checkpoint::Restored, Fault> {
     let file = &content.file;
     let revision = if let Some(before) = &content.before {
-        Some(save(root, &file.path, before, Some(&file.after.revision))?.revision)
+        Some(save::restore(root, &file.path, before, &file.after.revision)?.revision)
     } else {
         // Bound verification before passing its ordinary identity/metadata stamp to Trash.
         let parts = path::entry_components(&file.path)?;

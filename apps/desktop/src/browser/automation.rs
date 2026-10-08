@@ -30,8 +30,7 @@ impl Browser {
                     && u.password().is_none()
             })
         {
-            return Task::ready(Err(Fault::new(
-                ErrorCode::InvalidRequest,
+            return Task::ready(Err(Fault::invalid(
                 "browser URL must use HTTP or HTTPS without embedded credentials",
             )));
         }
@@ -96,16 +95,12 @@ impl Browser {
         if let Action::Input { text, .. } = &action
             && text.len() > 16000
         {
-            return Task::ready(Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "browser input is too large",
-            )));
+            return Task::ready(Err(Fault::invalid("browser input is too large")));
         }
         if let Action::Wait { timeout_ms, .. } = &action
             && !(1..=20000).contains(timeout_ms)
         {
-            return Task::ready(Err(Fault::new(
-                ErrorCode::InvalidRequest,
+            return Task::ready(Err(Fault::invalid(
                 "browser wait must be between 1 and 20000 ms",
             )));
         }

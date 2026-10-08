@@ -164,7 +164,7 @@ fn accepts_only_owned_references() {
 
 #[test]
 fn preserves_local_errors() {
-    let fault = invalid("attachment is not UTF-8 text");
+    let fault = sailry_protocol::Fault::invalid("attachment is not UTF-8 text");
     assert_eq!(
         model::error(
             adk_core::AdkError::model("attachment input failed").with_source(fault.clone())

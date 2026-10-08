@@ -23,7 +23,9 @@ impl Copier {
     ) -> Result<Option<Evidence>, Fault> {
         self.count += 1;
         if self.count > MAX_ENTRIES || depth > MAX_DEPTH {
-            return Err(invalid("copy exceeds the entry or nesting limit"));
+            return Err(sailry_protocol::Fault::invalid(
+                "copy exceeds the entry or nesting limit",
+            ));
         }
         let before = object(source, name)?;
         let contents = if before.directory {
@@ -40,7 +42,9 @@ impl Copier {
                     .file_name()
                     .into_string()
                     .map_err(|_| {
-                        invalid("copy contains a name not representable in the file protocol")
+                        sailry_protocol::Fault::invalid(
+                            "copy contains a name not representable in the file protocol",
+                        )
                     })?;
                 if !self.moving && name.eq_ignore_ascii_case(".git") {
                     continue;

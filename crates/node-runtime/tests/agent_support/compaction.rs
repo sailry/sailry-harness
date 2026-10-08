@@ -38,7 +38,7 @@ pub async fn respond_usage(
             .iter()
             .any(|message| message["role"] == "tool" || message["role"] == "assistant");
     let delta = if read {
-        json!({"role":"assistant","tool_calls":[{"index":0,"id":"evidence-call","type":"function","function":{"name":plugin_tool("files", "read_file"),"arguments":"{\"path\":\"source.txt\"}"}}]})
+        json!({"role":"assistant","tool_calls":[{"index":0,"id":"evidence-call","type":"function","function":{"name":plugin_tool("files", "read_file"),"arguments":json!({"path":"source.txt","limit":sailry_protocol::MAX_FILE_LINES}).to_string()}}]})
     } else {
         json!({"role":"assistant","content":if summary { text } else { "Verified response" }})
     };
@@ -75,7 +75,7 @@ pub async fn respond_loop(
     let read = completed < 6;
     let index = completed + 1;
     let delta = if read {
-        json!({"role":"assistant","tool_calls":[{"index":0,"id":format!("loop-{index}"),"type":"function","function":{"name":plugin_tool("files", "read_file"),"arguments":json!({"path":format!("source-{index}.txt")}).to_string()}}]})
+        json!({"role":"assistant","tool_calls":[{"index":0,"id":format!("loop-{index}"),"type":"function","function":{"name":plugin_tool("files", "read_file"),"arguments":json!({"path":format!("source-{index}.txt"),"limit":sailry_protocol::MAX_FILE_LINES}).to_string()}}]})
     } else {
         json!({"role":"assistant","content":"Verified all six files"})
     };
@@ -137,7 +137,7 @@ pub async fn respond_native(
             calls.push(json!({"index":0,"id":"compact-call","type":"function","function":{"name":"compact_context","arguments":"{}"}}));
         }
         if completed < 4 {
-            calls.push(json!({"index":calls.len(),"id":format!("native-read-{index}"),"type":"function","function":{"name":plugin_tool("files", "read_file"),"arguments":json!({"path":format!("source-{index}.txt")}).to_string()}}));
+            calls.push(json!({"index":calls.len(),"id":format!("native-read-{index}"),"type":"function","function":{"name":plugin_tool("files", "read_file"),"arguments":json!({"path":format!("source-{index}.txt"),"limit":sailry_protocol::MAX_FILE_LINES}).to_string()}}));
         }
         let call = !calls.is_empty();
         let delta = if call {

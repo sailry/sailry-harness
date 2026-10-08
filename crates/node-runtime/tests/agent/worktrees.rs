@@ -141,7 +141,7 @@ async fn creates_registered_checkout() {
             std::fs::read_to_string(Path::new(&tree.path).join("source.txt")).unwrap(),
             "pending\n"
         );
-        assert_eq!(values[2]["data"]["text"], "pending\n");
+        assert_eq!(values[2]["data"]["lines"][0]["text"], "pending\n");
         assert!(
             values[1]["data"]["entries"]
                 .as_array()
@@ -332,7 +332,7 @@ async fn isolates_child_writes() {
         let child_id: SessionId = serde_json::from_value(values[0]["session"].clone()).unwrap();
         let child_page = history(&client, child_id).await;
         assert_eq!(
-            results(&child_page)[1]["data"]["text"],
+            results(&child_page)[1]["data"]["lines"][0]["text"],
             "isolated child",
             "{:?}",
             results(&child_page)

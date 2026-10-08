@@ -26,10 +26,7 @@ impl Cache {
         runtime: tokio::runtime::Handle,
     ) -> Result<Self, Fault> {
         if bundle.package != *expected || !bundle.valid() {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "invalid plugin view bundle",
-            ));
+            return Err(Fault::invalid("invalid plugin view bundle"));
         }
         let directory = tempfile::Builder::new()
             .prefix("sailry-plugin-")
@@ -67,7 +64,7 @@ impl Cache {
         // The framework reads main.js. A package cannot replace the host loader
         // or use its own gpui-shell.json to select a different entry.
         let entry = serde_json::to_string(&format!("./resources/{}", bundle.entry))
-            .map_err(|_| Fault::new(ErrorCode::InvalidRequest, "invalid plugin entry"))?;
+            .map_err(|_| Fault::invalid("invalid plugin entry"))?;
         create(
             &root.join("main.js"),
             format!("export {{ default }} from {entry};\n").as_bytes(),
@@ -111,7 +108,7 @@ fn io_error(_: std::io::Error) -> Fault {
 }
 
 fn invalid_image() -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, "invalid plugin PNG resource")
+    Fault::invalid("invalid plugin PNG resource")
 }
 
 #[cfg(test)]

@@ -28,6 +28,26 @@ struct History {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct Show {
+    worktree: Option<WorktreeId>,
+    revision: String,
+    path: Option<String>,
+    offset: usize,
+    limit: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Blame {
+    worktree: Option<WorktreeId>,
+    revision: Option<String>,
+    path: String,
+    offset: usize,
+    limit: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Empty {}
 
 #[derive(Deserialize)]
@@ -59,6 +79,8 @@ pub(super) fn handles(operation: Operation) -> bool {
         Operation::InspectGit
             | Operation::ReadGitDiff
             | Operation::ReadGitLog
+            | Operation::ReadGitShow
+            | Operation::ReadGitBlame
             | Operation::ListWorktrees
             | Operation::CreateManagedWorktree
             | Operation::RegisterWorktree
@@ -71,6 +93,10 @@ pub(super) fn description(operation: Operation) -> &'static str {
         Operation::InspectGit => "Read Git status in the captured project",
         Operation::ReadGitDiff => "Read a bounded file diff in the captured project",
         Operation::ReadGitLog => "Read commit history in the captured project",
+        Operation::ReadGitShow => {
+            "Read a committed file or bounded commit patch in the current project"
+        }
+        Operation::ReadGitBlame => "Read committed line authorship in the current project",
         Operation::ListWorktrees => "List Git and registered worktrees in the captured project",
         Operation::CreateManagedWorktree => "Create a worktree from the captured checkout",
         Operation::RegisterWorktree => "Register a worktree from the captured repository",
@@ -91,6 +117,14 @@ pub(super) fn parameters(operation: Operation) -> Value {
         Operation::ReadGitLog => (
             json!({"worktree":target,"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":["object","null"],"properties":{"head":string,"offset":{"type":"integer","minimum":0}},"required":["head","offset"],"additionalProperties":false}}),
             vec!["worktree", "limit", "cursor"],
+        ),
+        Operation::ReadGitShow => (
+            json!({"worktree":target,"revision":string,"path":{"type":["string","null"]},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":500}}),
+            vec!["worktree", "revision", "path", "offset", "limit"],
+        ),
+        Operation::ReadGitBlame => (
+            json!({"worktree":target,"revision":{"type":["string","null"]},"path":string,"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":500}}),
+            vec!["worktree", "revision", "path", "offset", "limit"],
         ),
         Operation::ListWorktrees => (json!({}), vec![]),
         Operation::CreateManagedWorktree => (
@@ -140,12 +174,9 @@ pub(super) fn command(
             })
     };
     let project = || {
-        source.project.ok_or_else(|| {
-            Fault::new(
-                ErrorCode::InvalidRequest,
-                "worktree management requires a project",
-            )
-        })
+        source
+            .project
+            .ok_or_else(|| Fault::invalid("worktree management requires a project"))
     };
     Ok(match operation {
         Operation::InspectGit => {
@@ -168,6 +199,26 @@ pub(super) fn command(
                 worktree: target(input.worktree)?,
                 limit: input.limit,
                 cursor: input.cursor,
+            }
+        }
+        Operation::ReadGitShow => {
+            let input: Show = decode(arguments)?;
+            Command::ReadGitShow {
+                worktree: target(input.worktree)?,
+                revision: input.revision,
+                path: input.path,
+                offset: input.offset,
+                limit: input.limit,
+            }
+        }
+        Operation::ReadGitBlame => {
+            let input: Blame = decode(arguments)?;
+            Command::ReadGitBlame {
+                worktree: target(input.worktree)?,
+                revision: input.revision,
+                path: input.path,
+                offset: input.offset,
+                limit: input.limit,
             }
         }
         Operation::ListWorktrees => {

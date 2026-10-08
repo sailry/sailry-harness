@@ -20,7 +20,7 @@ pub(super) fn list(
                 .first()
                 .map(|location| PathBuf::from(&location.path))
         })
-        .ok_or_else(|| invalid("no filesystem locations are available"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("no filesystem locations are available"))?;
     let root = resolve(&path)?;
     let mut directory = directory::list(&root, String::new(), after, control)?;
     directory.path = text(&root)?;
@@ -77,7 +77,9 @@ fn locations() -> Vec<Location> {
 
 fn resolve(path: &Path) -> Result<PathBuf, Fault> {
     if !path.is_absolute() {
-        return Err(invalid("an absolute path is required"));
+        return Err(sailry_protocol::Fault::invalid(
+            "an absolute path is required",
+        ));
     }
     path.canonicalize().map_err(io_error)
 }
@@ -85,9 +87,5 @@ fn resolve(path: &Path) -> Result<PathBuf, Fault> {
 fn text(path: &Path) -> Result<String, Fault> {
     path.to_str()
         .map(str::to_owned)
-        .ok_or_else(|| invalid("path is not UTF-8"))
-}
-
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
+        .ok_or_else(|| sailry_protocol::Fault::invalid("path is not UTF-8"))
 }

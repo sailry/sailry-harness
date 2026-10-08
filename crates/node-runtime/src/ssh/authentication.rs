@@ -30,10 +30,7 @@ pub(super) async fn authenticate(
                 .await
                 .map_err(|_| unavailable("SSH private key could not be read"))?;
             if contents.len() > 65536 {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "SSH private key exceeds the size limit",
-                ));
+                return Err(Fault::invalid("SSH private key exceeds the size limit"));
             }
             key_auth(
                 session,
@@ -53,13 +50,8 @@ async fn key_auth(
     contents: &Secret,
     passphrase: Option<&Secret>,
 ) -> Result<bool, Fault> {
-    let key =
-        decode_secret_key(contents.expose(), passphrase.map(Secret::expose)).map_err(|_| {
-            Fault::new(
-                ErrorCode::InvalidRequest,
-                "SSH private key or passphrase is invalid",
-            )
-        })?;
+    let key = decode_secret_key(contents.expose(), passphrase.map(Secret::expose))
+        .map_err(|_| Fault::invalid("SSH private key or passphrase is invalid"))?;
     let hash = session
         .best_supported_rsa_hash()
         .await

@@ -6,6 +6,8 @@ pub(super) async fn validate(binding: &Binding, command: &Command) -> Result<(),
         Command::InspectGit { worktree }
         | Command::ReadGitDiff { worktree, .. }
         | Command::ReadGitLog { worktree, .. }
+        | Command::ReadGitShow { worktree, .. }
+        | Command::ReadGitBlame { worktree, .. }
         | Command::ListWorktrees { worktree }
         | Command::RemoveWorktree { worktree, .. } => *worktree,
         Command::CreateManagedWorktree { source, .. } => *source,

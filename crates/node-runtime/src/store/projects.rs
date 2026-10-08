@@ -17,7 +17,9 @@ pub(super) fn prepare(draft: &Draft) -> Result<PathBuf, Fault> {
                     .as_ref()
                     .is_some_and(|branch| branch.is_empty() || branch.len() > 256)
             {
-                return Err(invalid("repository URL or branch is invalid"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "repository URL or branch is invalid",
+                ));
             }
             if let Ok(parsed) = url::Url::parse(url) {
                 if !Path::new(url).is_absolute()
@@ -26,18 +28,22 @@ pub(super) fn prepare(draft: &Draft) -> Result<PathBuf, Fault> {
                         || (matches!(parsed.scheme(), "http" | "https")
                             && !parsed.username().is_empty()))
                 {
-                    return Err(invalid("use a repository URL without embedded credentials"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "use a repository URL without embedded credentials",
+                    ));
                 }
             } else if !Path::new(url).is_absolute() && !(url.contains('@') && url.contains(':')) {
-                return Err(invalid("repository URL is invalid"));
+                return Err(sailry_protocol::Fault::invalid("repository URL is invalid"));
             }
-            let parent = path
-                .parent()
-                .ok_or_else(|| invalid("clone destination requires a parent directory"))?;
+            let parent = path.parent().ok_or_else(|| {
+                sailry_protocol::Fault::invalid("clone destination requires a parent directory")
+            })?;
             let name = path
                 .file_name()
                 .and_then(|name| name.to_str())
-                .ok_or_else(|| invalid("clone destination requires a name"))?;
+                .ok_or_else(|| {
+                    sailry_protocol::Fault::invalid("clone destination requires a name")
+                })?;
             crate::files::path::entry_components(name)?;
             let path = directory(parent)?.join(name);
             if path.symlink_metadata().is_ok() {
@@ -337,22 +343,26 @@ fn validate(name: &str, path: &str, appearance: &Appearance) -> Result<(), Fault
         || path.len() > 4096
         || !Path::new(path).is_absolute()
     {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "an absolute directory and a nonempty project name are required",
         ));
     }
     if !ICONS.contains(&appearance.icon.as_str()) || !COLORS.contains(&appearance.color.as_str()) {
-        return Err(invalid("project appearance is invalid"));
+        return Err(sailry_protocol::Fault::invalid(
+            "project appearance is invalid",
+        ));
     }
     Ok(())
 }
 
 fn directory(path: &Path) -> Result<PathBuf, Fault> {
-    let path = path
-        .canonicalize()
-        .map_err(|_| invalid("project directory is not accessible on this Node"))?;
+    let path = path.canonicalize().map_err(|_| {
+        sailry_protocol::Fault::invalid("project directory is not accessible on this Node")
+    })?;
     if !path.is_dir() {
-        return Err(invalid("project path is not a directory"));
+        return Err(sailry_protocol::Fault::invalid(
+            "project path is not a directory",
+        ));
     }
     Ok(path)
 }
@@ -360,8 +370,5 @@ fn directory(path: &Path) -> Result<PathBuf, Fault> {
 fn text(path: &Path) -> Result<String, Fault> {
     path.to_str()
         .map(str::to_owned)
-        .ok_or_else(|| invalid("project path is not UTF-8"))
-}
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
+        .ok_or_else(|| sailry_protocol::Fault::invalid("project path is not UTF-8"))
 }

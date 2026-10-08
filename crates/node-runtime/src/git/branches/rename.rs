@@ -12,14 +12,11 @@ pub(crate) fn rename(
 ) -> Result<GitBranch, Fault> {
     for name in [name, new_name] {
         if name.len() > 1024 || !Branch::name_is_valid(name).map_err(fault)? {
-            return Err(Fault::new(ErrorCode::InvalidRequest, "invalid branch name"));
+            return Err(Fault::invalid("invalid branch name"));
         }
     }
     if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "expected a full commit identifier",
-        ));
+        return Err(Fault::invalid("expected a full commit identifier"));
     }
     let tip = Oid::from_str(commit).map_err(fault)?;
     let retained = path::root(root)?;

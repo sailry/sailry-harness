@@ -28,7 +28,7 @@ pub(super) fn execute(root: &Path, repo: &Repository, action: &GitAction) -> Res
             let mut args = vec!["tag".into()];
             if let Some(message) = message.as_ref().filter(|m| !m.is_empty()) {
                 if message.len() > 16384 || message.contains('\0') {
-                    return Err(Fault::new(ErrorCode::InvalidRequest, "invalid tag message"));
+                    return Err(Fault::invalid("invalid tag message"));
                 }
                 args.extend(["--annotate".into(), "--message".into(), message.clone()]);
             }
@@ -98,10 +98,7 @@ pub(super) fn execute(root: &Path, repo: &Repository, action: &GitAction) -> Res
                 .map_err(fault)?;
             name(local)?;
             if !git2::Branch::name_is_valid(local).map_err(fault)? {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "invalid local branch name",
-                ));
+                return Err(Fault::invalid("invalid local branch name"));
             }
             let args = if let Ok(branch) = repo.find_branch(local, git2::BranchType::Local) {
                 if branch
@@ -202,7 +199,7 @@ pub(super) fn remote_branch(repo: &Repository, branch: &str) -> Result<(String, 
 fn tag_name(tag: &str) -> Result<(), Fault> {
     name(tag)?;
     if !git2::Reference::is_valid_name(&format!("refs/tags/{tag}")) {
-        return Err(Fault::new(ErrorCode::InvalidRequest, "invalid tag name"));
+        return Err(Fault::invalid("invalid tag name"));
     }
     Ok(())
 }
@@ -254,10 +251,7 @@ pub(super) fn sync(root: &Path, rebase: bool) -> Result<(), Fault> {
 
 fn discard(root: &Path, repo: &Repository, paths: &[String]) -> Result<(), Fault> {
     if paths.is_empty() || paths.len() > sailry_protocol::MAX_GIT_ENTRIES {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid discard paths",
-        ));
+        return Err(Fault::invalid("invalid discard paths"));
     }
     let tree = repo.head().ok().and_then(|head| head.peel_to_tree().ok());
     let mut tracked = Vec::new();

@@ -49,7 +49,9 @@ pub(super) fn append(
             )
             .map_err(storage_error)?;
         if !owns {
-            return Err(invalid("event turn belongs to another session"));
+            return Err(sailry_protocol::Fault::invalid(
+                "event turn belongs to another session",
+            ));
         }
         let previous: Option<(String, Vec<u8>)> = transaction
             .query_row(
@@ -281,7 +283,7 @@ pub(crate) fn project(
                         let id = crate::agent::attachments::id(file_uri)?;
                         let attachment = super::super::attachments::turns::get(db, turn, id)?;
                         if attachment.spec.media_type != *mime_type {
-                            return Err(invalid("attachment media type mismatch"));
+                            return Err(sailry_protocol::Fault::invalid("attachment media type mismatch"));
                         }
                         Part::Attachment(attachment)
                     }
@@ -363,7 +365,7 @@ pub(crate) fn project(
             .chain(super::review::project(event)?.into_iter().map(Ok))
             .chain(event.provider_metadata.get("adk_tool_started").map(|value| {
                 let value: Value = serde_json::from_str(value).map_err(storage_error)?;
-                let name = value["name"].as_str().ok_or_else(|| invalid("invalid tool start name"))?;
+                let name = value["name"].as_str().ok_or_else(|| sailry_protocol::Fault::invalid("invalid tool start name"))?;
                 Ok(Part::Resource(serde_json::json!({"type": "tool_started", "id": value["id"], "name": name})))
             }))
             .chain(event.provider_metadata.get("sailry_retry").map(|value| {
@@ -376,7 +378,7 @@ pub(crate) fn project(
                     (Some(attempt), Some(limit)) if event.author == "system" => Ok(Part::Resource(
                         serde_json::json!({"type":"model_retry","attempt":attempt,"limit":limit}),
                     )),
-                    _ => Err(invalid("invalid model retry metadata")),
+                    _ => Err(sailry_protocol::Fault::invalid("invalid model retry metadata")),
                 }
             }))
             .chain(

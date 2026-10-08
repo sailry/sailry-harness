@@ -1,5 +1,5 @@
 //! Shared pagination for conversation resource and artifact metadata.
-use super::projection::invalid;
+
 use crate::Client;
 use sailry_protocol::{
     conversation::assets::{self, Query},
@@ -50,7 +50,9 @@ impl Client {
         mut query: Query,
     ) -> Result<assets::Page, Fault> {
         if !(1..=assets::MAX_GROUPS).contains(&query.limit) {
-            return Err(invalid("conversation asset limit is invalid"));
+            return Err(sailry_protocol::Fault::invalid(
+                "conversation asset limit is invalid",
+            ));
         }
         let limit = usize::from(query.limit);
         let mut result = assets::Page {
@@ -68,7 +70,9 @@ impl Client {
                 }))
                 .await?
             else {
-                return Err(invalid("conversation asset response expected"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "conversation asset response expected",
+                ));
             };
             validate(&page, session, &query)?;
             if result.revision != 0 && result.revision != page.revision {
@@ -91,7 +95,7 @@ impl Client {
 fn validate(page: &assets::Page, session: SessionId, query: &Query) -> Result<(), Fault> {
     if page.session != session || page.revision == 0 || page.groups.len() > usize::from(query.limit)
     {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "conversation asset response scope or size is invalid",
         ));
     }
@@ -102,14 +106,18 @@ fn validate(page: &assets::Page, session: SessionId, query: &Query) -> Result<()
             || group.items.is_empty()
             || query.kind.is_some_and(|kind| kind != group.kind)
         {
-            return Err(invalid("conversation asset group is invalid"));
+            return Err(sailry_protocol::Fault::invalid(
+                "conversation asset group is invalid",
+            ));
         }
         before = group.sequence;
     }
     if page.next_before.is_some_and(|next| {
         next == 0 || next > before || next >= query.before.unwrap_or(i64::MAX as u64)
     }) {
-        return Err(invalid("conversation asset cursor did not advance"));
+        return Err(sailry_protocol::Fault::invalid(
+            "conversation asset cursor did not advance",
+        ));
     }
     Ok(())
 }

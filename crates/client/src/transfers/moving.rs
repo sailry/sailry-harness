@@ -40,18 +40,11 @@ impl Client {
         progress: impl FnMut(u64),
     ) -> Result<FileMove, Fault> {
         let error = if source.target() == self.target() {
-            Some(Fault::new(
-                ErrorCode::InvalidRequest,
-                "cross-Node move requires distinct Nodes",
-            ))
+            Some(Fault::invalid("cross-Node move requires distinct Nodes"))
         } else if blake3::Hash::from_hex(&download.stamp).is_err() {
-            Some(Fault::new(
-                ErrorCode::InvalidRequest,
-                "file identity revision is invalid",
-            ))
+            Some(Fault::invalid("file identity revision is invalid"))
         } else if spec.expected_revision.is_some() {
-            Some(Fault::new(
-                ErrorCode::InvalidRequest,
+            Some(Fault::invalid(
                 "cross-Node move cannot replace an existing destination",
             ))
         } else {

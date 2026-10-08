@@ -8,8 +8,7 @@ use adk_model::openai::ResponseObserver;
 use reqwest::header::HeaderMap;
 use rusqlite::Connection;
 use sailry_protocol::{
-    Authentication, Command, CredentialRef, ErrorCode, Event, EventEnvelope, Fault, NodeId,
-    ProviderId,
+    Authentication, Command, CredentialRef, Event, EventEnvelope, Fault, NodeId, ProviderId,
     conversation::{
         ModelApi,
         quota::{Snapshot, Window},
@@ -128,10 +127,7 @@ pub(in crate::store) fn validate(provider: ProviderId, quota: &Snapshot) -> Resu
                     .is_some_and(|reset| reset == 0 || reset > i64::MAX as u64)
             })
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid provider quota observation",
-        ));
+        return Err(Fault::invalid("invalid provider quota observation"));
     }
     Ok(())
 }

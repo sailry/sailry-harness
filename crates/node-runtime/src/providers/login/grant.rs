@@ -117,7 +117,7 @@ impl Grant {
     pub(crate) fn encode(&self) -> Result<Secret, Fault> {
         serde_json::to_string(self)
             .map(Secret::new)
-            .map_err(|_| invalid("authorization record is invalid"))
+            .map_err(|_| sailry_protocol::Fault::invalid("authorization record is invalid"))
     }
 
     pub(crate) fn decode(authentication: Authentication, value: &Secret) -> Result<Self, Fault> {
@@ -128,7 +128,7 @@ impl Grant {
 
     pub(crate) fn validate(&self, authentication: Authentication) -> Result<(), Fault> {
         if self.authentication() != authentication {
-            return Err(invalid(
+            return Err(sailry_protocol::Fault::invalid(
                 "authorization record belongs to another provider type",
             ));
         }
@@ -154,7 +154,9 @@ impl Grant {
                             || value.chars().any(char::is_control)
                     })
                 {
-                    return Err(invalid("authorization account identifier is invalid"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "authorization account identifier is invalid",
+                    ));
                 }
                 token(id_token)?;
                 if scopes.len() > 128
@@ -168,7 +170,9 @@ impl Grant {
                             })
                     })
                 {
-                    return Err(invalid("authorization scopes are invalid"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "authorization scopes are invalid",
+                    ));
                 }
                 (access, refresh, *expires_at_ms)
             }
@@ -188,7 +192,9 @@ impl Grant {
                     value.is_empty() || value.len() > 1024 || value.chars().any(char::is_control)
                 }) || reqwest::header::HeaderValue::from_str(account_id).is_err()
                 {
-                    return Err(invalid("authorization account identifier is invalid"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "authorization account identifier is invalid",
+                    ));
                 }
                 token(id_token)?;
                 (access, refresh, *expires_at_ms)
@@ -208,7 +214,9 @@ impl Grant {
             token(value)?;
         }
         if expires == 0 || expires > i64::MAX as u64 {
-            return Err(invalid("authorization expiry is invalid"));
+            return Err(sailry_protocol::Fault::invalid(
+                "authorization expiry is invalid",
+            ));
         }
         Ok(())
     }
@@ -219,7 +227,9 @@ fn token(value: &Secret) -> Result<(), Fault> {
         || value.expose().len() > 16384
         || reqwest::header::HeaderValue::from_str(value.expose()).is_err()
     {
-        return Err(invalid("authorization token is invalid"));
+        return Err(sailry_protocol::Fault::invalid(
+            "authorization token is invalid",
+        ));
     }
     Ok(())
 }

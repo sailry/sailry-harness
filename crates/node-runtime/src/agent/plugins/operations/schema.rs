@@ -3,10 +3,11 @@ use super::*;
 
 pub(super) fn description(operation: Operation) -> &'static str {
     match operation {
-        Operation::Unsupported => "Unsupported operation",
         Operation::InspectGit
         | Operation::ReadGitDiff
         | Operation::ReadGitLog
+        | Operation::ReadGitShow
+        | Operation::ReadGitBlame
         | Operation::ListWorktrees
         | Operation::CreateManagedWorktree
         | Operation::RegisterWorktree
@@ -18,7 +19,9 @@ pub(super) fn description(operation: Operation) -> &'static str {
         | Operation::TransferSsh => connections::description(operation),
         Operation::ListDirectory
         | Operation::ReadFile
+        | Operation::FindFiles
         | Operation::WriteFile
+        | Operation::EditFile
         | Operation::SearchFiles
         | Operation::ReadOffice => files::description(operation),
         Operation::InspectMedia => "Inspect an image with the model captured by this turn",
@@ -69,7 +72,9 @@ pub(super) fn parameters(operation: Operation) -> Value {
         operation,
         Operation::ListDirectory
             | Operation::ReadFile
+            | Operation::FindFiles
             | Operation::WriteFile
+            | Operation::EditFile
             | Operation::SearchFiles
             | Operation::ReadOffice
     ) {
@@ -81,6 +86,8 @@ pub(super) fn parameters(operation: Operation) -> Value {
         Operation::InspectGit
         | Operation::ReadGitDiff
         | Operation::ReadGitLog
+        | Operation::ReadGitShow
+        | Operation::ReadGitBlame
         | Operation::ListWorktrees
         | Operation::CreateManagedWorktree
         | Operation::RegisterWorktree
@@ -134,17 +141,23 @@ pub(super) fn parameters(operation: Operation) -> Value {
         ),
         Operation::RunCommand => (
             json!({
-                "command":{"type":"string"}, "cwd":{"type":"string"},
+                "command":{"type":"string"}, "description":{"type":["string","null"],"maxLength":2000}, "cwd":{"type":"string"},
                 "timeout_ms":{"type":"integer", "minimum":1, "maximum":900000},
                 "background":{"type":"boolean"},
                 "attachments":{"type":"array", "items":{"type":"string"}, "maxItems":8, "uniqueItems":true}
             }),
-            vec!["command", "cwd", "timeout_ms", "background", "attachments"],
+            vec![
+                "command",
+                "description",
+                "cwd",
+                "timeout_ms",
+                "background",
+                "attachments",
+            ],
         ),
         Operation::ReadCommand => (json!({"id":{"type":["string", "null"]}}), vec![]),
         Operation::StopCommand => (json!({"id":{"type":"string"}}), vec!["id"]),
         Operation::ReadSettings => (json!({}), vec![]),
-        Operation::Unsupported => return json!({"not": {}}),
         Operation::BrowseDatabase
         | Operation::QueryDatabase
         | Operation::ExecuteDatabase
@@ -158,7 +171,9 @@ pub(super) fn parameters(operation: Operation) -> Value {
         }
         Operation::ListDirectory
         | Operation::ReadFile
+        | Operation::FindFiles
         | Operation::WriteFile
+        | Operation::EditFile
         | Operation::SearchFiles
         | Operation::ReadOffice => unreachable!("file parameters handled above"),
     };
@@ -173,19 +188,18 @@ pub(super) fn command(
     match operation {
         Operation::ListDirectory
         | Operation::ReadFile
+        | Operation::FindFiles
         | Operation::WriteFile
+        | Operation::EditFile
         | Operation::SearchFiles
         | Operation::ReadOffice => return files::command(operation, arguments, context),
         Operation::InspectMedia | Operation::GenerateImage | Operation::GenerateVideo => {
-            let mut arguments = arguments.as_object().cloned().ok_or_else(|| {
-                Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "media arguments must be an object",
-                )
-            })?;
+            let mut arguments = arguments
+                .as_object()
+                .cloned()
+                .ok_or_else(|| Fault::invalid("media arguments must be an object"))?;
             if arguments.contains_key("action") {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
+                return Err(Fault::invalid(
                     "media action is fixed by the declared operation",
                 ));
             }
@@ -202,15 +216,15 @@ pub(super) fn command(
                 serde_json::from_value(arguments.into()).map_err(invalid)?;
             crate::agent::media::validate(&action)?;
             return Ok(Command::UseMedia {
-                turn: context.turn.ok_or_else(|| {
-                    Fault::new(ErrorCode::InvalidRequest, "operation requires a turn")
-                })?,
-                session: context.session.ok_or_else(|| {
-                    Fault::new(ErrorCode::InvalidRequest, "operation requires a session")
-                })?,
-                worktree: context.worktree.ok_or_else(|| {
-                    Fault::new(ErrorCode::InvalidRequest, "operation requires a worktree")
-                })?,
+                turn: context
+                    .turn
+                    .ok_or_else(|| Fault::invalid("operation requires a turn"))?,
+                session: context
+                    .session
+                    .ok_or_else(|| Fault::invalid("operation requires a session"))?,
+                worktree: context
+                    .worktree
+                    .ok_or_else(|| Fault::invalid("operation requires a worktree"))?,
                 action,
             });
         }
@@ -232,12 +246,12 @@ pub(super) fn command(
                 ));
             }
             return Ok(Command::UseComputer {
-                session: context.session.ok_or_else(|| {
-                    Fault::new(ErrorCode::InvalidRequest, "operation requires a session")
-                })?,
-                worktree: context.worktree.ok_or_else(|| {
-                    Fault::new(ErrorCode::InvalidRequest, "operation requires a worktree")
-                })?,
+                session: context
+                    .session
+                    .ok_or_else(|| Fault::invalid("operation requires a session"))?,
+                worktree: context
+                    .worktree
+                    .ok_or_else(|| Fault::invalid("operation requires a worktree"))?,
                 name: input.name,
                 arguments: input.arguments,
             });
@@ -263,12 +277,12 @@ pub(super) fn command(
             }
             crate::browser::validate(&action)?;
             return Ok(Command::UseBrowser {
-                session: context.session.ok_or_else(|| {
-                    Fault::new(ErrorCode::InvalidRequest, "operation requires a session")
-                })?,
-                worktree: context.worktree.ok_or_else(|| {
-                    Fault::new(ErrorCode::InvalidRequest, "operation requires a worktree")
-                })?,
+                session: context
+                    .session
+                    .ok_or_else(|| Fault::invalid("operation requires a session"))?,
+                worktree: context
+                    .worktree
+                    .ok_or_else(|| Fault::invalid("operation requires a worktree"))?,
                 action,
             });
         }
@@ -288,12 +302,12 @@ pub(super) fn command(
             }
             crate::external_browser::validate(browser.action, &browser.arguments)?;
             return Ok(Command::UseExternalBrowser {
-                session: context.session.ok_or_else(|| {
-                    Fault::new(ErrorCode::InvalidRequest, "operation requires a session")
-                })?,
-                worktree: context.worktree.ok_or_else(|| {
-                    Fault::new(ErrorCode::InvalidRequest, "operation requires a worktree")
-                })?,
+                session: context
+                    .session
+                    .ok_or_else(|| Fault::invalid("operation requires a session"))?,
+                worktree: context
+                    .worktree
+                    .ok_or_else(|| Fault::invalid("operation requires a worktree"))?,
                 action: browser.action,
                 arguments: browser.arguments,
             });
@@ -303,6 +317,7 @@ pub(super) fn command(
             #[serde(deny_unknown_fields)]
             struct Launch {
                 command: String,
+                description: Option<String>,
                 cwd: String,
                 timeout_ms: u64,
                 background: bool,
@@ -310,10 +325,11 @@ pub(super) fn command(
             }
             let launch: Launch = serde_json::from_value(arguments).map_err(invalid)?;
             return Ok(Command::RunCommand {
-                turn: context.turn.ok_or_else(|| {
-                    Fault::new(ErrorCode::InvalidRequest, "operation requires a turn")
-                })?,
+                turn: context
+                    .turn
+                    .ok_or_else(|| Fault::invalid("operation requires a turn"))?,
                 command: launch.command,
+                description: launch.description,
                 cwd: launch.cwd,
                 timeout_ms: launch.timeout_ms,
                 background: launch.background,
@@ -327,17 +343,14 @@ pub(super) fn command(
                 id: Option<sailry_protocol::RequestId>,
             }
             let identity: Identity = serde_json::from_value(arguments).map_err(invalid)?;
-            let session = context.session.ok_or_else(|| {
-                Fault::new(ErrorCode::InvalidRequest, "operation requires a session")
-            })?;
+            let session = context
+                .session
+                .ok_or_else(|| Fault::invalid("operation requires a session"))?;
             return match (operation, identity.id) {
                 (Operation::StopCommand, Some(id)) => Ok(Command::StopCommand { session, id }),
                 (Operation::ReadCommand, Some(id)) => Ok(Command::ReadCommand { session, id }),
                 (Operation::ReadCommand, None) => Ok(Command::ListCommands { session }),
-                _ => Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "command id is required",
-                )),
+                _ => Err(Fault::invalid("command id is required")),
             };
         }
         _ => {}
@@ -346,6 +359,8 @@ pub(super) fn command(
         Operation::InspectGit
         | Operation::ReadGitDiff
         | Operation::ReadGitLog
+        | Operation::ReadGitShow
+        | Operation::ReadGitBlame
         | Operation::ListWorktrees
         | Operation::CreateManagedWorktree
         | Operation::RegisterWorktree
@@ -393,12 +408,6 @@ pub(super) fn command(
                 package: context.package.clone(),
             });
         }
-        Operation::Unsupported => {
-            return Err(Fault::new(
-                ErrorCode::Unavailable,
-                "the declared operation is not supported",
-            ));
-        }
         Operation::Progress
         | Operation::DelegateAgent
         | Operation::GuideAgent
@@ -407,7 +416,9 @@ pub(super) fn command(
         }
         Operation::ListDirectory
         | Operation::ReadFile
+        | Operation::FindFiles
         | Operation::WriteFile
+        | Operation::EditFile
         | Operation::SearchFiles
         | Operation::ReadOffice
         | Operation::InspectMedia
@@ -427,10 +438,7 @@ pub(super) fn command(
 }
 
 fn invalid(error: serde_json::Error) -> Fault {
-    Fault::new(
-        ErrorCode::InvalidRequest,
-        format!("invalid plugin operation arguments: {error}"),
-    )
+    Fault::invalid(format!("invalid plugin operation arguments: {error}"))
 }
 
 #[cfg(test)]

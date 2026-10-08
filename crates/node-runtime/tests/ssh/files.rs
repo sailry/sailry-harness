@@ -71,7 +71,7 @@ async fn browses_and_streams_files() {
             panic!("upload expected");
         };
         client
-            .upload_ssh(
+            .upload(
                 &upload,
                 &mut data.as_slice(),
                 CancellationToken::new(),
@@ -109,7 +109,7 @@ async fn browses_and_streams_files() {
             panic!("upload expected");
         };
         client
-            .upload_ssh(
+            .upload(
                 &upload,
                 &mut data.as_slice(),
                 CancellationToken::new(),

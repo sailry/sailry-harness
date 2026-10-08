@@ -80,10 +80,6 @@ struct Remove {
     expected_revision: u64,
 }
 
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
-}
-
 async fn execute(binding: &Binding, command: Command) -> Result<Output, Fault> {
     let admission = binding
         .transport
@@ -107,7 +103,7 @@ async fn standalone(
 ) -> Result<plugin::Info, Fault> {
     let Output::Plugin(info) = execute(binding, Command::ReadPlugin { name: name.into() }).await?
     else {
-        return Err(invalid("expected a skill package"));
+        return Err(sailry_protocol::Fault::invalid("expected a skill package"));
     };
     if info.skill.is_none() {
         return Err(Fault::new(
@@ -205,7 +201,9 @@ impl Definition for Operation {
             Self::Update => {
                 let args: Update = decode(arguments)?;
                 if args.expected_revision == 0 {
-                    return Err(invalid("update requires an installed skill revision"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "update requires an installed skill revision",
+                    ));
                 }
                 Command::InstallSkill {
                     source: args.source,
@@ -217,7 +215,9 @@ impl Definition for Operation {
             Self::Uninstall => {
                 let args: Remove = decode(arguments)?;
                 if args.expected_revision == 0 {
-                    return Err(invalid("uninstall requires an installed skill revision"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "uninstall requires an installed skill revision",
+                    ));
                 }
                 Command::RemovePlugin {
                     name: args.name,
@@ -241,7 +241,9 @@ impl Definition for Operation {
                     || previous.source.git_ref != source.git_ref
                     || previous.path != *path
                 {
-                    return Err(invalid("skill update must preserve its source identity"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "skill update must preserve its source identity",
+                    ));
                 }
             }
             Command::RemovePlugin {
@@ -262,7 +264,7 @@ impl Definition for Operation {
                     let Output::Plugin(info) =
                         execute(binding, Command::ReadPlugin { name: entry.name }).await?
                     else {
-                        return Err(invalid("expected a skill package"));
+                        return Err(sailry_protocol::Fault::invalid("expected a skill package"));
                     };
                     if let Some(source) = info.skill {
                         skills.push(json!({"name":info.summary.name,"revision":info.summary.revision,"enabled":info.summary.enabled,"source":source.source,"path":source.path,"skills":info.skills}));
@@ -270,13 +272,18 @@ impl Definition for Operation {
                 }
                 json!({"skills":skills})
             }
-            Output::SkillDiscovery(discovery) => serde_json::to_value(discovery)
-                .map_err(|_| invalid("skill discovery could not be encoded"))?,
+            Output::SkillDiscovery(discovery) => serde_json::to_value(discovery).map_err(|_| {
+                sailry_protocol::Fault::invalid("skill discovery could not be encoded")
+            })?,
             Output::Plugin(info) => {
                 json!({"name":info.summary.name,"revision":info.summary.revision,"enabled":info.summary.enabled,"source":info.skill,"skills":info.skills})
             }
             Output::Plugins(_) if matches!(self, Self::Uninstall) => json!({"removed":true}),
-            _ => return Err(invalid("unexpected skill management result")),
+            _ => {
+                return Err(sailry_protocol::Fault::invalid(
+                    "unexpected skill management result",
+                ));
+            }
         };
         Ok(value)
     }

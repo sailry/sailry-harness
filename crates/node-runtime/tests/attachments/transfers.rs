@@ -56,7 +56,7 @@ async fn checks_integrity() {
             let upload = prepare(&client, spec(fixture.worktree, "image", b"valid")).await;
             assert!(
                 client
-                    .upload_attachment(&upload, &mut &bytes[..], CancellationToken::new(), |_| {})
+                    .upload(&upload, &mut &bytes[..], CancellationToken::new(), |_| {})
                     .await
                     .is_err()
             );

@@ -185,6 +185,7 @@ async fn reads_copies_and_restores_receipts() {
                 .prepare(Command::RunCommand {
                     turn: turn.id,
                     command,
+                    description: None,
                     cwd: String::new(),
                     timeout_ms: 120000,
                     background: false,

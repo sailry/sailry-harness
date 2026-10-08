@@ -62,12 +62,9 @@ pub(super) fn combine(sources: &[Source]) -> Result<Option<Summary>, Fault> {
 
 fn add(total: &mut Metrics, source: &Metrics) -> Result<(), Fault> {
     let add = |target: &mut u64, value: u64| -> Result<(), Fault> {
-        *target = target.checked_add(value).ok_or_else(|| {
-            Fault::new(
-                ErrorCode::InvalidRequest,
-                "usage overview exceeds the counter limit",
-            )
-        })?;
+        *target = target
+            .checked_add(value)
+            .ok_or_else(|| Fault::invalid("usage overview exceeds the counter limit"))?;
         Ok(())
     };
     add(&mut total.responses, source.responses)?;
@@ -79,12 +76,9 @@ fn add(total: &mut Metrics, source: &Metrics) -> Result<(), Fault> {
     }
     if let Some(cost) = &source.cost {
         total.cost = Some(match &total.cost {
-            Some(total) => total.checked_add(cost).ok_or_else(|| {
-                Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "usage cost exceeds the counter limit",
-                )
-            })?,
+            Some(total) => total
+                .checked_add(cost)
+                .ok_or_else(|| Fault::invalid("usage cost exceeds the counter limit"))?,
             None => cost.clone(),
         });
     }
@@ -107,12 +101,9 @@ fn add_tokens(total: &mut Usage, source: &Usage) -> Result<(), Fault> {
         (&mut total.cached_input, source.cached_input),
         (&mut total.reasoning, source.reasoning),
     ] {
-        *target = target.checked_add(value).ok_or_else(|| {
-            Fault::new(
-                ErrorCode::InvalidRequest,
-                "usage overview exceeds the counter limit",
-            )
-        })?;
+        *target = target
+            .checked_add(value)
+            .ok_or_else(|| Fault::invalid("usage overview exceeds the counter limit"))?;
     }
     Ok(())
 }

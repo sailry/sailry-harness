@@ -48,7 +48,7 @@ pub(super) fn create(
         (None, Some(resource)) => {
             let owned = super::connections::workspace(db, profile, resource)?;
             if worktree.is_some_and(|id| id != owned) {
-                return Err(commands::invalid(
+                return Err(sailry_protocol::Fault::invalid(
                     "worktree does not belong to the connection",
                 ));
             }
@@ -58,7 +58,7 @@ pub(super) fn create(
             let binding = settings.config.assistant.as_ref().unwrap();
             let owned = assistants::workspace(db, profile, binding)?;
             if worktree.is_some_and(|id| id != owned) {
-                return Err(commands::invalid(
+                return Err(sailry_protocol::Fault::invalid(
                     "worktree does not belong to the plugin assistant",
                 ));
             }
@@ -66,14 +66,14 @@ pub(super) fn create(
         }
         (None, None) => {
             if worktree.is_some() {
-                return Err(commands::invalid(
+                return Err(sailry_protocol::Fault::invalid(
                     "an unassigned conversation creates its own workspace",
                 ));
             }
             super::worktrees::reserve_session(db, profile, id)?
         }
         _ => {
-            return Err(commands::invalid(
+            return Err(sailry_protocol::Fault::invalid(
                 "choose a project or a connection for the conversation",
             ));
         }
@@ -178,10 +178,7 @@ pub(super) fn import(
         || bundle.config.credential.is_some() != bundle.secret.is_some()
         || (bundle.secret.is_none() && bundle.expires_at_ms.is_some())
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "configuration import is inconsistent",
-        ));
+        return Err(Fault::invalid("configuration import is inconsistent"));
     }
     let mut provider = bundle.provider.clone();
     // Private IDs cannot alias a provider configured independently on this Node.
@@ -215,7 +212,9 @@ pub(super) fn import(
         let installed = crate::store::plugins::get(db, &binding.package.name)?
             .filter(|info| info.summary.enabled && info.summary.digest == binding.package.digest)
             .ok_or_else(|| {
-                commands::invalid("plugin assistant package is unavailable on the destination Node")
+                sailry_protocol::Fault::invalid(
+                    "plugin assistant package is unavailable on the destination Node",
+                )
             })?;
         binding.package = installed.summary.reference();
     }

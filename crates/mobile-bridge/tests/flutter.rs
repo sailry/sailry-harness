@@ -304,7 +304,37 @@ fn controls_remote_node() {
     });
     assert_eq!(page.runs.len(), 1);
     assert_eq!(page.runs[0].status, Status::Completed);
-    assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part, Part::ToolResult { name, result, .. } if name == &support::plugin_tool("files", "read_file") && result["data"]["text"] == CONTENT)), "actual filesystem contents reach canonical tool history");
+    let result = page
+        .entries
+        .iter()
+        .flat_map(|entry| &entry.parts)
+        .find_map(|part| match part {
+            Part::ToolResult { name, result, .. }
+                if name == &support::plugin_tool("files", "read_file") =>
+            {
+                Some(result.clone())
+            }
+            _ => None,
+        })
+        .expect("actual filesystem contents reach canonical tool history");
+    let Output::FileLines(lines) = serde_json::from_value(result).unwrap() else {
+        panic!("paged file contents expected")
+    };
+    assert_eq!(lines.path, "source.txt");
+    assert_eq!(
+        lines.lines,
+        vec![FileLine {
+            number: 1,
+            text: CONTENT.into(),
+        }]
+    );
+    assert_eq!(lines.size, CONTENT.len() as u64);
+    assert_eq!(
+        lines.revision,
+        blake3::hash(CONTENT.as_bytes()).to_hex().to_string()
+    );
+    assert_eq!(lines.offset, 0);
+    assert_eq!(lines.next_offset, None);
     let requests = server.requests.lock().unwrap();
     assert_eq!(
         requests.len(),

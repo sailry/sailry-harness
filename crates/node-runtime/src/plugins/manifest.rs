@@ -6,8 +6,6 @@ use sailry_protocol::{
 };
 use serde_json::{Map, Value};
 
-use super::invalid;
-
 pub(super) const SCHEMA: &str = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
 const FIELDS: &[&str] = &[
     "$schema",
@@ -31,15 +29,18 @@ pub(super) struct Manifest {
 }
 
 pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
-    let value: Value =
-        serde_json::from_slice(bytes).map_err(|_| invalid("invalid plugin manifest JSON"))?;
+    let value: Value = serde_json::from_slice(bytes)
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid plugin manifest JSON"))?;
     let object = value
         .as_object()
-        .ok_or_else(|| invalid("plugin manifest must be an object"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("plugin manifest must be an object"))?;
     if string(object, "$schema")? != Some(SCHEMA) {
-        return Err(invalid("unsupported Agent Plugins manifest schema"));
+        return Err(sailry_protocol::Fault::invalid(
+            "unsupported Agent Plugins manifest schema",
+        ));
     }
-    let name = string(object, "name")?.ok_or_else(|| invalid("plugin name is required"))?;
+    let name = string(object, "name")?
+        .ok_or_else(|| sailry_protocol::Fault::invalid("plugin name is required"))?;
     validate_name(name)?;
     for field in ["homepage", "repository", "license"] {
         string(object, field)?;
@@ -47,10 +48,12 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
     if let Some(author) = object.get("author") {
         let author = author
             .as_object()
-            .ok_or_else(|| invalid("plugin author must be an object"))?;
+            .ok_or_else(|| sailry_protocol::Fault::invalid("plugin author must be an object"))?;
         for key in author.keys() {
             if !["name", "email", "url"].contains(&key.as_str()) {
-                return Err(invalid("plugin author contains an unknown field"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "plugin author contains an unknown field",
+                ));
             }
             string(author, key)?;
         }
@@ -58,9 +61,11 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
     if let Some(keywords) = object.get("keywords") {
         let keywords = keywords
             .as_array()
-            .ok_or_else(|| invalid("plugin keywords must be an array"))?;
+            .ok_or_else(|| sailry_protocol::Fault::invalid("plugin keywords must be an array"))?;
         if keywords.iter().any(|keyword| !keyword.is_string()) {
-            return Err(invalid("plugin keywords must contain strings"));
+            return Err(sailry_protocol::Fault::invalid(
+                "plugin keywords must contain strings",
+            ));
         }
     }
     let mut issues: Vec<_> = object
@@ -89,7 +94,6 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                     }
                     Ok(parsed)
                         if parsed.actions.len() <= 32
-                            && parsed.actions.iter().all(sailry_protocol::plugin::Action::supported)
                             && parsed.files_in_namespace()
                             && parsed.instructions.as_ref().is_none_or(|text| {
                                 !text.trim().is_empty() && text.len() <= 16 * 1024
@@ -226,9 +230,9 @@ pub(super) fn string<'a>(
     object
         .get(key)
         .map(|value| {
-            value
-                .as_str()
-                .ok_or_else(|| invalid("plugin metadata field must be a string"))
+            value.as_str().ok_or_else(|| {
+                sailry_protocol::Fault::invalid("plugin metadata field must be a string")
+            })
         })
         .transpose()
 }
@@ -250,7 +254,9 @@ pub(crate) fn validate_name(name: &str) -> Result<(), Fault> {
         || name.contains("--")
         || name.contains("..")
     {
-        return Err(invalid("invalid Agent Plugins name"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid Agent Plugins name",
+        ));
     }
     Ok(())
 }

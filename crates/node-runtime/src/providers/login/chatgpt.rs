@@ -61,10 +61,9 @@ impl Service {
                 ]),
         )
         .await?;
-        let id_token = tokens
-            .id_token
-            .as_ref()
-            .ok_or_else(|| invalid("authorization response has no identity token"))?;
+        let id_token = tokens.id_token.as_ref().ok_or_else(|| {
+            sailry_protocol::Fault::invalid("authorization response has no identity token")
+        })?;
         let identity = identity::verify(
             client,
             &self.auth,
@@ -76,7 +75,9 @@ impl Service {
         if let Some(Grant::ChatGpt { subject, .. }) = &previous
             && identity.sub != *subject
         {
-            return Err(invalid("authorization changed the selected account"));
+            return Err(sailry_protocol::Fault::invalid(
+                "authorization changed the selected account",
+            ));
         }
         tokens.grant(code.client_id, identity, None)
     }
@@ -95,7 +96,9 @@ impl Service {
             ..
         } = previous
         else {
-            return Err(invalid("ChatGPT authorization expected"));
+            return Err(sailry_protocol::Fault::invalid(
+                "ChatGPT authorization expected",
+            ));
         };
         let tokens: Tokens = json(
             client
@@ -111,7 +114,9 @@ impl Service {
         let identity = if let Some(id_token) = &tokens.id_token {
             let identity = identity::verify(client, &self.auth, id_token, client_id, None).await?;
             if identity.sub != *subject {
-                return Err(invalid("authorization refresh changed its account"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "authorization refresh changed its account",
+                ));
             }
             identity
         } else {

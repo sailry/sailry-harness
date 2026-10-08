@@ -16,7 +16,7 @@ pub(super) fn validate(
             || reference.label.len() > 512
             || targets.contains(&&reference.target)
         {
-            return Err(invalid(
+            return Err(sailry_protocol::Fault::invalid(
                 "references require distinct targets and bounded labels",
             ));
         }
@@ -70,7 +70,9 @@ pub(super) fn validate(
                             || table.name.len() > 256
                     })
                 {
-                    return Err(invalid("invalid database reference"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "invalid database reference",
+                    ));
                 }
             }
 
@@ -114,7 +116,9 @@ pub(super) fn validate(
                         .iter()
                         .any(|profile| profile.reference() == *selected)
                 {
-                    return Err(invalid("select one role from the frozen session roster"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "select one role from the frozen session roster",
+                    ));
                 }
                 role = true;
             }
@@ -163,21 +167,23 @@ fn capability(
     let reference = references
         .iter()
         .find(|reference| reference.name == name)
-        .ok_or_else(|| invalid("referenced plugin is disabled or unavailable"))?;
+        .ok_or_else(|| {
+            sailry_protocol::Fault::invalid("referenced plugin is disabled or unavailable")
+        })?;
     let info = super::plugins::packages(db, std::slice::from_ref(reference))?.remove(0);
     if info
         .extension
         .as_ref()
         .is_some_and(|extension| extension.scope == Scope::Desktop)
     {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "desktop-only plugins cannot be referenced by an agent",
         ));
     }
     if let Target::Skill { name, .. } = target
         && !info.skills.iter().any(|skill| skill.name == *name)
     {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "referenced skill is unavailable in this plugin version",
         ));
     }

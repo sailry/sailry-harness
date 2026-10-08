@@ -140,10 +140,7 @@ impl Browsers {
         result: browser::Result,
     ) -> Result<(), Fault> {
         if serde_json::to_vec(&result).map_or(true, |bytes| bytes.len() > 256 * 1024) {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "browser result is too large",
-            ));
+            return Err(Fault::invalid("browser result is too large"));
         }
         let connections = self.connections.lock().unwrap();
         let connection = connections.get(&caller).ok_or_else(disconnected)?;

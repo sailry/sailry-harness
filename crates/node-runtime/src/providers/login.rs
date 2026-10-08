@@ -70,7 +70,9 @@ impl Service {
             };
             refreshed.validate(grant.authentication())?;
             if !refreshed.same_account(grant) {
-                return Err(invalid("authorization refresh changed its account"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "authorization refresh changed its account",
+                ));
             }
             if refreshed.expires_at_ms() <= now_ms()? {
                 return Err(expired());
@@ -128,21 +130,28 @@ impl Service {
                 Authentication::ChatGpt => {
                     self.chatgpt(
                         &client,
-                        authorization
-                            .ok_or_else(|| invalid("ChatGPT authorization context is required"))?,
+                        authorization.ok_or_else(|| {
+                            sailry_protocol::Fault::invalid(
+                                "ChatGPT authorization context is required",
+                            )
+                        })?,
                         progress,
                     )
                     .await?
                 }
                 Authentication::ChatGptOAuth => {
                     if authorization.is_some() {
-                        return Err(invalid("device authorization does not use a callback"));
+                        return Err(sailry_protocol::Fault::invalid(
+                            "device authorization does not use a callback",
+                        ));
                     }
                     self.codex(&client, progress).await?
                 }
                 Authentication::Copilot => self.copilot(&client, options, progress).await?,
                 Authentication::ApiKey => {
-                    return Err(invalid("provider does not use device authorization"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "provider does not use device authorization",
+                    ));
                 }
             };
             grant.validate(authentication)?;
@@ -177,7 +186,7 @@ pub(crate) fn validate(provider: &Provider) -> Result<(), Fault> {
         }
     };
     if !valid {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "provider authentication requires its supported API and service endpoint",
         ));
     }
@@ -230,12 +239,16 @@ async fn response(request: RequestBuilder) -> Result<(StatusCode, Zeroizing<Vec<
         .content_length()
         .is_some_and(|length| length > BODY_LIMIT as u64)
     {
-        return Err(invalid("authorization response exceeds its size limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "authorization response exceeds its size limit",
+        ));
     }
     let mut body = Zeroizing::new(Vec::new());
     while let Some(chunk) = response.chunk().await.map_err(|_| unavailable())? {
         if body.len() + chunk.len() > BODY_LIMIT {
-            return Err(invalid("authorization response exceeds its size limit"));
+            return Err(sailry_protocol::Fault::invalid(
+                "authorization response exceeds its size limit",
+            ));
         }
         body.extend_from_slice(&chunk);
     }
@@ -251,7 +264,8 @@ async fn json<T: DeserializeOwned>(request: RequestBuilder) -> Result<T, Fault> 
 }
 
 fn decode<T: DeserializeOwned>(body: &[u8]) -> Result<T, Fault> {
-    serde_json::from_slice(body).map_err(|_| invalid("authorization response is invalid"))
+    serde_json::from_slice(body)
+        .map_err(|_| sailry_protocol::Fault::invalid("authorization response is invalid"))
 }
 
 fn http_error(status: StatusCode) -> Fault {
@@ -272,7 +286,9 @@ fn prompt(url: &str, user_code: String, duration: Duration) -> Result<State, Fau
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
     {
-        return Err(invalid("authorization code is invalid"));
+        return Err(sailry_protocol::Fault::invalid(
+            "authorization code is invalid",
+        ));
     }
     Ok(State::Pending {
         verification_url: url.into(),
@@ -288,9 +304,6 @@ fn now_ms() -> Result<u64, Fault> {
         .map_err(|_| Fault::new(ErrorCode::Internal, "system clock is invalid"))
 }
 
-fn invalid(message: &'static str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
-}
 fn unavailable() -> Fault {
     Fault::new(
         ErrorCode::Unavailable,

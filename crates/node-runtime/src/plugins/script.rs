@@ -99,7 +99,7 @@ fn evaluate(
     let mut files = bundle.files;
     let source = files
         .remove(&bundle.entry)
-        .ok_or_else(|| invalid("plugin host entry is missing"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("plugin host entry is missing"))?;
     for (name, source) in files {
         resolver.add_module(name.clone());
         loader.add_module(name, source);
@@ -144,19 +144,15 @@ fn evaluate(
     }
     let text = result.map_err(engine)?;
     if text.len() > plugin::host::MAX_DATA_BYTES {
-        return Err(invalid("plugin callback result exceeds limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plugin callback result exceeds limit",
+        ));
     }
-    serde_json::from_str(&text).map_err(|_| invalid("plugin callback result is not JSON"))
+    serde_json::from_str(&text)
+        .map_err(|_| sailry_protocol::Fault::invalid("plugin callback result is not JSON"))
 }
 
 fn engine(error: rquickjs::Error) -> Fault {
     // Never stringify a thrown package object: getters may run unbounded user code.
-    Fault::new(
-        ErrorCode::InvalidRequest,
-        format!("plugin JavaScript execution failed: {error}"),
-    )
-}
-
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
+    Fault::invalid(format!("plugin JavaScript execution failed: {error}"))
 }

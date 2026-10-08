@@ -47,10 +47,7 @@ impl Ingress {
                 .iter()
                 .any(|package| !names.insert(package.name.clone()))
         {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "invalid plugin update selection",
-            ));
+            return Err(Fault::invalid("invalid plugin update selection"));
         }
         let mut batch = Batch::default();
         let mut current = Vec::new();

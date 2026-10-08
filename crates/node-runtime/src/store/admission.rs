@@ -192,6 +192,8 @@ impl Ingress {
                     | sailry_protocol::Command::BrowseFiles { .. }
                     | sailry_protocol::Command::ListTerminalTools { .. }
                     | sailry_protocol::Command::ReadFile { .. }
+                    | sailry_protocol::Command::ReadFileLines { .. }
+                    | sailry_protocol::Command::FindFiles { .. }
                     | sailry_protocol::Command::ReadOffice { .. }
                     | sailry_protocol::Command::SearchFiles { .. }
                     | sailry_protocol::Command::InspectGit { .. }
@@ -202,6 +204,8 @@ impl Ingress {
                     | sailry_protocol::Command::ResolveGitRevision { .. }
                     | sailry_protocol::Command::ListWorktrees { .. }
                     | sailry_protocol::Command::ReadGitLog { .. }
+                    | sailry_protocol::Command::ReadGitShow { .. }
+                    | sailry_protocol::Command::ReadGitBlame { .. }
                     | sailry_protocol::Command::ReadGitCommit { .. }
                     | sailry_protocol::Command::ReadGitDiff { .. }
             ) {
@@ -220,10 +224,6 @@ impl Ingress {
                         sailry_protocol::ErrorCode::WrongTarget,
                         "Node or protocol version mismatch",
                     ));
-                }
-                if request.plugin.is_some() {
-                    self.check_request(caller, request.clone(), internal)
-                        .await?;
                 }
                 let output = match request.command {
                     sailry_protocol::Command::ReadComputerPermissions => {

@@ -10,7 +10,7 @@ pub(super) fn save(db: &Connection, package: &str, schedule: &Schedule) -> Resul
             interval_ms,
         } => {
             if !(1000..=31_536_000_000).contains(&interval_ms) {
-                return Err(invalid(
+                return Err(sailry_protocol::Fault::invalid(
                     "schedule interval must be between one second and one year",
                 ));
             }
@@ -18,7 +18,7 @@ pub(super) fn save(db: &Connection, package: &str, schedule: &Schedule) -> Resul
         }
     };
     if first < 0 {
-        return Err(invalid("schedule time is invalid"));
+        return Err(sailry_protocol::Fault::invalid("schedule time is invalid"));
     }
     let old: Option<Schedule> = get(
         db,
@@ -85,7 +85,7 @@ pub(super) fn due(db: &Connection, timestamp: i64) -> Result<Vec<String>, Fault>
         let mut schedule: Schedule = required(db, "dispatch_schedules", &package, "id", &id)?;
         let first = schedule
             .next_ms
-            .ok_or_else(|| invalid("due schedule has no cursor"))?;
+            .ok_or_else(|| sailry_protocol::Fault::invalid("due schedule has no cursor"))?;
         let (scheduled_ms, next_ms) = match schedule.timing {
             Timing::Once { .. } => (first, None),
             Timing::Every { interval_ms, .. } => {

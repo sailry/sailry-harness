@@ -89,25 +89,21 @@ fn dispatch_invalidation_advances_shared_cursor() {
 }
 
 #[test]
-fn unknown_events_only_advance_cursor() {
+fn rejects_unknown_event_updates() {
     let node = NodeId([1; 32]);
     let mut projection = Projection::new(node, 1);
     projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
-    let update: Update = serde_json::from_value(serde_json::json!({
+    let update = serde_json::from_value::<Update>(serde_json::json!({
         "kind": "event",
         "data": {
             "node": node,
             "cursor": 1,
             "event": { "kind": "future_event", "data": { "private": "value" } }
         }
-    }))
-    .unwrap();
-    assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
-    assert_eq!(projection.snapshot(), Some(&snapshot(1)));
-    assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
-    assert_eq!(projection.apply(1, event(2)).unwrap(), Apply::Applied);
-    assert_eq!(projection.snapshot().unwrap().defaults.revision, 2);
-    assert_eq!(projection.apply(1, event(4)).unwrap(), Apply::Recover);
+    }));
+    assert!(update.is_err());
+    assert_eq!(projection.snapshot(), Some(&snapshot(0)));
+    assert_eq!(projection.apply(1, event(1)).unwrap(), Apply::Applied);
 }
 
 #[test]

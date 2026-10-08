@@ -12,10 +12,7 @@ impl observer::Progress for login::Update {
     type Attempt = login::Attempt;
     fn decode(update: Update) -> Result<Self, Fault> {
         let Update::McpLogin(update) = update else {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "MCP authorization update expected",
-            ));
+            return Err(Fault::invalid("MCP authorization update expected"));
         };
         Ok(update)
     }

@@ -98,10 +98,7 @@ impl Database {
     pub(super) fn remember(&self, address: sailry_link::EndpointAddr) -> Result<(), Fault> {
         let body = serde_json::to_string(&address).map_err(storage_error)?;
         if body.len() > 8192 || address.addrs.len() > 16 {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "peer address exceeds limits",
-            ));
+            return Err(Fault::invalid("peer address exceeds limits"));
         }
         self.connection.execute("INSERT INTO link_addresses(identity,address) VALUES(?1,?2) ON CONFLICT(identity) DO UPDATE SET address=excluded.address", params![&address.id.as_bytes()[..], body]).map_err(storage_error)?;
         Ok(())
@@ -578,10 +575,7 @@ impl Database {
     fn admit(&mut self, caller: NodeId, request: &Request) -> Result<Option<Response>, Fault> {
         let encoded = zeroize::Zeroizing::new(encode(request)?);
         if encoded.len() > MAX_FRAME_BYTES {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "request exceeds the frame limit",
-            ));
+            return Err(Fault::invalid("request exceeds the frame limit"));
         }
         if !request.command.durable() {
             return Ok(None);
@@ -601,7 +595,10 @@ impl Database {
         ) {
             // Keep replay identity without making the admission ledger another secret store.
             format!("credential-v1:{}", blake3::hash(&encoded).to_hex()).into_bytes()
-        } else if matches!(request.command, Command::WriteFile { .. }) {
+        } else if matches!(
+            request.command,
+            Command::WriteFile { .. } | Command::EditFile { .. }
+        ) {
             // The ledger owns replay identity, not another copy of project content.
             format!("file-v1:{}", blake3::hash(&encoded).to_hex()).into_bytes()
         } else if matches!(

@@ -177,10 +177,7 @@ impl Transfers {
         if bytes.len() as u64 != attachment.spec.size
             || attachment.spec.size > sailry_protocol::attachment::MAX_BYTES
         {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "tool image size mismatch",
-            ));
+            return Err(Fault::invalid("tool image size mismatch"));
         }
         let prepared = Prepared {
             source: Source::Bytes(bytes),

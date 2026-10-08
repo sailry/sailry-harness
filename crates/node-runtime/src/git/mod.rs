@@ -11,6 +11,7 @@ mod diff;
 mod history;
 mod ignore;
 pub(crate) mod index;
+mod inspection;
 mod management;
 pub(crate) mod merge;
 mod output;
@@ -137,6 +138,21 @@ impl Git {
                 Command::ReadGitCommit { commit, .. } => {
                     history::commit(&root, &commit, &control).map(Output::GitCommit)
                 }
+                Command::ReadGitShow {
+                    revision,
+                    path,
+                    offset,
+                    limit,
+                    ..
+                } => inspection::show(&root, &revision, path.as_deref(), offset, limit, &control),
+                Command::ReadGitBlame {
+                    revision,
+                    path,
+                    offset,
+                    limit,
+                    ..
+                } => inspection::blame(&root, revision.as_deref(), &path, offset, limit, &control)
+                    .map(Output::GitBlame),
                 _ => Err(Fault::new(
                     ErrorCode::Internal,
                     "invalid Git inspection command",
@@ -178,17 +194,11 @@ fn open(root: &Path) -> Result<Repository, Fault> {
     let dir = path::root(root)?;
     match dir.symlink_metadata(".git") {
         Ok(metadata) if metadata.is_symlink() => {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "Git metadata cannot be a symlink",
-            ));
+            return Err(Fault::invalid("Git metadata cannot be a symlink"));
         }
         Ok(metadata) if metadata.is_file() || metadata.is_dir() => {}
         Ok(_) => {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "unsupported Git metadata entry",
-            ));
+            return Err(Fault::invalid("unsupported Git metadata entry"));
         }
         Err(error) => return Err(io_error(error)),
     }
@@ -200,10 +210,9 @@ fn open(root: &Path) -> Result<Repository, Fault> {
     .map_err(fault)?;
     let workdir = repository
         .workdir()
-        .ok_or_else(|| Fault::new(ErrorCode::InvalidRequest, "expected a non-bare worktree"))?;
+        .ok_or_else(|| Fault::invalid("expected a non-bare worktree"))?;
     if workdir.canonicalize().map_err(io_error)? != root {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
+        return Err(Fault::invalid(
             "expected the exact registered worktree root",
         ));
     }
@@ -230,10 +239,7 @@ fn valid_path(value: &str) -> Result<(), Fault> {
     if value.chars().any(char::is_control)
         || parts.iter().any(|part| part.eq_ignore_ascii_case(".git"))
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid Git worktree-relative path",
-        ));
+        return Err(Fault::invalid("invalid Git worktree-relative path"));
     }
     Ok(())
 }
@@ -253,8 +259,7 @@ fn check_entry(root: &Path, value: &str) -> Result<(), Fault> {
         Ok(metadata) if metadata.is_file() || metadata.is_symlink() => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(io_error(error)),
-        _ => Err(Fault::new(
-            ErrorCode::InvalidRequest,
+        _ => Err(Fault::invalid(
             "Git file inspection requires a regular file or symlink",
         )),
     }

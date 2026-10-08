@@ -29,8 +29,7 @@ pub(crate) fn page(db: &Connection, query: &catalog::Query) -> Result<catalog::P
         metadata::identifier(provider, 128)?;
     }
     if query.ids.len() > 100 || query.provider.is_none() && query.ids.is_empty() {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
+        return Err(Fault::invalid(
             "catalog lookup requires bounded model identifiers",
         ));
     }
@@ -39,8 +38,7 @@ pub(crate) fn page(db: &Connection, query: &catalog::Query) -> Result<catalog::P
     }
     if query.limit == 0 || query.limit > 100 || (query.after.is_some() && query.revision.is_none())
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
+        return Err(Fault::invalid(
             "catalog page requires bounded size and revision",
         ));
     }

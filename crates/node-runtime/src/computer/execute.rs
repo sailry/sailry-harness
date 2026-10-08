@@ -6,16 +6,10 @@ use serde_json::Value;
 
 pub(crate) fn validate(name: &str, arguments: &Value) -> Result<(), Fault> {
     if super::definition(name).is_none() {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "unknown computer tool",
-        ));
+        return Err(Fault::invalid("unknown computer tool"));
     }
     if !arguments.is_object() {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "computer arguments must be an object",
-        ));
+        return Err(Fault::invalid("computer arguments must be an object"));
     }
     Ok(())
 }

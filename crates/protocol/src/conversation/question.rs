@@ -1,5 +1,5 @@
 //! User input is distinct from tool authorization, in every permission mode.
-use crate::{ErrorCode, Fault, QuestionId, SessionId, TurnId};
+use crate::{Fault, QuestionId, SessionId, TurnId};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_TEXT_BYTES: usize = 64 * 1024;
@@ -114,7 +114,9 @@ impl Spec {
             && !(self.prompt.is_empty() && matches!(self.input, Input::Plan)))
             || self.prompt.len() > 16 * 1024
         {
-            return Err(invalid("question prompt is empty or too large"));
+            return Err(crate::Fault::invalid(
+                "question prompt is empty or too large",
+            ));
         }
         match &self.input {
             Input::Url {
@@ -126,9 +128,10 @@ impl Spec {
                     || elicitation_id.is_empty()
                     || elicitation_id.len() > 1024
                 {
-                    return Err(invalid("invalid MCP URL request"));
+                    return Err(crate::Fault::invalid("invalid MCP URL request"));
                 }
-                let parsed = url::Url::parse(url).map_err(|_| invalid("invalid MCP URL"))?;
+                let parsed =
+                    url::Url::parse(url).map_err(|_| crate::Fault::invalid("invalid MCP URL"))?;
                 let local = parsed.host_str().is_some_and(|host| {
                     host == "localhost"
                         || host
@@ -148,7 +151,7 @@ impl Spec {
                             .contains('@')
                     })
                 {
-                    return Err(invalid(
+                    return Err(crate::Fault::invalid(
                         "MCP URL requires HTTPS or loopback HTTP without user information",
                     ));
                 }
@@ -156,7 +159,7 @@ impl Spec {
             }
             Input::Form { fields } => form::validate(fields),
             Input::Text { max_bytes, .. } if !(1..=MAX_TEXT_BYTES).contains(max_bytes) => Err(
-                invalid("question text limit is outside the supported range"),
+                crate::Fault::invalid("question text limit is outside the supported range"),
             ),
             Input::Choice { options, .. } => {
                 let mut seen = std::collections::BTreeSet::new();
@@ -166,7 +169,9 @@ impl Spec {
                         option.trim().is_empty() || option.len() > 1024 || !seen.insert(option)
                     })
                 {
-                    return Err(invalid("question options are empty, repeated or too large"));
+                    return Err(crate::Fault::invalid(
+                        "question options are empty, repeated or too large",
+                    ));
                 }
                 Ok(())
             }
@@ -193,7 +198,7 @@ impl Spec {
                     || text.len() > *max_bytes
                     || !multiline && text.contains(['\n', '\r'])
                 {
-                    return Err(invalid(
+                    return Err(crate::Fault::invalid(
                         "answer is empty, too large or requires multiple lines",
                     ));
                 }
@@ -217,17 +222,19 @@ impl Spec {
                         !allow_other || text.trim().is_empty() || text.len() > MAX_TEXT_BYTES
                     })
                 {
-                    return Err(invalid("answer does not match the question choices"));
+                    return Err(crate::Fault::invalid(
+                        "answer does not match the question choices",
+                    ));
                 }
             }
-            _ => return Err(invalid("answer type does not match the question")),
+            _ => {
+                return Err(crate::Fault::invalid(
+                    "answer type does not match the question",
+                ));
+            }
         }
         Ok(())
     }
-}
-
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }
 
 #[cfg(test)]

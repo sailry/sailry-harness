@@ -1,5 +1,5 @@
 //! Native Office inspection on the execution Node.
-use sailry_protocol::{ErrorCode, Fault, office::*};
+use sailry_protocol::{Fault, office::*};
 use std::{
     io::{Cursor, Read as _},
     path::Path,
@@ -15,7 +15,7 @@ pub(crate) const LIMIT: usize = 32 * 1024 * 1024;
 const TEXT_LIMIT: usize = 128 * 1024;
 
 fn invalid(error: impl std::fmt::Display) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, format!("Office: {error}"))
+    Fault::invalid(format!("Office: {error}"))
 }
 
 fn extension(path: &str) -> Result<&'static str, Fault> {

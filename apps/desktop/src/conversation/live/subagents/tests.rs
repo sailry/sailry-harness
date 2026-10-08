@@ -189,10 +189,7 @@ fn single_child_opens_directly(cx: &mut TestAppContext) {
                     .find(|current| current.run.turn == child.run.turn)
                     .unwrap();
                 current.run.status = status;
-                current.run.error = Some(sailry_protocol::Fault::new(
-                    sailry_protocol::ErrorCode::InvalidRequest,
-                    "Fixture diagnostic",
-                ));
+                current.run.error = Some(sailry_protocol::Fault::invalid("Fixture diagnostic"));
                 let rows = view.child_rows(child.origin.turn);
                 assert_eq!(rows.len(), 1);
                 assert_eq!(

@@ -19,6 +19,7 @@ pub(in crate::agent) fn bind(
     let expected = Content::new("user").with_text(instruction);
     let project = invocation.project.is_some() && invocation.connections.bound.is_none();
     let worktree = invocation.worktree;
+    let child = invocation.child.is_some();
     let initial: Vec<_> = invocation
         .message
         .references
@@ -66,6 +67,11 @@ pub(in crate::agent) fn bind(
                 if !guides.is_empty() {
                     request.contents[0].parts.push(Part::Text { text: guides });
                 }
+            }
+            if child {
+                request.contents[0].parts.push(Part::Text {
+                    text: super::recipient(true).into(),
+                });
             }
             Ok(BeforeModelResult::Continue(request))
         })

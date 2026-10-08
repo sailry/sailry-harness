@@ -39,6 +39,8 @@ impl Ingress {
                 Command::ListDirectory { worktree, .. }
                 | Command::ListTerminalTools { worktree }
                 | Command::ReadFile { worktree, .. }
+                | Command::ReadFileLines { worktree, .. }
+                | Command::FindFiles { worktree, .. }
                 | Command::ReadOffice { worktree, .. }
                 | Command::SearchFiles { worktree, .. }
                 | Command::InspectGit { worktree }
@@ -49,6 +51,8 @@ impl Ingress {
                 | Command::ResolveGitRevision { worktree, .. }
                 | Command::ListWorktrees { worktree }
                 | Command::ReadGitLog { worktree, .. }
+                | Command::ReadGitShow { worktree, .. }
+                | Command::ReadGitBlame { worktree, .. }
                 | Command::ReadGitCommit { worktree, .. }
                 | Command::ReadGitDiff { worktree, .. } => *worktree,
                 _ => {
@@ -88,6 +92,8 @@ impl Ingress {
                 | Command::ListWorktrees { .. }
                 | Command::ReadGitDiff { .. }
                 | Command::ReadGitLog { .. }
+                | Command::ReadGitShow { .. }
+                | Command::ReadGitBlame { .. }
                 | Command::ReadGitCommit { .. }
         ) {
             self.git

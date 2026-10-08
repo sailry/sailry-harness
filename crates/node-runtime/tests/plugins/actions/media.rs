@@ -391,6 +391,7 @@ async fn disabled_catalog_preserves_scope() {
             panic!("providers expected")
         };
         let mut provider = providers.remove(0);
+        provider.api = sailry_protocol::conversation::ModelApi::Gemini;
         provider.models[0].vision = true;
         provider.models[0].generates = vec![Generation::Image];
         execute(

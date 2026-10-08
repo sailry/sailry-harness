@@ -15,12 +15,12 @@ pub(super) fn save(
         *handler.callback.command,
         protocol::Command::Dispatch { .. }
     ) {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "dispatch callbacks cannot recursively schedule dispatch commands",
         ));
     }
     if handler.callback.bindings.len() > 32 {
-        return Err(invalid("too many event bindings"));
+        return Err(sailry_protocol::Fault::invalid("too many event bindings"));
     }
     let command = serde_json::to_value(&handler.callback.command).map_err(storage_error)?;
     for (target, source) in &handler.callback.bindings {
@@ -30,7 +30,7 @@ pub(super) fn save(
             || target.len() > 512
             || command.pointer(target).is_none()
         {
-            return Err(invalid(
+            return Err(sailry_protocol::Fault::invalid(
                 "event binding must point to an existing command data field",
             ));
         }

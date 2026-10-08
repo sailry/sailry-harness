@@ -474,12 +474,9 @@ impl Workspace {
 
 async fn prepare(binding: &Binding, current: &Summary, listing: Listing) -> Result<Command, Fault> {
     let source = sailry_protocol::plugin::skills::Source {
-        repository: listing.repository.ok_or_else(|| {
-            Fault::new(
-                ErrorCode::InvalidRequest,
-                "official plugin repository is unavailable",
-            )
-        })?,
+        repository: listing
+            .repository
+            .ok_or_else(|| Fault::invalid("official plugin repository is unavailable"))?,
         git_ref: Some("main".into()),
         path: Some(listing.id),
     };
@@ -532,10 +529,7 @@ async fn inspect(
             Prepared::Package(package) => {
                 let package = *package;
                 if package.info.summary.name != current.name {
-                    return Err(Fault::new(
-                        ErrorCode::InvalidRequest,
-                        "plugin update has a different identity",
-                    ));
+                    return Err(Fault::invalid("plugin update has a different identity"));
                 }
                 Ok(Entry {
                     candidate: (package.info.summary.digest != current.digest)

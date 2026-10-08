@@ -14,10 +14,7 @@ pub(crate) fn validate(transfer: &Transfer) -> Result<(), Fault> {
     crate::files::path::entry_components(&transfer.path)?;
     let remote = &transfer.remote_path;
     if remote.is_empty() || remote.len() > 4096 || remote.chars().any(char::is_control) {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid SSH remote path",
-        ));
+        return Err(Fault::invalid("invalid SSH remote path"));
     }
     Ok(())
 }
@@ -92,10 +89,7 @@ async fn upload(
 ) -> Result<(u64, String), Fault> {
     let before = source.metadata().map_err(io_error)?;
     if before.len() > LIMIT {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "SSH file exceeds the transfer limit",
-        ));
+        return Err(Fault::invalid("SSH file exceeds the transfer limit"));
     }
     let mut file = tokio::fs::File::from_std(source.try_clone().map_err(io_error)?);
     let mut response = Response::default();

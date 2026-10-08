@@ -6,39 +6,18 @@ pub(super) async fn run(
     query: &Query,
     tunnel_port: Option<u16>,
 ) -> Result<ResultSet, Fault> {
-    let (host, port, database, username, tls, socket) = match &operation.profile.connection {
-        Connection::Network {
-            host,
-            port,
-            database,
-            username,
-            tls,
-            ..
-        }
-        | Connection::Ssh {
-            host,
-            port,
-            database,
-            username,
-            tls,
-            ..
-        } => (host.as_str(), *port, database, username, *tls, None),
-        Connection::Socket {
-            path,
-            port,
-            database,
-            username,
-            ..
-        } => (
-            "localhost",
-            *port,
-            database,
-            username,
-            Tls::Disable,
-            Some(path),
-        ),
-        _ => unreachable!(),
-    };
+    let sailry_protocol::database::Server {
+        host,
+        port,
+        database,
+        username,
+        tls,
+        socket,
+    } = operation
+        .profile
+        .connection
+        .server()
+        .ok_or_else(|| Fault::invalid("database connection requires a server"))?;
     // Keep localhost on one endpoint across catalog and table requests. An explicit
     // IPv6 address still selects IPv6; other hostnames retain normal DNS resolution.
     let host = if tunnel_port.is_none() && host.eq_ignore_ascii_case("localhost") {
@@ -49,13 +28,13 @@ pub(super) async fn run(
     let plain = OptsBuilder::default()
         .ip_or_hostname(host)
         .tcp_port(tunnel_port.unwrap_or(port))
-        .socket(socket.cloned())
+        .socket(socket.map(str::to_owned))
         .resolved_ips(tunnel_port.map(|_| vec![std::net::Ipv4Addr::LOCALHOST.into()]))
         // A server's advertised socket may belong to a different local instance
         // when TCP reaches a container or SSH tunnel. Honor the network profile.
         .prefer_socket(false)
-        .db_name((!database.is_empty()).then(|| database.clone()))
-        .user(Some(username.clone()))
+        .db_name((!database.is_empty()).then(|| database.to_owned()))
+        .user(Some(username.to_owned()))
         .pass(Some(operation.password.expose().to_owned()));
     let connection_error = |error: mysql_async::Error| {
         let mut message = format!("Database connection failed: {error}");

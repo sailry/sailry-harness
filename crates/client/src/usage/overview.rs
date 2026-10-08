@@ -72,10 +72,7 @@ pub async fn watch_overview(
         .map(|client| (client.target(), client))
         .collect();
     if clients.is_empty() {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "usage overview requires an execution Node",
-        ));
+        return Err(Fault::invalid("usage overview requires an execution Node"));
     }
     let mut sources: BTreeMap<_, _> = clients
         .keys()

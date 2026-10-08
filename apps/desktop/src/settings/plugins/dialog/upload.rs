@@ -163,12 +163,7 @@ pub(in crate::settings::plugins) async fn prepare(
     reuse: bool,
     stop: sailry_link::CancellationToken,
 ) -> Result<Prepared, Fault> {
-    let invalid = || {
-        Fault::new(
-            ErrorCode::InvalidRequest,
-            "select a valid plugin ZIP or directory",
-        )
-    };
+    let invalid = || Fault::invalid("select a valid plugin ZIP or directory");
     let cancel = stop.clone();
     let source = tokio::task::spawn_blocking(move || source::open(path, cancel))
         .await
@@ -223,7 +218,7 @@ pub(in crate::settings::plugins) async fn prepare(
     };
     binding
         .client
-        .upload_plugin(&upload, &mut file, stop, |_| {})
+        .upload(&upload, &mut file, stop, |_| {})
         .await?;
     let Output::Plugin(info) = binding
         .client

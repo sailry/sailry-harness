@@ -21,13 +21,13 @@ impl Grant {
     pub(crate) fn headers(&self, options: &Options) -> Result<HeaderMap, Fault> {
         let mut headers = HeaderMap::new();
         let mut access = HeaderValue::from_str(&format!("Bearer {}", self.access().expose()))
-            .map_err(|_| invalid("authorization header is invalid"))?;
+            .map_err(|_| sailry_protocol::Fault::invalid("authorization header is invalid"))?;
         access.set_sensitive(true);
         headers.insert("authorization", access);
         headers.insert(
             "user-agent",
             HeaderValue::from_str(options.user_agent())
-                .map_err(|_| invalid("OAuth header value is invalid"))?,
+                .map_err(|_| sailry_protocol::Fault::invalid("OAuth header value is invalid"))?,
         );
         match (self, options) {
             (Self::ChatGpt { .. }, Options::ChatGpt { .. }) => {
@@ -45,14 +45,21 @@ impl Grant {
                 headers.insert(
                     "version",
                     HeaderValue::from_str(options.catalog_version().ok_or_else(|| {
-                        invalid("Codex catalog compatibility revision is required")
+                        sailry_protocol::Fault::invalid(
+                            "Codex catalog compatibility revision is required",
+                        )
                     })?)
-                    .map_err(|_| invalid("OAuth header value is invalid"))?,
+                    .map_err(|_| {
+                        sailry_protocol::Fault::invalid("OAuth header value is invalid")
+                    })?,
                 );
                 headers.insert(
                     "chatgpt-account-id",
-                    HeaderValue::from_str(account_id)
-                        .map_err(|_| invalid("authorization account identifier is invalid"))?,
+                    HeaderValue::from_str(account_id).map_err(|_| {
+                        sailry_protocol::Fault::invalid(
+                            "authorization account identifier is invalid",
+                        )
+                    })?,
                 );
             }
             (
@@ -65,13 +72,15 @@ impl Grant {
             ) => {
                 headers.insert(
                     "editor-version",
-                    HeaderValue::from_str(editor_version)
-                        .map_err(|_| invalid("OAuth header value is invalid"))?,
+                    HeaderValue::from_str(editor_version).map_err(|_| {
+                        sailry_protocol::Fault::invalid("OAuth header value is invalid")
+                    })?,
                 );
                 headers.insert(
                     "editor-plugin-version",
-                    HeaderValue::from_str(editor_plugin_version)
-                        .map_err(|_| invalid("OAuth header value is invalid"))?,
+                    HeaderValue::from_str(editor_plugin_version).map_err(|_| {
+                        sailry_protocol::Fault::invalid("OAuth header value is invalid")
+                    })?,
                 );
                 for (name, value) in [
                     ("copilot-integration-id", "vscode-chat"),
@@ -80,7 +89,11 @@ impl Grant {
                     headers.insert(name, HeaderValue::from_static(value));
                 }
             }
-            _ => return Err(invalid("OAuth settings do not match the authorization")),
+            _ => {
+                return Err(sailry_protocol::Fault::invalid(
+                    "OAuth settings do not match the authorization",
+                ));
+            }
         }
         Ok(headers)
     }

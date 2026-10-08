@@ -16,15 +16,14 @@ impl Client {
             ));
         }
         if !request.command.durable() {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
+            return Err(Fault::invalid(
                 "only durable commands have a stored outcome",
             ));
         }
         // Stream directly into the digest without retaining another plaintext request copy.
         let mut hasher = blake3::Hasher::new();
         serde_json::to_writer(&mut hasher, request)
-            .map_err(|_| Fault::new(ErrorCode::InvalidRequest, "request could not be encoded"))?;
+            .map_err(|_| Fault::invalid("request could not be encoded"))?;
         let query = self.prepare(Command::InspectRequest {
             id: request.id,
             digest: hasher.finalize().to_hex().to_string(),

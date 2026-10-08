@@ -36,7 +36,9 @@ pub(super) fn inline(
     data: &[u8],
 ) -> Result<Image, Fault> {
     if !supported(mime_type, data) {
-        return Err(invalid("invalid image in canonical history"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid image in canonical history",
+        ));
     }
     let worktree = runs::get(db, turn)?.worktree;
     describe(turn, worktree, &event.id, part, 0, mime_type, data)

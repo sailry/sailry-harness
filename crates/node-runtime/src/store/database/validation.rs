@@ -669,7 +669,7 @@ mod tests {
         }
 
         #[test]
-        fn unknown_output_preserves_profile() {
+        fn unknown_output_rejects_before_writes() {
             let (_directory, path, node, database) = fixture();
             for table in ["defaults", "plugins", "plugin_packages", "plugin_settings"] {
                 let count: i64 = database
@@ -687,21 +687,12 @@ mod tests {
                 "INSERT INTO requests(caller,id,body,status,result) VALUES(?1,?2,?3,'completed',?4)",
                 params![&node.0[..], RequestId::new().to_string(), b"fixture".as_slice(), result.to_string()],
             ).unwrap();
-            let fault = crate::store::outcomes::decode(&result.to_string())
-                .unwrap()
-                .unwrap_err();
-            assert_eq!(fault.code, sailry_protocol::ErrorCode::Unavailable);
-            assert!(!fault.message.contains("diagnostic-secret-marker"));
-            accepts_without_rewrites(
-                database,
-                &path,
-                node,
-                "SELECT CAST(result AS BLOB) FROM requests WHERE result IS NOT NULL",
-            );
+            assert!(crate::store::outcomes::decode(&result.to_string()).is_err());
+            rejects_without_writes(database, &path, node);
         }
 
         #[test]
-        fn unknown_event_preserves_profile() {
+        fn unknown_event_rejects_before_writes() {
             let (_directory, path, node, database) = fixture();
             let value = json!({
                 "kind": "unrecognized", "data": {"token": "diagnostic-secret-marker"}
@@ -713,11 +704,8 @@ mod tests {
                     [serde_json::to_vec(&value).unwrap()],
                 )
                 .unwrap();
-            assert_eq!(
-                serde_json::from_value::<Event>(value).unwrap(),
-                Event::Unsupported
-            );
-            accepts_without_rewrites(database, &path, node, "SELECT body FROM events");
+            assert!(serde_json::from_value::<Event>(value).is_err());
+            rejects_without_writes(database, &path, node);
         }
 
         #[test]

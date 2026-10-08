@@ -66,18 +66,25 @@ async fn survives_without_projects() {
                 web_search: false,
                 generates: vec![],
                 efforts: vec![],
-                capabilities: None,
+                capabilities: Some(discovery::Capabilities {
+                    tools: Some(false),
+                    ..Default::default()
+                }),
                 custom_efforts: false,
                 default_effort: Effort::Default,
             }],
         };
-        client
+        let Output::Provider(saved) = client
             .execute(client.prepare(Command::PutProvider {
                 provider: provider.clone(),
                 expected_revision: 0,
             }))
             .await
-            .unwrap();
+            .unwrap()
+        else {
+            panic!("provider expected");
+        };
+        assert!(!saved.models[0].tools);
         let mut sessions = Vec::new();
         for resource in [Resource::Database(database.id), Resource::Ssh(ssh)] {
             let (name, assistant) = match resource {
@@ -147,7 +154,9 @@ async fn survives_without_projects() {
             );
             assert!(
                 request["tools"].is_null()
-                    || request["tools"].as_array().is_some_and(Vec::is_empty)
+                    || request["tools"].as_array().is_some_and(Vec::is_empty),
+                "unexpected tools: {}",
+                request["tools"]
             );
             client
                 .execute(client.prepare(Command::SetPluginEnabled {

@@ -36,7 +36,16 @@ pub(in crate::store) fn read(
             }
             _ => continue,
         }
-        let content = super::read(db, session, file.id)?;
+        if file
+            .after
+            .size
+            .saturating_add(file.before.as_ref().map_or(0, |value| value.size))
+            > (MAX_FRAME_BYTES / 8) as u64
+        {
+            partial = true;
+            continue;
+        }
+        let content = super::reads::content(db, session, file.id)?;
         let segments = versions.entry(file.path).or_default();
         if let Some((_, after)) = segments.last_mut()
             && content.before.as_deref() == Some(after.as_str())

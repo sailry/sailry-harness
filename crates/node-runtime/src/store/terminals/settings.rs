@@ -19,8 +19,7 @@ pub(crate) fn read(db: &Connection) -> Result<Settings, Fault> {
 pub(crate) fn save(db: &Connection, settings: &Settings) -> Result<(Output, Option<Event>), Fault> {
     settings.validate()?;
     if !settings.shell.is_empty() && !std::path::Path::new(&settings.shell).is_absolute() {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
+        return Err(Fault::invalid(
             "terminal shell must be an absolute path on the execution Node",
         ));
     }

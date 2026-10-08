@@ -207,8 +207,7 @@ pub(super) async fn run(
                     }))))
                 } else {
                     if kind != sailry_protocol::EntryKind::File {
-                        return Err(Fault::new(
-                            ErrorCode::InvalidRequest,
+                        return Err(Fault::invalid(
                             "directories cannot be transferred between Nodes",
                         ));
                     }

@@ -17,12 +17,14 @@ pub(crate) fn is_reference(uri: &str) -> bool {
 pub(crate) fn id(uri: &str) -> Result<AttachmentId, Fault> {
     let value = uri
         .strip_prefix(PREFIX)
-        .ok_or_else(|| invalid("invalid attachment reference"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("invalid attachment reference"))?;
     let id: AttachmentId = value
         .parse()
-        .map_err(|_| invalid("invalid attachment reference"))?;
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid attachment reference"))?;
     if id.to_string() != value {
-        return Err(invalid("invalid attachment reference"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid attachment reference",
+        ));
     }
     Ok(id)
 }
@@ -34,7 +36,7 @@ pub(super) async fn input(ingress: &Ingress, invocation: &Invocation) -> Result<
         content = content.with_text(format!(
             "User-selected references (plugin and skill targets are explicit capability requests; other targets are context identifiers, not contents. Use read_file/list_directory for paths and read_session for conversations before describing them):\n{}",
             serde_json::to_string(&invocation.message.references)
-                .map_err(|error| invalid(&error.to_string()))?
+                .map_err(|error| sailry_protocol::Fault::invalid(error.to_string()))?
         ));
     }
     if !invocation.message.text.is_empty() {
@@ -83,7 +85,9 @@ impl Model {
                 }
                 let attachment = self.ingress.attachment(self.turn, id(file_uri)?).await?;
                 if attachment.spec.media_type != *mime_type {
-                    return Err(invalid("attachment media type mismatch"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "attachment media type mismatch",
+                    ));
                 }
                 let native = if attachment.spec.size <= adk_core::MAX_INLINE_DATA_SIZE as u64
                     && attachment.spec.size <= remaining
@@ -106,7 +110,7 @@ impl Model {
                     }
                     None if self.tools => file(&attachment, false),
                     None => {
-                        return Err(invalid(
+                        return Err(sailry_protocol::Fault::invalid(
                             "attachment requires tools or a supported native model input",
                         ));
                     }
@@ -179,10 +183,6 @@ impl Llm for Model {
         })?;
         model::timing::generate(&self.inner, request, stream).await
     }
-}
-
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }
 
 #[cfg(test)]

@@ -22,6 +22,61 @@ fn approve(view: &Entity<View>, visual: &mut VisualTestContext) -> ApprovalId {
 }
 
 #[gpui::test]
+fn shows_description_and_preserves_command(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let command = "printf checked > result.txt";
+        let description = "Check the writable project directory";
+        let fixture = Fixture::with_tools(
+            remote,
+            vec![(
+                crate::agent_fixture::plugin_tool("commands", "run_command"),
+                json!({"command":command,"description":description,"timeout_ms":5000}),
+            )],
+        );
+        fixture.start();
+        let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
+        wait(visual, |cx| {
+            view.read(cx).connected() && pending(&view, cx).is_some()
+        });
+        let id = view.read_with(visual, |_, cx| pending(&view, cx).unwrap());
+        let captured = view.read_with(visual, |view, _| {
+            details(
+                &view.history.calls[0],
+                &view.history.snapshot.as_ref().unwrap().page,
+            )
+        });
+        assert_eq!(captured.description.as_deref(), Some(command));
+        assert_eq!(captured.notices, vec![SharedString::from(description)]);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let notice = visual
+            .debug_bounds(Box::leak(
+                format!("live-approval-notice-{id}-0").into_boxed_str(),
+            ))
+            .unwrap();
+        let raw = visual
+            .debug_bounds(Box::leak(
+                format!("live-approval-description-{id}").into_boxed_str(),
+            ))
+            .unwrap();
+        assert!(notice.bottom() <= raw.top());
+        let path = fixture.directory.path().join("project/result.txt");
+        assert!(!path.exists());
+        approve(&view, visual);
+        wait(visual, |cx| view.read(cx).active().is_none());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "checked");
+        view.read_with(visual, |view, _| {
+            let page = &view.history.snapshot.as_ref().unwrap().page;
+            let args = view.history.calls[0].arguments(page).unwrap();
+            assert_eq!(args["command"], command);
+            assert_eq!(args["description"], description);
+        });
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
+#[gpui::test]
 fn clamps_without_changing_command(cx: &mut TestAppContext) {
     init(cx);
     for (text, remote) in [

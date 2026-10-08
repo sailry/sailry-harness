@@ -1,6 +1,6 @@
 //! Non-secret, provider-specific OAuth request settings.
 use super::ModelApi;
-use crate::{Authentication, ErrorCode, Fault};
+use crate::{Authentication, Fault};
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_CATALOG_VERSION: &str = "0.160.1";
@@ -68,12 +68,16 @@ impl Options {
                 Authentication::Copilot,
                 ModelApi::Responses | ModelApi::ChatCompletions,
             ) => &[user_agent, editor_version, editor_plugin_version],
-            _ => return Err(invalid("OAuth settings do not match the provider")),
+            _ => {
+                return Err(crate::Fault::invalid(
+                    "OAuth settings do not match the provider",
+                ));
+            }
         };
         if fields.iter().any(|value| {
             value.trim().is_empty() || value.len() > 256 || value.chars().any(char::is_control)
         }) {
-            return Err(invalid("OAuth setting is invalid"));
+            return Err(crate::Fault::invalid("OAuth setting is invalid"));
         }
         if let Some(version) = self.catalog_version() {
             let parts = version.split('.').collect::<Vec<_>>();
@@ -84,7 +88,9 @@ impl Options {
                         || !part.bytes().all(|byte| byte.is_ascii_digit())
                 })
             {
-                return Err(invalid("catalog version must use major.minor.patch"));
+                return Err(crate::Fault::invalid(
+                    "catalog version must use major.minor.patch",
+                ));
             }
         }
         Ok(())
@@ -110,10 +116,6 @@ impl Options {
             | Self::Copilot { user_agent, .. } => user_agent,
         }
     }
-}
-
-fn invalid(message: &'static str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }
 
 #[cfg(test)]

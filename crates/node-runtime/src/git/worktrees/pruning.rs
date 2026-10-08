@@ -6,15 +6,12 @@ use std::{io::ErrorKind, path::Path};
 
 pub(in crate::git) fn prune(repository: &Repository, path: &Path) -> Result<(), Fault> {
     if !path.is_absolute() {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "worktree path must be absolute",
-        ));
+        return Err(Fault::invalid("worktree path must be absolute"));
     }
     for name in repository.worktrees().map_err(fault)?.iter() {
         let name = name
             .map_err(fault)?
-            .ok_or_else(|| Fault::new(ErrorCode::InvalidRequest, "worktree name is not UTF-8"))?;
+            .ok_or_else(|| Fault::invalid("worktree name is not UTF-8"))?;
         let worktree = repository.find_worktree(name).map_err(fault)?;
         if worktree.path() != path {
             continue;

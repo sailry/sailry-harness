@@ -145,6 +145,7 @@ async fn reuses_approved_arguments() {
                 .prepare(Command::RunCommand {
                     turn,
                     command: command.into(),
+                    description: None,
                     cwd: String::new(),
                     timeout_ms: 120000,
                     background: false,

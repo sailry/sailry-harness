@@ -63,14 +63,18 @@ pub(super) fn execute(
             let mut profile = profile.clone();
             profile.name = profile.name.trim().into();
             if profile.name.is_empty() || profile.name.len() > 256 {
-                return Err(invalid("invalid database profile name"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "invalid database profile name",
+                ));
             }
             validate(&profile.connection, password.as_ref())?;
             validate_ssh(db, &profile.connection)?;
             profile.revision = expected_revision
                 .checked_add(1)
                 .filter(|revision| *revision <= i64::MAX as u64)
-                .ok_or_else(|| invalid("database profile revision exhausted"))?;
+                .ok_or_else(|| {
+                    sailry_protocol::Fault::invalid("database profile revision exhausted")
+                })?;
             let password = if matches!(profile.connection, Target::Sqlite { .. }) {
                 Some("")
             } else {
@@ -115,7 +119,9 @@ pub(super) fn execute(
                 Some(Event::DatabaseRemoved { id: *profile }),
             ))
         }
-        _ => Err(invalid("database configuration command expected")),
+        _ => Err(sailry_protocol::Fault::invalid(
+            "database configuration command expected",
+        )),
     }
 }
 
@@ -183,7 +189,9 @@ pub(super) fn prepare(
                 || !(1..=10_000).contains(row_limit)
                 || !(1..=3_600_000).contains(timeout_ms)
             {
-                return Err(invalid("invalid database query or limit"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "invalid database query or limit",
+                ));
             }
             (
                 *profile,
@@ -195,7 +203,11 @@ pub(super) fn prepare(
                 }),
             )
         }
-        _ => return Err(invalid("database operation expected")),
+        _ => {
+            return Err(sailry_protocol::Fault::invalid(
+                "database operation expected",
+            ));
+        }
     };
     let mut profile = current(&database.connection, id, revision)?;
     if matches!(
@@ -215,7 +227,7 @@ pub(super) fn prepare(
     };
     if let Some(selected) = selected {
         if selected.is_empty() || selected.len() > 256 || selected.chars().any(char::is_control) {
-            return Err(invalid("invalid selected database"));
+            return Err(sailry_protocol::Fault::invalid("invalid selected database"));
         }
         if let Target::Network { database, .. }
         | Target::Socket { database, .. }
@@ -223,7 +235,7 @@ pub(super) fn prepare(
         {
             *database = selected.clone();
         } else if selected != "main" {
-            return Err(invalid("unknown SQLite database"));
+            return Err(sailry_protocol::Fault::invalid("unknown SQLite database"));
         }
     }
     let password = database
@@ -247,21 +259,19 @@ pub(super) fn prepare(
     })
 }
 
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
-}
-
 fn validate(connection: &Target, password: Option<&Secret>) -> Result<(), Fault> {
     match connection {
         Target::Sqlite { path } => {
             if path.len() > 4096 || path.contains('\0') || !std::path::Path::new(path).is_absolute()
             {
-                return Err(invalid(
+                return Err(sailry_protocol::Fault::invalid(
                     "SQLite requires an absolute path on the execution Node",
                 ));
             }
             if password.is_some() {
-                return Err(invalid("SQLite does not use a network password"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "SQLite does not use a network password",
+                ));
             }
         }
         Target::Network {
@@ -285,7 +295,7 @@ fn validate(connection: &Target, password: Option<&Secret>) -> Result<(), Fault>
                 || host.chars().any(|c| c.is_whitespace() || c.is_control())
                 || host.contains('/')
             {
-                return Err(invalid("invalid database host"));
+                return Err(sailry_protocol::Fault::invalid("invalid database host"));
             }
             validate_network(*engine, *port, database, username, password)?;
         }
@@ -304,7 +314,7 @@ fn validate(connection: &Target, password: Option<&Secret>) -> Result<(), Fault>
             }
             if path.len() > 4096 || path.contains('\0') || !std::path::Path::new(path).is_absolute()
             {
-                return Err(invalid(
+                return Err(sailry_protocol::Fault::invalid(
                     "Socket requires an absolute path on the execution Node",
                 ));
             }
@@ -330,7 +340,9 @@ fn validate_network(
         || database.chars().any(char::is_control)
         || password.is_some_and(|p| p.expose().len() > 65536)
     {
-        return Err(invalid("invalid network database profile"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid network database profile",
+        ));
     }
     Ok(())
 }

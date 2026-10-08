@@ -80,17 +80,13 @@ impl Tool for Control {
             return Err(AdkError::tool("child control is no longer active"));
         }
         let work = async {
-            let args: Arguments = serde_json::from_value(arguments).map_err(|_| {
-                Fault::new(ErrorCode::InvalidRequest, "invalid child control arguments")
-            })?;
+            let args: Arguments = serde_json::from_value(arguments)
+                .map_err(|_| Fault::invalid("invalid child control arguments"))?;
             let state = self.ingress.child_state(self.turn, args.session).await?;
             if self.operation == Operation::GuideAgent {
-                let message = args.message.ok_or_else(|| {
-                    Fault::new(
-                        ErrorCode::InvalidRequest,
-                        "child guidance message is required",
-                    )
-                })?;
+                let message = args
+                    .message
+                    .ok_or_else(|| Fault::invalid("child guidance message is required"))?;
                 if state.run.status != sailry_protocol::conversation::Status::Running {
                     return Err(Fault::new(
                         ErrorCode::Conflict,
@@ -124,10 +120,7 @@ impl Tool for Control {
                 );
             }
             if args.message.is_some() {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "waiting does not accept a message",
-                ));
+                return Err(Fault::invalid("waiting does not accept a message"));
             }
             loop {
                 let state = self.ingress.child_state(self.turn, args.session).await?;

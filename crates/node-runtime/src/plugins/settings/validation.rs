@@ -7,13 +7,15 @@ pub(super) fn parse(
     servers: &BTreeMap<String, mcp::Server>,
 ) -> Result<Schema, Fault> {
     if bytes.len() > MAX_BYTES {
-        return Err(invalid("settings schema exceeds the size limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "settings schema exceeds the size limit",
+        ));
     }
-    let value: Value =
-        serde_json::from_slice(bytes).map_err(|_| invalid("invalid settings JSON"))?;
+    let value: Value = serde_json::from_slice(bytes)
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid settings JSON"))?;
     // The typed subset rejects external references and nested schemas before library construction.
     let schema: Schema = serde_json::from_value(value.clone())
-        .map_err(|_| invalid("unsupported settings form schema"))?;
+        .map_err(|_| sailry_protocol::Fault::invalid("unsupported settings form schema"))?;
     if schema.schema != SCHEMA
         || schema.additional_properties
         || schema.properties.len() > MAX_FIELDS
@@ -21,24 +23,28 @@ pub(super) fn parse(
         || !bounded_text(schema.title.as_deref())
         || !bounded_text(schema.description.as_deref())
     {
-        return Err(invalid("invalid settings form schema"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid settings form schema",
+        ));
     }
     let mut required = BTreeSet::new();
     for labels in schema.locales.values() {
         for (key, value) in labels {
             if !identifier(key) || !bounded_text(Some(value)) {
-                return Err(invalid("invalid settings translation"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "invalid settings translation",
+                ));
             }
         }
     }
     for name in &schema.required {
         if !schema.properties.contains_key(name) || !required.insert(name) {
-            return Err(invalid("invalid required setting"));
+            return Err(sailry_protocol::Fault::invalid("invalid required setting"));
         }
     }
     let mut targets = BTreeSet::new();
     if schema.tabs.len() > MAX_FIELDS {
-        return Err(invalid("too many settings tabs"));
+        return Err(sailry_protocol::Fault::invalid("too many settings tabs"));
     }
     let mut tab_ids = BTreeSet::new();
     let mut tab_fields = BTreeSet::new();
@@ -61,7 +67,7 @@ pub(super) fn parse(
                         .is_none_or(|field| field.kind != Kind::Boolean)
             })
         {
-            return Err(invalid("invalid settings tab"));
+            return Err(sailry_protocol::Fault::invalid("invalid settings tab"));
         }
     }
     for (name, field) in &schema.properties {
@@ -69,7 +75,9 @@ pub(super) fn parse(
             || !bounded_text(field.title.as_deref())
             || !bounded_text(field.description.as_deref())
         {
-            return Err(invalid("invalid settings field metadata"));
+            return Err(sailry_protocol::Fault::invalid(
+                "invalid settings field metadata",
+            ));
         }
         let raw = &value["properties"][name];
         if let Some(model) = &field.effort
@@ -82,23 +90,29 @@ pub(super) fn parse(
                 || field.secret.is_some()
                 || field.choices.is_some())
         {
-            return Err(invalid("reasoning settings must reference a model field"));
+            return Err(sailry_protocol::Fault::invalid(
+                "reasoning settings must reference a model field",
+            ));
         }
         if raw.get("x-sailry-secret").is_some() && field.secret.is_none() {
-            return Err(invalid("secret binding must be an object"));
+            return Err(sailry_protocol::Fault::invalid(
+                "secret binding must be an object",
+            ));
         }
         if let Some(binding) = &field.secret {
             if field.kind != Kind::String
                 || raw.get("default").is_some()
                 || raw.get("enum").is_some()
             {
-                return Err(invalid(
+                return Err(sailry_protocol::Fault::invalid(
                     "secret fields must be strings without defaults or choices",
                 ));
             }
             let target = validate_binding(binding, servers)?;
             if !targets.insert(target) {
-                return Err(invalid("secret settings must target distinct slots"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "secret settings must target distinct slots",
+                ));
             }
         }
         validate_field(field, raw)?;
@@ -111,7 +125,7 @@ fn validate_field(field: &Field, raw: &Value) -> Result<(), Fault> {
     if field.model
         && (field.kind != Kind::String || field.secret.is_some() || field.choices.is_some())
     {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "model settings must be public strings without fixed choices",
         ));
     }
@@ -136,12 +150,16 @@ fn validate_field(field: &Field, raw: &Value) -> Result<(), Fault> {
                     .any(|(index, value)| choices[..index].contains(value))
         })
     {
-        return Err(invalid("invalid settings field constraints"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid settings field constraints",
+        ));
     }
     if let (Some(min), Some(max)) = (&field.minimum, &field.maximum)
         && !build(&json!({"maximum": max}))?.is_valid(&Value::Number(min.clone()))
     {
-        return Err(invalid("settings minimum exceeds maximum"));
+        return Err(sailry_protocol::Fault::invalid(
+            "settings minimum exceeds maximum",
+        ));
     }
     let validator = build(raw)?;
     for value in raw
@@ -154,7 +172,9 @@ fn validate_field(field: &Field, raw: &Value) -> Result<(), Fault> {
             .is_some_and(|text| text.chars().count() > MAX_STRING)
             || !validator.is_valid(value)
         {
-            return Err(invalid("invalid settings default or choice"));
+            return Err(sailry_protocol::Fault::invalid(
+                "invalid settings default or choice",
+            ));
         }
     }
     Ok(())
@@ -165,22 +185,26 @@ fn validate_binding(
     servers: &BTreeMap<String, mcp::Server>,
 ) -> Result<(String, String), Fault> {
     if binding.unsupported {
-        return Err(invalid("unsupported protected setting binding"));
+        return Err(sailry_protocol::Fault::invalid(
+            "unsupported protected setting binding",
+        ));
     }
     if binding.origin.is_some() {
         let (origin, header, _) = super::super::http::binding(binding)?;
         return Ok((origin.origin().ascii_serialization(), header.to_string()));
     }
     if binding.prefix.is_some() {
-        return Err(invalid("secret prefix requires an HTTP origin"));
+        return Err(sailry_protocol::Fault::invalid(
+            "secret prefix requires an HTTP origin",
+        ));
     }
     let name = binding
         .server
         .as_deref()
-        .ok_or_else(|| invalid("secret setting requires a target"))?;
-    let server = servers
-        .get(name)
-        .ok_or_else(|| invalid("secret setting references an unknown MCP server"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("secret setting requires a target"))?;
+    let server = servers.get(name).ok_or_else(|| {
+        sailry_protocol::Fault::invalid("secret setting references an unknown MCP server")
+    })?;
     let slot = match (server, &binding.env, &binding.header) {
         (mcp::Server::Stdio { env, .. }, Some(name), None)
             if identifier(name)
@@ -198,22 +222,24 @@ fn validate_binding(
             Some(name),
         ) => {
             if mcp::protocol_header(name) {
-                return Err(invalid(
+                return Err(sailry_protocol::Fault::invalid(
                     "secret binding targets a protocol-controlled header",
                 ));
             }
             let header = reqwest::header::HeaderName::from_bytes(name.as_bytes())
-                .map_err(|_| invalid("invalid secret header name"))?;
+                .map_err(|_| sailry_protocol::Fault::invalid("invalid secret header name"))?;
             if !headers
                 .iter()
                 .any(|(key, value)| key.eq_ignore_ascii_case(name) && value.is_empty())
             {
-                return Err(invalid("secret header must have an empty MCP declaration"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "secret header must have an empty MCP declaration",
+                ));
             }
             format!("header:{header}")
         }
         _ => {
-            return Err(invalid(
+            return Err(sailry_protocol::Fault::invalid(
                 "secret binding must reference one empty supported MCP slot",
             ));
         }
@@ -236,5 +262,5 @@ fn bounded_text(value: Option<&str>) -> bool {
 fn build(value: &Value) -> Result<jsonschema::Validator, Fault> {
     jsonschema::draft202012::options()
         .build(value)
-        .map_err(|_| invalid("invalid settings schema constraints"))
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid settings schema constraints"))
 }

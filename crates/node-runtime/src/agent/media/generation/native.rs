@@ -21,7 +21,7 @@ pub(super) async fn generate(
         media
             .session
             .parse()
-            .map_err(|_| invalid("invalid media session"))?,
+            .map_err(|_| sailry_protocol::Fault::invalid("invalid media session"))?,
         true,
         &media.stop,
     )

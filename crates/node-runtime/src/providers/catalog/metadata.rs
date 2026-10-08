@@ -109,7 +109,9 @@ pub(crate) fn model(value: &Value) -> Result<catalog::Model, Fault> {
 
 pub(crate) fn identifier(value: &str, limit: usize) -> Result<(), Fault> {
     if value.trim().is_empty() || value.len() > limit || value.chars().any(char::is_control) {
-        return Err(invalid("catalog identifier is invalid"));
+        return Err(sailry_protocol::Fault::invalid(
+            "catalog identifier is invalid",
+        ));
     }
     Ok(())
 }

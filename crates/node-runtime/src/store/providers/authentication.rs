@@ -24,10 +24,7 @@ impl Saved {
                 .expires_at_ms
                 .is_some_and(|expiry| expiry > i64::MAX as u64)
         {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "invalid stored authentication metadata",
-            ));
+            return Err(Fault::invalid("invalid stored authentication metadata"));
         }
         if let Some(key) = &self.key {
             validate_key(key)?;
@@ -141,10 +138,7 @@ pub(in crate::store) fn execute(db: &Connection, command: &Command) -> Result<Ou
             configuration::save(db, &stored)?;
             Ok(Output::Credential(metadata))
         }
-        _ => Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "credential command expected",
-        )),
+        _ => Err(Fault::invalid("credential command expected")),
     }
 }
 
@@ -160,10 +154,7 @@ pub(in crate::store) fn put(
         .expires_at_ms
         .is_some_and(|expiry| expiry > i64::MAX as u64 || expiry <= now)
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "credential expiry must be in the future",
-        ));
+        return Err(Fault::invalid("credential expiry must be in the future"));
     }
     let previous = get(db, value.id)?;
     value.revision = revision(
@@ -287,10 +278,7 @@ fn validate_metadata(value: &Credential, provider: ProviderId) -> Result<(), Fau
 
 fn validate_key(secret: &Secret) -> Result<(), Fault> {
     if secret.expose().is_empty() || secret.expose().len() > 65536 {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "credential size must be 1 to 65536 bytes",
-        ));
+        return Err(Fault::invalid("credential size must be 1 to 65536 bytes"));
     }
     Ok(())
 }
@@ -305,7 +293,7 @@ fn revision(actual: u64, expected: u64) -> Result<u64, Fault> {
     actual
         .checked_add(1)
         .filter(|value| *value <= i64::MAX as u64)
-        .ok_or_else(|| Fault::new(ErrorCode::InvalidRequest, "credential revision exhausted"))
+        .ok_or_else(|| Fault::invalid("credential revision exhausted"))
 }
 
 fn missing() -> Fault {

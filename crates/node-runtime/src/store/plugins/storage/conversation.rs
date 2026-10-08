@@ -57,7 +57,11 @@ pub(super) fn execute(
             let turn = anchor(db, session, context.turn)?;
             write(db, name, session, turn, key, None, *expected_revision)?
         }
-        _ => return Err(invalid("conversation storage command expected")),
+        _ => {
+            return Err(sailry_protocol::Fault::invalid(
+                "conversation storage command expected",
+            ));
+        }
     };
     Ok(Output::PluginConversationValue(output))
 }
@@ -141,7 +145,9 @@ fn write(
         .as_ref()
         .is_some_and(|body| body.len() > storage::MAX_VALUE_BYTES)
     {
-        return Err(invalid("plugin value exceeds 256 KiB"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plugin value exceeds 256 KiB",
+        ));
     }
     let (count, bytes): (i64, i64) = db
         .query_row(

@@ -15,17 +15,11 @@ pub(crate) fn branch(
 ) -> Result<GitMerge, Fault> {
     for name in [name, expected_branch] {
         if name.len() > 1024 || !Branch::name_is_valid(name).map_err(fault)? {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "invalid merge branch name",
-            ));
+            return Err(Fault::invalid("invalid merge branch name"));
         }
     }
     if commit.len() != 40 || expected_head.len() != 40 {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "expected full merge commit identifiers",
-        ));
+        return Err(Fault::invalid("expected full merge commit identifiers"));
     }
     let source_id = Oid::from_str(commit).map_err(fault)?;
     let target_id = Oid::from_str(expected_head).map_err(fault)?;

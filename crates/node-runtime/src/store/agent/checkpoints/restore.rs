@@ -10,7 +10,7 @@ pub(in crate::store) fn prepare(
     worktree: WorktreeId,
     root: &Path,
 ) -> Result<checkpoint::Content, Fault> {
-    let content = read(&database.connection, session, id)?;
+    let content = reads::content(&database.connection, session, id)?;
     let file = &content.file;
     if file.worktree != worktree || database.worktree_root(worktree)? != root {
         return Err(Fault::new(
@@ -71,7 +71,9 @@ pub(in crate::store) fn execute(
         worktree,
     } = command
     else {
-        return Err(invalid("file checkpoint restore command expected"));
+        return Err(sailry_protocol::Fault::invalid(
+            "file checkpoint restore command expected",
+        ));
     };
     let (reply, response) = std::sync::mpsc::channel();
     sender

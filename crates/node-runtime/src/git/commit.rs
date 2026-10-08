@@ -14,10 +14,7 @@ pub(crate) fn create(
     expected_branch: Option<&str>,
 ) -> Result<(String, Option<Fault>), Fault> {
     if message.trim().is_empty() || message.len() > 16 * 1024 || message.contains('\0') {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid Git commit message",
-        ));
+        return Err(Fault::invalid("invalid Git commit message"));
     }
     actions::check(root, expected_index, expected_head, expected_branch)?;
     let mut args = vec!["commit".into(), "--message".into(), message.into()];
@@ -57,12 +54,8 @@ pub(crate) fn create(
             let remote = options.push_remote.as_ref().unwrap();
             let repository = Repository::open(root).map_err(fault)?;
             actions::remote_name(&repository, remote)?;
-            let branch = expected_branch.ok_or_else(|| {
-                Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "publishing requires an attached branch",
-                )
-            })?;
+            let branch = expected_branch
+                .ok_or_else(|| Fault::invalid("publishing requires an attached branch"))?;
             cli::run(
                 root,
                 &[

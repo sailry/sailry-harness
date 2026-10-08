@@ -184,7 +184,7 @@ void main({bool host = false}) {
         object(object(resolved['input'])['summary'])['text'],
         'source.txt',
       );
-      expect(object(resolved['output'])['preview'], _content);
+      expect(object(resolved['output'])['preview'], '1: $_content');
       expect(object(resolved['output'])['paths'], ['source.txt']);
       expect(toolPart(heading.page, heading.call['source'])['arguments'], {
         'path': 'source.txt',

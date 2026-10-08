@@ -65,8 +65,7 @@ impl Client {
             ));
         };
         if report.node != self.target() || report.query != query {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
+            return Err(Fault::invalid(
                 "usage report belongs to another Node or query",
             ));
         }
@@ -85,10 +84,7 @@ impl Client {
                 .windows(2)
                 .any(|pair| pair[0].position <= pair[1].position)
         {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "usage request page is invalid",
-            ));
+            return Err(Fault::invalid("usage request page is invalid"));
         }
         Ok(report)
     }
@@ -185,10 +181,7 @@ impl Client {
                         view.error = node.error;
                     }
                     Ok(_) => {
-                        view.error = Some(Fault::new(
-                            ErrorCode::InvalidRequest,
-                            "usage report cursor moved backwards",
-                        ))
+                        view.error = Some(Fault::invalid("usage report cursor moved backwards"))
                     }
                     Err(error) => {
                         if self.usage_scope.is_some()

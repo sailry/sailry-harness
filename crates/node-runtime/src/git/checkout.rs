@@ -14,10 +14,7 @@ pub(crate) fn switch(
     expected_index: &str,
 ) -> Result<GitBranch, Fault> {
     if name.len() > 1024 || !Branch::name_is_valid(name).map_err(fault)? || commit.len() != 40 {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid branch or commit identifier",
-        ));
+        return Err(Fault::invalid("invalid branch or commit identifier"));
     }
     let expected_commit = Oid::from_str(commit).map_err(fault)?;
     let expected_head = expected_head
@@ -28,10 +25,7 @@ pub(crate) fn switch(
         .map(|name| format!("refs/heads/{name}"))
         .unwrap_or_else(|| "HEAD".into());
     if !Reference::is_valid_name(&previous) {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid previous branch name",
-        ));
+        return Err(Fault::invalid("invalid previous branch name"));
     }
     let retained = path::root(root)?;
     let repository = open(root)?;

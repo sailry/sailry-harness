@@ -6,16 +6,11 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
-sailry-node-runtime.workspace = true
+sailry-node-runtime = { workspace = true, features = ["computer-worker"] }
 sailry-link.workspace = true
 sailry-protocol.workspace = true
 tokio = { workspace = true, features = ["net"] }
 serde_json.workspace = true
-
-[target.'cfg(target_os = "macos")'.dependencies]
-cua-driver-sdk.workspace = true
-cua-platform-macos.workspace = true
-uuid.workspace = true
 
 [dev-dependencies]
 blake3.workspace = true

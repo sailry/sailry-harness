@@ -1,7 +1,6 @@
 mod bootstrap;
 #[cfg(target_os = "macos")]
-#[path = "../../../crates/node-runtime/src/computer/worker_host/mod.rs"]
-mod computer_worker;
+use sailry_node_runtime::computer_worker;
 #[cfg(unix)]
 mod control;
 mod options;

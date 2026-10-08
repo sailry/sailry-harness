@@ -208,10 +208,7 @@ impl Terminals {
             | Command::ResizeTerminal { terminal, .. }
             | Command::SetTerminalAppearance { terminal, .. } => *terminal,
             _ => {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "terminal command expected",
-                ));
+                return Err(Fault::invalid("terminal command expected"));
             }
         };
         let handle = self.get(id)?;

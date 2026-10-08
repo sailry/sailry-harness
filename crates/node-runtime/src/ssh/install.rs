@@ -16,8 +16,7 @@ pub(super) async fn execute(
         platform.split_whitespace().collect::<Vec<_>>().as_slice(),
         ["Linux", "x86_64" | "aarch64" | "arm64"] | ["Darwin", "arm64" | "x86_64"]
     ) {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
+        return Err(Fault::invalid(
             "Host installation supports Linux and macOS on amd64 or arm64",
         ));
     }

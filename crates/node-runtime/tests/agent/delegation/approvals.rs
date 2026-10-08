@@ -108,7 +108,10 @@ async fn isolates_call_identity() {
         for child in &children {
             let page = history(&client, child.id).await;
             assert_eq!(page.runs[0].status, Status::Completed);
-            assert_eq!(results(&page)[0]["data"]["text"], "Read 中文 🙂");
+            assert_eq!(
+                results(&page)[0]["data"]["lines"][0]["text"],
+                "Read 中文 🙂"
+            );
             assert_eq!(page.approvals.len(), 1);
             assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part|
                 matches!(part, Part::ToolCall { id: Some(id), name, .. } if id == "call-fixture-1" && name == &plugin_tool("files", "write_file"))));

@@ -110,7 +110,7 @@ fn append(
 }
 
 fn invalid() -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, "invalid directory page")
+    Fault::invalid("invalid directory page")
 }
 
 #[cfg(test)]

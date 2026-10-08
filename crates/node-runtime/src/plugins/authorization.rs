@@ -117,8 +117,5 @@ fn unavailable(_: impl std::fmt::Display) -> Fault {
 }
 
 fn invalid_callback() -> Fault {
-    Fault::new(
-        ErrorCode::InvalidRequest,
-        "MCP authorization callback does not match its redirect",
-    )
+    Fault::invalid("MCP authorization callback does not match its redirect")
 }

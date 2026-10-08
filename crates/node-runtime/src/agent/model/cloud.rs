@@ -44,10 +44,7 @@ pub(super) fn keyed(
                 .with_retry_config(RetryConfig::disabled()),
         ),
         _ => {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "cloud API is required",
-            ));
+            return Err(Fault::invalid("cloud API is required"));
         }
     })
 }

@@ -8,7 +8,7 @@ use cap_std::fs::{Dir, File, OpenOptions};
 use cap_tempfile::TempFile;
 use path::identity;
 
-use sailry_protocol::{ErrorCode, Fault, FileWritten, MAX_FILE_BYTES};
+use sailry_protocol::{ErrorCode, Fault, FileWritten, MAX_EDIT_BYTES, MAX_FILE_BYTES};
 use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -35,16 +35,36 @@ pub(crate) fn save(
             value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
         })
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid file content or revision",
-        ));
+        return Err(Fault::invalid("invalid file content or revision"));
     }
     publish(
         root,
         path,
         text,
         expected,
+        #[cfg(test)]
+        &|_| {},
+    )
+}
+
+pub(super) fn restore(
+    root: &Path,
+    path: &str,
+    text: &str,
+    expected: &str,
+) -> Result<FileWritten, Fault> {
+    if text.len() > MAX_EDIT_BYTES
+        || text.contains('\0')
+        || expected.len() != 64
+        || !expected.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(Fault::invalid("invalid checkpoint content or revision"));
+    }
+    let revision = blake3::hash(text.as_bytes()).to_hex().to_string();
+    Target::prepare(root, path, Some(expected), MAX_EDIT_BYTES as u64, None)?.write(
+        text.as_bytes(),
+        text.len() as u64,
+        &revision,
         #[cfg(test)]
         &|_| {},
     )

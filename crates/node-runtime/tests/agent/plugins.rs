@@ -10,6 +10,8 @@ mod failures;
 mod files;
 #[path = "plugins/flows.rs"]
 mod flows;
+#[path = "plugins/git.rs"]
+mod git;
 #[path = "plugins/goal_history.rs"]
 mod goal_history;
 #[path = "plugins/http.rs"]
@@ -131,6 +133,16 @@ async fn scopes_tool_switches_to_the_execution_node() {
                     assert_eq!(tools.contains(name.as_str()), enabled, "{name}");
                 }
             }
+            let instructions = requests.last().unwrap()["messages"][0].to_string();
+            for rule in [
+                "Use update_plan for substantial multi-step tasks",
+                "Before project work that could depend on prior decisions or preferences",
+            ] {
+                assert_eq!(instructions.contains(rule), enabled, "{rule}");
+            }
+            assert!(instructions.contains("Finish with an answer to the user's request"));
+            assert!(instructions.contains("Model:"));
+            assert!(instructions.contains("Git repository: no"));
             for name in ["ask_user", "set_session_title", "compact_context"] {
                 assert!(tools.contains(name), "core tool {name}");
             }

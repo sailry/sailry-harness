@@ -76,6 +76,10 @@ class _ToolRecordState extends State<ToolRecord> {
     final question = object(call['question']);
     final pendingApproval = approval['state'] == 'pending';
     final pendingQuestion = object(question['state'])['kind'] == 'pending';
+    final input = object(resolved['input']);
+    final inputText = {
+      for (final field in input.values) text(object(field)['text']),
+    };
     final enabled = widget.enabled && !_busy;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -103,7 +107,7 @@ class _ToolRecordState extends State<ToolRecord> {
                       child: Text(arguments['prompt'] as String? ?? ''),
                     )
                   else if (resolved['label'] != null)
-                    ToolInput(input: object(resolved['input']))
+                    ToolInput(input: input)
                   else if (arguments.isNotEmpty && images.isEmpty)
                     CodeBlock(
                       rawText(arguments),
@@ -126,12 +130,16 @@ class _ToolRecordState extends State<ToolRecord> {
                         call['turn'],
                       ),
                     ),
-                  for (final prompt in objects(resolved['approval']))
-                    if (pendingApproval)
-                      SelectableText(capturedLabel(context, prompt)),
                 ],
               ),
             ),
+            for (final prompt in objects(resolved['approval']))
+              if (pendingApproval &&
+                  !inputText.contains(capturedLabel(context, prompt)))
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: SelectableText(capturedLabel(context, prompt)),
+                ),
             if (pendingApproval)
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,

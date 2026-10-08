@@ -12,24 +12,30 @@ pub(crate) fn create(
     registration: &str,
 ) -> Result<String, Fault> {
     if name.len() > 1024 || !Branch::name_is_valid(name).map_err(fault)? {
-        return Err(invalid("invalid branch name"));
+        return Err(sailry_protocol::Fault::invalid("invalid branch name"));
     }
     if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(invalid("expected a full commit identifier"));
+        return Err(sailry_protocol::Fault::invalid(
+            "expected a full commit identifier",
+        ));
     }
     if destination.len() > 4096 || destination.chars().any(char::is_control) {
-        return Err(invalid("invalid worktree destination"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid worktree destination",
+        ));
     }
     let destination = Path::new(destination);
     if !destination.is_absolute() {
-        return Err(invalid("worktree destination must be absolute"));
+        return Err(sailry_protocol::Fault::invalid(
+            "worktree destination must be absolute",
+        ));
     }
     let filename = destination
         .file_name()
-        .ok_or_else(|| invalid("expected a new directory name"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("expected a new directory name"))?;
     let parent = destination
         .parent()
-        .ok_or_else(|| invalid("expected a destination parent"))?
+        .ok_or_else(|| sailry_protocol::Fault::invalid("expected a destination parent"))?
         .canonicalize()
         .map_err(io_error)?;
     let destination = parent.join(filename);
@@ -48,7 +54,7 @@ pub(crate) fn create(
     let repository = open(root)?;
     let common = repository.commondir().canonicalize().map_err(io_error)?;
     if destination.starts_with(&common) {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "worktree destination cannot be inside Git metadata",
         ));
     }
@@ -89,10 +95,6 @@ pub(crate) fn create(
         .into_os_string()
         .into_string()
         .map_err(|_| unknown())
-}
-
-fn invalid(message: &'static str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }
 
 fn unknown() -> Fault {

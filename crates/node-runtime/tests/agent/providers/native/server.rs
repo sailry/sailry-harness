@@ -19,6 +19,7 @@ pub const ANSWER: &str = "原生响应 🙂";
 #[derive(Clone)]
 pub enum Reply {
     Text,
+    Compaction(String),
     Tool,
     Usage,
     Grounding,
@@ -132,6 +133,15 @@ async fn respond(
     let search = body["tools"]
         .as_array()
         .is_some_and(|tools| tools.iter().any(|tool| tool["google_search"].is_object()));
+    let summary = body["systemInstruction"]["parts"]
+        .as_array()
+        .is_some_and(|parts| {
+            parts.iter().any(|part| {
+                part["text"]
+                    .as_str()
+                    .is_some_and(|text| text.starts_with("Summarize this conversation"))
+            })
+        });
     records.lock().unwrap().push(Request {
         path,
         headers,
@@ -236,6 +246,10 @@ async fn respond(
             }
         }
         ModelApi::Gemini => {
+            let answer = match &reply {
+                Reply::Compaction(evidence) if !summary => evidence.as_str(),
+                _ => ANSWER,
+            };
             let usage = if matches!(reply, Reply::Usage) {
                 json!({"promptTokenCount":16, "candidatesTokenCount":3, "thoughtsTokenCount":1, "cachedContentTokenCount":6, "totalTokenCount":20})
             } else {
@@ -244,7 +258,7 @@ async fn respond(
             let part = if tool {
                 json!({"functionCall":{"id":"native-call", "name":plugin_tool("files", "read_file"), "args":{"path":"native.txt"}}})
             } else {
-                json!({"text":ANSWER})
+                json!({"text":answer})
             };
             let mut event = json!({"candidates":[{"content":{"role":"model", "parts":[part]}, "finishReason":"STOP", "index":0}], "usageMetadata":usage, "modelVersion":"fixture-a"});
             if matches!(reply, Reply::Grounding) && search {

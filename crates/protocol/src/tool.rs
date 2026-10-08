@@ -19,9 +19,8 @@ pub enum Presentation {
     Progress,
     /// Bounded standard content, with the original result retained for inspection.
     Content,
-    /// Unknown presentation modes keep the original result inspectable.
+    /// Retains the original result for inspection.
     #[default]
-    #[serde(other)]
     Details,
 }
 
@@ -94,6 +93,10 @@ pub enum Operation {
     ReadGitDiff,
     #[serde(rename = "git.log")]
     ReadGitLog,
+    #[serde(rename = "git.show")]
+    ReadGitShow,
+    #[serde(rename = "git.blame")]
+    ReadGitBlame,
     #[serde(rename = "worktrees.list")]
     ListWorktrees,
     #[serde(rename = "worktrees.create")]
@@ -124,6 +127,10 @@ pub enum Operation {
     ReadFile,
     #[serde(rename = "files.write")]
     WriteFile,
+    #[serde(rename = "files.edit")]
+    EditFile,
+    #[serde(rename = "files.find")]
+    FindFiles,
     #[serde(rename = "files.search")]
     SearchFiles,
     #[serde(rename = "office.read")]
@@ -168,17 +175,17 @@ pub enum Operation {
     ReadCommand,
     #[serde(rename = "process.stop")]
     StopCommand,
-    /// Unknown operations are inert, including inside an otherwise supported flow.
-    #[serde(other)]
-    #[schemars(skip)]
-    Unsupported,
 }
 
 impl Operation {
     pub fn action(self) -> Option<crate::plugin::Action> {
         use crate::plugin::Action;
         match self {
-            Self::InspectGit | Self::ReadGitDiff | Self::ReadGitLog => Some(Action::ReadGit),
+            Self::InspectGit
+            | Self::ReadGitDiff
+            | Self::ReadGitLog
+            | Self::ReadGitShow
+            | Self::ReadGitBlame => Some(Action::ReadGit),
             Self::ListWorktrees => Some(Action::ReadWorktrees),
             Self::CreateManagedWorktree | Self::RegisterWorktree | Self::RemoveWorktree => {
                 Some(Action::WriteWorktrees)
@@ -189,10 +196,12 @@ impl Operation {
             Self::DelegateAgent | Self::GuideAgent | Self::WaitAgent => {
                 Some(Action::DelegateAgents)
             }
-            Self::ListDirectory | Self::ReadFile | Self::SearchFiles | Self::ReadOffice => {
-                Some(Action::ReadFiles)
-            }
-            Self::WriteFile => Some(Action::WriteFiles),
+            Self::ListDirectory
+            | Self::ReadFile
+            | Self::FindFiles
+            | Self::SearchFiles
+            | Self::ReadOffice => Some(Action::ReadFiles),
+            Self::WriteFile | Self::EditFile => Some(Action::WriteFiles),
             Self::InspectMedia => Some(Action::InspectMedia),
             Self::GenerateImage => Some(Action::GenerateImage),
             Self::GenerateVideo => Some(Action::GenerateVideo),
@@ -203,7 +212,7 @@ impl Operation {
             Self::ControlBrowser => Some(Action::ControlBrowser),
             Self::ReadExternalBrowser => Some(Action::ReadExternalBrowser),
             Self::ControlExternalBrowser => Some(Action::ControlExternalBrowser),
-            Self::Progress | Self::ReadSettings | Self::Unsupported => None,
+            Self::Progress | Self::ReadSettings => None,
             Self::GetValue | Self::ListKeys => Some(Action::ReadStorage),
             Self::SetValue | Self::DeleteValue | Self::StorageTransaction => {
                 Some(Action::WriteStorage)
@@ -216,8 +225,7 @@ impl Operation {
     pub fn read_only(self) -> bool {
         !matches!(
             self,
-            Self::Unsupported
-                | Self::DelegateAgent
+            Self::DelegateAgent
                 | Self::GuideAgent
                 | Self::CreateManagedWorktree
                 | Self::RegisterWorktree
@@ -226,6 +234,7 @@ impl Operation {
                 | Self::RunSsh
                 | Self::TransferSsh
                 | Self::WriteFile
+                | Self::EditFile
                 | Self::GenerateImage
                 | Self::GenerateVideo
                 | Self::Http
@@ -266,57 +275,54 @@ impl Declaration {
     }
 
     pub fn valid(&self) -> bool {
-        self.operation != Some(Operation::Unsupported)
-            && self.handler.as_ref().is_none_or(|handler| {
-                crate::plugin::host::valid_handler(&handler.name)
-                    && handler.flow.as_ref().is_none_or(|flow| {
-                        handler.operation.is_none()
-                            && handler.result.is_none()
-                            && flow.message_chars.is_none_or(|count| {
-                                (1..=crate::plugin::host::MAX_DATA_BYTES / 4).contains(&count)
+        self.handler.as_ref().is_none_or(|handler| {
+            crate::plugin::host::valid_handler(&handler.name)
+                && handler.flow.as_ref().is_none_or(|flow| {
+                    handler.operation.is_none()
+                        && handler.result.is_none()
+                        && flow.message_chars.is_none_or(|count| {
+                            (1..=crate::plugin::host::MAX_DATA_BYTES / 4).contains(&count)
+                        })
+                        && !flow.operations.is_empty()
+                        && flow.operations.len() <= 8
+                        && flow
+                            .operations
+                            .iter()
+                            .enumerate()
+                            .all(|(index, operation)| {
+                                // One file checkpoint consumes one exact approved write.
+                                !matches!(
+                                    operation,
+                                    Operation::Progress
+                                        | Operation::DelegateAgent
+                                        | Operation::GuideAgent
+                                        | Operation::WaitAgent
+                                        | Operation::ReadSettings
+                                        | Operation::WriteFile
+                                        | Operation::EditFile
+                                ) && !flow.operations[..index].contains(operation)
                             })
-                            && !flow.operations.is_empty()
-                            && flow.operations.len() <= 8
-                            && flow
-                                .operations
-                                .iter()
-                                .enumerate()
-                                .all(|(index, operation)| {
-                                    // One file checkpoint consumes one exact approved write.
-                                    !matches!(
-                                        operation,
-                                        Operation::Unsupported
-                                            | Operation::Progress
-                                            | Operation::DelegateAgent
-                                            | Operation::GuideAgent
-                                            | Operation::WaitAgent
-                                            | Operation::ReadSettings
-                                            | Operation::WriteFile
-                                    ) && !flow.operations[..index].contains(operation)
-                                })
-                    })
-                    && handler.operation.is_none_or(|operation| {
-                        !matches!(
-                            operation,
-                            Operation::Unsupported
-                                | Operation::Progress
-                                | Operation::ReadSettings
-                                | Operation::GuideAgent
-                                | Operation::WaitAgent
-                        )
-                    })
-                    && handler.result.as_ref().is_none_or(|name| {
-                        handler.operation.is_some() && crate::plugin::host::valid_handler(name)
-                    })
-                    && self.operation.is_none()
-                    && self.server.is_none()
-                    && self.description.is_some()
-                    && handler.parameters.is_object()
-                    && handler.parameters["type"] == "object"
-                    && serde_json::to_vec(&handler.parameters)
-                        .is_ok_and(|bytes| bytes.len() <= 16 * 1024)
-            })
-            && self.contexts.len() <= 4
+                })
+                && handler.operation.is_none_or(|operation| {
+                    !matches!(
+                        operation,
+                        Operation::Progress
+                            | Operation::ReadSettings
+                            | Operation::GuideAgent
+                            | Operation::WaitAgent
+                    )
+                })
+                && handler.result.as_ref().is_none_or(|name| {
+                    handler.operation.is_some() && crate::plugin::host::valid_handler(name)
+                })
+                && self.operation.is_none()
+                && self.server.is_none()
+                && self.description.is_some()
+                && handler.parameters.is_object()
+                && handler.parameters["type"] == "object"
+                && serde_json::to_vec(&handler.parameters)
+                    .is_ok_and(|bytes| bytes.len() <= 16 * 1024)
+        }) && self.contexts.len() <= 4
             && self
                 .contexts
                 .iter()
@@ -413,42 +419,35 @@ mod flow_tests {
     }
 
     #[test]
-    fn unknown_operations_disable_the_whole_declaration() {
-        let operation: Operation = serde_json::from_value(json!("future.operation")).unwrap();
-        assert_eq!(operation, Operation::Unsupported);
-        assert_eq!(operation.action(), None);
-        assert!(!operation.read_only());
+    fn rejects_unknown_operations() {
+        assert!(serde_json::from_value::<Operation>(json!("future.operation")).is_err());
         for value in [
             json!({"name":"fixture","operation":"future.operation"}),
             json!({"name":"fixture","description":"Fixture","handler":{"name":"fixture","parameters":{"type":"object"},"operation":"future.operation"}}),
             json!({"name":"fixture","description":"Fixture","handler":{"name":"fixture","parameters":{"type":"object"},"flow":{"operations":["files.read","future.operation"]}}}),
         ] {
-            let declaration: Declaration = serde_json::from_value(value).unwrap();
-            assert!(!declaration.valid());
+            assert!(serde_json::from_value::<Declaration>(value).is_err());
         }
         assert!(serde_json::from_value::<Operation>(json!(1)).is_err());
     }
 
     #[test]
     fn extra_metadata_preserves_supported_operations() {
-        let value = json!({"name":"fixture","description":"Fixture","presentation":"future_presentation","future_metadata":true,"handler":{"name":"fixture","parameters":{"type":"object"},"future_metadata":{},"flow":{"operations":["files.read"],"future_metadata":[]}}});
+        let value = json!({"name":"fixture","description":"Fixture","presentation":"details","future_metadata":true,"handler":{"name":"fixture","parameters":{"type":"object"},"future_metadata":{},"flow":{"operations":["files.read"],"future_metadata":[]}}});
         let declaration: Declaration = serde_json::from_value(value).unwrap();
         assert!(declaration.valid());
         assert_eq!(declaration.presentation, Presentation::Details);
-        assert!(serde_json::from_value::<Presentation>(json!(true)).is_err());
+        for value in [json!(true), json!("future_presentation")] {
+            assert!(serde_json::from_value::<Presentation>(value).is_err());
+        }
         let schema = serde_json::to_value(schemars::schema_for!(Operation)).unwrap();
-        let variants = schema["oneOf"].as_array().unwrap();
-        assert_eq!(variants.len(), 1);
-        assert_eq!(variants[0]["type"], "string");
-        let names = variants[0]["enum"].as_array().unwrap();
+        assert_eq!(schema["type"], "string");
+        let names = schema["enum"].as_array().unwrap();
         assert!(!names.is_empty());
         assert!(names.contains(&json!("files.read")));
         assert!(!names.contains(&json!("Unsupported")));
         for name in names {
-            assert_ne!(
-                serde_json::from_value::<Operation>(name.clone()).unwrap(),
-                Operation::Unsupported
-            );
+            assert!(serde_json::from_value::<Operation>(name.clone()).is_ok());
         }
     }
     #[test]

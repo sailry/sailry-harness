@@ -66,7 +66,9 @@ pub(in crate::store) fn validate_revision(
         return Ok(());
     }
     if package.settings_revision > i64::MAX as u64 {
-        return Err(invalid("invalid plugin configuration revision"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid plugin configuration revision",
+        ));
     }
     let exists: bool = db
         .query_row(
@@ -170,16 +172,18 @@ pub(in crate::store) fn read_secret(
     let schema = info
         .settings
         .as_ref()
-        .ok_or_else(|| invalid("plugin has no settings form"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("plugin has no settings form"))?;
     if !schema
         .properties
         .get(field)
         .is_some_and(|field| field.secret.is_some())
     {
-        return Err(invalid("setting is not a declared secret slot"));
+        return Err(sailry_protocol::Fault::invalid(
+            "setting is not a declared secret slot",
+        ));
     }
     if !same_binding(&saved, schema, field) {
-        return Err(invalid("setting binding changed"));
+        return Err(sailry_protocol::Fault::invalid("setting binding changed"));
     }
     Ok(saved.slots.get(field).cloned().flatten())
 }
@@ -224,20 +228,23 @@ pub(in crate::store) fn save(
                 .and_then(Value::as_str)
                 .filter(|value| !value.is_empty())
         {
-            let selected = values
-                .get(model)
-                .and_then(Value::as_str)
-                .ok_or_else(|| invalid("reasoning requires a selected model"))?;
+            let selected = values.get(model).and_then(Value::as_str).ok_or_else(|| {
+                sailry_protocol::Fault::invalid("reasoning requires a selected model")
+            })?;
             let model = models
                 .iter()
                 .find(|model| model.id == selected)
-                .ok_or_else(|| invalid("reasoning requires an available model"))?;
+                .ok_or_else(|| {
+                    sailry_protocol::Fault::invalid("reasoning requires an available model")
+                })?;
             if !model
                 .efforts
                 .iter()
                 .any(|effort| plugin::models::effort_key(*effort) == value)
             {
-                return Err(invalid("reasoning choice is not configured for this model"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "reasoning choice is not configured for this model",
+                ));
             }
         }
     }
@@ -245,7 +252,9 @@ pub(in crate::store) fn save(
         .map_err(storage_error)?
         .len();
     if size > MAX_BYTES {
-        return Err(invalid("plugin settings exceed the size limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plugin settings exceed the size limit",
+        ));
     }
     let fields: BTreeMap<_, _> = schema
         .properties
@@ -253,7 +262,7 @@ pub(in crate::store) fn save(
         .filter(|(_, field)| field.secret.is_some())
         .collect();
     if updates.len() != fields.len() || updates.keys().any(|name| !fields.contains_key(name)) {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "each secret setting requires an explicit update intent",
         ));
     }
@@ -261,7 +270,7 @@ pub(in crate::store) fn save(
         match update {
             SecretUpdate::Replace(value) => {
                 if value.expose().is_empty() || value.expose().contains('\0') {
-                    return Err(invalid(
+                    return Err(sailry_protocol::Fault::invalid(
                         "secret replacement must be nonempty and contain no NUL",
                     ));
                 }
@@ -271,12 +280,13 @@ pub(in crate::store) fn save(
                     .as_ref()
                     .is_some_and(|binding| binding.header.is_some())
                 {
-                    reqwest::header::HeaderValue::from_str(value.expose())
-                        .map_err(|_| invalid("invalid secret header value"))?;
+                    reqwest::header::HeaderValue::from_str(value.expose()).map_err(|_| {
+                        sailry_protocol::Fault::invalid("invalid secret header value")
+                    })?;
                 }
             }
             SecretUpdate::Keep if !same_binding(&previous, schema, name) => {
-                return Err(invalid(
+                return Err(sailry_protocol::Fault::invalid(
                     "changed secret bindings require replacement or clearing",
                 ));
             }
@@ -323,9 +333,10 @@ pub(super) fn persist(db: &Connection, info: &mut Info, saved: &Stored) -> Resul
             |row| row.get(0),
         )
         .map_err(storage_error)?;
-    info.summary.settings_revision =
-        next.checked_add(1)
-            .ok_or_else(|| invalid("plugin configuration revision exhausted"))? as u64;
+    info.summary.settings_revision = next
+        .checked_add(1)
+        .ok_or_else(|| sailry_protocol::Fault::invalid("plugin configuration revision exhausted"))?
+        as u64;
     db.execute(
         "INSERT INTO plugin_settings(plugin,revision,body) VALUES(?1,?2,?3)",
         params![
@@ -379,7 +390,9 @@ pub(in crate::store) fn resolve(db: &Connection, info: &Info) -> Result<Resolved
             saved.slots[name]
                 .clone()
                 .map(|value| (name.clone(), value))
-                .ok_or_else(|| invalid("configured plugin setting is unavailable"))
+                .ok_or_else(|| {
+                    sailry_protocol::Fault::invalid("configured plugin setting is unavailable")
+                })
         })
         .collect::<Result<_, _>>()?;
     Ok(Resolved {
@@ -467,11 +480,15 @@ fn validate_values(schema: &Schema, values: &BTreeMap<String, Value>) -> Result<
         ));
     }
     if encode(values)?.len() > MAX_BYTES {
-        return Err(invalid("plugin settings exceed the size limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plugin settings exceed the size limit",
+        ));
     }
     for name in &schema.required {
         if schema.properties[name].secret.is_none() && !values.contains_key(name) {
-            return Err(invalid("required plugin setting is missing"));
+            return Err(sailry_protocol::Fault::invalid(
+                "required plugin setting is missing",
+            ));
         }
     }
     for (name, value) in values {
@@ -479,7 +496,9 @@ fn validate_values(schema: &Schema, values: &BTreeMap<String, Value>) -> Result<
             .properties
             .get(name)
             .filter(|field| field.secret.is_none())
-            .ok_or_else(|| invalid("unknown or secret field in public plugin settings"))?;
+            .ok_or_else(|| {
+                sailry_protocol::Fault::invalid("unknown or secret field in public plugin settings")
+            })?;
         validate_value(field, value)?;
     }
     Ok(())
@@ -490,20 +509,20 @@ fn validate_value(field: &Field, value: &Value) -> Result<(), Fault> {
         .as_str()
         .is_some_and(|value| value.chars().count() > MAX_STRING)
     {
-        return Err(invalid("plugin setting exceeds the string limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plugin setting exceeds the string limit",
+        ));
     }
     let schema = serde_json::to_value(field).map_err(storage_error)?;
     let validator = jsonschema::draft202012::options()
         .build(&schema)
         .map_err(|_| storage_error("invalid stored plugin settings schema"))?;
     if !validator.is_valid(value) {
-        return Err(invalid("plugin setting violates its field constraints"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plugin setting violates its field constraints",
+        ));
     }
     Ok(())
-}
-
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }
 
 #[cfg(test)]

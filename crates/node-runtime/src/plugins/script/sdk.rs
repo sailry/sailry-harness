@@ -53,19 +53,20 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
             return Err(Fault::new(ErrorCode::Cancelled, "plugin callback stopped"));
         }
         if body.len() > plugin::host::MAX_DATA_BYTES || self.calls >= 1024 {
-            return Err(invalid("plugin callback SDK budget exhausted"));
+            return Err(sailry_protocol::Fault::invalid(
+                "plugin callback SDK budget exhausted",
+            ));
         }
         self.calls += 1;
         match operation {
             "id.new" => Ok(json!(sailry_protocol::RequestId::new())),
             "id.call" | "turn.read" | "turn.stage" => {
-                let execution = self
-                    .execution
-                    .as_ref()
-                    .ok_or_else(|| invalid("operation requires an Agent tool invocation"))?;
-                let mut execution = execution
-                    .lock()
-                    .map_err(|_| invalid("tool execution state is unavailable"))?;
+                let execution = self.execution.as_ref().ok_or_else(|| {
+                    sailry_protocol::Fault::invalid("operation requires an Agent tool invocation")
+                })?;
+                let mut execution = execution.lock().map_err(|_| {
+                    sailry_protocol::Fault::invalid("tool execution state is unavailable")
+                })?;
                 execution.call(operation, body)
             }
             "context" => {
@@ -75,17 +76,17 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                 Ok(value)
             }
             "prepare" | "read" => {
-                let mut value: Json =
-                    serde_json::from_str(body).map_err(|_| invalid("invalid SDK command"))?;
+                let mut value: Json = serde_json::from_str(body)
+                    .map_err(|_| sailry_protocol::Fault::invalid("invalid SDK command"))?;
                 if let Some(revision) = value.pointer_mut("/data/package/settings_revision") {
-                    let text = revision
-                        .as_str()
-                        .ok_or_else(|| invalid("package revision must be a decimal string"))?;
+                    let text = revision.as_str().ok_or_else(|| {
+                        sailry_protocol::Fault::invalid("package revision must be a decimal string")
+                    })?;
                     let parsed = text
                         .parse::<u64>()
-                        .map_err(|_| invalid("invalid package revision"))?;
+                        .map_err(|_| sailry_protocol::Fault::invalid("invalid package revision"))?;
                     if parsed.to_string() != text {
-                        return Err(invalid("invalid package revision"));
+                        return Err(sailry_protocol::Fault::invalid("invalid package revision"));
                     }
                     *revision = json!(parsed);
                 }
@@ -109,25 +110,27 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                 {
                     let parsed = if let Some(text) = revision.as_str() {
                         text.parse::<u64>()
-                            .map_err(|_| invalid("invalid revision"))?
+                            .map_err(|_| sailry_protocol::Fault::invalid("invalid revision"))?
                     } else {
                         revision
                             .as_u64()
                             .filter(|number| *number <= 9_007_199_254_740_991)
                             .ok_or_else(|| {
-                                invalid("revision must be an exact integer or decimal string")
+                                sailry_protocol::Fault::invalid(
+                                    "revision must be an exact integer or decimal string",
+                                )
                             })?
                     };
                     *revision = json!(parsed);
                 }
-                let command: Command =
-                    serde_json::from_value(value).map_err(|_| invalid("invalid SDK command"))?;
+                let command: Command = serde_json::from_value(value)
+                    .map_err(|_| sailry_protocol::Fault::invalid("invalid SDK command"))?;
                 if command.durable()
                     && let Some(execution) = &self.execution
                 {
-                    let execution = execution
-                        .lock()
-                        .map_err(|_| invalid("tool execution state is unavailable"))?;
+                    let execution = execution.lock().map_err(|_| {
+                        sailry_protocol::Fault::invalid("tool execution state is unavailable")
+                    })?;
                     if execution.mode == sailry_protocol::WorkMode::Plan {
                         return Err(Fault::new(
                             ErrorCode::PermissionDenied,
@@ -169,9 +172,15 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                 {
                     let call = execution
                         .lock()
-                        .map_err(|_| invalid("tool execution state is unavailable"))?
+                        .map_err(|_| {
+                            sailry_protocol::Fault::invalid("tool execution state is unavailable")
+                        })?
                         .call_id
-                        .ok_or_else(|| invalid("durable writes require a tool identity"))?;
+                        .ok_or_else(|| {
+                            sailry_protocol::Fault::invalid(
+                                "durable writes require a tool identity",
+                            )
+                        })?;
                     let mut identity =
                         blake3::Hasher::new_derive_key("Sailry plugin tool write v1");
                     identity.update(call.to_string().as_bytes());
@@ -182,12 +191,16 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                     bytes[8] = (bytes[8] & 0x3f) | 0x80;
                     request.id =
                         sailry_protocol::RequestId::try_from(uuid::Uuid::from_bytes(bytes))
-                            .map_err(|_| invalid("invalid tool write identity"))?;
+                            .map_err(|_| {
+                                sailry_protocol::Fault::invalid("invalid tool write identity")
+                            })?;
                     self.writes += 1;
                 }
                 if operation == "read" {
                     if request.command.durable() {
-                        return Err(invalid("SDK reads cannot execute writes"));
+                        return Err(sailry_protocol::Fault::invalid(
+                            "SDK reads cannot execute writes",
+                        ));
                     }
                     return (self.dispatch)(request).map(output);
                 }
@@ -202,12 +215,14 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                 Ok(json!(id))
             }
             "complete" => {
-                let id: String =
-                    serde_json::from_str(body).map_err(|_| invalid("invalid request ID"))?;
+                let id: String = serde_json::from_str(body)
+                    .map_err(|_| sailry_protocol::Fault::invalid("invalid request ID"))?;
                 let request = self
                     .drafts
                     .get(&id)
-                    .ok_or_else(|| invalid("plugin request draft is unavailable"))?
+                    .ok_or_else(|| {
+                        sailry_protocol::Fault::invalid("plugin request draft is unavailable")
+                    })?
                     .clone();
                 // Business faults remain explicit outcomes, matching the desktop SDK.
                 Ok(match (self.dispatch)(request) {
@@ -216,12 +231,14 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                 })
             }
             "forget" => {
-                let id: String =
-                    serde_json::from_str(body).map_err(|_| invalid("invalid request ID"))?;
+                let id: String = serde_json::from_str(body)
+                    .map_err(|_| sailry_protocol::Fault::invalid("invalid request ID"))?;
                 self.drafts.remove(&id);
                 Ok(Json::Null)
             }
-            _ => Err(invalid("unknown host SDK operation")),
+            _ => Err(sailry_protocol::Fault::invalid(
+                "unknown host SDK operation",
+            )),
         }
     }
 }
@@ -257,12 +274,17 @@ fn allowed(command: &Command) -> bool {
             | Command::Dispatch { .. }
             | Command::StopDispatchTurn { .. }
             | Command::ReadFile { .. }
+            | Command::ReadFileLines { .. }
+            | Command::FindFiles { .. }
             | Command::WriteFile { .. }
+            | Command::EditFile { .. }
             | Command::ListDirectory { .. }
             | Command::SearchFiles { .. }
             | Command::InspectGit { .. }
             | Command::ReadGitDiff { .. }
             | Command::ReadGitLog { .. }
+            | Command::ReadGitShow { .. }
+            | Command::ReadGitBlame { .. }
             | Command::ReadGitCommit { .. }
             | Command::ListGitBranches { .. }
             | Command::ResolveGitRevision { .. }

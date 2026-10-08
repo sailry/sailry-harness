@@ -9,10 +9,14 @@ use std::collections::HashMap;
 
 pub(super) const HISTORY_QUERY: &str = "SELECT e.body FROM conversation_events h
     JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 ORDER BY h.sequence DESC LIMIT ?2";
+pub(crate) const INPUT_TURN: &str = "sailry.context.input_turn";
+pub(crate) const INPUT_SOURCE: &str = "sailry.context.input_source";
+pub(crate) const INPUT_PART: &str = "sailry.context.input_part";
 
 pub(crate) struct Sessions {
     ingress: Arc<Ingress>,
     turn: TurnId,
+    input_source: &'static str,
     references: Vec<reference::Reference>,
     groupings: std::collections::BTreeMap<String, sailry_protocol::tool::Grouping>,
     presentations: std::collections::BTreeMap<String, sailry_protocol::tool::Presentation>,
@@ -24,6 +28,7 @@ impl Sessions {
         Self {
             ingress,
             turn,
+            input_source: "user",
             references: Vec::new(),
             presentations: Default::default(),
             groupings: Default::default(),
@@ -33,6 +38,11 @@ impl Sessions {
 
     pub(crate) fn with_references(mut self, references: Vec<reference::Reference>) -> Self {
         self.references = references;
+        self
+    }
+
+    pub(crate) fn with_input_source(mut self, source: &'static str) -> Self {
+        self.input_source = source;
         self
     }
 
@@ -100,6 +110,22 @@ impl SessionService for Sessions {
             &self.groupings,
             &self.displays,
         )?;
+        if event.author == "user" {
+            event
+                .provider_metadata
+                .insert(INPUT_TURN.into(), self.turn.to_string());
+            event
+                .provider_metadata
+                .insert(INPUT_SOURCE.into(), self.input_source.into());
+            let index = usize::from(!self.references.is_empty());
+            if event.content().is_some_and(|content| {
+                matches!(content.parts.get(index), Some(adk_core::Part::Text { .. }))
+            }) {
+                event
+                    .provider_metadata
+                    .insert(INPUT_PART.into(), index.to_string());
+            }
+        }
         if event.author == "user" && !self.references.is_empty() {
             event.provider_metadata.insert(
                 super::references::METADATA.into(),

@@ -5,7 +5,9 @@ use adk_core::ToolConfirmationRequest;
 pub(super) fn active(db: &Connection, turn: TurnId) -> Result<Run, Fault> {
     let run = runs::get(db, turn)?;
     if run.kind != RunKind::Task {
-        return Err(invalid("context compaction cannot invoke tools"));
+        return Err(sailry_protocol::Fault::invalid(
+            "context compaction cannot invoke tools",
+        ));
     }
     if run.status != Status::Running {
         return Err(Fault::new(
@@ -21,7 +23,7 @@ pub(super) fn id(request: &ToolConfirmationRequest) -> Result<&str, Fault> {
         .function_call_id
         .as_deref()
         .filter(|id| !id.is_empty())
-        .ok_or_else(|| invalid("tool call identifier is required"))
+        .ok_or_else(|| sailry_protocol::Fault::invalid("tool call identifier is required"))
 }
 
 pub(super) fn matches(part: &adk_core::Part, request: &ToolConfirmationRequest) -> bool {
@@ -54,7 +56,7 @@ pub(super) fn locate(
                 && id == &request.function_call_id
             {
                 if !matches(part, request) || found.is_some() {
-                    return Err(invalid(
+                    return Err(sailry_protocol::Fault::invalid(
                         "tool call identity is ambiguous or arguments differ",
                     ));
                 }
@@ -62,5 +64,7 @@ pub(super) fn locate(
             }
         }
     }
-    found.ok_or_else(|| invalid("request does not identify a canonical tool call"))
+    found.ok_or_else(|| {
+        sailry_protocol::Fault::invalid("request does not identify a canonical tool call")
+    })
 }

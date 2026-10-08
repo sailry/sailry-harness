@@ -59,10 +59,7 @@ pub(crate) async fn execute(
             match operation.profile.connection.engine() {
                 Engine::Mysql => mysql::run(&operation, &query, port).await,
                 Engine::Postgres => postgres::run(&operation, &query, port).await,
-                _ => Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "invalid database engine",
-                )),
+                _ => Err(Fault::invalid("invalid database engine")),
             }
         };
         tokio::select! {
@@ -88,8 +85,7 @@ impl Rows {
     fn new(columns: Vec<String>, limit: usize) -> Result<Self, Fault> {
         let bytes = serde_json::to_vec(&columns).map_err(query_error)?.len();
         if bytes > 512 * 1024 {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
+            return Err(Fault::invalid(
                 "database column metadata exceeds the result limit",
             ));
         }
@@ -117,10 +113,7 @@ impl Rows {
     }
 }
 fn query_error(error: impl std::fmt::Display) -> Fault {
-    Fault::new(
-        ErrorCode::InvalidRequest,
-        format!("Database query failed: {error}"),
-    )
+    Fault::invalid(format!("Database query failed: {error}"))
 }
 fn unavailable() -> Fault {
     Fault::new(ErrorCode::Unavailable, "Database connection failed")

@@ -208,8 +208,7 @@ fn stage(
         .map_err(fault)?
         && index.get_path(Path::new(value), 0).is_none()
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
+        return Err(Fault::invalid(
             "ignored files cannot be staged by this operation",
         ));
     }
@@ -235,17 +234,10 @@ fn stage(
         let mut file = dir.open_with(name, &options).map_err(io_error)?;
         let metadata = file.metadata().map_err(io_error)?;
         if !metadata.is_file() {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "expected a regular Git resource",
-            ));
+            return Err(Fault::invalid("expected a regular Git resource"));
         }
-        let length = usize::try_from(metadata.len()).map_err(|_| {
-            Fault::new(
-                ErrorCode::InvalidRequest,
-                "file size exceeds platform capacity",
-            )
-        })?;
+        let length = usize::try_from(metadata.len())
+            .map_err(|_| Fault::invalid("file size exceeds platform capacity"))?;
         let odb = repository.odb().map_err(fault)?;
         let mut writer = odb.writer(length, git2::ObjectType::Blob).map_err(fault)?;
         let mut buffer = [0_u8; 64 * 1024];

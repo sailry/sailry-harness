@@ -3,17 +3,22 @@ use super::*;
 pub(crate) fn parse(value: &str) -> Result<Url, Fault> {
     let value = value.trim();
     if value.is_empty() || value.len() > 2048 {
-        return Err(invalid("provider endpoint is empty or too long"));
+        return Err(sailry_protocol::Fault::invalid(
+            "provider endpoint is empty or too long",
+        ));
     }
     let value = if value.contains("://") {
         value.to_owned()
     } else {
         if value.starts_with('/') {
-            return Err(invalid("provider endpoint must include a host"));
+            return Err(sailry_protocol::Fault::invalid(
+                "provider endpoint must include a host",
+            ));
         }
         format!("https://{value}")
     };
-    let url = Url::parse(&value).map_err(|_| invalid("provider endpoint is invalid"))?;
+    let url = Url::parse(&value)
+        .map_err(|_| sailry_protocol::Fault::invalid("provider endpoint is invalid"))?;
     if !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()
         || !url.username().is_empty()
@@ -21,7 +26,7 @@ pub(crate) fn parse(value: &str) -> Result<Url, Fault> {
         || url.query().is_some()
         || url.fragment().is_some()
     {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "provider endpoint must be an HTTP URL without credentials, query or fragment",
         ));
     }

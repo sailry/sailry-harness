@@ -39,13 +39,15 @@ pub(super) fn begin(
         request.tool_name.as_str(),
         "ask_user" | elicitation::TOOL | review::TOOL
     ) {
-        return Err(invalid("tool does not accept user input"));
+        return Err(sailry_protocol::Fault::invalid(
+            "tool does not accept user input",
+        ));
     }
     let spec: Spec = serde_json::from_value(request.args.clone())
-        .map_err(|_| invalid("invalid question arguments"))?;
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid question arguments"))?;
     spec.validate()?;
     if request.tool_name == "ask_user" && spec.prompt.is_empty() {
-        return Err(invalid("question prompt is empty"));
+        return Err(sailry_protocol::Fault::invalid("question prompt is empty"));
     }
     let transaction = database.connection.transaction().map_err(storage_error)?;
     let run = calls::active(&transaction, turn)?;
@@ -61,7 +63,9 @@ pub(super) fn begin(
             spec.input,
             question::Input::Form { .. } | question::Input::Url { .. }
         ) {
-            return Err(invalid("this input requires an MCP request"));
+            return Err(sailry_protocol::Fault::invalid(
+                "this input requires an MCP request",
+            ));
         }
         calls::locate(&transaction, turn, request)?
     };
@@ -128,14 +132,18 @@ pub(in crate::store) fn resolve(
                 spec(db, &question)?.input,
                 question::Input::Form { .. } | question::Input::Url { .. }
             ) {
-                return Err(invalid("decline requires an MCP request"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "decline requires an MCP request",
+                ));
             }
             State::Declined
         }
         Response::Answer(answer) => State::Answered(answer.clone()),
         Response::Cancel => State::Cancelled,
         Response::StartCoding { .. } => {
-            return Err(invalid("plan acceptance requires turn admission"));
+            return Err(sailry_protocol::Fault::invalid(
+                "plan acceptance requires turn admission",
+            ));
         }
     };
     if question.state == state {
@@ -180,10 +188,14 @@ fn spec(db: &Connection, question: &Question) -> Result<Spec, Fault> {
         .content()
         .and_then(|content| content.parts.get(question.index))
     else {
-        return Err(invalid("question does not reference a canonical tool call"));
+        return Err(sailry_protocol::Fault::invalid(
+            "question does not reference a canonical tool call",
+        ));
     };
     if name != "ask_user" {
-        return Err(invalid("question references another tool"));
+        return Err(sailry_protocol::Fault::invalid(
+            "question references another tool",
+        ));
     }
     serde_json::from_value(args.clone()).map_err(storage_error)
 }

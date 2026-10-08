@@ -42,7 +42,7 @@ async fn prepare(client: &Client, spec: Spec) -> Upload {
 async fn stage(client: &Client, upload: &Upload, data: &[u8]) {
     let mut progress = Vec::new();
     client
-        .upload_attachment(upload, &mut &data[..], CancellationToken::new(), |size| {
+        .upload(upload, &mut &data[..], CancellationToken::new(), |size| {
             progress.push(size)
         })
         .await

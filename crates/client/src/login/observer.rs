@@ -39,7 +39,9 @@ impl<P: Progress> Projection<P> {
     }
     pub fn reconnect(&mut self, generation: u64) -> Result<(), Fault> {
         if generation <= self.generation {
-            return Err(invalid("connection generation must increase"));
+            return Err(sailry_protocol::Fault::invalid(
+                "connection generation must increase",
+            ));
         }
         self.generation = generation;
         Ok(())
@@ -50,7 +52,7 @@ impl<P: Progress> Projection<P> {
         }
         let update = P::decode(update)?;
         if update.attempt() != &self.attempt || update.revision() == 0 {
-            return Err(invalid(
+            return Err(sailry_protocol::Fault::invalid(
                 "authorization update belongs to another attempt or has an invalid revision",
             ));
         }
@@ -62,11 +64,15 @@ impl<P: Progress> Projection<P> {
                 return if update == *current {
                     Ok(Apply::Ignored)
                 } else {
-                    Err(invalid("authorization revision changed its contents"))
+                    Err(sailry_protocol::Fault::invalid(
+                        "authorization revision changed its contents",
+                    ))
                 };
             }
             if !current.active() {
-                return Err(invalid("completed authorization cannot change"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "completed authorization cannot change",
+                ));
             }
         }
         self.update = Some(update);
@@ -148,8 +154,4 @@ pub(crate) async fn watch<P: Progress>(
         }
         delay = (delay * 2).min(Duration::from_secs(5));
     }
-}
-
-fn invalid(message: &'static str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }

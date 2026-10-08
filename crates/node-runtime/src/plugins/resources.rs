@@ -145,7 +145,7 @@ impl Resources {
             catalog.push_str(&format!("\n{key} — {description}"));
         }
         if catalog.len() > 64 * 1024 {
-            return Err(invalid(
+            return Err(sailry_protocol::Fault::invalid(
                 "session skill catalog exceeds the instruction budget",
             ));
         }
@@ -194,7 +194,7 @@ impl Resources {
                 ));
             }
             let content = String::from_utf8(bytes)
-                .map_err(|_| invalid("skill resource is not UTF-8 text"))?;
+                .map_err(|_| sailry_protocol::Fault::invalid("skill resource is not UTF-8 text"))?;
             let directory = directory
                 .path
                 .join("skills")

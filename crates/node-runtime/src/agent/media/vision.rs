@@ -20,7 +20,10 @@ impl Media {
             Source::Attachment(id) => {
                 let attachment = self.ingress.attachment(self.turn, id).await?;
                 if attachment.spec.size > adk_core::MAX_INLINE_DATA_SIZE as u64 {
-                    return Err(invalid("image exceeds the model inline limit").into());
+                    return Err(sailry_protocol::Fault::invalid(
+                        "image exceeds the model inline limit",
+                    )
+                    .into());
                 }
                 self.ingress
                     .attachment_bytes(attachment, self.stop.clone())
@@ -45,7 +48,7 @@ impl Media {
                 | file_format::FileFormat::Webp
                 | file_format::FileFormat::GraphicsInterchangeFormat
         ) {
-            return Err(invalid("unsupported image input format").into());
+            return Err(sailry_protocol::Fault::invalid("unsupported image input format").into());
         }
         let config = configuration(&self.config, &self.model);
         let model = model::configured(
@@ -54,7 +57,7 @@ impl Media {
             &config,
             self.session
                 .parse()
-                .map_err(|_| invalid("invalid media session"))?,
+                .map_err(|_| sailry_protocol::Fault::invalid("invalid media session"))?,
             true,
             &self.stop,
         )
@@ -153,7 +156,9 @@ fn append(text: &mut String, response: &LlmResponse) -> Result<(), Fault> {
         for part in &content.parts {
             if let Part::Text { text: value } = part {
                 if value.len() > 64 * 1024 - text.len() {
-                    return Err(invalid("vision response exceeds the size limit"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "vision response exceeds the size limit",
+                    ));
                 }
                 text.push_str(value);
             }

@@ -31,10 +31,7 @@ pub(super) async fn wait(
         return Ok(());
     }
     let Output::QueuedTurn(turn) = output else {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "turn callback did not admit a turn",
-        ));
+        return Err(Fault::invalid("turn callback did not admit a turn"));
     };
     loop {
         let mut feed = ingress

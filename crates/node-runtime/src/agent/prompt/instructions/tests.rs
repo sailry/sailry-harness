@@ -84,6 +84,12 @@ async fn loads_only_relevant_guides() {
         )
         .await
         .unwrap();
+    assert!(
+        instruction.contains("These guides apply only within their stated project-relative scope")
+    );
+    assert!(instruction.contains(
+        "Explicit user instructions and this turn's mode and permissions remain authoritative"
+    ));
     for (path, scope) in [
         ("AGENTS.md", "."),
         ("资料/AGENTS.md", "资料"),

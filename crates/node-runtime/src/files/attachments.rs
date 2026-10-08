@@ -23,10 +23,7 @@ pub(super) fn validate(spec: &attachment::Spec) -> Result<(), Fault> {
         || !media.is_some_and(|(kind, subtype)| token(kind) && token(subtype))
         || spec.size > attachment::MAX_BYTES
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid attachment metadata",
-        ));
+        return Err(Fault::invalid("invalid attachment metadata"));
     }
     Ok(())
 }

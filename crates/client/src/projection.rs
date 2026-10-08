@@ -34,10 +34,7 @@ impl Projection {
 
     pub fn reconnect(&mut self, generation: u64) -> Result<(), Fault> {
         if generation <= self.generation {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "connection generation must increase",
-            ));
+            return Err(Fault::invalid("connection generation must increase"));
         }
         self.generation = generation;
         self.recovery = true;
@@ -57,10 +54,9 @@ impl Projection {
             | Update::ConversationSnapshot(_)
             | Update::ConversationFrame(_)
             | Update::TerminalSnapshot(_)
-            | Update::TerminalFrame(_) => Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "resource update on Node subscription",
-            )),
+            | Update::TerminalFrame(_) => {
+                Err(Fault::invalid("resource update on Node subscription"))
+            }
             Update::ResetRequired => {
                 self.recovery = true;
                 Ok(Apply::Recover)
@@ -92,7 +88,6 @@ impl Projection {
                     return Ok(Apply::Recover);
                 }
                 match envelope.event {
-                    Event::Unsupported => {}
                     Event::PluginChanged(plugin) => {
                         snapshot.plugins.retain(|item| item.name != plugin.name);
                         snapshot.plugins.push(plugin);

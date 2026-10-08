@@ -106,7 +106,6 @@ pub(super) fn bind(
 
 pub(super) fn available(ingress: &Ingress, invocation: &Invocation, operation: Operation) -> bool {
     match operation {
-        Operation::Unsupported => false,
         Operation::BrowseDatabase | Operation::QueryDatabase | Operation::ExecuteDatabase => {
             !invocation.connections.databases.is_empty()
         }
@@ -276,12 +275,9 @@ impl HostOperation {
             repository::command(
                 self.operation,
                 arguments,
-                self.context.worktree.ok_or_else(|| {
-                    Fault::new(
-                        ErrorCode::InvalidRequest,
-                        "repository operation requires a worktree",
-                    )
-                })?,
+                self.context
+                    .worktree
+                    .ok_or_else(|| Fault::invalid("repository operation requires a worktree"))?,
                 &registered,
             )?
         } else {
@@ -383,7 +379,10 @@ impl HostOperation {
                     request = self.prepare(arguments).await?;
                 }
                 request.id = id;
-                if matches!(request.command, Command::WriteFile { .. }) {
+                if matches!(
+                    request.command,
+                    Command::WriteFile { .. } | Command::EditFile { .. }
+                ) {
                     self.ingress
                         .checkpoint_write(self.turn, &request, self.stop.clone())
                         .await?;

@@ -58,10 +58,7 @@ impl Worker {
                         if callback.expose().len() > 16 * 1024
                             || callback.expose().chars().any(char::is_control)
                         {
-                            return Err(Fault::new(
-                                ErrorCode::InvalidRequest,
-                                "invalid MCP authorization callback",
-                            ));
+                            return Err(Fault::invalid("invalid MCP authorization callback"));
                         }
                         Ok(Output::McpLogin(entry.updates.borrow().attempt.clone()))
                     });
@@ -126,10 +123,7 @@ impl Worker {
             if client_id.is_some_and(|id| {
                 id.is_empty() || id.len() > 2048 || id.chars().any(char::is_control)
             }) {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "invalid MCP OAuth client ID",
-                ));
+                return Err(Fault::invalid("invalid MCP OAuth client ID"));
             }
             if self.mcp.values().filter(|entry| !entry.finished).count() >= 4
                 || self.mcp.values().any(|entry| {
@@ -344,12 +338,7 @@ fn save(
 }
 
 fn validate_redirect(value: &str) -> Result<(), Fault> {
-    let invalid = || {
-        Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid MCP authorization redirect URI",
-        )
-    };
+    let invalid = || Fault::invalid("invalid MCP authorization redirect URI");
     if value.len() > 2048 || value.chars().any(char::is_control) {
         return Err(invalid());
     }

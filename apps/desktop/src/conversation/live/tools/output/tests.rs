@@ -372,7 +372,7 @@ fn browser_failure_categories() {
 #[test]
 fn preserves_sql_diagnostics() {
     let message = "Database query failed: syntax error near quoted_table";
-    let result = json!({"error":Fault::new(ErrorCode::InvalidRequest, message)});
+    let result = json!({"error":Fault::invalid(message)});
     let body = preview(&result);
     assert!(body.text.is_empty());
     assert_eq!(body.notices, ["tool_invalid"]);

@@ -21,15 +21,13 @@ pub(crate) struct Input {
     timeout: Duration,
 }
 
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
-}
 fn unknown(message: &str) -> Fault {
     Fault::new(ErrorCode::OutcomeUnknown, message)
 }
 
 fn url(value: &str) -> Result<Url, Fault> {
-    let url = Url::parse(value).map_err(|_| invalid("invalid plugin HTTP URL"))?;
+    let url = Url::parse(value)
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid plugin HTTP URL"))?;
     if value.len() > 4096
         || !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()
@@ -37,7 +35,7 @@ fn url(value: &str) -> Result<Url, Fault> {
         || url.password().is_some()
         || url.fragment().is_some()
     {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "plugin HTTP URL must use HTTP(S) without credentials or a fragment",
         ));
     }
@@ -46,7 +44,7 @@ fn url(value: &str) -> Result<Url, Fault> {
 
 fn header(value: &str) -> Result<HeaderName, Fault> {
     let header = HeaderName::from_bytes(value.as_bytes())
-        .map_err(|_| invalid("invalid plugin HTTP header"))?;
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid plugin HTTP header"))?;
     if matches!(
         header.as_str(),
         "host"
@@ -56,36 +54,42 @@ fn header(value: &str) -> Result<HeaderName, Fault> {
             | "proxy-authorization"
             | "upgrade"
     ) {
-        return Err(invalid("plugin HTTP header is controlled by the transport"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plugin HTTP header is controlled by the transport",
+        ));
     }
     Ok(header)
 }
 
 pub(crate) fn binding(binding: &Binding) -> Result<(Url, HeaderName, &str), Fault> {
     if binding.unsupported {
-        return Err(invalid("unsupported protected setting binding"));
+        return Err(sailry_protocol::Fault::invalid(
+            "unsupported protected setting binding",
+        ));
     }
     if binding.server.is_some() || binding.env.is_some() {
-        return Err(invalid("HTTP credentials cannot target an MCP slot"));
+        return Err(sailry_protocol::Fault::invalid(
+            "HTTP credentials cannot target an MCP slot",
+        ));
     }
     let origin = url(binding
         .origin
         .as_deref()
-        .ok_or_else(|| invalid("HTTP credential origin is required"))?)?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("HTTP credential origin is required"))?)?;
     if origin.path() != "/" || origin.query().is_some() {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "HTTP credential must declare an origin without a path or query",
         ));
     }
-    let header = header(
-        binding
-            .header
-            .as_deref()
-            .ok_or_else(|| invalid("HTTP credential header is required"))?,
-    )?;
+    let header =
+        header(binding.header.as_deref().ok_or_else(|| {
+            sailry_protocol::Fault::invalid("HTTP credential header is required")
+        })?)?;
     let prefix = binding.prefix.as_deref().unwrap_or("");
     if prefix.len() > 128 || HeaderValue::from_str(prefix).is_err() {
-        return Err(invalid("invalid HTTP credential prefix"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid HTTP credential prefix",
+        ));
     }
     Ok((origin, header, prefix))
 }
@@ -107,26 +111,32 @@ pub(crate) fn prepare(
             "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS"
         )
     {
-        return Err(invalid("invalid plugin HTTP method, timeout or size"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid plugin HTTP method, timeout or size",
+        ));
     }
     let method = Method::from_bytes(request.method.as_bytes())
-        .map_err(|_| invalid("invalid HTTP method"))?;
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid HTTP method"))?;
     let mut headers = HeaderMap::new();
     for (name, value) in &request.headers {
         if value.len() > 8192 {
-            return Err(invalid("plugin HTTP header exceeds the size limit"));
+            return Err(sailry_protocol::Fault::invalid(
+                "plugin HTTP header exceeds the size limit",
+            ));
         }
         let value = HeaderValue::from_str(value)
-            .map_err(|_| invalid("invalid plugin HTTP header value"))?;
+            .map_err(|_| sailry_protocol::Fault::invalid("invalid plugin HTTP header value"))?;
         if headers.insert(header(name)?, value).is_some() {
-            return Err(invalid("duplicate plugin HTTP header"));
+            return Err(sailry_protocol::Fault::invalid(
+                "duplicate plugin HTTP header",
+            ));
         }
     }
     if let Some(field) = &request.credential {
         let binding = schema
             .and_then(|schema| schema.properties.get(field))
             .and_then(|field| field.secret.as_ref())
-            .ok_or_else(|| invalid("HTTP credential is not declared"))?;
+            .ok_or_else(|| sailry_protocol::Fault::invalid("HTTP credential is not declared"))?;
         let (origin, name, prefix) = self::binding(binding)?;
         if url.origin() != origin.origin() {
             return Err(Fault::new(
@@ -135,7 +145,9 @@ pub(crate) fn prepare(
             ));
         }
         if headers.contains_key(&name) {
-            return Err(invalid("HTTP credential header cannot be overridden"));
+            return Err(sailry_protocol::Fault::invalid(
+                "HTTP credential header cannot be overridden",
+            ));
         }
         let secret = settings
             .and_then(|settings| settings.secrets.get(field))
@@ -145,8 +157,10 @@ pub(crate) fn prepare(
                     "HTTP credential is not configured",
                 )
             })?;
-        let mut value = HeaderValue::from_str(&format!("{prefix}{}", secret.expose()))
-            .map_err(|_| invalid("HTTP credential is not a valid header value"))?;
+        let mut value =
+            HeaderValue::from_str(&format!("{prefix}{}", secret.expose())).map_err(|_| {
+                sailry_protocol::Fault::invalid("HTTP credential is not a valid header value")
+            })?;
         value.set_sensitive(true);
         headers.insert(name, value);
     }

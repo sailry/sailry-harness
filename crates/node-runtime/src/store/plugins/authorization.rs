@@ -16,8 +16,7 @@ pub(in crate::store) fn current(
         .iter()
         .any(|entry| entry.name == server && entry.transport != McpTransport::Stdio)
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
+        return Err(Fault::invalid(
             "MCP authorization requires a declared HTTP server",
         ));
     }

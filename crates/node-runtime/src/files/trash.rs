@@ -31,10 +31,7 @@ fn checked(
     operation: impl FnOnce(&Path) -> Result<(), Fault>,
 ) -> Result<(), Fault> {
     if blake3::Hash::from_hex(revision).is_err() || blake3::Hash::from_hex(stamp).is_err() {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid file source revision",
-        ));
+        return Err(Fault::invalid("invalid file source revision"));
     }
     relocate(root, relative, |target| {
         super::version::verify(root, relative, revision, stamp)?;

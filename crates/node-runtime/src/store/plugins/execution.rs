@@ -49,10 +49,7 @@ pub(in crate::store) fn prepare(
                 .len()
                 > plugin::host::MAX_DATA_BYTES
         {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "invalid plugin callback or input",
-            ));
+            return Err(Fault::invalid("invalid plugin callback or input"));
         }
         return Ok(Input::Script(Box::new(info)));
     }
@@ -65,16 +62,10 @@ pub(in crate::store) fn prepare(
         effort,
     } = &request.command
     else {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "unsupported plugin execution command",
-        ));
+        return Err(Fault::invalid("unsupported plugin execution command"));
     };
     if prompt.trim().is_empty() || prompt.len() > 64 * 1024 {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "plugin prompt must contain 1–65536 bytes",
-        ));
+        return Err(Fault::invalid("plugin prompt must contain 1–65536 bytes"));
     }
     let (provider, mut config) = super::models::resolve(&db.connection, model)?;
     if let Some(effort) = effort {

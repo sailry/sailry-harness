@@ -33,10 +33,7 @@ pub(super) async fn read(
         unreachable!()
     };
     if result.truncated {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "database catalog exceeds the result limit",
-        ));
+        return Err(Fault::invalid("database catalog exceeds the result limit"));
     }
     let text = |value: &Value| match value {
         Value::Text(value) => Ok(value.clone()),

@@ -9,7 +9,9 @@ pub(crate) fn targets(action: &Action) -> Result<Vec<(PathBuf, String)>, Fault> 
             paths, destination, ..
         } => {
             if paths.is_empty() || paths.len() > 100 {
-                return Err(invalid("select between one and one hundred entries"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "select between one and one hundred entries",
+                ));
             }
             let destination = resolve(Path::new(destination))?;
             let mut targets = Vec::new();
@@ -22,7 +24,9 @@ pub(crate) fn targets(action: &Action) -> Result<Vec<(PathBuf, String)>, Fault> 
         }
         Action::Trash { paths } => {
             if paths.is_empty() || paths.len() > 100 {
-                return Err(invalid("select between one and one hundred entries"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "select between one and one hundred entries",
+                ));
             }
             paths.iter().map(PathBuf::from).collect()
         }
@@ -97,12 +101,14 @@ fn apply(action: &Action, path: &str) -> Result<Option<String>, Fault> {
             let original = source.join(&name);
             let metadata = original.symlink_metadata().map_err(io_error)?;
             if metadata.is_symlink() || (!metadata.is_dir() && !metadata.is_file()) {
-                return Err(invalid(
+                return Err(sailry_protocol::Fault::invalid(
                     "only regular files and directories can be transferred",
                 ));
             }
             if metadata.is_dir() && target.starts_with(&original) {
-                return Err(invalid("a directory cannot be transferred into itself"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "a directory cannot be transferred into itself",
+                ));
             }
             let mut renamed = name.clone();
             let exists = target.join(&renamed).try_exists().map_err(io_error)?;
@@ -117,7 +123,9 @@ fn apply(action: &Action, path: &str) -> Result<Option<String>, Fault> {
                     }
                     Conflict::Replace => {
                         if original.starts_with(target.join(&renamed)) {
-                            return Err(invalid("an entry cannot replace itself or its ancestors"));
+                            return Err(sailry_protocol::Fault::invalid(
+                                "an entry cannot replace itself or its ancestors",
+                            ));
                         }
                         files::trash(&target, &renamed)?;
                         replaced = true;
@@ -171,16 +179,18 @@ fn apply(action: &Action, path: &str) -> Result<Option<String>, Fault> {
 
 fn split(path: &Path) -> Result<(PathBuf, String), Fault> {
     if !path.is_absolute() {
-        return Err(invalid("an absolute entry path is required"));
+        return Err(sailry_protocol::Fault::invalid(
+            "an absolute entry path is required",
+        ));
     }
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
-        .ok_or_else(|| invalid("a filesystem root cannot be modified"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("a filesystem root cannot be modified"))?;
     files::path::entry_components(name)?;
     let parent = resolve(
         path.parent()
-            .ok_or_else(|| invalid("entry parent is missing"))?,
+            .ok_or_else(|| sailry_protocol::Fault::invalid("entry parent is missing"))?,
     )?;
     Ok((parent, name.into()))
 }

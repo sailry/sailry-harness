@@ -1,4 +1,4 @@
-//! Supported capabilities and inert identifiers retained in stored declarations.
+//! Host capabilities declared by plugin extensions.
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -90,16 +90,6 @@ pub enum Action {
     ReadStorage,
     #[serde(rename = "storage.write")]
     WriteStorage,
-    /// Retained for round-tripping; never matches a supported capability.
-    #[serde(untagged)]
-    #[schemars(skip)]
-    Unsupported(String),
-}
-
-impl Action {
-    pub fn supported(&self) -> bool {
-        !matches!(self, Self::Unsupported(_))
-    }
 }
 
 #[cfg(test)]
@@ -114,7 +104,6 @@ mod tests {
             ("models.read", Action::ReadModels),
             ("models.generate", Action::GenerateText),
         ] {
-            assert!(action.supported());
             assert_eq!(serde_json::to_value(&action).unwrap(), json!(name));
             assert_eq!(
                 serde_json::from_value::<Action>(json!(name)).unwrap(),
@@ -124,14 +113,9 @@ mod tests {
     }
 
     #[test]
-    fn retains_unknown_identifiers_without_grants() {
+    fn rejects_unknown_identifiers() {
         for name in ["unknown.action", "models.decide"] {
-            let action: Action = serde_json::from_value(json!(name)).unwrap();
-            assert_eq!(action, Action::Unsupported(name.into()));
-            assert!(!action.supported());
-            assert_ne!(action, Action::ReadModels);
-            assert_ne!(action, Action::GenerateText);
-            assert_eq!(serde_json::to_value(&action).unwrap(), json!(name));
+            assert!(serde_json::from_value::<Action>(json!(name)).is_err());
         }
     }
 
@@ -151,7 +135,7 @@ mod tests {
     #[test]
     fn excludes_unknown_identifiers_from_authoring() {
         let schema = serde_json::to_value(schemars::schema_for!(Action)).unwrap();
-        let variants = schema["anyOf"].as_array().unwrap();
+        let variants = schema["oneOf"].as_array().unwrap();
         assert_eq!(variants.len(), 2);
         assert_eq!(variants[0]["type"], "string");
         let names = variants[0]["enum"].as_array().unwrap();
@@ -162,11 +146,7 @@ mod tests {
         assert!(!names.contains(&json!("Unsupported")));
         assert!(!names.is_empty());
         for name in names {
-            let action: Action = serde_json::from_value(name.clone()).unwrap();
-            assert!(
-                action.supported(),
-                "unsupported authoring identifier {name}"
-            );
+            assert!(serde_json::from_value::<Action>(name.clone()).is_ok());
         }
         assert_eq!(variants[1]["type"], "string");
         assert_eq!(variants[1]["const"], "sessions.start");

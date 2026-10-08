@@ -15,6 +15,14 @@ struct Directory {
 #[serde(deny_unknown_fields)]
 struct File {
     path: String,
+    #[serde(default)]
+    offset: usize,
+    #[serde(default = "default_limit")]
+    limit: usize,
+}
+
+fn default_limit() -> usize {
+    200
 }
 
 #[derive(Deserialize)]
@@ -23,6 +31,21 @@ struct Write {
     path: String,
     text: String,
     expected_revision: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Edit {
+    path: String,
+    old_text: String,
+    new_text: String,
+    expected_revision: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Find {
+    globs: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -37,8 +60,14 @@ struct Search {
 pub(super) fn description(operation: Operation) -> &'static str {
     match operation {
         Operation::ListDirectory => "List a directory in the captured worktree",
-        Operation::ReadFile => "Read bounded UTF-8 text in the captured worktree",
+        Operation::ReadFile => {
+            "Read numbered lines with a full file revision; offset starts at zero and defaults to 0, limit defaults to 200"
+        }
         Operation::WriteFile => "Write UTF-8 text using the expected file revision",
+        Operation::EditFile => {
+            "Replace old_text exactly once using the full current file revision; preserve all surrounding bytes"
+        }
+        Operation::FindFiles => "Find regular file paths by glob without reading their contents",
         Operation::SearchFiles => "Search text in the captured worktree",
         Operation::ReadOffice => "Read document sections in the captured worktree",
         _ => unreachable!("not a file operation"),
@@ -52,10 +81,21 @@ pub(super) fn parameters(operation: Operation) -> Value {
             json!({"path":path,"after":{"type":["object","null"],"properties":{"revision":{"type":"string"},"directory":{"type":"boolean"},"name":{"type":"string"}},"required":["revision","directory","name"],"additionalProperties":false}}),
             vec!["path", "after"],
         ),
-        Operation::ReadFile => (json!({"path":path}), vec!["path"]),
+        Operation::ReadFile => (
+            json!({"path":path,"offset":{"type":"integer","minimum":0,"default":0},"limit":{"type":"integer","minimum":1,"maximum":sailry_protocol::MAX_FILE_LINES,"default":200}}),
+            vec!["path"],
+        ),
         Operation::WriteFile => (
             json!({"path":path,"text":{"type":"string"},"expected_revision":{"type":["string","null"]}}),
             vec!["path", "text", "expected_revision"],
+        ),
+        Operation::EditFile => (
+            json!({"path":path,"old_text":{"type":"string","minLength":1},"new_text":{"type":"string"},"expected_revision":{"type":"string","pattern":"^[a-fA-F0-9]{64}$"}}),
+            vec!["path", "old_text", "new_text", "expected_revision"],
+        ),
+        Operation::FindFiles => (
+            json!({"globs":{"type":"array","items":{"type":"string","minLength":1,"maxLength":4096},"minItems":1,"maxItems":FileSearch::MAX_GLOBS}}),
+            vec!["globs"],
         ),
         Operation::SearchFiles => (
             json!({"query":{"type":"string"},"regex":{"type":"boolean"},"case_sensitive":{"type":"boolean"},"globs":{"type":"array","items":{"type":"string"}}}),
@@ -75,12 +115,9 @@ pub(super) fn command(
     arguments: Value,
     context: &plugin::Context,
 ) -> Result<Command, Fault> {
-    let worktree = context.worktree.ok_or_else(|| {
-        Fault::new(
-            ErrorCode::InvalidRequest,
-            "file operation requires a worktree",
-        )
-    })?;
+    let worktree = context
+        .worktree
+        .ok_or_else(|| Fault::invalid("file operation requires a worktree"))?;
     Ok(match operation {
         Operation::ListDirectory => {
             let input: Directory = decode(arguments)?;
@@ -92,9 +129,11 @@ pub(super) fn command(
         }
         Operation::ReadFile => {
             let input: File = decode(arguments)?;
-            Command::ReadFile {
+            Command::ReadFileLines {
                 worktree,
                 path: input.path,
+                offset: input.offset,
+                limit: input.limit,
             }
         }
         Operation::WriteFile => {
@@ -104,6 +143,23 @@ pub(super) fn command(
                 path: input.path,
                 text: input.text,
                 expected_revision: input.expected_revision,
+            }
+        }
+        Operation::EditFile => {
+            let input: Edit = decode(arguments)?;
+            Command::EditFile {
+                worktree,
+                path: input.path,
+                old_text: input.old_text,
+                new_text: input.new_text,
+                expected_revision: input.expected_revision,
+            }
+        }
+        Operation::FindFiles => {
+            let input: Find = decode(arguments)?;
+            Command::FindFiles {
+                worktree,
+                globs: input.globs,
             }
         }
         Operation::SearchFiles => {

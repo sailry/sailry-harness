@@ -46,10 +46,12 @@ impl Host {
         tree.stop = stop;
         tree.walk(&source, None, "", 0)?;
         let bytes = package::read(&source, "plugin.json", 64 * 1024)?
-            .ok_or_else(|| invalid("plugin.json is required"))?;
+            .ok_or_else(|| sailry_protocol::Fault::invalid("plugin.json is required"))?;
         let manifest = manifest::parse(&bytes)?;
         if manifest.name != name {
-            return Err(invalid("plugin name does not match the selected package"));
+            return Err(sailry_protocol::Fault::invalid(
+                "plugin name does not match the selected package",
+            ));
         }
         describe(&source, manifest, tree.digest(), tree.issues)
     }
@@ -63,7 +65,9 @@ impl Host {
     ) -> Result<Report, Fault> {
         if catalog::official::owns(&current) {
             let entries = catalog
-                .ok_or_else(|| invalid("official plugin catalog is unavailable"))?
+                .ok_or_else(|| {
+                    sailry_protocol::Fault::invalid("official plugin catalog is unavailable")
+                })?
                 .as_ref()
                 .map_err(Clone::clone)?;
             let entry = entries
@@ -90,7 +94,9 @@ impl Host {
                     path: path.clone(),
                 };
                 let path = path.clone();
-                let root = root.ok_or_else(|| invalid("plugin source worktree is unavailable"))?;
+                let root = root.ok_or_else(|| {
+                    sailry_protocol::Fault::invalid("plugin source worktree is unavailable")
+                })?;
                 let host = self.clone();
                 let candidate =
                     tokio::task::spawn_blocking(move || host.inspect(&root, &path, &name, stop))
@@ -135,7 +141,9 @@ impl Host {
             }
         };
         if candidate.summary.name != current.summary.name {
-            return Err(invalid("plugin update has a different identity"));
+            return Err(sailry_protocol::Fault::invalid(
+                "plugin update has a different identity",
+            ));
         }
         candidate.origin = Some(origin);
         Ok(Report {
@@ -151,7 +159,9 @@ fn newer(candidate: Option<&str>, current: Option<&str>) -> Result<bool, Fault> 
     let parse = |version: Option<&str>| {
         version
             .and_then(|version| semver::Version::parse(version).ok())
-            .ok_or_else(|| invalid("official plugin version is unavailable"))
+            .ok_or_else(|| {
+                sailry_protocol::Fault::invalid("official plugin version is unavailable")
+            })
     };
     Ok(parse(candidate)?.cmp_precedence(&parse(current)?).is_gt())
 }

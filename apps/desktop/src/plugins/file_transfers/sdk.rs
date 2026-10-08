@@ -233,10 +233,7 @@ impl Controller {
                         }
                     }
                     if selected.is_empty() {
-                        return Err(Fault::new(
-                            ErrorCode::InvalidRequest,
-                            "clipboard selection is empty",
-                        ));
+                        return Err(Fault::invalid("clipboard selection is empty"));
                     }
                     Ok(Clipboard {
                         id: RequestId::new(),
@@ -282,8 +279,7 @@ impl Controller {
                     if clipboard.access.client.target() != access.client.target()
                         && kind != sailry_protocol::EntryKind::File
                     {
-                        return Err(Fault::new(
-                            ErrorCode::InvalidRequest,
+                        return Err(Fault::invalid(
                             "directories cannot be transferred between Nodes",
                         ));
                     }

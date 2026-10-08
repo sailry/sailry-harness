@@ -24,7 +24,9 @@ pub(in crate::store) fn catalog(
     if serde_json::to_vec(&catalog).map_err(storage_error)?.len()
         > sailry_protocol::activity::MAX_CATALOG_BYTES
     {
-        return Err(invalid("activity catalog exceeds the response limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "activity catalog exceeds the response limit",
+        ));
     }
     Ok(catalog)
 }
@@ -86,7 +88,9 @@ pub(in crate::store) fn previews(
     sessions: &[SessionId],
 ) -> Result<Vec<sailry_protocol::activity::Preview>, Fault> {
     if sessions.len() > 32 {
-        return Err(invalid("activity preview batch exceeds 32 sessions"));
+        return Err(sailry_protocol::Fault::invalid(
+            "activity preview batch exceeds 32 sessions",
+        ));
     }
     sessions
         .iter()

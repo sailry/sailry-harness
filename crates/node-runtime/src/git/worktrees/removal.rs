@@ -11,10 +11,7 @@ pub(crate) fn remove(root: &Path, expected_head: &str, expected_branch: &str) ->
         || expected_branch.len() > 1024
         || !Branch::name_is_valid(expected_branch).map_err(fault)?
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid worktree revision",
-        ));
+        return Err(Fault::invalid("invalid worktree revision"));
     }
     let expected = Oid::from_str(expected_head).map_err(fault)?;
     let retained = path::root(root)?;
@@ -49,7 +46,7 @@ pub(crate) fn remove(root: &Path, expected_head: &str, expected_branch: &str) ->
     for name in repository.worktrees().map_err(fault)?.iter() {
         let name = name
             .map_err(fault)?
-            .ok_or_else(|| Fault::new(ErrorCode::InvalidRequest, "worktree name is not UTF-8"))?;
+            .ok_or_else(|| Fault::invalid("worktree name is not UTF-8"))?;
         let other = repository.find_worktree(name).map_err(fault)?;
         let other = other
             .path()

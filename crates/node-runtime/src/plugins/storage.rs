@@ -1,6 +1,6 @@
 //! Package-owned logical schemas never mutate data while projecting defaults.
 use sailry_protocol::{
-    ErrorCode, Fault,
+    Fault,
     plugin::storage::{self, Declaration},
 };
 use serde_json::Value;
@@ -19,7 +19,9 @@ impl jsonschema::Retrieve for NoRetrieval {
 
 pub(crate) fn validate(declaration: &Declaration) -> Result<(), Fault> {
     if !declaration.valid() {
-        return Err(invalid("invalid storage collection selectors"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid storage collection selectors",
+        ));
     }
     for collection in &declaration.collections {
         check_size(&collection.schema, storage::MAX_SCHEMA_BYTES)?;
@@ -36,13 +38,17 @@ pub(crate) fn validate(declaration: &Declaration) -> Result<(), Fault> {
             let validators = jsonschema::draft202012::options()
                 .with_retriever(NoRetrieval)
                 .build_map(&collection.schema)
-                .map_err(|_| invalid("invalid storage schema constraints"))?;
+                .map_err(|_| {
+                    sailry_protocol::Fault::invalid("invalid storage schema constraints")
+                })?;
             for (pointer, value) in defaults {
                 if !validators
                     .get(&pointer)
                     .is_some_and(|validator| validator.is_valid(value))
                 {
-                    return Err(invalid("invalid storage schema default"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "invalid storage schema default",
+                    ));
                 }
             }
         }
@@ -54,7 +60,7 @@ fn build(schema: &Value) -> Result<jsonschema::Validator, Fault> {
     jsonschema::draft202012::options()
         .with_retriever(NoRetrieval)
         .build(schema)
-        .map_err(|_| invalid("invalid storage schema constraints"))
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid storage schema constraints"))
 }
 
 fn inspect<'a>(
@@ -65,7 +71,9 @@ fn inspect<'a>(
     defaults: &mut Vec<(String, &'a Value)>,
 ) -> Result<(), Fault> {
     if depth > storage::MAX_SCHEMA_DEPTH {
-        return Err(invalid("storage schema exceeds the depth limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "storage schema exceeds the depth limit",
+        ));
     }
     let Some(object) = schema.as_object() else {
         return Ok(());
@@ -73,7 +81,7 @@ fn inspect<'a>(
     if object.get("additionalProperties") == Some(&Value::Bool(false))
         || object.get("unevaluatedProperties") == Some(&Value::Bool(false))
     {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "closed storage objects cannot preserve unknown fields",
         ));
     }
@@ -89,7 +97,7 @@ fn inspect<'a>(
                 .is_some_and(|value| value == "#" || value.starts_with("#/"))
         })
     {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "storage schemas require local JSON pointer references",
         ));
     }
@@ -174,7 +182,9 @@ pub(crate) fn normalize(
     }
     project(schema, &mut value)?;
     if !build(schema)?.is_valid(&value) {
-        return Err(invalid("plugin value does not match its storage schema"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plugin value does not match its storage schema",
+        ));
     }
     Ok(value)
 }
@@ -185,7 +195,9 @@ fn reference<'a>(root: &'a Value, schema: &'a Value) -> Result<Option<&'a Value>
         .and_then(Value::as_str)
         .map(|reference| {
             root.pointer(reference.strip_prefix('#').unwrap_or(reference))
-                .ok_or_else(|| invalid("storage schema reference is unavailable"))
+                .ok_or_else(|| {
+                    sailry_protocol::Fault::invalid("storage schema reference is unavailable")
+                })
         })
         .transpose()
 }
@@ -202,7 +214,7 @@ fn defaults<'a>(
         return Ok(());
     }
     if depth > storage::MAX_SCHEMA_DEPTH {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "storage default projection exceeds the depth limit",
         ));
     }
@@ -219,15 +231,15 @@ fn defaults<'a>(
                 && let Some(default) = default(root, field)?
             {
                 let bytes = serde_json::to_vec(default)
-                    .map_err(|_| invalid("invalid storage default"))?
+                    .map_err(|_| sailry_protocol::Fault::invalid("invalid storage default"))?
                     .len()
                     + serde_json::to_string(name)
-                        .map_err(|_| invalid("invalid storage property"))?
+                        .map_err(|_| sailry_protocol::Fault::invalid("invalid storage property"))?
                         .len()
                     + 2;
-                *budget = budget
-                    .checked_sub(bytes)
-                    .ok_or_else(|| invalid("plugin value exceeds 256 KiB"))?;
+                *budget = budget.checked_sub(bytes).ok_or_else(|| {
+                    sailry_protocol::Fault::invalid("plugin value exceeds 256 KiB")
+                })?;
                 object.insert(name.clone(), default.clone());
             }
             if let Some(value) = object.get_mut(name) {
@@ -271,7 +283,9 @@ fn default<'a>(root: &'a Value, mut schema: &'a Value) -> Result<Option<&'a Valu
         };
         schema = target;
     }
-    Err(invalid("storage default reference exceeds the depth limit"))
+    Err(sailry_protocol::Fault::invalid(
+        "storage default reference exceeds the depth limit",
+    ))
 }
 
 fn preserve(
@@ -282,7 +296,9 @@ fn preserve(
     depth: usize,
 ) -> Result<(), Fault> {
     if depth > storage::MAX_SCHEMA_DEPTH {
-        return Err(invalid("storage normalization exceeds the depth limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "storage normalization exceeds the depth limit",
+        ));
     }
     let (Some(old), Some(object)) = (previous.as_object(), value.as_object_mut()) else {
         return Ok(());
@@ -337,7 +353,9 @@ fn object_schemas<'a>(
         return Ok(());
     }
     if depth > storage::MAX_SCHEMA_DEPTH {
-        return Err(invalid("storage normalization exceeds the depth limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "storage normalization exceeds the depth limit",
+        ));
     }
     nodes.push(schema);
     if let Some(target) = reference(root, schema)? {
@@ -362,16 +380,14 @@ fn object_schemas<'a>(
 
 fn check_size(value: &Value, limit: usize) -> Result<usize, Fault> {
     let bytes = serde_json::to_vec(value)
-        .map_err(|_| invalid("invalid plugin JSON"))?
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid plugin JSON"))?
         .len();
     if bytes > limit {
-        return Err(invalid("plugin JSON exceeds the size limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plugin JSON exceeds the size limit",
+        ));
     }
     Ok(bytes)
-}
-
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }
 
 #[cfg(test)]

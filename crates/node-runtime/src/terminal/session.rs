@@ -312,7 +312,7 @@ impl Owner {
                 self.check_owner(caller, revision)?;
                 input
                     .validate()
-                    .map_err(|error| Fault::new(ErrorCode::InvalidRequest, error.to_string()))?;
+                    .map_err(|error| Fault::invalid(error.to_string()))?;
                 let bytes = self.vt.encode_input(&input)?;
                 self.process.write(bytes)?;
                 Ok(Output::TerminalInput { terminal })
@@ -360,10 +360,7 @@ impl Owner {
                     self.snapshot.lock().unwrap().clone(),
                 ))
             }
-            _ => Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "terminal control command expected",
-            )),
+            _ => Err(Fault::invalid("terminal control command expected")),
         }
     }
 

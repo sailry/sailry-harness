@@ -3,6 +3,9 @@ use sailry_protocol::{conversation::checkpoint, plugin, tool::Operation};
 use serde_json::{Value, json};
 use std::io::{Cursor, Write as _};
 
+#[path = "files/edits.rs"]
+mod edits;
+
 fn name(tool: &str) -> String {
     plugin_tool("files", tool)
 }
@@ -64,6 +67,8 @@ async fn install(fixture: &process::Fixture) -> plugin::Info {
             ("list_directory", "list", Some(Operation::ListDirectory)),
             ("read_file", "read", Some(Operation::ReadFile)),
             ("write_file", "write", Some(Operation::WriteFile)),
+            ("edit_file", "edit", Some(Operation::EditFile)),
+            ("find_files", "find", Some(Operation::FindFiles)),
             ("search_files", "search", Some(Operation::SearchFiles)),
             ("read_office", "office", Some(Operation::ReadOffice)),
         ]
@@ -375,10 +380,17 @@ async fn preserves_ask_and_plan_policy() {
             .iter()
             .map(|tool| tool["function"]["name"].as_str().unwrap())
             .collect();
-        for read in ["list_directory", "read_file", "search_files", "read_office"] {
+        for read in [
+            "list_directory",
+            "read_file",
+            "find_files",
+            "search_files",
+            "read_office",
+        ] {
             assert!(names.contains(&name(read).as_str()));
         }
         assert!(!names.contains(&name("write_file").as_str()));
+        assert!(!names.contains(&name("edit_file").as_str()));
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
@@ -412,9 +424,10 @@ async fn preserves_maximum_escaped_text() {
         let outputs = results(&page);
         assert_eq!(outputs.len(), 2);
         assert_eq!(outputs[0]["kind"], "file_written");
-        assert_eq!(outputs[1]["kind"], "file_content");
-        assert_eq!(outputs[1]["data"]["text"], text);
-        assert_eq!(outputs[1]["data"]["truncated"], false);
+        assert_eq!(outputs[1]["kind"], "file_lines");
+        assert_eq!(outputs[1]["data"]["lines"][0]["number"], 1);
+        assert_eq!(outputs[1]["data"]["lines"][0]["text"], text);
+        assert_eq!(outputs[1]["data"]["next_offset"], Value::Null);
         assert_eq!(
             checkpoints(&fixture.client, fixture.session.id, turn.id)
                 .await
@@ -479,7 +492,11 @@ async fn confines_arguments_and_preserves_large_office_results() {
         let output = results(&page);
         assert_eq!(output.len(), 6);
         assert_eq!(output[0]["kind"], "directory");
-        assert_eq!(output[1]["data"]["text"], "needle in captured worktree");
+        assert_eq!(output[1]["data"]["lines"][0]["number"], 1);
+        assert_eq!(
+            output[1]["data"]["lines"][0]["text"],
+            "needle in captured worktree"
+        );
         assert_eq!(output[2]["data"]["matches"][0]["path"], "note.txt");
         for denied in [&output[3], &output[4]] {
             assert_eq!(denied["isError"], true);

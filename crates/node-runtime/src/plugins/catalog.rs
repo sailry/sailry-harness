@@ -51,7 +51,7 @@ impl Host {
         stop: CancellationToken,
     ) -> Result<Page, Fault> {
         if query.len() > 200 || page == 0 {
-            return Err(invalid("invalid catalog query"));
+            return Err(sailry_protocol::Fault::invalid("invalid catalog query"));
         }
         if source == CatalogSource::Official {
             let mut entries = official::entries(self, &stop).await?;
@@ -97,7 +97,7 @@ impl Host {
         let response = response?;
         let meta = response
             .meta
-            .ok_or_else(|| invalid("catalog pagination is missing"))?;
+            .ok_or_else(|| sailry_protocol::Fault::invalid("catalog pagination is missing"))?;
         for item in response.data {
             if !item
                 .protocols
@@ -113,7 +113,7 @@ impl Host {
                     .as_ref()
                     .is_some_and(|text| text.len() > 8192)
             {
-                return Err(invalid("invalid catalog entry"));
+                return Err(sailry_protocol::Fault::invalid("invalid catalog entry"));
             }
             github::source::Selection::parse(&Source {
                 repository: item.repo_url.clone(),
@@ -147,7 +147,9 @@ impl Host {
         stop: CancellationToken,
     ) -> Result<Source, Fault> {
         if !sailry_protocol::plugin::ui::identifier(id) {
-            return Err(invalid("invalid catalog identifier"));
+            return Err(sailry_protocol::Fault::invalid(
+                "invalid catalog identifier",
+            ));
         }
         if catalog == CatalogSource::Official {
             return official::source(self, id, &stop).await;
@@ -166,11 +168,13 @@ impl Host {
         stop: CancellationToken,
     ) -> Result<Info, Fault> {
         if !sailry_protocol::plugin::ui::identifier(id) {
-            return Err(invalid("invalid catalog identifier"));
+            return Err(sailry_protocol::Fault::invalid(
+                "invalid catalog identifier",
+            ));
         }
         if bundled {
             if source != CatalogSource::Official {
-                return Err(invalid(
+                return Err(sailry_protocol::Fault::invalid(
                     "third-party catalog cannot select bundled packages",
                 ));
             }
@@ -212,7 +216,8 @@ impl Host {
         file.rewind().map_err(io_error)?;
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes).map_err(io_error)?;
-        serde_json::from_slice(&bytes).map_err(|_| invalid("invalid plugin catalog response"))
+        serde_json::from_slice(&bytes)
+            .map_err(|_| sailry_protocol::Fault::invalid("invalid plugin catalog response"))
     }
 }
 
@@ -248,11 +253,11 @@ fn source(detail: Detail) -> Result<Source, Fault> {
     let manifest = detail
         .manifests
         .get("agent-plugins")
-        .ok_or_else(|| invalid("Agent Plugins manifest is unavailable"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("Agent Plugins manifest is unavailable"))?;
     if manifest.path != "plugin.json"
         && manifest.path != format!("{}/plugin.json", detail.plugin_path.trim_end_matches('/'))
     {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "portable plugin manifest must be at the package root",
         ));
     }
@@ -271,6 +276,7 @@ mod tests {
     use super::*;
     #[tokio::test]
     async fn official_is_offline_and_searches_localized_titles() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let mut host = Host::new(None);
         host.github = github::Github::catalog_fixture("http://127.0.0.1:9/");
         let page = host

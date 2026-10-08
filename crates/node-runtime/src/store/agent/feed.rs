@@ -106,7 +106,9 @@ impl Feeds {
         }
         let bytes: usize = draft.parts.iter().map(part_bytes).sum();
         if feed.bytes + bytes > 2 * 1024 * 1024 {
-            return Err(invalid("streaming output exceeds its buffer limit"));
+            return Err(sailry_protocol::Fault::invalid(
+                "streaming output exceeds its buffer limit",
+            ));
         }
         if let Some(current) = feed
             .drafts

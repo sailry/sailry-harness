@@ -1,5 +1,5 @@
 //! Hydrate complete turns before exposing another logical history page.
-use super::projection::{invalid, validate_page};
+use super::projection::validate_page;
 use crate::Client;
 use sailry_protocol::{
     conversation::{History, Page, TurnHistory},
@@ -22,10 +22,14 @@ impl Client {
             }))
             .await?
         else {
-            return Err(invalid("conversation page response expected"));
+            return Err(sailry_protocol::Fault::invalid(
+                "conversation page response expected",
+            ));
         };
         if history.page.session != session {
-            return Err(invalid("history belongs to another conversation"));
+            return Err(sailry_protocol::Fault::invalid(
+                "history belongs to another conversation",
+            ));
         }
         self.complete_history(history).await
     }
@@ -35,7 +39,7 @@ impl Client {
         let mut missing = BTreeSet::new();
         for turn in &history.missing {
             if !missing.insert(*turn) || !history.page.runs.iter().any(|run| run.turn == *turn) {
-                return Err(invalid(
+                return Err(sailry_protocol::Fault::invalid(
                     "incomplete history references an unknown or repeated turn",
                 ));
             }
@@ -58,10 +62,14 @@ impl Client {
                     }))
                     .await?
                 else {
-                    return Err(invalid("turn continuation response expected"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "turn continuation response expected",
+                    ));
                 };
                 if chunk.run.session != history.page.session || chunk.run.turn != turn {
-                    return Err(invalid("turn continuation belongs to another read"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "turn continuation belongs to another read",
+                    ));
                 }
                 if chunk.entries.is_empty()
                     || chunk.entries.iter().any(|entry| {
@@ -74,7 +82,7 @@ impl Client {
                             .is_none_or(|entry| entry.sequence != next)
                     })
                 {
-                    return Err(invalid(
+                    return Err(sailry_protocol::Fault::invalid(
                         "turn continuation did not advance within its boundary",
                     ));
                 }
@@ -111,7 +119,9 @@ fn merge_turn(page: &mut Page, chunk: TurnHistory) -> Result<(), Fault> {
 pub(super) fn merge(current: &mut Page, incoming: Page, keep_current: bool) -> Result<(), Fault> {
     validate_page(&incoming)?;
     if current.session != incoming.session {
-        return Err(invalid("history merge belongs to another conversation"));
+        return Err(sailry_protocol::Fault::invalid(
+            "history merge belongs to another conversation",
+        ));
     }
     if current.revision != incoming.revision {
         return Err(Fault::new(
@@ -132,14 +142,18 @@ pub(super) fn merge(current: &mut Page, incoming: Page, keep_current: bool) -> R
     for entry in incoming.entries {
         if let Some(previous) = entries.get(&entry.sequence) {
             if previous != &entry {
-                return Err(invalid("canonical history changed during pagination"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "canonical history changed during pagination",
+                ));
             }
         } else {
             if identities
                 .insert(entry.id.clone(), entry.sequence)
                 .is_some()
             {
-                return Err(invalid("canonical event identity moved during pagination"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "canonical event identity moved during pagination",
+                ));
             }
             entries.insert(entry.sequence, entry);
         }
@@ -157,7 +171,9 @@ pub(super) fn merge(current: &mut Page, incoming: Page, keep_current: bool) -> R
                 || previous.worktree != run.worktree
                 || previous.origin != run.origin
             {
-                return Err(invalid("sent turn identity changed during pagination"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "sent turn identity changed during pagination",
+                ));
             }
             if !keep_current {
                 *previous = run;
@@ -184,7 +200,7 @@ pub(super) fn merge(current: &mut Page, incoming: Page, keep_current: bool) -> R
                     && approval.state != conversation::ApprovalState::Pending
                     && previous.state != approval.state
             {
-                return Err(invalid(
+                return Err(sailry_protocol::Fault::invalid(
                     "approval identity or terminal decision changed during pagination",
                 ));
             }
@@ -208,7 +224,7 @@ pub(super) fn merge(current: &mut Page, incoming: Page, keep_current: bool) -> R
                     && question.state != conversation::question::State::Pending
                     && previous.state != question.state
             {
-                return Err(invalid(
+                return Err(sailry_protocol::Fault::invalid(
                     "question identity or terminal answer changed during pagination",
                 ));
             }

@@ -200,10 +200,7 @@ fn owner_stop_overrides_handoff() {
         (
             true,
             Status::Failed,
-            Some(Fault::new(
-                ErrorCode::InvalidRequest,
-                "Model request failed",
-            )),
+            Some(Fault::invalid("Model request failed")),
         ),
         (
             true,

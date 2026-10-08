@@ -43,7 +43,7 @@ impl Selection {
                         .is_ok_and(|bytes| bytes.len() <= plugin::host::MAX_DATA_BYTES)
             })
         {
-            return Err(invalid(
+            return Err(sailry_protocol::Fault::invalid(
                 "plugin turn selected an unavailable tool or invalid schema",
             ));
         }
@@ -98,8 +98,8 @@ impl Turn {
         input["project"] = json!(invocation.project);
         input["resources"] = json!(resources);
         let result = owner.evaluate(policy.initialize.clone(), input).await?;
-        let result: Selection =
-            serde_json::from_value(result).map_err(|_| invalid("invalid plugin turn selection"))?;
+        let result: Selection = serde_json::from_value(result)
+            .map_err(|_| sailry_protocol::Fault::invalid("invalid plugin turn selection"))?;
         result.validate(&tools)?;
         Ok(Initialized {
             owner,
@@ -164,16 +164,18 @@ impl Turn {
 
     async fn evaluate(self: &Arc<Self>, handler: String, input: Value) -> Result<Value, Fault> {
         if serde_json::to_vec(&input)
-            .map_err(|_| invalid("invalid plugin turn input"))?
+            .map_err(|_| sailry_protocol::Fault::invalid("invalid plugin turn input"))?
             .len()
             > plugin::host::MAX_DATA_BYTES
         {
-            return Err(invalid("plugin turn input exceeds limit"));
+            return Err(sailry_protocol::Fault::invalid(
+                "plugin turn input exceeds limit",
+            ));
         }
         let permit = tokio::select! {
             biased;
             _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "plugin turn stopped")),
-            permit = self.ingress.plugins.scripts.clone().acquire_owned() => permit.map_err(|_| invalid("plugin VM pool is closed"))?,
+            permit = self.ingress.plugins.scripts.clone().acquire_owned() => permit.map_err(|_| sailry_protocol::Fault::invalid("plugin VM pool is closed"))?,
         };
         let owner = self.clone();
         let runtime = tokio::runtime::Handle::current();
@@ -182,7 +184,7 @@ impl Turn {
             let mut current = owner
                 .state
                 .lock()
-                .map_err(|_| invalid("plugin turn state is unavailable"))?;
+                .map_err(|_| sailry_protocol::Fault::invalid("plugin turn state is unavailable"))?;
             let bundle = owner
                 .ingress
                 .plugins
@@ -224,7 +226,7 @@ impl Turn {
             )?;
             if let Some(staged) = state
                 .lock()
-                .map_err(|_| invalid("plugin turn state is unavailable"))?
+                .map_err(|_| sailry_protocol::Fault::invalid("plugin turn state is unavailable"))?
                 .staged_turn
                 .take()
             {
@@ -233,12 +235,8 @@ impl Turn {
             Ok(result)
         })
         .await
-        .map_err(|_| invalid("plugin turn worker failed"))?
+        .map_err(|_| sailry_protocol::Fault::invalid("plugin turn worker failed"))?
     }
-}
-
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }
 
 #[cfg(test)]

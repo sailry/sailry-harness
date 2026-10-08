@@ -4,6 +4,46 @@ pub const MAX_GIT_ENTRIES: usize = 500;
 pub const MAX_DIFF_BYTES: usize = 48 * 1024;
 pub const MAX_GIT_COMMITS: usize = 100;
 pub const MAX_GIT_WORKTREES: usize = 100;
+pub const MAX_GIT_LINES: usize = 500;
+pub const MAX_GIT_FILE_BYTES: usize = 32 * 1024 * 1024;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitFile {
+    pub commit: String,
+    pub path: String,
+    /// Zero-based line offset; rendered text uses one-based line numbers.
+    pub offset: usize,
+    pub next: Option<usize>,
+    pub total_lines: usize,
+    pub text: String,
+    pub binary: bool,
+    pub truncated: bool,
+    /// A line whose text exceeded the page byte bound, if any.
+    pub truncated_line: Option<usize>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitBlame {
+    pub commit: String,
+    pub path: String,
+    pub offset: usize,
+    pub next: Option<usize>,
+    pub total_lines: usize,
+    pub entries: Vec<GitBlameLine>,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitBlameLine {
+    pub line: usize,
+    pub original_line: usize,
+    pub commit: String,
+    pub author: String,
+    pub email: String,
+    pub timestamp: i64,
+    pub text: String,
+    pub truncated: bool,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 /// Native Git discovery, independent of the Node's persisted execution contexts.

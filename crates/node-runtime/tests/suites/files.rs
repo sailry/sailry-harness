@@ -19,6 +19,8 @@ mod file_rename;
 mod file_save;
 #[path = "../file_search.rs"]
 mod file_search;
+#[path = "../file_tools.rs"]
+mod file_tools;
 #[path = "../file_transfer.rs"]
 mod file_transfer;
 #[path = "../file_trash.rs"]

@@ -6,7 +6,7 @@ use sailry_protocol::{
 };
 use serde_json::Value;
 
-use super::{invalid, manifest::string, package::read};
+use super::{manifest::string, package::read};
 
 const MAX_SKILLS: usize = 64;
 pub(super) const MAX_BYTES: usize = 128 * 1024;
@@ -75,7 +75,9 @@ pub(super) fn discover(root: &Dir, issues: &mut Vec<Issue>) -> Vec<Skill> {
 pub(super) fn parse(directory: &str, text: &str) -> Result<Skill, Fault> {
     let skill = parse_document(text)?;
     if skill.name != directory {
-        return Err(invalid("skill name must match its directory"));
+        return Err(sailry_protocol::Fault::invalid(
+            "skill name must match its directory",
+        ));
     }
     Ok(skill)
 }
@@ -83,7 +85,9 @@ pub(super) fn parse(directory: &str, text: &str) -> Result<Skill, Fault> {
 pub(super) fn parse_document(text: &str) -> Result<Skill, Fault> {
     let mut lines = text.split_inclusive('\n');
     if lines.next().map(str::trim_end) != Some("---") {
-        return Err(invalid("skill frontmatter is required"));
+        return Err(sailry_protocol::Fault::invalid(
+            "skill frontmatter is required",
+        ));
     }
     let mut header = String::new();
     let mut closed = false;
@@ -95,18 +99,21 @@ pub(super) fn parse_document(text: &str) -> Result<Skill, Fault> {
         header.push_str(line);
     }
     if !closed || header.len() > 16 * 1024 {
-        return Err(invalid("skill frontmatter is incomplete or too large"));
+        return Err(sailry_protocol::Fault::invalid(
+            "skill frontmatter is incomplete or too large",
+        ));
     }
     let options = serde_saphyr::options! {
         duplicate_keys: serde_saphyr::DuplicateKeyPolicy::Error,
         budget: serde_saphyr::budget! { max_depth: 16, max_events: 4096, max_aliases: 64, max_anchors: 64 },
     };
     let value: Value = serde_saphyr::from_str_with_options(&header, options)
-        .map_err(|_| invalid("invalid skill YAML frontmatter"))?;
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid skill YAML frontmatter"))?;
     let object = value
         .as_object()
-        .ok_or_else(|| invalid("skill frontmatter must be a mapping"))?;
-    let name = string(object, "name")?.ok_or_else(|| invalid("skill name is required"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("skill frontmatter must be a mapping"))?;
+    let name = string(object, "name")?
+        .ok_or_else(|| sailry_protocol::Fault::invalid("skill name is required"))?;
     if name.is_empty()
         || name.chars().count() > 64
         || !name
@@ -116,16 +123,22 @@ pub(super) fn parse_document(text: &str) -> Result<Skill, Fault> {
         || name.ends_with('-')
         || name.contains("--")
     {
-        return Err(invalid("skill name must match its directory"));
+        return Err(sailry_protocol::Fault::invalid(
+            "skill name must match its directory",
+        ));
     }
-    let description =
-        string(object, "description")?.ok_or_else(|| invalid("skill description is required"))?;
+    let description = string(object, "description")?
+        .ok_or_else(|| sailry_protocol::Fault::invalid("skill description is required"))?;
     if description.trim().is_empty() || description.chars().count() > 1024 {
-        return Err(invalid("skill description is empty or too large"));
+        return Err(sailry_protocol::Fault::invalid(
+            "skill description is empty or too large",
+        ));
     }
     let compatibility = string(object, "compatibility")?;
     if compatibility.is_some_and(|value| value.is_empty() || value.chars().count() > 500) {
-        return Err(invalid("skill compatibility is empty or too large"));
+        return Err(sailry_protocol::Fault::invalid(
+            "skill compatibility is empty or too large",
+        ));
     }
     if let Some(tools) = object.get("allowed-tools")
         && !(tools.is_string()
@@ -133,7 +146,7 @@ pub(super) fn parse_document(text: &str) -> Result<Skill, Fault> {
                 .as_array()
                 .is_some_and(|tools| tools.iter().all(Value::is_string)))
     {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "skill allowed-tools must be a string or a list of strings",
         ));
     }
@@ -142,7 +155,9 @@ pub(super) fn parse_document(text: &str) -> Result<Skill, Fault> {
             .as_object()
             .is_some_and(|values| values.values().all(Value::is_string))
     {
-        return Err(invalid("skill metadata must map strings to strings"));
+        return Err(sailry_protocol::Fault::invalid(
+            "skill metadata must map strings to strings",
+        ));
     }
     Ok(Skill {
         name: name.into(),

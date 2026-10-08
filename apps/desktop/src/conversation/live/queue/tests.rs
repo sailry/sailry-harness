@@ -157,7 +157,7 @@ impl Fixture {
             panic!("upload expected")
         };
         self.runtime
-            .block_on(self.client.upload_attachment(
+            .block_on(self.client.upload(
                 &upload,
                 &mut &bytes[..],
                 CancellationToken::new(),

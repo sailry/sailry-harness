@@ -73,7 +73,7 @@ pub(crate) fn execute(
                 || name.len() > 1024
                 || !git2::Branch::name_is_valid(name).map_err(fault)?
             {
-                return Err(Fault::new(ErrorCode::InvalidRequest, "invalid branch name"));
+                return Err(Fault::invalid("invalid branch name"));
             }
             if branch == Some(name.as_str())
                 || repository
@@ -91,10 +91,7 @@ pub(crate) fn execute(
                 || url.starts_with('-')
                 || url.chars().any(char::is_control)
             {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "invalid Git remote URL",
-                ));
+                return Err(Fault::invalid("invalid Git remote URL"));
             }
             args.extend([
                 "remote".into(),
@@ -111,10 +108,7 @@ pub(crate) fn execute(
                 args.push("--prune".into());
             }
             if *all && remote.is_some() {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "choose one remote or all remotes",
-                ));
+                return Err(Fault::invalid("choose one remote or all remotes"));
             }
             if let Some(remote) = remote {
                 remote_name(&repository, remote)?;
@@ -141,10 +135,7 @@ pub(crate) fn execute(
                     args.push(source.clone());
                 }
             } else if source.is_some() {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "pull branch requires a remote",
-                ));
+                return Err(Fault::invalid("pull branch requires a remote"));
             }
         }
         GitAction::Sync { rebase } => return super::management::sync(root, *rebase),
@@ -174,18 +165,11 @@ pub(crate) fn execute(
             if let Some(remote) = remote {
                 remote_name(&repository, remote)?;
                 args.push(remote.clone());
-                let branch = branch.ok_or_else(|| {
-                    Fault::new(
-                        ErrorCode::InvalidRequest,
-                        "push requires an attached branch",
-                    )
-                })?;
+                let branch =
+                    branch.ok_or_else(|| Fault::invalid("push requires an attached branch"))?;
                 args.push(format!("refs/heads/{branch}:refs/heads/{branch}"));
             } else if *publish {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "select a remote to publish",
-                ));
+                return Err(Fault::invalid("select a remote to publish"));
             }
         }
         GitAction::Merge { commit }
@@ -308,18 +292,12 @@ pub(crate) fn execute(
                     commit.id().to_string(),
                 ]);
             } else {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "cannot undo a detached root commit",
-                ));
+                return Err(Fault::invalid("cannot undo a detached root commit"));
             }
         }
         GitAction::Discard { paths } => {
             if paths.is_empty() || paths.len() > sailry_protocol::MAX_GIT_ENTRIES {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "invalid discard paths",
-                ));
+                return Err(Fault::invalid("invalid discard paths"));
             }
             // Discard tracked edits only. Untracked files use the existing trash action.
             let tree = repository
@@ -331,10 +309,7 @@ pub(crate) fn execute(
                 valid_path(path)?;
                 super::check_entry(root, path)?;
                 if tree.get_path(Path::new(path)).is_err() {
-                    return Err(Fault::new(
-                        ErrorCode::InvalidRequest,
-                        "discard requires tracked files",
-                    ));
+                    return Err(Fault::invalid("discard requires tracked files"));
                 }
             }
             args.extend([
@@ -350,7 +325,7 @@ pub(crate) fn execute(
         }
         GitAction::Trash { paths } => {
             if paths.is_empty() || paths.len() > sailry_protocol::MAX_GIT_ENTRIES {
-                return Err(Fault::new(ErrorCode::InvalidRequest, "invalid trash paths"));
+                return Err(Fault::invalid("invalid trash paths"));
             }
             for path in paths {
                 valid_path(path)?;
@@ -390,10 +365,7 @@ pub(crate) fn execute(
                 }
                 git2::RepositoryState::Merge => "merge",
                 _ => {
-                    return Err(Fault::new(
-                        ErrorCode::InvalidRequest,
-                        "no Git operation to continue or abort",
-                    ));
+                    return Err(Fault::invalid("no Git operation to continue or abort"));
                 }
             };
             args.extend([
@@ -416,7 +388,7 @@ pub(super) fn name(value: &str) -> Result<(), Fault> {
         || value.len() > 1024
         || value.chars().any(char::is_control)
     {
-        return Err(Fault::new(ErrorCode::InvalidRequest, "invalid Git target"));
+        return Err(Fault::invalid("invalid Git target"));
     }
     Ok(())
 }

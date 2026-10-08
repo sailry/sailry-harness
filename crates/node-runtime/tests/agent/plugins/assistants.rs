@@ -278,16 +278,36 @@ fn model(request: &Value) {
     }
     assert!(!tools.contains(plugin_tool("commands", "run_command").as_str()));
     assert!(!tools.contains(alias("list_notes").as_str()));
-    assert!(
-        request["messages"]
-            .as_array()
-            .unwrap()
+    let messages = request["messages"].as_array().unwrap();
+    assert_eq!(
+        messages
             .iter()
-            .any(|message| {
-                message["role"] == "user" && message["content"].to_string().contains(CONTEXT)
-            })
+            .filter(|message| message["role"] == "system")
+            .map(|message| message["content"]
+                .as_str()
+                .unwrap()
+                .matches(CONTEXT)
+                .count())
+            .sum::<usize>(),
+        1
     );
+    let user: Vec<_> = messages
+        .iter()
+        .filter(|message| message["role"] == "user")
+        .map(|message| message["content"].as_str().unwrap())
+        .collect();
+    assert_eq!(user, [PROMPT]);
     assert!(!request["messages"].to_string().contains(REPLACEMENT));
+    for rule in [
+        "Use update_plan for substantial multi-step tasks",
+        "Before project work that could depend on prior decisions or preferences",
+        "Configured delegation roles",
+    ] {
+        assert!(
+            !request["messages"].to_string().contains(rule),
+            "unbound instruction: {rule}"
+        );
+    }
 }
 
 fn note(page: &Page) {
@@ -479,7 +499,7 @@ async fn scope() {
         );
         assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| {
             if let Part::ToolResult { name, result, .. } = part && name == &plugin_tool("files", "read_file") {
-                matches!(serde_json::from_value::<Output>(result.clone()), Ok(Output::FileContent(content)) if content.text == "Assistant scratch file")
+                matches!(serde_json::from_value::<Output>(result.clone()), Ok(Output::FileLines(content)) if content.lines.len() == 1 && content.lines[0].text == "Assistant scratch file")
             } else { false }
         }));
         model(&server.requests.lock().unwrap()[0]);

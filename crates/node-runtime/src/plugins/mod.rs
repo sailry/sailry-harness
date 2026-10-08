@@ -72,10 +72,12 @@ impl Host {
         }
         let source = descend(root(worktree)?, &components(path, true)?)?;
         let bytes = package::read(&source, "plugin.json", 64 * 1024)?
-            .ok_or_else(|| invalid("plugin.json is required"))?;
+            .ok_or_else(|| sailry_protocol::Fault::invalid("plugin.json is required"))?;
         let manifest = manifest::parse(&bytes)?;
         if manifest.name != name {
-            return Err(invalid("plugin name does not match the selected package"));
+            return Err(sailry_protocol::Fault::invalid(
+                "plugin name does not match the selected package",
+            ));
         }
         let profile = root(profile)?;
         let packages = directory(&directory(&profile, "plugins")?, "packages")?;
@@ -87,11 +89,14 @@ impl Host {
             tree.walk(&source, Some(&staged), "", 0)?;
             let digest = tree.digest();
             // Parse the copied bytes, not a path that may have changed during staging.
-            let bytes = package::read(&staged, "plugin.json", 64 * 1024)?
-                .ok_or_else(|| invalid("staged plugin manifest is unavailable"))?;
+            let bytes = package::read(&staged, "plugin.json", 64 * 1024)?.ok_or_else(|| {
+                sailry_protocol::Fault::invalid("staged plugin manifest is unavailable")
+            })?;
             let manifest = manifest::parse(&bytes)?;
             if manifest.name != name {
-                return Err(invalid("plugin manifest changed during installation"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "plugin manifest changed during installation",
+                ));
             }
             let info = describe(&staged, manifest, digest.clone(), tree.issues)?;
             if info.issues.iter().any(|issue| {
@@ -101,7 +106,9 @@ impl Host {
                         | sailry_protocol::plugin::IssueKind::InvalidSkills
                 )
             }) {
-                return Err(invalid("plugin contains invalid skills"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "plugin contains invalid skills",
+                ));
             }
             match packages.open_dir_nofollow(&digest) {
                 Ok(existing) => {
@@ -133,10 +140,6 @@ impl Host {
             .map_err(|_| Fault::new(ErrorCode::Unavailable, "plugin staging cleanup failed"))?;
         result
     }
-}
-
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }
 
 fn describe(
@@ -183,11 +186,13 @@ fn describe(
         issues: manifest.issues,
     };
     if serde_json::to_vec(&info)
-        .map_err(|_| invalid("plugin metadata could not be encoded"))?
+        .map_err(|_| sailry_protocol::Fault::invalid("plugin metadata could not be encoded"))?
         .len()
         > 256 * 1024
     {
-        return Err(invalid("plugin metadata exceeds the component limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plugin metadata exceeds the component limit",
+        ));
     }
     Ok(info)
 }

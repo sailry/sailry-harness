@@ -13,7 +13,9 @@ pub(super) fn apply(page: &mut Page, question: Question) -> Result<(), Fault> {
             || previous.index != question.index
             || previous.state != State::Pending && previous.state != question.state
         {
-            return Err(invalid("question identity or terminal answer changed"));
+            return Err(sailry_protocol::Fault::invalid(
+                "question identity or terminal answer changed",
+            ));
         }
         *previous = question;
     } else {
@@ -22,7 +24,9 @@ pub(super) fn apply(page: &mut Page, question: Question) -> Result<(), Fault> {
                 && previous.entry == question.entry
                 && previous.index == question.index
         }) {
-            return Err(invalid("tool call has multiple questions"));
+            return Err(sailry_protocol::Fault::invalid(
+                "tool call has multiple questions",
+            ));
         }
         page.questions.push(question);
     }
@@ -36,7 +40,9 @@ pub(super) fn validate(page: &Page) -> Result<(), Fault> {
         if !ids.insert(question.id)
             || !calls.insert((question.turn, &question.entry, question.index))
         {
-            return Err(invalid("conversation repeats a question"));
+            return Err(sailry_protocol::Fault::invalid(
+                "conversation repeats a question",
+            ));
         }
         check(page, question)?;
     }
@@ -45,7 +51,7 @@ pub(super) fn validate(page: &Page) -> Result<(), Fault> {
 
 fn check(page: &Page, question: &Question) -> Result<(), Fault> {
     if question.session != page.session || question.entry.is_empty() {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "question belongs to another conversation or has no call",
         ));
     }
@@ -54,7 +60,9 @@ fn check(page: &Page, question: &Question) -> Result<(), Fault> {
             name, arguments, ..
         }) = entry.parts.get(question.index)
         else {
-            return Err(invalid("question does not reference a canonical tool call"));
+            return Err(sailry_protocol::Fault::invalid(
+                "question does not reference a canonical tool call",
+            ));
         };
         if entry.turn != question.turn
             || !matches!(
@@ -62,27 +70,35 @@ fn check(page: &Page, question: &Question) -> Result<(), Fault> {
                 "ask_user" | "mcp_elicitation" | "plan_review"
             )
         {
-            return Err(invalid("question references another turn or tool"));
+            return Err(sailry_protocol::Fault::invalid(
+                "question references another turn or tool",
+            ));
         }
         let spec: Spec = serde_json::from_value(arguments.clone())
-            .map_err(|_| invalid("question has invalid arguments"))?;
+            .map_err(|_| sailry_protocol::Fault::invalid("question has invalid arguments"))?;
         spec.validate()?;
         if name == "ask_user" && spec.prompt.is_empty() {
-            return Err(invalid("question prompt is empty"));
+            return Err(sailry_protocol::Fault::invalid("question prompt is empty"));
         }
         if name == "plan_review" && (!matches!(spec.input, Input::Plan) || !spec.prompt.is_empty())
         {
-            return Err(invalid("plan review does not match its source"));
+            return Err(sailry_protocol::Fault::invalid(
+                "plan review does not match its source",
+            ));
         }
         if (name == "mcp_elicitation")
             != matches!(spec.input, Input::Form { .. } | Input::Url { .. })
         {
-            return Err(invalid("MCP input does not match its source"));
+            return Err(sailry_protocol::Fault::invalid(
+                "MCP input does not match its source",
+            ));
         }
         if question.state == State::Declined
             && !matches!(spec.input, Input::Form { .. } | Input::Url { .. })
         {
-            return Err(invalid("decline requires an MCP request"));
+            return Err(sailry_protocol::Fault::invalid(
+                "decline requires an MCP request",
+            ));
         }
         if let State::Answered(answer) = &question.state {
             match (&spec.input, answer) {

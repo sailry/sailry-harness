@@ -85,23 +85,28 @@ pub(super) async fn bind(
         bound.tools.extend(scripts.tools);
         bound.callbacks.extend(scripts.callbacks);
         bound.instruction.push_str(&scripts.instruction);
-        for package in &invocation.plugins {
-            if bound
-                .tools
-                .iter()
-                .any(|tool| tool.plugin.as_deref() == Some(package.summary.name.as_str()))
-                && let Some(instructions) = package
-                    .extension
-                    .as_ref()
-                    .and_then(|extension| extension.instructions.as_ref())
-            {
-                bound.instruction.push_str("\n\n");
-                bound.instruction.push_str(instructions);
-            }
-        }
         bound.instruction.push_str(&diagnostics);
     }
     assistants::apply(invocation, &mut bound)?;
+    if invocation.turn.config.mode == sailry_protocol::WorkMode::Plan {
+        bound
+            .tools
+            .retain(|registration| registration.managed || registration.tool.is_read_only());
+    }
+    for package in &invocation.plugins {
+        if bound
+            .tools
+            .iter()
+            .any(|tool| tool.plugin.as_deref() == Some(package.summary.name.as_str()))
+            && let Some(instructions) = package
+                .extension
+                .as_ref()
+                .and_then(|extension| extension.instructions.as_ref())
+        {
+            bound.instruction.push_str("\n\n");
+            bound.instruction.push_str(instructions);
+        }
+    }
     if invocation.message.selected_role().is_some() {
         let name = bound
             .tools

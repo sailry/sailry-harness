@@ -9,10 +9,7 @@ impl Transfers {
         closed: CancellationToken,
     ) -> Result<Upload, Fault> {
         if spec.size == 0 || spec.size > MAX_PACKAGE_BYTES {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "plugin ZIP exceeds the upload limit",
-            ));
+            return Err(Fault::invalid("plugin ZIP exceeds the upload limit"));
         }
         spec.revision = revision(&spec.revision)?;
         let (mut lease, permit, cancel) = self.reserve(caller, PathBuf::new(), closed)?;

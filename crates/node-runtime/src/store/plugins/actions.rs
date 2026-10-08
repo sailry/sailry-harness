@@ -147,9 +147,9 @@ impl Database {
                     ..
                 } => (
                     Some(
-                        if crate::computer::read_only(name).ok_or_else(|| {
-                            Fault::new(ErrorCode::InvalidRequest, "unknown computer tool")
-                        })? {
+                        if crate::computer::read_only(name)
+                            .ok_or_else(|| Fault::invalid("unknown computer tool"))?
+                        {
                             Action::ReadComputer
                         } else {
                             Action::ControlComputer
@@ -261,6 +261,8 @@ impl Database {
                 Command::RequestPluginHttp(_) => (Some(Action::Http), None, None),
                 Command::ListDirectory { worktree, .. }
                 | Command::ReadFile { worktree, .. }
+                | Command::ReadFileLines { worktree, .. }
+                | Command::FindFiles { worktree, .. }
                 | Command::DownloadFile { worktree, .. }
                 | Command::SearchFiles { worktree, .. } => {
                     (Some(Action::ReadFiles), Some(*worktree), None)
@@ -270,6 +272,7 @@ impl Database {
                 }
                 Command::UploadFile(spec) => (Some(Action::WriteFiles), Some(spec.worktree), None),
                 Command::WriteFile { worktree, .. }
+                | Command::EditFile { worktree, .. }
                 | Command::FinishFileUpload { worktree, .. }
                 | Command::CreateDirectory { worktree, .. }
                 | Command::RenameEntry { worktree, .. }
@@ -354,6 +357,8 @@ impl Database {
                 }
                 Command::InspectGit { worktree }
                 | Command::ReadGitLog { worktree, .. }
+                | Command::ReadGitShow { worktree, .. }
+                | Command::ReadGitBlame { worktree, .. }
                 | Command::ReadGitDiff { worktree, .. } => (
                     Some(Action::ReadGit),
                     Some(super::repository::read_scope(

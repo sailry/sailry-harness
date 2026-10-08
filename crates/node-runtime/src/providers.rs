@@ -50,8 +50,7 @@ impl Discovery {
         closed: CancellationToken,
     ) -> Result<discovery::Catalog, Fault> {
         if cloud::deployment(api) {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
+            return Err(Fault::invalid(
                 "cloud deployments require an explicit model ID",
             ));
         }
@@ -116,8 +115,8 @@ async fn fetch(
             ModelApi::Gemini => ("x-goog-api-key", key.expose().to_owned()),
             _ => ("authorization", format!("Bearer {}", key.expose())),
         };
-        let mut value =
-            HeaderValue::from_str(&value).map_err(|_| invalid("provider credential is invalid"))?;
+        let mut value = HeaderValue::from_str(&value)
+            .map_err(|_| sailry_protocol::Fault::invalid("provider credential is invalid"))?;
         value.set_sensitive(true);
         headers.insert(HeaderName::from_static(name), value);
     }
@@ -225,9 +224,6 @@ async fn read(
     serde_json::from_slice(&bytes).map_err(|_| unavailable("provider returned invalid JSON"))
 }
 
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
-}
 fn unavailable(message: &str) -> Fault {
     Fault::new(ErrorCode::Unavailable, message)
 }

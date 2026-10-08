@@ -5,10 +5,7 @@ use sailry_protocol::{ErrorCode, Fault};
 /// Resolution follows sailry-code 67ae9fa0 command_support.rs branch_commit (Apache-2.0).
 pub(super) fn resolve(root: &std::path::Path, revision: &str) -> Result<String, Fault> {
     if revision.is_empty() || revision.len() > 1024 || revision.chars().any(char::is_control) {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid Git revision",
-        ));
+        return Err(Fault::invalid("invalid Git revision"));
     }
     let repository = open(root)?;
     let commit = repository

@@ -9,7 +9,7 @@ mod history {
     use super::*;
 
     #[test]
-    fn unknown_kinds_discard_payload() {
+    fn rejects_unknown_kinds() {
         for data in [
             json!({ "private": "value" }),
             json!([1, true]),
@@ -17,17 +17,9 @@ mod history {
             json!(42),
             json!(null),
         ] {
-            let event: Event = serde_json::from_value(unknown(data)).unwrap();
-            assert_eq!(event, Event::Unsupported);
-            assert_eq!(
-                serde_json::to_value(event).unwrap(),
-                json!({ "kind": "unsupported" })
-            );
+            assert!(serde_json::from_value::<Event>(unknown(data)).is_err());
         }
-        assert_eq!(
-            serde_json::from_value::<Event>(json!({ "kind": "future_event" })).unwrap(),
-            Event::Unsupported
-        );
+        assert!(serde_json::from_value::<Event>(json!({ "kind": "future_event" })).is_err());
     }
 
     #[test]
@@ -49,7 +41,7 @@ mod receipts {
     use super::*;
 
     #[test]
-    fn unknown_kinds_are_not_supported() {
+    fn rejects_unknown_kinds() {
         for data in [
             json!({ "private": "value" }),
             json!([1, true]),
@@ -57,26 +49,13 @@ mod receipts {
             json!(42),
             json!(null),
         ] {
-            let output: Output = serde_json::from_value(unknown(data.clone())).unwrap();
-            assert_eq!(output, Output::Unsupported);
-            assert!(!output.supported());
-            assert_eq!(
-                serde_json::to_value(output).unwrap(),
-                json!({ "kind": "unsupported" })
-            );
-            let dispatch: crate::dispatch::Output = serde_json::from_value(unknown(data)).unwrap();
-            assert_eq!(dispatch, crate::dispatch::Output::Unsupported);
-            assert!(!dispatch.supported());
+            assert!(serde_json::from_value::<Output>(unknown(data.clone())).is_err());
+            assert!(serde_json::from_value::<crate::dispatch::Output>(unknown(data)).is_err());
         }
     }
 
     #[test]
-    fn nested_unknown_results_are_not_supported() {
-        let completed = |output| Output::RequestOutcome {
-            id: RequestId::new(),
-            outcome: RequestOutcome::Completed(Box::new(Ok(output))),
-        };
-        assert!(!completed(completed(Output::Unsupported)).supported());
+    fn rejects_nested_unknown_results() {
         let values = [
             json!({ "kind": "plugin_transaction", "data": [{ "kind": "browser_completed" }, unknown(json!({}))] }),
             json!({ "kind": "dispatch", "data": unknown(json!({})) }),
@@ -84,12 +63,12 @@ mod receipts {
             json!({ "kind": "request_outcome", "data": { "id": RequestId::new(), "outcome": { "kind": "completed", "data": { "Ok": { "kind": "plugin_transaction", "data": [{ "kind": "dispatch", "data": unknown(json!({})) }] } } } } }),
         ];
         for value in values {
-            assert!(!serde_json::from_value::<Output>(value).unwrap().supported());
+            assert!(serde_json::from_value::<Output>(value).is_err());
         }
     }
 
     #[test]
-    fn known_results_and_faults_remain_supported() {
+    fn round_trips_results_and_faults() {
         let fault = Fault::new(ErrorCode::Unavailable, "unavailable");
         for output in [
             Output::BrowserCompleted,
@@ -101,7 +80,8 @@ mod receipts {
                 outcome: RequestOutcome::Completed(Box::new(Err(fault))),
             },
         ] {
-            assert!(output.supported());
+            let encoded = serde_json::to_value(&output).unwrap();
+            assert_eq!(serde_json::from_value::<Output>(encoded).unwrap(), output);
         }
     }
 

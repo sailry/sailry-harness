@@ -75,10 +75,12 @@ pub(super) fn execute(
                 || profile.username.len() > 256
                 || profile.username.chars().any(char::is_control)
             {
-                return Err(invalid("invalid SSH profile"));
+                return Err(sailry_protocol::Fault::invalid("invalid SSH profile"));
             }
             if profile.host_key != previous.as_ref().and_then(|p| p.host_key.clone()) {
-                return Err(invalid("host keys require explicit confirmation"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "host keys require explicit confirmation",
+                ));
             }
             if previous
                 .as_ref()
@@ -88,13 +90,17 @@ pub(super) fn execute(
             }
             let credential = if let Some(credential) = credential {
                 if credential.authentication() != profile.authentication {
-                    return Err(invalid("SSH credential authentication does not match"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "SSH credential authentication does not match",
+                    ));
                 }
                 let body = zeroize::Zeroizing::new(
                     serde_json::to_string(credential).map_err(storage_error)?,
                 );
                 if body.len() > 65536 {
-                    return Err(invalid("SSH credential exceeds the size limit"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "SSH credential exceeds the size limit",
+                    ));
                 }
                 Some(body)
             } else {
@@ -102,14 +108,16 @@ pub(super) fn execute(
                     .as_ref()
                     .is_none_or(|p| p.authentication != profile.authentication)
                 {
-                    return Err(invalid("SSH credential is required"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "SSH credential is required",
+                    ));
                 }
                 None
             };
             profile.revision = expected_revision
                 .checked_add(1)
                 .filter(|r| *r <= i64::MAX as u64)
-                .ok_or_else(|| invalid("SSH profile revision exhausted"))?;
+                .ok_or_else(|| sailry_protocol::Fault::invalid("SSH profile revision exhausted"))?;
             if previous.is_none() {
                 if list(db)?.len() >= 128 {
                     return Err(Fault::new(
@@ -151,12 +159,12 @@ pub(super) fn execute(
                 || key.algorithm.len() > 128
                 || digest.is_none_or(|digest| digest.len() != 32)
             {
-                return Err(invalid("invalid SSH host key"));
+                return Err(sailry_protocol::Fault::invalid("invalid SSH host key"));
             }
             profile.revision = expected_revision
                 .checked_add(1)
                 .filter(|r| *r <= i64::MAX as u64)
-                .ok_or_else(|| invalid("SSH profile revision exhausted"))?;
+                .ok_or_else(|| sailry_protocol::Fault::invalid("SSH profile revision exhausted"))?;
             profile.host_key = Some(key.clone());
             db.execute(
                 "UPDATE ssh_profiles SET body=?2 WHERE id=?1",
@@ -183,7 +191,9 @@ pub(super) fn execute(
                 Some(Event::SshRemoved { id: *profile }),
             ))
         }
-        _ => Err(invalid("SSH configuration command expected")),
+        _ => Err(sailry_protocol::Fault::invalid(
+            "SSH configuration command expected",
+        )),
     }
 }
 
@@ -287,7 +297,9 @@ pub(super) fn prepare(
                 || command.len() > 65536
                 || !(1..=3_600_000).contains(timeout_ms)
             {
-                return Err(invalid("invalid SSH command or timeout"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "invalid SSH command or timeout",
+                ));
             }
             (
                 *profile,
@@ -306,7 +318,9 @@ pub(super) fn prepare(
         } => {
             crate::ssh::transfer::validate(transfer)?;
             if !(1..=3_600_000).contains(timeout_ms) {
-                return Err(invalid("invalid SSH transfer timeout"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "invalid SSH transfer timeout",
+                ));
             }
             (
                 *profile,
@@ -319,7 +333,7 @@ pub(super) fn prepare(
                 },
             )
         }
-        _ => return Err(invalid("SSH operation expected")),
+        _ => return Err(sailry_protocol::Fault::invalid("SSH operation expected")),
     };
     let profile = current(db, id, revision)?;
     let credential = zeroize::Zeroizing::new(
@@ -336,8 +350,4 @@ pub(super) fn prepare(
         credential,
         task,
     })
-}
-
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }

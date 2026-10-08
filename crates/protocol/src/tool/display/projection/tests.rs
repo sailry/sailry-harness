@@ -63,10 +63,39 @@ fn preserves_partial_notices_and_literal_inputs() {
         ["one", "one", "two"]
     );
     let read = display("read_file").output.unwrap();
-    assert_eq!(
-        read.notices(&Value::Null, &json!({"data":{"truncated":false}}), "en"),
-        Vec::<String>::new()
-    );
+    for (offset, next_offset, partial) in [
+        (0, None, false),
+        (0, Some(1), true),
+        (2, Some(3), true),
+        (2, None, true),
+    ] {
+        let line = "\t<literal> 中文\r\n";
+        let result = serde_json::to_value(crate::Output::FileLines(crate::FileLines {
+            path: "file.txt".into(),
+            lines: vec![crate::FileLine {
+                number: offset + 1,
+                text: line.into(),
+            }],
+            size: ((offset + 1 + usize::from(next_offset.is_some())) * line.len()) as u64,
+            revision: "a".repeat(64),
+            offset,
+            next_offset,
+        }))
+        .unwrap();
+        assert_eq!(
+            read.notices(&Value::Null, &result, "en"),
+            if partial {
+                vec!["Partial results".to_owned()]
+            } else {
+                Vec::new()
+            },
+            "offset={offset}, next_offset={next_offset:?}",
+        );
+        assert_eq!(
+            read.preview.as_ref().unwrap().render(&Value::Null, &result),
+            format!("{}: {line}", offset + 1),
+        );
+    }
     let args = json!({"path":"file.txt","text":"\t<literal>\n","expected_revision":null});
     let body = display("write_file").output.unwrap().body.unwrap();
     assert_eq!(

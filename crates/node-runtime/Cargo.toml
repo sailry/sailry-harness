@@ -44,6 +44,7 @@ path = "tests/suites/resources.rs"
 
 [features]
 test-support = []
+computer-worker = ["dep:cua-platform-macos"]
 
 [dependencies]
 cua-driver-sdk.workspace = true
@@ -116,7 +117,7 @@ libc.workspace = true
 trash.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2.workspace = true
+cua-platform-macos = { workspace = true, optional = true }
 objc2-app-kit = { workspace = true, features = ["NSRunningApplication", "NSWorkspace", "libc"] }
 objc2-core-graphics.workspace = true
 objc2-application-services.workspace = true

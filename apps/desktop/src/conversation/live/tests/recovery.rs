@@ -1,6 +1,6 @@
 use super::*;
 use sailry_link::{Admission, Pending, Subscription};
-use sailry_protocol::{ErrorCode, Fault, Topic};
+use sailry_protocol::{Fault, Topic};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 struct Failing {
@@ -22,10 +22,7 @@ impl Transport for Failing {
             if matches!(topic, Topic::Conversation(_)) || (self.node && topic == Topic::Node) {
                 self.release.cancelled().await;
                 if self.fail.load(Ordering::SeqCst) {
-                    return Err(Fault::new(
-                        ErrorCode::InvalidRequest,
-                        "injected snapshot failure",
-                    ));
+                    return Err(Fault::invalid("injected snapshot failure"));
                 }
             }
             self.inner.subscribe(topic).await

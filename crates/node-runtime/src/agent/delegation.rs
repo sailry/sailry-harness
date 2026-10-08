@@ -28,12 +28,7 @@ pub(super) fn selection(
                 .iter()
                 .find(|role| role.reference() == selected)
                 .map(|role| role.key.clone())
-                .ok_or_else(|| {
-                    Fault::new(
-                        ErrorCode::InvalidRequest,
-                        "selected role is absent from the frozen roster",
-                    )
-                })
+                .ok_or_else(|| Fault::invalid("selected role is absent from the frozen roster"))
         })
         .transpose()?;
     let pending = AtomicBool::new(selected.is_some());

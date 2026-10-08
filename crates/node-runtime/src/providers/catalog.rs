@@ -1,5 +1,5 @@
 //! Reference catalog behavior follows Code 67ae9fa0 code_runtime/models_dev.rs.
-use super::{invalid, unavailable};
+use super::unavailable;
 use sailry_protocol::{ErrorCode, Fault};
 use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};

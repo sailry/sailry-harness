@@ -1,5 +1,5 @@
 //! GitHub imports become ordinary immutable packages owned by the execution Node.
-use super::{invalid, io_error};
+use super::io_error;
 use sailry_link::CancellationToken;
 #[cfg(any(test, feature = "test-support"))]
 use sailry_protocol::plugin::skills::Resolved;
@@ -88,7 +88,9 @@ impl Github {
                 ));
             }
             if response.content_length().is_some_and(|size| size > limit) {
-                return Err(invalid("plugin download exceeds its size limit"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "plugin download exceeds its size limit",
+                ));
             }
             let mut file = tempfile::tempfile().map_err(io_error)?;
             let mut size = 0u64;
@@ -96,7 +98,9 @@ impl Github {
                 size = size
                     .checked_add(bytes.len() as u64)
                     .filter(|size| *size <= limit)
-                    .ok_or_else(|| invalid("plugin download exceeds its size limit"))?;
+                    .ok_or_else(|| {
+                        sailry_protocol::Fault::invalid("plugin download exceeds its size limit")
+                    })?;
                 file.write_all(&bytes).map_err(io_error)?;
             }
             Ok(file)
@@ -148,10 +152,12 @@ impl Github {
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes).map_err(io_error)?;
         let commit = std::str::from_utf8(&bytes)
-            .map_err(|_| invalid("invalid GitHub commit response"))?
+            .map_err(|_| sailry_protocol::Fault::invalid("invalid GitHub commit response"))?
             .trim();
         if !source::commit(commit) {
-            return Err(invalid("invalid GitHub commit identifier"));
+            return Err(sailry_protocol::Fault::invalid(
+                "invalid GitHub commit identifier",
+            ));
         }
         Ok(Resolved {
             repository: selected.repository.clone(),

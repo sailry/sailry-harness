@@ -53,7 +53,7 @@ pub(in crate::store) fn read(
     while let Some(row) = rows.next().map_err(storage_error)? {
         count += 1;
         if count > MAX_ROWS {
-            return Err(invalid(
+            return Err(sailry_protocol::Fault::invalid(
                 "usage report exceeds the row limit; narrow the time range or filters",
             ));
         }
@@ -144,7 +144,7 @@ pub(in crate::store) fn read(
         .clone();
         resources.extend(keys);
         if resources.len() > MAX_GROUPS * 4 {
-            return Err(invalid(
+            return Err(sailry_protocol::Fault::invalid(
                 "usage report exceeds the resource limit; narrow the time range or filters",
             ));
         }
@@ -155,7 +155,7 @@ pub(in crate::store) fn read(
             elapsed,
         )?;
         if groups.len() > MAX_GROUPS {
-            return Err(invalid(
+            return Err(sailry_protocol::Fault::invalid(
                 "usage report exceeds the group limit; narrow the time range or filters",
             ));
         }
@@ -227,7 +227,7 @@ pub(in crate::store) fn read(
         },
     };
     if serde_json::to_vec(&report).map_err(storage_error)?.len() > MAX_FRAME_BYTES - 64 * 1024 {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "usage report exceeds the response limit; narrow the filters",
         ));
     }
@@ -279,18 +279,17 @@ fn add(
     total.reasoning += tokens.reasoning;
     if let Some(elapsed) = elapsed {
         let generation = metrics.generation.get_or_insert_default();
-        generation.elapsed_us = generation
-            .elapsed_us
-            .checked_add(elapsed)
-            .ok_or_else(|| invalid("usage duration exceeds the counter limit"))?;
+        generation.elapsed_us = generation.elapsed_us.checked_add(elapsed).ok_or_else(|| {
+            sailry_protocol::Fault::invalid("usage duration exceeds the counter limit")
+        })?;
         generation.output_tokens += tokens.output;
         generation.responses += 1;
     }
     if let Some(value) = cost {
         metrics.cost = Some(match &metrics.cost {
-            Some(total) => total
-                .checked_add(value)
-                .ok_or_else(|| invalid("usage cost exceeds the counter limit"))?,
+            Some(total) => total.checked_add(value).ok_or_else(|| {
+                sailry_protocol::Fault::invalid("usage cost exceeds the counter limit")
+            })?,
             None => value.clone(),
         });
     }

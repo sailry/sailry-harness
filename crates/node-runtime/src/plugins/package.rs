@@ -7,7 +7,7 @@ use sailry_protocol::{
 };
 use std::io::{Read, Write};
 
-use super::{invalid, io_error};
+use super::io_error;
 
 const MAX_ENTRIES: usize = 1024;
 const MAX_BYTES: u64 = 128 * 1024 * 1024;
@@ -17,13 +17,17 @@ pub(super) fn names(directory: &Dir) -> Result<Vec<String>, Fault> {
     let mut names = Vec::new();
     for entry in directory.entries().map_err(io_error)? {
         if names.len() >= MAX_ENTRIES {
-            return Err(invalid("plugin package has too many entries"));
+            return Err(sailry_protocol::Fault::invalid(
+                "plugin package has too many entries",
+            ));
         }
         let name = entry
             .map_err(io_error)?
             .file_name()
             .into_string()
-            .map_err(|_| invalid("plugin package names must be valid UTF-8"))?;
+            .map_err(|_| {
+                sailry_protocol::Fault::invalid("plugin package names must be valid UTF-8")
+            })?;
         crate::files::path::components(&name, false)?;
         names.push(name);
     }
@@ -43,7 +47,9 @@ pub(super) fn read(directory: &Dir, name: &str, limit: usize) -> Result<Option<V
         .read_to_end(&mut bytes)
         .map_err(io_error)?;
     if bytes.len() > limit {
-        return Err(invalid("plugin file exceeds its size limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plugin file exceeds its size limit",
+        ));
     }
     Ok(Some(bytes))
 }
@@ -83,13 +89,17 @@ impl Tree {
         depth: usize,
     ) -> Result<(), Fault> {
         if depth > MAX_DEPTH {
-            return Err(invalid("plugin package nesting is too deep"));
+            return Err(sailry_protocol::Fault::invalid(
+                "plugin package nesting is too deep",
+            ));
         }
         for name in names(source)? {
             self.check()?;
             self.entries += 1;
             if self.entries > MAX_ENTRIES {
-                return Err(invalid("plugin package has too many entries"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "plugin package has too many entries",
+                ));
             }
             let path = if prefix.is_empty() {
                 name.clone()
@@ -139,7 +149,9 @@ impl Tree {
                     .bytes
                     .checked_add(size)
                     .filter(|size| *size <= MAX_BYTES)
-                    .ok_or_else(|| invalid("plugin package exceeds the size limit"))?;
+                    .ok_or_else(|| {
+                        sailry_protocol::Fault::invalid("plugin package exceeds the size limit")
+                    })?;
                 let executable = executable(&before);
                 self.hash.update(b"file");
                 self.hash.update(&[executable as u8]);
@@ -165,7 +177,9 @@ impl Tree {
                     }
                     copied += count as u64;
                     if copied > size {
-                        return Err(invalid("plugin file changed during installation"));
+                        return Err(sailry_protocol::Fault::invalid(
+                            "plugin file changed during installation",
+                        ));
                     }
                     self.hash.update(&buffer[..count]);
                     content.update(&buffer[..count]);
@@ -178,7 +192,9 @@ impl Tree {
                     || after.len() != size
                     || after.modified().ok() != before.modified().ok()
                 {
-                    return Err(invalid("plugin file changed during installation"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "plugin file changed during installation",
+                    ));
                 }
                 self.files.insert(path, content.finalize());
                 if let Some(output) = output {

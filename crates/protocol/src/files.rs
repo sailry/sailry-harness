@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 pub const MAX_FILE_BYTES: usize = 128 * 1024;
+pub const MAX_EDIT_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_FILE_LINES: usize = 2000;
+pub const MAX_FIND_MATCHES: usize = 500;
 pub const MAX_DIRECTORY_ENTRIES: usize = 500;
 pub const MAX_SEARCH_MATCHES: usize = 200;
 pub const FILE_TRANSFER_CHUNK_BYTES: usize = 64 * 1024;
@@ -126,6 +129,34 @@ pub struct FileContent {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileLine {
+    /// One-based position in the complete file.
+    pub number: usize,
+    /// Original text, including its line ending when present.
+    pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileLines {
+    pub path: String,
+    pub lines: Vec<FileLine>,
+    pub size: u64,
+    /// Full-content BLAKE3 revision, including text outside this page.
+    pub revision: String,
+    /// Zero-based line offset requested by the caller.
+    pub offset: usize,
+    pub next_offset: Option<usize>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileNames {
+    pub paths: Vec<String>,
+    pub visited: usize,
+    pub skipped: usize,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileWritten {
     pub path: String,
     pub revision: String,
@@ -135,6 +166,45 @@ pub struct FileWritten {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn edit_requires_a_revision() {
+        let mut value = serde_json::json!({
+            "kind":"edit_file", "data": {"worktree":crate::WorktreeId::new(),"path":"file","old_text":"before","new_text":"after"}
+        });
+        assert!(serde_json::from_value::<crate::Command>(value.clone()).is_err());
+        value["data"]["expected_revision"] = "0".repeat(64).into();
+        let command: crate::Command = serde_json::from_value(value).unwrap();
+        assert!(command.durable());
+        assert_eq!(
+            serde_json::from_value::<crate::Command>(serde_json::to_value(&command).unwrap())
+                .unwrap(),
+            command
+        );
+    }
+
+    #[test]
+    fn paged_reads_and_discovery_are_read_only() {
+        for command in [
+            crate::Command::ReadFileLines {
+                worktree: crate::WorktreeId::new(),
+                path: "file".into(),
+                offset: 0,
+                limit: 200,
+            },
+            crate::Command::FindFiles {
+                worktree: crate::WorktreeId::new(),
+                globs: vec!["**/*.rs".into()],
+            },
+        ] {
+            assert!(!command.durable());
+            assert_eq!(
+                serde_json::from_value::<crate::Command>(serde_json::to_value(&command).unwrap())
+                    .unwrap(),
+                command
+            );
+        }
+    }
 
     #[test]
     fn download_requires_source_identity() {

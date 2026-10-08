@@ -2,11 +2,11 @@ use super::*;
 use image::ImageEncoder;
 use sailry_link::CancellationToken;
 
-fn evidence(fixture: &Fixture) {
+fn evidence(fixture: &Fixture, lines: usize) {
     for index in 1..=6 {
         std::fs::write(
             fixture.root.join(format!("source-{index}.txt")),
-            format!("Evidence {index}: project/src/module.rs 中文 🙂\n").repeat(1000),
+            format!("Evidence {index}: project/src/module.rs 中文 🙂\n").repeat(lines),
         )
         .unwrap();
     }
@@ -27,7 +27,7 @@ fn original_evidence(fixture: &Fixture, page: &Page) {
         .flat_map(|entry| &entry.parts)
         .filter_map(|part| match part {
             Part::ToolResult { name, result, .. } if name == &plugin_tool("files", "read_file") => {
-                let Output::FileContent(file) = serde_json::from_value(result.clone()).unwrap()
+                let Output::FileLines(file) = serde_json::from_value(result.clone()).unwrap()
                 else {
                     panic!("file content expected")
                 };
@@ -38,8 +38,16 @@ fn original_evidence(fixture: &Fixture, page: &Page) {
         .collect();
     assert_eq!(files.len(), 6);
     for file in files {
+        assert_eq!(file.offset, 0);
+        assert_eq!(file.next_offset, None);
+        for (index, line) in file.lines.iter().enumerate() {
+            assert_eq!(line.number, index + 1);
+        }
         assert_eq!(
-            file.text,
+            file.lines
+                .iter()
+                .map(|line| line.text.as_str())
+                .collect::<String>(),
             std::fs::read_to_string(fixture.root.join(file.path)).unwrap()
         );
     }
@@ -94,7 +102,7 @@ async fn image(fixture: &Fixture) -> AttachmentId {
     };
     fixture
         .client
-        .upload_attachment(&upload, &mut &bytes[..], CancellationToken::new(), |_| {})
+        .upload(&upload, &mut &bytes[..], CancellationToken::new(), |_| {})
         .await
         .unwrap();
     let Output::Attachment(attachment) = fixture
@@ -116,7 +124,7 @@ async fn uses_reported_tokens() {
     for remote in [false, true] {
         let server = Server::loop_usage(vec![Some(84_000)], 100).await;
         let fixture = Fixture::new(remote, &server).await;
-        evidence(&fixture);
+        evidence(&fixture, 1000);
         model(&fixture, 1_050_000, 128_000, true).await;
         let attachment = image(&fixture).await;
         let Output::QueuedTurn(turn) = fixture
@@ -205,7 +213,7 @@ async fn earlier_token_boundary() {
             .await;
             let fixture = Fixture::new(remote, &server).await;
             model(&fixture, context, output, false).await;
-            evidence(&fixture);
+            evidence(&fixture, 1000);
             let (_, _, page) = submit(
                 &fixture.client,
                 fixture.session.id,
@@ -338,7 +346,9 @@ async fn retains_low_usage_summary() {
         let server =
             Server::loop_usage(vec![Some(100), Some(100), Some(14_000), Some(100)], 14_000).await;
         let fixture = Fixture::new(remote, &server).await;
-        evidence(&fixture);
+        // Numbered lines add response metadata; pending results must stay below
+        // the threshold so this test isolates retaining the first summary.
+        evidence(&fixture, 600);
         let (_, _, page) = submit(
             &fixture.client,
             fixture.session.id,
@@ -372,6 +382,16 @@ async fn retains_low_usage_summary() {
         // Low subsequent usage must not restore ADK's original uncompressed prefix.
         for request in &requests[4..] {
             let content = messages(request);
+            let pending = request["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .rev()
+                .find(|message| message["role"] == "tool")
+                .unwrap()["content"]
+                .as_str()
+                .unwrap();
+            assert!(pending.len().div_ceil(4) + 110 < 12_800);
             assert!(content.contains("Context summary fixture"));
             assert!(!content.contains("Evidence 1"));
             assert!(content.contains("Evidence 2"));
@@ -379,6 +399,7 @@ async fn retains_low_usage_summary() {
             assert_eq!(request["messages"][0], requests[0]["messages"][0]);
         }
         assert!(messages(requests.last().unwrap()).contains("Evidence 6"));
+        original_evidence(&fixture, &page);
         let statistics = statistics(&fixture).await;
         assert_eq!(statistics.context_tokens, Some(110));
         assert_eq!(statistics.responses, 8);

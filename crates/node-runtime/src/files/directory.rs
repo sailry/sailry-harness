@@ -23,10 +23,7 @@ pub(super) fn list(
             || after.revision.len() != 16
             || !after.revision.bytes().all(|byte| byte.is_ascii_hexdigit()))
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid directory cursor",
-        ));
+        return Err(Fault::invalid("invalid directory cursor"));
     }
     let dir = path::descend(path::root(root)?, &parts)?;
     let revision = revision(&dir, root, &path)?;

@@ -13,7 +13,7 @@ fn target(
     super::super::worktrees::select(
         db,
         session.project.ok_or_else(|| {
-            commands::invalid("connection conversations cannot move to a project")
+            sailry_protocol::Fault::invalid("connection conversations cannot move to a project")
         })?,
         Some(worktree),
     )?;

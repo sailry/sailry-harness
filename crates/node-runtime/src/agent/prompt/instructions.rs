@@ -90,17 +90,16 @@ async fn load_from(
             }
         };
         if file.truncated {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                format!("project instructions at {path} exceed the file read limit"),
-            ));
+            return Err(Fault::invalid(format!(
+                "project instructions at {path} exceed the file read limit"
+            )));
         }
         if file.text.trim().is_empty() {
             continue;
         }
         if instruction.is_empty() {
             instruction.push_str(
-                "Project instructions\nThese guides apply only within their stated worktree-relative scope. More specific guides override ancestor guidance within that scope. Explicit user instructions and this turn's mode and permissions remain authoritative.",
+                "Project instructions\nThese guides apply only within their stated project-relative scope. More specific guides override ancestor guidance within that scope. Explicit user instructions and this turn's mode and permissions remain authoritative.",
             );
         }
         let scope = path.strip_suffix("/AGENTS.md").unwrap_or(".");

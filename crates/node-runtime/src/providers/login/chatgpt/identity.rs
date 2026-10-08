@@ -49,9 +49,11 @@ pub(in crate::providers::login) async fn verify(
 
 impl Discovery {
     fn validate(&self, auth: &str) -> Result<(), Fault> {
-        let issuer = Url::parse(auth).map_err(|_| invalid("authorization issuer is invalid"))?;
-        let keys = Url::parse(&self.jwks_uri)
-            .map_err(|_| invalid("authorization signing endpoint is invalid"))?;
+        let issuer = Url::parse(auth)
+            .map_err(|_| sailry_protocol::Fault::invalid("authorization issuer is invalid"))?;
+        let keys = Url::parse(&self.jwks_uri).map_err(|_| {
+            sailry_protocol::Fault::invalid("authorization signing endpoint is invalid")
+        })?;
         let secure = issuer.scheme() == "https";
         #[cfg(any(test, feature = "test-support"))]
         let secure =
@@ -64,7 +66,9 @@ impl Discovery {
             || keys.fragment().is_some()
             || keys.query().is_some()
         {
-            return Err(invalid("authorization discovery did not match its issuer"));
+            return Err(sailry_protocol::Fault::invalid(
+                "authorization discovery did not match its issuer",
+            ));
         }
         Ok(())
     }
@@ -78,18 +82,22 @@ fn verified(
     keys: &JwkSet,
 ) -> Result<Identity, Fault> {
     let header = decode_header(token.expose())
-        .map_err(|_| invalid("authorization identity token is invalid"))?;
+        .map_err(|_| sailry_protocol::Fault::invalid("authorization identity token is invalid"))?;
     if !matches!(
         header.alg,
         Algorithm::RS256 | Algorithm::ES256 | Algorithm::EdDSA
     ) {
-        return Err(invalid("authorization identity algorithm is unsupported"));
+        return Err(sailry_protocol::Fault::invalid(
+            "authorization identity algorithm is unsupported",
+        ));
     }
     let key = header
         .kid
         .as_deref()
         .and_then(|kid| keys.find(kid))
-        .ok_or_else(|| invalid("authorization identity signing key was not found"))?;
+        .ok_or_else(|| {
+            sailry_protocol::Fault::invalid("authorization identity signing key was not found")
+        })?;
     if key
         .common
         .key_algorithm
@@ -107,10 +115,13 @@ fn verified(
                 !operations.contains(&jsonwebtoken::jwk::KeyOperations::Verify)
             })
     {
-        return Err(invalid("authorization identity signing key is invalid"));
+        return Err(sailry_protocol::Fault::invalid(
+            "authorization identity signing key is invalid",
+        ));
     }
-    let key = DecodingKey::from_jwk(key)
-        .map_err(|_| invalid("authorization identity signing key is invalid"))?;
+    let key = DecodingKey::from_jwk(key).map_err(|_| {
+        sailry_protocol::Fault::invalid("authorization identity signing key is invalid")
+    })?;
     let mut validation = Validation::new(header.alg);
     validation.leeway = 5;
     validation.validate_nbf = true;
@@ -118,7 +129,9 @@ fn verified(
     validation.set_issuer(&[issuer]);
     validation.set_required_spec_claims(&["exp", "sub", "iss", "aud"]);
     let claims = jsonwebtoken::decode::<Claims>(token.expose(), &key, &validation)
-        .map_err(|_| invalid("authorization identity token could not be verified"))?
+        .map_err(|_| {
+            sailry_protocol::Fault::invalid("authorization identity token could not be verified")
+        })?
         .claims;
     let now = now_ms()? / 1000;
     if claims.sub.is_empty()
@@ -139,7 +152,9 @@ fn verified(
             email.is_empty() || email.len() > 1024 || email.chars().any(char::is_control)
         })
     {
-        return Err(invalid("authorization identity claims did not match"));
+        return Err(sailry_protocol::Fault::invalid(
+            "authorization identity claims did not match",
+        ));
     }
     Ok(Identity {
         sub: claims.sub,

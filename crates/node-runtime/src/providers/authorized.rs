@@ -60,12 +60,15 @@ fn request(
             headers.insert("x-initiator", HeaderValue::from_static("user"));
             headers.insert(
                 "x-request-id",
-                HeaderValue::from_str(&sailry_protocol::RequestId::new().to_string())
-                    .map_err(|_| invalid("discovery request identifier is invalid"))?,
+                HeaderValue::from_str(&sailry_protocol::RequestId::new().to_string()).map_err(
+                    |_| sailry_protocol::Fault::invalid("discovery request identifier is invalid"),
+                )?,
             );
         }
         Authentication::ApiKey => {
-            return Err(invalid("account authorization is required"));
+            return Err(sailry_protocol::Fault::invalid(
+                "account authorization is required",
+            ));
         }
     }
     Ok(client.get(url).headers(headers))

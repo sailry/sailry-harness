@@ -11,7 +11,7 @@ impl Selection {
     pub fn parse(source: &Source) -> Result<Self, Fault> {
         let input = source.repository.trim();
         if input.is_empty() || input.len() > 2048 || input.chars().any(char::is_control) {
-            return Err(invalid("invalid repository URL"));
+            return Err(sailry_protocol::Fault::invalid("invalid repository URL"));
         }
         // Preserve GitHub shorthand and tree URLs while acquisition uses Git, not its API.
         if input.starts_with("https://github.com/")
@@ -26,9 +26,11 @@ impl Selection {
         }
         let repository = if std::path::Path::new(input).is_absolute() {
             let url = url::Url::from_file_path(input)
-                .map_err(|_| invalid("invalid local Git repository"))?;
+                .map_err(|_| sailry_protocol::Fault::invalid("invalid local Git repository"))?;
             if url.host_str().is_some_and(|host| host != "localhost") {
-                return Err(invalid("unsupported local Git repository authority"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "unsupported local Git repository authority",
+                ));
             }
             url.to_string()
         } else if let Ok(url) = url::Url::parse(input) {
@@ -43,7 +45,7 @@ impl Selection {
                 || (url.scheme() == "file"
                     && url.host_str().is_some_and(|host| host != "localhost"))
             {
-                return Err(invalid(
+                return Err(sailry_protocol::Fault::invalid(
                     "use a Git repository URL without embedded credentials",
                 ));
             }
@@ -55,11 +57,15 @@ impl Selection {
         {
             let (host, path) = input.split_once(':').unwrap();
             if host.is_empty() || path.is_empty() || host.contains('/') || path.contains('\\') {
-                return Err(invalid("invalid SSH Git repository"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "invalid SSH Git repository",
+                ));
             }
             input.to_owned()
         } else {
-            return Err(invalid("a Git repository URL is required"));
+            return Err(sailry_protocol::Fault::invalid(
+                "a Git repository URL is required",
+            ));
         };
         let git_ref = source
             .git_ref
@@ -90,7 +96,9 @@ impl Selection {
             path: Some(path.to_owned()),
         })?;
         if selected.repository != source.repository || !commit(&source.commit) {
-            return Err(invalid("a resolved Git commit is required"));
+            return Err(sailry_protocol::Fault::invalid(
+                "a resolved Git commit is required",
+            ));
         }
         Ok(selected)
     }

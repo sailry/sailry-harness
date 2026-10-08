@@ -16,7 +16,9 @@ pub(super) fn list(
     limit: u16,
 ) -> Result<Page, Fault> {
     if !(1..=100).contains(&limit) || before.is_some_and(|n| n == 0 || n > i64::MAX as u64) {
-        return Err(invalid("invalid dispatch page bounds"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid dispatch page bounds",
+        ));
     }
     let mut query = db.prepare("SELECT sequence,body FROM dispatch_jobs WHERE package=?1 AND sequence<?2 ORDER BY sequence DESC LIMIT ?3").map_err(storage_error)?;
     let records = query
@@ -186,7 +188,7 @@ fn package_version(
     current(db, &reference.name)?;
     super::super::agent::plugins::packages(db, std::slice::from_ref(reference))?
         .pop()
-        .ok_or_else(|| invalid("dispatch plugin version is unavailable"))
+        .ok_or_else(|| sailry_protocol::Fault::invalid("dispatch plugin version is unavailable"))
 }
 
 /// Only the Node's exact claimed callback can use a queued immutable version.
@@ -231,14 +233,17 @@ fn request(
     for (target, source) in callback.bindings {
         let value = event
             .pointer(&source)
-            .ok_or_else(|| invalid("event field required by callback is missing"))?
+            .ok_or_else(|| {
+                sailry_protocol::Fault::invalid("event field required by callback is missing")
+            })?
             .clone();
-        *command
-            .pointer_mut(&target)
-            .ok_or_else(|| invalid("callback command field is missing"))? = value;
+        *command.pointer_mut(&target).ok_or_else(|| {
+            sailry_protocol::Fault::invalid("callback command field is missing")
+        })? = value;
     }
-    let command: protocol::Command = serde_json::from_value(command)
-        .map_err(|_| invalid("event data does not match the callback command"))?;
+    let command: protocol::Command = serde_json::from_value(command).map_err(|_| {
+        sailry_protocol::Fault::invalid("event data does not match the callback command")
+    })?;
     let mut request = protocol::Request::new(node, command);
     request.id = job.request;
     request.plugin = Some(protocol::plugin::Context {
@@ -328,7 +333,9 @@ pub(in crate::store) fn recover(db: &Connection, node: protocol::NodeId) -> Resu
                             }
                         }
                     }
-                    (Completion::Turn, Ok(_)) => Err(invalid("turn callback did not admit a turn")),
+                    (Completion::Turn, Ok(_)) => Err(sailry_protocol::Fault::invalid(
+                        "turn callback did not admit a turn",
+                    )),
                     (_, output) => output.map(|_| ()),
                 }
             }

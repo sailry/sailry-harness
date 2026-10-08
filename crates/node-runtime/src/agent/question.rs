@@ -55,7 +55,7 @@ impl Tool for Question {
         }
         let result = async {
             let spec: Spec = serde_json::from_value(arguments.clone())
-                .map_err(|_| Fault::new(ErrorCode::InvalidRequest, "invalid question arguments"))?;
+                .map_err(|_| Fault::invalid("invalid question arguments"))?;
             spec.validate()?;
             if matches!(
                 spec.input,

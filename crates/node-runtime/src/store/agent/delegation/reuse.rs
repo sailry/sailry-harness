@@ -77,7 +77,9 @@ pub(super) fn restore(
                     .profiles
                     .into_iter()
                     .find(|role| role.key == key)
-                    .ok_or_else(|| invalid("role is not in the parent turn snapshot"))?
+                    .ok_or_else(|| {
+                        sailry_protocol::Fault::invalid("role is not in the parent turn snapshot")
+                    })?
                     .id,
             ),
             None => None,

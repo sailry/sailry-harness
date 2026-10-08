@@ -1,4 +1,5 @@
 use super::*;
+use sailry_protocol::ErrorCode;
 use sailry_protocol::plugin::storage::{Collection, Scope};
 use serde_json::json;
 

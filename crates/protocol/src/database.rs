@@ -48,7 +48,60 @@ pub enum Connection {
     },
 }
 
+/// Borrowed connection options for network and socket database drivers.
+pub struct Server<'a> {
+    pub host: &'a str,
+    pub port: u16,
+    pub database: &'a str,
+    pub username: &'a str,
+    pub tls: Tls,
+    pub socket: Option<&'a str>,
+}
+
 impl Connection {
+    pub fn server(&self) -> Option<Server<'_>> {
+        match self {
+            Self::Network {
+                host,
+                port,
+                database,
+                username,
+                tls,
+                ..
+            }
+            | Self::Ssh {
+                host,
+                port,
+                database,
+                username,
+                tls,
+                ..
+            } => Some(Server {
+                host,
+                port: *port,
+                database,
+                username,
+                tls: *tls,
+                socket: None,
+            }),
+            Self::Socket {
+                path,
+                port,
+                database,
+                username,
+                ..
+            } => Some(Server {
+                host: "localhost",
+                port: *port,
+                database,
+                username,
+                tls: Tls::Disable,
+                socket: Some(path),
+            }),
+            Self::Sqlite { .. } => None,
+        }
+    }
+
     pub fn engine(&self) -> Engine {
         match self {
             Self::Sqlite { .. } => Engine::Sqlite,
@@ -110,4 +163,69 @@ pub enum Catalog {
         database: String,
         tables: Vec<Table>,
     },
+}
+
+#[cfg(test)]
+mod server_options {
+    use super::*;
+
+    #[test]
+    fn preserves_network_and_tunnel_options() {
+        for connection in [
+            Connection::Network {
+                engine: Engine::Postgres,
+                host: "database.internal".into(),
+                port: 5432,
+                database: "project".into(),
+                username: "reader".into(),
+                tls: Tls::Require,
+            },
+            Connection::Ssh {
+                engine: Engine::Postgres,
+                host: "database.internal".into(),
+                port: 5432,
+                database: "project".into(),
+                username: "reader".into(),
+                tls: Tls::Require,
+                ssh: crate::SshId::new(),
+            },
+        ] {
+            let options = connection.server().unwrap();
+            assert_eq!(options.host, "database.internal");
+            assert_eq!(options.port, 5432);
+            assert_eq!(options.database, "project");
+            assert_eq!(options.username, "reader");
+            assert_eq!(options.tls, Tls::Require);
+            assert!(options.socket.is_none());
+        }
+    }
+
+    #[test]
+    fn socket_disables_network_tls() {
+        let connection = Connection::Socket {
+            engine: Engine::Mysql,
+            path: "/tmp/database.sock".into(),
+            port: 3306,
+            database: "project".into(),
+            username: "reader".into(),
+        };
+        let options = connection.server().unwrap();
+        assert_eq!(options.host, "localhost");
+        assert_eq!(options.port, 3306);
+        assert_eq!(options.database, "project");
+        assert_eq!(options.username, "reader");
+        assert_eq!(options.socket, Some("/tmp/database.sock"));
+        assert_eq!(options.tls, Tls::Disable);
+    }
+
+    #[test]
+    fn sqlite_has_no_server_options() {
+        assert!(
+            Connection::Sqlite {
+                path: "database.sqlite".into()
+            }
+            .server()
+            .is_none()
+        );
+    }
 }

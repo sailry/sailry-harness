@@ -17,7 +17,7 @@ pub(crate) fn validate(action: Action, arguments: &Value) -> Result<(), Fault> {
     if !arguments.is_object()
         || serde_json::to_vec(arguments).map_or(true, |bytes| bytes.len() > 64 * 1024)
     {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "browser arguments must be an object of at most 64 KiB",
         ));
     }
@@ -27,7 +27,9 @@ pub(crate) fn validate(action: Action, arguments: &Value) -> Result<(), Fault> {
             .and_then(Value::as_f64)
             .is_some_and(|seconds| seconds.is_finite() && (0.0..=30.0).contains(&seconds))
     {
-        return Err(invalid("browser wait must be between 0 and 30 seconds"));
+        return Err(sailry_protocol::Fault::invalid(
+            "browser wait must be between 0 and 30 seconds",
+        ));
     }
     if let Some(url) = arguments.get("url").and_then(Value::as_str)
         && !url::Url::parse(url).is_ok_and(|url| {
@@ -36,7 +38,7 @@ pub(crate) fn validate(action: Action, arguments: &Value) -> Result<(), Fault> {
                 && url.password().is_none()
         })
     {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "external browser URLs must use HTTP or HTTPS without credentials",
         ));
     }
@@ -154,10 +156,6 @@ impl Call {
         }
         Ok(())
     }
-}
-
-pub(super) fn invalid(message: impl Into<String>) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }
 
 fn bound(value: &mut Value, remaining: &mut usize) -> bool {

@@ -168,10 +168,7 @@ fn regular(dir: &Dir, name: &Path) -> Result<cap_std::fs::File, Fault> {
 }
 
 fn invalid() -> Fault {
-    Fault::new(
-        ErrorCode::InvalidRequest,
-        "invalid plugin package or directory",
-    )
+    Fault::invalid("invalid plugin package or directory")
 }
 fn io_error(error: std::io::Error) -> Fault {
     Fault::new(

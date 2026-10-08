@@ -108,7 +108,7 @@ async fn preserves_uncertain_outcomes() {
 }
 
 #[tokio::test]
-async fn unsupported_completions_are_not_replayed() {
+async fn completion_faults_are_not_replayed() {
     let original = Request::new(
         NodeId([1; 32]),
         Command::WriteFile {
@@ -118,30 +118,6 @@ async fn unsupported_completions_are_not_replayed() {
             expected_revision: None,
         },
     );
-    for output in [
-        Output::Unsupported,
-        Output::PluginTransaction(vec![Output::Unsupported]),
-        Output::RequestOutcome {
-            id: original.id,
-            outcome: RequestOutcome::Completed(Box::new(Ok(Output::Unsupported))),
-        },
-    ] {
-        let transport = Arc::new(Stub {
-            original: original.clone(),
-            response: Some(Ok(output)),
-            calls: AtomicUsize::new(0),
-        });
-        let client = Client::new(transport.clone());
-        assert_eq!(
-            client.outcome(&original).await.unwrap_err(),
-            Fault::new(
-                ErrorCode::Unavailable,
-                "request result is not supported; the request will not be replayed",
-            )
-        );
-        assert_eq!(transport.calls.load(Ordering::SeqCst), 1);
-    }
-
     let fault = Fault::new(ErrorCode::Unavailable, "original completion fault");
     let transport = Arc::new(Stub {
         original: original.clone(),

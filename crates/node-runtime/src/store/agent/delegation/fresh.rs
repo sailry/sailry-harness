@@ -14,7 +14,9 @@ pub(super) fn capture(
         Some(worktree) => super::super::super::worktrees::select(
             db,
             previous.project.ok_or_else(|| {
-                invalid("connection conversations cannot select a project worktree")
+                sailry_protocol::Fault::invalid(
+                    "connection conversations cannot select a project worktree",
+                )
             })?,
             Some(worktree),
         )?,
@@ -27,7 +29,9 @@ pub(super) fn capture(
                 .profiles
                 .iter()
                 .find(|role| role.key == key)
-                .ok_or_else(|| invalid("role is not in the parent turn snapshot"))?
+                .ok_or_else(|| {
+                    sailry_protocol::Fault::invalid("role is not in the parent turn snapshot")
+                })?
                 .clone(),
         ),
         None => None,
@@ -61,13 +65,13 @@ pub(super) fn capture(
             .providers
             .iter()
             .find(|provider| provider.id == model.provider)
-            .ok_or_else(|| invalid("frozen role provider is missing"))?
+            .ok_or_else(|| sailry_protocol::Fault::invalid("frozen role provider is missing"))?
             .clone();
         let metadata = selected
             .models
             .iter()
             .find(|entry| entry.id == model.model)
-            .ok_or_else(|| invalid("frozen role model is missing"))?;
+            .ok_or_else(|| sailry_protocol::Fault::invalid("frozen role model is missing"))?;
         config.provider = selected.id;
         config.credential = selected.credential.clone();
         config.model = model.model.clone();

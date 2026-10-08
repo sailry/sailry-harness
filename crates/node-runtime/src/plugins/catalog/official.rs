@@ -88,23 +88,29 @@ fn url(_host: &Host) -> url::Url {
 
 fn parse(index: Index) -> Result<Vec<Entry>, Fault> {
     if index.version != 1 || index.packages.len() > 512 {
-        return Err(invalid("unsupported official plugin catalog"));
+        return Err(sailry_protocol::Fault::invalid(
+            "unsupported official plugin catalog",
+        ));
     }
     let icons = bundled::entries()?;
     let mut entries: Vec<Entry> = Vec::with_capacity(index.packages.len());
     for package in index.packages {
         validate_name(&package.id)?;
         let bytes = serde_json::to_vec(&package.manifest)
-            .map_err(|_| invalid("invalid official plugin manifest"))?;
+            .map_err(|_| sailry_protocol::Fault::invalid("invalid official plugin manifest"))?;
         if bytes.len() > 64 * 1024 {
-            return Err(invalid("official plugin manifest exceeds its size limit"));
+            return Err(sailry_protocol::Fault::invalid(
+                "official plugin manifest exceeds its size limit",
+            ));
         }
         let manifest = manifest::parse(&bytes)?;
         if manifest.name != package.id
             || !manifest.issues.is_empty()
             || entries.iter().any(|entry| entry.id == package.id)
         {
-            return Err(invalid("invalid official plugin identity or manifest"));
+            return Err(sailry_protocol::Fault::invalid(
+                "invalid official plugin identity or manifest",
+            ));
         }
         let mut entry = super::entry(&package.id, manifest);
         entry.icon = icons

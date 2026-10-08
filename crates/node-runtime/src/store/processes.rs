@@ -35,6 +35,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared
     let Command::RunCommand {
         turn,
         command,
+        description,
         cwd,
         timeout_ms,
         background,
@@ -46,6 +47,13 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared
             "command execution expected",
         ));
     };
+    if description.as_ref().is_some_and(|description| {
+        description.trim().is_empty()
+            || description.chars().count() > 2000
+            || description.contains('\0')
+    }) {
+        return Err(Fault::invalid("invalid command description"));
+    }
     let row: Option<(String, String, String, String)> = database.connection.query_row(
         "SELECT s.worktree,json_extract(a.body,'$.status'),t.kind,s.id FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN sessions s ON s.id=t.session WHERE a.turn=?1",
         [turn.to_string()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
@@ -53,10 +61,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared
     let (worktree, state, kind, session) =
         row.ok_or_else(|| Fault::new(ErrorCode::NotFound, "turn does not exist"))?;
     if kind != "task" {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "context compaction cannot execute commands",
-        ));
+        return Err(Fault::invalid("context compaction cannot execute commands"));
     }
     if state != "running" {
         return Err(Fault::new(ErrorCode::Conflict, "turn is not running"));
@@ -68,10 +73,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared
             .len()
             != attachments.len()
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid command attachments",
-        ));
+        return Err(Fault::invalid("invalid command attachments"));
     }
     let inputs = if attachments.is_empty() {
         None

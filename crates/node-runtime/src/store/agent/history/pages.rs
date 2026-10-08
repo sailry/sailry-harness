@@ -114,7 +114,9 @@ pub(in crate::store) fn turn(
 ) -> Result<TurnHistory, Fault> {
     check_limit(limit)?;
     if before.is_some_and(|value| value > i64::MAX as u64) {
-        return Err(invalid("turn history cursor is invalid"));
+        return Err(sailry_protocol::Fault::invalid(
+            "turn history cursor is invalid",
+        ));
     }
     let run = runs::visible(db, session, turn)?;
     let (entries, more) = entries(db, session, &[turn], before, limit)?;
@@ -141,7 +143,9 @@ pub(in crate::store) fn turn(
 
 fn check_limit(limit: u16) -> Result<(), Fault> {
     if !(1..=100).contains(&limit) {
-        return Err(invalid("history limit must be between one and one hundred"));
+        return Err(sailry_protocol::Fault::invalid(
+            "history limit must be between one and one hundred",
+        ));
     }
     Ok(())
 }
@@ -229,7 +233,9 @@ fn page(
 fn fit(page: &mut Page) -> Result<(), Fault> {
     while encode(page)?.len() > MAX_FRAME_BYTES - 64 * 1024 {
         if page.entries.len() <= 1 {
-            return Err(invalid("conversation metadata exceeds the transport limit"));
+            return Err(sailry_protocol::Fault::invalid(
+                "conversation metadata exceeds the transport limit",
+            ));
         }
         page.entries.remove(0);
         retain_metadata(page);

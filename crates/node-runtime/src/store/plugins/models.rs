@@ -38,10 +38,10 @@ pub(super) fn resolve(db: &Connection, selected: &str) -> Result<(Provider, Sess
     }
     let (provider, model) = selected
         .split_once('/')
-        .ok_or_else(|| Fault::new(ErrorCode::InvalidRequest, "invalid plugin model selection"))?;
+        .ok_or_else(|| Fault::invalid("invalid plugin model selection"))?;
     let provider = provider
         .parse()
-        .map_err(|_| Fault::new(ErrorCode::InvalidRequest, "invalid plugin model provider"))?;
+        .map_err(|_| Fault::invalid("invalid plugin model provider"))?;
     let provider = super::super::agent::providers::get(db, provider)?
         .filter(|provider| provider.enabled)
         .ok_or_else(|| {
@@ -75,8 +75,7 @@ pub(super) fn session(
     base: Option<&SessionConfig>,
 ) -> Result<SessionConfig, Fault> {
     if base.is_some_and(|config| config.assistant.is_some() || config.resource.is_some()) {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
+        return Err(Fault::invalid(
             "model selection requires a project or unassigned scope",
         ));
     }

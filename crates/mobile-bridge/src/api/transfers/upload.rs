@@ -16,7 +16,7 @@ impl Upload {
         let cancellation = stop.clone();
         let transfer = Transfer::spawn(stop, async move {
             client
-                .upload_attachment(&upload, &mut reader, cancellation, |_| {})
+                .upload(&upload, &mut reader, cancellation, |_| {})
                 .await
         });
         Self {

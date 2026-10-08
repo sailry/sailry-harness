@@ -1,6 +1,6 @@
 //! Model-declared choices are shared by configuration, roles and turn admission.
 use super::{Model, ModelApi};
-use crate::{Effort, ErrorCode, Fault};
+use crate::{Effort, Fault};
 #[cfg(test)]
 mod tests;
 
@@ -50,8 +50,7 @@ impl Effort {
         if supported {
             Ok(())
         } else {
-            Err(Fault::new(
-                ErrorCode::InvalidRequest,
+            Err(Fault::invalid(
                 "reasoning choice is unsupported by the API or output limit",
             ))
         }
@@ -75,8 +74,7 @@ impl Model {
                 .enumerate()
                 .any(|(index, effort)| self.efforts[..index].contains(effort))
         {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
+            return Err(Fault::invalid(
                 "reasoning choices must be unique, bounded and include the default",
             ));
         }
@@ -91,8 +89,7 @@ impl Model {
             if !(self.efforts.contains(&effort)
                 || (self.efforts.is_empty() && effort == Effort::Default))
             {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
+                return Err(Fault::invalid(
                     "reasoning choice is not configured for this model",
                 ));
             }

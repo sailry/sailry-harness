@@ -47,7 +47,9 @@ pub(super) fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) -> Resul
         || event.author != TOOL
         || permissions::config(db, turn)?.mode != WorkMode::Plan
     {
-        return Err(invalid("plan review requires a planning completion"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plan review requires a planning completion",
+        ));
     }
     crate::store::sessions::writable(&crate::store::commands::session(db, run.session)?)?;
     let body: Vec<u8> = db
@@ -64,7 +66,9 @@ pub(super) fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) -> Resul
             .content()
             .is_none_or(|content| content.role != "model")
     {
-        return Err(invalid("plan review has no completed answer"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plan review has no completed answer",
+        ));
     }
     Ok(())
 }
@@ -88,7 +92,9 @@ pub(super) fn locate(
             serde_json::to_value(spec).expect("plan input is serializable") != request.args
         })
     {
-        return Err(invalid("plan review arguments differ"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plan review arguments differ",
+        ));
     }
     Ok((call.into(), 0))
 }
@@ -116,7 +122,11 @@ pub(super) fn project(event: &AdkEvent) -> Result<Vec<Part>, Fault> {
             serde_json::json!({"status": "accepted", "coding_turn": turn})
         }
         Response::Cancel => serde_json::json!({"status": "cancelled"}),
-        _ => return Err(invalid("plan review has an invalid response")),
+        _ => {
+            return Err(sailry_protocol::Fault::invalid(
+                "plan review has an invalid response",
+            ));
+        }
     };
     Ok(vec![Part::ToolResult {
         id: Some(call),

@@ -21,10 +21,7 @@ pub(in crate::store) fn replace(
     commands::check_revision(current.revision, *expected_revision)?;
     let target = super::super::agent::visible_run(db, *session, *turn)?;
     if target.kind != conversation::RunKind::Task {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "only task turns can be edited",
-        ));
+        return Err(Fault::invalid("only task turns can be edited"));
     }
     let previous: Option<String> = db
         .query_row(

@@ -118,7 +118,7 @@ impl Fixture {
             panic!("upload expected")
         };
         self.client
-            .upload_attachment(
+            .upload(
                 &upload,
                 &mut &bytes[..],
                 sailry_link::CancellationToken::new(),

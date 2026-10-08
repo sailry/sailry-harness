@@ -10,10 +10,7 @@ pub(super) fn add(
     directories: bool,
 ) -> Result<(), Fault> {
     if paths.is_empty() || paths.len() > MAX_GIT_ENTRIES {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid ignore targets",
-        ));
+        return Err(Fault::invalid("invalid ignore targets"));
     }
     for value in paths {
         valid_path(value)?;
@@ -24,17 +21,11 @@ pub(super) fn add(
             .map_err(io_error)?;
         if directories {
             if !metadata.is_dir() || metadata.is_symlink() {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "ignore target is not a directory",
-                ));
+                return Err(Fault::invalid("ignore target is not a directory"));
             }
         } else {
             if !metadata.is_file() && !metadata.is_symlink() {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "ignore target is not a file",
-                ));
+                return Err(Fault::invalid("ignore target is not a file"));
             }
             let status = repository.status_file(Path::new(value)).map_err(fault)?;
             if !status.is_wt_new() && !status.is_ignored() {
@@ -53,15 +44,11 @@ pub(super) fn add(
                 .read_to_end(&mut bytes)
                 .map_err(io_error)?;
             if bytes.len() > MAX_FILE_BYTES {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "ignore file exceeds the edit limit",
-                ));
+                return Err(Fault::invalid("ignore file exceeds the edit limit"));
             }
             let revision = blake3::hash(&bytes).to_hex().to_string();
-            let text = String::from_utf8(bytes).map_err(|_| {
-                Fault::new(ErrorCode::InvalidRequest, "ignore file is not UTF-8 text")
-            })?;
+            let text = String::from_utf8(bytes)
+                .map_err(|_| Fault::invalid("ignore file is not UTF-8 text"))?;
             (text, Some(revision))
         }
         Err(error) if error.code == ErrorCode::NotFound => (String::new(), None),

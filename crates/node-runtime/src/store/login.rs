@@ -154,8 +154,7 @@ impl Worker {
                 super::providers::current(&database.connection, provider, expected_revision)?;
             crate::providers::login::validate(&provider)?;
             if provider.authentication == Authentication::ApiKey {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
+                return Err(Fault::invalid(
                     "provider does not use browser authorization",
                 ));
             }
@@ -331,10 +330,7 @@ impl Worker {
                 if callback.expose().len() > 16 * 1024
                     || callback.expose().chars().any(char::is_control)
                 {
-                    return Err(Fault::new(
-                        ErrorCode::InvalidRequest,
-                        "authorization callback is invalid",
-                    ));
+                    return Err(Fault::invalid("authorization callback is invalid"));
                 }
                 Ok(Output::ProviderLogin(
                     entry.updates.borrow().attempt.clone(),

@@ -269,10 +269,24 @@ mod extension_loading {
     }
 
     #[test]
+    fn rejects_unknown_presentation() {
+        let info = install_extension(serde_json::json!({
+            "api_version":"v1", "actions":["files.read"],
+            "tools":[{"name":"read", "presentation":"hidden"}]
+        }));
+        assert!(info.extension.is_none());
+        assert!(
+            info.issues
+                .iter()
+                .any(|issue| issue.kind == IssueKind::InvalidExtensions)
+        );
+    }
+
+    #[test]
     fn ignores_metadata_without_changing_declared_actions() {
         let info = install_extension(serde_json::json!({
             "api_version":"v1", "actions":["files.read"], "unknown":true,
-            "tools":[{"name":"read", "presentation":"hidden", "unknown":true}],
+            "tools":[{"name":"read", "presentation":"details", "unknown":true}],
             "desktop":{"entry":"dev.sailry.platform/ui/main.js",
                 "resources":["dev.sailry.platform/ui/main.js"], "network":true}
         }));

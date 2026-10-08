@@ -35,7 +35,7 @@ fn uncertain(value: &Value) -> bool {
         })
 }
 fn invalid(message: &str) -> Value {
-    json!({"isError":true,"error":Fault::new(ErrorCode::InvalidRequest,message)})
+    json!({"isError":true,"error":Fault::invalid(message)})
 }
 impl Script {
     pub(super) async fn execute_flow(
@@ -167,14 +167,12 @@ mod tests {
             .is_err()
         );
         assert!(serde_json::from_value::<Transition>(json!({"result":{},"output":0})).is_ok());
-        let Transition::Call(call) = serde_json::from_value::<Transition>(
-            json!({"call":{"operation":"undeclared","arguments":{}}}),
-        )
-        .unwrap() else {
-            panic!("expected an operation transition");
-        };
-        assert_eq!(call.call.operation, tool::Operation::Unsupported);
-        assert!(!call.call.operation.read_only());
+        assert!(
+            serde_json::from_value::<Transition>(
+                json!({"call":{"operation":"undeclared","arguments":{}}}),
+            )
+            .is_err()
+        );
     }
     #[test]
     fn uncertainty_never_reaches_a_continuation() {

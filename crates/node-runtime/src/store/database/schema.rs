@@ -76,11 +76,42 @@ fn ownership(connection: &Connection, path: &Path) -> Result<bool, Error> {
 }
 
 fn verify(connection: &Connection, path: &Path, ddl: &str) -> Result<(), Error> {
-    let expected = Connection::open_in_memory()?;
-    expected.execute_batch(ddl)?;
-    let expected = objects(&expected)?;
+    let reference = Connection::open_in_memory()?;
+    reference.execute_batch(ddl)?;
+    let mut expected = objects(&reference)?;
     let actual = objects(connection)?;
-    for (identity, sql) in &expected {
+    compare(&expected, &actual, path)?;
+    if expected.contains_key(&("table".into(), "plugin_values".into())) {
+        let definitions = crate::store::plugins::storage::search::definitions(connection)
+            .map_err(|_| incompatible(path, "plugin search declarations cannot be read"))?;
+        for definition in definitions {
+            reference.execute_batch(&definition)?;
+        }
+        let indexes = objects(&reference)?
+            .into_iter()
+            .filter(|(identity, _)| !expected.contains_key(identity))
+            .collect::<BTreeMap<_, _>>();
+        compare(&indexes, &actual, path)?;
+        expected.extend(indexes);
+    }
+    if let Some((kind, name)) = actual
+        .keys()
+        .find(|identity| !expected.contains_key(*identity))
+    {
+        return Err(incompatible(
+            path,
+            format!("schema object {name:?} ({kind}) is not part of the current schema"),
+        ));
+    }
+    Ok(())
+}
+
+fn compare(
+    expected: &BTreeMap<(String, String), String>,
+    actual: &BTreeMap<(String, String), String>,
+    path: &Path,
+) -> Result<(), Error> {
+    for (identity, sql) in expected {
         let (kind, name) = identity;
         let Some(actual_sql) = actual.get(identity) else {
             return Err(incompatible(
@@ -128,15 +159,6 @@ fn verify(connection: &Connection, path: &Path, ddl: &str) -> Result<(), Error> 
         return Err(incompatible(
             path,
             format!("schema object {name:?} does not match the current definition"),
-        ));
-    }
-    if let Some((kind, name)) = actual
-        .keys()
-        .find(|identity| !expected.contains_key(*identity))
-    {
-        return Err(incompatible(
-            path,
-            format!("schema object {name:?} ({kind}) is not part of the current schema"),
         ));
     }
     Ok(())

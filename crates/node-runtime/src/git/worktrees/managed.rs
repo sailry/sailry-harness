@@ -64,7 +64,7 @@ pub(crate) fn create(
     let destination = directory.join(id);
     let destination = destination
         .to_str()
-        .ok_or_else(|| Fault::new(ErrorCode::InvalidRequest, "worktree path is not UTF-8"))?;
+        .ok_or_else(|| Fault::invalid("worktree path is not UTF-8"))?;
     let path = super::creation::create(source, destination, branch, head, id)?;
     if let Some((working, staged)) = changes {
         let target = open(Path::new(&path)).map_err(|error| unknown(error.message))?;

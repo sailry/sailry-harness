@@ -161,7 +161,3 @@ fn same_target(
         && a.oauth == b.oauth
         && a.credential == b.credential
 }
-
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
-}

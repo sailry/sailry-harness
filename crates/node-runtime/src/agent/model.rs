@@ -144,10 +144,7 @@ pub(super) fn native(
 ) -> Result<Arc<dyn Llm>, Fault> {
     let inner: Arc<dyn Llm> = match provider.api {
         ModelApi::OpenCodeGo | ModelApi::OpenCodeZen => {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "OpenCode requires a conversation identity",
-            ));
+            return Err(Fault::invalid("OpenCode requires a conversation identity"));
         }
         ModelApi::AzureOpenAi | ModelApi::AzureAi => {
             cloud::keyed(provider, &config.model, key, effort)?

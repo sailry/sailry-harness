@@ -35,16 +35,23 @@ impl Host {
             let mut bundle = Bundle {
                 package,
                 entry: match surface {
-                    sailry_protocol::plugin::desktop::Surface::Workspace => manifest
-                        .entry
-                        .ok_or_else(|| invalid("plugin view requires a native renderer"))?,
-                    sailry_protocol::plugin::desktop::Surface::Settings => {
-                        settings_entry.ok_or_else(|| invalid("plugin has no settings entry"))?
+                    sailry_protocol::plugin::desktop::Surface::Workspace => {
+                        manifest.entry.ok_or_else(|| {
+                            sailry_protocol::Fault::invalid(
+                                "plugin view requires a native renderer",
+                            )
+                        })?
                     }
+                    sailry_protocol::plugin::desktop::Surface::Settings => settings_entry
+                        .ok_or_else(|| {
+                            sailry_protocol::Fault::invalid("plugin has no settings entry")
+                        })?,
                     sailry_protocol::plugin::desktop::Surface::Composer
-                    | sailry_protocol::plugin::desktop::Surface::Project => manifest
-                        .ui_entry
-                        .ok_or_else(|| invalid("plugin has no contribution entry"))?,
+                    | sailry_protocol::plugin::desktop::Surface::Project => {
+                        manifest.ui_entry.ok_or_else(|| {
+                            sailry_protocol::Fault::invalid("plugin has no contribution entry")
+                        })?
+                    }
                 },
                 files: BTreeMap::new(),
                 images: BTreeMap::new(),
@@ -59,15 +66,17 @@ impl Host {
                 if path.ends_with(".png") {
                     let bytes = read(&directory, &path, image_remaining / 4 * 3)?;
                     let encoded = STANDARD.encode(bytes);
-                    image_remaining = image_remaining
-                        .checked_sub(encoded.len())
-                        .ok_or_else(|| invalid("plugin image resources exceed limit"))?;
+                    image_remaining =
+                        image_remaining.checked_sub(encoded.len()).ok_or_else(|| {
+                            sailry_protocol::Fault::invalid("plugin image resources exceed limit")
+                        })?;
                     bundle.images.insert(path, encoded);
                 } else {
                     let bytes = read(&directory, &path, remaining)?;
                     remaining -= bytes.len();
-                    let content = String::from_utf8(bytes)
-                        .map_err(|_| invalid("plugin desktop resource is not UTF-8 text"))?;
+                    let content = String::from_utf8(bytes).map_err(|_| {
+                        sailry_protocol::Fault::invalid("plugin desktop resource is not UTF-8 text")
+                    })?;
                     bundle.files.insert(path, content);
                 }
             }

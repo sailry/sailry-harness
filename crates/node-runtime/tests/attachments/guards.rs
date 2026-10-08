@@ -174,7 +174,7 @@ async fn cancels_unpublished_streams() {
         cancel.cancel();
         assert!(
             client
-                .upload_attachment(&upload, &mut &b"bytes"[..], cancel, |_| {})
+                .upload(&upload, &mut &b"bytes"[..], cancel, |_| {})
                 .await
                 .is_err()
         );

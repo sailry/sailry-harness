@@ -40,7 +40,10 @@ fn input(event: &AdkEvent) -> Result<Option<Input>, Fault> {
     event
         .provider_metadata
         .get(KEY)
-        .map(|value| serde_json::from_str(value).map_err(|_| invalid("invalid MCP input metadata")))
+        .map(|value| {
+            serde_json::from_str(value)
+                .map_err(|_| sailry_protocol::Fault::invalid("invalid MCP input metadata"))
+        })
         .transpose()
 }
 
@@ -53,7 +56,9 @@ pub(super) fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) -> Resul
                 question::Input::Form { .. } | question::Input::Url { .. }
             )
         {
-            return Err(invalid("MCP input must not change model content"));
+            return Err(sailry_protocol::Fault::invalid(
+                "MCP input must not change model content",
+            ));
         }
         input.spec.validate()?;
         calls::locate(db, turn, &input.parent)?;
@@ -93,7 +98,7 @@ fn read(db: &Connection, turn: TurnId, call: &str) -> Result<Input, Fault> {
         )
         .map_err(storage_error)?;
     input(&serde_json::from_slice(&body).map_err(storage_error)?)?
-        .ok_or_else(|| invalid("MCP input has no canonical request"))
+        .ok_or_else(|| sailry_protocol::Fault::invalid("MCP input has no canonical request"))
 }
 
 pub(super) fn locate(
@@ -106,7 +111,9 @@ pub(super) fn locate(
     if request.tool_name != TOOL
         || serde_json::to_value(&input.spec).map_err(storage_error)? != request.args
     {
-        return Err(invalid("MCP input arguments differ"));
+        return Err(sailry_protocol::Fault::invalid(
+            "MCP input arguments differ",
+        ));
     }
     calls::locate(db, turn, &input.parent)?;
     Ok((call.into(), 0))
@@ -128,9 +135,11 @@ pub(super) fn validate_answer(
     let validator = jsonschema::draft202012::options()
         .should_validate_formats(true)
         .build(&input.schema)
-        .map_err(|_| invalid("invalid MCP input schema"))?;
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid MCP input schema"))?;
     if !validator.is_valid(&Value::Object(values.clone())) {
-        return Err(invalid("answer does not match the requested MCP form"));
+        return Err(sailry_protocol::Fault::invalid(
+            "answer does not match the requested MCP form",
+        ));
     }
     Ok(())
 }

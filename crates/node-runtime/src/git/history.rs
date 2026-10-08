@@ -14,10 +14,7 @@ pub(super) fn log(
     control: &Control,
 ) -> Result<GitLog, Fault> {
     if limit == 0 || limit > MAX_GIT_COMMITS {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid Git history limit",
-        ));
+        return Err(Fault::invalid("invalid Git history limit"));
     }
     let cursor_head = cursor.map(|cursor| commit_id(&cursor.head)).transpose()?;
     let repository = match open(root) {
@@ -63,10 +60,7 @@ pub(super) fn log(
         entries.push(entry(&repository, oid, references.get(&oid))?);
     }
     if entries.is_empty() && offset > 0 {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "Git history offset is beyond the traversal",
-        ));
+        return Err(Fault::invalid("Git history offset is beyond the traversal"));
     }
     Ok(GitLog {
         kind: RepositoryKind::Ready,
@@ -154,10 +148,7 @@ fn entry(
 fn commit_id(id: &str) -> Result<Oid, Fault> {
     // Accept an immutable object ID, not revision expressions or paths.
     if id.len() != 40 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "expected a full Git commit object ID",
-        ));
+        return Err(Fault::invalid("expected a full Git commit object ID"));
     }
     Oid::from_str(id).map_err(fault)
 }

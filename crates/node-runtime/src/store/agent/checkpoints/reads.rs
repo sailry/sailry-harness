@@ -9,7 +9,7 @@ pub(in crate::store) fn list(
 ) -> Result<checkpoint::Page, Fault> {
     runs::visible(db, session, turn)?;
     if !(1..=100).contains(&limit) {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "file checkpoint page limit must be between 1 and 100",
         ));
     }
@@ -60,6 +60,25 @@ pub(in crate::store) fn list(
 }
 
 pub(in crate::store) fn read(
+    db: &Connection,
+    session: SessionId,
+    id: CheckpointId,
+) -> Result<checkpoint::Content, Fault> {
+    let file = file(db, session, id)?;
+    let size = file
+        .after
+        .size
+        .saturating_add(file.before.as_ref().map_or(0, |value| value.size));
+    // JSON may expand a control byte to six bytes; reserve space for the envelope.
+    if size > (MAX_FRAME_BYTES / 8) as u64 {
+        return Err(Fault::invalid(
+            "checkpoint content exceeds the response limit; use the turn diff or restore the checkpoint",
+        ));
+    }
+    content(db, session, id)
+}
+
+pub(super) fn content(
     db: &Connection,
     session: SessionId,
     id: CheckpointId,

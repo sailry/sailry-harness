@@ -180,24 +180,9 @@ pub enum Output {
     Handler(Handler),
     Schedules(Vec<Schedule>),
     Schedule(Schedule),
-    Published {
-        event: EventId,
-        jobs: Vec<JobId>,
-    },
+    Published { event: EventId, jobs: Vec<JobId> },
     Job(Job),
     Jobs(Page),
     Result(crate::RequestOutcome),
     Removed,
-    #[serde(other, deserialize_with = "crate::message::discard_payload")]
-    Unsupported,
-}
-
-impl Output {
-    pub fn supported(&self) -> bool {
-        match self {
-            Self::Unsupported => false,
-            Self::Result(outcome) => outcome.supported(),
-            _ => true,
-        }
-    }
 }

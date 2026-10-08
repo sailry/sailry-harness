@@ -4,6 +4,8 @@ mod driver;
 pub(crate) mod execute;
 pub(crate) mod permissions;
 mod worker;
+#[cfg(all(target_os = "macos", feature = "computer-worker"))]
+pub mod worker_host;
 pub use worker::Worker;
 #[cfg(test)]
 mod tests;

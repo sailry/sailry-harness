@@ -104,7 +104,7 @@ pub(in crate::store) async fn run(
     };
     if value["kind"] == "queued_turn" {
         let Output::QueuedTurn(turn) = serde_json::from_value::<Output>(value)
-            .map_err(|_| Fault::new(ErrorCode::InvalidRequest, "invalid command turn output"))?
+            .map_err(|_| Fault::invalid("invalid command turn output"))?
         else {
             unreachable!()
         };

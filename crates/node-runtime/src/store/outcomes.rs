@@ -14,10 +14,7 @@ pub(super) fn inspect(
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid request digest",
-        ));
+        return Err(Fault::invalid("invalid request digest"));
     }
     let previous: Option<(Vec<u8>, String, Option<String>)> = db
         .query_row(
@@ -61,12 +58,5 @@ pub(super) fn resolve(status: &str, result: Option<String>) -> Result<RequestOut
 
 /// Decode the existing receipt without changing its status, body, or replay identity.
 pub(in crate::store) fn decode(body: &str) -> Result<Result<Output, Fault>, Fault> {
-    let result: Result<Output, Fault> = serde_json::from_str(body).map_err(storage_error)?;
-    match result {
-        Ok(output) if !output.supported() => Ok(Err(Fault::new(
-            ErrorCode::Unavailable,
-            "stored request result is not supported; the request will not be replayed",
-        ))),
-        result => Ok(result),
-    }
+    serde_json::from_str(body).map_err(storage_error)
 }

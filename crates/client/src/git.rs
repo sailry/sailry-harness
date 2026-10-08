@@ -129,6 +129,8 @@ pub(crate) fn is_read(command: &Command) -> bool {
             | Command::ListWorktrees { .. }
             | Command::ReadGitDiff { .. }
             | Command::ReadGitLog { .. }
+            | Command::ReadGitShow { .. }
+            | Command::ReadGitBlame { .. }
             | Command::ReadGitCommit { .. }
             | Command::ReadGitStash { .. }
             | Command::ReadGitOutput { .. }

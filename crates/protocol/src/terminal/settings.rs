@@ -1,5 +1,5 @@
 // Based on Sailry Code 67ae9fa0 terminal_settings.dart; values stay out of public snapshots.
-use crate::{ErrorCode, Fault};
+use crate::Fault;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -24,18 +24,22 @@ impl std::fmt::Debug for Settings {
 impl Settings {
     pub fn validate(&self) -> Result<(), Fault> {
         if self.shell.len() > 4096 || self.shell.chars().any(char::is_control) {
-            return Err(invalid("invalid terminal shell path"));
+            return Err(crate::Fault::invalid("invalid terminal shell path"));
         }
         let mut size = 0;
         for (key, value) in &self.environment {
             validate_key(key)?;
             if value.contains('\0') {
-                return Err(invalid("terminal environment value contains a null byte"));
+                return Err(crate::Fault::invalid(
+                    "terminal environment value contains a null byte",
+                ));
             }
             size += key.len() + value.len();
         }
         if size > 64 * 1024 {
-            return Err(invalid("terminal environment exceeds the supported size"));
+            return Err(crate::Fault::invalid(
+                "terminal environment exceeds the supported size",
+            ));
         }
         Ok(())
     }
@@ -70,11 +74,9 @@ pub fn validate_key(key: &str) -> Result<(), Fault> {
         ]
         .contains(&upper.as_str())
     {
-        return Err(invalid("invalid or reserved terminal environment name"));
+        return Err(crate::Fault::invalid(
+            "invalid or reserved terminal environment name",
+        ));
     }
     Ok(())
-}
-
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }

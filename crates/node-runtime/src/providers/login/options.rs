@@ -16,7 +16,7 @@ pub(crate) fn effective(provider: &Provider) -> Result<Options, Fault> {
         .oauth
         .clone()
         .or_else(|| Options::defaults(provider.authentication))
-        .ok_or_else(|| invalid("provider does not use OAuth settings"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("provider does not use OAuth settings"))?;
     if let Options::ChatGptOAuth {
         catalog_version, ..
     } = &mut options
@@ -52,7 +52,8 @@ pub(super) fn validate(
         }
     };
     for field in fields {
-        HeaderValue::from_str(field).map_err(|_| invalid("OAuth header value is invalid"))?;
+        HeaderValue::from_str(field)
+            .map_err(|_| sailry_protocol::Fault::invalid("OAuth header value is invalid"))?;
     }
     Ok(())
 }

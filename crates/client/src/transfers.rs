@@ -10,6 +10,7 @@ mod copy;
 mod moving;
 mod upload;
 pub use moving::FileMove;
+pub use upload::Upload;
 
 impl Client {
     /// Receives a verified SSH download into caller-owned staging.
@@ -104,7 +105,7 @@ impl Client {
         progress: &mut impl FnMut(u64),
     ) -> Result<(), Fault> {
         let expected = blake3::Hash::from_hex(revision)
-            .map_err(|_| Fault::new(ErrorCode::InvalidRequest, "invalid download revision"))?;
+            .map_err(|_| Fault::invalid("invalid download revision"))?;
         let mut stream = tokio::select! {
             biased;
             _ = cancel.cancelled() => return Err(cancelled()),

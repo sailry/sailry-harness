@@ -1,7 +1,7 @@
 //! Standalone skills reuse the shared repository acquisition boundary.
 use super::github::{Github, cancelled, unavailable};
 use super::repository::source;
-use super::{Host, invalid, io_error};
+use super::{Host, io_error};
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     ErrorCode, Fault,
@@ -44,7 +44,9 @@ impl Host {
     ) -> Result<Info, Fault> {
         let selected = source::Selection::resolved(source, path)?;
         if name != source::name(&source.repository, path) {
-            return Err(invalid("skill identity does not match its source"));
+            return Err(sailry_protocol::Fault::invalid(
+                "skill identity does not match its source",
+            ));
         }
         let stop = CancellationToken::new();
         let (file, _) = self
@@ -74,7 +76,9 @@ impl Host {
             .map_err(|_| Fault::new(ErrorCode::Busy, "skill inspection is busy"))?;
         let selected = source::Selection::parse(source)?;
         if name != source::name(&selected.repository, &selected.path) {
-            return Err(invalid("skill identity does not match its source"));
+            return Err(sailry_protocol::Fault::invalid(
+                "skill identity does not match its source",
+            ));
         }
         let (file, resolved) = self.source_archive(&selected, None, stop.clone()).await?;
         let host = self.clone();

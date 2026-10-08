@@ -115,7 +115,10 @@ impl<D: Definition + 'static> Tool for Operation<D> {
                     .ingress
                     .authorize(self.binding.turn, authorization)
                     .await?;
-                if matches!(request.command, Command::WriteFile { .. }) {
+                if matches!(
+                    request.command,
+                    Command::WriteFile { .. } | Command::EditFile { .. }
+                ) {
                     self.binding
                         .ingress
                         .checkpoint_write(self.binding.turn, &request, self.binding.stop.clone())
@@ -146,10 +149,6 @@ impl<D: Definition + 'static> Tool for Operation<D> {
 }
 
 pub(super) fn decode<T: DeserializeOwned>(value: Value) -> Result<T, Fault> {
-    serde_json::from_value(value).map_err(|error| {
-        Fault::new(
-            ErrorCode::InvalidRequest,
-            format!("invalid tool arguments: {error}"),
-        )
-    })
+    serde_json::from_value(value)
+        .map_err(|error| Fault::invalid(format!("invalid tool arguments: {error}")))
 }

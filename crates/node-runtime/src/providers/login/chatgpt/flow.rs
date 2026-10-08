@@ -39,14 +39,20 @@ impl Pending {
     ) -> Result<Self, Fault> {
         loopback(&redirect)?;
         if host_id.is_empty() || host_id.len() > 256 || host_id.chars().any(char::is_control) {
-            return Err(invalid("authorization host identifier is invalid"));
+            return Err(sailry_protocol::Fault::invalid(
+                "authorization host identifier is invalid",
+            ));
         }
         let client_id = match previous {
             Some(Grant::ChatGpt { client_id, .. }) => {
                 issued_client(client_id)?;
                 Some(client_id.clone())
             }
-            Some(_) => return Err(invalid("ChatGPT authorization expected")),
+            Some(_) => {
+                return Err(sailry_protocol::Fault::invalid(
+                    "ChatGPT authorization expected",
+                ));
+            }
             None => {
                 if let Some(client_id) = &registration {
                     issued_client(client_id)?;
@@ -66,7 +72,7 @@ impl Pending {
 
     pub(super) fn url(&self, auth: &str) -> Result<String, Fault> {
         let mut url = Url::parse(&format!("{auth}/api/accounts/authorize"))
-            .map_err(|_| invalid("authorization endpoint is invalid"))?;
+            .map_err(|_| sailry_protocol::Fault::invalid("authorization endpoint is invalid"))?;
         let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(self.verifier.expose().as_bytes()));
         let mut query = url.query_pairs_mut();
         query.extend_pairs([
@@ -94,12 +100,12 @@ impl Pending {
     }
 
     pub(super) fn callback(&self, value: &Secret) -> Result<Code, Fault> {
-        let url =
-            Url::parse(value.expose()).map_err(|_| invalid("authorization callback is invalid"))?;
+        let url = Url::parse(value.expose())
+            .map_err(|_| sailry_protocol::Fault::invalid("authorization callback is invalid"))?;
         let mut base = url.clone();
         base.set_query(None);
         if url.fragment().is_some() || base.as_str() != self.redirect {
-            return Err(invalid(
+            return Err(sailry_protocol::Fault::invalid(
                 "authorization callback does not match its redirect",
             ));
         }
@@ -109,11 +115,15 @@ impl Pending {
                 .insert(key.into_owned(), value.into_owned())
                 .is_some()
             {
-                return Err(invalid("authorization callback has duplicate parameters"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "authorization callback has duplicate parameters",
+                ));
             }
         }
         if fields.get("state").map(String::as_str) != Some(self.state.expose()) {
-            return Err(invalid("authorization callback state did not match"));
+            return Err(sailry_protocol::Fault::invalid(
+                "authorization callback state did not match",
+            ));
         }
         if fields.contains_key("error") {
             return Err(Fault::new(
@@ -123,17 +133,25 @@ impl Pending {
         }
         let client_id = match (&self.client_id, fields.remove("client_id")) {
             (Some(previous), Some(returned)) if *previous != returned => {
-                return Err(invalid("authorization changed the selected registration"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "authorization changed the selected registration",
+                ));
             }
             (Some(previous), _) => previous.clone(),
             (None, Some(returned)) => returned,
-            (None, None) => return Err(invalid("authorization registration is incomplete")),
+            (None, None) => {
+                return Err(sailry_protocol::Fault::invalid(
+                    "authorization registration is incomplete",
+                ));
+            }
         };
         issued_client(&client_id)?;
         let value = fields
             .remove("code")
             .filter(|value| !value.is_empty() && value.len() <= 16384)
-            .ok_or_else(|| invalid("authorization callback has no valid code"))?;
+            .ok_or_else(|| {
+                sailry_protocol::Fault::invalid("authorization callback has no valid code")
+            })?;
         Ok(Code {
             client_id,
             value: Secret::new(value),
@@ -149,13 +167,16 @@ pub(in super::super) fn issued_client(value: &str) -> Result<(), Fault> {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
     {
-        return Err(invalid("authorization client identifier is invalid"));
+        return Err(sailry_protocol::Fault::invalid(
+            "authorization client identifier is invalid",
+        ));
     }
     Ok(())
 }
 
 fn loopback(value: &str) -> Result<(), Fault> {
-    let url = Url::parse(value).map_err(|_| invalid("authorization redirect is invalid"))?;
+    let url = Url::parse(value)
+        .map_err(|_| sailry_protocol::Fault::invalid("authorization redirect is invalid"))?;
     if url.scheme() != "http"
         || url.host_str() != Some("127.0.0.1")
         || url.port().is_none_or(|port| port == 0)
@@ -166,7 +187,9 @@ fn loopback(value: &str) -> Result<(), Fault> {
         || url.fragment().is_some()
         || url.as_str() != value
     {
-        return Err(invalid("authorization requires an exact loopback callback"));
+        return Err(sailry_protocol::Fault::invalid(
+            "authorization requires an exact loopback callback",
+        ));
     }
     Ok(())
 }

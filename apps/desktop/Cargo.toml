@@ -28,7 +28,7 @@ gpui-shell.workspace = true
 gpui-component-shell.workspace = true
 rust-i18n.workspace = true
 sys-locale.workspace = true
-sailry-node-runtime.workspace = true
+sailry-node-runtime = { workspace = true, features = ["computer-worker"] }
 sailry-link.workspace = true
 sailry-client.workspace = true
 sailry-protocol.workspace = true
@@ -71,7 +71,6 @@ objc2-av-foundation.workspace = true
 objc2-app-kit = { workspace = true, features = ["NSApplication", "NSRunningApplication", "NSWorkspace", "block2", "NSEvent", "NSTrackingArea", "NSGraphicsContext", "NSMenu", "NSMenuItem"] }
 objc2-web-kit.workspace = true
 objc2-foundation.workspace = true
-objc2-core-foundation.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

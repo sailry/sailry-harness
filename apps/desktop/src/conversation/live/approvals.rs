@@ -110,6 +110,22 @@ impl View {
                     .when_some(details.context, |row, path| {
                         row.child(div().text_color(cx.theme().muted_foreground).child(path))
                     })
+                    .children(
+                        details
+                            .notices
+                            .into_iter()
+                            .enumerate()
+                            .map(|(position, notice)| {
+                                div()
+                                    .debug_selector(move || {
+                                        format!("live-approval-notice-{id}-{position}")
+                                    })
+                                    .whitespace_normal()
+                                    .line_clamp(3)
+                                    .text_ellipsis()
+                                    .child(notice)
+                            }),
+                    )
                     .when_some(details.description, |row, description| {
                         row.child(
                             div()
@@ -204,6 +220,7 @@ pub(super) struct Details {
     pub prompt: Option<SharedString>,
     pub context: Option<String>,
     pub description: Option<SharedString>,
+    pub notices: Vec<SharedString>,
 }
 
 pub(super) fn details(call: &Call, page: &Page) -> Details {
@@ -234,6 +251,13 @@ pub(super) fn details(call: &Call, page: &Page) -> Details {
             .input
             .as_ref()
             .and_then(|input| read(&input.context)),
+        notices: display
+            .approval
+            .iter()
+            .filter_map(|prompt| prompt.render(arguments, &rust_i18n::locale()))
+            .filter(|notice| Some(notice.as_str()) != description.as_deref())
+            .map(Into::into)
+            .collect(),
         description,
     }
 }

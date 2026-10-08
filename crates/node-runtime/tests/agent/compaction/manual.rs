@@ -86,7 +86,7 @@ async fn restores_branch_history() {
         let fixture = Fixture::new(remote, &server).await;
         std::fs::write(
             fixture.root.join("source.txt"),
-            "Exact tool evidence 中文 🙂",
+            "Exact tool evidence 中文 🙂\n".repeat(200),
         )
         .unwrap();
         let original = "Original manual constraint 中文 🙂 ".repeat(60);
@@ -170,7 +170,7 @@ async fn restores_branch_history() {
         submit(&client, fixture.session.id, "Continue from summary".into()).await;
         let current = server.requests.lock().unwrap().last().unwrap().clone();
         assert!(messages(&current).contains("Context summary fixture"));
-        assert!(!messages(&current).contains("Original manual constraint"));
+        assert!(messages(&current).contains("Original manual constraint"));
         assert!(!messages(&current).contains("evidence-call"));
         assert_eq!(server.requests.lock().unwrap().len(), 5);
         node.shutdown().await.unwrap();
@@ -220,7 +220,11 @@ async fn preserves_cancelled_configuration() {
         let server = Server::compaction(false).await;
         let slow = Server::start(true).await;
         let fixture = Fixture::new(remote, &server).await;
-        std::fs::write(fixture.root.join("source.txt"), "Queue evidence").unwrap();
+        std::fs::write(
+            fixture.root.join("source.txt"),
+            "Queue evidence\n".repeat(200),
+        )
+        .unwrap();
         let (_, _, before) = submit(
             &fixture.client,
             fixture.session.id,
@@ -246,6 +250,7 @@ async fn preserves_cancelled_configuration() {
         let error = fixture
             .client
             .execute(fixture.client.prepare(Command::RunCommand {
+                description: None,
                 turn: active.id,
                 command: "printf 'must not execute'".into(),
                 cwd: String::new(),

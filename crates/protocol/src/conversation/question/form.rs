@@ -46,11 +46,11 @@ pub(super) fn validate(fields: &[Field]) -> Result<(), Fault> {
     let mut names = BTreeSet::new();
     if fields.len() > 64
         || serde_json::to_vec(fields)
-            .map_err(|_| invalid("invalid form"))?
+            .map_err(|_| crate::Fault::invalid("invalid form"))?
             .len()
             > MAX_TEXT_BYTES
     {
-        return Err(invalid("form exceeds the supported size"));
+        return Err(crate::Fault::invalid("form exceeds the supported size"));
     }
     for field in fields {
         if field.name.is_empty()
@@ -59,20 +59,24 @@ pub(super) fn validate(fields: &[Field]) -> Result<(), Fault> {
             || field.title.trim().is_empty()
             || field.title.len() > 1024
         {
-            return Err(invalid("form field is empty, repeated or too large"));
+            return Err(crate::Fault::invalid(
+                "form field is empty, repeated or too large",
+            ));
         }
         match &field.input {
             Input::Text {
                 min_length,
                 max_length,
                 ..
-            } if reversed(*min_length, *max_length) => return Err(invalid("invalid text bounds")),
+            } if reversed(*min_length, *max_length) => {
+                return Err(crate::Fault::invalid("invalid text bounds"));
+            }
             Input::Number {
                 minimum: Some(minimum),
                 maximum: Some(maximum),
                 ..
             } if minimum.as_f64() > maximum.as_f64() => {
-                return Err(invalid("invalid number bounds"));
+                return Err(crate::Fault::invalid("invalid number bounds"));
             }
             Input::Choice {
                 options,
@@ -88,7 +92,7 @@ pub(super) fn validate(fields: &[Field]) -> Result<(), Fault> {
                         option.title.trim().is_empty() || !values.insert(&option.value)
                     })
                 {
-                    return Err(invalid("invalid form choices"));
+                    return Err(crate::Fault::invalid("invalid form choices"));
                 }
             }
             _ => {}
@@ -106,17 +110,19 @@ pub(super) fn validate_answer(fields: &[Field], values: &Map<String, Value>) -> 
         .keys()
         .any(|name| !fields.iter().any(|field| &field.name == name))
         || serde_json::to_vec(values)
-            .map_err(|_| invalid("invalid form answer"))?
+            .map_err(|_| crate::Fault::invalid("invalid form answer"))?
             .len()
             > MAX_TEXT_BYTES
     {
-        return Err(invalid(
+        return Err(crate::Fault::invalid(
             "form answer has unknown fields or exceeds the size limit",
         ));
     }
     for field in fields {
         match values.get(&field.name) {
-            None if field.required => return Err(invalid("required form field is missing")),
+            None if field.required => {
+                return Err(crate::Fault::invalid("required form field is missing"));
+            }
             None => {}
             Some(value) => field.validate_value(value)?,
         }
@@ -191,7 +197,7 @@ impl Field {
         if valid {
             Ok(())
         } else {
-            Err(invalid("value does not match the form field"))
+            Err(crate::Fault::invalid("value does not match the form field"))
         }
     }
 }

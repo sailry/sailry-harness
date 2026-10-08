@@ -207,7 +207,7 @@ fn now_ms() -> Result<u64, Fault> {
         .map_err(|_| unavailable())
 }
 fn invalid() -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, "invalid pairing exchange")
+    Fault::invalid("invalid pairing exchange")
 }
 fn expired() -> Fault {
     Fault::new(ErrorCode::NotFound, "pairing code is unavailable")

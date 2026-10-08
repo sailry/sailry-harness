@@ -1,7 +1,7 @@
 //! Registration separates tool execution from its controller-facing presentation.
 use adk_core::Tool;
+use sailry_protocol::Fault;
 use sailry_protocol::tool::Presentation;
-use sailry_protocol::{ErrorCode, Fault};
 use std::{collections::BTreeMap, sync::Arc};
 
 pub(super) struct Registration {
@@ -54,10 +54,7 @@ pub(super) struct Catalog {
 impl Catalog {
     pub fn register(&mut self, registration: Registration) -> Result<Arc<dyn Tool>, Fault> {
         if self.presentations.contains_key(registration.tool.name()) {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "tool registration has a duplicate name",
-            ));
+            return Err(Fault::invalid("tool registration has a duplicate name"));
         }
         self.groupings
             .insert(registration.tool.name().into(), registration.grouping);

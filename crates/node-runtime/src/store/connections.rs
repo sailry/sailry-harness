@@ -62,10 +62,7 @@ pub(super) fn validate(db: &Connection, sharing: Option<&Sharing>) -> Result<(),
     if let Some(Sharing::Projects(projects)) = sharing {
         let unique: std::collections::BTreeSet<_> = projects.iter().collect();
         if projects.is_empty() || projects.len() > 128 || unique.len() != projects.len() {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "select distinct projects for sharing",
-            ));
+            return Err(Fault::invalid("select distinct projects for sharing"));
         }
         for project in projects {
             let exists: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1 AND id NOT IN (SELECT project FROM removed_projects))", [project.to_string()], |row| row.get(0)).map_err(storage_error)?;

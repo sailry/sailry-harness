@@ -88,14 +88,11 @@ pub(super) fn list(root: &Path, control: &Control) -> Result<GitBranches, Fault>
 
 pub(crate) fn create(root: &Path, name: &str, commit: &str) -> Result<GitBranch, Fault> {
     if name.len() > 1024 || !Branch::name_is_valid(name).map_err(fault)? {
-        return Err(Fault::new(ErrorCode::InvalidRequest, "invalid branch name"));
+        return Err(Fault::invalid("invalid branch name"));
     }
     // The caller selects an exact base commit, not a moving reference or revspec.
     if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "expected a full commit identifier",
-        ));
+        return Err(Fault::invalid("expected a full commit identifier"));
     }
     let retained = path::root(root)?;
     let repository = open(root)?;

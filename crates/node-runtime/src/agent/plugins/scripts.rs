@@ -28,6 +28,20 @@ pub(super) async fn bind(
                 .flat_map(|extension| &extension.tools)
                 .filter(|tool| {
                     tool.valid()
+                        && (invocation.turn.config.mode != sailry_protocol::WorkMode::Plan
+                            || tool.handler.as_ref().is_some_and(|handler| {
+                                matches!(
+                                    handler.operation,
+                                    Some(
+                                        tool::Operation::DelegateAgent
+                                            | tool::Operation::GuideAgent
+                                            | tool::Operation::WaitAgent
+                                    )
+                                ) || policy::read_only(
+                                    handler,
+                                    &package.extension.as_ref().unwrap().actions,
+                                )
+                            }))
                         && crate::plugins::conversation::selects(
                             invocation.turn.config.assistant.as_ref(),
                             &invocation.plugins,
@@ -81,6 +95,9 @@ pub(super) async fn bind(
             provider.summary.name != package.summary.name
                 || initialized.tools.contains(&declaration.name)
         });
+        if initialized.tools.is_empty() {
+            continue;
+        }
         if let Some(callback) = initialized.owner.observer() {
             contribution.callbacks.push((10, callback));
         }

@@ -16,7 +16,9 @@ pub(in crate::store) fn read(
             .before
             .is_some_and(|before| before == 0 || before > i64::MAX as u64)
     {
-        return Err(invalid("conversation asset bounds are invalid"));
+        return Err(sailry_protocol::Fault::invalid(
+            "conversation asset bounds are invalid",
+        ));
     }
     if let Some(before) = query.before {
         let visible: bool = db

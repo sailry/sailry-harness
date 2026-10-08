@@ -278,5 +278,5 @@ fn temporary_file(profile: Option<&Path>) -> Result<std::fs::File, Fault> {
 fn revision(value: &str) -> Result<String, Fault> {
     blake3::Hash::from_hex(value)
         .map(|hash| hash.to_hex().to_string())
-        .map_err(|_| Fault::new(ErrorCode::InvalidRequest, "invalid upload content revision"))
+        .map_err(|_| Fault::invalid("invalid upload content revision"))
 }

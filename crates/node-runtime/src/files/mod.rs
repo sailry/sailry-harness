@@ -4,6 +4,8 @@ pub(crate) mod checkpoints;
 pub(crate) mod copy;
 mod create;
 mod directory;
+pub(crate) mod edit;
+mod lines;
 mod media;
 pub(crate) mod path;
 pub(crate) mod rename;
@@ -13,8 +15,10 @@ pub(crate) mod ssh;
 pub(crate) mod transfers;
 mod trash;
 mod version;
+mod walk;
 pub(crate) mod watch;
 pub(crate) use create::directory;
+pub(crate) use edit::edit;
 pub(crate) use rename::rename;
 pub(crate) use save::save;
 pub(crate) use trash::remove_verified;
@@ -79,6 +83,15 @@ impl Files {
                 Command::ReadFile { path, .. } => {
                     read(root, path, &control).map(Output::FileContent)
                 }
+                Command::ReadFileLines {
+                    path,
+                    offset,
+                    limit,
+                    ..
+                } => lines::read(&root, path, offset, limit, &control).map(Output::FileLines),
+                Command::FindFiles { globs, .. } => {
+                    walk::find(&root, &globs, &control).map(Output::FileNames)
+                }
                 Command::SearchFiles { options, .. } => {
                     search::search(&root, &options, &control).map(Output::SearchResults)
                 }
@@ -87,6 +100,44 @@ impl Files {
                     "invalid file inspection command",
                 )),
             }
+        });
+        tokio::select! {
+            _ = closed.cancelled() => Err(Fault::new(ErrorCode::Unavailable, "Node service is unavailable")),
+            result = tokio::time::timeout(Duration::from_secs(5), worker) => result
+                .map_err(|_| Fault::new(ErrorCode::Busy, "file read deadline exceeded"))?
+                .map_err(|_| Fault::new(ErrorCode::Internal, "file worker failed"))?,
+        }
+    }
+
+    pub(crate) async fn capture(
+        &self,
+        root: PathBuf,
+        path: String,
+        expected: String,
+        closed: CancellationToken,
+    ) -> Result<String, Fault> {
+        let permit = self
+            .capacity
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Fault::new(ErrorCode::Busy, "file read capacity exhausted"))?;
+        let cancelled = closed.child_token();
+        let _guard = cancelled.clone().drop_guard();
+        let worker = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let control = Control {
+                cancelled,
+                deadline: Instant::now() + Duration::from_secs(5),
+            };
+            let text = lines::complete(&root, &path, &control)?;
+            if blake3::hash(text.as_bytes()).to_hex().as_str() != expected {
+                return Err(Fault::new(
+                    ErrorCode::RevisionConflict,
+                    "file changed before checkpoint capture",
+                ));
+            }
+            control.check()?;
+            Ok(text)
         });
         tokio::select! {
             _ = closed.cancelled() => Err(Fault::new(ErrorCode::Unavailable, "Node service is unavailable")),
@@ -132,17 +183,11 @@ fn read(root: PathBuf, path: String, control: &Control) -> Result<FileContent, F
             String::from_utf8(error.into_bytes()[..valid].to_vec()).expect("validated UTF-8 prefix")
         }
         Err(_) => {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "file is not UTF-8 text",
-            ));
+            return Err(Fault::invalid("file is not UTF-8 text"));
         }
     };
     if text.contains('\0') {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "binary file cannot be displayed as text",
-        ));
+        return Err(Fault::invalid("binary file cannot be displayed as text"));
     }
     Ok(FileContent {
         path,
@@ -156,10 +201,7 @@ fn read(root: PathBuf, path: String, control: &Control) -> Result<FileContent, F
 pub(crate) fn open_regular(dir: &cap_std::fs::Dir, name: &str) -> Result<cap_std::fs::File, Fault> {
     let metadata = dir.symlink_metadata(name).map_err(io_error)?;
     if !metadata.is_file() || metadata.is_symlink() {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "only regular files can be read",
-        ));
+        return Err(Fault::invalid("only regular files can be read"));
     }
     let mut options = OpenOptions::new();
     options.read(true).follow(FollowSymlinks::No);
@@ -170,10 +212,7 @@ pub(crate) fn open_regular(dir: &cap_std::fs::Dir, name: &str) -> Result<cap_std
     path::identity::file(&file)?;
     let metadata = file.metadata().map_err(io_error)?;
     if !metadata.is_file() {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "only regular files can be read",
-        ));
+        return Err(Fault::invalid("only regular files can be read"));
     }
     Ok(file)
 }

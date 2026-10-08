@@ -47,7 +47,9 @@ pub(super) fn acquire(
         return Err(cancelled());
     }
     if oversized.get() {
-        return Err(invalid("Git transfer exceeds its size limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "Git transfer exceeds its size limit",
+        ));
     }
     if Instant::now() >= deadline {
         return Err(Fault::new(ErrorCode::Unavailable, "Git transfer timed out"));
@@ -87,7 +89,9 @@ pub(super) fn acquire(
             .get_path(std::path::Path::new(&selected.path))
             .map_err(failure)?;
         if entry.kind() != Some(ObjectType::Tree) {
-            return Err(invalid("selected source must be a directory"));
+            return Err(sailry_protocol::Fault::invalid(
+                "selected source must be a directory",
+            ));
         }
         (
             repository.find_tree(entry.id()).map_err(failure)?,
@@ -100,7 +104,7 @@ pub(super) fn acquire(
     }
     let file = zip
         .finish()
-        .map_err(|_| invalid("Git tree could not be exported"))?;
+        .map_err(|_| sailry_protocol::Fault::invalid("Git tree could not be exported"))?;
     Ok((file, resolved))
 }
 
@@ -121,21 +125,25 @@ impl Export<'_> {
         names: Option<&[&str]>,
     ) -> Result<(), Fault> {
         if depth > 32 {
-            return Err(invalid("repository nesting is too deep"));
+            return Err(sailry_protocol::Fault::invalid(
+                "repository nesting is too deep",
+            ));
         }
         for entry in tree {
             if self.stop.is_cancelled() {
                 return Err(cancelled());
             }
-            let name = entry
-                .name()
-                .map_err(|_| invalid("repository filenames must be UTF-8"))?;
+            let name = entry.name().map_err(|_| {
+                sailry_protocol::Fault::invalid("repository filenames must be UTF-8")
+            })?;
             if names.is_some_and(|names| !names.contains(&name)) {
                 continue;
             }
             self.count += 1;
             if self.count > 10_000 {
-                return Err(invalid("Git tree has too many entries"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "Git tree has too many entries",
+                ));
             }
             crate::files::path::entry_components(name)?;
             let path = format!("{prefix}/{name}");
@@ -156,7 +164,9 @@ impl Export<'_> {
                         "unsupported-submodule",
                         zip::write::SimpleFileOptions::default(),
                     )
-                    .map_err(|_| invalid("Git tree could not be exported"))?;
+                    .map_err(|_| {
+                        sailry_protocol::Fault::invalid("Git tree could not be exported")
+                    })?;
                 continue;
             }
             let blob = self.repository.find_blob(entry.id()).map_err(failure)?;
@@ -164,13 +174,18 @@ impl Export<'_> {
                 .bytes
                 .checked_add(blob.size() as u64)
                 .filter(|bytes| *bytes <= MAX_PACKAGE_BYTES)
-                .ok_or_else(|| invalid("Git tree exceeds its expanded size limit"))?;
+                .ok_or_else(|| {
+                    sailry_protocol::Fault::invalid("Git tree exceeds its expanded size limit")
+                })?;
             if entry.filemode() == 0o120000 {
-                let target = std::str::from_utf8(blob.content())
-                    .map_err(|_| invalid("repository symbolic link must be UTF-8"))?;
+                let target = std::str::from_utf8(blob.content()).map_err(|_| {
+                    sailry_protocol::Fault::invalid("repository symbolic link must be UTF-8")
+                })?;
                 self.zip
                     .add_symlink(&path, target, zip::write::SimpleFileOptions::default())
-                    .map_err(|_| invalid("Git tree could not be exported"))?;
+                    .map_err(|_| {
+                        sailry_protocol::Fault::invalid("Git tree could not be exported")
+                    })?;
             } else {
                 let options = zip::write::SimpleFileOptions::default().unix_permissions(
                     if entry.filemode() & 0o111 != 0 {
@@ -179,9 +194,9 @@ impl Export<'_> {
                         0o644
                     },
                 );
-                self.zip
-                    .start_file(&path, options)
-                    .map_err(|_| invalid("Git tree could not be exported"))?;
+                self.zip.start_file(&path, options).map_err(|_| {
+                    sailry_protocol::Fault::invalid("Git tree could not be exported")
+                })?;
                 self.zip.write_all(blob.content()).map_err(io_error)?;
             }
         }

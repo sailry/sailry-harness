@@ -23,7 +23,9 @@ pub(in crate::store) fn ordered(db: &Connection) -> Result<Vec<SessionId>, Fault
         let Event::SessionsReordered(order) =
             serde_json::from_slice(&saved).map_err(storage_error)?
         else {
-            return Err(commands::invalid("invalid saved session order"));
+            return Err(sailry_protocol::Fault::invalid(
+                "invalid saved session order",
+            ));
         };
         let positions: BTreeMap<_, _> = order
             .into_iter()
@@ -57,7 +59,7 @@ pub(in crate::store) fn reorder(
     if requested.len() != members.len()
         || requested.iter().copied().collect::<BTreeSet<_>>() != members
     {
-        return Err(commands::invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "session order must contain each project session exactly once",
         ));
     }

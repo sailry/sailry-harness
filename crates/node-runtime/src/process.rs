@@ -52,16 +52,10 @@ impl Launch {
             || self.command.contains('\0')
             || !(1..=900_000).contains(&self.timeout_ms)
         {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "invalid command or timeout",
-            ));
+            return Err(Fault::invalid("invalid command or timeout"));
         }
         if self.cwd.len() > 4096 || self.cwd.chars().any(char::is_control) {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "invalid command working directory",
-            ));
+            return Err(Fault::invalid("invalid command working directory"));
         }
         Ok(())
     }
@@ -72,14 +66,10 @@ impl Launch {
         // confinement to an approved shell's explicitly selected directory.
         let _root = crate::files::path::root(&self.root)?;
         let directory = self.root.join(&self.cwd).canonicalize().map_err(|error| {
-            Fault::new(
-                ErrorCode::InvalidRequest,
-                format!("command working directory is unavailable: {error}"),
-            )
+            Fault::invalid(format!("command working directory is unavailable: {error}"))
         })?;
         if !directory.is_dir() {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
+            return Err(Fault::invalid(
                 "command working directory is not a directory",
             ));
         }

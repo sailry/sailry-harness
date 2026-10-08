@@ -1,7 +1,7 @@
 {
   "$defs": {
     "Action": {
-      "anyOf": [
+      "oneOf": [
         {
           "enum": [
             "activity.read",
@@ -977,51 +977,53 @@
       "type": "object"
     },
     "Operation": {
-      "oneOf": [
-        {
-          "enum": [
-            "git.status",
-            "git.diff",
-            "git.log",
-            "worktrees.list",
-            "worktrees.create",
-            "worktrees.register",
-            "worktrees.remove",
-            "databases.catalog",
-            "databases.query",
-            "databases.execute",
-            "ssh.run",
-            "ssh.transfer",
-            "agents.delegate",
-            "files.list",
-            "files.read",
-            "files.write",
-            "files.search",
-            "office.read",
-            "media.inspect",
-            "media.image",
-            "media.video",
-            "computer.read",
-            "computer.control",
-            "browser.read",
-            "browser.control",
-            "external_browser.read",
-            "external_browser.control",
-            "http.request",
-            "progress.update",
-            "storage.get",
-            "storage.list",
-            "storage.set",
-            "storage.delete",
-            "storage.transaction",
-            "settings.read",
-            "process.run",
-            "process.read",
-            "process.stop"
-          ],
-          "type": "string"
-        }
-      ]
+      "enum": [
+        "git.status",
+        "git.diff",
+        "git.log",
+        "git.show",
+        "git.blame",
+        "worktrees.list",
+        "worktrees.create",
+        "worktrees.register",
+        "worktrees.remove",
+        "databases.catalog",
+        "databases.query",
+        "databases.execute",
+        "ssh.run",
+        "ssh.transfer",
+        "agents.delegate",
+        "agents.guide",
+        "agents.wait",
+        "files.list",
+        "files.read",
+        "files.write",
+        "files.edit",
+        "files.find",
+        "files.search",
+        "office.read",
+        "media.inspect",
+        "media.image",
+        "media.video",
+        "computer.read",
+        "computer.control",
+        "browser.read",
+        "browser.control",
+        "external_browser.read",
+        "external_browser.control",
+        "http.request",
+        "progress.update",
+        "storage.get",
+        "storage.list",
+        "storage.set",
+        "storage.delete",
+        "storage.transaction",
+        "settings.read",
+        "process.run",
+        "process.read",
+        "process.stop"
+      ],
+      "type": "string"
     },
     "Output": {
       "additionalProperties": false,
@@ -1174,7 +1176,7 @@
         },
         {
           "const": "details",
-          "description": "Unknown presentation modes keep the original result inspectable.",
+          "description": "Retains the original result for inspection.",
           "type": "string"
         }
       ]

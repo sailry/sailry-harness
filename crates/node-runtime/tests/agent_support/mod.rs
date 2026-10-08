@@ -366,7 +366,7 @@ async fn respond(
         request.extend_from_slice(&buffer[..count]);
     }
     let body: Value = serde_json::from_slice(&request[header_end..header_end + length]).unwrap();
-    let vision = matches!(reply, Reply::Tools(_))
+    let vision = matches!(reply, Reply::Tools(_) | Reply::Held(..))
         && body["stream"] != true
         && body["messages"].as_array().is_some_and(|messages| {
             messages.iter().any(|message| {

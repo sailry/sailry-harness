@@ -94,10 +94,7 @@ pub(super) mod windows {
             .map_err(io_error)?;
         checked(file.as_raw_handle())?;
         if !file.metadata().map_err(io_error)?.is_dir() {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "expected a directory",
-            ));
+            return Err(Fault::invalid("expected a directory"));
         }
         Ok(Dir::from_std_file(file))
     }
@@ -119,10 +116,7 @@ pub(super) mod windows {
         }
         // SAFETY: the API reported successful initialization of the structure.
         if unsafe { tag.assume_init() }.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "filesystem reparse points are not allowed",
-            ));
+            return Err(Fault::invalid("filesystem reparse points are not allowed"));
         }
         let mut info = MaybeUninit::<FILE_ID_INFO>::zeroed();
         // SAFETY: the same live handle and a correctly sized output buffer.

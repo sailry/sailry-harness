@@ -15,7 +15,7 @@ pub(super) fn validate(
     let end = event
         .provider_metadata
         .get(END_EVENT)
-        .ok_or_else(|| invalid("context summary has no boundary"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("context summary has no boundary"))?;
     if event.author != "system"
         || event.content().is_some()
         || summary.compacted_content.role != "model"
@@ -26,7 +26,9 @@ pub(super) fn validate(
             .iter()
             .any(|part| !matches!(part, adk_core::Part::Text { text } if !text.trim().is_empty()))
     {
-        return Err(invalid("context summary content is invalid"));
+        return Err(sailry_protocol::Fault::invalid(
+            "context summary content is invalid",
+        ));
     }
     let valid: bool = db.query_row(
         "SELECT EXISTS(SELECT 1 FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
@@ -38,7 +40,7 @@ pub(super) fn validate(
         params![session.to_string(), end, turn.to_string()], |row| row.get(0)
     ).map_err(storage_error)?;
     if !valid && !current_exchange(db, session, turn, end)? {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "context summary boundary is not a complete turn or tool exchange",
         ));
     }

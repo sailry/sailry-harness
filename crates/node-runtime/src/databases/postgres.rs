@@ -15,42 +15,21 @@ pub(super) async fn run(
     query: &Query,
     tunnel_port: Option<u16>,
 ) -> Result<ResultSet, Fault> {
-    let (host, port, database, username, tls, socket) = match &operation.profile.connection {
-        Connection::Network {
-            host,
-            port,
-            database,
-            username,
-            tls,
-            ..
-        }
-        | Connection::Ssh {
-            host,
-            port,
-            database,
-            username,
-            tls,
-            ..
-        } => (host.as_str(), *port, database, username, *tls, None),
-        Connection::Socket {
-            path,
-            port,
-            database,
-            username,
-            ..
-        } => (
-            "localhost",
-            *port,
-            database,
-            username,
-            Tls::Disable,
-            Some(path),
-        ),
-        _ => unreachable!(),
-    };
+    let sailry_protocol::database::Server {
+        host,
+        port,
+        database,
+        username,
+        tls,
+        socket,
+    } = operation
+        .profile
+        .connection
+        .server()
+        .ok_or_else(|| Fault::invalid("database connection requires a server"))?;
     let mut config = tokio_postgres::Config::new();
     config
-        .host(socket.map_or(host, String::as_str))
+        .host(socket.unwrap_or(host))
         .port(tunnel_port.unwrap_or(port))
         .dbname(if database.is_empty() {
             "postgres"

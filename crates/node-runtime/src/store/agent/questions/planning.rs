@@ -27,7 +27,9 @@ pub(in crate::store) fn accept(
             },
     } = &request.command
     else {
-        return Err(invalid("request does not accept a plan"));
+        return Err(sailry_protocol::Fault::invalid(
+            "request does not accept a plan",
+        ));
     };
     let mut question = get(db, *question_id)?;
     if question.session != *id {
@@ -41,7 +43,9 @@ pub(in crate::store) fn accept(
     }
     calls::active(db, question.turn)?;
     if !matches!(spec(db, &question)?.input, Input::Plan) {
-        return Err(invalid("question does not contain a plan"));
+        return Err(sailry_protocol::Fault::invalid(
+            "question does not contain a plan",
+        ));
     }
     let mut session = commands::session(db, *id)?;
     crate::store::sessions::writable(&session)?;

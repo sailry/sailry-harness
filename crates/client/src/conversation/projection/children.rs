@@ -26,7 +26,9 @@ pub(in crate::conversation) fn merge(
                     || previous.run.status == Status::Stopping
                         && child.run.status == Status::Running)
         {
-            return Err(invalid("child identity or terminal state changed"));
+            return Err(sailry_protocol::Fault::invalid(
+                "child identity or terminal state changed",
+            ));
         }
         if !keep_current {
             *previous = child;
@@ -37,7 +39,9 @@ pub(in crate::conversation) fn merge(
             .iter()
             .any(|entry| entry.run.sequence == child.run.sequence)
         {
-            return Err(invalid("child admission order repeats"));
+            return Err(sailry_protocol::Fault::invalid(
+                "child admission order repeats",
+            ));
         }
         page.children.push(child);
         page.children.sort_by_key(|child| child.run.sequence);
@@ -52,11 +56,13 @@ pub(super) fn validate(page: &Page) -> Result<(), Fault> {
         .windows(2)
         .any(|pair| pair[0].run.sequence >= pair[1].run.sequence)
     {
-        return Err(invalid("child admission order changed"));
+        return Err(sailry_protocol::Fault::invalid(
+            "child admission order changed",
+        ));
     }
     for child in &page.children {
         if !turns.insert(child.run.turn) {
-            return Err(invalid("child turn repeats"));
+            return Err(sailry_protocol::Fault::invalid("child turn repeats"));
         }
         check(page, child)?;
     }
@@ -68,7 +74,7 @@ fn check(page: &Page, child: &Child) -> Result<(), Fault> {
         .runs
         .iter()
         .find(|run| run.turn == child.origin.turn)
-        .ok_or_else(|| invalid("child has no parent turn"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("child has no parent turn"))?;
     if child.origin.session != parent.origin.unwrap_or(page.session)
         || child.run.session == child.origin.session
         || child.run.session == page.session
@@ -81,7 +87,9 @@ fn check(page: &Page, child: &Child) -> Result<(), Fault> {
         || child.origin.role.is_some() != child.name.is_some()
         || child.name.as_ref().is_some_and(|name| name.is_empty())
     {
-        return Err(invalid("child does not belong to its parent turn"));
+        return Err(sailry_protocol::Fault::invalid(
+            "child does not belong to its parent turn",
+        ));
     }
     for previous in &page.children {
         if previous.run.session == child.run.session
@@ -91,7 +99,9 @@ fn check(page: &Page, child: &Child) -> Result<(), Fault> {
                 || previous.run.revision != child.run.revision
                 || previous.run.worktree != child.run.worktree)
         {
-            return Err(invalid("child ownership or frozen configuration changed"));
+            return Err(sailry_protocol::Fault::invalid(
+                "child ownership or frozen configuration changed",
+            ));
         }
         if (
             previous.origin.turn,
@@ -100,34 +110,42 @@ fn check(page: &Page, child: &Child) -> Result<(), Fault> {
         ) == (child.origin.turn, &child.origin.entry, child.origin.index)
             && previous.run.session != child.run.session
         {
-            return Err(invalid("delegation call belongs to another child"));
+            return Err(sailry_protocol::Fault::invalid(
+                "delegation call belongs to another child",
+            ));
         }
     }
     let entry = page
         .entries
         .iter()
         .find(|entry| entry.id == child.origin.entry)
-        .ok_or_else(|| invalid("child has no canonical delegation call"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("child has no canonical delegation call"))?;
     let Some(Part::ToolCall { arguments, .. }) = entry.parts.get(child.origin.index) else {
-        return Err(invalid("child references another turn or tool"));
+        return Err(sailry_protocol::Fault::invalid(
+            "child references another turn or tool",
+        ));
     };
     if entry.turn != parent.turn {
-        return Err(invalid("child references another turn or tool"));
+        return Err(sailry_protocol::Fault::invalid(
+            "child references another turn or tool",
+        ));
     }
     let session = arguments
         .get("session")
         .map(|value| serde_json::from_value::<SessionId>(value.clone()))
         .transpose()
-        .map_err(|_| invalid("child delegation session is invalid"))?;
+        .map_err(|_| sailry_protocol::Fault::invalid("child delegation session is invalid"))?;
     if session.is_some_and(|session| session != child.run.session) {
-        return Err(invalid("child session differs from its delegation"));
+        return Err(sailry_protocol::Fault::invalid(
+            "child session differs from its delegation",
+        ));
     }
     let worktree = arguments
         .get("worktree")
         .filter(|value| !value.is_null())
         .map(|value| serde_json::from_value::<WorktreeId>(value.clone()))
         .transpose()
-        .map_err(|_| invalid("child delegation worktree is invalid"))?
+        .map_err(|_| sailry_protocol::Fault::invalid("child delegation worktree is invalid"))?
         .unwrap_or_else(|| {
             if session.is_some() {
                 child.run.worktree
@@ -136,7 +154,9 @@ fn check(page: &Page, child: &Child) -> Result<(), Fault> {
             }
         });
     if child.run.worktree != worktree {
-        return Err(invalid("child worktree differs from its delegation"));
+        return Err(sailry_protocol::Fault::invalid(
+            "child worktree differs from its delegation",
+        ));
     }
     Ok(())
 }

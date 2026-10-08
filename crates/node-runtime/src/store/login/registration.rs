@@ -17,19 +17,14 @@ pub(super) fn prepare(
 ) -> Result<Option<Prepared>, Fault> {
     if provider.authentication != Authentication::ChatGpt {
         if redirect.is_some() {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
+            return Err(Fault::invalid(
                 "device authorization does not use a callback",
             ));
         }
         return Ok(None);
     }
-    let redirect = redirect.ok_or_else(|| {
-        Fault::new(
-            ErrorCode::InvalidRequest,
-            "ChatGPT authorization requires a controller callback",
-        )
-    })?;
+    let redirect = redirect
+        .ok_or_else(|| Fault::invalid("ChatGPT authorization requires a controller callback"))?;
     let previous = provider
         .credential
         .as_ref()

@@ -9,10 +9,7 @@ pub(in crate::store) fn select(
 ) -> Result<role::Snapshot, Fault> {
     let ids: std::collections::BTreeSet<_> = references.iter().map(|role| role.id).collect();
     if references.len() > role::MAX_PROFILES || ids.len() != references.len() {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "session roles must be distinct and bounded",
-        ));
+        return Err(Fault::invalid("session roles must be distinct and bounded"));
     }
     let profiles = references
         .iter()
@@ -145,10 +142,7 @@ pub(in crate::store) fn import(
                 .is_some_and(|reference| reference.node != caller)
         })
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "role credential import is inconsistent",
-        ));
+        return Err(Fault::invalid("role credential import is inconsistent"));
     }
     let mut snapshot = snapshot.clone();
     for provider in &mut snapshot.providers {

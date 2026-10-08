@@ -1,5 +1,5 @@
 //! Standalone servers use ordinary immutable packages and inline Node configuration.
-use super::{Host, invalid, io_error, manifest, mcp};
+use super::{Host, io_error, manifest, mcp};
 use sailry_protocol::{
     Fault,
     plugin::{
@@ -17,7 +17,9 @@ impl Host {
     pub(crate) fn install_mcp(&self, name: &str, definition: &Definition) -> Result<Info, Fault> {
         super::validate_name(name)?;
         if name.strip_prefix("mcp-").is_none_or(str::is_empty) {
-            return Err(invalid("standalone MCP names must start with mcp-"));
+            return Err(sailry_protocol::Fault::invalid(
+                "standalone MCP names must start with mcp-",
+            ));
         }
         let (configuration, schema) = documents(definition)?;
         let temporary = tempfile::tempdir().map_err(io_error)?;
@@ -41,14 +43,16 @@ impl Host {
             ("mcp.json", configuration),
             ("dev.sailry.platform/settings.json", schema),
         ] {
-            let bytes =
-                serde_json::to_vec(&value).map_err(|_| invalid("invalid MCP configuration"))?;
+            let bytes = serde_json::to_vec(&value)
+                .map_err(|_| sailry_protocol::Fault::invalid("invalid MCP configuration"))?;
             std::fs::write(directory.join(path), bytes).map_err(io_error)?;
         }
         let root = temporary.path().canonicalize().map_err(io_error)?;
         let mut info = self.install(&root, "package", name)?;
         if !info.issues.is_empty() || info.mcp.len() != 1 || info.settings.is_none() {
-            return Err(invalid("invalid standalone MCP configuration"));
+            return Err(sailry_protocol::Fault::invalid(
+                "invalid standalone MCP configuration",
+            ));
         }
         info.mcp_source = Some(definition.clone());
         Ok(info)
@@ -62,7 +66,7 @@ pub(crate) fn updates(
 ) -> Result<BTreeMap<String, SecretUpdate>, Fault> {
     let slots = definition.slots();
     if secrets.len() != slots.len() || slots.iter().any(|name| !secrets.contains_key(name)) {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "every MCP slot requires an explicit credential update",
         ));
     }
@@ -82,7 +86,9 @@ fn documents(definition: &Definition) -> Result<(Value, Value), Fault> {
     if slots.len() > settings::MAX_FIELDS
         || slots.iter().collect::<BTreeSet<_>>().len() != slots.len()
     {
-        return Err(invalid("invalid MCP credential slots"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid MCP credential slots",
+        ));
     }
     let empty: BTreeMap<_, _> = slots.iter().map(|name| (name, "")).collect();
     let server = match definition {
@@ -97,12 +103,14 @@ fn documents(definition: &Definition) -> Result<(Value, Value), Fault> {
         }),
     };
     let configuration = json!({"$schema": mcp::SCHEMA, "mcpServers": {SERVER: server}});
-    let bytes =
-        serde_json::to_vec(&configuration).map_err(|_| invalid("invalid MCP configuration"))?;
+    let bytes = serde_json::to_vec(&configuration)
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid MCP configuration"))?;
     let mut issues = Vec::new();
     let servers = mcp::parse(&bytes, &mut issues)?;
     if !issues.is_empty() || servers.len() != 1 {
-        return Err(invalid("invalid MCP server configuration"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid MCP server configuration",
+        ));
     }
     let properties: BTreeMap<_, _> = slots
         .iter()

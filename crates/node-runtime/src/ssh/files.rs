@@ -25,10 +25,7 @@ pub(crate) enum Operation {
 
 pub(crate) fn validate_path(path: &str) -> Result<(), Fault> {
     if path.is_empty() || path.len() > 4096 || path.contains('\0') {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "Invalid SSH file path",
-        ));
+        return Err(Fault::invalid("Invalid SSH file path"));
     }
     Ok(())
 }
@@ -104,8 +101,7 @@ pub(super) async fn execute(
             let mut remote = sftp.open(path.clone()).await.map_err(error)?;
             let metadata = remote.metadata().await.map_err(error)?;
             if !metadata.file_type().is_file() || metadata.len() > crate::files::ssh::LIMIT {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
+                return Err(Fault::invalid(
                     "Select a regular file within the transfer limit",
                 ));
             }
@@ -120,10 +116,7 @@ pub(super) async fn execute(
                 }
                 size += count as u64;
                 if size > crate::files::ssh::LIMIT {
-                    return Err(Fault::new(
-                        ErrorCode::InvalidRequest,
-                        "SSH file exceeds the transfer limit",
-                    ));
+                    return Err(Fault::invalid("SSH file exceeds the transfer limit"));
                 }
                 local.write_all(&bytes[..count]).await.map_err(io_error)?;
                 hash.update(&bytes[..count]);

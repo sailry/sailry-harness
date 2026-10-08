@@ -48,7 +48,7 @@ pub(in crate::agent) async fn instruction(
             _ => {}
         }
         if result.len() > 256 * 1024 {
-            return Err(invalid(
+            return Err(sailry_protocol::Fault::invalid(
                 "selected capability instructions exceed the context budget",
             ));
         }

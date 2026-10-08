@@ -3,13 +3,10 @@ use adk_model::{
     gemini::{ThinkingConfig, ThinkingLevel},
     openai::OpenAIReasoningEffort,
 };
-use sailry_protocol::{Effort, ErrorCode, Fault};
+use sailry_protocol::{Effort, Fault};
 
 fn unsupported() -> Fault {
-    Fault::new(
-        ErrorCode::InvalidRequest,
-        "reasoning choice is unsupported by this API",
-    )
+    Fault::invalid("reasoning choice is unsupported by this API")
 }
 
 pub(super) fn deepseek(

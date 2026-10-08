@@ -301,7 +301,9 @@ pub(super) fn execute(
             let mut provider = provider.clone();
             if let Some(secret) = secret {
                 if provider.authentication != Authentication::ApiKey {
-                    return Err(invalid("stored secrets require API-key authentication"));
+                    return Err(sailry_protocol::Fault::invalid(
+                        "stored secrets require API-key authentication",
+                    ));
                 }
                 let id = CredentialId::new();
                 super::providers::authentication::execute(
@@ -552,10 +554,14 @@ pub(super) fn execute(
         | Command::MergeGitBranch { .. }
         | Command::RunGitAction { .. }
         | Command::ReadGitLog { .. }
+        | Command::ReadGitShow { .. }
+        | Command::ReadGitBlame { .. }
         | Command::ReadGitCommit { .. }
         | Command::ReadGitDiff { .. }
         | Command::ListDirectory { .. }
         | Command::ReadFile { .. }
+        | Command::ReadFileLines { .. }
+        | Command::FindFiles { .. }
         | Command::ReadOffice { .. }
         | Command::DownloadFile { .. }
         | Command::UploadFile(_)
@@ -568,6 +574,7 @@ pub(super) fn execute(
         | Command::CancelFileTransfer { .. }
         | Command::SearchFiles { .. }
         | Command::WriteFile { .. }
+        | Command::EditFile { .. }
         | Command::InstallPlugin { .. }
         | Command::DiscoverSkills { .. }
         | Command::SearchPluginCatalog { .. }
@@ -619,7 +626,7 @@ pub(super) fn execute(
             config,
         } => {
             if config.resource.is_some() || config.assistant.is_some() {
-                return Err(invalid(
+                return Err(sailry_protocol::Fault::invalid(
                     "default conversations cannot bind a resource or plugin assistant",
                 ));
             }
@@ -649,9 +656,9 @@ pub(super) fn execute(
         } => {
             let config = match config {
                 Some(config) => config.clone(),
-                None => defaults(db)?
-                    .config
-                    .ok_or_else(|| invalid("Node model defaults are not configured"))?,
+                None => defaults(db)?.config.ok_or_else(|| {
+                    sailry_protocol::Fault::invalid("Node model defaults are not configured")
+                })?,
             };
             let roles = super::sessions::roles::capture(db, node, super::roles::list(db)?)?;
             super::sessions::create(
@@ -694,9 +701,9 @@ pub(super) fn execute(
             session,
             expected_revision,
         } => super::sessions::remove(db, *session, *expected_revision),
-        Command::CreateSessionAt { .. } => {
-            Err(invalid("configuration forwarding requires the Node worker"))
-        }
+        Command::CreateSessionAt { .. } => Err(sailry_protocol::Fault::invalid(
+            "configuration forwarding requires the Node worker",
+        )),
         Command::MoveConversation {
             session,
             worktree,
@@ -790,7 +797,9 @@ pub(super) fn validate_config(
     config: &SessionConfig,
 ) -> Result<(), Fault> {
     if config.model.trim().is_empty() || config.model.len() > 256 {
-        return Err(invalid("model identifier is required and must be bounded"));
+        return Err(sailry_protocol::Fault::invalid(
+            "model identifier is required and must be bounded",
+        ));
     }
     if config
         .credential
@@ -823,7 +832,7 @@ fn next_revision(revision: u64) -> Result<u64, Fault> {
     revision
         .checked_add(1)
         .filter(|value| *value <= i64::MAX as u64)
-        .ok_or_else(|| invalid("configuration revision exhausted"))
+        .ok_or_else(|| sailry_protocol::Fault::invalid("configuration revision exhausted"))
 }
 
 pub(super) fn revise_session(
@@ -977,8 +986,4 @@ fn snapshot(db: &Connection, node: NodeId) -> Result<Snapshot, Fault> {
         sessions,
         turns,
     })
-}
-
-pub(super) fn invalid(message: &'static str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }

@@ -35,7 +35,7 @@ async fn stage(client: &Client, bytes: &[u8]) -> plugin::Upload {
         panic!("plugin upload expected");
     };
     client
-        .upload_plugin(&upload, &mut &bytes[..], CancellationToken::new(), |_| {})
+        .upload(&upload, &mut &bytes[..], CancellationToken::new(), |_| {})
         .await
         .unwrap();
     upload

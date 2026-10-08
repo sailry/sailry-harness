@@ -88,7 +88,7 @@ async fn stage(
     let mut reader = source.reader;
     let mut last = Instant::now();
     client
-        .upload_attachment(&prepared, &mut reader, cancel.clone(), |copied| {
+        .upload(&prepared, &mut reader, cancel.clone(), |copied| {
             if copied == 0 || copied == spec.size || last.elapsed() >= Duration::from_millis(75) {
                 updates.send_replace(Status::Sending {
                     copied,

@@ -119,7 +119,7 @@ pub(super) fn network(_: impl std::fmt::Display) -> Fault {
     Fault::new(ErrorCode::Unavailable, "Link connection is unavailable")
 }
 pub(super) fn invalid(_: impl std::fmt::Display) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, "invalid Link frame")
+    Fault::invalid("invalid Link frame")
 }
 
 #[cfg(test)]

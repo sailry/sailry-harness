@@ -259,13 +259,8 @@ async fn execute_with(
         connections,
     )
     .await?;
-    let restricted = invocation.connections.bound.is_some();
     instruction.push_str("\n\n");
-    instruction.push_str(&prompt::environment(
-        &ingress.environment,
-        invocation.project.is_some(),
-        restricted,
-    ));
+    instruction.push_str(&prompt::environment(ingress, &invocation, &stop).await);
     extensions.tools.retain(|registration| {
         !planning || registration.managed || registration.tool.is_read_only()
     });
@@ -276,6 +271,10 @@ async fn execute_with(
     instruction.push_str(
         &references::capabilities::instruction(&invocation, &resources, &extensions.tools).await?,
     );
+    if invocation.child.is_none() {
+        instruction.push_str("\n\n");
+        instruction.push_str(prompt::recipient(false));
+    }
     let (compact, compaction_config, compact_tool) = compaction::bind(
         ingress,
         model.clone(),
@@ -322,20 +321,24 @@ async fn execute_with(
         agent = agent.max_output_tokens(model.output as i32);
     }
     if metadata.is_none_or(|model| model.tools) {
-        extensions.tools.extend([
-            catalog::Registration::managed(compact_tool),
-            catalog::Registration::managed(Arc::new(title::SetTitle {
-                session: invocation.turn.session.to_string(),
-                stop: stop.clone(),
-            })),
-            catalog::Registration::managed(Arc::new(question::Question {
-                ingress: ingress.clone(),
-                turn: invocation.turn.id,
-                session: invocation.turn.session.to_string(),
-                stop: stop.clone(),
-                planning: reviewing,
-            })),
-        ]);
+        extensions
+            .tools
+            .push(catalog::Registration::managed(compact_tool));
+        if invocation.child.is_none() {
+            extensions.tools.extend([
+                catalog::Registration::managed(Arc::new(title::SetTitle {
+                    session: invocation.turn.session.to_string(),
+                    stop: stop.clone(),
+                })),
+                catalog::Registration::managed(Arc::new(question::Question {
+                    ingress: ingress.clone(),
+                    turn: invocation.turn.id,
+                    session: invocation.turn.session.to_string(),
+                    stop: stop.clone(),
+                    planning: reviewing,
+                })),
+            ]);
+        }
         agent = agent
             .parallelize_agent_delegations(true)
             .tool_execution_strategy(adk_core::ToolExecutionStrategy::Auto);
@@ -354,6 +357,13 @@ async fn execute_with(
         .agent(Arc::new(agent))
         .session_service(Arc::new(
             crate::store::agent::Sessions::new(ingress.clone(), invocation.turn.id)
+                .with_input_source(if invocation.child.is_some() {
+                    "parent"
+                } else if invocation.automatic {
+                    "plugin"
+                } else {
+                    "user"
+                })
                 .with_references(invocation.message.references.clone())
                 .with_groupings(catalog.groupings())
                 .with_displays(catalog.displays())

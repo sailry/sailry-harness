@@ -35,6 +35,8 @@ impl Roots {
             ],
             Command::TrashEntry { path, .. }
             | Command::TrashFile { path, .. }
+            | Command::WriteFile { path, .. }
+            | Command::EditFile { path, .. }
             | Command::FinishFileUpload { path, .. } => {
                 vec![(self.target.clone(), path.clone())]
             }
@@ -162,6 +164,7 @@ pub(super) fn target(command: &Command) -> Option<Target> {
             Some(Target::Project(*project))
         }
         Command::WriteFile { worktree, .. }
+        | Command::EditFile { worktree, .. }
         | Command::InstallPlugin { worktree, .. }
         | Command::RestoreFileCheckpoint { worktree, .. }
         | Command::FinishFileUpload { worktree, .. }
@@ -362,6 +365,14 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
             expected_revision,
             ..
         } => crate::files::save(root, path, text, expected_revision.as_deref())
+            .map(Output::FileWritten),
+        Command::EditFile {
+            path,
+            old_text,
+            new_text,
+            expected_revision,
+            ..
+        } => crate::files::edit(root, path, old_text, new_text, expected_revision)
             .map(Output::FileWritten),
         Command::UpdateGitIndex {
             paths,

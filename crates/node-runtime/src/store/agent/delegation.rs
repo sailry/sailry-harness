@@ -154,14 +154,14 @@ pub(super) fn admit(
 ) -> Result<Invocation, Fault> {
     let has_role = arguments.get("role").is_some();
     if arguments.get("session").is_some_and(Value::is_null) {
-        return Err(invalid("invalid child session"));
+        return Err(sailry_protocol::Fault::invalid("invalid child session"));
     }
-    let args: Arguments =
-        serde_json::from_value(arguments).map_err(|_| invalid("invalid delegation arguments"))?;
+    let args: Arguments = serde_json::from_value(arguments)
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid delegation arguments"))?;
     if args.title.as_ref().is_some_and(|title| {
         title.trim().is_empty() || title.chars().count() > 80 || title.contains(['\n', '\r'])
     }) {
-        return Err(invalid("invalid delegation title"));
+        return Err(sailry_protocol::Fault::invalid("invalid delegation title"));
     }
     let inherits_input = selected.is_some();
     let message = selected.unwrap_or_else(|| args.task.clone().into());
@@ -169,7 +169,7 @@ pub(super) fn admit(
     if super::plugins::operation(&database.connection, parent, &request.tool_name)?
         != Some(sailry_protocol::tool::Operation::DelegateAgent)
     {
-        return Err(invalid("invalid delegation tool"));
+        return Err(sailry_protocol::Fault::invalid("invalid delegation tool"));
     }
     if let Some(worktree) = args.worktree
         && !database.worktree_root(worktree)?.is_dir()
@@ -214,7 +214,7 @@ pub(super) fn admit(
     };
     let worktree = session.worktree;
     if inherits_input && worktree != run.worktree {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "selected input cannot be delegated to another worktree",
         ));
     }

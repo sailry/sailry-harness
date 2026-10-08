@@ -6,10 +6,7 @@ async fn path(sftp: &SftpSession, value: &str) -> Result<String, Fault> {
     let value = value.trim_end_matches('/');
     let (parent, name) = value.rsplit_once('/').unwrap_or((".", value));
     if name.is_empty() || name == "." || name == ".." {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "Select a file or directory",
-        ));
+        return Err(Fault::invalid("Select a file or directory"));
     }
     let parent = sftp
         .canonicalize(if parent.is_empty() { "/" } else { parent })
@@ -67,10 +64,7 @@ pub(super) async fn execute(
         FileAction::Move { destination } | FileAction::Copy { destination } => {
             let destination = path(sftp, &destination).await?;
             if source == destination || destination.starts_with(&(source.clone() + "/")) {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "Cannot place an entry inside itself",
-                ));
+                return Err(Fault::invalid("Cannot place an entry inside itself"));
             }
             absent(sftp, &destination).await?;
             if copying {
@@ -132,10 +126,7 @@ async fn copy(sftp: &SftpSession, source: String, destination: String) -> Result
                 .map_err(|_| unknown("Remote copy interrupted; inspect the destination"))?;
             output.shutdown().await.map_err(io_error)?;
         } else {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "Unsupported remote file type",
-            ));
+            return Err(Fault::invalid("Unsupported remote file type"));
         }
     }
     Ok(())

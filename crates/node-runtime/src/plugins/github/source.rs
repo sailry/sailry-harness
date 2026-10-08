@@ -15,12 +15,16 @@ impl Selection {
     pub fn parse(source: &Source) -> Result<Self, Fault> {
         let input = source.repository.trim();
         if input.len() > 2048 || input.contains('\\') || input.chars().any(char::is_control) {
-            return Err(invalid("invalid plugin repository URL"));
+            return Err(sailry_protocol::Fault::invalid(
+                "invalid plugin repository URL",
+            ));
         }
         // URL parsing normalizes dot segments; reject them before that loses intent.
         for segment in input.split('/') {
             if matches!(decode(segment)?.as_str(), "." | "..") {
-                return Err(invalid("repository path contains a dot segment"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "repository path contains a dot segment",
+                ));
             }
         }
         let url = if input.contains("://") {
@@ -28,7 +32,7 @@ impl Selection {
         } else {
             url::Url::parse(&format!("https://github.com/{input}"))
         }
-        .map_err(|_| invalid("invalid GitHub repository"))?;
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid GitHub repository"))?;
         if url.scheme() != "https"
             || url.host_str() != Some("github.com")
             || !url.username().is_empty()
@@ -37,16 +41,20 @@ impl Selection {
             || url.query().is_some()
             || url.fragment().is_some()
         {
-            return Err(invalid("a public GitHub repository URL is required"));
+            return Err(sailry_protocol::Fault::invalid(
+                "a public GitHub repository URL is required",
+            ));
         }
         let parts = url
             .path_segments()
-            .ok_or_else(|| invalid("invalid repository path"))?
+            .ok_or_else(|| sailry_protocol::Fault::invalid("invalid repository path"))?
             .filter(|part| !part.is_empty())
             .map(decode)
             .collect::<Result<Vec<_>, _>>()?;
         if parts.len() < 2 || !slug(&parts[0]) || !slug(parts[1].trim_end_matches(".git")) {
-            return Err(invalid("GitHub owner and repository are required"));
+            return Err(sailry_protocol::Fault::invalid(
+                "GitHub owner and repository are required",
+            ));
         }
         let owner = parts[0].to_ascii_lowercase();
         let repo = parts[1].trim_end_matches(".git").to_ascii_lowercase();
@@ -60,7 +68,9 @@ impl Selection {
         let mut path = String::new();
         if parts.len() > 2 {
             if parts[2] != "tree" || parts.len() < 4 {
-                return Err(invalid("expected a repository or GitHub tree URL"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "expected a repository or GitHub tree URL",
+                ));
             }
             let tail = parts[3..].join("/");
             if source
@@ -72,7 +82,11 @@ impl Selection {
                     String::new()
                 } else {
                     tail.strip_prefix(&format!("{git_ref}/"))
-                        .ok_or_else(|| invalid("GitHub tree URL and selected revision differ"))?
+                        .ok_or_else(|| {
+                            sailry_protocol::Fault::invalid(
+                                "GitHub tree URL and selected revision differ",
+                            )
+                        })?
                         .to_owned()
                 };
             } else {
@@ -87,7 +101,9 @@ impl Selection {
             .filter(|path| !path.is_empty())
         {
             if !path.is_empty() && path != selected {
-                return Err(invalid("GitHub tree URL and selected directory differ"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "GitHub tree URL and selected directory differ",
+                ));
             }
             path = selected.to_owned();
         }
@@ -107,7 +123,9 @@ impl Selection {
 
 pub(crate) fn directory(path: &str) -> Result<(), Fault> {
     if path.len() > 1024 {
-        return Err(invalid("plugin directory is too long"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plugin directory is too long",
+        ));
     }
     crate::files::path::components(path, true).map(|_| ())
 }
@@ -131,7 +149,7 @@ pub(crate) fn reference(value: &str) -> Result<(), Fault> {
             .chars()
             .any(|ch| ch.is_control() || ch.is_whitespace() || "~^:?*[\\".contains(ch))
     {
-        return Err(invalid("invalid Git revision"));
+        return Err(sailry_protocol::Fault::invalid("invalid Git revision"));
     }
     Ok(())
 }
@@ -155,13 +173,14 @@ fn decode(value: &str) -> Result<String, Fault> {
             let lo = input.next().and_then(|v| (v as char).to_digit(16));
             bytes.push(match (hi, lo) {
                 (Some(hi), Some(lo)) => (hi * 16 + lo) as u8,
-                _ => return Err(invalid("invalid URL escape")),
+                _ => return Err(sailry_protocol::Fault::invalid("invalid URL escape")),
             });
         } else {
             bytes.push(byte);
         }
     }
-    String::from_utf8(bytes).map_err(|_| invalid("repository path must be UTF-8"))
+    String::from_utf8(bytes)
+        .map_err(|_| sailry_protocol::Fault::invalid("repository path must be UTF-8"))
 }
 
 pub(crate) fn name(repository: &str, path: &str) -> String {

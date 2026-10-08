@@ -63,14 +63,14 @@ pub(super) fn validate(query: &Query) -> Result<(DateTime<Utc>, DateTime<Utc>), 
             .iter()
             .any(|model| model.trim().is_empty() || model.len() > 256)
     {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "usage time range or filters exceed the query limits",
         ));
     }
     let start = DateTime::from_timestamp_millis(query.start_ms)
-        .ok_or_else(|| invalid("usage start time is invalid"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("usage start time is invalid"))?;
     let end = DateTime::from_timestamp_millis(query.end_ms)
-        .ok_or_else(|| invalid("usage end time is invalid"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("usage end time is invalid"))?;
     Ok((start, end))
 }
 

@@ -81,7 +81,7 @@ pub(in crate::store) fn rename(
     commands::check_revision(session.revision, expected_revision)?;
     let title = title.trim();
     if title.is_empty() || title.chars().any(char::is_control) {
-        return Err(commands::invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "session title must be nonempty and contain no control characters",
         ));
     }

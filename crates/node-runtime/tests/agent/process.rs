@@ -49,6 +49,7 @@ impl Fixture {
         self.client.prepare(Command::RunCommand {
             turn,
             command: command.into(),
+            description: None,
             cwd: String::new(),
             timeout_ms: 60_000,
             background: false,
@@ -238,6 +239,7 @@ async fn bounds_approved_results() {
                 .prepare(Command::RunCommand {
                     turn,
                     command: command.into(),
+                    description: None,
                     cwd: "项目".into(),
                     timeout_ms: 1000,
                     background: false,

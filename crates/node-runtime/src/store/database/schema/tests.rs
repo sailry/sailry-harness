@@ -95,6 +95,82 @@ mod comparison {
     }
 }
 
+mod corpus_indexes {
+    use super::*;
+    use crate::store::plugins::storage::search;
+
+    fn fixture() -> Connection {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(DDL).unwrap();
+        db.execute(
+            "INSERT INTO plugin_values(name,key,revision,value,index_data) VALUES('example','entry',1,?1,?2)",
+            rusqlite::params![
+                b"true".as_slice(),
+                br#"{"fields":["title","body"],"tags":[],"order":1}"#.as_slice()
+            ],
+        )
+        .unwrap();
+        db
+    }
+
+    fn create(db: &Connection) {
+        for definition in search::definitions(db).unwrap() {
+            db.execute_batch(&definition).unwrap();
+        }
+    }
+
+    fn unchanged(db: &Connection, accepts: bool) {
+        let before = objects(db).unwrap();
+        let changes = db.total_changes();
+        assert_eq!(verify(db, Path::new("fixture"), DDL).is_ok(), accepts);
+        assert_eq!(objects(db).unwrap(), before);
+        assert_eq!(db.total_changes(), changes);
+    }
+
+    #[test]
+    fn accepts_registered_and_empty_indexes() {
+        let db = fixture();
+        create(&db);
+        unchanged(&db, true);
+        db.execute("UPDATE plugin_values SET value=NULL,index_data=NULL", [])
+            .unwrap();
+        unchanged(&db, true);
+    }
+
+    #[test]
+    fn rejects_missing_index() {
+        unchanged(&fixture(), false);
+    }
+
+    #[test]
+    fn rejects_orphaned_namespaces() {
+        let db = fixture();
+        create(&db);
+        db.execute("DELETE FROM plugin_values", []).unwrap();
+        unchanged(&db, false);
+    }
+
+    #[test]
+    fn rejects_changed_definitions() {
+        let db = fixture();
+        let definition = search::definitions(&db)
+            .unwrap()
+            .remove(0)
+            .replace("field1", "other");
+        db.execute_batch(&definition).unwrap();
+        unchanged(&db, false);
+    }
+
+    #[test]
+    fn rejects_missing_shadow_tables() {
+        let db = fixture();
+        create(&db);
+        let name = format!("plugin_search_{}_config", blake3::hash(b"example").to_hex());
+        db.execute_batch(&format!("DROP TABLE {name}")).unwrap();
+        unchanged(&db, false);
+    }
+}
+
 mod declarations {
     use super::*;
 

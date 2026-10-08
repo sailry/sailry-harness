@@ -100,7 +100,9 @@ impl Service {
     ) -> Result<Grant, Fault> {
         previous.validate(Authentication::ChatGptOAuth)?;
         let Grant::ChatGptOAuth { refresh, .. } = previous else {
-            return Err(invalid("Codex authorization expected"));
+            return Err(sailry_protocol::Fault::invalid(
+                "Codex authorization expected",
+            ));
         };
         let tokens: Tokens = json(client.post(format!("{}/oauth/token", self.auth)).form(&[
             ("grant_type", "refresh_token"),
@@ -131,7 +133,11 @@ impl Service {
                     email: email.clone(),
                     account_id: Some(account_id.clone()),
                 },
-                _ => return Err(invalid("authorization response has no identity token")),
+                _ => {
+                    return Err(sailry_protocol::Fault::invalid(
+                        "authorization response has no identity token",
+                    ));
+                }
             },
         };
         tokens.grant(identity, previous)
@@ -154,7 +160,9 @@ fn required(value: &Secret) -> Result<(), Fault> {
         || value.expose().len() > 16384
         || value.expose().chars().any(char::is_control)
     {
-        return Err(invalid("authorization response is invalid"));
+        return Err(sailry_protocol::Fault::invalid(
+            "authorization response is invalid",
+        ));
     }
     Ok(())
 }

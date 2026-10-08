@@ -2,7 +2,7 @@
 //! (Apache-2.0). JSON Schema validation uses the pinned library, not another evaluator.
 mod validation;
 
-use super::{invalid, mcp, package};
+use super::{mcp, package};
 use cap_std::fs::Dir;
 use sailry_protocol::{
     Fault,
@@ -29,15 +29,17 @@ pub(super) fn discover(
         let path = path.strip_prefix("./").unwrap_or(path);
         let parts = crate::files::path::components(path, false)?;
         if path.len() > 512 || !path.ends_with(".json") {
-            return Err(invalid("settings schema must be a package JSON resource"));
+            return Err(sailry_protocol::Fault::invalid(
+                "settings schema must be a package JSON resource",
+            ));
         }
         let (file, parents) = parts
             .split_last()
-            .ok_or_else(|| invalid("empty settings path"))?;
+            .ok_or_else(|| sailry_protocol::Fault::invalid("empty settings path"))?;
         let parent =
             crate::files::path::descend(directory.try_clone().map_err(super::io_error)?, parents)?;
         let bytes = package::read(&parent, file, MAX_BYTES)?
-            .ok_or_else(|| invalid("settings schema is unavailable"))?;
+            .ok_or_else(|| sailry_protocol::Fault::invalid("settings schema is unavailable"))?;
         let schema = validation::parse(&bytes, servers)?;
         Ok(schema)
     })();

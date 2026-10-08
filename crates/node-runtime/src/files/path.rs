@@ -125,10 +125,7 @@ fn windows_component(name: &str) -> bool {
 }
 
 fn invalid() -> Fault {
-    Fault::new(
-        ErrorCode::InvalidRequest,
-        "expected a normalized worktree-relative path",
-    )
+    Fault::invalid("expected a normalized worktree-relative path")
 }
 
 #[cfg(test)]

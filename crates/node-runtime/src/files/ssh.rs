@@ -34,10 +34,7 @@ pub(crate) fn source(
     let dir = directory(root, relative, profile)?;
     let file = open_regular(&dir, relative.rsplit('/').next().unwrap())?;
     if file.metadata().map_err(io_error)?.len() > LIMIT {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "SSH file exceeds the transfer limit",
-        ));
+        return Err(Fault::invalid("SSH file exceeds the transfer limit"));
     }
     Ok(file.into_std())
 }

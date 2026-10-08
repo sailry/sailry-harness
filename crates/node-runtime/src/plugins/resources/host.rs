@@ -9,7 +9,7 @@ impl Host {
             .as_ref()
             .and_then(|extension| extension.host.as_ref())
             .filter(|manifest| manifest.valid())
-            .ok_or_else(|| invalid("plugin has no host entry"))?;
+            .ok_or_else(|| sailry_protocol::Fault::invalid("plugin has no host entry"))?;
         let directory = self.resolve(&info.summary.reference(), stop.clone())?;
         let mut remaining = sailry_protocol::plugin::host::MAX_BYTES;
         let mut files = BTreeMap::new();
@@ -21,8 +21,9 @@ impl Host {
             remaining -= bytes.len();
             files.insert(
                 path.clone(),
-                String::from_utf8(bytes)
-                    .map_err(|_| invalid("plugin host resource is not UTF-8 text"))?,
+                String::from_utf8(bytes).map_err(|_| {
+                    sailry_protocol::Fault::invalid("plugin host resource is not UTF-8 text")
+                })?,
             );
         }
         Ok(Bundle {

@@ -129,7 +129,15 @@ async fn reads_bound_worktree() {
             .collect();
         assert_eq!(results.len(), calls.len());
         assert_eq!(results[0]["data"]["entries"][0]["name"], "资料.txt");
-        assert_eq!(results[1]["data"]["text"], "hello 中文 🙂\nneedle\n");
+        assert_eq!(
+            results[1]["data"]["lines"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|line| line["text"].as_str().unwrap())
+                .collect::<String>(),
+            "hello 中文 🙂\nneedle\n"
+        );
         assert_eq!(results[2]["data"]["matches"][0]["line_number"], 1);
         assert_eq!(results[3]["data"]["kind"], "directory");
         assert_eq!(results[4]["data"]["kind"], "directory");
@@ -183,6 +191,8 @@ async fn reads_bound_worktree() {
                     "list_directory",
                     "read_file",
                     "write_file",
+                    "edit_file",
+                    "find_files",
                     "search_files",
                     "read_office",
                 ],
@@ -202,7 +212,10 @@ async fn reads_bound_worktree() {
                     "remove_worktree",
                 ],
             ),
-            ("git", &["git_status", "git_diff", "git_log"]),
+            (
+                "git",
+                &["git_status", "git_diff", "git_log", "git_show", "git_blame"],
+            ),
         ];
         for (package, tools) in packages {
             expected.extend(tools.iter().map(|tool| plugin_tool(package, tool)));
@@ -275,11 +288,16 @@ async fn reads_bound_worktree() {
         assert!(
             catalog
                 .iter()
-                .filter(
-                    |tool| ["list_directory", "read_file", "write_file", "search_files"]
-                        .iter()
-                        .any(|name| tool["function"]["name"] == plugin_tool("files", name))
-                )
+                .filter(|tool| [
+                    "list_directory",
+                    "read_file",
+                    "write_file",
+                    "edit_file",
+                    "find_files",
+                    "search_files"
+                ]
+                .iter()
+                .any(|name| tool["function"]["name"] == plugin_tool("files", name)))
                 .all(|tool| {
                     tool["function"]["parameters"]["properties"]
                         .get("worktree")

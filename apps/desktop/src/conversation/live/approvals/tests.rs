@@ -101,6 +101,24 @@ fn never_uses_argument_payloads_as_descriptions() {
     );
 }
 
+#[test]
+fn omits_missing_optional_notices() {
+    let (call, page) = sample(Some(json!({
+        "label":"Command", "input":{"summary":{"path":"/name"}},
+        "approval":[
+            {"message":{"label":"%{command}"},"values":{"command":{"source":"arguments","path":"/name"}}},
+            {"message":{"label":"%{description}"},"values":{"description":{"source":"arguments","path":"/description"}},
+             "when":{"all":[{"value":{"source":"arguments","path":"/description"},"equals":null,"negate":true}]}},
+        ],
+    })));
+    let details = details(&call, &page);
+    assert_eq!(
+        details.description.as_deref(),
+        Some("**Task**\n```text\n🙂")
+    );
+    assert!(details.notices.is_empty());
+}
+
 impl Fixture {
     fn new(remote: bool) -> Self {
         Self::with_tools(

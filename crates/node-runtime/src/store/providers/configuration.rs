@@ -1,6 +1,6 @@
 //! Private owning provider configuration, including ordinary inline authentication fields.
 use rusqlite::{Connection, OptionalExtension, params};
-use sailry_protocol::{CredentialId, ErrorCode, Fault, ProviderId, conversation::Provider};
+use sailry_protocol::{CredentialId, Fault, ProviderId, conversation::Provider};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -156,8 +156,5 @@ pub(in crate::store) fn validate_stored(db: &Connection) -> Result<(), Fault> {
 }
 
 fn invalid() -> Fault {
-    Fault::new(
-        ErrorCode::InvalidRequest,
-        "invalid stored provider configuration",
-    )
+    Fault::invalid("invalid stored provider configuration")
 }

@@ -5,6 +5,7 @@ use sailry_link::CancellationToken;
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use serde_json::json;
+use std::borrow::Cow;
 
 mod diff;
 mod reads;
@@ -30,42 +31,65 @@ impl Ingress {
         request: &Request,
         stop: CancellationToken,
     ) -> Result<(), Fault> {
-        let Command::WriteFile {
-            worktree,
-            path,
-            expected_revision,
-            ..
-        } = &request.command
-        else {
-            return Err(invalid("file checkpoint requires a write"));
+        let (worktree, path, expected_revision) = match &request.command {
+            Command::WriteFile {
+                worktree,
+                path,
+                expected_revision,
+                ..
+            } => (*worktree, path, expected_revision.as_ref()),
+            Command::EditFile {
+                worktree,
+                path,
+                expected_revision,
+                ..
+            } => (*worktree, path, Some(expected_revision)),
+            _ => return Err(Fault::invalid("file checkpoint requires a write or edit")),
         };
-        let root = self.worktree_root(*worktree).await?;
-        let original = self
-            .files
-            .inspect(
-                root,
-                Command::ReadFile {
-                    worktree: *worktree,
-                    path: path.clone(),
-                },
-                stop.clone(),
+        let root = self.worktree_root(worktree).await?;
+        let before = if matches!(request.command, Command::EditFile { .. }) {
+            Some(
+                self.files
+                    .capture(
+                        root,
+                        path.clone(),
+                        expected_revision.unwrap().clone(),
+                        stop.clone(),
+                    )
+                    .await?,
             )
-            .await;
-        let before = match (original, expected_revision) {
-            (Ok(Output::FileContent(content)), Some(expected))
-                if !content.truncated && content.revision.as_ref() == Some(expected) =>
-            {
-                Some(content.text)
+        } else {
+            let original = self
+                .files
+                .inspect(
+                    root,
+                    Command::ReadFile {
+                        worktree,
+                        path: path.clone(),
+                    },
+                    stop.clone(),
+                )
+                .await;
+            match (original, expected_revision) {
+                (Ok(Output::FileContent(content)), Some(expected))
+                    if !content.truncated && content.revision.as_ref() == Some(expected) =>
+                {
+                    Some(content.text)
+                }
+                (Err(error), None) if error.code == ErrorCode::NotFound => None,
+                (Ok(Output::FileContent(_)), _) => {
+                    return Err(Fault::new(
+                        ErrorCode::RevisionConflict,
+                        "file changed before checkpoint capture",
+                    ));
+                }
+                (Err(error), _) => return Err(error),
+                _ => {
+                    return Err(Fault::invalid(
+                        "file checkpoint read returned an invalid response",
+                    ));
+                }
             }
-            (Err(error), None) if error.code == ErrorCode::NotFound => None,
-            (Ok(Output::FileContent(_)), _) => {
-                return Err(Fault::new(
-                    ErrorCode::RevisionConflict,
-                    "file changed before checkpoint capture",
-                ));
-            }
-            (Err(error), _) => return Err(error),
-            _ => return Err(invalid("file checkpoint read returned an invalid response")),
         };
         if stop.is_cancelled() {
             return Err(Fault::new(
@@ -93,33 +117,66 @@ pub(super) fn capture(
     request: &Request,
     before: Option<&str>,
 ) -> Result<(), Fault> {
-    let Command::WriteFile {
-        worktree,
-        path,
-        text,
-        expected_revision,
-    } = &request.command
-    else {
-        return Err(invalid("file checkpoint requires a write"));
+    let (worktree, path, text, expected_revision, operation, limit) = match &request.command {
+        Command::WriteFile {
+            worktree,
+            path,
+            text,
+            expected_revision,
+        } => (
+            *worktree,
+            path.as_str(),
+            Cow::Borrowed(text.as_str()),
+            expected_revision.as_deref(),
+            sailry_protocol::tool::Operation::WriteFile,
+            MAX_FILE_BYTES,
+        ),
+        Command::EditFile {
+            worktree,
+            path,
+            old_text,
+            new_text,
+            expected_revision,
+        } => {
+            let original = before.ok_or_else(|| {
+                Fault::new(
+                    ErrorCode::RevisionConflict,
+                    "file edit checkpoint has no original content",
+                )
+            })?;
+            let after =
+                crate::files::edit::prepare(original, old_text, new_text, expected_revision)?;
+            (
+                *worktree,
+                path.as_str(),
+                Cow::Owned(after),
+                Some(expected_revision.as_str()),
+                sailry_protocol::tool::Operation::EditFile,
+                MAX_EDIT_BYTES,
+            )
+        }
+        _ => return Err(Fault::invalid("file checkpoint requires a write or edit")),
     };
     let run = calls::active(&database.connection, turn)?;
     let session = super::super::commands::session(&database.connection, run.session)?;
-    if session.worktree != *worktree {
+    if session.worktree != worktree {
         return Err(Fault::new(
             ErrorCode::WrongTarget,
             "file checkpoint belongs to another worktree",
         ));
     }
-    let root = database.worktree_root(*worktree)?;
-    database.validate_relocation(&[(root, path.clone())])?;
-    if text.len() > MAX_FILE_BYTES
+    let root = database.worktree_root(worktree)?;
+    database.validate_relocation(&[(root, path.to_owned())])?;
+    if text.len() > limit
         || text.contains('\0')
-        || before.is_some_and(|text| text.len() > MAX_FILE_BYTES || text.contains('\0'))
+        || before.is_some_and(|text| text.len() > limit || text.contains('\0'))
     {
-        return Err(invalid("file checkpoint exceeds the text limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "file checkpoint exceeds the text limit",
+        ));
     }
     let previous = before.map(version);
-    if previous.as_ref().map(|value| &value.revision) != expected_revision.as_ref() {
+    if previous.as_ref().map(|value| value.revision.as_str()) != expected_revision {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
             "file checkpoint revision does not match",
@@ -153,9 +210,8 @@ pub(super) fn capture(
                 // Retain the resulting request digest, with the same frozen package and scope.
                 context.turn == Some(turn)
                     && context.session == Some(run.session)
-                    && context.worktree == Some(*worktree)
-                    && crate::plugins::tools::operation(&package, name)
-                        == Some(sailry_protocol::tool::Operation::WriteFile)
+                    && context.worktree == Some(worktree)
+                    && crate::plugins::tools::operation(&package, name) == Some(operation)
             } else {
                 false
             }
@@ -165,14 +221,14 @@ pub(super) fn capture(
     if approval.state != ApprovalState::Approved || !valid {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
-            "file checkpoint differs from the approved write",
+            "file checkpoint differs from the approved mutation",
         ));
     }
     let record = Record {
-        worktree: *worktree,
-        path: path.clone(),
+        worktree,
+        path: path.to_owned(),
         before: previous,
-        after: version(text),
+        after: version(&text),
         digest: blake3::hash(&encode(request)?).to_hex().to_string(),
     };
     let encoded = encode(&record)?;
@@ -185,7 +241,7 @@ pub(super) fn capture(
         .optional()
         .map_err(storage_error)?;
     if let Some((stored, content, after)) = previous {
-        if stored != encoded || content.as_deref() != before || after != *text {
+        if stored != encoded || content.as_deref() != before || after != text.as_ref() {
             return Err(Fault::new(
                 ErrorCode::Conflict,
                 "file checkpoint already has different content",
@@ -194,7 +250,7 @@ pub(super) fn capture(
     } else {
         transaction.execute(
             "INSERT INTO file_checkpoints(id,turn,approval,body,before_text,after_text) VALUES(?1,?2,?3,?4,?5,?6)",
-            params![CheckpointId::new().to_string(), turn.to_string(), approval.id.to_string(), encoded, before, text],
+            params![CheckpointId::new().to_string(), turn.to_string(), approval.id.to_string(), encoded, before, text.as_ref()],
         ).map_err(storage_error)?;
     }
     transaction.commit().map_err(storage_error)

@@ -114,7 +114,7 @@ pub(super) fn execute_admitted(
             let handler: Handler =
                 required(db, "dispatch_handlers", &package.name, "name", handler)?;
             if !handler.enabled {
-                return Err(invalid("event handler is disabled"));
+                return Err(sailry_protocol::Fault::invalid("event handler is disabled"));
             }
             let reference = current(db, &package.name)?.summary.reference();
             available(db, &reference)?;
@@ -162,9 +162,6 @@ pub(super) fn execute_admitted(
 fn now() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
-}
 
 fn name(value: &str) -> Result<(), Fault> {
     if value.is_empty()
@@ -173,7 +170,7 @@ fn name(value: &str) -> Result<(), Fault> {
             .bytes()
             .all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
     {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "dispatch names must use letters, digits, dots, underscores or hyphens",
         ));
     }
@@ -182,7 +179,9 @@ fn name(value: &str) -> Result<(), Fault> {
 
 fn data(value: &impl Serialize) -> Result<(), Fault> {
     if encode(value)?.len() > MAX_PAYLOAD_BYTES {
-        return Err(invalid("dispatch payload exceeds the size limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "dispatch payload exceeds the size limit",
+        ));
     }
     Ok(())
 }

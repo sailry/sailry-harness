@@ -41,14 +41,18 @@ fn scan(
         return Err(cancelled());
     }
     if depth > 32 {
-        return Err(invalid("skill repository nesting is too deep"));
+        return Err(sailry_protocol::Fault::invalid(
+            "skill repository nesting is too deep",
+        ));
     }
     if let Some(bytes) = super::super::package::read(directory, "SKILL.md", skills::MAX_BYTES)? {
-        let text =
-            std::str::from_utf8(&bytes).map_err(|_| invalid("SKILL.md must be UTF-8 text"))?;
+        let text = std::str::from_utf8(&bytes)
+            .map_err(|_| sailry_protocol::Fault::invalid("SKILL.md must be UTF-8 text"))?;
         let skill = skills::parse_document(text)?;
         if candidates.len() >= 64 {
-            return Err(invalid("skill repository has too many skills"));
+            return Err(sailry_protocol::Fault::invalid(
+                "skill repository has too many skills",
+            ));
         }
         candidates.push(Candidate {
             name: source::name(repository, path),
@@ -68,7 +72,7 @@ fn scan(
         let name = entry
             .file_name()
             .into_string()
-            .map_err(|_| invalid("skill filenames must be UTF-8"))?;
+            .map_err(|_| sailry_protocol::Fault::invalid("skill filenames must be UTF-8"))?;
         if matches!(name.as_str(), ".git" | "node_modules" | "target" | ".venv") {
             continue;
         }
@@ -124,7 +128,7 @@ fn with_package(
             || link.starts_with(&format!("{}/", provenance.path))
             || LICENSES.contains(&link.as_str())
     }) {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "selected skill contains unsupported symbolic links",
         ));
     }
@@ -134,9 +138,10 @@ fn with_package(
         &crate::files::path::components(&provenance.path, true)?,
     )?;
     let bytes = super::super::package::read(&selected, "SKILL.md", skills::MAX_BYTES)?
-        .ok_or_else(|| invalid("selected directory has no SKILL.md"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("selected directory has no SKILL.md"))?;
     let skill = skills::parse_document(
-        std::str::from_utf8(&bytes).map_err(|_| invalid("SKILL.md must be UTF-8 text"))?,
+        std::str::from_utf8(&bytes)
+            .map_err(|_| sailry_protocol::Fault::invalid("SKILL.md must be UTF-8 text"))?,
     )?;
     let normalized = tempfile::tempdir().map_err(io_error)?;
     let normalized_root = normalized.path().canonicalize().map_err(io_error)?;
@@ -148,7 +153,9 @@ fn with_package(
     let mut tree = super::super::package::Tree::default();
     tree.walk(&selected, Some(&skill_root), "", 0)?;
     if !tree.issues.is_empty() {
-        return Err(invalid("skill contains unsupported files"));
+        return Err(sailry_protocol::Fault::invalid(
+            "skill contains unsupported files",
+        ));
     }
     let manifest = serde_json::json!({
         "$schema": manifest::SCHEMA,
@@ -160,8 +167,9 @@ fn with_package(
     destination
         .write(
             "plugin.json",
-            serde_json::to_vec(&manifest)
-                .map_err(|_| invalid("skill manifest could not be encoded"))?,
+            serde_json::to_vec(&manifest).map_err(|_| {
+                sailry_protocol::Fault::invalid("skill manifest could not be encoded")
+            })?,
         )
         .map_err(io_error)?;
     // A repository license outside the skill directory still travels with the import.
@@ -184,7 +192,9 @@ fn reject_ancestors(links: &[String], path: &str) -> Result<(), Fault> {
         .iter()
         .any(|link| path == link || path.starts_with(&format!("{link}/")))
     {
-        return Err(invalid("selected skill directory is a symbolic link"));
+        return Err(sailry_protocol::Fault::invalid(
+            "selected skill directory is a symbolic link",
+        ));
     }
     Ok(())
 }

@@ -2,6 +2,7 @@ use super::*;
 use crate::store::agent::tests::{command, fixture::Fixture};
 
 mod diff;
+mod edit;
 mod restore;
 
 fn running(fixture: &mut Fixture) -> TurnId {
@@ -26,10 +27,48 @@ fn approved(
     before: Option<&str>,
     text: &str,
 ) -> Request {
+    let worktree = crate::store::commands::session(&fixture.database.connection, fixture.session)
+        .unwrap()
+        .worktree;
+    mutation(
+        fixture,
+        turn,
+        Command::WriteFile {
+            worktree,
+            path: path.into(),
+            text: text.into(),
+            expected_revision: before.map(version).map(|value| value.revision),
+        },
+    )
+}
+
+fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Request {
+    let (name, arguments) = match &command {
+        Command::WriteFile {
+            path,
+            text,
+            expected_revision,
+            ..
+        } => (
+            "write_file",
+            json!({"path":path,"text":text,"expected_revision":expected_revision}),
+        ),
+        Command::EditFile {
+            path,
+            old_text,
+            new_text,
+            expected_revision,
+            ..
+        } => (
+            "edit_file",
+            json!({"path":path,"old_text":old_text,"new_text":new_text,"expected_revision":expected_revision}),
+        ),
+        _ => panic!("file mutation expected"),
+    };
     let authorization = adk_core::ToolConfirmationRequest {
-        tool_name: crate::plugins::tools::alias("files", "write_file"),
+        tool_name: crate::plugins::tools::alias("files", name),
         function_call_id: Some(RequestId::new().to_string()),
-        args: json!({"path": path, "text": text, "expected_revision": before.map(version).map(|value| value.revision)}),
+        args: arguments,
     };
     let mut event = AdkEvent::new("checkpoint-fixture");
     event.author = "assistant".into();
@@ -62,15 +101,7 @@ fn approved(
     let id = approvals::authorize(&mut fixture.database.connection, turn, &authorization).unwrap();
     let session =
         crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
-    let mut request = Request::new(
-        fixture.database.node,
-        Command::WriteFile {
-            worktree: session.worktree,
-            path: path.into(),
-            text: text.into(),
-            expected_revision: before.map(version).map(|value| value.revision),
-        },
-    );
+    let mut request = Request::new(fixture.database.node, command);
     request.id = id;
     request.plugin = Some(sailry_protocol::plugin::Context {
         invocation: None,

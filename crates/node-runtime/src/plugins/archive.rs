@@ -22,7 +22,7 @@ impl Host {
         tree.stop = stop;
         tree.walk(&directory, None, "", 0)?;
         let bytes = package::read(&directory, "plugin.json", 64 * 1024)?
-            .ok_or_else(|| invalid("plugin.json is required"))?;
+            .ok_or_else(|| sailry_protocol::Fault::invalid("plugin.json is required"))?;
         let info = describe(
             &directory,
             manifest::parse(&bytes)?,
@@ -44,10 +44,14 @@ impl Host {
 fn unpack(file: File, stop: &CancellationToken) -> Result<(tempfile::TempDir, PathBuf), Fault> {
     let (temporary, source, links) = unpack_source(file, stop, 1024)?;
     if !links.is_empty() {
-        return Err(invalid("unsupported plugin ZIP entry"));
+        return Err(sailry_protocol::Fault::invalid(
+            "unsupported plugin ZIP entry",
+        ));
     }
     if !source.join("plugin.json").is_file() {
-        return Err(invalid("plugin.json is required at the package root"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plugin.json is required at the package root",
+        ));
     }
     Ok((temporary, source))
 }
@@ -59,9 +63,12 @@ pub(super) fn unpack_source(
     max_entries: usize,
 ) -> Result<(tempfile::TempDir, PathBuf, Vec<String>), Fault> {
     file.seek(SeekFrom::Start(0)).map_err(io_error)?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|_| invalid("invalid plugin ZIP"))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid plugin ZIP"))?;
     if archive.len() > max_entries {
-        return Err(invalid("plugin ZIP has too many entries"));
+        return Err(sailry_protocol::Fault::invalid(
+            "plugin ZIP has too many entries",
+        ));
     }
     let temporary = tempfile::tempdir().map_err(io_error)?;
     let mut total = 0u64;
@@ -76,7 +83,7 @@ pub(super) fn unpack_source(
         }
         let mut entry = archive
             .by_index(index)
-            .map_err(|_| invalid("invalid plugin ZIP entry"))?;
+            .map_err(|_| sailry_protocol::Fault::invalid("invalid plugin ZIP entry"))?;
         let name = entry.name().trim_end_matches('/').to_owned();
         let parts = crate::files::path::components(&name, false)?;
         if parts.len() > 32
@@ -88,7 +95,9 @@ pub(super) fn unpack_source(
                     .unix_mode()
                     .is_some_and(|mode| !matches!(mode & 0o170000, 0 | 0o040000 | 0o100000)))
         {
-            return Err(invalid("unsupported plugin ZIP entry"));
+            return Err(sailry_protocol::Fault::invalid(
+                "unsupported plugin ZIP entry",
+            ));
         }
         // Source repositories may contain unrelated links. Never create or follow them;
         // callers reject links belonging to the package they are importing.
@@ -106,7 +115,9 @@ pub(super) fn unpack_source(
         total = total
             .checked_add(entry.size())
             .filter(|total| *total <= MAX_PACKAGE_BYTES)
-            .ok_or_else(|| invalid("plugin ZIP exceeds the expanded size limit"))?;
+            .ok_or_else(|| {
+                sailry_protocol::Fault::invalid("plugin ZIP exceeds the expanded size limit")
+            })?;
         std::fs::create_dir_all(destination.parent().unwrap()).map_err(io_error)?;
         let mut output = std::fs::OpenOptions::new()
             .write(true)
@@ -124,18 +135,18 @@ pub(super) fn unpack_source(
             }
             let count = entry
                 .read(&mut buffer)
-                .map_err(|_| invalid("invalid plugin ZIP data"))?;
+                .map_err(|_| sailry_protocol::Fault::invalid("invalid plugin ZIP data"))?;
             if count == 0 {
                 break;
             }
             copied += count as u64;
             if copied > entry.size() {
-                return Err(invalid("plugin ZIP size mismatch"));
+                return Err(sailry_protocol::Fault::invalid("plugin ZIP size mismatch"));
             }
             output.write_all(&buffer[..count]).map_err(io_error)?;
         }
         if copied != entry.size() {
-            return Err(invalid("plugin ZIP size mismatch"));
+            return Err(sailry_protocol::Fault::invalid("plugin ZIP size mismatch"));
         }
         #[cfg(unix)]
         {
@@ -162,14 +173,14 @@ pub(super) fn unpack_source(
     }
     let prefix = source
         .strip_prefix(temporary.path())
-        .map_err(|_| invalid("source ZIP root is unavailable"))?;
+        .map_err(|_| sailry_protocol::Fault::invalid("source ZIP root is unavailable"))?;
     let links = links
         .into_iter()
         .map(|path| {
             Path::new(&path)
                 .strip_prefix(prefix)
                 .map(|path| path.to_string_lossy().replace('\\', "/"))
-                .map_err(|_| invalid("source ZIP contains multiple roots"))
+                .map_err(|_| sailry_protocol::Fault::invalid("source ZIP contains multiple roots"))
         })
         .collect::<Result<Vec<_>, _>>()?;
     let source = source.canonicalize().map_err(io_error)?;

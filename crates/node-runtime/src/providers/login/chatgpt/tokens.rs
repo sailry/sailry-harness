@@ -24,19 +24,27 @@ impl Tokens {
         previous: Option<&Grant>,
     ) -> Result<Grant, Fault> {
         if !self.token_type.eq_ignore_ascii_case("bearer") || self.expires_in == 0 {
-            return Err(invalid("authorization token response is invalid"));
+            return Err(sailry_protocol::Fault::invalid(
+                "authorization token response is invalid",
+            ));
         }
         let expires_at_ms = self
             .expires_in
             .checked_mul(1000)
             .and_then(|duration| now_ms().ok()?.checked_add(duration))
-            .ok_or_else(|| invalid("authorization token expiry is invalid"))?;
+            .ok_or_else(|| {
+                sailry_protocol::Fault::invalid("authorization token expiry is invalid")
+            })?;
         let (previous_id, previous_scopes) = match previous {
             Some(Grant::ChatGpt {
                 id_token, scopes, ..
             }) => (Some(id_token), Some(scopes)),
             None => (None, None),
-            Some(_) => return Err(invalid("ChatGPT authorization expected")),
+            Some(_) => {
+                return Err(sailry_protocol::Fault::invalid(
+                    "ChatGPT authorization expected",
+                ));
+            }
         };
         let scopes: Vec<String> = match self.scope {
             Some(scope) => scope
@@ -45,9 +53,9 @@ impl Tokens {
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect(),
-            None => previous_scopes
-                .cloned()
-                .ok_or_else(|| invalid("authorization response has no granted scopes"))?,
+            None => previous_scopes.cloned().ok_or_else(|| {
+                sailry_protocol::Fault::invalid("authorization response has no granted scopes")
+            })?,
         };
         let grant = Grant::ChatGpt {
             client_id,
@@ -56,7 +64,9 @@ impl Tokens {
             id_token: self
                 .id_token
                 .or_else(|| previous_id.cloned())
-                .ok_or_else(|| invalid("authorization response has no identity token"))?,
+                .ok_or_else(|| {
+                    sailry_protocol::Fault::invalid("authorization response has no identity token")
+                })?,
             scopes,
             access: self.access_token,
             refresh: self.refresh_token,

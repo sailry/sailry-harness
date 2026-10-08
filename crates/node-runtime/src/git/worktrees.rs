@@ -64,7 +64,7 @@ fn visit(
     for name in repository.worktrees().map_err(fault)?.iter() {
         let name = name
             .map_err(fault)?
-            .ok_or_else(|| Fault::new(ErrorCode::InvalidRequest, "worktree name is not UTF-8"))?;
+            .ok_or_else(|| Fault::invalid("worktree name is not UTF-8"))?;
         let worktree = repository.find_worktree(name).map_err(fault)?;
         check(&Repository::open(worktree.path()).map_err(fault)?)?;
     }

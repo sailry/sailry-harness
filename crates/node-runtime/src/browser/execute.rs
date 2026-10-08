@@ -13,8 +13,7 @@ pub(crate) fn validate(action: &Action) -> Result<(), Fault> {
                 && url.password().is_none()
         })
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
+        return Err(Fault::invalid(
             "browser URL must use HTTP or HTTPS without embedded credentials",
         ));
     }
@@ -31,10 +30,7 @@ pub(crate) fn validate(action: &Action) -> Result<(), Fault> {
             }
         };
         if !(1..=20000).contains(timeout_ms) || query.is_empty() || query.len() > 2000 {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "invalid browser wait condition or timeout",
-            ));
+            return Err(Fault::invalid("invalid browser wait condition or timeout"));
         }
     }
     Ok(())
@@ -84,7 +80,7 @@ async fn save_capture(
     stop: CancellationToken,
 ) -> Result<Value, Fault> {
     use base64::Engine;
-    let invalid = |message| Fault::new(ErrorCode::InvalidRequest, message);
+    let invalid = |message| Fault::invalid(message);
     let encoded = value
         .as_object_mut()
         .and_then(|value| value.remove("base64_image"))

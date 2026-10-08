@@ -28,7 +28,7 @@ pub(super) fn read(
         let parts = crate::files::path::components(path, false)?;
         let (name, parents) = parts
             .split_last()
-            .ok_or_else(|| invalid("empty icon path"))?;
+            .ok_or_else(|| sailry_protocol::Fault::invalid("empty icon path"))?;
         let parent = crate::files::path::descend(root.try_clone().map_err(io_error)?, parents)?;
         let bytes = package::read(&parent, name, MAX_BYTES)?;
         Ok::<_, Fault>(bytes.and_then(|bytes| encode(&bytes)))

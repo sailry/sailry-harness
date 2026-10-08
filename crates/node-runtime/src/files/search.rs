@@ -1,13 +1,12 @@
 //! Search traversal adapted from sailry-code 67ae9fa0,
 //! sailry-code-secure-file/src/secure/search.rs (Apache-2.0).
-use super::{Control, io_error, open_regular, path, read_bytes};
+use super::{Control, open_regular, read_bytes, walk};
 use cap_std::fs::Dir;
-use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
+use globset::GlobSet;
 use regex::{Regex, RegexBuilder};
 use sailry_protocol::*;
 use std::path::Path;
 
-const MAX_ENTRIES: usize = 10_000;
 const MAX_BYTES: usize = 16 * 1024 * 1024;
 const MAX_LINE: usize = 1024;
 
@@ -15,7 +14,6 @@ struct Search<'a> {
     matcher: Regex,
     globs: GlobSet,
     control: &'a Control,
-    visited: usize,
     bytes: usize,
     result: SearchResults,
 }
@@ -43,21 +41,10 @@ pub(super) fn search(
         .dfa_size_limit(1 << 20)
         .build()
         .map_err(|_| invalid())?;
-    let mut globs = GlobSetBuilder::new();
-    for pattern in &options.globs {
-        globs.add(
-            GlobBuilder::new(pattern)
-                .literal_separator(true)
-                .backslash_escape(false)
-                .build()
-                .map_err(|_| invalid())?,
-        );
-    }
     let mut search = Search {
         matcher,
-        globs: globs.build().map_err(|_| invalid())?,
+        globs: walk::globs(&options.globs)?,
         control,
-        visited: 0,
         bytes: 0,
         result: SearchResults {
             matches: Vec::new(),
@@ -66,8 +53,17 @@ pub(super) fn search(
             truncated: false,
         },
     };
-    let dir = path::root(root)?;
-    search.directory(&dir, "", 0)?;
+    let report = walk::visit(root, control, &mut |directory, name, relative| {
+        if search.full() {
+            return Ok(false);
+        }
+        if search.globs.is_empty() || search.globs.is_match(relative) {
+            search.file(directory, name, relative.into())?;
+        }
+        Ok(true)
+    })?;
+    search.result.skipped += report.skipped;
+    search.result.truncated |= report.truncated;
     control.check()?;
     Ok(search.result)
 }
@@ -75,78 +71,6 @@ pub(super) fn search(
 impl Search<'_> {
     fn full(&self) -> bool {
         self.result.matches.len() >= MAX_SEARCH_MATCHES || self.bytes >= MAX_BYTES
-    }
-
-    fn directory(&mut self, dir: &Dir, prefix: &str, depth: usize) -> Result<(), Fault> {
-        self.control.check()?;
-        let mut names = Vec::new();
-        for entry in dir.entries().map_err(io_error)? {
-            self.control.check()?;
-            if self.visited == MAX_ENTRIES {
-                self.result.truncated = true;
-                break;
-            }
-            self.visited += 1;
-            let entry = match entry {
-                Ok(entry) => entry,
-                Err(_) => {
-                    self.result.skipped += 1;
-                    continue;
-                }
-            };
-            let Ok(name) = entry.file_name().into_string() else {
-                self.result.skipped += 1;
-                continue;
-            };
-            if name.eq_ignore_ascii_case(".git") {
-                continue;
-            }
-            if path::components(&name, false).is_err() {
-                self.result.skipped += 1;
-                continue;
-            }
-            names.push(name);
-        }
-        names.sort();
-        for name in names {
-            self.control.check()?;
-            if self.full() {
-                self.result.truncated = true;
-                break;
-            }
-            let relative = if prefix.is_empty() {
-                name.clone()
-            } else {
-                format!("{prefix}/{name}")
-            };
-            if path::components(&relative, false).is_err() {
-                self.result.skipped += 1;
-                continue;
-            }
-            let result: Result<(), Fault> = (|| {
-                let metadata = dir.symlink_metadata(&name).map_err(io_error)?;
-                if metadata.is_symlink() || (!metadata.is_file() && !metadata.is_dir()) {
-                    self.result.skipped += 1;
-                } else if metadata.is_dir() {
-                    if depth >= 64 || relative.len() > 4096 {
-                        self.result.truncated = true;
-                    } else {
-                        let child = path::descend(dir.try_clone().map_err(io_error)?, &[&name])?;
-                        self.directory(&child, &relative, depth + 1)?;
-                    }
-                } else if self.globs.is_empty() || self.globs.is_match(&relative) {
-                    self.file(dir, &name, relative)?;
-                }
-                Ok(())
-            })();
-            if let Err(error) = result {
-                if matches!(error.code, ErrorCode::Cancelled | ErrorCode::Busy) {
-                    return Err(error);
-                }
-                self.result.skipped += 1;
-            }
-        }
-        Ok(())
     }
 
     fn file(&mut self, dir: &Dir, name: &str, relative: String) -> Result<(), Fault> {
@@ -195,10 +119,7 @@ impl Search<'_> {
 }
 
 fn invalid() -> Fault {
-    Fault::new(
-        ErrorCode::InvalidRequest,
-        "invalid file search pattern or options",
-    )
+    Fault::invalid("invalid file search pattern or options")
 }
 
 #[cfg(test)]

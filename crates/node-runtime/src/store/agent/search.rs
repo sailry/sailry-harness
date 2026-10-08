@@ -22,7 +22,9 @@ pub(in crate::store) fn search(
             .before
             .is_some_and(|sequence| sequence == 0 || sequence > i64::MAX as u64)
     {
-        return Err(invalid("conversation search bounds are invalid"));
+        return Err(sailry_protocol::Fault::invalid(
+            "conversation search bounds are invalid",
+        ));
     }
     if let Some(before) = options.before {
         let visible: Option<bool> = db
@@ -54,7 +56,7 @@ pub(in crate::store) fn search(
         .size_limit(1 << 20)
         .dfa_size_limit(1 << 20)
         .build()
-        .map_err(|_| invalid("conversation search text is invalid"))?;
+        .map_err(|_| sailry_protocol::Fault::invalid("conversation search text is invalid"))?;
     let mut query = db.prepare(history::EVENTS_QUERY).map_err(storage_error)?;
     let mut rows = query
         .query(params![

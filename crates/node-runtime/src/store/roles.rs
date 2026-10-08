@@ -71,7 +71,7 @@ pub(super) fn put(
     role.revision = revision
         .checked_add(1)
         .filter(|value| *value <= i64::MAX as u64)
-        .ok_or_else(|| Fault::new(ErrorCode::InvalidRequest, "role revision exhausted"))?;
+        .ok_or_else(|| Fault::invalid("role revision exhausted"))?;
     db.execute(
         "INSERT INTO roles(id,key,body) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET key=excluded.key,body=excluded.body",
         params![role.id.to_string(), role.key, encode(&role)?],
@@ -101,10 +101,7 @@ pub(super) fn validate_model(
             .and_then(|value| value.reasoning)
             == Some(false)
         {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "role reasoning effort is unavailable",
-            ));
+            return Err(Fault::invalid("role reasoning effort is unavailable"));
         }
         model.validate_effort(provider.api, effort)?;
         effort.validate(provider.api, model.output)?;

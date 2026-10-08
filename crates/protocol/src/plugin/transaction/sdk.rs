@@ -1,6 +1,6 @@
 //! Shared value adaptation for desktop and headless JavaScript SDKs.
 use super::*;
-use crate::{ErrorCode, Fault, Output};
+use crate::{Fault, Output};
 use serde_json::{Value, json};
 
 pub fn decode(mut value: Value) -> Result<Vec<Operation>, Fault> {
@@ -89,10 +89,7 @@ pub fn output(output: Output) -> Value {
 }
 
 fn invalid() -> Fault {
-    Fault::new(
-        ErrorCode::InvalidRequest,
-        "invalid plugin transaction or revision",
-    )
+    Fault::invalid("invalid plugin transaction or revision")
 }
 
 #[cfg(test)]

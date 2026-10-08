@@ -89,12 +89,8 @@ pub(super) fn action(operation: Operation, arguments: Value) -> Result<(Resource
         timeout_ms: u64,
     }
     fn parse<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, Fault> {
-        serde_json::from_value(value).map_err(|error| {
-            Fault::new(
-                ErrorCode::InvalidRequest,
-                format!("invalid connection operation: {error}"),
-            )
-        })
+        serde_json::from_value(value)
+            .map_err(|error| Fault::invalid(format!("invalid connection operation: {error}")))
     }
     Ok(match operation {
         Operation::BrowseDatabase => {

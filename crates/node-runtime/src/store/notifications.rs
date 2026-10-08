@@ -36,10 +36,7 @@ pub(super) fn execute(
                 || content.title.len() > 512
                 || content.message.len() > 4096
             {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "invalid notification content",
-                ));
+                return Err(Fault::invalid("invalid notification content"));
             }
             if let Some(session) = content.session {
                 super::commands::session(db, session)?;
@@ -80,10 +77,7 @@ pub(super) fn execute(
         }
         Command::DismissNotifications { ids } => {
             if ids.len() > LIMIT {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "too many notifications",
-                ));
+                return Err(Fault::invalid("too many notifications"));
             }
             for id in ids {
                 db.execute("DELETE FROM notifications WHERE id=?1", [id.to_string()])

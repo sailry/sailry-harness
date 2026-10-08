@@ -120,19 +120,25 @@ async fn inherits_parent_model() {
             let requests = server.requests.lock().unwrap().clone();
             assert_eq!(requests.len(), 3);
             let parent_instruction = requests[0]["messages"][0].to_string();
-            assert!(parent_instruction.contains(
-                "Choose a role from the admitted roster when it fits the delegated task"
-            ));
+            assert!(!parent_instruction.contains("Choose a role from the admitted roster"));
+            let declaration = requests[0]["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|tool| {
+                    tool["function"]["name"]
+                        == crate::agent_support::plugin_tool("delegation", "spawn_agent")
+                })
+                .unwrap();
+            let description = declaration["function"]["description"].as_str().unwrap();
+            assert!(description.contains("use its exact listed key and never invent a role"));
             assert!(
-                parent_instruction.contains("use its exact listed key and never invent a role")
-            );
-            assert!(
-                parent_instruction
+                description
                     .contains("If no role fits or the roster is empty, omit role or use null")
             );
-            assert!(parent_instruction.contains(
-                "normally omit role to preserve its original role and frozen configuration"
-            ));
+            assert!(description.contains("The child does not see this conversation"));
+            assert!(description.contains("self-contained task"));
+            assert!(description.contains("disjoint files"));
             if roster {
                 let tool = requests[0]["tools"]
                     .as_array()
@@ -171,6 +177,24 @@ async fn inherits_parent_model() {
             assert_eq!(child["reasoning_effort"], "high");
             assert_eq!(child["model"], requests[0]["model"]);
             assert_eq!(child["messages"][0]["role"], "system");
+            let identity = child["messages"][0].to_string();
+            assert!(identity.contains("You are a delegated child"));
+            assert!(
+                identity.contains("Your final message returns to the parent agent, not the user")
+            );
+            assert!(identity.contains("Do not ask the user for input"));
+            assert!(!identity.contains("Finish with an answer to the user's request"));
+            assert!(!identity.contains("renders a file card"));
+            for name in ["ask_user", "set_session_title"] {
+                assert!(
+                    child["tools"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .all(|tool| tool["function"]["name"] != name)
+                );
+            }
+
             assert!(
                 child["messages"][0]
                     .to_string()

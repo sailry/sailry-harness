@@ -107,8 +107,7 @@ impl Ingress {
 
     async fn saved_models(&self, provider: &Provider) -> Result<discovery::Catalog, Fault> {
         if crate::providers::cloud::deployment(provider.api) {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
+            return Err(Fault::invalid(
                 "cloud deployments require an explicit model ID",
             ));
         }
@@ -178,10 +177,7 @@ impl Ingress {
     async fn discovery_key(&self, source: &discovery::Draft) -> Result<Option<Secret>, Fault> {
         if let Some(secret) = &source.secret {
             if secret.expose().is_empty() || secret.expose().len() > 65536 {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "provider credential is invalid",
-                ));
+                return Err(Fault::invalid("provider credential is invalid"));
             }
             return Ok(Some(secret.clone()));
         }

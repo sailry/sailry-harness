@@ -29,7 +29,9 @@ impl Projection {
 
     pub fn reconnect(&mut self, generation: u64) -> Result<(), Fault> {
         if generation <= self.generation {
-            return Err(invalid("connection generation must increase"));
+            return Err(sailry_protocol::Fault::invalid(
+                "connection generation must increase",
+            ));
         }
         self.generation = generation;
         self.recovery = true;
@@ -108,7 +110,9 @@ impl Projection {
                 self.recovery = true;
                 Ok(Apply::Recover)
             }
-            _ => Err(invalid("unexpected terminal subscription update")),
+            _ => Err(sailry_protocol::Fault::invalid(
+                "unexpected terminal subscription update",
+            )),
         }
     }
 
@@ -129,12 +133,16 @@ fn validate(screen: &Screen) -> Result<(), Fault> {
         || screen.rows.len() > terminal::MAX_ROWS as usize
         || screen.scrollback.len() > terminal::MAX_SCROLLBACK_ROWS
     {
-        return Err(invalid("terminal screen dimensions are invalid"));
+        return Err(sailry_protocol::Fault::invalid(
+            "terminal screen dimensions are invalid",
+        ));
     }
     if screen.cursor.is_some_and(|cursor| {
         cursor.column >= screen.columns || cursor.row as usize >= screen.rows.len()
     }) {
-        return Err(invalid("terminal cursor is outside the viewport"));
+        return Err(sailry_protocol::Fault::invalid(
+            "terminal cursor is outside the viewport",
+        ));
     }
     let mut images = std::collections::BTreeMap::new();
     let mut allocation = 0_u64;
@@ -147,12 +155,16 @@ fn validate(screen: &Screen) -> Result<(), Fault> {
             || image.png.len() > terminal::MAX_GRAPHICS_BYTES * 2
             || images.insert(image.id, image).is_some()
         {
-            return Err(invalid("terminal image resource is invalid"));
+            return Err(sailry_protocol::Fault::invalid(
+                "terminal image resource is invalid",
+            ));
         }
     }
     for placement in &screen.graphics.placements {
         let Some(image) = images.get(&placement.image) else {
-            return Err(invalid("terminal placement image is missing"));
+            return Err(sailry_protocol::Fault::invalid(
+                "terminal placement image is missing",
+            ));
         };
         let [x, y, width, height] = placement.source;
         if x.checked_add(width).is_none_or(|end| end > image.width)
@@ -162,27 +174,27 @@ fn validate(screen: &Screen) -> Result<(), Fault> {
                 .tile
                 .is_some_and(|[column, row, columns, rows]| column >= columns || row >= rows)
         {
-            return Err(invalid("terminal placement geometry is invalid"));
+            return Err(sailry_protocol::Fault::invalid(
+                "terminal placement geometry is invalid",
+            ));
         }
     }
     for line in screen.rows.iter().chain(&screen.scrollback) {
         let mut end = 0;
         for span in &line.spans {
             if span.column < end || span.columns == 0 {
-                return Err(invalid("terminal spans overlap"));
+                return Err(sailry_protocol::Fault::invalid("terminal spans overlap"));
             }
             end = span
                 .column
                 .checked_add(span.columns)
                 .filter(|end| *end <= screen.columns)
-                .ok_or_else(|| invalid("terminal span is outside the viewport"))?;
+                .ok_or_else(|| {
+                    sailry_protocol::Fault::invalid("terminal span is outside the viewport")
+                })?;
         }
     }
     Ok(())
-}
-
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }
 
 #[cfg(test)]

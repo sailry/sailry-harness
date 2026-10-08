@@ -570,10 +570,7 @@ fn valid_path(path: &str, root: bool) -> Result<(), Fault> {
             .split('/')
             .any(|part| matches!(part, "." | "..") || (!path.is_empty() && part.is_empty()))
     {
-        Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "invalid relative file path",
-        ))
+        Err(Fault::invalid("invalid relative file path"))
     } else {
         Ok(())
     }

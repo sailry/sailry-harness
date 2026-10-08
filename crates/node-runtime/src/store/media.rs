@@ -90,10 +90,7 @@ fn resolve(db: &Connection, settings: &media::Settings) -> Result<Snapshot, Faul
                     Fault::new(ErrorCode::NotConfigured, "media model is unavailable")
                 })?;
             if !crate::providers::media::supports(kind, &provider, model) {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "model does not support this media role",
-                ));
+                return Err(Fault::invalid("model does not support this media role"));
             }
             crate::providers::login::capture(&mut provider)?;
             Ok((
@@ -161,12 +158,7 @@ pub(super) fn save(
         .revision
         .checked_add(1)
         .filter(|value| *value <= i64::MAX as u64)
-        .ok_or_else(|| {
-            Fault::new(
-                ErrorCode::InvalidRequest,
-                "media settings revision exhausted",
-            )
-        })?;
+        .ok_or_else(|| Fault::invalid("media settings revision exhausted"))?;
     db.execute("INSERT INTO media_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [encode(&saved)?]).map_err(storage_error)?;
     Ok((
         Output::MediaSettings(saved.clone()),

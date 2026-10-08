@@ -110,8 +110,8 @@ impl Client {
         }
         let mut bytes = Vec::with_capacity(download.size as usize);
         self.download(&download, &mut bytes, cancel, |_| {}).await?;
-        let text = String::from_utf8(bytes)
-            .map_err(|_| Fault::new(ErrorCode::InvalidRequest, "file is not UTF-8 text"))?;
+        let text =
+            String::from_utf8(bytes).map_err(|_| Fault::invalid("file is not UTF-8 text"))?;
         validate_text(&text)?;
         Ok(FileContent {
             path: download.path,
@@ -207,12 +207,9 @@ impl Client {
 }
 
 fn scope(context: &sailry_protocol::plugin::Context) -> Result<WorktreeId, Fault> {
-    context.worktree.ok_or_else(|| {
-        Fault::new(
-            ErrorCode::InvalidRequest,
-            "document requires a captured worktree",
-        )
-    })
+    context
+        .worktree
+        .ok_or_else(|| Fault::invalid("document requires a captured worktree"))
 }
 
 fn prepare(
@@ -229,15 +226,9 @@ fn prepare(
 
 fn validate_text(text: &str) -> Result<(), Fault> {
     if text.len() > MAX_DOCUMENT_BYTES {
-        Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "document exceeds the text editing limit",
-        ))
+        Err(Fault::invalid("document exceeds the text editing limit"))
     } else if text.contains('\0') {
-        Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "binary file cannot be edited as text",
-        ))
+        Err(Fault::invalid("binary file cannot be edited as text"))
     } else {
         Ok(())
     }

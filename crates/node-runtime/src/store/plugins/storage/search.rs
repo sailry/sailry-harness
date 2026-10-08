@@ -9,6 +9,37 @@ fn table(name: &str) -> String {
     format!("plugin_search_{}", blake3::hash(name.as_bytes()).to_hex())
 }
 
+fn definition(name: &str) -> String {
+    let table = table(name);
+    format!(
+        "CREATE VIRTUAL TABLE {table} USING fts5(field0,field1,key UNINDEXED,tags UNINDEXED,ordinal UNINDEXED,tokenize='ascii tokenchars ''+#''')"
+    )
+}
+
+/// Reconstruct current schemas from durable corpus namespaces, including empty indexes.
+/// The caller creates these only in a reference database, never in the stored profile.
+pub(in crate::store) fn definitions(db: &Connection) -> Result<Vec<String>, Fault> {
+    let mut query = db
+        .prepare(
+            "SELECT name, max(index_data IS NOT NULL) FROM plugin_values GROUP BY name ORDER BY name",
+        )
+        .map_err(storage_error)?;
+    let names = query
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?))
+        })
+        .map_err(storage_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(storage_error)?;
+    let mut definitions = Vec::new();
+    for (name, indexed) in names {
+        if indexed || exists(db, &table(&name))? {
+            definitions.push(definition(&name));
+        }
+    }
+    Ok(definitions)
+}
+
 fn exists(db: &Connection, table: &str) -> Result<bool, Fault> {
     db.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
@@ -59,7 +90,9 @@ pub(super) fn validate_index(index: &Index) -> Result<(), Fault> {
         || index.fields.iter().any(|field| field.contains('\0'))
         || serde_json::to_vec(index).map_or(true, |bytes| bytes.len() > storage::MAX_INDEX_BYTES)
     {
-        return Err(invalid("invalid plugin search index"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid plugin search index",
+        ));
     }
     Ok(())
 }
@@ -77,7 +110,9 @@ fn validate_query(query: &Search) -> Result<(), Fault> {
         || !(1..=storage::MAX_PAGE_LIMIT).contains(&query.limit)
         || usize::from(query.offset) > storage::MAX_NAMESPACE_KEYS
     {
-        return Err(invalid("invalid plugin search query"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid plugin search query",
+        ));
     }
     Ok(())
 }
@@ -94,7 +129,7 @@ pub(super) fn replace(
         if index.is_none() {
             return Ok(());
         }
-        db.execute_batch(&format!("CREATE VIRTUAL TABLE {table} USING fts5(field0,field1,key UNINDEXED,tags UNINDEXED,ordinal UNINDEXED,tokenize='ascii tokenchars ''+#''')")).map_err(storage_error)?;
+        db.execute_batch(&definition(name)).map_err(storage_error)?;
     }
     let rowid: i64 = db
         .query_row(

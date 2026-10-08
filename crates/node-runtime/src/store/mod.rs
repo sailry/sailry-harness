@@ -177,7 +177,7 @@ pub(crate) struct Ingress {
     pub(crate) browsers: Arc<crate::browser::Browsers>,
     pub(crate) computer: Arc<crate::computer::Desktop>,
     pub(crate) external_browser: Arc<crate::external_browser::Browsers>,
-    git: crate::git::Git,
+    pub(crate) git: crate::git::Git,
     terminals: Arc<crate::terminal::Terminals>,
     commands: Arc<crate::process::background::Commands>,
     pub(crate) environment: Arc<crate::process::Environment>,

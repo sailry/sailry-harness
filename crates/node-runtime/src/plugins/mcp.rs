@@ -1,5 +1,5 @@
 //! Agent Plugins 1.0.0 MCP declarations. Loading never starts package code.
-use super::{invalid, package};
+use super::package;
 use cap_std::fs::Dir;
 use reqwest::{
     Url,
@@ -53,7 +53,9 @@ pub(crate) fn validate_server(server: &Server) -> Result<(), Fault> {
                 || cwd.contains('\0')
                 || cwd_root(cwd).is_none()
             {
-                return Err(invalid("invalid MCP process configuration"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "invalid MCP process configuration",
+                ));
             }
             // Paths are checked against retained package/data roots before launch.
             Ok(())
@@ -96,7 +98,8 @@ pub(crate) fn validate_http(
     endpoint: &str,
     headers: &BTreeMap<String, String>,
 ) -> Result<(), Fault> {
-    let url = Url::parse(endpoint).map_err(|_| invalid("invalid MCP endpoint"))?;
+    let url = Url::parse(endpoint)
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid MCP endpoint"))?;
     let loopback = url.host_str().is_some_and(|host| {
         host == "localhost"
             || host
@@ -117,15 +120,16 @@ pub(crate) fn validate_http(
         || url.fragment().is_some()
         || authority.is_some_and(|authority| authority.contains('@'))
     {
-        return Err(invalid("invalid MCP endpoint"));
+        return Err(sailry_protocol::Fault::invalid("invalid MCP endpoint"));
     }
     let mut names = BTreeSet::new();
     for (name, value) in headers {
-        let name =
-            HeaderName::from_bytes(name.as_bytes()).map_err(|_| invalid("invalid MCP header"))?;
-        HeaderValue::from_str(value).map_err(|_| invalid("invalid MCP header"))?;
+        let name = HeaderName::from_bytes(name.as_bytes())
+            .map_err(|_| sailry_protocol::Fault::invalid("invalid MCP header"))?;
+        HeaderValue::from_str(value)
+            .map_err(|_| sailry_protocol::Fault::invalid("invalid MCP header"))?;
         if !names.insert(name.as_str().to_owned()) {
-            return Err(invalid("duplicate MCP header"));
+            return Err(sailry_protocol::Fault::invalid("duplicate MCP header"));
         }
     }
     Ok(())
@@ -152,11 +156,13 @@ pub(crate) fn validate_configuration(
     if configuration.schema != SCHEMA
         || configuration.servers.len() != declared.len()
         || serde_json::to_vec(configuration)
-            .map_err(|_| invalid("invalid MCP configuration"))?
+            .map_err(|_| sailry_protocol::Fault::invalid("invalid MCP configuration"))?
             .len()
             > MAX_BYTES
     {
-        return Err(invalid("invalid MCP configuration document"));
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid MCP configuration document",
+        ));
     }
     for (name, server) in &configuration.servers {
         validate_server(server)?;
@@ -164,12 +170,16 @@ pub(crate) fn validate_configuration(
             .get(name)
             .is_some_and(|declared| declared.transport() == server.transport());
         if !same {
-            return Err(invalid("MCP server declaration changed"));
+            return Err(sailry_protocol::Fault::invalid(
+                "MCP server declaration changed",
+            ));
         }
         if let Server::Http { headers, .. } | Server::Sse { headers, .. } = server
             && headers.keys().any(|name| protocol_header(name))
         {
-            return Err(invalid("MCP protocol headers are managed by the transport"));
+            return Err(sailry_protocol::Fault::invalid(
+                "MCP protocol headers are managed by the transport",
+            ));
         }
     }
     Ok(())
@@ -179,10 +189,12 @@ pub(super) fn parse(
     bytes: &[u8],
     issues: &mut Vec<Issue>,
 ) -> Result<BTreeMap<String, Server>, Fault> {
-    let document: Document =
-        serde_json::from_slice(bytes).map_err(|_| invalid("invalid mcp.json"))?;
+    let document: Document = serde_json::from_slice(bytes)
+        .map_err(|_| sailry_protocol::Fault::invalid("invalid mcp.json"))?;
     if document.schema != SCHEMA || document.servers.len() > MAX_SERVERS {
-        return Err(invalid("unsupported MCP schema or server limit exceeded"));
+        return Err(sailry_protocol::Fault::invalid(
+            "unsupported MCP schema or server limit exceeded",
+        ));
     }
     let mut servers = BTreeMap::new();
     for (name, value) in document.servers {

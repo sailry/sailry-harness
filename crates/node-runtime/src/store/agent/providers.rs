@@ -37,7 +37,7 @@ pub(in crate::store) fn put(
     provider.revision = revision
         .checked_add(1)
         .filter(|value| *value <= i64::MAX as u64)
-        .ok_or_else(|| invalid("provider revision exhausted"))?;
+        .ok_or_else(|| sailry_protocol::Fault::invalid("provider revision exhausted"))?;
     provider.endpoint = crate::providers::endpoint_url(&provider.endpoint)?
         .as_str()
         .trim_end_matches('/')
@@ -66,7 +66,9 @@ pub(in crate::store) fn validate(
         )?;
     }
     if encode(provider)?.len() > 64 * 1024 {
-        return Err(invalid("provider configuration exceeds its size limit"));
+        return Err(sailry_protocol::Fault::invalid(
+            "provider configuration exceeds its size limit",
+        ));
     }
     let mut ids = std::collections::BTreeSet::new();
     for model in &provider.models {
@@ -78,18 +80,22 @@ pub(in crate::store) fn validate(
             || model.output > model.context
             || model.output > i32::MAX as u32
         {
-            return Err(invalid("model configuration is invalid or unsupported"));
+            return Err(sailry_protocol::Fault::invalid(
+                "model configuration is invalid or unsupported",
+            ));
         }
         model.validate_reasoning(provider.api)?;
     }
     if !provider.models.is_empty() && !ids.contains(&provider.default_model) {
-        return Err(invalid("default model is not in this provider"));
+        return Err(sailry_protocol::Fault::invalid(
+            "default model is not in this provider",
+        ));
     }
     if provider.name.trim().is_empty()
         || provider.name.len() > 128
         || provider.endpoint.len() > 2048
     {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "provider name and endpoint are required and must be bounded",
         ));
     }

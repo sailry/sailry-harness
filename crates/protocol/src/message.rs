@@ -7,13 +7,6 @@ use crate::{
     Secret, Session, SessionConfig, SessionId, TurnId,
 };
 
-pub(crate) fn discard_payload<'de, D>(deserializer: D) -> Result<(), D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    serde::de::IgnoredAny::deserialize(deserializer).map(|_| ())
-}
-
 #[cfg(test)]
 mod tests;
 
@@ -42,6 +35,10 @@ pub struct Fault {
 }
 
 impl Fault {
+    pub fn invalid(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::InvalidRequest, message)
+    }
+
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,
@@ -587,6 +584,7 @@ pub enum Command {
     RunCommand {
         turn: crate::TurnId,
         command: String,
+        description: Option<String>,
         cwd: String,
         timeout_ms: u64,
         background: bool,
@@ -828,6 +826,20 @@ pub enum Command {
         worktree: WorktreeId,
         commit: String,
     },
+    ReadGitShow {
+        worktree: WorktreeId,
+        revision: String,
+        path: Option<String>,
+        offset: usize,
+        limit: usize,
+    },
+    ReadGitBlame {
+        worktree: WorktreeId,
+        revision: Option<String>,
+        path: String,
+        offset: usize,
+        limit: usize,
+    },
     SearchFiles {
         worktree: WorktreeId,
         options: crate::FileSearch,
@@ -868,6 +880,16 @@ pub enum Command {
     ReadFile {
         worktree: WorktreeId,
         path: String,
+    },
+    ReadFileLines {
+        worktree: WorktreeId,
+        path: String,
+        offset: usize,
+        limit: usize,
+    },
+    FindFiles {
+        worktree: WorktreeId,
+        globs: Vec<String>,
     },
     ReadOffice {
         worktree: WorktreeId,
@@ -918,6 +940,13 @@ pub enum Command {
         text: String,
         /// None creates a new file and never replaces an existing entry.
         expected_revision: Option<String>,
+    },
+    EditFile {
+        worktree: WorktreeId,
+        path: String,
+        old_text: String,
+        new_text: String,
+        expected_revision: String,
     },
     /// Creates one directory in an existing parent, without replacing an entry.
     CreateDirectory {
@@ -1170,6 +1199,8 @@ impl Command {
                 | Self::ListDirectory { .. }
                 | Self::BrowseFiles { .. }
                 | Self::ReadFile { .. }
+                | Self::ReadFileLines { .. }
+                | Self::FindFiles { .. }
                 | Self::ReadOffice { .. }
                 | Self::DownloadFile { .. }
                 | Self::UploadFile(_)
@@ -1188,6 +1219,8 @@ impl Command {
                 | Self::ListGitRemoteTags { .. }
                 | Self::ReadGitLog { .. }
                 | Self::ReadGitCommit { .. }
+                | Self::ReadGitShow { .. }
+                | Self::ReadGitBlame { .. }
                 | Self::ReadGitDiff { .. }
         )
     }
@@ -1365,6 +1398,8 @@ pub enum Output {
     },
     Directory(crate::Directory),
     FileContent(crate::FileContent),
+    FileLines(crate::FileLines),
+    FileNames(crate::FileNames),
     FileDownload(crate::FileDownload),
     FileUpload(crate::FileUpload),
     Attachment(crate::attachment::Attachment),
@@ -1411,6 +1446,8 @@ pub enum Output {
     },
     GitLog(crate::GitLog),
     GitCommit(crate::GitCommit),
+    GitFile(crate::git::GitFile),
+    GitBlame(crate::git::GitBlame),
     GitActionCompleted,
     GitOutput {
         text: String,
@@ -1437,22 +1474,6 @@ pub enum Output {
     SessionsRemoved(Vec<SessionId>),
     SessionOrder(Vec<SessionId>),
     QueuedTurn(QueuedTurn),
-    /// An unreadable result kind, never a successful execution receipt.
-    #[serde(other, deserialize_with = "discard_payload")]
-    Unsupported,
-}
-
-impl Output {
-    /// Whether all nested result kinds are understood by this implementation.
-    pub fn supported(&self) -> bool {
-        match self {
-            Self::Unsupported => false,
-            Self::PluginTransaction(outputs) => outputs.iter().all(Self::supported),
-            Self::Dispatch(output) => output.supported(),
-            Self::RequestOutcome { outcome, .. } => outcome.supported(),
-            _ => true,
-        }
-    }
 }
 
 /// A read-only observation of the original durable admission, not a new receipt.
@@ -1465,18 +1486,6 @@ pub enum RequestOutcome {
     Completed(Box<Result<Output, Fault>>),
     /// The Node cannot determine the result and will not replay the side effect.
     Unknown,
-}
-
-impl RequestOutcome {
-    pub fn supported(&self) -> bool {
-        match self {
-            Self::Completed(result) => match result.as_ref() {
-                Ok(output) => output.supported(),
-                Err(_) => true,
-            },
-            _ => true,
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1553,9 +1562,6 @@ pub enum Event {
         activity: crate::activity::Summary,
     },
     PlanAccepted(Box<crate::conversation::question::AcceptedPlan>),
-    /// Unknown history has no state effect and retains only its envelope cursor.
-    #[serde(other, deserialize_with = "discard_payload")]
-    Unsupported,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

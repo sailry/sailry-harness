@@ -158,7 +158,7 @@ pub(super) async fn upload(
                 let mut reader = tokio::fs::File::from_std(source.file);
                 let sent = access
                     .client
-                    .upload_ssh(&upload, &mut reader, cancel.clone(), |copied| {
+                    .upload(&upload, &mut reader, cancel.clone(), |copied| {
                         updates.send_replace(Status::Sending(plan.copied + copied, plan.total));
                     })
                     .await;

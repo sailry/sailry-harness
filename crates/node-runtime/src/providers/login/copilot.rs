@@ -47,7 +47,9 @@ impl Service {
         )
         .await?;
         if device.verification_uri != "https://github.com/login/device" {
-            return Err(invalid("authorization verification URL is invalid"));
+            return Err(sailry_protocol::Fault::invalid(
+                "authorization verification URL is invalid",
+            ));
         }
         let duration = Duration::from_secs(device.expires_in.unwrap_or(900).clamp(1, 900));
         let deadline = tokio::time::Instant::now() + duration;
@@ -105,11 +107,13 @@ impl Service {
             ..
         } = options
         else {
-            return Err(invalid("OAuth settings do not match the authorization"));
+            return Err(sailry_protocol::Fault::invalid(
+                "OAuth settings do not match the authorization",
+            ));
         };
         let mut authorization =
             reqwest::header::HeaderValue::from_str(&format!("token {}", github.expose()))
-                .map_err(|_| invalid("authorization token is invalid"))?;
+                .map_err(|_| sailry_protocol::Fault::invalid("authorization token is invalid"))?;
         authorization.set_sensitive(true);
         let access: Access = json(
             client
@@ -128,18 +132,17 @@ impl Service {
         Ok(Grant::Copilot {
             access: access.token,
             github,
-            expires_at_ms: access
-                .expires_at
-                .checked_mul(1000)
-                .ok_or_else(|| invalid("authorization expiry is invalid"))?,
+            expires_at_ms: access.expires_at.checked_mul(1000).ok_or_else(|| {
+                sailry_protocol::Fault::invalid("authorization expiry is invalid")
+            })?,
             endpoint: target,
         })
     }
 }
 
 pub(super) fn endpoint(value: &str) -> Result<(), Fault> {
-    let url =
-        reqwest::Url::parse(value).map_err(|_| invalid("Copilot service endpoint is invalid"))?;
+    let url = reqwest::Url::parse(value)
+        .map_err(|_| sailry_protocol::Fault::invalid("Copilot service endpoint is invalid"))?;
     if url.scheme() != "https"
         || url.port().is_some()
         || !url.username().is_empty()
@@ -151,7 +154,9 @@ pub(super) fn endpoint(value: &str) -> Result<(), Fault> {
             host == "api.githubcopilot.com" || host.ends_with(".githubcopilot.com")
         })
     {
-        return Err(invalid("Copilot service endpoint is invalid"));
+        return Err(sailry_protocol::Fault::invalid(
+            "Copilot service endpoint is invalid",
+        ));
     }
     Ok(())
 }

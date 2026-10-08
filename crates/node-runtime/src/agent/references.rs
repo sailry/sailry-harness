@@ -35,10 +35,6 @@ struct ReadSession {
     sessions: Vec<SessionId>,
 }
 
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
-}
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Arguments {
@@ -81,24 +77,30 @@ impl Definition for ReadSession {
         }
         let limit = args.limit.unwrap_or(5);
         if !(1..=20).contains(&limit) {
-            return Err(invalid("history limit must be between 1 and 20"));
+            return Err(sailry_protocol::Fault::invalid(
+                "history limit must be between 1 and 20",
+            ));
         }
         if let Some(turn) = args.turn {
             if args.before.is_some() {
-                return Err(invalid("turn reads use before_entry"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "turn reads use before_entry",
+                ));
             }
             Ok(Command::ReadTurn {
                 session: args.session,
                 turn,
                 limit,
                 before: args.before_entry,
-                expected_revision: args
-                    .revision
-                    .ok_or_else(|| invalid("turn reads require a history revision"))?,
+                expected_revision: args.revision.ok_or_else(|| {
+                    sailry_protocol::Fault::invalid("turn reads require a history revision")
+                })?,
             })
         } else {
             if args.before_entry.is_some() || args.revision.is_some() {
-                return Err(invalid("entry cursor and revision require a turn"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "entry cursor and revision require a turn",
+                ));
             }
             Ok(Command::ReadConversation {
                 session: args.session,
@@ -111,8 +113,12 @@ impl Definition for ReadSession {
         match output {
             sailry_protocol::Output::Conversation(history) => serde_json::to_value(history),
             sailry_protocol::Output::TurnHistory(history) => serde_json::to_value(history),
-            _ => return Err(invalid("expected conversation history")),
+            _ => {
+                return Err(sailry_protocol::Fault::invalid(
+                    "expected conversation history",
+                ));
+            }
         }
-        .map_err(|error| invalid(&error.to_string()))
+        .map_err(|error| sailry_protocol::Fault::invalid(error.to_string()))
     }
 }

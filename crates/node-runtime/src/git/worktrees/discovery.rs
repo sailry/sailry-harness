@@ -117,10 +117,7 @@ pub(crate) fn resolve(root: &Path, destination: &str) -> Result<String, Fault> {
         || destination.chars().any(char::is_control)
         || !Path::new(destination).is_absolute()
     {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "expected an absolute worktree directory",
-        ));
+        return Err(Fault::invalid("expected an absolute worktree directory"));
     }
     let retained = path::root(root)?;
     let repository = open(root)?;
@@ -135,7 +132,7 @@ pub(crate) fn resolve(root: &Path, destination: &str) -> Result<String, Fault> {
     destination
         .into_os_string()
         .into_string()
-        .map_err(|_| Fault::new(ErrorCode::InvalidRequest, "worktree path is not UTF-8"))
+        .map_err(|_| Fault::invalid("worktree path is not UTF-8"))
 }
 
 fn member(common: &Path, root: &Path) -> Result<Repository, Fault> {

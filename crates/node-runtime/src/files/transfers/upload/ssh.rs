@@ -22,10 +22,7 @@ impl Transfers {
     ) -> Result<Upload, Fault> {
         crate::ssh::files::validate_path(&spec.path)?;
         if spec.size > crate::files::ssh::LIMIT {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "SSH file exceeds the transfer limit",
-            ));
+            return Err(Fault::invalid("SSH file exceeds the transfer limit"));
         }
         spec.revision = revision(&spec.revision)?;
         let (mut lease, permit, cancel) = self.reserve(caller, PathBuf::new(), closed)?;

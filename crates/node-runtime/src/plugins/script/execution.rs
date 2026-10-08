@@ -13,27 +13,30 @@ pub(crate) struct State {
 impl State {
     pub(super) fn call(&mut self, operation: &str, body: &str) -> Result<Value, Fault> {
         if operation == "id.call" {
-            return self
-                .call_id
-                .map(|id| json!(id))
-                .ok_or_else(|| invalid("operation requires an Agent tool call"));
+            return self.call_id.map(|id| json!(id)).ok_or_else(|| {
+                sailry_protocol::Fault::invalid("operation requires an Agent tool call")
+            });
         }
         if matches!(operation, "turn.read" | "turn.stage") {
             let current = self
                 .turn
                 .as_ref()
-                .ok_or_else(|| invalid("package has no turn policy"))?;
+                .ok_or_else(|| sailry_protocol::Fault::invalid("package has no turn policy"))?;
             if operation == "turn.read" {
                 return Ok(self.staged_turn.as_ref().unwrap_or(current).clone());
             }
             if body.len() > plugin::host::MAX_DATA_BYTES {
-                return Err(invalid("plugin turn state exceeds limit"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "plugin turn state exceeds limit",
+                ));
             }
-            let value: Value =
-                serde_json::from_str(body).map_err(|_| invalid("invalid turn state"))?;
+            let value: Value = serde_json::from_str(body)
+                .map_err(|_| sailry_protocol::Fault::invalid("invalid turn state"))?;
             self.staged_turn = Some(value.clone());
             return Ok(value);
         }
-        Err(invalid("unknown tool state operation"))
+        Err(sailry_protocol::Fault::invalid(
+            "unknown tool state operation",
+        ))
     }
 }

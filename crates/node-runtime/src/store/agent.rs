@@ -51,7 +51,7 @@ pub(super) use providers::{list as providers, put as put_provider, remove as rem
 pub(super) use runs::visible as visible_run;
 pub(super) use runs::{admit, recover, start, stop, stopping};
 pub(super) use search::search;
-pub(crate) use sessions::Sessions;
+pub(crate) use sessions::{INPUT_PART, INPUT_SOURCE, INPUT_TURN, Sessions};
 
 pub(crate) const SESSION_TITLE: &str = "sailry.session_title";
 
@@ -655,10 +655,6 @@ fn changed(db: &Connection, node: NodeId, session: SessionId) -> Result<EventEnv
 
 fn adk_error(error: Fault) -> AdkError {
     AdkError::session(error.to_string())
-}
-
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }
 
 fn check_session(db: &Connection, session: SessionId) -> Result<(), Fault> {

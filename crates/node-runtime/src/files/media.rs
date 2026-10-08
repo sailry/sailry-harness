@@ -30,10 +30,7 @@ impl Files {
             let limit = adk_core::MAX_INLINE_DATA_SIZE;
             let bytes = read_bytes(&mut file, limit + 1, &control)?;
             if bytes.len() > limit {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
-                    "media input exceeds the model inline limit",
-                ));
+                return Err(Fault::invalid("media input exceeds the model inline limit"));
             }
             Ok(bytes)
         })

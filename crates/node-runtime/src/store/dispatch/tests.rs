@@ -425,24 +425,19 @@ fn recovery_uses_committed_receipts() {
 }
 
 #[test]
-fn recovery_preserves_unsupported_receipts_without_replay() {
+fn recovery_rejects_unknown_receipts() {
     for completion in [Completion::Command, Completion::Turn] {
         for receipt in [
             json!({"Ok":{"kind":"future_output","data":{"private":"value"}}}),
             json!({"Ok":{"kind":"plugin_transaction","data":[{"kind":"future_output","data":"ignored"}]}}),
         ] {
             let fixture = Fixture::new();
-            let mut handler = fixture.setup("unsupported");
+            let mut handler = fixture.setup("invalid");
             handler.callback.completion = completion;
             let db = &fixture.database.connection;
             let handler = handlers::save(db, &fixture.package, &handler).unwrap();
-            let job = events::enqueue(
-                db,
-                &fixture.package,
-                &handler,
-                &fixture.event("unsupported"),
-            )
-            .unwrap();
+            let job =
+                events::enqueue(db, &fixture.package, &handler, &fixture.event("invalid")).unwrap();
             let (work, _) = jobs::claim(db, fixture.database.node, 200).unwrap();
             let request = encode(&work[0].request).unwrap();
             let receipt = receipt.to_string();
@@ -456,26 +451,29 @@ fn recovery_preserves_unsupported_receipts_without_replay() {
                 ],
             )
             .unwrap();
-            jobs::recover(db, fixture.database.node).unwrap();
-            let recovered: Job = required(
-                db,
-                "dispatch_jobs",
-                &fixture.package.name,
-                "id",
-                &job.id.to_string(),
-            )
-            .unwrap();
-            assert_eq!(recovered.status, Status::Failed);
-            assert_eq!(recovered.error.unwrap().code, ErrorCode::Unavailable);
+            let before: Vec<u8> = db
+                .query_row(
+                    "SELECT body FROM dispatch_jobs WHERE id=?1",
+                    [job.id.to_string()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                jobs::recover(db, fixture.database.node).unwrap_err().code,
+                ErrorCode::Internal
+            );
+            let after: Vec<u8> = db
+                .query_row(
+                    "SELECT body FROM dispatch_jobs WHERE id=?1",
+                    [job.id.to_string()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(after, before);
             assert!(
                 jobs::claim(db, fixture.database.node, 201)
                     .unwrap()
                     .0
-                    .is_empty()
-            );
-            assert!(
-                jobs::observers(db, fixture.database.node)
-                    .unwrap()
                     .is_empty()
             );
             let stored: (String, String, Vec<u8>) = db
@@ -484,12 +482,12 @@ fn recovery_preserves_unsupported_receipts_without_replay() {
                 })
                 .unwrap();
             assert_eq!(stored, ("completed".into(), receipt, request));
-            let protocol::RequestOutcome::Completed(result) =
-                jobs::result(db, &fixture.package.name, job.id).unwrap()
-            else {
-                panic!("completed receipt expected")
-            };
-            assert_eq!(result.unwrap_err().code, ErrorCode::Unavailable);
+            assert_eq!(
+                jobs::result(db, &fixture.package.name, job.id)
+                    .unwrap_err()
+                    .code,
+                ErrorCode::Internal
+            );
         }
     }
 }

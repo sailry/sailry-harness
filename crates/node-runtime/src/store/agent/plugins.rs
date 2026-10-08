@@ -11,7 +11,7 @@ pub(in crate::store) fn package(
         db,
         context
             .turn
-            .ok_or_else(|| invalid("plugin turn is required"))?,
+            .ok_or_else(|| sailry_protocol::Fault::invalid("plugin turn is required"))?,
     )?;
     if Some(run.session) != context.session {
         return Err(Fault::new(
@@ -28,7 +28,7 @@ pub(in crate::store) fn package(
     }
     packages(db, std::slice::from_ref(&context.package))?
         .pop()
-        .ok_or_else(|| invalid("plugin package is unavailable"))
+        .ok_or_else(|| sailry_protocol::Fault::invalid("plugin package is unavailable"))
 }
 
 pub(in crate::store) fn check_storage_write(db: &Connection, turn: TurnId) -> Result<(), Fault> {

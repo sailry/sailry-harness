@@ -37,10 +37,7 @@ impl Drop for Lease {
 impl Ports {
     pub(crate) fn prepare(&self, caller: NodeId, port: u16) -> Result<StreamId, Fault> {
         if port == 0 {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "port must be nonzero",
-            ));
+            return Err(Fault::invalid("port must be nonzero"));
         }
         let mut entries = self.entries.lock().unwrap();
         if self.stopped.is_cancelled() {

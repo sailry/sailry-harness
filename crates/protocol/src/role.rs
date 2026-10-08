@@ -1,5 +1,5 @@
 //! Node-owned named roles. Session execution freezes the selected definitions separately.
-use crate::{Effort, ErrorCode, Fault, ProviderId, RoleId};
+use crate::{Effort, Fault, ProviderId, RoleId};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_PROFILES: usize = 32;
@@ -22,7 +22,7 @@ impl Snapshot {
     pub fn validate(&self) -> Result<(), Fault> {
         use std::collections::BTreeSet;
         if self.profiles.len() > MAX_PROFILES {
-            return Err(invalid("session role limit exceeded"));
+            return Err(crate::Fault::invalid("session role limit exceeded"));
         }
         let mut ids = BTreeSet::new();
         let mut keys = BTreeSet::new();
@@ -30,7 +30,7 @@ impl Snapshot {
         for profile in &self.profiles {
             profile.validate()?;
             if !ids.insert(profile.id) || !keys.insert(&profile.key) {
-                return Err(invalid(
+                return Err(crate::Fault::invalid(
                     "session roles must have distinct identities and keys",
                 ));
             }
@@ -40,7 +40,7 @@ impl Snapshot {
         }
         let providers: BTreeSet<_> = self.providers.iter().map(|provider| provider.id).collect();
         if providers.len() != self.providers.len() || providers != required {
-            return Err(invalid(
+            return Err(crate::Fault::invalid(
                 "session role providers do not match the selected models",
             ));
         }
@@ -98,7 +98,7 @@ impl Profile {
                 byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"_-".contains(byte)
             })
         {
-            return Err(invalid(
+            return Err(crate::Fault::invalid(
                 "role key must use lowercase letters, digits, underscores or hyphens",
             ));
         }
@@ -108,20 +108,20 @@ impl Profile {
             || self.instructions.len() > 16 * 1024
             || self.max_turns == Some(0)
         {
-            return Err(invalid("role text or turn limit is invalid"));
+            return Err(crate::Fault::invalid("role text or turn limit is invalid"));
         }
         if self.appearance.as_ref().is_some_and(|appearance| {
             !crate::projects::ICONS.contains(&appearance.icon.as_str())
                 || !crate::projects::COLORS.contains(&appearance.color.as_str())
         }) {
-            return Err(invalid("role appearance is invalid"));
+            return Err(crate::Fault::invalid("role appearance is invalid"));
         }
         if self
             .model
             .as_ref()
             .is_some_and(|model| model.model.trim().is_empty() || model.model.len() > 256)
         {
-            return Err(invalid("role model identifier is invalid"));
+            return Err(crate::Fault::invalid("role model identifier is invalid"));
         }
         let mut skills = std::collections::BTreeSet::new();
         if self.skills.len() > 3
@@ -130,14 +130,12 @@ impl Profile {
                 .iter()
                 .any(|skill| skill.trim().is_empty() || skill.len() > 256 || !skills.insert(skill))
         {
-            return Err(invalid("role must reference at most three distinct skills"));
+            return Err(crate::Fault::invalid(
+                "role must reference at most three distinct skills",
+            ));
         }
         Ok(())
     }
-}
-
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }
 
 #[cfg(test)]

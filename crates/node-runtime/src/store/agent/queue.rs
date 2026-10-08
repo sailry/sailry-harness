@@ -266,7 +266,7 @@ pub(in crate::store) fn validate(message: &Input) -> Result<(), Fault> {
             .len()
             != message.attachments.len()
     {
-        Err(invalid(
+        Err(sailry_protocol::Fault::invalid(
             "input must be nonempty with at most one MiB of text, eight distinct attachments and 32 references",
         ))
     } else {
@@ -311,7 +311,11 @@ fn reorder(
     let source = items
         .iter()
         .position(|item| item.turn == turn)
-        .ok_or_else(|| invalid("queued turn belongs to another session or has already started"))?;
+        .ok_or_else(|| {
+            sailry_protocol::Fault::invalid(
+                "queued turn belongs to another session or has already started",
+            )
+        })?;
     if before == Some(turn) {
         return Ok(());
     }
@@ -320,7 +324,11 @@ fn reorder(
         Some(before) => items
             .iter()
             .position(|item| item.turn == before)
-            .ok_or_else(|| invalid("queue destination no longer exists in this session"))?,
+            .ok_or_else(|| {
+                sailry_protocol::Fault::invalid(
+                    "queue destination no longer exists in this session",
+                )
+            })?,
         None => items.len(),
     };
     items.insert(target, item);

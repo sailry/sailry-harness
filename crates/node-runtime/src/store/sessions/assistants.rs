@@ -46,7 +46,7 @@ pub(super) fn workspace(
     let packages =
         crate::store::agent::plugins::packages(db, std::slice::from_ref(&binding.package))?;
     if crate::plugins::conversation::declaration(binding, &packages)?.resource != Resource::Plugin {
-        return Err(commands::invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "plugin assistant requires its declared resource",
         ));
     }

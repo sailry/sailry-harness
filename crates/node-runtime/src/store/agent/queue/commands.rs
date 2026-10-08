@@ -39,7 +39,9 @@ pub(in crate::store) fn execute(
                 Some(&super::super::plugins::read(db, run.turn)?),
             )?;
             if run.kind != RunKind::Task {
-                return Err(invalid("context compaction has no editable input"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "context compaction has no editable input",
+                ));
             }
             super::super::super::attachments::turns::bind(db, *turn, &message.attachments)?;
             db.execute(
@@ -125,7 +127,11 @@ pub(in crate::store) fn execute(
             }
             *session
         }
-        _ => return Err(invalid("command does not operate on a queue")),
+        _ => {
+            return Err(sailry_protocol::Fault::invalid(
+                "command does not operate on a queue",
+            ));
+        }
     };
     Ok((
         Output::Queue(QueueUpdate {

@@ -1,6 +1,6 @@
 //! Skills and plugins share Git acquisition, without changing their package validators.
 use super::github::cancelled;
-use super::{Host, invalid, io_error};
+use super::{Host, io_error};
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     ErrorCode, Fault,

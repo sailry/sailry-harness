@@ -17,92 +17,34 @@ pub(super) async fn navigate(browser: &BrowserSession, args: Value) -> Result<Va
     // Navigate
     browser.navigate(url).await?;
 
-    // Get result info
-    let current_url = browser.current_url().await.unwrap_or_default();
-    let title = browser.title().await.unwrap_or_default();
-
-    // Include page context like interaction tools do
-    match browser.page_context().await {
-        Ok(page) => Ok(json!({
-            "success": true,
-            "url": current_url,
-            "title": title,
-            "page": page
-        })),
-        Err(e) => Ok(json!({
-            "success": true,
-            "url": current_url,
-            "title": title,
-            "page_context_error": e.to_string()
-        })),
-    }
+    context(browser).await
 }
 
 pub(super) async fn back(browser: &BrowserSession, _args: Value) -> Result<Value> {
     browser.back().await?;
 
-    let url = browser.current_url().await.unwrap_or_default();
-    let title = browser.title().await.unwrap_or_default();
-
-    // Include page context like interaction tools do
-    match browser.page_context().await {
-        Ok(page) => Ok(json!({
-            "success": true,
-            "url": url,
-            "title": title,
-            "page": page
-        })),
-        Err(e) => Ok(json!({
-            "success": true,
-            "url": url,
-            "title": title,
-            "page_context_error": e.to_string()
-        })),
-    }
+    context(browser).await
 }
 
 pub(super) async fn forward(browser: &BrowserSession, _args: Value) -> Result<Value> {
     browser.forward().await?;
 
-    let url = browser.current_url().await.unwrap_or_default();
-    let title = browser.title().await.unwrap_or_default();
-
-    // Include page context like interaction tools do
-    match browser.page_context().await {
-        Ok(page) => Ok(json!({
-            "success": true,
-            "url": url,
-            "title": title,
-            "page": page
-        })),
-        Err(e) => Ok(json!({
-            "success": true,
-            "url": url,
-            "title": title,
-            "page_context_error": e.to_string()
-        })),
-    }
+    context(browser).await
 }
 
 pub(super) async fn refresh(browser: &BrowserSession, _args: Value) -> Result<Value> {
     browser.refresh().await?;
 
+    context(browser).await
+}
+
+async fn context(browser: &BrowserSession) -> Result<Value> {
     let url = browser.current_url().await.unwrap_or_default();
     let title = browser.title().await.unwrap_or_default();
-
-    // Include page context like interaction tools do
     match browser.page_context().await {
-        Ok(page) => Ok(json!({
-            "success": true,
-            "url": url,
-            "title": title,
-            "page": page
-        })),
-        Err(e) => Ok(json!({
-            "success": true,
-            "url": url,
-            "title": title,
-            "page_context_error": e.to_string()
-        })),
+        Ok(page) => Ok(json!({"success":true, "url":url, "title":title, "page":page})),
+        Err(error) => Ok(
+            json!({"success":true, "url":url, "title":title, "page_context_error":error.to_string()}),
+        ),
     }
 }

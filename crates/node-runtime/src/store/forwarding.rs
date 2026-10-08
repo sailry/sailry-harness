@@ -27,10 +27,7 @@ pub(super) fn prepare(db: &Database, caller: NodeId, request: &Request) -> Resul
         provider_revision,
     } = &request.command
     else {
-        return Err(Fault::new(
-            ErrorCode::InvalidRequest,
-            "configuration forwarding expected",
-        ));
+        return Err(Fault::invalid("configuration forwarding expected"));
     };
     if caller != db.node || *target == db.node {
         return Err(Fault::new(

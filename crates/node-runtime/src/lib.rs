@@ -6,6 +6,8 @@
 mod agent;
 mod browser;
 mod computer;
+#[cfg(all(target_os = "macos", feature = "computer-worker"))]
+pub use computer::worker_host as computer_worker;
 mod databases;
 mod dispatch;
 mod error;

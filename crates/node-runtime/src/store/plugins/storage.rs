@@ -10,7 +10,7 @@ use crate::store::database::storage_error;
 pub(in crate::store) mod conversation;
 #[cfg(test)]
 mod schema_tests;
-mod search;
+pub(in crate::store) mod search;
 
 pub(super) fn execute(db: &Connection, request: &Request) -> Result<Output, Fault> {
     let name = &request
@@ -49,7 +49,7 @@ pub(super) fn execute(db: &Connection, request: &Request) -> Result<Output, Faul
                 .is_some_and(|after| !valid_key(after) || !after.starts_with(prefix))
                 || !(1..=storage::MAX_PAGE_LIMIT).contains(limit)
             {
-                return Err(invalid("invalid plugin key page"));
+                return Err(sailry_protocol::Fault::invalid("invalid plugin key page"));
             }
             Ok(Output::PluginKeys(list(
                 db,
@@ -75,7 +75,9 @@ pub(super) fn execute(db: &Connection, request: &Request) -> Result<Output, Faul
             )?;
             let body = serde_json::to_vec(&value).map_err(storage_error)?;
             if body.len() > storage::MAX_VALUE_BYTES {
-                return Err(invalid("plugin value exceeds 256 KiB"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "plugin value exceeds 256 KiB",
+                ));
             }
             Ok(Output::PluginValue(write(
                 db,
@@ -104,7 +106,9 @@ pub(super) fn execute(db: &Connection, request: &Request) -> Result<Output, Faul
             )?;
             let body = serde_json::to_vec(&value).map_err(storage_error)?;
             if body.len() > storage::MAX_VALUE_BYTES {
-                return Err(invalid("plugin value exceeds 256 KiB"));
+                return Err(sailry_protocol::Fault::invalid(
+                    "plugin value exceeds 256 KiB",
+                ));
             }
             search::validate_index(index)?;
             Ok(Output::PluginValue(write(
@@ -221,7 +225,7 @@ fn check_key(key: &str) -> Result<(), Fault> {
     if valid_key(key) {
         Ok(())
     } else {
-        Err(invalid("invalid plugin value key"))
+        Err(sailry_protocol::Fault::invalid("invalid plugin value key"))
     }
 }
 
@@ -229,7 +233,7 @@ fn check_prefix(prefix: &str) -> Result<(), Fault> {
     if prefix.len() <= storage::MAX_KEY_BYTES && !prefix.contains('\0') {
         Ok(())
     } else {
-        Err(invalid("invalid plugin key prefix"))
+        Err(sailry_protocol::Fault::invalid("invalid plugin key prefix"))
     }
 }
 
@@ -313,7 +317,7 @@ fn next_revision(revision: u64) -> Result<i64, Fault> {
     revision
         .checked_add(1)
         .and_then(|revision| i64::try_from(revision).ok())
-        .ok_or_else(|| invalid("plugin value revision exhausted"))
+        .ok_or_else(|| sailry_protocol::Fault::invalid("plugin value revision exhausted"))
 }
 
 fn write(
@@ -402,10 +406,6 @@ fn remove(db: &Connection, name: &str, key: &str, expected: u64) -> Result<Entry
         value: Value::Null,
         present: false,
     })
-}
-
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
 }
 
 #[cfg(test)]

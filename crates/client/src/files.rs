@@ -63,10 +63,7 @@ impl Client {
                             delay = Duration::from_millis(250);
                         }
                         Ok(_) => {
-                            break Fault::new(
-                                ErrorCode::InvalidRequest,
-                                "unexpected file subscription update",
-                            );
+                            break Fault::invalid("unexpected file subscription update");
                         }
                         Err(error) => break error,
                     }

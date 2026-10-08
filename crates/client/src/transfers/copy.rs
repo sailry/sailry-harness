@@ -24,8 +24,7 @@ impl Client {
                 return Err(cancelled());
             }
             if spec.size != download.size || spec.revision != download.revision {
-                return Err(Fault::new(
-                    ErrorCode::InvalidRequest,
+                return Err(Fault::invalid(
                     "copy destination must match the source size and revision",
                 ));
             }

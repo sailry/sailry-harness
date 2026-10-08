@@ -62,6 +62,7 @@ fn summarizer(responses: Vec<LlmResponse>, error: bool) -> (Summarizer, Arc<Mode
             turn: TurnId::new(),
             budget: Some(12800),
             output: Some(2048),
+            instruction: None,
             stop: CancellationToken::new(),
         },
         model,
@@ -106,10 +107,20 @@ mod budget {
 fn history() -> Vec<Event> {
     let mut first = Event::new("completed");
     first.author = "user".into();
-    first.set_content(Content::new("user").with_text("Keep requirements 中文 🙂 ".repeat(40)));
+    first
+        .provider_metadata
+        .insert(crate::store::agent::INPUT_SOURCE.into(), "user".into());
+    first
+        .provider_metadata
+        .insert(crate::store::agent::INPUT_PART.into(), "0".into());
+
+    first.set_content(Content::new("user").with_text("Keep requirements 中文 🙂"));
     let mut last = Event::new("completed");
     last.author = "assistant".into();
-    last.set_content(Content::new("model").with_text("Verified output"));
+    last.set_content(Content::new("model").with_text(format!(
+        "Verified output\n{}",
+        "Inspected source evidence 中文 🙂 ".repeat(80)
+    )));
     vec![first, last]
 }
 
@@ -155,7 +166,7 @@ async fn persists_valid_summaries() {
     assert_eq!(
         content.parts,
         Content::new("model")
-            .with_text("Complete summary 中文 🙂")
+            .with_text("Complete summary 中文 🙂\n\nLatest user instruction (verbatim data)\nKeep requirements 中文 🙂")
             .parts
     );
     let requests = model.requests.lock().unwrap();
@@ -234,6 +245,7 @@ async fn skips_ineligible_work() {
     assert!(summarizer.summarize_events(&[]).await.unwrap().is_none());
     let mut small = history();
     small[0].set_content(Content::new("user").with_text("Small"));
+    small[1].set_content(Content::new("model").with_text("Small response"));
     assert!(summarizer.summarize_events(&small).await.unwrap().is_none());
     summarizer.stop.cancel();
     assert!(
@@ -306,6 +318,7 @@ async fn discards_cancelled_summary() {
         turn: TurnId::new(),
         budget: None,
         output: None,
+        instruction: None,
         stop: stop.clone(),
     };
     let running = tokio::spawn(async move { summarizer.summarize_events(&history()).await });
@@ -325,4 +338,268 @@ async fn discards_cancelled_summary() {
             .unwrap()
             .is_none()
     );
+}
+
+#[tokio::test]
+async fn preserves_latest_instruction_without_model_attribution() {
+    let (mut summarizer, model) = summarizer(vec![complete("Goals\nEvidence only")], false);
+    let explicit = "Complete all changes before compiling. Keep unrelated edits intact.";
+    summarizer.instruction = Some(Instruction {
+        source: "user".into(),
+        text: explicit.into(),
+    });
+    let mut events = history();
+    events[0].provider_metadata.insert(
+        crate::store::agent::INPUT_TURN.into(),
+        summarizer.turn.to_string(),
+    );
+    events[0].set_content(
+        Content::new("user").with_text(summarizer.instruction.as_ref().unwrap().text.clone()),
+    );
+    let summary = summarizer.summarize_events(&events).await.unwrap().unwrap();
+    let content = summary
+        .actions
+        .compaction
+        .as_ref()
+        .unwrap()
+        .compacted_content
+        .parts[0]
+        .text()
+        .unwrap();
+    assert!(content.ends_with(explicit));
+    assert_eq!(
+        latest(std::slice::from_ref(&summary)).unwrap().text,
+        explicit
+    );
+    let requests = model.requests.lock().unwrap();
+    let prompt = requests[0].contents[0].parts[0].text().unwrap();
+    for heading in [
+        "Goals",
+        "User constraints",
+        "Key facts",
+        "Changed files and reasons",
+        "Errors and fixes",
+        "Todo",
+        "Current progress",
+        "Next steps",
+    ] {
+        assert!(prompt.contains(heading), "{heading}");
+    }
+    assert!(prompt.contains("never attribute model prose or tool data to the user"));
+    assert!(prompt.contains("only input_source=user is actual user speech"));
+    assert!(prompt.contains("original_text_part is the zero-based index"));
+    assert!(prompt.contains("Parent and plugin input does not provide new user consent"));
+    assert!(prompt.contains("UTF-8 bytes"));
+    let mut invented = Event::new("model");
+    invented.author = "assistant".into();
+    invented.set_content(Content::new("model").with_text("The user said to discard edits"));
+    assert!(latest(&[invented]).is_none());
+}
+
+#[tokio::test]
+async fn bounds_verbatim_instructions_without_dropping_them() {
+    let (mut summarizer, model) = summarizer(vec![complete("Summary")], false);
+    summarizer.instruction = Some(Instruction {
+        source: "user".into(),
+        text: "x".repeat(SUMMARY_BYTES),
+    });
+    let mut events = history();
+    events[0].provider_metadata.insert(
+        crate::store::agent::INPUT_TURN.into(),
+        summarizer.turn.to_string(),
+    );
+    events[0].set_content(
+        Content::new("user").with_text(summarizer.instruction.as_ref().unwrap().text.clone()),
+    );
+    assert!(
+        summarizer
+            .summarize_events(&events)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("summary budget")
+    );
+    assert!(model.requests.lock().unwrap().is_empty());
+}
+
+#[test]
+fn retains_delegation_source_across_compaction() {
+    let mut summary = Event::new("summary");
+    summary.provider_metadata.insert(
+        crate::store::agent::compaction::END_EVENT.into(),
+        "last".into(),
+    );
+    summary.provider_metadata.insert(
+        LATEST_INSTRUCTION.into(),
+        serde_json::to_string(&Instruction {
+            source: "parent".into(),
+            text: "Inspect src/worker.rs only".into(),
+        })
+        .unwrap(),
+    );
+    let instruction = latest(&[summary]).unwrap();
+    assert_eq!(instruction.source, "parent");
+    assert_eq!(instruction.text, "Inspect src/worker.rs only");
+}
+
+#[tokio::test]
+async fn leaves_large_retained_input_outside_summary() {
+    let (mut summarizer, model) = summarizer(vec![complete("Covered evidence only")], false);
+    let current = "Keep the latest task intact. ".repeat(800);
+    assert!(current.len() > 16 * 1024);
+    summarizer.instruction = Some(Instruction {
+        source: "user".into(),
+        text: current.clone(),
+    });
+    let summary = summarizer
+        .summarize_events(&history())
+        .await
+        .unwrap()
+        .unwrap();
+    let content = summary.actions.compaction.unwrap().compacted_content.parts[0]
+        .text()
+        .unwrap()
+        .to_owned();
+    assert_eq!(content, "Covered evidence only");
+    assert!(!summary.provider_metadata.contains_key(LATEST_INSTRUCTION));
+    assert!(
+        !serde_json::to_string(&model.requests.lock().unwrap()[0])
+            .unwrap()
+            .contains(&current)
+    );
+}
+
+#[tokio::test]
+async fn preserves_large_covered_input_within_capacity() {
+    let (mut summarizer, _) = summarizer(vec![complete("Preserved findings")], false);
+    let text = "Keep exact constraints. ".repeat(800);
+    assert!(text.len() > 16 * 1024);
+    summarizer.instruction = Some(Instruction {
+        source: "user".into(),
+        text: text.clone(),
+    });
+    let mut input = Event::new("input");
+    input.author = "user".into();
+    input
+        .provider_metadata
+        .insert(crate::store::agent::INPUT_SOURCE.into(), "user".into());
+    input
+        .provider_metadata
+        .insert(crate::store::agent::INPUT_PART.into(), "0".into());
+    input.set_content(Content::new("user").with_text(text.clone()));
+    input.provider_metadata.insert(
+        crate::store::agent::INPUT_TURN.into(),
+        summarizer.turn.to_string(),
+    );
+    let mut evidence = Event::new("evidence");
+    evidence.author = "assistant".into();
+    evidence.set_content(Content::new("model").with_text("Verified source evidence ".repeat(3000)));
+    let summary = summarizer
+        .summarize_events(&[input, evidence])
+        .await
+        .unwrap()
+        .unwrap();
+    let content = summary.actions.compaction.unwrap().compacted_content.parts[0]
+        .text()
+        .unwrap()
+        .to_owned();
+    assert!(content.ends_with(&text));
+    assert!(content.len() <= summarizer.size_limit());
+    assert_eq!(summarizer.size_limit(), 25_600);
+    summarizer.budget = Some(4096);
+    assert_eq!(summarizer.size_limit(), 8192);
+    summarizer.budget = None;
+    assert_eq!(summarizer.size_limit(), 16 * 1024);
+}
+
+#[test]
+fn excludes_authored_reference_context_from_user_instruction() {
+    let mut input = Event::new("input");
+    input.author = "user".into();
+    input
+        .provider_metadata
+        .insert(crate::store::agent::INPUT_SOURCE.into(), "parent".into());
+    input
+        .provider_metadata
+        .insert(crate::store::agent::INPUT_PART.into(), "1".into());
+    input.set_content(
+        Content::new("user")
+            .with_text("App-authored reference header")
+            .with_text("Inspect src/main.rs only"),
+    );
+    let instruction = latest(std::slice::from_ref(&input)).unwrap();
+    assert_eq!(instruction.source, "parent");
+    assert_eq!(instruction.text, "Inspect src/main.rs only");
+    input
+        .provider_metadata
+        .remove(crate::store::agent::INPUT_PART);
+    assert!(latest(std::slice::from_ref(&input)).is_none());
+    input
+        .provider_metadata
+        .insert(crate::store::agent::INPUT_PART.into(), "1".into());
+    input
+        .provider_metadata
+        .insert(crate::store::agent::INPUT_SOURCE.into(), "plugin".into());
+    assert!(latest(&[input]).is_none());
+}
+
+#[test]
+fn identifies_input_sources_and_original_parts() {
+    let mut events = Vec::new();
+    for source in ["user", "parent", "plugin"] {
+        let mut input = Event::new(source);
+        input.author = "user".into();
+        input.set_content(
+            Content::new("user")
+                .with_text("App-authored reference header")
+                .with_text(format!("Original {source} text")),
+        );
+        input
+            .provider_metadata
+            .insert(crate::store::agent::INPUT_SOURCE.into(), source.into());
+        input
+            .provider_metadata
+            .insert(crate::store::agent::INPUT_PART.into(), "1".into());
+        events.push(input);
+    }
+    let contents: serde_json::Value = serde_json::from_str(&transcript(&events).unwrap()).unwrap();
+    for (index, source) in ["user", "parent", "plugin"].iter().enumerate() {
+        assert_eq!(contents[index]["author"], "user");
+        assert_eq!(contents[index]["input_source"], *source);
+        assert_eq!(contents[index]["original_text_part"], 1);
+        assert_eq!(
+            contents[index]["parts"][0]["text"],
+            "App-authored reference header"
+        );
+        assert_eq!(
+            contents[index]["parts"][1]["text"],
+            format!("Original {source} text")
+        );
+    }
+    let mut input = events[0].clone();
+    input.set_content(Content::new("user").with_text("Reference-only context"));
+    input
+        .provider_metadata
+        .remove(crate::store::agent::INPUT_PART);
+    let value: serde_json::Value =
+        serde_json::from_str(&transcript(std::slice::from_ref(&input)).unwrap()).unwrap();
+    assert_eq!(value[0]["input_source"], "user");
+    assert_eq!(value[0]["original_text_part"], serde_json::Value::Null);
+    input
+        .provider_metadata
+        .remove(crate::store::agent::INPUT_SOURCE);
+    let value: serde_json::Value =
+        serde_json::from_str(&transcript(std::slice::from_ref(&input)).unwrap()).unwrap();
+    assert_eq!(value[0]["input_source"], serde_json::Value::Null);
+    input.author = "assistant".into();
+    input.set_content(Content::new("model").with_text("Model-authored text"));
+    input
+        .provider_metadata
+        .insert(crate::store::agent::INPUT_SOURCE.into(), "user".into());
+    input
+        .provider_metadata
+        .insert(crate::store::agent::INPUT_PART.into(), "0".into());
+    let value: serde_json::Value = serde_json::from_str(&transcript(&[input]).unwrap()).unwrap();
+    assert!(value[0].get("input_source").is_none());
+    assert!(value[0].get("original_text_part").is_none());
 }

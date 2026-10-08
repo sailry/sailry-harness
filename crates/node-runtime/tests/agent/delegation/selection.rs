@@ -51,7 +51,7 @@ async fn restores_frozen_input() {
             panic!("upload expected");
         };
         client
-            .upload_attachment(
+            .upload(
                 &upload,
                 &mut &bytes[..],
                 sailry_link::CancellationToken::new(),
@@ -181,6 +181,23 @@ async fn restores_frozen_input() {
         assert!(history.page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part, Part::Reference(reference) if reference.target == Target::File("source.txt".into()))));
         let requests = child.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 2);
+        for request in &requests {
+            let instruction = request["messages"][0].to_string();
+            assert!(instruction.contains("You are a delegated child"));
+            assert!(!instruction.contains("Finish with an answer to the user's request"));
+            assert!(!instruction.contains("renders a file card"));
+            assert!(instruction.contains(r#"Model: \"fixture-child\""#));
+            for name in ["ask_user", "set_session_title"] {
+                assert!(
+                    request["tools"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .all(|tool| tool["function"]["name"] != name)
+                );
+            }
+        }
+
         assert!(
             requests[0]
                 .to_string()

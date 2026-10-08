@@ -14,6 +14,7 @@ pub mod ports;
 mod projection;
 pub mod terminal;
 mod transfers;
+pub use transfers::Upload;
 pub mod usage;
 mod watch;
 pub use document::{DocumentWrite, MAX_DOCUMENT_BYTES};
@@ -142,18 +143,10 @@ impl Client {
 
 async fn execute(transport: &dyn Transport, request: Request) -> Result<Output, Fault> {
     let admission = transport.dispatch(request).await?;
-    let output = admission.completion.await.map_err(|_| {
+    admission.completion.await.map_err(|_| {
         Fault::new(
             ErrorCode::OutcomeUnknown,
             "completion unavailable; query using the same request identifier",
         )
-    })??;
-    if output.supported() {
-        Ok(output)
-    } else {
-        Err(Fault::new(
-            ErrorCode::Unavailable,
-            "request result is not supported; the request will not be replayed",
-        ))
-    }
+    })?
 }

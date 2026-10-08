@@ -23,8 +23,9 @@ impl Host {
         tokio::task::spawn_blocking(move || {
             let (_temporary, root) = selected_root(archive, &selected.path, &stop)?;
             let directory = crate::files::path::root(&root)?;
-            let bytes = package::read(&directory, "plugin.json", 64 * 1024)?
-                .ok_or_else(|| invalid("plugin.json is required at the selected directory"))?;
+            let bytes = package::read(&directory, "plugin.json", 64 * 1024)?.ok_or_else(|| {
+                sailry_protocol::Fault::invalid("plugin.json is required at the selected directory")
+            })?;
             let mut tree = package::Tree::default();
             tree.stop = stop;
             tree.walk(&directory, None, "", 0)?;
@@ -78,7 +79,7 @@ fn selected_root(
             || path.starts_with(&format!("{link}/"))
             || link.starts_with(&format!("{path}/"))
     }) {
-        return Err(invalid(
+        return Err(sailry_protocol::Fault::invalid(
             "selected plugin contains unsupported symbolic links",
         ));
     }

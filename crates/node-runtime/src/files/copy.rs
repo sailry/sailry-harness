@@ -78,17 +78,23 @@ fn publish(
             .map_err(io_error)?
             .starts_with(source_root.join(from).canonicalize().map_err(io_error)?)
     {
-        return Err(invalid("a directory cannot be copied into itself"));
+        return Err(sailry_protocol::Fault::invalid(
+            "a directory cannot be copied into itself",
+        ));
     }
     for name in target_parents {
         if object.directory && identity::directory(&target_dir)? == object.id {
-            return Err(invalid("a directory cannot be copied into itself"));
+            return Err(sailry_protocol::Fault::invalid(
+                "a directory cannot be copied into itself",
+            ));
         }
         target_dir = target_dir.open_dir_nofollow(name).map_err(io_error)?;
         identity::directory(&target_dir)?;
     }
     if object.directory && identity::directory(&target_dir)? == object.id {
-        return Err(invalid("a directory cannot be copied into itself"));
+        return Err(sailry_protocol::Fault::invalid(
+            "a directory cannot be copied into itself",
+        ));
     }
     let target_parent = identity::directory(&target_dir)?;
     absent(&target_dir, target_name)?;
@@ -222,9 +228,6 @@ fn absent(dir: &Dir, name: &str) -> Result<(), Fault> {
     }
 }
 
-fn invalid(message: &str) -> Fault {
-    Fault::new(ErrorCode::InvalidRequest, message)
-}
 fn changed() -> Fault {
     Fault::new(ErrorCode::RevisionConflict, "copy source or parent changed")
 }

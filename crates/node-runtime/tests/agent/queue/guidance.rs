@@ -230,7 +230,7 @@ async fn preserves_stopped_input() {
         };
         fixture
             .client
-            .upload_attachment(&upload, &mut &bytes[..], CancellationToken::new(), |_| {})
+            .upload(&upload, &mut &bytes[..], CancellationToken::new(), |_| {})
             .await
             .unwrap();
         let Output::Attachment(attachment) = fixture

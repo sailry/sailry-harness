@@ -1,5 +1,5 @@
 //! Complete task progress snapshots recorded as canonical tool results.
-use crate::{ErrorCode, Fault};
+use crate::Fault;
 use serde::{Deserialize, Serialize};
 
 pub const MAX_STEPS: usize = 256;
@@ -47,10 +47,7 @@ impl Progress {
                     .sum::<usize>()
                 > MAX_BYTES
         {
-            return Err(Fault::new(
-                ErrorCode::InvalidRequest,
-                "invalid task progress",
-            ));
+            return Err(Fault::invalid("invalid task progress"));
         }
         Ok(())
     }

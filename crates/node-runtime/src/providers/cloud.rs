@@ -21,7 +21,9 @@ pub(crate) fn validate(provider: &Provider) -> Result<(), Fault> {
         _ => false,
     };
     if !valid {
-        return Err(invalid("cloud routing options do not match the provider"));
+        return Err(sailry_protocol::Fault::invalid(
+            "cloud routing options do not match the provider",
+        ));
     }
     Ok(())
 }
