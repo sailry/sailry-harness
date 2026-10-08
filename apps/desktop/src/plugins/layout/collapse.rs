@@ -200,6 +200,7 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                 .flex_shrink_0()
                 .when(!plain, |panel| {
                     panel
+                        .bg(crate::theme::review_background(cx))
                         .border_1()
                         .border_color(cx.theme().border)
                         .rounded(cx.theme().radius)

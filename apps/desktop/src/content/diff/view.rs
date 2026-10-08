@@ -334,6 +334,7 @@ impl Render for State {
             .min_h_0()
             .overflow_hidden()
             .rounded(cx.theme().radius)
+            .bg(crate::theme::review_background(cx))
             .font_family(cx.theme().mono_font_family.clone())
             .text_size(cx.theme().mono_font_size)
             .line_height(cx.theme().mono_font_size * 1.5)

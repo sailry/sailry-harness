@@ -69,6 +69,12 @@ pub fn select(mode: Option<gpui_kit::component::ThemeMode>, window: &mut Window,
     }
 }
 
+/// Resolve translucent card tints against the theme base, excluding wallpaper.
+pub(crate) fn review_background(cx: &App) -> Hsla {
+    let theme = cx.theme();
+    theme.background.alpha(1.).blend(theme.group_box)
+}
+
 /// Panel tint only; child text and interactive controls retain full opacity.
 pub fn panel_background(cx: &App) -> Hsla {
     let surfaces = crate::preferences::data(cx).surfaces.unwrap_or_default();
@@ -264,6 +270,27 @@ fn sync_window(cx: &mut App) {
 mod tests {
     use super::*;
     use gpui_kit::{TestAppContext, component::ThemeMode, gpui};
+
+    #[gpui::test]
+    fn reviews_keep_default_contrast(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            init(cx);
+            for mode in [ThemeMode::Light, ThemeMode::Dark] {
+                Theme::change(mode, None, cx);
+                let background = review_background(cx);
+                assert!(background.is_opaque());
+                let value = background.to_rgb();
+                for channel in [value.r, value.g, value.b] {
+                    if mode.is_dark() {
+                        assert!(channel < 0.25, "translucent white tint must remain dark");
+                    } else {
+                        assert!(channel > 0.9, "transparent black tint must remain light");
+                    }
+                }
+            }
+        });
+    }
 
     #[gpui::test]
     fn light_interactions_are_subtle(cx: &mut TestAppContext) {

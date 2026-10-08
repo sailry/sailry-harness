@@ -67,7 +67,7 @@ pub(crate) fn file_rows(
                         .p_0()
                         .gap_0()
                         .overflow_hidden()
-                        .bg(cx.theme().group_box.opacity(0.8)),
+                        .bg(crate::theme::review_background(cx)),
                 )
                 .child(
                     h_flex()

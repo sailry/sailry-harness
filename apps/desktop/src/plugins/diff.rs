@@ -59,6 +59,7 @@ pub(super) fn module(module: HostModule, host: Arc<Host>) -> HostModule {
                 let selector = format!("{}-binary", args.id());
                 return div()
                     .debug_selector(move || selector)
+                    .bg(crate::theme::review_background(cx))
                     .px_3()
                     .py_2()
                     .text_sm()
