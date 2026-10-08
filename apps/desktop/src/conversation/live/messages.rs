@@ -155,7 +155,7 @@ impl View {
                     .into_any_element(),
                 )
             })
-            .on_image(move |url, cx| {
+            .on_image(move |url, urls, position, cx| {
                 use crate::content::images::{self, ImageSource};
                 use crate::conversation::file_reference::{self, Target};
                 if let (Some(worktree), Some(root)) = (worktree, root.as_deref())
@@ -167,11 +167,41 @@ impl View {
                         path,
                         context: None,
                     };
+                    let mut index = 0;
+                    let gallery: Vec<_> = urls
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(image_index, url)| {
+                            let Target::Workspace { path, .. } =
+                                file_reference::resolve(url, root)?
+                            else {
+                                return None;
+                            };
+                            if !images::supports(&path) {
+                                return None;
+                            }
+                            if image_index < position {
+                                index += 1;
+                            }
+                            Some(ImageSource::File {
+                                worktree,
+                                path,
+                                context: None,
+                            })
+                        })
+                        .collect();
                     let selector = format!("image-card-{}", source.id());
                     return div()
                         .max_w_full()
                         .debug_selector(move || selector.clone())
-                        .child(images::card(&source, &images, vec![source.clone()], 0, cx))
+                        .child(images::card(
+                            &source,
+                            &images,
+                            gallery,
+                            index,
+                            urls.len() > 1,
+                            cx,
+                        ))
                         .into_any_element();
                 }
                 if url.starts_with("https://") || url.starts_with("http://") {
@@ -302,8 +332,8 @@ impl View {
                     ))
                     .into_any_element(),
                 Block::Search(entry) => grounding::button(entry, cx),
-                Block::Image(image) => attachments::image_links(
-                    std::slice::from_ref(image),
+                Block::Images(images) => attachments::image_links(
+                    &images.into_iter().cloned().collect::<Vec<_>>(),
                     snapshot.page.session,
                     &self.binding,
                     &self.images,

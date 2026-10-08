@@ -20,7 +20,8 @@ impl View {
             .iter()
             .all(|block| matches!(block, Block::Text(_) | Block::Notice { .. }));
         let mut blocks = Vec::new();
-        for (position, block) in content.blocks.iter().enumerate() {
+        let mut source = content.blocks.iter().enumerate().peekable();
+        while let Some((position, block)) = source.next() {
             let id = format!("tool-content-{key}-{position}");
             blocks.push(match block {
                 Block::Text(data) => text::render(&id, data, result, literal, cx),
@@ -52,17 +53,19 @@ impl View {
                         })
                         .into_any_element()
                 }
-                Block::Image { index } => attachments::image_links(
-                    &images
-                        .iter()
-                        .filter(|image| image.index == *index)
+                Block::Image { index } => {
+                    let mut indices = vec![*index];
+                    while let Some((_, Block::Image { index })) = source.peek() {
+                        indices.push(*index);
+                        source.next();
+                    }
+                    let linked: Vec<_> = indices
+                        .into_iter()
+                        .flat_map(|index| images.iter().filter(move |image| image.index == index))
                         .cloned()
-                        .collect::<Vec<_>>(),
-                    page.session,
-                    &self.binding,
-                    &self.images,
-                    cx,
-                ),
+                        .collect();
+                    attachments::image_links(&linked, page.session, &self.binding, &self.images, cx)
+                }
             });
         }
         if literal {

@@ -159,7 +159,7 @@ impl Render for ImageFixture {
         div()
             .w(px(400.))
             .debug_selector(|| "image-markdown".into())
-            .child(View::new(&self.0).on_image(|_, _| {
+            .child(View::new(&self.0).on_image(|_, _, _, _| {
                 div()
                     .w(px(120.))
                     .h(px(80.))

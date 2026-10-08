@@ -12,6 +12,81 @@ mod compact;
 mod progress;
 
 #[test]
+fn preserves_image_message_boundaries() {
+    use sailry_protocol::{AttachmentId, WorktreeId, attachment, conversation::Image};
+    let turn = TurnId::new();
+    let image = |index| {
+        Part::Image(Image {
+            entry: "source".into(),
+            part: index,
+            index,
+            attachment: attachment::Attachment {
+                id: AttachmentId::new(),
+                spec: attachment::Spec {
+                    worktree: WorktreeId::new(),
+                    name: format!("image-{index}.png"),
+                    media_type: "image/png".into(),
+                    size: 1,
+                    revision: "fixture".into(),
+                },
+            },
+        })
+    };
+    let entries = [
+        vec![image(0), image(1)],
+        vec![image(2), Part::Text("Between".into()), image(3)],
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, parts)| Entry {
+        sequence: index as u64 + 1,
+        id: format!("entry-{index}"),
+        turn,
+        author: "assistant".into(),
+        branch: String::new(),
+        timestamp_ms: 1,
+        parts,
+        usage: None,
+        citations: vec![],
+        search_suggestions: None,
+    })
+    .collect();
+    let history = View {
+        snapshot: Some(Arc::new(Snapshot {
+            node: NodeId([1; 32]),
+            sequence: 1,
+            missing: vec![],
+            drafts: vec![],
+            statistics: Default::default(),
+            page: Arc::new(Page {
+                session: SessionId::new(),
+                revision: 1,
+                next_before: None,
+                queue: Default::default(),
+                approvals: vec![],
+                questions: vec![],
+                children: vec![],
+                runs: vec![],
+                entries,
+            }),
+        })),
+        ..View::default()
+    };
+    let blocks = collect(turn, &history);
+    assert_eq!(blocks.len(), 4);
+    assert!(
+        matches!(&blocks[0], Block::Images(images) if images.len() == 2 && images[0].index == 0 && images[1].index == 1)
+    );
+    assert!(
+        matches!(&blocks[1], Block::Images(images) if images.len() == 1 && images[0].index == 2)
+    );
+    assert!(matches!(&blocks[2], Block::Text(_, text) if text == "Between"));
+    assert!(
+        matches!(&blocks[3], Block::Images(images) if images.len() == 1 && images[0].index == 3)
+    );
+}
+
+#[test]
 fn retains_text_boundaries() {
     let turn = TurnId::new();
     let parts = vec![

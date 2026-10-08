@@ -18,6 +18,7 @@ struct Binding {
 }
 
 const THUMBNAIL_SIDE: u32 = 320;
+pub(crate) const GROUP_WIDTH: f32 = 160.;
 
 pub(crate) mod decode;
 mod load;

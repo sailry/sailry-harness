@@ -19,6 +19,7 @@ use gpui::{
 use gpui_kit as gpui;
 use gpui_kit::component::{
     ActiveTheme, Sizable,
+    attachment::AttachmentGroup,
     button::{Button, ButtonVariants},
 };
 use theme::{TextStyle, Theme, Typeset};
@@ -83,7 +84,7 @@ pub type OnLink = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 /// Standalone file links may be replaced by the owning surface.
 pub type OnFile = Rc<dyn Fn(usize, &str, &str, &App) -> Option<AnyElement>>;
 /// Image resources are resolved by the owning surface.
-pub type OnImage = Rc<dyn Fn(&str, &App) -> AnyElement>;
+pub type OnImage = Rc<dyn Fn(&str, &[&str], usize, &App) -> AnyElement>;
 
 /// Source-mapped draft decorations; never part of the document or its history.
 #[derive(Clone)]
@@ -405,6 +406,8 @@ struct Overlay<'a> {
     placeholder: Option<&'a SharedString>,
     on_link: Option<&'a OnLink>,
     on_image: Option<&'a OnImage>,
+    image_urls: &'a [&'a str],
+    image_index: usize,
     on_file: Option<&'a OnFile>,
     annotations: &'a [Annotation],
 }
@@ -541,7 +544,21 @@ pub fn with_block(
         .children(reset);
 
     let spacing = cx.theme().spacing_tokens();
-    for (ix, block) in doc.blocks.iter().enumerate() {
+    let mut ix = 0;
+    while let Some(block) = doc.blocks.get(ix) {
+        let end = if on_image.is_some() {
+            super::images::end(doc, ix)
+        } else {
+            ix + 1
+        };
+        let grouped = end > ix + 1;
+        let image_urls: Vec<_> = doc.blocks[ix..end]
+            .iter()
+            .filter_map(|block| match &block.kind {
+                BlockKind::Image { url, .. } => Some(url.as_str()),
+                _ => None,
+            })
+            .collect();
         let gap = match doc.blocks.get(ix.wrapping_sub(1)) {
             None => px(0.),
             Some(previous) if tight(previous, block) => spacing.sm,
@@ -556,12 +573,14 @@ pub fn with_block(
             placeholder: placeholder.as_ref(),
             on_link: on_link.as_ref(),
             on_image: on_image.as_ref(),
+            image_urls: &image_urls,
+            image_index: 0,
             on_file: on_file.as_ref(),
             annotations,
         };
         // The block's own box, recorded for a gutter handle and a drop target.
         // A rule and an image hold no text, so a layout would not find them.
-        let frame = layouts.map(|layouts| {
+        let frame = layouts.filter(|_| !grouped).map(|layouts| {
             let layouts = layouts.clone();
             canvas(
                 move |bounds, _, _| layouts.record_block(ix, bounds),
@@ -570,17 +589,65 @@ pub fn with_block(
             .absolute()
             .size_full()
         });
-        let leaf = if replacement.as_ref().is_some_and(|(block, _)| *block == ix) {
+        let leaf = if grouped {
+            AttachmentGroup::new(format!("markdown-images-{ix}"))
+                .flex_wrap()
+                .items_start()
+                .children((ix..end).map(|position| {
+                    let block = &doc.blocks[position];
+                    let overlay = Overlay {
+                        block: position,
+                        image_index: position - ix,
+                        ..overlay
+                    };
+                    let frame = layouts.map(|layouts| {
+                        let layouts = layouts.clone();
+                        canvas(
+                            move |bounds, _, _| layouts.record_block(position, bounds),
+                            |_, _, _, _| (),
+                        )
+                        .absolute()
+                        .size_full()
+                    });
+                    div()
+                        .debug_selector(move || format!("markdown-editor-block-{position}"))
+                        .w(px(crate::content::images::GROUP_WIDTH))
+                        .max_w_full()
+                        .min_w_0()
+                        .flex_shrink_0()
+                        .relative()
+                        .children(frame)
+                        .when(overlay.covers_block(), |el| {
+                            el.rounded(px(theme.radius)).bg(theme.selection)
+                        })
+                        .child(block_element(
+                            block,
+                            overlay,
+                            &typography,
+                            &theme,
+                            window,
+                            cx,
+                        ))
+                        .into_any_element()
+                }))
+                .into_any_element()
+        } else if replacement.as_ref().is_some_and(|(block, _)| *block == ix) {
             replacement.take().unwrap().1
         } else {
             block_element(block, overlay, &typography, &theme, window, cx)
         };
         let mut element = div()
-            .debug_selector(move || format!("markdown-editor-block-{ix}"))
+            .debug_selector(move || {
+                if grouped {
+                    format!("markdown-image-run-{ix}")
+                } else {
+                    format!("markdown-editor-block-{ix}")
+                }
+            })
             .w_full()
             .relative()
             .children(frame)
-            .when(overlay.covers_block() && block.opaque(), |el| {
+            .when(!grouped && overlay.covers_block() && block.opaque(), |el| {
                 el.rounded(px(theme.radius)).bg(theme.selection)
             })
             .child(leaf)
@@ -631,6 +698,7 @@ pub fn with_block(
                 })
                 .child(element),
         );
+        ix = end;
     }
 
     column.into_any_element()
@@ -1449,7 +1517,7 @@ fn image(
         ..overlay.at(Part::Caption)
     };
     let picture = if let Some(render) = overlay.on_image {
-        div().child(render(url, cx))
+        div().child(render(url, overlay.image_urls, overlay.image_index, cx))
     } else if url.is_empty() {
         div()
             .h(px(IMAGE_EMPTY_HEIGHT))

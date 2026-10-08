@@ -49,6 +49,26 @@ pub(super) fn expand(doc: Doc) -> Doc {
     Doc { blocks }
 }
 
+/// Adjacent top-level pictures share a row without changing authored containers.
+pub(super) fn end(doc: &Doc, start: usize) -> usize {
+    let block = &doc.blocks[start];
+    // Container paths encode shape, not identity. Keep separate quote/list frames
+    // intact even when consecutive blocks have the same nesting shape.
+    if !matches!(block.kind, BlockKind::Image { .. }) || !block.containers.is_empty() {
+        return start + 1;
+    }
+    start
+        + 1
+        + doc.blocks[start + 1..]
+            .iter()
+            .take_while(|next| {
+                matches!(next.kind, BlockKind::Image { .. })
+                    && next.indent == block.indent
+                    && next.containers == block.containers
+            })
+            .count()
+}
+
 fn file_image(url: &str) -> bool {
     (!url.contains("://") || url.starts_with("file://"))
         && crate::content::images::supports(url.split(['?', '#']).next().unwrap_or(url))
@@ -116,5 +136,45 @@ mod tests {
             panic!("text expected")
         };
         assert!(matches!(&text.marks[0].mark, Mark::Link(url) if url.starts_with("https://")));
+    }
+
+    #[test]
+    fn groups_only_adjacent_pictures() {
+        let doc = expand(
+            super::super::with_ranges(
+                "![First](one.png) ![Second](two.png)\n\nBetween\n\n![Third](three.png)",
+            )
+            .doc,
+        );
+        assert_eq!(end(&doc, 0), 2);
+        assert_eq!(end(&doc, 2), 3);
+        assert_eq!(end(&doc, 3), 4);
+        assert!(matches!(&doc.blocks[0].kind, BlockKind::Image { alt, .. } if alt.text == "First"));
+        assert!(
+            matches!(&doc.blocks[1].kind, BlockKind::Image { alt, .. } if alt.text == "Second")
+        );
+    }
+
+    #[test]
+    fn preserves_container_boundaries() {
+        let doc = expand(
+            super::super::with_ranges(
+                "> ![First](one.png)\n>\n> ![Second](two.png)\n\n![Outside](three.png)",
+            )
+            .doc,
+        );
+        assert_eq!(end(&doc, 0), 1);
+        assert_eq!(end(&doc, 1), 2);
+        assert_eq!(end(&doc, 2), 3);
+    }
+
+    #[test]
+    fn keeps_separate_quotes_distinct() {
+        let doc =
+            expand(super::super::with_ranges("> ![First](one.png)\n\n> ![Second](two.png)").doc);
+        assert_eq!(doc.blocks.len(), 2);
+        assert_eq!(doc.blocks[0].containers, doc.blocks[1].containers);
+        assert_eq!(end(&doc, 0), 1);
+        assert_eq!(end(&doc, 1), 2);
     }
 }

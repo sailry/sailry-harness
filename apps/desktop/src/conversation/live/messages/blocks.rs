@@ -8,7 +8,7 @@ use std::{borrow::Cow, collections::BTreeMap};
 pub(super) enum Block<'a> {
     Text(String, Cow<'a, str>),
     Search(&'a Entry),
-    Image(&'a sailry_protocol::conversation::Image),
+    Images(Vec<&'a sailry_protocol::conversation::Image>),
     Thinking(String, Cow<'a, str>),
     Compaction(String, &'a str),
     Tools(Vec<&'a Call>),
@@ -116,7 +116,13 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
                     blocks.push(Block::Text(key, text));
                 }
             }
-            Part::Image(image) => blocks.push(Block::Image(image)),
+            Part::Image(image) => {
+                if continuation && let Some(Block::Images(previous)) = blocks.last_mut() {
+                    previous.push(image);
+                } else {
+                    blocks.push(Block::Images(vec![image]));
+                }
+            }
             Part::Thinking(text) => {
                 if continuation && let Some(Block::Thinking(_, previous)) = blocks.last_mut() {
                     previous.to_mut().push_str(text);
@@ -240,7 +246,9 @@ fn continues(parts: &[Part], index: usize) -> bool {
     index.checked_sub(1).is_some_and(|previous| {
         matches!(
             (&parts[previous], &parts[index]),
-            (Part::Text(_), Part::Text(_)) | (Part::Thinking(_), Part::Thinking(_))
+            (Part::Text(_), Part::Text(_))
+                | (Part::Thinking(_), Part::Thinking(_))
+                | (Part::Image(_), Part::Image(_))
         )
     })
 }

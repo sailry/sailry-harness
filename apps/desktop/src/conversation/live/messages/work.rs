@@ -9,7 +9,7 @@ pub(super) fn answer_from(blocks: &[Block<'_>]) -> usize {
         .rposition(|block| {
             !matches!(
                 block,
-                Block::Text(..) | Block::Search(..) | Block::Image(..)
+                Block::Text(..) | Block::Search(..) | Block::Images(..)
             )
         })
         .map_or(0, |index| index + 1)

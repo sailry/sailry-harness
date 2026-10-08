@@ -401,7 +401,7 @@ impl View {
     }
     pub(crate) fn on_image(
         mut self,
-        render: impl Fn(&str, &App) -> gpui_kit::AnyElement + 'static,
+        render: impl Fn(&str, &[&str], usize, &App) -> gpui_kit::AnyElement + 'static,
     ) -> Self {
         self.on_image = Some(Rc::new(render));
         self

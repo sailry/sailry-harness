@@ -256,7 +256,16 @@ pub(in crate::conversation::live) fn source_links(
                         let selector = format!("image-card-{}", source.id());
                         div()
                             .debug_selector(move || selector.clone())
-                            .child(images::card(source, images, gallery.clone(), index, cx))
+                            .flex_shrink_0()
+                            .max_w_full()
+                            .child(images::card(
+                                source,
+                                images,
+                                gallery.clone(),
+                                index,
+                                gallery.len() > 1,
+                                cx,
+                            ))
                             .into_any_element()
                     })),
             )

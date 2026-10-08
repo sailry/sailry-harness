@@ -6,15 +6,20 @@ pub(crate) fn card(
     images: &Entity<Images>,
     gallery: Vec<ImageSource>,
     index: usize,
+    compact: bool,
     cx: &App,
 ) -> Card {
-    let single = gallery.len() == 1;
+    let single = !compact;
     let ratio = if single {
         Images::aspect_ratio(images, source, cx)
     } else {
         1.
     };
-    let width = if single { 320. * ratio.min(1.) } else { 160. };
+    let width = if single {
+        320. * ratio.min(1.)
+    } else {
+        GROUP_WIDTH
+    };
     let selector = format!("image-media-{}", source.id());
     let card = Card::new()
         .axis(Axis::Vertical)

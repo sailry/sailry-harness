@@ -4,7 +4,7 @@ use sailry_node_runtime::Node;
 use sailry_protocol::conversation::{Part, Status as RunStatus};
 use serde_json::{Value, json};
 
-pub(super) fn fixture(remote: bool, bytes: &[u8]) -> Fixture {
+pub(super) fn fixture(remote: bool, images: &[&[u8]]) -> Fixture {
     let mut fixture = Fixture::with_tools(
         remote,
         vec![(
@@ -66,7 +66,12 @@ pub(super) fn fixture(remote: bool, bytes: &[u8]) -> Fixture {
             else {
                 continue;
             };
-            response["inline_data"] = json!([{"mime_type":"image/png","data":bytes}]);
+            response["inline_data"] = json!(
+                images
+                    .iter()
+                    .map(|bytes| json!({"mime_type":"image/png","data":bytes}))
+                    .collect::<Vec<_>>()
+            );
             db.execute(
                 "UPDATE agent_events SET body=?2 WHERE sequence=?1",
                 rusqlite::params![sequence, serde_json::to_vec(&event).unwrap()],
@@ -77,7 +82,10 @@ pub(super) fn fixture(remote: bool, bytes: &[u8]) -> Fixture {
         }
         assert!(inserted, "fixture must contain a tool result");
     }
-    fixture.node = fixture.runtime.block_on(Node::start(&profile)).unwrap();
+    fixture.node = fixture
+        .runtime
+        .block_on(Node::start_isolated(&profile))
+        .unwrap();
     let transport: Arc<dyn Transport> = if remote {
         let address = fixture
             .runtime
@@ -104,7 +112,7 @@ fn opens_persisted_images(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let bytes = png(256, 128);
-        let fixture = fixture(remote, &bytes);
+        let fixture = fixture(remote, &[&bytes]);
         let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
         wait(visual, |cx| {
             view.read(cx).connected() && view.read(cx).image_history().calls.len() == 1
@@ -194,7 +202,7 @@ fn opens_persisted_images(cx: &mut TestAppContext) {
 fn missing_metadata(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
-        let fixture = fixture(remote, &png(256, 128));
+        let fixture = fixture(remote, &[&png(256, 128)]);
         let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
         wait(visual, |cx| {
             view.read(cx).connected() && view.read(cx).image_history().calls.len() == 1

@@ -5,12 +5,12 @@ fn renders(cx: &mut TestAppContext) {
     use sailry_protocol::tool::{Content, Presentation};
     init(cx);
     for remote in [false, true] {
-        let fixture = fixture(remote, &png(256, 128));
+        let fixture = fixture(remote, &[&png(256, 128), &png(128, 256)]);
         let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
         wait(visual, |cx| {
             view.read(cx).connected() && view.read(cx).image_history().calls.len() == 1
         });
-        let (key, work, trigger, image) = view.update(visual, |view, cx| {
+        let (key, work, trigger, images) = view.update(visual, |view, cx| {
             // UI behavior uses delivered standard content and a real authenticated image.
             // The Node MCP test separately verifies production and history reconstruction.
             let history = view.image_history_mut();
@@ -33,13 +33,14 @@ fn renders(cx: &mut TestAppContext) {
             let content: Content = serde_json::from_value(json!({"version":1,"blocks":[
                 {"kind":"table","columns":["Name","State"],"rows":[["[literal](https://example.com)","Ready"]]},
                 {"kind":"diff","path":"hello.txt","text":"@@ -1 +1 @@\n-before\n+after\n"},
-                {"kind":"image","index":images[0].index}
+                {"kind":"image","index":images[0].index},
+                {"kind":"image","index":images[1].index}
             ]})).unwrap();
             *result = json!({"output":{"sailry_content":content,"retained":"original result"}});
             call.content = Some(content);
             let keys = (format!("{}-{}", call.turn, call.source.key()),
                 format!("live-turn-work-{}", call.turn),
-                format!("live-{}-tools-{}", call.turn, call.source.key()), images[0].attachment.id);
+                format!("live-{}-tools-{}", call.turn, call.source.key()), images.iter().map(|image| image.attachment.id).collect::<Vec<_>>());
             cx.notify();
             keys
         });
@@ -48,7 +49,8 @@ fn renders(cx: &mut TestAppContext) {
         for selector in [
             format!("tool-content-{key}-0-cell-0-0"),
             format!("tool-content-{key}-1"),
-            format!("image-card-{image}"),
+            format!("image-card-{}", images[0]),
+            format!("image-card-{}", images[1]),
         ] {
             assert!(
                 visual
@@ -56,14 +58,25 @@ fn renders(cx: &mut TestAppContext) {
                     .is_some()
             );
         }
-        // Decoding changes the card aspect ratio and moves the following controls.
+        let cards: Vec<_> = images
+            .iter()
+            .map(|image| {
+                visual
+                    .debug_bounds(Box::leak(format!("image-card-{image}").into_boxed_str()))
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(cards[0].top(), cards[1].top());
+        assert_eq!(cards[0].size.width, px(GROUP_WIDTH));
+        assert!(cards[0].right() < cards[1].left());
+        // Decoding preserves the compact tile geometry.
         let cache = visual.update(|_, cx| view.read(cx).image_cache());
         wait(visual, |cx| {
             matches!(
                 cache
                     .read(cx)
                     .entries
-                    .get(&Key::Published(image))
+                    .get(&Key::Published(images[0]))
                     .and_then(|entry| entry.result.as_ref()),
                 Some(Ok(_))
             )
@@ -102,7 +115,9 @@ fn renders(cx: &mut TestAppContext) {
         );
         assert!(
             visual
-                .debug_bounds(Box::leak(format!("image-card-{image}").into_boxed_str()))
+                .debug_bounds(Box::leak(
+                    format!("image-card-{}", images[0]).into_boxed_str()
+                ))
                 .is_some()
         );
         assert!(
