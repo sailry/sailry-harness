@@ -52,6 +52,9 @@ class Profiles(unittest.TestCase):
                 self.assertEqual(profile["retries"], 0)
                 self.assertFalse(profile["fail-fast"])
                 self.assertNotIn("default-filter", profile)
+                self.assertEqual(
+                    profile["slow-timeout"], {"period": "60s", "terminate-after": 5},
+                )
 
 
 if __name__ == "__main__":

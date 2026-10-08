@@ -14,10 +14,10 @@ test-ui:
     cargo test --locked -p sailry-desktop -- --test-threads=1
 
 test-source:
-    python3 -m unittest discover -s scripts/tests -v
+    bash scripts/python.sh -m unittest discover -s scripts/tests -v
 
 test-plugins:
-    python3 scripts/test-plugins.py
+    bash scripts/python.sh scripts/test-plugins.py
 
 host data_dir="":
     if test -n {{quote(data_dir)}}; then cargo run --locked -p sailry-host -- --data-dir {{quote(data_dir)}}; else cargo run --locked -p sailry-host; fi

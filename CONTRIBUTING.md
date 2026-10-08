@@ -10,6 +10,9 @@ Use Rust 1.98.0, Git, Python 3.12 or newer, Zig 0.16.0, `just`, and your platfor
 native build tools. The Ghostty binding builds native code with Zig. macOS Desktop
 requires Xcode Command Line Tools. Use committed lockfiles and `--locked` for Rust
 commands; do not replace pinned dependencies with absolute local paths.
+Python recipes select an available Python 3.12 or newer without changing `PATH`.
+Set `SAILRY_PYTHON` to an explicit executable when needed; an unsupported explicit
+interpreter fails rather than silently selecting another one.
 
 Clone with `git clone --recurse-submodules` or run
 `git submodule update --init --recursive` before building. Official package changes
@@ -71,6 +74,11 @@ coverage gap; do not describe a fixture or compile check as live acceptance.
 Keep Cargo's default incremental compilation enabled for local development;
 the CI-only environment overrides are not local build settings. Run the affected
 tests first, not the complete platform matrix for each edit.
+When several contributors or agents share a checkout, designate one Cargo owner
+per target directory. Use a separate worktree and `CARGO_TARGET_DIR` for independent
+builds; do not launch competing builds against the same target or change its build
+environment between them. Keep `PKG_CONFIG_PATH`, SDK, target and Rust flags stable
+for a build lane. Do not delete another lane's artifacts to resolve a lock wait.
 
 ## Test conventions
 
@@ -118,45 +126,44 @@ manual dispatch reruns it without changing the required coverage. A newer run fo
 the same ref cancels superseded work. Reuse verified results while their relevant
 inputs remain unchanged.
 
-Native validation runs strict Rust checks on both macOS architectures, backend
-local/remote integration, desktop Kit interactions and binary builds with an
-explicit Xcode SDK.
+Native validation runs strict Rust checks, backend local/remote integration,
+desktop Kit interactions and production-feature checks on Apple silicon with an
+explicit Xcode SDK. Intel packaging and compilation run in the release workflow.
 Mobile checks include Flutter analysis and widget tests, native Dart FFI contracts
 and Flutter against an isolated real remote Node. Android builds an ARM64 release
 APK and checks its native libraries; iOS builds an unsigned application. Both
 mobile builds check the Rust dependency boundary. Actions and toolchains are
 pinned; Rust and Flutter use committed lockfiles. `Checks passed` requires every
-job to succeed, including both Desktop architectures; skipped or cancelled jobs
+job to succeed; skipped or cancelled jobs
 do not establish acceptance. Signed release packaging remains tag-only.
 
 Node integration features share eight compiled suites instead of linking a
 binary per feature. Keep feature files focused and register new files in the
 appropriate suite; the source check rejects missing or duplicate registrations.
-Rust target caches retain dependencies, including after failed tests, but exclude
-workspace outputs. Cargo validates fingerprints and rebuilds changed inputs.
+Rust caches retain downloaded sources but do not archive target directories,
+which otherwise exceed repository cache quotas. Cargo validates fingerprints
+and rebuilds changed inputs.
 The pinned sccache compiler cache reuses Rust library compilation by content;
 test executables still need linking. Cache statistics are recorded in each run.
 Checks omit debug information and preserve the workspace's optimization settings,
 including the GPUI hot-path overrides. Development and release profiles are unchanged.
 Compilation and execution are separate steps; compilation timings are uploaded
-for both Desktop architectures. The pinned nextest runner executes each Desktop
+for the backend and Desktop jobs. The pinned nextest runner executes each Desktop
 and backend test in its own process, isolating locale and GPUI test-platform
 state without compiling a binary per test. Desktop runs two tests concurrently;
-failures are not retried. Unit tests run before compiling the application binary,
-so a behavior failure does not wait for a redundant production build. The process
-lifecycle suite runs after the binary build. JUnit reports remain separate and
-include individual test durations.
-Lint, backend and Desktop checks run in parallel on each architecture rather than
-adding their cold compilation times together. Backend and Desktop share their
-dependency cache, with Desktop as its sole producer; Mobile reuses the ARM cache.
-Lint caches sources rather than another large target archive; sccache caches
-eligible library metadata. Downloaded speech libraries are cached
+failures are not retried. Hung tests fail after five 60-second timeout periods.
+Unit tests precede production-feature checks; the lifecycle suite builds its own
+required application executable. JUnit reports remain separate and include
+individual test durations.
+Checks uses three macOS jobs: lint with backend, Desktop, and Mobile with iOS.
+Backend and Desktop share downloaded dependency sources, with backend as the
+cache producer; Mobile reuses that source cache. Sccache caches eligible library
+metadata. Downloaded speech libraries are cached
 separately and saved after preparation, before subsequent checks or target cleanup.
-Desktop compilation uses one Cargo job on both architectures to avoid overlapping
-large main and test targets. Other ARM Rust steps use one job; Intel uses two.
+Rust compilation uses one Cargo job to bound memory on the standard macOS runner.
 These CLI limits preserve the shared dependency cache identity. Backend tests run
-four isolated processes concurrently on ARM and two on Intel to bound real-Node
-fixture contention. Documentation tests remain separate. The isolated database
+four isolated processes concurrently to bound real-Node fixture contention.
+The isolated database
 step selects the already-built database suite using the same backend package
 graph, avoiding a second compilation with different feature unification.
 

@@ -32,6 +32,7 @@
 - Keep feature-stage commits small enough to review; never leave an entire reconstruction as an uncommitted working tree.
 - A compile pass, model response, or mocked transport test proves only its own scope. Do not report full integration or performance acceptance from narrower evidence.
 - Stage only files owned by the current task. Preserve unrelated changes. Commit locally unless the user explicitly requests a push or PR.
+- Coordinate one Cargo owner per target directory when agents share a checkout. Independent build lanes use separate worktrees and `CARGO_TARGET_DIR`; keep SDK, `PKG_CONFIG_PATH`, target and Rust flags stable within a lane. Do not start competing Cargo processes or delete another lane's artifacts to resolve lock waits.
 - Reconcile the active task with committed implementation and verified results when resuming. Keep delivery evidence in tests and Git; do not append reports, test transcripts, or commit ledgers to docs.
 
 ## Code and dependency boundaries
