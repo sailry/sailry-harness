@@ -8,7 +8,7 @@ import '../../../content/paths.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
 import '../../resources/file_navigation.dart';
-import '../../resources/live_files.dart';
+import '../../resources/files_page.dart';
 
 class MessageReferences extends StatelessWidget {
   const MessageReferences({
@@ -62,7 +62,7 @@ class MessageReferences extends StatelessWidget {
             if (target['kind'] == 'directory') {
               await pushPage(
                 context,
-                LiveFilesPage(
+                FilesPage(
                   hostId: host.id,
                   worktreeId: worktree,
                   initialDirectory: path,

@@ -64,5 +64,31 @@ context.tr('status'); tr(dynamic);
         self.assertEqual(set(checking.LOCALES), {'en', 'zh-CN', 'zh-TW', 'ja', 'ko', 'fr', 'de', 'es', 'pt-BR', 'ru'})
 
 
+class Preview(unittest.TestCase):
+    def test_checks_isolated_resources_and_rejects_product_references(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            desktop = root / 'locales'
+            mobile = root / 'apps/mobile/lib/l10n'
+            preview = root / 'apps/mobile/preview/l10n'
+            for path in [desktop, mobile, preview]:
+                path.mkdir(parents=True)
+            for locale in checking.LOCALES:
+                (desktop / f'{locale}.yml').write_text('shared: Label\n')
+                name = checking.ARB.get(locale, locale)
+                (mobile / f'app_{name}.arb').write_text('{"shared":"Label"}')
+                (preview / f'app_{name}.arb').write_text('{"sample":"Fixture"}')
+            (mobile / 'app_pt.arb').write_text('{"shared":"Label"}')
+            (preview / 'app_pt.arb').write_text('{"sample":"Fixture"}')
+            (preview.parent / 'page.dart').write_text("context.tr('sample'); context.tr('shared');")
+            self.assertEqual(checking.check(root)[0], [])
+            (mobile.parent / 'main.dart').write_text("context.tr('sample');")
+            self.assertTrue(any('unknown localization sample' in issue
+                                for issue in checking.check(root)[0]))
+            (preview / 'app_ja.arb').write_text('{}')
+            self.assertTrue(any('Mobile preview ja: missing sample' in issue
+                                for issue in checking.check(root)[0]))
+
+
 if __name__ == '__main__':
     unittest.main()

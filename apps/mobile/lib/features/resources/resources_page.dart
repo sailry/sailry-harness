@@ -1,199 +1,156 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/strings.dart';
-import '../../ui/kit.dart';
 import '../../runtime/session.dart';
-import 'live_resources.dart';
+import '../../runtime/json.dart';
+import '../../ui/kit.dart';
+import '../terminal/terminal_page.dart';
 import 'files_page.dart';
 import 'git_page.dart';
 import 'workspace.dart';
 
 class ResourcesPage extends StatefulWidget {
-  const ResourcesPage({
-    super.key,
-    this.hostId,
-    this.worktreeId,
-    this.host = 'Studio',
-    this.project = 'sailry-web',
-    this.branch = 'feature/sign-in',
-  });
-
-  final String host;
+  const ResourcesPage({super.key, this.hostId, this.worktreeId});
   final String? hostId;
   final String? worktreeId;
-  final String project;
-  final String branch;
-
   @override
   State<ResourcesPage> createState() => _ResourcesPageState();
 }
 
 class _ResourcesPageState extends State<ResourcesPage> {
-  late String _host = widget.host;
-  late String _project = widget.project;
-  late String _branch = widget.branch;
-  final Set<String> _closedPorts = {};
+  late String? _hostId = widget.hostId;
+  late String? _worktreeId = widget.worktreeId;
+  String? _scope;
 
-  Future<void> _pickWorkspace() async {
-    final value = await showWorkspacePicker(
-      context,
-      host: _host,
-      project: _project,
-      branch: _branch,
-    );
-    if (value != null && mounted) {
-      setState(() {
-        _project = value.project;
-        _branch = value.branch;
-      });
-    }
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final id = _hostId ?? AppSession.of(context).selectedHost?.id;
+    if (_scope != null && _scope != id) _worktreeId = null;
+    _scope = id;
   }
 
-  String get _workspaceKey => '$_host/$_project/$_branch';
-
-  void _showPorts() {
-    showAppSheet<void>(
+  Future<void> _host() async {
+    final session = AppSession.of(context);
+    final id = await showAppSheet<String>(
       context,
-      context.tr('ports'),
-      child: StatefulBuilder(
-        builder: (context, update) => Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+      context.tr('selectHost'),
+      child: Builder(
+        builder: (context) => Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (_closedPorts.contains(_workspaceKey))
-              Text(context.tr('portClosed'))
-            else ...[
-              Surface(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Web / 5173',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 12),
-                    Text('${context.tr('portTarget')}: $_host :5173'),
-                    Text('${context.tr('localPort')}: 127.0.0.1:5173'),
-                  ],
-                ),
+            for (final host in session.hosts)
+              ListTile(
+                title: Text(host.label),
+                subtitle: host.connected
+                    ? null
+                    : Text(context.tr('hostDisconnected')),
+                onTap: () => Navigator.pop(context, host.id),
               ),
-              const SizedBox(height: 16),
-              Text(
-                context.tr('portNote'),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 16),
-              OutlinedButton(
-                onPressed: () {
-                  setState(() => _closedPorts.add(_workspaceKey));
-                  update(() {});
-                },
-                child: Text(context.tr('closePort')),
-              ),
-            ],
           ],
         ),
       ),
     );
+    if (id != null && mounted) {
+      session.selectHost(id);
+      setState(() {
+        if (widget.hostId != null) _hostId = id;
+        _worktreeId = null;
+      });
+    }
+  }
+
+  Future<void> _workspace(HostConnection host) async {
+    final id = await showLiveWorkspacePicker(context, host, _worktreeId);
+    if (mounted && id != null) setState(() => _worktreeId = id);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (AppSession.maybeOf(context) != null) {
-      return LiveResourcesPage(
-        hostId: widget.hostId,
-        worktreeId: widget.worktreeId,
-      );
-    }
-    final entries = [
-      (
-        'folder',
-        'files',
-        'browseFiles',
-        () => pushPage(
-          context,
-          FilesPage(host: _host, project: _project, branch: _branch),
-        ),
-      ),
-      (
-        'branch',
-        'git',
-        'gitSummary',
-        () => pushPage(
-          context,
-          GitPage(host: _host, project: _project, branch: _branch),
-        ),
-      ),
-      ('link', 'ports', 'portsSub', _showPorts),
-    ];
+    final session = AppSession.of(context);
+    final host = _hostId == null
+        ? session.selectedHost
+        : session.host(_hostId!);
+    final target = resourceTarget(context, _hostId, _worktreeId);
     return PageFrame(
       title: context.tr('resources'),
+      failure: host?.connected != true ? HostState(added: host != null) : null,
+      empty: host?.connected == true && target == null
+          ? EmptyState(message: context.tr('resourceNoWorkspace'))
+          : null,
       actions: [
+        if (host != null && host.connected && target != null)
+          RoundButton(
+            icon: 'terminal',
+            tooltip: context.tr('terminal'),
+            onPressed: () => pushPage(
+              context,
+              TerminalPage(
+                hostId: host.id,
+                worktreeId: text(target.worktree['id']),
+              ),
+            ),
+          ),
         if (ModalRoute.canPopOf(context) != true)
           RoundButton(
             icon: 'server',
-            tooltip: '${context.tr('selectHost')}: $_host',
-            onPressed: () => showHostPicker(
-              context,
-              selected: _host,
-              onSelected: (host) => setState(() {
-                _host = host;
-                _project = host == 'Build Server' ? 'sailry-api' : 'sailry-web';
-                _branch = 'feature/sign-in';
-              }),
-            ),
+            tooltip: context.tr('selectHost'),
+            onPressed: session.hosts.isEmpty ? null : _host,
           ),
       ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SelectorCard(
-            title: _project,
-            subtitle: _branch,
-            onTap: ModalRoute.canPopOf(context) == true ? null : _pickWorkspace,
-          ),
-          const SizedBox(height: 16),
-          LayoutBuilder(
-            builder: (context, constraints) => Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                for (final entry in entries)
-                  SizedBox(
-                    width: (constraints.maxWidth - 10) / 2,
-                    child: Surface(
-                      onTap: entry.$4,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          AppIcon(
-                            entry.$1,
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onSurfaceVariant,
-                          ),
-                          const SizedBox(height: 22),
-                          Text(
-                            context.tr(entry.$2),
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            context.tr(entry.$3).replaceAll('Studio', _host),
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
-                                ),
-                          ),
-                        ],
+          if (host != null && host.connected && target != null) ...[
+            SelectorCard(
+              title: worktreeLabel(target.worktree),
+              subtitle: host.label,
+              onTap: ModalRoute.canPopOf(context) == true
+                  ? null
+                  : () => _workspace(host),
+            ),
+            const SizedBox(height: 16),
+            LayoutBuilder(
+              builder: (context, constraints) => Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  for (final item in [('folder', 'files'), ('branch', 'git')])
+                    SizedBox(
+                      width: (constraints.maxWidth - 10) / 2,
+                      child: Surface(
+                        onTap: () {
+                          final worktree = text(target.worktree['id']);
+                          pushPage(context, switch (item.$2) {
+                            'files' => FilesPage(
+                              hostId: host.id,
+                              worktreeId: worktree,
+                            ),
+                            _ => GitPage(hostId: host.id, worktreeId: worktree),
+                          });
+                        },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            AppIcon(
+                              item.$1,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(height: 22),
+                            Text(
+                              context.tr(item.$2),
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );

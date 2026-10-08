@@ -19,15 +19,8 @@ import 'l10n/language.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SailryApp extends StatefulWidget {
-  const SailryApp({
-    super.key,
-    this.session,
-    this.preview = false,
-    this.preferences,
-    this.updates,
-  });
+  const SailryApp({super.key, this.session, this.preferences, this.updates});
   final AppSession? session;
-  final bool preview;
   final SharedPreferencesAsync? preferences;
   final AppUpdates? updates;
   @override
@@ -46,18 +39,14 @@ class _SailryAppState extends State<SailryApp> {
   AppUpdates? _updates;
   final _navigator = GlobalKey<NavigatorState>();
   late final _preferences = widget.preferences ?? SharedPreferencesAsync();
-  bool get _persist =>
-      !widget.preview && (widget.session == null || widget.preferences != null);
+  bool get _persist => widget.session == null || widget.preferences != null;
   @override
   void initState() {
     super.initState();
-    if (!widget.preview) {
-      _updates =
-          widget.updates ?? (widget.session == null ? AppUpdates() : null);
-      _session = widget.session ?? AppSession();
-      if (widget.session == null) unawaited(_session!.start());
-      if (_persist) unawaited(_loadPreferences());
-    }
+    _updates = widget.updates ?? (widget.session == null ? AppUpdates() : null);
+    _session = widget.session ?? AppSession();
+    if (widget.session == null) unawaited(_session!.start());
+    if (_persist) unawaited(_loadPreferences());
   }
 
   Future<void> _loadPreferences() async {
@@ -233,7 +222,6 @@ class _ShellState extends State<_Shell> {
   int _taskRoute = 0;
   String _taskFilter = 'all';
   bool _sessionsOnly = false;
-  String _settingsHost = 'Studio';
   @override
   Widget build(BuildContext context) {
     final session = AppSession.maybeOf(context);
@@ -269,7 +257,6 @@ class _ShellState extends State<_Shell> {
                               _index = 0;
                             }),
                             onSettings: (host) => setState(() {
-                              _settingsHost = host;
                               _index = 3;
                             }),
                           ),
@@ -278,9 +265,6 @@ class _ShellState extends State<_Shell> {
                             updates: widget.updates,
                             language: widget.language,
                             onLanguageChanged: widget.onLanguageChanged,
-                            initialHost: _settingsHost,
-                            onHostChanged: (host) =>
-                                setState(() => _settingsHost = host),
                             themeMode: widget.themeMode,
                             onThemeChanged: widget.onThemeChanged,
                             notifications: widget.notifications,

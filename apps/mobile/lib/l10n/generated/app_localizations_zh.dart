@@ -38,9 +38,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get updatesOpenFailed => '无法打开下载链接';
 
   @override
-  String get retryTask => '重试';
-
-  @override
   String get welcomeTitle => '今天，想一起做点什么？';
 
   @override
@@ -938,13 +935,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get tool_generate_video => '生成视频';
 
   @override
-  String get terminalUnavailable => '终端将在接入后可用';
-
-  @override
-  String get terminalFixture =>
-      '~/Projects/sailry-web\n❯ pnpm test\n\n PASS  src/tests/login.test.ts\n PASS  src/tests/session.test.ts\n PASS  src/tests/navigation.test.ts\n\nTest Suites  3 passed, 3 total\nTests        18 passed, 18 total\nTime         2.41 s\n\n✓ All tests passed\n\n❯';
-
-  @override
   String get refresh => '刷新';
 
   @override
@@ -1001,9 +991,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get stopBeforeDelete => '停止任务';
 
   @override
-  String get deleted => '会话已从预览中删除';
-
-  @override
   String get restored => '已恢复到首页';
 
   @override
@@ -1014,9 +1001,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get archiveKeepsRunning => '存档不会停止正在执行的任务';
-
-  @override
-  String get title => 'Sailry · 移动端预览';
 
   @override
   String get brand => 'Sailry';
@@ -1034,9 +1018,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get preview => '预览';
 
   @override
-  String get sample => '示例数据 · 操作仅在当前页面生效';
-
-  @override
   String get mixed => '深浅对照';
 
   @override
@@ -1052,9 +1033,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get focus => '单屏体验';
 
   @override
-  String get reset => '重置预览';
-
-  @override
   String get page => '选择页面';
 
   @override
@@ -1068,9 +1046,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get footer => 'SAILRY / 移动端';
-
-  @override
-  String get footerNote => '本地 HTML 预览 · 无服务连接';
 
   @override
   String get tasks => '任务';
@@ -1181,28 +1156,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get newConversation => '新会话';
 
   @override
-  String get approveTitle => '更新登录页的布局';
-
-  @override
-  String get approveNote => '运行项目测试';
-
-  @override
-  String get approveContext => 'sailry-web · feature/sign-in';
-
-  @override
-  String get questionTitle => '整理 API 接口文档';
-
-  @override
-  String get questionNote => '等待回复';
-
-  @override
   String get question => '文档使用哪种语言？';
-
-  @override
-  String get optionChinese => '中文';
-
-  @override
-  String get optionEnglish => '英文';
 
   @override
   String get reply => '回复';
@@ -1212,24 +1166,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get viewRequest => '查看请求';
-
-  @override
-  String get taskSearch => '优化文件搜索';
-
-  @override
-  String get taskSearchNote => '正在检查目录索引';
-
-  @override
-  String get taskTest => '修复会话恢复';
-
-  @override
-  String get taskTestNote => '正在运行测试';
-
-  @override
-  String get taskDone => '补充项目 README';
-
-  @override
-  String get taskDoneNote => '3 个文件变更';
 
   @override
   String get ago => '刚刚';
@@ -1244,18 +1180,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get deny => '拒绝';
 
   @override
-  String get approved => '已允许 · 示例';
-
-  @override
-  String get denied => '已拒绝 · 示例';
-
-  @override
-  String get answered => '已回复 · 示例';
-
-  @override
-  String get awaiting => '等待审批';
-
-  @override
   String get working => '正在处理';
 
   @override
@@ -1265,25 +1189,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get viewConversation => '查看会话';
 
   @override
-  String get chatTitle => '更新登录页的布局';
-
-  @override
-  String get chatHost => 'sailry-web · Studio';
-
-  @override
   String get branch => 'feature/sign-in';
 
   @override
   String get today => '今天 09:36';
-
-  @override
-  String get userMessage => '调整登录页的间距，统一输入框和按钮的样式，保留现有登录逻辑';
-
-  @override
-  String get assistantMessage => '我检查了登录页和共享表单组件，已统一输入区域的间距，并补齐键盘焦点样式';
-
-  @override
-  String get replyPreview => '任务流程示例';
 
   @override
   String get phaseThinking => '开始思考';
@@ -1322,123 +1231,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get queueShort => '队列';
 
   @override
-  String get confirmShort => '确认';
-
-  @override
-  String get todoShort => '待办';
-
-  @override
-  String get todoInspect => '检查登录页';
-
-  @override
-  String get todoEdit => '调整表单样式';
-
-  @override
-  String get todoTest => '验证项目测试';
-
-  @override
-  String get todoNarrow => '检查窄屏间距';
-
-  @override
-  String get workProcess => '处理过程';
-
-  @override
-  String workSteps(String count) {
-    return '· $count 步';
-  }
-
-  @override
-  String get questionRecord => '确认布局';
-
-  @override
-  String get answerRecorded => '已回复';
-
-  @override
-  String get playFlow => '播放任务';
-
-  @override
-  String get pauseFlow => '暂停演示';
-
-  @override
-  String get nextFlow => '下一步';
-
-  @override
   String get replyingNow => '正在回复';
-
-  @override
-  String get toolReadLabel => '读取';
-
-  @override
-  String get toolEditLabel => '编辑';
-
-  @override
-  String get toolRunLabel => '运行';
-
-  @override
-  String get readGroup => '3 个文件';
-
-  @override
-  String get readFileResult => '文件已读取';
 
   @override
   String get readFileProgress => '正在读取文件';
 
   @override
-  String get flowAttachment => '登录页调整：统一表单间距，补齐键盘焦点样式，保留现有登录逻辑';
-
-  @override
-  String get readResult => '已读取 Login.tsx 和共享表单样式\n发现移动端按钮宽度与表单不一致';
-
-  @override
-  String get layoutFindings => '登录表单沿用了桌面间距，移动端按钮也没有铺满容器';
-
-  @override
-  String get layoutQuestion => '移动端登录按钮需要通栏吗';
-
-  @override
   String get questionPending => '等待你的回复';
-
-  @override
-  String get wideButton => '使用通栏按钮';
-
-  @override
-  String get keepButton => '保持当前宽度';
-
-  @override
-  String get editPlan => '我会保留登录逻辑，统一表单间距，并让移动端按钮通栏';
-
-  @override
-  String get editPlanKeep => '我会保留按钮宽度和登录逻辑，只调整间距与焦点样式';
-
-  @override
-  String get editThinking => '复用现有样式变量，并把布局调整限制在登录表单内';
-
-  @override
-  String get editResult => '已更新 3 个文件\n增加焦点样式与移动端布局规则';
-
-  @override
-  String get beforeTest => '布局调整已完成，接下来运行项目测试确认没有回归';
 
   @override
   String get testTool => '运行项目测试';
 
   @override
-  String get testProgress => '执行登录表单测试…\n正在检查焦点与键盘交互';
-
-  @override
-  String get testResult => '12 项测试通过\n未发现登录逻辑回归';
-
-  @override
-  String get testFailure => '焦点顺序测试未通过\n预期焦点进入密码框，实际停留在用户名输入框';
-
-  @override
   String get testFailed => '测试未通过';
-
-  @override
-  String get flowResult => '已统一登录页间距和焦点样式，移动端按钮使用通栏布局。12 项测试通过，登录逻辑保持不变';
-
-  @override
-  String get queueSample => '再检查一下窄屏下的按钮间距';
 
   @override
   String queueCount(String count) {
@@ -1457,31 +1262,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get resumeQueue => '继续队列';
 
   @override
-  String get sendNext => '发送下一条';
-
-  @override
   String get enqueue => '加入队列';
 
   @override
-  String get queuedPreview => '已加入示例队列';
-
-  @override
   String get moveUp => '上移';
-
-  @override
-  String get followupThinking => '检查现有断点规则，确认窄屏按钮间距是否一致';
-
-  @override
-  String get followupTool => '检查窄屏样式';
-
-  @override
-  String get followupToolResult => '320px 与 390px 使用相同间距规则';
-
-  @override
-  String get followupResult => '窄屏按钮间距一致，无需继续修改';
-
-  @override
-  String get deniedResult => '未运行测试，已保留当前修改';
 
   @override
   String get thinkingNow => '正在思考';
@@ -1490,37 +1274,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get toolsNow => '正在执行';
 
   @override
-  String get toolPending => '未开始';
-
-  @override
-  String get thoughtLive => '先查看登录页和表单组件，确认需要调整的间距和焦点样式';
-
-  @override
-  String get toolsShort => '3 项操作';
-
-  @override
   String get thought => '思考过程';
 
   @override
-  String get thoughtContent => '沿用项目已有的表单组件，只调整登录页的布局和焦点样式';
-
-  @override
-  String get toolsComplete => '已完成 3 项操作';
-
-  @override
-  String get toolRead => '读取登录页与表单组件';
-
-  @override
-  String get toolEdit => '更新间距与焦点样式';
-
-  @override
   String get toolDiff => '检查文件差异';
-
-  @override
-  String get changedFiles => '3 个文件变更';
-
-  @override
-  String get approvalBody => '在 Studio 的 sailry-web 工作树运行测试';
 
   @override
   String get approvalResolved => '审批已处理';
@@ -1541,25 +1298,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get voice => '语音输入';
 
   @override
-  String get voiceNote => '此预览不访问麦克风';
-
-  @override
-  String get attachmentNote => '附件示例已添加';
-
-  @override
-  String get attachment => 'design-notes.md';
+  String get attachment => '附件';
 
   @override
   String get removeAttachment => '移除附件';
 
   @override
-  String get sentPreview => '仅预览，未发送';
-
-  @override
   String get model => '模型';
-
-  @override
-  String get modelSource => '当前会话配置 · Studio';
 
   @override
   String get copy => '复制';
@@ -1586,12 +1331,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get save => '保存';
 
   @override
-  String get select => '选择';
-
-  @override
-  String get sessionActions => '会话操作';
-
-  @override
   String get queue => '消息队列';
 
   @override
@@ -1601,19 +1340,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get fork => '分支会话';
 
   @override
-  String get forked => '已创建示例分支';
-
-  @override
-  String get archive => '归档会话';
-
-  @override
-  String get archived => '已在预览中归档';
-
-  @override
   String get stop => '停止任务';
-
-  @override
-  String get stopped => '任务已在预览中停止';
 
   @override
   String get stoppedStatus => '已停止';
@@ -1631,37 +1358,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get offline => '离线';
 
   @override
-  String get connection => '连接';
-
-  @override
-  String get studio => 'Studio';
-
-  @override
-  String get server => 'Build Server';
-
-  @override
-  String get laptop => 'MacBook Air';
-
-  @override
-  String get hostSystem => 'macOS · Apple Silicon';
-
-  @override
-  String get serverSystem => 'Linux · 8 核';
-
-  @override
-  String get laptopSystem => '上次在线 2 小时前';
-
-  @override
-  String get statusHealthy => '运行正常';
-
-  @override
   String get cpu => 'CPU';
 
   @override
   String get memory => '内存';
-
-  @override
-  String get disk => '磁盘';
 
   @override
   String get metrics => '资源使用';
@@ -1670,22 +1370,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get activity => '任务活动';
 
   @override
-  String get lastHour => '最近 60 分钟';
-
-  @override
-  String get sessionCount => '会话';
-
-  @override
-  String get terminalCount => '终端';
-
-  @override
-  String get projectCount => '项目';
-
-  @override
   String get processes => '进程';
-
-  @override
-  String get process => '名称';
 
   @override
   String get network => '网络';
@@ -1694,58 +1379,22 @@ class AppLocalizationsZh extends AppLocalizations {
   String get details => '详情';
 
   @override
-  String get manageHost => '主机详情';
-
-  @override
-  String get hostProjects => '主机项目';
-
-  @override
-  String get connectionDetails => '连接详情';
-
-  @override
-  String get direct => '直连';
-
-  @override
   String get relay => '中继';
-
-  @override
-  String get latency => '延迟';
-
-  @override
-  String get hostOffline => '主机离线，当前显示上次已知状态';
 
   @override
   String get retry => '重试';
 
   @override
-  String get retryNote => '预览未连接真实主机';
-
-  @override
   String get pairTitle => '连接一台主机';
 
   @override
-  String get pairDescription => '输入对方主机显示的 6 位配对码';
-
-  @override
   String get pairCode => '配对码';
-
-  @override
-  String get pairHint => '配对码有效期 60 秒';
-
-  @override
-  String get pairDemo => '模拟连接';
-
-  @override
-  String get pairSuccess => '示例主机已添加';
 
   @override
   String get pairInvalid => '请输入 6 位数字';
 
   @override
   String get workspace => '工作空间';
-
-  @override
-  String get workspaceSub => 'Studio / sailry-web';
 
   @override
   String get selectHost => '选择主机';
@@ -1760,9 +1409,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get mainBranch => '主工作树';
 
   @override
-  String get featureBranch => '登录页调整';
-
-  @override
   String get connectionTools => '连接';
 
   @override
@@ -1773,9 +1419,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get git => 'Git';
-
-  @override
-  String get gitSummary => '变更、分支与历史';
 
   @override
   String get gitBranches => '分支';
@@ -1819,40 +1462,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get gitDeleteBranch => '删除分支';
 
   @override
-  String get gitHistoryLayout => '调整登录表单间距';
-
-  @override
-  String get gitHistoryInit => '初始化登录页';
-
-  @override
-  String get gitPreview => '仅模拟 Git 操作，未修改仓库';
-
-  @override
-  String get gitDirty => '请先提交当前修改';
-
-  @override
   String get gitSwitchNote => '在当前工作树切换分支；本次仅模拟';
 
   @override
   String get gitDeleteNote => '删除所选分支；本次仅模拟';
 
   @override
-  String get gitInvalidBranch => '名称不可用或分支已存在';
-
-  @override
   String get review => '评审';
-
-  @override
-  String get browseFiles => '浏览工作树';
 
   @override
   String get reviewFiles => '查看代码变更';
 
   @override
   String get selectWorkspace => '项目与工作树';
-
-  @override
-  String get resourceSummary => '2 个会话 · 1 个终端';
 
   @override
   String get searchFiles => '搜索文件';
@@ -1873,26 +1495,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get filePreview => '文件预览';
 
   @override
-  String get fileSample => '此处显示示例文件内容';
-
-  @override
   String get edit => '编辑';
-
-  @override
-  String get savePreview => '修改已保存在本次预览';
 
   @override
   String get unsaved => '未保存';
 
   @override
   String get discard => '放弃修改';
-
-  @override
-  String get discardConfirm => '放弃此文件的未保存修改？';
-
-  @override
-  String get markdownExample =>
-      '# Sailry Web\n\nA workspace for your next idea.\n\n## Development\n\npnpm install\npnpm dev';
 
   @override
   String get connections => '更多资源';
@@ -1910,43 +1519,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get browser => '网页预览';
 
   @override
-  String get portsSub => '1 个转发';
-
-  @override
-  String get connectionOwner => '执行节点 · Studio';
-
-  @override
   String get openTerminal => '打开终端';
 
   @override
   String get tables => '数据表';
 
   @override
-  String get portNote => '示例转发 · 未监听本机端口';
-
-  @override
-  String get portTarget => '目标端口';
-
-  @override
-  String get localPort => '本机端口';
-
-  @override
   String get closePort => '关闭转发';
-
-  @override
-  String get portClosed => '示例转发已关闭';
-
-  @override
-  String get diffSubtitle => 'sailry-web · feature/sign-in';
 
   @override
   String get workingTree => '工作区';
 
   @override
   String get staged => '已暂存';
-
-  @override
-  String get diffSummary => '3 个文件';
 
   @override
   String get stage => '暂存全部';
@@ -1958,34 +1543,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get commit => '提交';
 
   @override
-  String get commitTitle => '提交变更';
-
-  @override
   String get commitMessage => '提交说明';
 
   @override
-  String get commitPlaceholder => '描述这次变更';
-
-  @override
-  String get commitPreview => '模拟提交';
-
-  @override
-  String get committed => '示例提交已完成';
-
-  @override
   String get noChanges => '没有待提交的变更';
-
-  @override
-  String get diffFile => 'login.css';
-
-  @override
-  String get diffPath => 'src/styles/login.css';
-
-  @override
-  String get continueEdit => '继续修改';
-
-  @override
-  String get diffSelection => '选择变更文件';
 
   @override
   String get terminalKeyboard => '键盘';
@@ -1995,9 +1556,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get terminalOutputLabel => '终端输出';
-
-  @override
-  String get terminalSubtitle => 'Studio / sailry-web';
 
   @override
   String get readOnly => '只读观察';
@@ -2010,18 +1568,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get releaseControl => '释放控制';
-
-  @override
-  String get terminalPlaceholder => '输入示例命令';
-
-  @override
-  String get terminalPreview => '示例终端 · 不执行命令';
-
-  @override
-  String get terminalOutput => '命令已在预览中接收，未执行';
-
-  @override
-  String get terminalControlNote => '接管后可发送输入；此处仅模拟控制权';
 
   @override
   String get usageSubtitle => '仅 Sailry 会话';
@@ -2050,13 +1596,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get estimatedCost => '估算费用';
 
   @override
-  String get costCoverage => '已计价 42 / 48 次响应';
-
-  @override
   String get partial => '部分数据';
-
-  @override
-  String get sourcesPartial => '2 / 3 台主机已更新';
 
   @override
   String get input => '输入';
@@ -2090,9 +1630,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get localSettings => '本机偏好';
-
-  @override
-  String get nodeSettings => '执行节点配置';
 
   @override
   String get appearance => '外观';
@@ -2171,22 +1708,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get about => '关于 Sailry';
 
   @override
-  String get aboutBody => '移动端交互预览，未接入实际服务';
-
-  @override
-  String get settingsSaved => '设置已在本次预览中更新';
-
-  @override
   String get modelPicker => '选择模型';
 
   @override
   String get nodeDefaults => '节点默认配置';
-
-  @override
-  String get providerNote => '配置示例 · 凭据由执行节点保存';
-
-  @override
-  String get roleNote => '示例角色 · 作用于新建会话';
 
   @override
   String get auto => '自动';
@@ -2195,28 +1720,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get manual => '每次询问';
 
   @override
-  String get notificationsNote => '仅控制预览中的通知显示';
-
-  @override
-  String get memoryNote => '节点记忆示例';
-
-  @override
   String get speechNote => '使用执行节点的语音配置';
-
-  @override
-  String get newTaskHost => '执行主机';
-
-  @override
-  String get newTaskProject => '项目';
-
-  @override
-  String get newTaskWorktree => '工作树';
-
-  @override
-  String get create => '创建';
-
-  @override
-  String get taskCreated => '示例会话已创建';
 
   @override
   String get required => '请先填写任务';
@@ -2226,9 +1730,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get reviewTitle => '本次设计依据';
-
-  @override
-  String get reviewIntro => '核对当前源码后组织页面；以下为预览范围，不代表移动端服务验收';
 
   @override
   String get reviewConversation => '会话、审批、提问与队列';
@@ -2256,10 +1757,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get reviewBoundary => '移动端边界';
-
-  @override
-  String get reviewBoundaryText =>
-      '移动桥接已有连接、会话、终端、用量等接口；本预览仅模拟交互，不启动 Node、模型、配对、终端或插件运行时';
 
   @override
   String get reviewVisual => '视觉参考';
@@ -2597,9 +2094,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get updatesOpenFailed => '無法開啟下載連結';
-
-  @override
-  String get retryTask => '重試';
 
   @override
   String get welcomeTitle => '今天，想一起做點什麼？';
@@ -3499,13 +2993,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get tool_generate_video => '生成影片';
 
   @override
-  String get terminalUnavailable => '終端將在接入後可用';
-
-  @override
-  String get terminalFixture =>
-      '~/Projects/sailry-web\n❯ pnpm test\n\n PASS  src/tests/login.test.ts\n PASS  src/tests/session.test.ts\n PASS  src/tests/navigation.test.ts\n\nTest Suites  3 passed, 3 total\nTests        18 passed, 18 total\nTime         2.41 s\n\n✓ All tests passed\n\n❯';
-
-  @override
   String get refresh => '重新整理';
 
   @override
@@ -3562,9 +3049,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get stopBeforeDelete => '停止任務';
 
   @override
-  String get deleted => '會話已從預覽中刪除';
-
-  @override
   String get restored => '已恢復到首頁';
 
   @override
@@ -3575,9 +3059,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get archiveKeepsRunning => '存檔不會停止正在執行的任務';
-
-  @override
-  String get title => 'Sailry · 移動端預覽';
 
   @override
   String get brand => 'Sailry';
@@ -3595,9 +3076,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get preview => '預覽';
 
   @override
-  String get sample => '示例資料 · 操作僅在當前頁面生效';
-
-  @override
   String get mixed => '深淺對照';
 
   @override
@@ -3613,9 +3091,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get focus => '單屏體驗';
 
   @override
-  String get reset => '重置預覽';
-
-  @override
   String get page => '選擇頁面';
 
   @override
@@ -3629,9 +3104,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get footer => 'SAILRY / 移動端';
-
-  @override
-  String get footerNote => '本地 HTML 預覽 · 無服務連線';
 
   @override
   String get tasks => '任務';
@@ -3742,28 +3214,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get newConversation => '新會話';
 
   @override
-  String get approveTitle => '更新登入頁的佈局';
-
-  @override
-  String get approveNote => '執行專案測試';
-
-  @override
-  String get approveContext => 'sailry-web · feature/sign-in';
-
-  @override
-  String get questionTitle => '整理 API 介面文件';
-
-  @override
-  String get questionNote => '等待回覆';
-
-  @override
   String get question => '文件使用哪種語言？';
-
-  @override
-  String get optionChinese => '中文';
-
-  @override
-  String get optionEnglish => '英文';
 
   @override
   String get reply => '回覆';
@@ -3773,24 +3224,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get viewRequest => '檢視請求';
-
-  @override
-  String get taskSearch => '最佳化檔案搜尋';
-
-  @override
-  String get taskSearchNote => '正在檢查目錄索引';
-
-  @override
-  String get taskTest => '修復會話恢復';
-
-  @override
-  String get taskTestNote => '正在執行測試';
-
-  @override
-  String get taskDone => '補充專案 README';
-
-  @override
-  String get taskDoneNote => '3 個檔案變更';
 
   @override
   String get ago => '剛剛';
@@ -3805,18 +3238,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get deny => '拒絕';
 
   @override
-  String get approved => '已允許 · 示例';
-
-  @override
-  String get denied => '已拒絕 · 示例';
-
-  @override
-  String get answered => '已回覆 · 示例';
-
-  @override
-  String get awaiting => '等待審批';
-
-  @override
   String get working => '正在處理';
 
   @override
@@ -3826,25 +3247,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get viewConversation => '檢視會話';
 
   @override
-  String get chatTitle => '更新登入頁的佈局';
-
-  @override
-  String get chatHost => 'sailry-web · Studio';
-
-  @override
   String get branch => 'feature/sign-in';
 
   @override
   String get today => '今天 09:36';
-
-  @override
-  String get userMessage => '調整登入頁的間距，統一輸入框和按鈕的樣式，保留現有登入邏輯';
-
-  @override
-  String get assistantMessage => '我檢查了登入頁和共享表單元件，已統一輸入區域的間距，並補齊鍵盤焦點樣式';
-
-  @override
-  String get replyPreview => '任務流程示例';
 
   @override
   String get phaseThinking => '開始思考';
@@ -3883,123 +3289,19 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get queueShort => '佇列';
 
   @override
-  String get confirmShort => '確認';
-
-  @override
-  String get todoShort => '待辦';
-
-  @override
-  String get todoInspect => '檢查登入頁';
-
-  @override
-  String get todoEdit => '調整表單樣式';
-
-  @override
-  String get todoTest => '驗證專案測試';
-
-  @override
-  String get todoNarrow => '檢查窄屏間距';
-
-  @override
-  String get workProcess => '處理過程';
-
-  @override
-  String workSteps(String count) {
-    return '· $count 步';
-  }
-
-  @override
-  String get questionRecord => '確認佈局';
-
-  @override
-  String get answerRecorded => '已回覆';
-
-  @override
-  String get playFlow => '播放任務';
-
-  @override
-  String get pauseFlow => '暫停演示';
-
-  @override
-  String get nextFlow => '下一步';
-
-  @override
   String get replyingNow => '正在回覆';
-
-  @override
-  String get toolReadLabel => '讀取';
-
-  @override
-  String get toolEditLabel => '編輯';
-
-  @override
-  String get toolRunLabel => '執行';
-
-  @override
-  String get readGroup => '3 個檔案';
-
-  @override
-  String get readFileResult => '檔案已讀取';
 
   @override
   String get readFileProgress => '正在讀取檔案';
 
   @override
-  String get flowAttachment => '登入頁調整：統一表單間距，補齊鍵盤焦點樣式，保留現有登入邏輯';
-
-  @override
-  String get readResult => '已讀取 Login.tsx 和共享表單樣式\n發現移動端按鈕寬度與表單不一致';
-
-  @override
-  String get layoutFindings => '登入表單沿用了桌面間距，移動端按鈕也沒有鋪滿容器';
-
-  @override
-  String get layoutQuestion => '移動端登入按鈕需要通欄嗎';
-
-  @override
   String get questionPending => '等待你的回覆';
-
-  @override
-  String get wideButton => '使用通欄按鈕';
-
-  @override
-  String get keepButton => '保持當前寬度';
-
-  @override
-  String get editPlan => '我會保留登入邏輯，統一表單間距，並讓移動端按鈕通欄';
-
-  @override
-  String get editPlanKeep => '我會保留按鈕寬度和登入邏輯，只調整間距與焦點樣式';
-
-  @override
-  String get editThinking => '複用現有樣式變數，並把佈局調整限制在登入表單內';
-
-  @override
-  String get editResult => '已更新 3 個檔案\n增加焦點樣式與移動端佈局規則';
-
-  @override
-  String get beforeTest => '佈局調整已完成，接下來執行專案測試確認沒有迴歸';
 
   @override
   String get testTool => '執行專案測試';
 
   @override
-  String get testProgress => '執行登入表單測試…\n正在檢查焦點與鍵盤互動';
-
-  @override
-  String get testResult => '12 項測試透過\n未發現登入邏輯迴歸';
-
-  @override
-  String get testFailure => '焦點順序測試未透過\n預期焦點進入密碼框，實際停留在使用者名稱輸入框';
-
-  @override
   String get testFailed => '測試未透過';
-
-  @override
-  String get flowResult => '已統一登入頁間距和焦點樣式，移動端按鈕使用通欄佈局。12 項測試透過，登入邏輯保持不變';
-
-  @override
-  String get queueSample => '再檢查一下窄屏下的按鈕間距';
 
   @override
   String queueCount(String count) {
@@ -4018,31 +3320,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get resumeQueue => '繼續佇列';
 
   @override
-  String get sendNext => '傳送下一條';
-
-  @override
   String get enqueue => '加入佇列';
 
   @override
-  String get queuedPreview => '已加入示例佇列';
-
-  @override
   String get moveUp => '上移';
-
-  @override
-  String get followupThinking => '檢查現有斷點規則，確認窄屏按鈕間距是否一致';
-
-  @override
-  String get followupTool => '檢查窄屏樣式';
-
-  @override
-  String get followupToolResult => '320px 與 390px 使用相同間距規則';
-
-  @override
-  String get followupResult => '窄屏按鈕間距一致，無需繼續修改';
-
-  @override
-  String get deniedResult => '未執行測試，已保留當前修改';
 
   @override
   String get thinkingNow => '正在思考';
@@ -4051,37 +3332,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get toolsNow => '正在執行';
 
   @override
-  String get toolPending => '未開始';
-
-  @override
-  String get thoughtLive => '先檢視登入頁和表單元件，確認需要調整的間距和焦點樣式';
-
-  @override
-  String get toolsShort => '3 項操作';
-
-  @override
   String get thought => '思考過程';
 
   @override
-  String get thoughtContent => '沿用專案已有的表單元件，只調整登入頁的佈局和焦點樣式';
-
-  @override
-  String get toolsComplete => '已完成 3 項操作';
-
-  @override
-  String get toolRead => '讀取登入頁與表單元件';
-
-  @override
-  String get toolEdit => '更新間距與焦點樣式';
-
-  @override
   String get toolDiff => '檢查檔案差異';
-
-  @override
-  String get changedFiles => '3 個檔案變更';
-
-  @override
-  String get approvalBody => '在 Studio 的 sailry-web 工作樹執行測試';
 
   @override
   String get approvalResolved => '審批已處理';
@@ -4102,25 +3356,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get voice => '語音輸入';
 
   @override
-  String get voiceNote => '此預覽不訪問麥克風';
-
-  @override
-  String get attachmentNote => '附件示例已新增';
-
-  @override
-  String get attachment => 'design-notes.md';
+  String get attachment => '附件';
 
   @override
   String get removeAttachment => '移除附件';
 
   @override
-  String get sentPreview => '僅預覽，未傳送';
-
-  @override
   String get model => '模型';
-
-  @override
-  String get modelSource => '當前會話配置 · Studio';
 
   @override
   String get copy => '複製';
@@ -4147,12 +3389,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get save => '儲存';
 
   @override
-  String get select => '選擇';
-
-  @override
-  String get sessionActions => '會話操作';
-
-  @override
   String get queue => '訊息佇列';
 
   @override
@@ -4162,19 +3398,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get fork => '分支會話';
 
   @override
-  String get forked => '已建立示例分支';
-
-  @override
-  String get archive => '歸檔會話';
-
-  @override
-  String get archived => '已在預覽中歸檔';
-
-  @override
   String get stop => '停止任務';
-
-  @override
-  String get stopped => '任務已在預覽中停止';
 
   @override
   String get stoppedStatus => '已停止';
@@ -4192,37 +3416,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get offline => '離線';
 
   @override
-  String get connection => '連線';
-
-  @override
-  String get studio => 'Studio';
-
-  @override
-  String get server => 'Build Server';
-
-  @override
-  String get laptop => 'MacBook Air';
-
-  @override
-  String get hostSystem => 'macOS · Apple Silicon';
-
-  @override
-  String get serverSystem => 'Linux · 8 核';
-
-  @override
-  String get laptopSystem => '上次線上 2 小時前';
-
-  @override
-  String get statusHealthy => '執行正常';
-
-  @override
   String get cpu => 'CPU';
 
   @override
   String get memory => '記憶體';
-
-  @override
-  String get disk => '磁碟';
 
   @override
   String get metrics => '資源使用';
@@ -4231,22 +3428,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get activity => '任務活動';
 
   @override
-  String get lastHour => '最近 60 分鐘';
-
-  @override
-  String get sessionCount => '會話';
-
-  @override
-  String get terminalCount => '終端';
-
-  @override
-  String get projectCount => '專案';
-
-  @override
   String get processes => '程序';
-
-  @override
-  String get process => '名稱';
 
   @override
   String get network => '網路';
@@ -4255,58 +3437,22 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get details => '詳情';
 
   @override
-  String get manageHost => '主機詳情';
-
-  @override
-  String get hostProjects => '主機專案';
-
-  @override
-  String get connectionDetails => '連線詳情';
-
-  @override
-  String get direct => '直連';
-
-  @override
   String get relay => '中繼';
-
-  @override
-  String get latency => '延遲';
-
-  @override
-  String get hostOffline => '主機離線，當前顯示上次已知狀態';
 
   @override
   String get retry => '重試';
 
   @override
-  String get retryNote => '預覽未連線真實主機';
-
-  @override
   String get pairTitle => '連線一臺主機';
 
   @override
-  String get pairDescription => '輸入對方主機顯示的 6 位配對碼';
-
-  @override
   String get pairCode => '配對碼';
-
-  @override
-  String get pairHint => '配對碼有效期 60 秒';
-
-  @override
-  String get pairDemo => '模擬連線';
-
-  @override
-  String get pairSuccess => '示例主機已新增';
 
   @override
   String get pairInvalid => '請輸入 6 位數字';
 
   @override
   String get workspace => '工作空間';
-
-  @override
-  String get workspaceSub => 'Studio / sailry-web';
 
   @override
   String get selectHost => '選擇主機';
@@ -4321,9 +3467,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get mainBranch => '主工作樹';
 
   @override
-  String get featureBranch => '登入頁調整';
-
-  @override
   String get connectionTools => '連線';
 
   @override
@@ -4334,9 +3477,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get git => 'Git';
-
-  @override
-  String get gitSummary => '變更、分支與歷史';
 
   @override
   String get gitBranches => '分支';
@@ -4380,40 +3520,19 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get gitDeleteBranch => '刪除分支';
 
   @override
-  String get gitHistoryLayout => '調整登入表單間距';
-
-  @override
-  String get gitHistoryInit => '初始化登入頁';
-
-  @override
-  String get gitPreview => '僅模擬 Git 操作，未修改倉庫';
-
-  @override
-  String get gitDirty => '請先提交當前修改';
-
-  @override
   String get gitSwitchNote => '在當前工作樹切換分支；本次僅模擬';
 
   @override
   String get gitDeleteNote => '刪除所選分支；本次僅模擬';
 
   @override
-  String get gitInvalidBranch => '名稱不可用或分支已存在';
-
-  @override
   String get review => '評審';
-
-  @override
-  String get browseFiles => '瀏覽工作樹';
 
   @override
   String get reviewFiles => '檢視程式碼變更';
 
   @override
   String get selectWorkspace => '專案與工作樹';
-
-  @override
-  String get resourceSummary => '2 個會話 · 1 個終端';
 
   @override
   String get searchFiles => '搜尋檔案';
@@ -4434,26 +3553,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get filePreview => '檔案預覽';
 
   @override
-  String get fileSample => '此處顯示示例檔案內容';
-
-  @override
   String get edit => '編輯';
-
-  @override
-  String get savePreview => '修改已儲存在本次預覽';
 
   @override
   String get unsaved => '未儲存';
 
   @override
   String get discard => '放棄修改';
-
-  @override
-  String get discardConfirm => '放棄此檔案的未儲存修改？';
-
-  @override
-  String get markdownExample =>
-      '# Sailry Web\n\nA workspace for your next idea.\n\n## Development\n\npnpm install\npnpm dev';
 
   @override
   String get connections => '更多資源';
@@ -4471,43 +3577,19 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get browser => '網頁預覽';
 
   @override
-  String get portsSub => '1 個轉發';
-
-  @override
-  String get connectionOwner => '執行節點 · Studio';
-
-  @override
   String get openTerminal => '開啟終端';
 
   @override
   String get tables => '資料表';
 
   @override
-  String get portNote => '示例轉發 · 未監聽本機埠';
-
-  @override
-  String get portTarget => '目標埠';
-
-  @override
-  String get localPort => '本機埠';
-
-  @override
   String get closePort => '關閉轉發';
-
-  @override
-  String get portClosed => '示例轉發已關閉';
-
-  @override
-  String get diffSubtitle => 'sailry-web · feature/sign-in';
 
   @override
   String get workingTree => '工作區';
 
   @override
   String get staged => '已暫存';
-
-  @override
-  String get diffSummary => '3 個檔案';
 
   @override
   String get stage => '暫存全部';
@@ -4519,34 +3601,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get commit => '提交';
 
   @override
-  String get commitTitle => '提交變更';
-
-  @override
   String get commitMessage => '提交說明';
 
   @override
-  String get commitPlaceholder => '描述這次變更';
-
-  @override
-  String get commitPreview => '模擬提交';
-
-  @override
-  String get committed => '示例提交已完成';
-
-  @override
   String get noChanges => '沒有待提交的變更';
-
-  @override
-  String get diffFile => 'login.css';
-
-  @override
-  String get diffPath => 'src/styles/login.css';
-
-  @override
-  String get continueEdit => '繼續修改';
-
-  @override
-  String get diffSelection => '選擇變更檔案';
 
   @override
   String get terminalKeyboard => '鍵盤';
@@ -4556,9 +3614,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get terminalOutputLabel => '終端輸出';
-
-  @override
-  String get terminalSubtitle => 'Studio / sailry-web';
 
   @override
   String get readOnly => '只讀觀察';
@@ -4571,18 +3626,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get releaseControl => '釋放控制';
-
-  @override
-  String get terminalPlaceholder => '輸入示例命令';
-
-  @override
-  String get terminalPreview => '示例終端 · 不執行命令';
-
-  @override
-  String get terminalOutput => '命令已在預覽中接收，未執行';
-
-  @override
-  String get terminalControlNote => '接管後可傳送輸入；此處僅模擬控制權';
 
   @override
   String get usageSubtitle => '僅 Sailry 會話';
@@ -4611,13 +3654,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get estimatedCost => '估算費用';
 
   @override
-  String get costCoverage => '已計價 42 / 48 次響應';
-
-  @override
   String get partial => '部分資料';
-
-  @override
-  String get sourcesPartial => '2 / 3 臺主機已更新';
 
   @override
   String get input => '輸入';
@@ -4651,9 +3688,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get localSettings => '本機偏好';
-
-  @override
-  String get nodeSettings => '執行節點配置';
 
   @override
   String get appearance => '外觀';
@@ -4732,22 +3766,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get about => '關於 Sailry';
 
   @override
-  String get aboutBody => '移動端互動預覽，未接入實際服務';
-
-  @override
-  String get settingsSaved => '設定已在本次預覽中更新';
-
-  @override
   String get modelPicker => '選擇模型';
 
   @override
   String get nodeDefaults => '節點預設配置';
-
-  @override
-  String get providerNote => '配置示例 · 憑據由執行節點儲存';
-
-  @override
-  String get roleNote => '示例角色 · 作用於新建會話';
 
   @override
   String get auto => '自動';
@@ -4756,28 +3778,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get manual => '每次詢問';
 
   @override
-  String get notificationsNote => '僅控制預覽中的通知顯示';
-
-  @override
-  String get memoryNote => '節點記憶示例';
-
-  @override
   String get speechNote => '使用執行節點的語音配置';
-
-  @override
-  String get newTaskHost => '執行主機';
-
-  @override
-  String get newTaskProject => '專案';
-
-  @override
-  String get newTaskWorktree => '工作樹';
-
-  @override
-  String get create => '建立';
-
-  @override
-  String get taskCreated => '示例會話已建立';
 
   @override
   String get required => '請先填寫任務';
@@ -4787,9 +3788,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get reviewTitle => '本次設計依據';
-
-  @override
-  String get reviewIntro => '核對當前原始碼後組織頁面；以下為預覽範圍，不代表移動端服務驗收';
 
   @override
   String get reviewConversation => '會話、審批、提問與佇列';
@@ -4817,10 +3815,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get reviewBoundary => '移動端邊界';
-
-  @override
-  String get reviewBoundaryText =>
-      '移動橋接已有連線、會話、終端、用量等介面；本預覽僅模擬互動，不啟動 Node、模型、配對、終端或外掛執行時';
 
   @override
   String get reviewVisual => '視覺參考';

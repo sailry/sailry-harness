@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/features/conversations/conversation_frame.dart';
-import 'package:sailry_mobile/features/resources/live_resources.dart';
+import 'package:sailry_mobile/features/resources/resources_page.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/ui/kit.dart';
@@ -142,7 +142,7 @@ void main() {
       final app = AppSession.test(hosts: [host]);
       await fixture.mount(
         tester,
-        const LiveResourcesPage(hostId: 'node', worktreeId: 'selected'),
+        const ResourcesPage(hostId: 'node', worktreeId: 'selected'),
         app,
       );
       expect(find.byTooltip(tr('selectHost')), findsOneWidget);

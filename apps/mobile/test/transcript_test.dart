@@ -10,6 +10,7 @@ import 'package:sailry_mobile/features/conversations/message_composer.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/ui/theme.dart';
+import '../preview/l10n/strings.dart' as fixtures;
 
 import 'live_conversations_test.dart' as fixture;
 
@@ -205,7 +206,7 @@ void main() {
     await render('running');
     expect(find.text(tr('thinkingNow')), findsOneWidget);
     expect(find.text('Thinking detail'), findsNothing);
-    expect(find.text(tr('workProcess')), findsNothing);
+    expect(find.text(fixtures.tr('workProcess')), findsNothing);
     await render('running', toolState: 'running');
     expect(find.text('Thinking detail'), findsNothing);
     expect(find.textContaining('source.txt'), findsOneWidget);

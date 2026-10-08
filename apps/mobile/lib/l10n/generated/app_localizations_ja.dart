@@ -38,9 +38,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get updatesOpenFailed => 'ダウンロードを開けませんでした';
 
   @override
-  String get retryTask => '再試行';
-
-  @override
   String get welcomeTitle => '今日は何に取り組みたいですか。';
 
   @override
@@ -941,13 +938,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get tool_generate_video => 'ビデオを生成';
 
   @override
-  String get terminalUnavailable => 'ターミナルは接続されていませんName';
-
-  @override
-  String get terminalFixture =>
-      '~/Projects/sailry-web\n❯ pnpm test\n\n PASS  src/tests/login.test.ts\n PASS  src/tests/session.test.ts\n PASS  src/tests/navigation.test.ts\n\nTest Suites  3 passed, 3 total\nTests        18 passed, 18 total\nTime         2.41 s\n\n✓ All tests passed\n\n❯';
-
-  @override
   String get refresh => '更新';
 
   @override
@@ -1004,9 +994,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get stopBeforeDelete => 'タスクを停止';
 
   @override
-  String get deleted => 'チャットがプレビューから削除されました';
-
-  @override
   String get restored => '帰国';
 
   @override
@@ -1017,9 +1004,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get archiveKeepsRunning => 'アーカイブは実行中のタスクを停止しません';
-
-  @override
-  String get title => 'Sailry · モバイルプレビュー';
 
   @override
   String get brand => 'Sailry';
@@ -1037,9 +1021,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get preview => 'プレビュー';
 
   @override
-  String get sample => 'サンプリングデータ · 変更はこのページに残る';
-
-  @override
   String get mixed => 'ライト・アンド・ダーク';
 
   @override
@@ -1055,9 +1036,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get focus => 'シングルスクリーン';
 
   @override
-  String get reset => 'プレビューをリセット';
-
-  @override
   String get page => 'ページを選択';
 
   @override
@@ -1071,9 +1049,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get footer => 'モバイル';
-
-  @override
-  String get footerNote => 'ローカル HTML プレビュー · サービス接続なし';
 
   @override
   String get tasks => 'タスク';
@@ -1184,28 +1159,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get newConversation => '新しいチャット';
 
   @override
-  String get approveTitle => 'ログインレイアウトを更新';
-
-  @override
-  String get approveNote => 'プロジェクトのテストを実行';
-
-  @override
-  String get approveContext => 'sailry-web · feature/sign-in';
-
-  @override
-  String get questionTitle => 'API ドキュメントを整理';
-
-  @override
-  String get questionNote => '応答待ち';
-
-  @override
   String get question => 'ドキュメンテーションはどの言語を使うべきですか？';
-
-  @override
-  String get optionChinese => '中国語';
-
-  @override
-  String get optionEnglish => 'English';
 
   @override
   String get reply => '返信';
@@ -1215,24 +1169,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get viewRequest => 'ビュー要求';
-
-  @override
-  String get taskSearch => 'ファイル検索の改善';
-
-  @override
-  String get taskSearchNote => 'ディレクトリのインデックスをチェック';
-
-  @override
-  String get taskTest => 'チャットの復元を修正';
-
-  @override
-  String get taskTestNote => '走行試験';
-
-  @override
-  String get taskDone => 'プロジェクト README を更新';
-
-  @override
-  String get taskDoneNote => '3 ファイルが変更されました';
 
   @override
   String get ago => 'さっき';
@@ -1247,18 +1183,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get deny => '拒否';
 
   @override
-  String get approved => 'サンプルを許可';
-
-  @override
-  String get denied => '拒否 · サンプル';
-
-  @override
-  String get answered => '返信 · サンプル';
-
-  @override
-  String get awaiting => '承認待ち';
-
-  @override
   String get working => '作業中';
 
   @override
@@ -1268,26 +1192,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get viewConversation => 'チャットを表示';
 
   @override
-  String get chatTitle => 'ログインレイアウトを更新';
-
-  @override
-  String get chatHost => 'sailry-web · Studio';
-
-  @override
   String get branch => 'feature/sign-in';
 
   @override
   String get today => '今日 09:36';
-
-  @override
-  String get userMessage => 'ログイン間隔を調整し、入力とボタンのスタイルを統一し、ログイン論理を保持しますName';
-
-  @override
-  String get assistantMessage =>
-      'ログインページと共有フォームコンポーネント、統一された入力間隔、キーボードフォーカススタイルをチェックしました';
-
-  @override
-  String get replyPreview => '例のタスクフロー';
 
   @override
   String get phaseThinking => '思考';
@@ -1326,126 +1234,19 @@ class AppLocalizationsJa extends AppLocalizations {
   String get queueShort => 'キュー';
 
   @override
-  String get confirmShort => '確認';
-
-  @override
-  String get todoShort => 'トゥー・ドゥ';
-
-  @override
-  String get todoInspect => 'ログインページを確認';
-
-  @override
-  String get todoEdit => 'フォームスタイルを調整';
-
-  @override
-  String get todoTest => 'プロジェクトのテストを実行';
-
-  @override
-  String get todoNarrow => '狭いスクリーン間隔をチェック';
-
-  @override
-  String get workProcess => 'アクティビティ';
-
-  @override
-  String workSteps(String count) {
-    return '$countステップ';
-  }
-
-  @override
-  String get questionRecord => 'レイアウトを確認';
-
-  @override
-  String get answerRecorded => '返信';
-
-  @override
-  String get playFlow => 'タスクを再生';
-
-  @override
-  String get pauseFlow => 'デモを一時停止';
-
-  @override
-  String get nextFlow => '次のステップ';
-
-  @override
   String get replyingNow => '応答';
-
-  @override
-  String get toolReadLabel => '読み取り';
-
-  @override
-  String get toolEditLabel => '編集';
-
-  @override
-  String get toolRunLabel => '実行';
-
-  @override
-  String get readGroup => '3列';
-
-  @override
-  String get readFileResult => 'ファイル読み込み';
 
   @override
   String get readFileProgress => 'ファイルを読み込み';
 
   @override
-  String get flowAttachment =>
-      'ログイン更新: フォーム間隔を統一し、キーボードフォーカススタイルを追加し、ログイン論理を保持';
-
-  @override
-  String get readResult => 'Login.tsx と共有フォームスタイルを読み込み\nモバイルボタンの幅がフォームと異なります';
-
-  @override
-  String get layoutFindings => 'ログインフォームはデスクトップスペースを使用し、モバイルボタンはコンテナを満たしていません';
-
-  @override
-  String get layoutQuestion => 'モバイルログインボタンを幅に埋めるかどうか';
-
-  @override
   String get questionPending => '返事を待っています';
-
-  @override
-  String get wideButton => '全幅ボタンを使う';
-
-  @override
-  String get keepButton => '現在の幅を保つ';
-
-  @override
-  String get editPlan => 'ログインロジックを保持し、間隔を統一し、モバイルボタンをフル幅にします';
-
-  @override
-  String get editPlanKeep => 'ボタンの幅とログインロジックを保ち、間隔とフォーカスのみを調整します';
-
-  @override
-  String get editThinking => '既存のスタイル変数を再利用し、レイアウトの変更をログインフォームに限定します';
-
-  @override
-  String get editResult => '更新 3 ファイル\nフォーカススタイルとモバイルレイアウトルールを追加';
-
-  @override
-  String get beforeTest => 'レイアウトの変更が完了しました。次にプロジェクトテストを実行して回帰をチェックします';
 
   @override
   String get testTool => 'プロジェクトのテストを実行';
 
   @override
-  String get testProgress => 'ログインフォームテストを実行中\nフォーカスとキーボードインタラクションをチェック';
-
-  @override
-  String get testResult => '12試験合格\nログイン論理回帰が見つかりませんでした';
-
-  @override
-  String get testFailure =>
-      'フォーカス順序テストに失敗\nパスワードフィールドにフォーカスすると予想されていたが、ユーザ名フィールドに残りました';
-
-  @override
   String get testFailed => 'テスト失敗';
-
-  @override
-  String get flowResult =>
-      'ログイン間隔とフォーカススタイルを統一し、フル幅の移動ボタンを追加しました。12 つのテストすべてに合格し、ログインロジックは変更されません';
-
-  @override
-  String get queueSample => '狭いスクリーンでもボタン間隔をチェック';
 
   @override
   String queueCount(String count) {
@@ -1464,31 +1265,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get resumeQueue => 'キューを再開';
 
   @override
-  String get sendNext => '次を送信';
-
-  @override
   String get enqueue => 'キューに追加';
 
   @override
-  String get queuedPreview => 'サンプルキューに追加';
-
-  @override
   String get moveUp => '上へ移動';
-
-  @override
-  String get followupThinking => '既存のブレークポイントをチェックして、狭いスクリーン上で一貫したボタン間隔を確認します';
-
-  @override
-  String get followupTool => '狭いスクリーンのスタイルをチェック';
-
-  @override
-  String get followupToolResult => '320px と 390px は同じ間隔規則を使います';
-
-  @override
-  String get followupResult => '狭いスクリーンのボタン間隔が一致しています。さらなる変更は不要です';
-
-  @override
-  String get deniedResult => 'テストは実行されませんでした。現在の変更は保存されます';
 
   @override
   String get thinkingNow => '思考';
@@ -1497,38 +1277,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get toolsNow => '実行中';
 
   @override
-  String get toolPending => '開始されていません';
-
-  @override
-  String get thoughtLive => 'まずログインページとフォームコンポーネントを調べ、間隔とフォーカスの変更を確認します';
-
-  @override
-  String get toolsShort => '3つのアクション';
-
-  @override
   String get thought => '推論';
 
   @override
-  String get thoughtContent =>
-      '既存のフォームコンポーネントを再利用し、ログインレイアウトとフォーカススタイルのみを調整します';
-
-  @override
-  String get toolsComplete => '3つのアクションが完了しました';
-
-  @override
-  String get toolRead => 'ログインとフォームコンポーネントを読み込み';
-
-  @override
-  String get toolEdit => '間隔とフォーカスのスタイルを更新';
-
-  @override
   String get toolDiff => 'ファイルの違いを検査';
-
-  @override
-  String get changedFiles => '3 ファイルが変更されました';
-
-  @override
-  String get approvalBody => 'Studio で sailry-web ワークトリーでテストを実行';
 
   @override
   String get approvalResolved => '承認解決';
@@ -1549,25 +1301,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get voice => '音声入力';
 
   @override
-  String get voiceNote => 'このプレビューはマイクにアクセスしません';
-
-  @override
-  String get attachmentNote => 'サンプルの添付ファイルを追加';
-
-  @override
-  String get attachment => 'design-notes.md';
+  String get attachment => '添付ファイル';
 
   @override
   String get removeAttachment => '添付ファイルを削除';
 
   @override
-  String get sentPreview => 'プレビューのみ、送信しません';
-
-  @override
   String get model => 'モデル';
-
-  @override
-  String get modelSource => '現在のチャット設定';
 
   @override
   String get copy => 'コピー';
@@ -1594,12 +1334,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get save => '保存';
 
   @override
-  String get select => '選択';
-
-  @override
-  String get sessionActions => 'チャットアクション';
-
-  @override
   String get queue => 'メッセージキュー';
 
   @override
@@ -1609,19 +1343,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get fork => '会話を分岐';
 
   @override
-  String get forked => 'サンプルフォークを作成';
-
-  @override
-  String get archive => 'アーカイブチャット';
-
-  @override
-  String get archived => 'プレビュー中にアーカイブ';
-
-  @override
   String get stop => 'タスクを停止';
-
-  @override
-  String get stopped => 'プレビュー中にタスクが停止しました';
 
   @override
   String get stoppedStatus => '停止済み';
@@ -1639,37 +1361,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get offline => 'オフライン';
 
   @override
-  String get connection => 'コネクション';
-
-  @override
-  String get studio => 'Studio';
-
-  @override
-  String get server => 'Build Server';
-
-  @override
-  String get laptop => 'MacBook Air';
-
-  @override
-  String get hostSystem => 'macOS · Apple Silicon';
-
-  @override
-  String get serverSystem => 'Linux · 8 コア';
-
-  @override
-  String get laptopSystem => '2時間前に最後にオンライン';
-
-  @override
-  String get statusHealthy => '健康';
-
-  @override
   String get cpu => 'CPU';
 
   @override
   String get memory => 'メモリー';
-
-  @override
-  String get disk => 'ディスク';
 
   @override
   String get metrics => 'リソース利用';
@@ -1678,22 +1373,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get activity => 'アクティビティ';
 
   @override
-  String get lastHour => '最後の60分';
-
-  @override
-  String get sessionCount => 'チャット';
-
-  @override
-  String get terminalCount => 'ターミナル';
-
-  @override
-  String get projectCount => 'プロジェクト';
-
-  @override
   String get processes => 'プロセス';
-
-  @override
-  String get process => '名前';
 
   @override
   String get network => 'ネットワーク';
@@ -1702,58 +1382,22 @@ class AppLocalizationsJa extends AppLocalizations {
   String get details => '詳細';
 
   @override
-  String get manageHost => 'ホストの詳細';
-
-  @override
-  String get hostProjects => 'ホストプロジェクト';
-
-  @override
-  String get connectionDetails => '接続の詳細';
-
-  @override
-  String get direct => 'ダイレクト';
-
-  @override
   String get relay => 'リレー';
-
-  @override
-  String get latency => '遅延';
-
-  @override
-  String get hostOffline => 'ホストはオフラインです。最後の状態を表示しています';
 
   @override
   String get retry => '再試行';
 
   @override
-  String get retryNote => 'プレビューは実際のホストに接続されていません';
-
-  @override
   String get pairTitle => 'ホストに接続';
 
   @override
-  String get pairDescription => 'ホストに表示されている 6 桁のペアリングコードを入力';
-
-  @override
   String get pairCode => 'ペアリングコード';
-
-  @override
-  String get pairHint => 'ペアリングコードは60秒で失効します';
-
-  @override
-  String get pairDemo => '接続をシミュレート';
-
-  @override
-  String get pairSuccess => 'サンプルホストを追加';
 
   @override
   String get pairInvalid => '6 桁を入力';
 
   @override
   String get workspace => 'ワークスペース';
-
-  @override
-  String get workspaceSub => 'Studio / sailry-web';
 
   @override
   String get selectHost => 'ホストを選択';
@@ -1768,9 +1412,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get mainBranch => 'メインのワークツリー';
 
   @override
-  String get featureBranch => 'ログインレイアウト';
-
-  @override
   String get connectionTools => 'コネクション';
 
   @override
@@ -1781,9 +1422,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get git => 'Git';
-
-  @override
-  String get gitSummary => '変遷・分岐・歴史';
 
   @override
   String get gitBranches => 'ブランチ';
@@ -1827,40 +1465,19 @@ class AppLocalizationsJa extends AppLocalizations {
   String get gitDeleteBranch => 'ブランチを削除';
 
   @override
-  String get gitHistoryLayout => 'ログインフォームの間隔を調整';
-
-  @override
-  String get gitHistoryInit => 'ログインページを初期化';
-
-  @override
-  String get gitPreview => 'Git シミュレーションのみ;リポジトリ変更なし';
-
-  @override
-  String get gitDirty => '現在の変更を最初にコミット';
-
-  @override
   String get gitSwitchNote => 'このワークツリーのブランチを切り替えます。シミュレーションのみ';
 
   @override
   String get gitDeleteNote => '選択したブランチを削除します。シミュレーションのみ';
 
   @override
-  String get gitInvalidBranch => '不正な名前またはブランチが既に存在します';
-
-  @override
   String get review => 'レビュー';
-
-  @override
-  String get browseFiles => 'ワークトリーをブラウズ';
 
   @override
   String get reviewFiles => 'コードの変更を表示';
 
   @override
   String get selectWorkspace => 'プロジェクトとワークトリー';
-
-  @override
-  String get resourceSummary => '会話 2 件 · ターミナル 1 件';
 
   @override
   String get searchFiles => 'ファイルを検索';
@@ -1881,26 +1498,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get filePreview => 'ファイルのプレビュー';
 
   @override
-  String get fileSample => 'サンプルファイルの内容';
-
-  @override
   String get edit => '編集';
-
-  @override
-  String get savePreview => 'このプレビューで保存された変更';
 
   @override
   String get unsaved => '未保存';
 
   @override
   String get discard => '変更を無視';
-
-  @override
-  String get discardConfirm => 'このファイルの未保存の変更を破棄しますか？';
-
-  @override
-  String get markdownExample =>
-      '# Sailry Web\n\nA workspace for your next idea.\n\n## Development\n\npnpm install\npnpm dev';
 
   @override
   String get connections => 'リソースの追加';
@@ -1918,43 +1522,19 @@ class AppLocalizationsJa extends AppLocalizations {
   String get browser => 'ウェブプレビュー';
 
   @override
-  String get portsSub => '1 前進';
-
-  @override
-  String get connectionOwner => '実施Node・スタジオ';
-
-  @override
   String get openTerminal => 'ターミナルを開く';
 
   @override
   String get tables => 'テーブル';
 
   @override
-  String get portNote => 'サンプリングフォーワード · ローカルポートリスナーなし';
-
-  @override
-  String get portTarget => 'ターゲットポート';
-
-  @override
-  String get localPort => 'ローカルポート';
-
-  @override
   String get closePort => 'クローズ・フォーワード';
-
-  @override
-  String get portClosed => 'サンプルフォワードクローズ';
-
-  @override
-  String get diffSubtitle => 'sailry-web · feature/sign-in';
 
   @override
   String get workingTree => 'ワーキング・ツリー';
 
   @override
   String get staged => 'ステージ';
-
-  @override
-  String get diffSummary => '3列';
 
   @override
   String get stage => '全ステージ';
@@ -1966,34 +1546,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get commit => 'コミット';
 
   @override
-  String get commitTitle => 'コミット変更';
-
-  @override
   String get commitMessage => 'コミットメッセージ';
 
   @override
-  String get commitPlaceholder => '変更を説明';
-
-  @override
-  String get commitPreview => 'コミットをシミュレート';
-
-  @override
-  String get committed => 'サンプリングコミット完了';
-
-  @override
   String get noChanges => 'コミットする変更はありません';
-
-  @override
-  String get diffFile => 'login.css';
-
-  @override
-  String get diffPath => 'src/styles/login.css';
-
-  @override
-  String get continueEdit => '編集を続ける';
-
-  @override
-  String get diffSelection => '変更されたファイルを選択';
 
   @override
   String get terminalKeyboard => 'キーボード';
@@ -2003,9 +1559,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get terminalOutputLabel => '端末出力';
-
-  @override
-  String get terminalSubtitle => 'Studio / sailry-web';
 
   @override
   String get readOnly => '読み取り専用';
@@ -2018,18 +1571,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get releaseControl => 'リリース制御';
-
-  @override
-  String get terminalPlaceholder => 'サンプルコマンドを入力';
-
-  @override
-  String get terminalPreview => '例のターミナル · コマンドは実行されません';
-
-  @override
-  String get terminalOutput => 'プレビュー中に受け取ったコマンドを実行しませんでした';
-
-  @override
-  String get terminalControlNote => '入力を送信するコントロールを取る。ここでシミュレート';
 
   @override
   String get usageSubtitle => 'Sailry チャットだけ';
@@ -2058,13 +1599,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get estimatedCost => '推定費用';
 
   @override
-  String get costCoverage => '42 / 48 の応答に対して価格が付けられました';
-
-  @override
   String get partial => '部分データ';
-
-  @override
-  String get sourcesPartial => '2 / 3 ホストを更新しました';
 
   @override
   String get input => '入力';
@@ -2098,9 +1633,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get localSettings => 'ローカルの設定';
-
-  @override
-  String get nodeSettings => '実行 Node 設定';
 
   @override
   String get appearance => '外観';
@@ -2179,22 +1711,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get about => 'Sailryについて';
 
   @override
-  String get aboutBody => 'モバイルインタラクションプレビュー、サービスに接続されていません';
-
-  @override
-  String get settingsSaved => 'このプレビューで更新された設定';
-
-  @override
   String get modelPicker => 'モデルを選択';
 
   @override
   String get nodeDefaults => 'Nodeデフォルト';
-
-  @override
-  String get providerNote => '例の設定 · 実行時にクレジット情報が残る Node';
-
-  @override
-  String get roleNote => '新しいチャットに適用';
 
   @override
   String get auto => '自動';
@@ -2203,28 +1723,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get manual => '毎回尋ねる';
 
   @override
-  String get notificationsNote => 'プレビュー通知のみを制御';
-
-  @override
-  String get memoryNote => 'メモリのサンプルNode';
-
-  @override
   String get speechNote => '実行 Node 音声設定を使用';
-
-  @override
-  String get newTaskHost => '実行ホスト';
-
-  @override
-  String get newTaskProject => 'プロジェクト';
-
-  @override
-  String get newTaskWorktree => 'ワークツリー';
-
-  @override
-  String get create => '作成';
-
-  @override
-  String get taskCreated => 'サンプリングチャットが作成されました';
 
   @override
   String get required => 'まずタスクを説明してください';
@@ -2234,9 +1733,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get reviewTitle => '設計参照';
-
-  @override
-  String get reviewIntro => 'ページは現在のソースに従います。このプレビューはモバイルサービスの受容を確立しません';
 
   @override
   String get reviewConversation => 'チャット、承認、質問、キュー';
@@ -2268,10 +1764,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get reviewBoundary => '移動境界';
-
-  @override
-  String get reviewBoundaryText =>
-      'モバイルブリッジは、接続、チャット、端末、使用状況を公開します。このプレビューは、Node、モデル、ペアリング、端末、プラグインから始まります';
 
   @override
   String get reviewVisual => '視覚的参照';

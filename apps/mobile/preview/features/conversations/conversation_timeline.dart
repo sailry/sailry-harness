@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/strings.dart';
-import '../../ui/kit.dart';
-import 'user_message.dart';
+import 'package:sailry_mobile/ui/kit.dart';
+import 'package:sailry_mobile/features/conversations/user_message.dart';
 
 /// A finite set of presentation fixtures; this is not a session event reducer.
 enum DemoPhase {

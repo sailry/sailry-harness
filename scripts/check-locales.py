@@ -138,6 +138,18 @@ def check(root):
             for line, key in references(path.read_text()):
                 if key not in keys:
                     issues.append(f'{path.relative_to(root)}:{line}: unknown localization {key}')
+    preview_root = root / 'apps/mobile/preview'
+    if preview_root.exists():
+        preview = messages(preview_root / 'l10n/app_en.arb')
+        for locale in LOCALES:
+            issues.extend(compare(preview, mobile_catalog(preview_root / 'l10n', locale),
+                                  f'Mobile preview {locale}'))
+        for path in sorted(preview_root.rglob('*.dart')):
+            if 'generated' in path.parts:
+                continue
+            for line, key in references(path.read_text()):
+                if key not in mobile and key not in preview:
+                    issues.append(f'{path.relative_to(root)}:{line}: unknown localization {key}')
     return issues, len(desktop), len(mobile)
 
 

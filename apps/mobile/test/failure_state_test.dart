@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/app.dart';
-import 'package:sailry_mobile/features/resources/live_hosts.dart';
+import 'package:sailry_mobile/features/resources/hosts_page.dart';
 import 'package:sailry_mobile/features/settings/setting_records.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/session.dart';
@@ -204,7 +204,7 @@ void main() {
           session: session,
           child: MaterialApp(
             theme: SailryTheme.of(Brightness.dark),
-            home: const LiveHostsPage(),
+            home: const HostsPage(),
           ),
         ),
       );

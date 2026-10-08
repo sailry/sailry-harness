@@ -7,6 +7,7 @@ import 'package:sailry_mobile/features/resources/projects_page.dart';
 import 'package:sailry_mobile/features/terminal/terminal_page.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/session.dart';
+import '../preview/l10n/strings.dart' as fixtures;
 
 import 'live_terminal_test.dart' as terminal;
 
@@ -109,7 +110,7 @@ void main() {
     );
     expect(find.text(tr('hostRefresh')), findsNothing);
     expect(find.text(tr('hostRegisterProject')), findsNothing);
-    expect(find.text(tr('process')), findsNothing);
+    expect(find.text(fixtures.tr('process')), findsNothing);
     await tester.tap(find.byKey(const ValueKey('host-projects')));
     await tester.pumpAndSettle();
     expect(find.byType(ProjectsPage), findsOneWidget);

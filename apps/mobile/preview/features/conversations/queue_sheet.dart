@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 
 import '../../l10n/strings.dart';
-import '../../ui/kit.dart';
+import 'package:sailry_mobile/ui/kit.dart';
 
 class QueuedDraft {
   QueuedDraft(this.id, this.text);

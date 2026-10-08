@@ -1,9 +1,10 @@
+import '../preview/app.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/app.dart';
 import 'package:sailry_mobile/features/settings/settings_page.dart';
-import 'package:sailry_mobile/features/terminal/terminal_page.dart';
-import 'package:sailry_mobile/l10n/strings.dart';
+import '../preview/features/terminal/terminal_page.dart';
+import '../preview/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/ui/kit.dart';
 import 'package:sailry_mobile/ui/theme.dart';
@@ -24,7 +25,7 @@ void main() {
     tester.view.physicalSize = const Size(320, 740);
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(const SailryApp(preview: true));
+    await tester.pumpWidget(const PreviewApp());
     await tester.pumpAndSettle();
     expect(
       find.descendant(
@@ -49,7 +50,7 @@ void main() {
     tester.view.physicalSize = const Size(390, 844);
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(const SailryApp(preview: true));
+    await tester.pumpWidget(const PreviewApp());
     await tester.pumpAndSettle();
     expect(find.text(tr('preview')), findsNothing);
     final viewport = find.byType(SingleChildScrollView).first;

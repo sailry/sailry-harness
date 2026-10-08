@@ -13,10 +13,9 @@ import 'package:sailry_bridge/api/ports.dart';
 import 'package:sailry_mobile/features/resources/files_page.dart';
 import 'package:sailry_mobile/features/resources/git_page.dart';
 import 'package:sailry_mobile/features/resources/file_draft.dart';
-import 'package:sailry_mobile/features/resources/live_resources.dart';
-import 'package:sailry_mobile/features/resources/live_hosts.dart';
-import 'package:sailry_mobile/features/resources/ports_page.dart';
 import 'package:sailry_mobile/features/resources/resources_page.dart';
+import 'package:sailry_mobile/features/resources/hosts_page.dart';
+import 'package:sailry_mobile/features/resources/ports_page.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/ui/theme.dart';
@@ -146,7 +145,7 @@ void main() {
         ),
     ];
     final session = AppSession.test(hosts: hosts);
-    await mount(tester, const LiveResourcesPage(), session);
+    await mount(tester, const ResourcesPage(), session);
     await tester.tap(find.text('A-main'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('A-branch'));
@@ -431,7 +430,7 @@ void main() {
       command: (_, _) async => {},
     );
     final session = AppSession.test(hosts: [host]);
-    await mount(tester, const LiveHostsPage(), session);
+    await mount(tester, const HostsPage(), session);
     await tester.tap(find.byTooltip(tr('ports')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '3000');

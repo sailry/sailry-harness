@@ -38,9 +38,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get updatesOpenFailed => 'Не удалось открыть загрузочный файл';
 
   @override
-  String get retryTask => 'Повторить';
-
-  @override
   String get welcomeTitle => 'Над чем бы ты хотела поработать сегодня?';
 
   @override
@@ -962,13 +959,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get tool_generate_video => 'Создать видео';
 
   @override
-  String get terminalUnavailable => 'Терминал не подключен';
-
-  @override
-  String get terminalFixture =>
-      '~/Projects/sailry-web\n❯ pnpm test\n\n PASS  src/tests/login.test.ts\n PASS  src/tests/session.test.ts\n PASS  src/tests/navigation.test.ts\n\nTest Suites  3 passed, 3 total\nTests        18 passed, 18 total\nTime         2.41 s\n\n✓ All tests passed\n\n❯';
-
-  @override
   String get refresh => 'Обновить';
 
   @override
@@ -1026,9 +1016,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get stopBeforeDelete => 'Остановить задачу';
 
   @override
-  String get deleted => 'Чат удален из предварительного просмотра';
-
-  @override
   String get restored => 'Возвращение домой';
 
   @override
@@ -1040,9 +1027,6 @@ class AppLocalizationsRu extends AppLocalizations {
   @override
   String get archiveKeepsRunning =>
       'Архивация не останавливает выполнение заданий';
-
-  @override
-  String get title => 'Sailry · Мобильный просмотр';
 
   @override
   String get brand => 'Sailry';
@@ -1060,9 +1044,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get preview => 'Предварительный просмотр';
 
   @override
-  String get sample => 'Образцы данных · Изменения остаются на этой странице';
-
-  @override
   String get mixed => 'Свет и темнота';
 
   @override
@@ -1078,9 +1059,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get focus => 'Один экран';
 
   @override
-  String get reset => 'Сбросить предварительный просмотр';
-
-  @override
   String get page => 'Выберите страницу';
 
   @override
@@ -1094,10 +1072,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get footer => 'ПАРАШЮТНЫЙ/МОБИЛЬНЫЙ';
-
-  @override
-  String get footerNote =>
-      'Локальный предварительный просмотр HTML · Отсутствие подключения к службе';
 
   @override
   String get tasks => 'Задачи';
@@ -1211,28 +1185,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get newConversation => 'Новый чат';
 
   @override
-  String get approveTitle => 'Обновить макет входа';
-
-  @override
-  String get approveNote => 'Запуск тестов проекта';
-
-  @override
-  String get approveContext => 'sailry-web · feature/sign-in';
-
-  @override
-  String get questionTitle => 'Организация API документации';
-
-  @override
-  String get questionNote => 'Ожидается ответ';
-
-  @override
   String get question => 'На каком языке должна составляться документация?';
-
-  @override
-  String get optionChinese => 'Китайский язык';
-
-  @override
-  String get optionEnglish => 'English';
 
   @override
   String get reply => 'Ответ';
@@ -1242,24 +1195,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get viewRequest => 'Посмотреть запрос';
-
-  @override
-  String get taskSearch => 'Улучшение поиска файлов';
-
-  @override
-  String get taskSearchNote => 'Проверка индекса каталога';
-
-  @override
-  String get taskTest => 'Fix восстановление чата';
-
-  @override
-  String get taskTestNote => 'Испытания на ход';
-
-  @override
-  String get taskDone => 'Обновить README проекта';
-
-  @override
-  String get taskDoneNote => '3 файла изменены';
 
   @override
   String get ago => 'Только сейчас';
@@ -1274,18 +1209,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get deny => 'Запретить';
 
   @override
-  String get approved => 'Разрешено · Образец';
-
-  @override
-  String get denied => 'Отказано · Образец';
-
-  @override
-  String get answered => 'Ответил · Образец';
-
-  @override
-  String get awaiting => 'Ожидается утверждение';
-
-  @override
   String get working => 'В работе';
 
   @override
@@ -1295,27 +1218,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get viewConversation => 'Посмотреть чат';
 
   @override
-  String get chatTitle => 'Обновить макет входа';
-
-  @override
-  String get chatHost => 'sailry-web · Studio';
-
-  @override
   String get branch => 'feature/sign-in';
 
   @override
   String get today => 'Сегодня 09:36';
-
-  @override
-  String get userMessage =>
-      'Настройка интервалов между входами и унификация стилей ввода и кнопок при сохранении логики входа';
-
-  @override
-  String get assistantMessage =>
-      'Я проверил страницу входа и общие компоненты формы, унифицированные интервалы ввода и добавленные стили фокуса клавиатуры';
-
-  @override
-  String get replyPreview => 'Образец потока задач';
 
   @override
   String get phaseThinking => 'Мысли';
@@ -1354,137 +1260,19 @@ class AppLocalizationsRu extends AppLocalizations {
   String get queueShort => 'Очередь';
 
   @override
-  String get confirmShort => 'Подтвердить';
-
-  @override
-  String get todoShort => 'Что делать';
-
-  @override
-  String get todoInspect => 'Проверьте страницу входа';
-
-  @override
-  String get todoEdit => 'Настройка стилей формы';
-
-  @override
-  String get todoTest => 'Запуск тестов проекта';
-
-  @override
-  String get todoNarrow => 'Проверка узкого экранного расстояния';
-
-  @override
-  String get workProcess => 'Активность';
-
-  @override
-  String workSteps(String count) {
-    return '· $count шагов';
-  }
-
-  @override
-  String get questionRecord => 'Подтвердить макет';
-
-  @override
-  String get answerRecorded => 'ответил';
-
-  @override
-  String get playFlow => 'Задача игры';
-
-  @override
-  String get pauseFlow => 'Пауза демо';
-
-  @override
-  String get nextFlow => 'Следующий шаг';
-
-  @override
   String get replyingNow => 'Реагирование';
-
-  @override
-  String get toolReadLabel => 'Чтение';
-
-  @override
-  String get toolEditLabel => 'Изменить';
-
-  @override
-  String get toolRunLabel => 'Выполнить';
-
-  @override
-  String get readGroup => '3 ряда';
-
-  @override
-  String get readFileResult => 'Файл считан';
 
   @override
   String get readFileProgress => 'Чтение файла';
 
   @override
-  String get flowAttachment =>
-      'Обновление входа: унифицировать промежутки между формами, добавить стили фокуса клавиатуры и сохранить логику входа';
-
-  @override
-  String get readResult =>
-      'Чтение файла Login.tsx и общих стилей форм\nШирина мобильной кнопки отличается от формы';
-
-  @override
-  String get layoutFindings =>
-      'Форма входа использует пробел рабочего стола, а мобильная кнопка не заполняет свой контейнер';
-
-  @override
-  String get layoutQuestion =>
-      'Должна ли кнопка мобильного входа заполнять всю ширину?';
-
-  @override
   String get questionPending => 'В ожидании вашего ответа';
-
-  @override
-  String get wideButton => 'Использовать кнопку полной ширины';
-
-  @override
-  String get keepButton => 'Сохранить текущую ширину';
-
-  @override
-  String get editPlan =>
-      'Я буду сохранять логику входа, унифицировать пробел и сделать мобильную кнопку полной ширины';
-
-  @override
-  String get editPlanKeep =>
-      'Я сохраню ширину кнопки и логику входа, настраивая только пробел и фокус стили';
-
-  @override
-  String get editThinking =>
-      'Повторное использование существующих переменных стиля и ограничение изменений макета на форму входа';
-
-  @override
-  String get editResult =>
-      'Обновлено 3 файла\nДобавлены стили фокуса и правила мобильного макета';
-
-  @override
-  String get beforeTest =>
-      'Изменения макета завершены. Далее я запущу тесты проекта, чтобы проверить регрессии';
 
   @override
   String get testTool => 'Запуск тестов проекта';
 
   @override
-  String get testProgress =>
-      'Запуск тестов формы входа…\nПроверка фокуса и взаимодействия клавиатуры';
-
-  @override
-  String get testResult =>
-      '12 сдавших тесты\nНе найдено логических регрессий входа';
-
-  @override
-  String get testFailure =>
-      'Проверка порядка фокусировки не удалась\nОжидаемый фокус на поле пароля, но он остался на поле имени пользователя';
-
-  @override
   String get testFailed => 'Неудачные испытания';
-
-  @override
-  String get flowResult =>
-      'Все 12 тестов прошли успешно, и логика входа в систему осталась неизменной';
-
-  @override
-  String get queueSample =>
-      'Проверьте расстояние между кнопками и на узких экранах';
 
   @override
   String queueCount(String count) {
@@ -1503,35 +1291,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get resumeQueue => 'Возобновление очереди';
 
   @override
-  String get sendNext => 'Отправить следующий';
-
-  @override
   String get enqueue => 'Добавить в очередь';
 
   @override
-  String get queuedPreview => 'Добавлено в очередь образцов';
-
-  @override
   String get moveUp => 'Движение вверх';
-
-  @override
-  String get followupThinking =>
-      'Проверка существующих точек останова для подтверждения последовательного расположения кнопок на узких экранах';
-
-  @override
-  String get followupTool => 'Проверка узких стилей экрана';
-
-  @override
-  String get followupToolResult =>
-      '320px и 390px используют одни и те же правила промежутков';
-
-  @override
-  String get followupResult =>
-      'Последовательное расположение кнопок на узком экране; никаких дальнейших изменений не требуется';
-
-  @override
-  String get deniedResult =>
-      'Тестирование не проводилось; текущие изменения сохранены';
 
   @override
   String get thinkingNow => 'Мысли';
@@ -1540,40 +1303,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get toolsNow => 'Выполнение';
 
   @override
-  String get toolPending => 'Не начато';
-
-  @override
-  String get thoughtLive =>
-      'Сначала проверьте страницу входа и компоненты формы, чтобы выявить изменения в промежутках и фокусе';
-
-  @override
-  String get toolsShort => '3 действия';
-
-  @override
   String get thought => 'Обоснование';
 
   @override
-  String get thoughtContent =>
-      'Повторное использование существующих компонентов формы и настройка только макета входа и стилей фокуса';
-
-  @override
-  String get toolsComplete => '3 мероприятия завершены';
-
-  @override
-  String get toolRead => 'Чтение компонентов входа и формы';
-
-  @override
-  String get toolEdit => 'Обновление стилей пробелов и фокуса';
-
-  @override
   String get toolDiff => 'Проверка различий файлов';
-
-  @override
-  String get changedFiles => '3 файла изменены';
-
-  @override
-  String get approvalBody =>
-      'Запуск тестов в рабочем дереве sailry-web в Studio';
 
   @override
   String get approvalResolved => 'Утверждение решено';
@@ -1594,26 +1327,13 @@ class AppLocalizationsRu extends AppLocalizations {
   String get voice => 'Голосовой ввод';
 
   @override
-  String get voiceNote =>
-      'Этот предварительный просмотр не использует микрофон';
-
-  @override
-  String get attachmentNote => 'Образец приложения добавлен';
-
-  @override
-  String get attachment => 'design-notes.md';
+  String get attachment => 'Вложение';
 
   @override
   String get removeAttachment => 'Удалить вложение';
 
   @override
-  String get sentPreview => 'Только предварительный просмотр, не отправляется';
-
-  @override
   String get model => 'Модель';
-
-  @override
-  String get modelSource => 'Текущая конфигурация чата · Студия';
 
   @override
   String get copy => 'Копировать';
@@ -1640,12 +1360,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get save => 'Сохранить';
 
   @override
-  String get select => 'Выбрать';
-
-  @override
-  String get sessionActions => 'Действия чата';
-
-  @override
   String get queue => 'Очередь сообщений';
 
   @override
@@ -1655,19 +1369,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get fork => 'Создать ветку чата';
 
   @override
-  String get forked => 'Создан образец вилки';
-
-  @override
-  String get archive => 'Архив чата';
-
-  @override
-  String get archived => 'Архивировано в предварительном просмотре';
-
-  @override
   String get stop => 'Остановить задачу';
-
-  @override
-  String get stopped => 'Задание остановлено в предварительном просмотре';
 
   @override
   String get stoppedStatus => 'Остановлено';
@@ -1685,37 +1387,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get offline => 'Не в сети';
 
   @override
-  String get connection => 'Соединение';
-
-  @override
-  String get studio => 'Studio';
-
-  @override
-  String get server => 'Build Server';
-
-  @override
-  String get laptop => 'MacBook Air';
-
-  @override
-  String get hostSystem => 'macOS · Apple Silicon';
-
-  @override
-  String get serverSystem => 'Linux · 8 цветов';
-
-  @override
-  String get laptopSystem => 'Последний раз онлайн 2 часа назад';
-
-  @override
-  String get statusHealthy => 'Здоровые';
-
-  @override
   String get cpu => 'CPU';
 
   @override
   String get memory => 'Память';
-
-  @override
-  String get disk => 'Диск';
 
   @override
   String get metrics => 'Использование ресурсов';
@@ -1724,22 +1399,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get activity => 'Активность';
 
   @override
-  String get lastHour => 'Последние 60 минут';
-
-  @override
-  String get sessionCount => 'Чаты';
-
-  @override
-  String get terminalCount => 'Терминалы';
-
-  @override
-  String get projectCount => 'Проекты';
-
-  @override
   String get processes => 'Процессы';
-
-  @override
-  String get process => 'Имя';
 
   @override
   String get network => 'Сеть';
@@ -1748,61 +1408,22 @@ class AppLocalizationsRu extends AppLocalizations {
   String get details => 'Подробности';
 
   @override
-  String get manageHost => 'Хост Детали';
-
-  @override
-  String get hostProjects => 'Принимающие проекты';
-
-  @override
-  String get connectionDetails => 'Подробности подключения';
-
-  @override
-  String get direct => 'Прямые';
-
-  @override
   String get relay => 'Релейная связь';
-
-  @override
-  String get latency => 'Задержка';
-
-  @override
-  String get hostOffline =>
-      'Узел отключен; показывает свое последнее известное состояние';
 
   @override
   String get retry => 'Повторить';
 
   @override
-  String get retryNote =>
-      'Предварительный просмотр не подключен к реальному узлу';
-
-  @override
   String get pairTitle => 'Подключение узла';
 
   @override
-  String get pairDescription =>
-      'Введите 6-значный код сопряжения, указанный на узле';
-
-  @override
   String get pairCode => 'Парный код';
-
-  @override
-  String get pairHint => 'Парный код истекает через 60 секунд';
-
-  @override
-  String get pairDemo => 'Имитировать подключение';
-
-  @override
-  String get pairSuccess => 'Пример хоста добавлен';
 
   @override
   String get pairInvalid => 'Введите 6 цифр';
 
   @override
   String get workspace => 'Рабочее пространство';
-
-  @override
-  String get workspaceSub => 'Studio / sailry-web';
 
   @override
   String get selectHost => 'Выберите хост';
@@ -1817,9 +1438,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get mainBranch => 'Основное рабочее дерево';
 
   @override
-  String get featureBranch => 'Компоновка входа';
-
-  @override
   String get connectionTools => 'Соединения';
 
   @override
@@ -1830,9 +1448,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get git => 'Git';
-
-  @override
-  String get gitSummary => 'Изменения, ветви и история';
 
   @override
   String get gitBranches => 'Ветки';
@@ -1876,18 +1491,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get gitDeleteBranch => 'Исключить ветвь';
 
   @override
-  String get gitHistoryLayout => 'Настройка промежутков между формами входа';
-
-  @override
-  String get gitHistoryInit => 'Инициализация страницы входа';
-
-  @override
-  String get gitPreview => 'Git только моделирование; хранилище не изменено';
-
-  @override
-  String get gitDirty => 'Сначала фиксировать текущие изменения';
-
-  @override
   String get gitSwitchNote =>
       'Переключить ветку в этом рабочем дереве; только моделирование';
 
@@ -1895,22 +1498,13 @@ class AppLocalizationsRu extends AppLocalizations {
   String get gitDeleteNote => 'Удалить выбранную ветку; только моделирование';
 
   @override
-  String get gitInvalidBranch => 'Неверное имя или ветка уже существует';
-
-  @override
   String get review => 'Проверка';
-
-  @override
-  String get browseFiles => 'Просмотр рабочего дерева';
 
   @override
   String get reviewFiles => 'Просмотр изменений кода';
 
   @override
   String get selectWorkspace => 'Проект и рабочее дерево';
-
-  @override
-  String get resourceSummary => '2 чата · 1 терминал';
 
   @override
   String get searchFiles => 'Поиск файлов';
@@ -1931,28 +1525,13 @@ class AppLocalizationsRu extends AppLocalizations {
   String get filePreview => 'Просмотр файла';
 
   @override
-  String get fileSample => 'Образец содержимого файла';
-
-  @override
   String get edit => 'Изменить';
-
-  @override
-  String get savePreview =>
-      'Изменения, сохраненные в этом предварительном просмотре';
 
   @override
   String get unsaved => 'Не сохранено';
 
   @override
   String get discard => 'Отбросить изменения';
-
-  @override
-  String get discardConfirm =>
-      'Отбросить несохраненные изменения в этом файле?';
-
-  @override
-  String get markdownExample =>
-      '# Sailry Web\n\nA workspace for your next idea.\n\n## Development\n\npnpm install\npnpm dev';
 
   @override
   String get connections => 'Больше ресурсов';
@@ -1970,44 +1549,19 @@ class AppLocalizationsRu extends AppLocalizations {
   String get browser => 'Веб-предварительный просмотр';
 
   @override
-  String get portsSub => '1 передний';
-
-  @override
-  String get connectionOwner => 'Исполнение Node · Студия';
-
-  @override
   String get openTerminal => 'Открытый терминал';
 
   @override
   String get tables => 'Таблицы';
 
   @override
-  String get portNote =>
-      'Переадресация образца · Нет локального прослушивателя порта';
-
-  @override
-  String get portTarget => 'Целевой порт';
-
-  @override
-  String get localPort => 'Местный порт';
-
-  @override
   String get closePort => 'Закрыть вперед';
-
-  @override
-  String get portClosed => 'Образец вперед закрыт';
-
-  @override
-  String get diffSubtitle => 'sailry-web · feature/sign-in';
 
   @override
   String get workingTree => 'Рабочее дерево';
 
   @override
   String get staged => 'Сценарист';
-
-  @override
-  String get diffSummary => '3 ряда';
 
   @override
   String get stage => 'Этап все';
@@ -2019,34 +1573,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get commit => 'Коммит';
 
   @override
-  String get commitTitle => 'Закрепить изменения';
-
-  @override
   String get commitMessage => 'Сообщение фиксации';
 
   @override
-  String get commitPlaceholder => 'Опишите изменения';
-
-  @override
-  String get commitPreview => 'Симулировать коммит';
-
-  @override
-  String get committed => 'Завершение фиксации образца';
-
-  @override
   String get noChanges => 'Нет изменений для фиксации';
-
-  @override
-  String get diffFile => 'login.css';
-
-  @override
-  String get diffPath => 'src/styles/login.css';
-
-  @override
-  String get continueEdit => 'Продолжить редактирование';
-
-  @override
-  String get diffSelection => 'Выберите измененный файл';
 
   @override
   String get terminalKeyboard => 'Клавиатура';
@@ -2056,9 +1586,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get terminalOutputLabel => 'Выход терминала';
-
-  @override
-  String get terminalSubtitle => 'Studio / sailry-web';
 
   @override
   String get readOnly => 'Только чтение';
@@ -2071,20 +1598,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get releaseControl => 'Контроль выбросов';
-
-  @override
-  String get terminalPlaceholder => 'Введите примерную команду';
-
-  @override
-  String get terminalPreview => 'Пример терминала · Команды не выполняются';
-
-  @override
-  String get terminalOutput =>
-      'Команда получена в предварительном виде, не выполнена';
-
-  @override
-  String get terminalControlNote =>
-      'Принятие контроля для отправки ввода; имитируется здесь';
 
   @override
   String get usageSubtitle => 'Sailry только чаты';
@@ -2113,13 +1626,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get estimatedCost => 'Сметные расходы';
 
   @override
-  String get costCoverage => '42 / 48 ответов';
-
-  @override
   String get partial => 'Частичные данные';
-
-  @override
-  String get sourcesPartial => '2 / 3 хоста обновлены';
 
   @override
   String get input => 'Ввод';
@@ -2155,9 +1662,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get localSettings => 'Местные предпочтения';
-
-  @override
-  String get nodeSettings => 'Настройки выполнения Node';
 
   @override
   String get appearance => 'Внешний вид';
@@ -2238,25 +1742,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get about => 'О Sailry';
 
   @override
-  String get aboutBody =>
-      'Предварительный просмотр мобильного взаимодействия, не подключен к службам';
-
-  @override
-  String get settingsSaved =>
-      'Настройки, обновленные в этом предварительном просмотре';
-
-  @override
   String get modelPicker => 'Выберите модель';
 
   @override
   String get nodeDefaults => 'Node по умолчанию';
-
-  @override
-  String get providerNote =>
-      'Пример конфигурации · Учетные данные остаются при выполнении Node';
-
-  @override
-  String get roleNote => 'Пример роли · Применяется к новым чатам';
 
   @override
   String get auto => 'Автоматически';
@@ -2265,29 +1754,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get manual => 'Задавайте каждый раз';
 
   @override
-  String get notificationsNote =>
-      'Только уведомления предварительного просмотра';
-
-  @override
-  String get memoryNote => 'Образец Node памяти';
-
-  @override
   String get speechNote => 'Использует конфигурацию речи выполнения Node';
-
-  @override
-  String get newTaskHost => 'Узел выполнения';
-
-  @override
-  String get newTaskProject => 'Проект';
-
-  @override
-  String get newTaskWorktree => 'Рабочее дерево';
-
-  @override
-  String get create => 'Создать';
-
-  @override
-  String get taskCreated => 'Образец чата создан';
 
   @override
   String get required => 'Опишете сначала свою задачу';
@@ -2297,10 +1764,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get reviewTitle => 'Справочные материалы по конструкции';
-
-  @override
-  String get reviewIntro =>
-      'Страницы следуют текущему источнику; этот предварительный просмотр не устанавливает принятие мобильного сервиса';
 
   @override
   String get reviewConversation => 'Чаты, утверждения, вопросы и очередь';
@@ -2332,10 +1795,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get reviewBoundary => 'Подвижная граница';
-
-  @override
-  String get reviewBoundaryText =>
-      'Мобильный мост подвергает подключения, чаты, терминалы и использование; этот предварительный просмотр начинается с № Node, моделей, парирования, терминалов или плагинов';
 
   @override
   String get reviewVisual => 'Визуальные ссылки';

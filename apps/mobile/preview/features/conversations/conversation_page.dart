@@ -3,16 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../l10n/strings.dart';
-import '../../ui/kit.dart';
-import '../../ui/toast.dart';
+import 'package:sailry_mobile/ui/kit.dart';
+import 'package:sailry_mobile/ui/toast.dart';
 import '../resources/git_page.dart';
 import '../resources/resources_page.dart';
 import '../terminal/terminal_page.dart';
 import 'conversation_timeline.dart';
-import 'conversation_frame.dart';
+import 'package:sailry_mobile/features/conversations/conversation_frame.dart';
 import 'queue_sheet.dart';
-import 'message_composer.dart';
-import 'user_message.dart';
+import 'package:sailry_mobile/features/conversations/message_composer.dart';
+import 'package:sailry_mobile/features/conversations/user_message.dart';
 
 class ConversationPage extends StatefulWidget {
   const ConversationPage({
@@ -721,6 +721,7 @@ class _ConversationPageState extends State<ConversationPage> {
       composer: MessageComposer(
         controller: _draft,
         attached: _attached,
+        attachmentLabel: context.tr('attachment'),
         busy: _busy,
         priority: _priority(context),
         onAttachment: (value) => setState(() => _attached = value),

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sailry_mobile/features/conversations/conversation_page.dart';
+import '../preview/features/conversations/conversation_page.dart';
 import 'package:sailry_mobile/features/conversations/message_composer.dart';
 import 'package:sailry_mobile/features/conversations/live/attachments.dart';
 import 'package:sailry_mobile/features/conversations/live/draft_attachments.dart';
-import 'package:sailry_mobile/l10n/strings.dart';
+import '../preview/l10n/strings.dart';
 import 'package:sailry_mobile/ui/theme.dart';
 
 void main() {

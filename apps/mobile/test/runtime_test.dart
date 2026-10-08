@@ -9,7 +9,7 @@ import 'package:sailry_bridge/api/connection.dart';
 import 'package:sailry_bridge/api/speech.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sailry_mobile/app.dart';
-import 'package:sailry_mobile/features/resources/live_hosts.dart';
+import 'package:sailry_mobile/features/resources/hosts_page.dart';
 import 'package:sailry_mobile/features/resources/pair_form.dart';
 import 'package:sailry_mobile/features/resources/project_form.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
@@ -17,6 +17,7 @@ import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/runtime/speech.dart';
 import 'package:sailry_mobile/ui/kit.dart';
 import 'package:sailry_mobile/ui/theme.dart';
+import '../preview/l10n/strings.dart' as fixtures;
 
 class Preferences extends Fake implements SharedPreferencesAsync {
   final _values = <String, Object?>{};
@@ -473,7 +474,7 @@ void main() {
       },
     );
     final session = AppSession.test(hosts: [first, second]);
-    await mount(tester, const LiveHostsPage(), session);
+    await mount(tester, const HostsPage(), session);
     expect(firstReads, 1);
     session.selectHost('second');
     await tester.pumpAndSettle();
@@ -512,7 +513,7 @@ void main() {
     await tester.pumpWidget(SailryApp(session: session));
     await tester.pumpAndSettle();
     expect(find.text('Studio'), findsNothing);
-    expect(find.text(tr('taskDone')), findsNothing);
+    expect(find.text(fixtures.tr('taskDone')), findsNothing);
     await tester.tap(find.byKey(const ValueKey('tab-1')));
     await tester.pumpAndSettle();
     expect(find.text(tr('hostConnectPrompt')), findsOneWidget);

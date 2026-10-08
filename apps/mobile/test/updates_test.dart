@@ -1,3 +1,4 @@
+import '../preview/app.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -204,27 +205,18 @@ void main() {
     await clear(tester);
   });
 
-  testWidgets('preview performs no checks even with an injected service', (
-    tester,
-  ) async {
-    var requests = 0;
-    final service = updates(
-      request: (_) async {
-        requests++;
-        return http.Response('[]', 200);
-      },
-    );
-    addTearDown(service.dispose);
-    await tester.pumpWidget(SailryApp(preview: true, updates: service));
+  testWidgets('preview keeps update controls disabled', (tester) async {
+    await tester.pumpWidget(const PreviewApp());
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('tab-3')));
     await tester.pumpAndSettle();
-    final row = tester.widget<ListTile>(
-      find.byKey(const ValueKey('check-updates')),
-    );
-    expect(row.enabled, isFalse);
-    expect(requests, 0);
-    expect(service.version, isNull);
+    final action = find.byKey(const ValueKey('check-updates'));
+    expect(tester.widget<ListTile>(action).enabled, isFalse);
+    await tester.ensureVisible(action);
+    await tester.pumpAndSettle();
+    await tester.tap(action);
+    await tester.pumpAndSettle();
+    expect(launcher.urls, isEmpty);
     await clear(tester);
   });
 

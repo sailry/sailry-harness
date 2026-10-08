@@ -38,9 +38,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get updatesOpenFailed => '다운로드를 열 수 없습니다';
 
   @override
-  String get retryTask => '다시 시도';
-
-  @override
   String get welcomeTitle => '오늘 뭘 하시겠어요?';
 
   @override
@@ -943,13 +940,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get tool_generate_video => '비디오 생성';
 
   @override
-  String get terminalUnavailable => '터미널이 연결되어 있지 않음Name';
-
-  @override
-  String get terminalFixture =>
-      '~/Projects/sailry-web\n❯ pnpm test\n\n PASS  src/tests/login.test.ts\n PASS  src/tests/session.test.ts\n PASS  src/tests/navigation.test.ts\n\nTest Suites  3 passed, 3 total\nTests        18 passed, 18 total\nTime         2.41 s\n\n✓ All tests passed\n\n❯';
-
-  @override
   String get refresh => '새로고침';
 
   @override
@@ -1006,9 +996,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get stopBeforeDelete => '작업 중지';
 
   @override
-  String get deleted => '미리보기에서 채팅이 제거됨';
-
-  @override
   String get restored => '홈으로 복원';
 
   @override
@@ -1019,9 +1006,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get archiveKeepsRunning => '아카이빙은 실행 중인 작업을 중단하지 않습니다';
-
-  @override
-  String get title => 'Sailry · 모바일 미리보기';
 
   @override
   String get brand => 'Sailry';
@@ -1039,9 +1023,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get preview => '미리 보기';
 
   @override
-  String get sample => '샘플 데이터 · 변경 사항은 이 페이지에 남아 있습니다';
-
-  @override
   String get mixed => '빛과 어둠';
 
   @override
@@ -1057,9 +1038,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get focus => '단일 화면';
 
   @override
-  String get reset => '미리 보기 재설정';
-
-  @override
   String get page => '페이지 선택';
 
   @override
@@ -1073,9 +1051,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get footer => '항해 / 모바일';
-
-  @override
-  String get footerNote => '로컬 HTML 미리보기 · 서비스 연결 없음';
 
   @override
   String get tasks => '작업';
@@ -1186,28 +1161,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get newConversation => '새 채팅';
 
   @override
-  String get approveTitle => '로그인 레이아웃 업데이트';
-
-  @override
-  String get approveNote => '프로젝트 테스트 실행';
-
-  @override
-  String get approveContext => 'sailry-web · feature/sign-in';
-
-  @override
-  String get questionTitle => 'API 문서 구성';
-
-  @override
-  String get questionNote => '응답 기다리는 중';
-
-  @override
   String get question => '어떤 언어로 문서를 작성해야 합니까?';
-
-  @override
-  String get optionChinese => '중국어';
-
-  @override
-  String get optionEnglish => 'English';
 
   @override
   String get reply => '답장';
@@ -1217,24 +1171,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get viewRequest => '요청 보기';
-
-  @override
-  String get taskSearch => '파일 검색 개선';
-
-  @override
-  String get taskSearchNote => '디렉터리 인덱스 확인';
-
-  @override
-  String get taskTest => '채팅 복구 수정';
-
-  @override
-  String get taskTestNote => '실행 중인 테스트';
-
-  @override
-  String get taskDone => '프로젝트 README 업데이트';
-
-  @override
-  String get taskDoneNote => '3 파일 변경됨';
 
   @override
   String get ago => '방금';
@@ -1249,18 +1185,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get deny => '거부';
 
   @override
-  String get approved => '허용 · 샘플';
-
-  @override
-  String get denied => '거부됨 · 샘플';
-
-  @override
-  String get answered => '답변 · 샘플';
-
-  @override
-  String get awaiting => '승인을 기다리는 중';
-
-  @override
   String get working => '작업 중';
 
   @override
@@ -1270,26 +1194,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get viewConversation => '채팅 보기';
 
   @override
-  String get chatTitle => '로그인 레이아웃 업데이트';
-
-  @override
-  String get chatHost => 'sailry-web · Studio';
-
-  @override
   String get branch => 'feature/sign-in';
 
   @override
   String get today => '오늘 09:36';
-
-  @override
-  String get userMessage => '로그인 로직을 유지하면서 로그인 간격을 조정하고 입력 및 버튼 스타일을 통합합니다';
-
-  @override
-  String get assistantMessage =>
-      '나는 로그인 페이지와 공유 양식 구성 요소, 통합 입력 간격 및 추가 키보드 초점 스타일을 확인';
-
-  @override
-  String get replyPreview => '샘플 작업 흐름';
 
   @override
   String get phaseThinking => '생각';
@@ -1328,125 +1236,19 @@ class AppLocalizationsKo extends AppLocalizations {
   String get queueShort => '대기열';
 
   @override
-  String get confirmShort => '확인';
-
-  @override
-  String get todoShort => '할 일';
-
-  @override
-  String get todoInspect => '로그인 페이지 검사';
-
-  @override
-  String get todoEdit => '양식 스타일 조정';
-
-  @override
-  String get todoTest => '프로젝트 테스트 실행';
-
-  @override
-  String get todoNarrow => '좁은 화면 간격 확인';
-
-  @override
-  String get workProcess => '활동';
-
-  @override
-  String workSteps(String count) {
-    return '· $count 단계';
-  }
-
-  @override
-  String get questionRecord => '레이아웃 확인';
-
-  @override
-  String get answerRecorded => '답장됨';
-
-  @override
-  String get playFlow => '작업 재생';
-
-  @override
-  String get pauseFlow => '데모 일시 정지';
-
-  @override
-  String get nextFlow => '다음 단계';
-
-  @override
   String get replyingNow => '응답 중';
-
-  @override
-  String get toolReadLabel => '읽기';
-
-  @override
-  String get toolEditLabel => '편집';
-
-  @override
-  String get toolRunLabel => '실행';
-
-  @override
-  String get readGroup => '3 줄';
-
-  @override
-  String get readFileResult => '파일 읽기';
 
   @override
   String get readFileProgress => '파일 읽기';
 
   @override
-  String get flowAttachment => '로그인 업데이트: 양식 간격 통합, 키보드 포커스 스타일 추가 및 로그인 논리 보존';
-
-  @override
-  String get readResult => 'Login.tsx 및 공유 폼 스타일 읽기\n모바일 버튼 너비가 양식과 다릅니다';
-
-  @override
-  String get layoutFindings => '로그인 양식은 데스크톱 간격을 사용하고 모바일 버튼은 컨테이너를 채우지 않습니다';
-
-  @override
-  String get layoutQuestion => '모바일 로그인 버튼이 너비를 채워야 하나요?';
-
-  @override
   String get questionPending => '귀하의 답변을 기다리고 있습니다';
-
-  @override
-  String get wideButton => '전체 폭 단추 사용하기';
-
-  @override
-  String get keepButton => '현재 너비 유지';
-
-  @override
-  String get editPlan => '나는 로그인 논리를 보존하고, 간격을 통합하고, 모바일 버튼의 전체 폭을 만들 것입니다';
-
-  @override
-  String get editPlanKeep => '버튼 너비와 로그인 논리를 유지하고 간격과 초점 스타일만 조정합니다';
-
-  @override
-  String get editThinking => '기존 스타일 변수를 재사용하고 레이아웃 변경을 로그인 양식으로 제한';
-
-  @override
-  String get editResult => '업데이트 3 파일\n포커스 스타일 및 모바일 레이아웃 규칙 추가';
-
-  @override
-  String get beforeTest => '레이아웃 변경이 완료되었습니다. 다음으로 회귀를 확인하기 위해 프로젝트 테스트를 실행합니다';
 
   @override
   String get testTool => '프로젝트 테스트 실행';
 
   @override
-  String get testProgress => '로그인 양식 테스트 실행 중\n초점 및 키보드 상호 작용 확인';
-
-  @override
-  String get testResult => '12 테스트 통과\n로그인 논리 회귀가 없습니다';
-
-  @override
-  String get testFailure =>
-      '초점 순서 테스트 실패\n비밀번호 필드에 초점을 맞추기를 기대했지만 사용자 이름 필드에 남아있었습니다';
-
-  @override
   String get testFailed => '테스트 실패';
-
-  @override
-  String get flowResult =>
-      '로그인 간격 및 포커스 스타일이 통합되고 전체 폭 모바일 버튼이 추가되었습니다. 12개의 테스트 모두 통과하고 로그인 로직은 변경되지 않았습니다';
-
-  @override
-  String get queueSample => '좁은 화면에서도 버튼 간격 확인';
 
   @override
   String queueCount(String count) {
@@ -1465,31 +1267,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get resumeQueue => '대기열 재개';
 
   @override
-  String get sendNext => '다음 보내기';
-
-  @override
   String get enqueue => '대기열에 추가';
 
   @override
-  String get queuedPreview => '샘플 대기열에 추가됨';
-
-  @override
   String get moveUp => '위로 이동';
-
-  @override
-  String get followupThinking => '좁은 화면에서 일관된 버튼 간격을 확인하기 위해 기존 중단점 확인';
-
-  @override
-  String get followupTool => '좁은 화면 스타일 확인하기';
-
-  @override
-  String get followupToolResult => '320px와 390px는 동일한 간격 규칙을 사용합니다';
-
-  @override
-  String get followupResult => '좁은 화면 버튼 간격이 일관되며 추가 변경 사항이 필요하지 않음';
-
-  @override
-  String get deniedResult => '테스트가 실행되지 않았습니다. 현재 변경 사항은 보존됩니다';
 
   @override
   String get thinkingNow => '생각';
@@ -1498,37 +1279,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get toolsNow => '실행 중';
 
   @override
-  String get toolPending => '시작되지 않음';
-
-  @override
-  String get thoughtLive => '먼저 로그인 페이지와 양식 구성 요소를 검사하여 간격 및 포커스 변경 사항을 식별합니다';
-
-  @override
-  String get toolsShort => '3가지 동작';
-
-  @override
   String get thought => '추론';
 
   @override
-  String get thoughtContent => '기존 양식 구성 요소를 재사용하고 로그인 레이아웃 및 포커스 스타일만 조정';
-
-  @override
-  String get toolsComplete => '3개의 작업이 완료됨';
-
-  @override
-  String get toolRead => '로그인 및 양식 구성 요소 읽기';
-
-  @override
-  String get toolEdit => '간격 및 포커스 스타일 업데이트하기';
-
-  @override
   String get toolDiff => '파일 차이점 검사';
-
-  @override
-  String get changedFiles => '3 파일 변경됨';
-
-  @override
-  String get approvalBody => 'Studio에서 sailry-web worktree에서 테스트 실행';
 
   @override
   String get approvalResolved => '승인 해결됨';
@@ -1549,25 +1303,13 @@ class AppLocalizationsKo extends AppLocalizations {
   String get voice => '음성 입력';
 
   @override
-  String get voiceNote => '이 미리 보기는 마이크에 접근하지 않습니다';
-
-  @override
-  String get attachmentNote => '샘플 첨부 파일 추가';
-
-  @override
-  String get attachment => 'design-notes.md';
+  String get attachment => '첨부 파일';
 
   @override
   String get removeAttachment => '첨부 파일 삭제';
 
   @override
-  String get sentPreview => '미리 보기만 보내지 않음';
-
-  @override
   String get model => '모델';
-
-  @override
-  String get modelSource => '현재 채팅 구성 · Studio';
 
   @override
   String get copy => '복사';
@@ -1594,12 +1336,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get save => '저장';
 
   @override
-  String get select => '선택';
-
-  @override
-  String get sessionActions => '채팅 동작';
-
-  @override
   String get queue => '메시지 큐';
 
   @override
@@ -1609,19 +1345,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get fork => '대화 분기';
 
   @override
-  String get forked => '샘플 포크 생성됨';
-
-  @override
-  String get archive => '채팅 보관';
-
-  @override
-  String get archived => '미리보기로 보관';
-
-  @override
   String get stop => '작업 중지';
-
-  @override
-  String get stopped => '미리 보기에서 작업이 중단됨';
 
   @override
   String get stoppedStatus => '중지됨';
@@ -1639,37 +1363,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get offline => '오프라인';
 
   @override
-  String get connection => '연결';
-
-  @override
-  String get studio => 'Studio';
-
-  @override
-  String get server => 'Build Server';
-
-  @override
-  String get laptop => 'MacBook Air';
-
-  @override
-  String get hostSystem => 'macOS · Apple Silicon';
-
-  @override
-  String get serverSystem => 'Linux · 8 색상';
-
-  @override
-  String get laptopSystem => '마지막 접속 시간 2시간 전';
-
-  @override
-  String get statusHealthy => '건강';
-
-  @override
   String get cpu => 'CPU';
 
   @override
   String get memory => '메모리';
-
-  @override
-  String get disk => '디스크';
 
   @override
   String get metrics => '리소스 사용';
@@ -1678,22 +1375,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get activity => '활동';
 
   @override
-  String get lastHour => '마지막 60분';
-
-  @override
-  String get sessionCount => '대화';
-
-  @override
-  String get terminalCount => '터미널';
-
-  @override
-  String get projectCount => '프로젝트';
-
-  @override
   String get processes => '프로세스';
-
-  @override
-  String get process => '이름';
 
   @override
   String get network => '네트워크';
@@ -1702,58 +1384,22 @@ class AppLocalizationsKo extends AppLocalizations {
   String get details => '상세 정보';
 
   @override
-  String get manageHost => '호스트 세부 정보';
-
-  @override
-  String get hostProjects => '호스트 프로젝트';
-
-  @override
-  String get connectionDetails => '연결 상세 정보';
-
-  @override
-  String get direct => '직접';
-
-  @override
   String get relay => '중계';
-
-  @override
-  String get latency => '지연 시간';
-
-  @override
-  String get hostOffline => '호스트 오프라인; 알려진 마지막 상태 보이기';
 
   @override
   String get retry => '다시 시도';
 
   @override
-  String get retryNote => '미리보기가 실제 호스트에 연결되어 있지 않습니다';
-
-  @override
   String get pairTitle => '호스트 연결';
 
   @override
-  String get pairDescription => '호스트에 표시된 6자리 페어링 코드를 입력합니다';
-
-  @override
   String get pairCode => '연결 코드';
-
-  @override
-  String get pairHint => '페어링 코드가 60초 후에 만료됩니다';
-
-  @override
-  String get pairDemo => '연결 시뮬레이션';
-
-  @override
-  String get pairSuccess => '샘플 호스트 추가됨';
 
   @override
   String get pairInvalid => '6자리를 입력하십시오';
 
   @override
   String get workspace => '작업 공간';
-
-  @override
-  String get workspaceSub => 'Studio / sailry-web';
 
   @override
   String get selectHost => '호스트 선택';
@@ -1768,9 +1414,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get mainBranch => '기본 작업 트리';
 
   @override
-  String get featureBranch => '로그인 레이아웃';
-
-  @override
   String get connectionTools => '연결';
 
   @override
@@ -1781,9 +1424,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get git => 'Git';
-
-  @override
-  String get gitSummary => '변경사항, 브랜치 및 역사';
 
   @override
   String get gitBranches => '브랜치';
@@ -1827,40 +1467,19 @@ class AppLocalizationsKo extends AppLocalizations {
   String get gitDeleteBranch => '분기 삭제';
 
   @override
-  String get gitHistoryLayout => '로그인 양식 간격 조정';
-
-  @override
-  String get gitHistoryInit => '로그인 페이지 시작';
-
-  @override
-  String get gitPreview => 'Git 시뮬레이션만; 저장소 변경되지 않음';
-
-  @override
-  String get gitDirty => '현재 변경 사항 먼저 커밋하기';
-
-  @override
   String get gitSwitchNote => '이 작업 트리에서 브랜치를 바꿉니다; 시뮬레이션만 가능';
 
   @override
   String get gitDeleteNote => '선택한 브랜치 삭제; 시뮬레이션만';
 
   @override
-  String get gitInvalidBranch => '잘못된 이름이나 브랜치가 이미 존재합니다';
-
-  @override
   String get review => '검토';
-
-  @override
-  String get browseFiles => '작업 트리 탐색';
 
   @override
   String get reviewFiles => '코드 변경 내용 보기';
 
   @override
   String get selectWorkspace => '프로젝트 및 작업 트리';
-
-  @override
-  String get resourceSummary => '대화 2개 · 터미널 1개';
 
   @override
   String get searchFiles => '파일 검색';
@@ -1881,26 +1500,13 @@ class AppLocalizationsKo extends AppLocalizations {
   String get filePreview => '파일 미리 보기';
 
   @override
-  String get fileSample => '샘플 파일 내용';
-
-  @override
   String get edit => '편집';
-
-  @override
-  String get savePreview => '이 미리보기에 저장된 변경 사항';
 
   @override
   String get unsaved => '저장 안 됨';
 
   @override
   String get discard => '변경 사항 버리기';
-
-  @override
-  String get discardConfirm => '저장되지 않은 이 파일의 변경 사항을 버리시겠습니까?';
-
-  @override
-  String get markdownExample =>
-      '# Sailry Web\n\nA workspace for your next idea.\n\n## Development\n\npnpm install\npnpm dev';
 
   @override
   String get connections => '더 많은 리소스';
@@ -1918,43 +1524,19 @@ class AppLocalizationsKo extends AppLocalizations {
   String get browser => '웹 미리 보기';
 
   @override
-  String get portsSub => '앞으로 1';
-
-  @override
-  String get connectionOwner => '실행 Node · 스튜디오';
-
-  @override
   String get openTerminal => '터미널 열기';
 
   @override
   String get tables => '테이블';
 
   @override
-  String get portNote => '샘플 전달 · 로컬 포트 리스너 없음';
-
-  @override
-  String get portTarget => '대상 포트';
-
-  @override
-  String get localPort => '로컬 포트';
-
-  @override
   String get closePort => '앞으로 닫기';
-
-  @override
-  String get portClosed => '샘플 앞으로 닫기';
-
-  @override
-  String get diffSubtitle => 'sailry-web · feature/sign-in';
 
   @override
   String get workingTree => '작업 트리';
 
   @override
   String get staged => '스테이지';
-
-  @override
-  String get diffSummary => '3 줄';
 
   @override
   String get stage => '모든 단계';
@@ -1966,34 +1548,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get commit => '커밋';
 
   @override
-  String get commitTitle => '변경 사항 커밋';
-
-  @override
   String get commitMessage => '커밋 메시지';
 
   @override
-  String get commitPlaceholder => '변경 사항을 설명하십시오';
-
-  @override
-  String get commitPreview => '커밋 시뮬레이션';
-
-  @override
-  String get committed => '샘플 커밋 완료됨';
-
-  @override
   String get noChanges => '커밋할 변경 사항 없음';
-
-  @override
-  String get diffFile => 'login.css';
-
-  @override
-  String get diffPath => 'src/styles/login.css';
-
-  @override
-  String get continueEdit => '편집 계속하기';
-
-  @override
-  String get diffSelection => '변경된 파일 선택';
 
   @override
   String get terminalKeyboard => '키보드';
@@ -2003,9 +1561,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get terminalOutputLabel => '터미널 출력';
-
-  @override
-  String get terminalSubtitle => 'Studio / sailry-web';
 
   @override
   String get readOnly => '읽기 전용';
@@ -2018,18 +1573,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get releaseControl => '릴리스 제어';
-
-  @override
-  String get terminalPlaceholder => '샘플 명령 입력';
-
-  @override
-  String get terminalPreview => '샘플 터미널 · 명령이 실행되지 않음';
-
-  @override
-  String get terminalOutput => '미리보기에서 명령을 받았으나 실행되지 않았습니다';
-
-  @override
-  String get terminalControlNote => '입력을 보내기 위해 제어를 취합니다. 여기에서 시뮬레이션합니다';
 
   @override
   String get usageSubtitle => 'Sailry 채팅만';
@@ -2058,13 +1601,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get estimatedCost => '예상 비용';
 
   @override
-  String get costCoverage => '42 / 48 응답 가격';
-
-  @override
   String get partial => '부분 데이터';
-
-  @override
-  String get sourcesPartial => '2 / 3 호스트 업데이트';
 
   @override
   String get input => '입력';
@@ -2098,9 +1635,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get localSettings => '로컬 환경설정';
-
-  @override
-  String get nodeSettings => '실행 Node 설정';
 
   @override
   String get appearance => '모양';
@@ -2179,22 +1713,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get about => 'Sailry에 대하여';
 
   @override
-  String get aboutBody => '서비스에 연결되지 않은 모바일 상호 작용 미리보기';
-
-  @override
-  String get settingsSaved => '이 미리보기에서 업데이트된 설정';
-
-  @override
   String get modelPicker => '모델 선택';
 
   @override
   String get nodeDefaults => 'Node 기본값';
-
-  @override
-  String get providerNote => '샘플 구성 · 자격 증명이 실행 중에 유지됨 Node';
-
-  @override
-  String get roleNote => '샘플 역할 · 새 채팅에 적용';
 
   @override
   String get auto => '자동';
@@ -2203,28 +1725,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get manual => '매번 물어보기';
 
   @override
-  String get notificationsNote => '미리 보기 알림만 제어';
-
-  @override
-  String get memoryNote => '샘플 Node 메모리';
-
-  @override
   String get speechNote => '실행 Node 음성 구성을 사용합니다';
-
-  @override
-  String get newTaskHost => '실행 호스트';
-
-  @override
-  String get newTaskProject => '프로젝트';
-
-  @override
-  String get newTaskWorktree => '작업 트리';
-
-  @override
-  String get create => '만들기';
-
-  @override
-  String get taskCreated => '샘플 채팅 생성됨';
 
   @override
   String get required => '먼저 작업을 설명하십시오';
@@ -2234,9 +1735,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get reviewTitle => '설계 참조 자료';
-
-  @override
-  String get reviewIntro => '페이지는 현재 소스를 따릅니다. 이 미리보기는 모바일 서비스 수락을 확립하지 않습니다';
 
   @override
   String get reviewConversation => '채팅, 승인, 질문 및 대기열';
@@ -2268,10 +1766,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get reviewBoundary => '이동 경계';
-
-  @override
-  String get reviewBoundaryText =>
-      '모바일 브리지는 연결, 채팅, 터미널 및 사용량을 노출합니다. 이 미리보기는 Node, 모델, 페어링, 터미널 또는 플러그인에서 시작됩니다';
 
   @override
   String get reviewVisual => '시각적 참조';

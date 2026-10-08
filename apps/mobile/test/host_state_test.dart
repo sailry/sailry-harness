@@ -4,8 +4,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/features/conversations/tasks_page.dart';
-import 'package:sailry_mobile/features/resources/live_hosts.dart';
-import 'package:sailry_mobile/features/resources/live_resources.dart';
+import 'package:sailry_mobile/features/resources/hosts_page.dart';
+import 'package:sailry_mobile/features/resources/resources_page.dart';
 import 'package:sailry_mobile/features/settings/settings_page.dart';
 import 'package:sailry_mobile/features/settings/usage_page.dart';
 import 'package:sailry_mobile/features/settings/usage_watch.dart';
@@ -33,8 +33,8 @@ class TestHost extends HostConnection {
 void main() {
   final pages = <String, Widget>{
     'tasks': const TasksPage(),
-    'hosts': const LiveHostsPage(),
-    'resources': const LiveResourcesPage(),
+    'hosts': const HostsPage(),
+    'resources': const ResourcesPage(),
     'usage': const UsagePage(),
   };
   for (final entry in pages.entries) {

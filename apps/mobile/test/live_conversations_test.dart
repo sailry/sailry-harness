@@ -19,6 +19,7 @@ import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/ui/theme.dart';
 import 'package:sailry_mobile/ui/empty_state.dart';
 import 'package:sailry_mobile/ui/failure_state.dart';
+import '../preview/l10n/strings.dart' as fixtures;
 
 class UpdatesFixture implements ConversationUpdates {
   final _values = StreamController<String>();
@@ -443,7 +444,7 @@ void main() {
     final app = AppSession.test();
     await mount(tester, const TasksPage(), app);
     expect(find.text(tr('hostConnectPrompt')), findsOneWidget);
-    expect(find.text(tr('approveTitle')), findsNothing);
+    expect(find.text(fixtures.tr('approveTitle')), findsNothing);
     expect(find.text('sailry-web'), findsNothing);
     await tester.pumpWidget(const SizedBox());
     app.dispose();

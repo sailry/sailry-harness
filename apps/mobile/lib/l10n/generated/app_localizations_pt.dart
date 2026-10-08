@@ -38,9 +38,6 @@ class AppLocalizationsPt extends AppLocalizations {
   String get updatesOpenFailed => 'Não foi possível abrir o download';
 
   @override
-  String get retryTask => 'Tentar novamente';
-
-  @override
   String get welcomeTitle => 'O que você gostaria de trabalhar hoje?';
 
   @override
@@ -964,13 +961,6 @@ class AppLocalizationsPt extends AppLocalizations {
   String get tool_generate_video => 'Gerar um vídeo';
 
   @override
-  String get terminalUnavailable => 'O terminal não está conectado';
-
-  @override
-  String get terminalFixture =>
-      '~/Projects/sailry-web\n❯ pnpm test\n\n PASS  src/tests/login.test.ts\n PASS  src/tests/session.test.ts\n PASS  src/tests/navigation.test.ts\n\nTest Suites  3 passed, 3 total\nTests        18 passed, 18 total\nTime         2.41 s\n\n✓ All tests passed\n\n❯';
-
-  @override
   String get refresh => 'Atualizar';
 
   @override
@@ -1027,9 +1017,6 @@ class AppLocalizationsPt extends AppLocalizations {
   String get stopBeforeDelete => 'Parar a tarefa';
 
   @override
-  String get deleted => 'Bate-papo removido da visualização';
-
-  @override
   String get restored => 'Restaurado para casa';
 
   @override
@@ -1041,9 +1028,6 @@ class AppLocalizationsPt extends AppLocalizations {
   @override
   String get archiveKeepsRunning =>
       'O arquivamento não pára de executar tarefas';
-
-  @override
-  String get title => 'Sailry · Visualização móvel';
 
   @override
   String get brand => 'Sailry';
@@ -1061,10 +1045,6 @@ class AppLocalizationsPt extends AppLocalizations {
   String get preview => 'Pré- visualização';
 
   @override
-  String get sample =>
-      'Dados de exemplo · As alterações permanecem nesta página';
-
-  @override
   String get mixed => 'Luz e escuridão';
 
   @override
@@ -1080,9 +1060,6 @@ class AppLocalizationsPt extends AppLocalizations {
   String get focus => 'Tela única';
 
   @override
-  String get reset => 'Redefinir a visualização';
-
-  @override
   String get page => 'Escolha a página';
 
   @override
@@ -1096,9 +1073,6 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get footer => 'VAILRY / MÓVEL';
-
-  @override
-  String get footerNote => 'Visualização HTML local · Sem conexão de serviço';
 
   @override
   String get tasks => 'Tarefas';
@@ -1213,28 +1187,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get newConversation => 'Um novo chat';
 
   @override
-  String get approveTitle => 'Atualizar o layout de login';
-
-  @override
-  String get approveNote => 'Executar testes de projeto';
-
-  @override
-  String get approveContext => 'sailry-web · feature/sign-in';
-
-  @override
-  String get questionTitle => 'Organize API documentação';
-
-  @override
-  String get questionNote => 'Aguardando uma resposta';
-
-  @override
   String get question => 'Qual idioma a documentação deve usar?';
-
-  @override
-  String get optionChinese => 'Chinês';
-
-  @override
-  String get optionEnglish => 'English';
 
   @override
   String get reply => 'Responder';
@@ -1244,24 +1197,6 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get viewRequest => 'Ver pedido de informação';
-
-  @override
-  String get taskSearch => 'Melhorar a pesquisa de arquivos';
-
-  @override
-  String get taskSearchNote => 'Verificando o índice do diretório';
-
-  @override
-  String get taskTest => 'Corrigir recuperação de chat';
-
-  @override
-  String get taskTestNote => 'Execução de testes';
-
-  @override
-  String get taskDone => 'Atualize o README do projeto';
-
-  @override
-  String get taskDoneNote => '3 arquivos alterados';
 
   @override
   String get ago => 'Apenas agora';
@@ -1276,18 +1211,6 @@ class AppLocalizationsPt extends AppLocalizations {
   String get deny => 'Negar';
 
   @override
-  String get approved => 'Permitido · Amostra grátis';
-
-  @override
-  String get denied => 'Negado · Amostra';
-
-  @override
-  String get answered => 'Respondeu · Amostra';
-
-  @override
-  String get awaiting => 'A aguardar aprovação';
-
-  @override
   String get working => 'Em andamento';
 
   @override
@@ -1297,27 +1220,10 @@ class AppLocalizationsPt extends AppLocalizations {
   String get viewConversation => 'Ver o chat';
 
   @override
-  String get chatTitle => 'Atualizar o layout de login';
-
-  @override
-  String get chatHost => 'sailry-web · Studio';
-
-  @override
   String get branch => 'feature/sign-in';
 
   @override
   String get today => 'Hoje às 09:36';
-
-  @override
-  String get userMessage =>
-      'Ajuste o espaçamento de login e unifique os estilos de entrada e botão, preservando a lógica de login';
-
-  @override
-  String get assistantMessage =>
-      'Eu verifiquei a página de login e componentes de formulário compartilhados, espaçamento de entrada unificado e estilos de foco de teclado adicionados';
-
-  @override
-  String get replyPreview => 'Exemplo de fluxo de tarefas';
 
   @override
   String get phaseThinking => 'Pensamento';
@@ -1356,137 +1262,19 @@ class AppLocalizationsPt extends AppLocalizations {
   String get queueShort => 'Fila';
 
   @override
-  String get confirmShort => 'Confirmar';
-
-  @override
-  String get todoShort => 'O que fazer';
-
-  @override
-  String get todoInspect => 'Inspecione a página de login';
-
-  @override
-  String get todoEdit => 'Ajustar estilos de formulário';
-
-  @override
-  String get todoTest => 'Executar testes de projeto';
-
-  @override
-  String get todoNarrow => 'Verifique o espaçamento estreito da tela';
-
-  @override
-  String get workProcess => 'Atividade';
-
-  @override
-  String workSteps(String count) {
-    return '· $count passos';
-  }
-
-  @override
-  String get questionRecord => 'Confirmar o layout';
-
-  @override
-  String get answerRecorded => 'Respondeu';
-
-  @override
-  String get playFlow => 'Jogar a tarefa';
-
-  @override
-  String get pauseFlow => 'Pausar a demo';
-
-  @override
-  String get nextFlow => 'O próximo passo';
-
-  @override
   String get replyingNow => 'Respondendo';
-
-  @override
-  String get toolReadLabel => 'Ler';
-
-  @override
-  String get toolEditLabel => 'Editar';
-
-  @override
-  String get toolRunLabel => 'Executar';
-
-  @override
-  String get readGroup => '3 arquivos';
-
-  @override
-  String get readFileResult => 'Arquivo lido';
 
   @override
   String get readFileProgress => 'Lendo o arquivo';
 
   @override
-  String get flowAttachment =>
-      'Atualização de login: unifique o espaçamento do formulário, adicione estilos de foco do teclado e preserve a lógica de login';
-
-  @override
-  String get readResult =>
-      'Ler Login.tsx e estilos de formulário compartilhados\nA largura do botão móvel difere do formulário';
-
-  @override
-  String get layoutFindings =>
-      'O formulário de login usa o espaçamento da área de trabalho e o botão móvel não preenche seu contêiner';
-
-  @override
-  String get layoutQuestion =>
-      'O botão de login móvel deve preencher a largura?';
-
-  @override
   String get questionPending => 'Aguardando sua resposta';
-
-  @override
-  String get wideButton => 'Usar botão de largura total';
-
-  @override
-  String get keepButton => 'Manter a largura atual';
-
-  @override
-  String get editPlan =>
-      'Vou preservar a lógica de login, unificar o espaçamento e tornar o botão móvel de largura total';
-
-  @override
-  String get editPlanKeep =>
-      'Vou manter a largura do botão e a lógica de login, ajustando apenas os estilos de espaçamento e foco';
-
-  @override
-  String get editThinking =>
-      'Reutilize variáveis de estilo existentes e limite as alterações de layout ao formulário de login';
-
-  @override
-  String get editResult =>
-      'Atualizado 3 arquivos\nEstilos de foco adicionados e regras de layout móvel';
-
-  @override
-  String get beforeTest =>
-      'As alterações de layout estão concluídas. Em seguida, executarei testes de projeto para verificar regressões';
 
   @override
   String get testTool => 'Executar testes de projeto';
 
   @override
-  String get testProgress =>
-      'Executando testes de formulário de login…\nVerificando foco e interação do teclado';
-
-  @override
-  String get testResult =>
-      '12 testes passados\nNenhuma regressão de lógica de login encontrada';
-
-  @override
-  String get testFailure =>
-      'Teste de ordem de foco falhou\nO foco esperado no campo de senha, mas permaneceu no campo de nome de usuário';
-
-  @override
   String get testFailed => 'Os testes falharam';
-
-  @override
-  String get flowResult =>
-      'Os estilos de espaçamento e foco de login são unificados, com um botão móvel de largura total.Todos os 12 testes foram aprovados e a lógica de login permanece inalterada';
-
-  @override
-  String get queueSample =>
-      'Verifique o espaçamento dos botões em telas estreitas também';
 
   @override
   String queueCount(String count) {
@@ -1505,35 +1293,10 @@ class AppLocalizationsPt extends AppLocalizations {
   String get resumeQueue => 'Retomar a fila';
 
   @override
-  String get sendNext => 'Enviar próximo';
-
-  @override
   String get enqueue => 'Adicionar à lista';
 
   @override
-  String get queuedPreview => 'Adicionado à fila de amostras';
-
-  @override
   String get moveUp => 'Mover para cima';
-
-  @override
-  String get followupThinking =>
-      'Verifique os pontos de interrupção existentes para confirmar o espaçamento consistente dos botões em telas estreitas';
-
-  @override
-  String get followupTool => 'Verificar estilos de tela estreita';
-
-  @override
-  String get followupToolResult =>
-      '320px e 390px usam as mesmas regras de espaçamento';
-
-  @override
-  String get followupResult =>
-      'O espaçamento entre botões de tela estreita é consistente; nenhuma alteração adicional é necessária';
-
-  @override
-  String get deniedResult =>
-      'Os testes não foram executados; as alterações atuais são preservadas';
 
   @override
   String get thinkingNow => 'Pensamento';
@@ -1542,40 +1305,10 @@ class AppLocalizationsPt extends AppLocalizations {
   String get toolsNow => 'Executando';
 
   @override
-  String get toolPending => 'Não iniciado';
-
-  @override
-  String get thoughtLive =>
-      'Primeiro, inspecione a página de login e os componentes do formulário para identificar alterações de espaçamento e foco';
-
-  @override
-  String get toolsShort => '3 ações';
-
-  @override
   String get thought => 'Raciocínio';
 
   @override
-  String get thoughtContent =>
-      'Reutilize componentes de formulário existentes e ajuste apenas o layout de login e os estilos de foco';
-
-  @override
-  String get toolsComplete => '3 ações concluídas';
-
-  @override
-  String get toolRead => 'Ler componentes de login e formulário';
-
-  @override
-  String get toolEdit => 'Atualizar estilos de espaçamento e foco';
-
-  @override
   String get toolDiff => 'Inspecionar diffs de arquivos';
-
-  @override
-  String get changedFiles => '3 arquivos alterados';
-
-  @override
-  String get approvalBody =>
-      'Execute testes na árvore de trabalho sailry-web no Studio';
 
   @override
   String get approvalResolved => 'Aprovação resolvida';
@@ -1596,25 +1329,13 @@ class AppLocalizationsPt extends AppLocalizations {
   String get voice => 'Entrada de voz';
 
   @override
-  String get voiceNote => 'Esta visualização não acessa o microfone';
-
-  @override
-  String get attachmentNote => 'Sample attachment added';
-
-  @override
-  String get attachment => 'design-notes.md';
+  String get attachment => 'Anexo';
 
   @override
   String get removeAttachment => 'Remover o anexo';
 
   @override
-  String get sentPreview => 'Apenas visualização, não enviada';
-
-  @override
   String get model => 'Modelo';
-
-  @override
-  String get modelSource => 'Configuração atual do chat · Studio';
 
   @override
   String get copy => 'Copiar';
@@ -1641,12 +1362,6 @@ class AppLocalizationsPt extends AppLocalizations {
   String get save => 'Salvar';
 
   @override
-  String get select => 'Selecionar';
-
-  @override
-  String get sessionActions => 'Ações de chat';
-
-  @override
   String get queue => 'Fila de mensagens';
 
   @override
@@ -1656,19 +1371,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get fork => 'Ramificar conversa';
 
   @override
-  String get forked => 'Sample fork criado';
-
-  @override
-  String get archive => 'Arquivo de chat';
-
-  @override
-  String get archived => 'Arquivado em preview';
-
-  @override
   String get stop => 'Parar a tarefa';
-
-  @override
-  String get stopped => 'Tarefa interrompida na visualização';
 
   @override
   String get stoppedStatus => 'Parado';
@@ -1686,37 +1389,10 @@ class AppLocalizationsPt extends AppLocalizations {
   String get offline => 'Off-line';
 
   @override
-  String get connection => 'Conexão';
-
-  @override
-  String get studio => 'Studio';
-
-  @override
-  String get server => 'Build Server';
-
-  @override
-  String get laptop => 'MacBook Air';
-
-  @override
-  String get hostSystem => 'macOS · Apple Silicon';
-
-  @override
-  String get serverSystem => 'Linux · 8 cores disponíveis';
-
-  @override
-  String get laptopSystem => 'Última vez online há 2 horas';
-
-  @override
-  String get statusHealthy => 'Saudável';
-
-  @override
   String get cpu => 'CPU';
 
   @override
   String get memory => 'Memória';
-
-  @override
-  String get disk => 'Disco';
 
   @override
   String get metrics => 'Utilização de recursos';
@@ -1725,22 +1401,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get activity => 'Atividade';
 
   @override
-  String get lastHour => '60 minutos';
-
-  @override
-  String get sessionCount => 'Conversas';
-
-  @override
-  String get terminalCount => 'Terminais';
-
-  @override
-  String get projectCount => 'Projetos';
-
-  @override
   String get processes => 'Processos';
-
-  @override
-  String get process => 'Nome';
 
   @override
   String get network => 'Rede';
@@ -1749,60 +1410,22 @@ class AppLocalizationsPt extends AppLocalizations {
   String get details => 'Detalhes';
 
   @override
-  String get manageHost => 'Detalhes do host';
-
-  @override
-  String get hostProjects => 'Hospedar projetos';
-
-  @override
-  String get connectionDetails => 'Detalhes da conexão';
-
-  @override
-  String get direct => 'Direto';
-
-  @override
   String get relay => 'Relé';
-
-  @override
-  String get latency => 'Latência';
-
-  @override
-  String get hostOffline =>
-      'Host offline; mostrando seu último estado conhecido';
 
   @override
   String get retry => 'Tentar novamente';
 
   @override
-  String get retryNote => 'A visualização não está conectada a um host real';
-
-  @override
   String get pairTitle => 'Conectar um host';
 
   @override
-  String get pairDescription =>
-      'Digite o código de emparelhamento de 6 dígitos mostrado no host';
-
-  @override
   String get pairCode => 'Código de emparelhamento';
-
-  @override
-  String get pairHint => 'O código de emparelhamento expira em 60 segundos';
-
-  @override
-  String get pairDemo => 'Simulação de conexão';
-
-  @override
-  String get pairSuccess => 'Host de amostra adicionado';
 
   @override
   String get pairInvalid => 'Digite 6 dígitos';
 
   @override
   String get workspace => 'Espaço de trabalho';
-
-  @override
-  String get workspaceSub => 'Studio / sailry-web';
 
   @override
   String get selectHost => 'Escolha o host';
@@ -1817,9 +1440,6 @@ class AppLocalizationsPt extends AppLocalizations {
   String get mainBranch => 'Árvore de trabalho principal';
 
   @override
-  String get featureBranch => 'Layout de login';
-
-  @override
   String get connectionTools => 'Conexões';
 
   @override
@@ -1830,9 +1450,6 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get git => 'Git';
-
-  @override
-  String get gitSummary => 'Mudanças, ramos e história';
 
   @override
   String get gitBranches => 'Branches';
@@ -1876,18 +1493,6 @@ class AppLocalizationsPt extends AppLocalizations {
   String get gitDeleteBranch => 'Excluir ramo';
 
   @override
-  String get gitHistoryLayout => 'Ajuste o espaçamento do formulário de login';
-
-  @override
-  String get gitHistoryInit => 'Inicializar página de login';
-
-  @override
-  String get gitPreview => 'Git apenas simulação; repositório inalterado';
-
-  @override
-  String get gitDirty => 'Fazer commit das alterações atuais primeiro';
-
-  @override
   String get gitSwitchNote =>
       'Mudar ramo nesta árvore de trabalho; apenas simulação';
 
@@ -1895,22 +1500,13 @@ class AppLocalizationsPt extends AppLocalizations {
   String get gitDeleteNote => 'Excluir ramo selecionado; apenas simulação';
 
   @override
-  String get gitInvalidBranch => 'O nome ou ramo inválido já existe';
-
-  @override
   String get review => 'Revisar';
-
-  @override
-  String get browseFiles => 'Navegar na worktree';
 
   @override
   String get reviewFiles => 'Ver alterações de código';
 
   @override
   String get selectWorkspace => 'Projeto e árvore de trabalho';
-
-  @override
-  String get resourceSummary => '2 conversas · 1 terminal';
 
   @override
   String get searchFiles => 'Pesquisar arquivos';
@@ -1931,26 +1527,13 @@ class AppLocalizationsPt extends AppLocalizations {
   String get filePreview => 'Prévia do arquivo';
 
   @override
-  String get fileSample => 'Conteúdo do arquivo de amostra';
-
-  @override
   String get edit => 'Editar';
-
-  @override
-  String get savePreview => 'Alterações salvas nesta visualização';
 
   @override
   String get unsaved => 'Não salvo';
 
   @override
   String get discard => 'Descartar as alterações';
-
-  @override
-  String get discardConfirm => 'Descartar alterações não salvas neste arquivo?';
-
-  @override
-  String get markdownExample =>
-      '# Sailry Web\n\nA workspace for your next idea.\n\n## Development\n\npnpm install\npnpm dev';
 
   @override
   String get connections => 'Ver mais recursos';
@@ -1968,43 +1551,19 @@ class AppLocalizationsPt extends AppLocalizations {
   String get browser => 'Pré-visualização da Web';
 
   @override
-  String get portsSub => '1 avançado';
-
-  @override
-  String get connectionOwner => 'Execution Node · Estúdio de luxo';
-
-  @override
   String get openTerminal => 'Abra o terminal';
 
   @override
   String get tables => 'Tabelas';
 
   @override
-  String get portNote => 'Sample forward · Nenhum ouvinte de porta local';
-
-  @override
-  String get portTarget => 'Porto de destino';
-
-  @override
-  String get localPort => 'O porto local';
-
-  @override
   String get closePort => 'Fechar para frente';
-
-  @override
-  String get portClosed => 'Amostra para a frente fechada';
-
-  @override
-  String get diffSubtitle => 'sailry-web · feature/sign-in';
 
   @override
   String get workingTree => 'Árvore de trabalho';
 
   @override
   String get staged => 'Estágio';
-
-  @override
-  String get diffSummary => '3 arquivos';
 
   @override
   String get stage => 'Fase de todos';
@@ -2016,34 +1575,10 @@ class AppLocalizationsPt extends AppLocalizations {
   String get commit => 'Commit';
 
   @override
-  String get commitTitle => 'Fazer commit de alterações';
-
-  @override
   String get commitMessage => 'Enviar mensagem';
 
   @override
-  String get commitPlaceholder => 'Descreva as mudanças';
-
-  @override
-  String get commitPreview => 'Simular commit';
-
-  @override
-  String get committed => 'Sample commit concluído';
-
-  @override
   String get noChanges => 'Nenhumas alterações para confirmar';
-
-  @override
-  String get diffFile => 'login.css';
-
-  @override
-  String get diffPath => 'src/styles/login.css';
-
-  @override
-  String get continueEdit => 'Continue a editar';
-
-  @override
-  String get diffSelection => 'Escolha o arquivo alterado';
 
   @override
   String get terminalKeyboard => 'Teclado';
@@ -2053,9 +1588,6 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get terminalOutputLabel => 'Saída do terminal';
-
-  @override
-  String get terminalSubtitle => 'Studio / sailry-web';
 
   @override
   String get readOnly => 'Somente leitura';
@@ -2068,21 +1600,6 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get releaseControl => 'Controle de liberação';
-
-  @override
-  String get terminalPlaceholder => 'Digite um comando de exemplo';
-
-  @override
-  String get terminalPreview =>
-      'Exemplo de terminal · Os comandos não são executados';
-
-  @override
-  String get terminalOutput =>
-      'Comando recebido na visualização, não executado';
-
-  @override
-  String get terminalControlNote =>
-      'Assuma o controle para enviar entrada; simulado aqui';
 
   @override
   String get usageSubtitle => 'Sailry chats somente';
@@ -2111,13 +1628,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get estimatedCost => 'Custo estimado';
 
   @override
-  String get costCoverage => '42 / 48 respostas com preço';
-
-  @override
   String get partial => 'Dados parciais';
-
-  @override
-  String get sourcesPartial => '2 / 3 hosts atualizados';
 
   @override
   String get input => 'Entrada';
@@ -2153,9 +1664,6 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get localSettings => 'As preferências locais';
-
-  @override
-  String get nodeSettings => 'Configurações de execução Node';
 
   @override
   String get appearance => 'Aparência';
@@ -2236,23 +1744,10 @@ class AppLocalizationsPt extends AppLocalizations {
   String get about => 'Sobre o Sailry';
 
   @override
-  String get aboutBody =>
-      'Pré-visualização de interação móvel, não conectada a serviços';
-
-  @override
-  String get settingsSaved => 'Configurações atualizadas nesta visualização';
-
-  @override
   String get modelPicker => 'Escolha o modelo';
 
   @override
   String get nodeDefaults => 'Node padrões';
-
-  @override
-  String get providerNote => '· As credenciais permanecem na execução Node';
-
-  @override
-  String get roleNote => '· Aplica-se a novos chats';
 
   @override
   String get auto => 'Automático';
@@ -2261,29 +1756,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get manual => 'Pergunte cada vez';
 
   @override
-  String get notificationsNote =>
-      'Controla apenas notificações de visualização';
-
-  @override
-  String get memoryNote => 'Amostra Node memória';
-
-  @override
   String get speechNote => 'Usa a configuração de fala de execução Node';
-
-  @override
-  String get newTaskHost => 'Anfitrião de execução';
-
-  @override
-  String get newTaskProject => 'Projeto';
-
-  @override
-  String get newTaskWorktree => 'Árvore de trabalho';
-
-  @override
-  String get create => 'Criar';
-
-  @override
-  String get taskCreated => 'Exemplo de chat criado';
 
   @override
   String get required => 'Descreva sua tarefa primeiro';
@@ -2293,10 +1766,6 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get reviewTitle => 'Referências de design';
-
-  @override
-  String get reviewIntro =>
-      'As páginas seguem a fonte atual; esta visualização não estabelece a aceitação do serviço móvel';
 
   @override
   String get reviewConversation => 'Chats, aprovações, perguntas e fila';
@@ -2328,10 +1797,6 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get reviewBoundary => 'Limite móvel';
-
-  @override
-  String get reviewBoundaryText =>
-      'A ponte móvel expõe conexões, bate-papos, terminais e uso; esta visualização começa no Node, modelos, emparelhamento, terminais ou plugins';
 
   @override
   String get reviewVisual => 'Referências visuais';

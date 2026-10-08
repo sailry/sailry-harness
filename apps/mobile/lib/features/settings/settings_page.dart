@@ -18,8 +18,6 @@ class SettingsPage extends StatefulWidget {
     super.key,
     required this.onThemeChanged,
     required this.themeMode,
-    this.initialHost = 'Studio',
-    this.onHostChanged,
     this.notifications = true,
     this.onNotificationsChanged,
     this.language = AppLanguage.chinese,
@@ -29,8 +27,6 @@ class SettingsPage extends StatefulWidget {
 
   final ValueChanged<ThemeMode> onThemeChanged;
   final ThemeMode themeMode;
-  final String initialHost;
-  final ValueChanged<String>? onHostChanged;
   final bool notifications;
   final ValueChanged<bool>? onNotificationsChanged;
   final AppLanguage language;

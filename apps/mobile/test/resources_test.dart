@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/content/markdown.dart';
-import 'package:sailry_mobile/features/resources/files_page.dart';
-import 'package:sailry_mobile/features/resources/git_page.dart';
-import 'package:sailry_mobile/features/resources/hosts_page.dart';
-import 'package:sailry_mobile/features/resources/resources_page.dart';
-import 'package:sailry_mobile/l10n/strings.dart';
+import '../preview/features/resources/files_page.dart';
+import '../preview/features/resources/git_page.dart';
+import '../preview/features/resources/hosts_page.dart';
+import '../preview/features/resources/resources_page.dart';
+import '../preview/l10n/strings.dart';
 import 'package:sailry_mobile/ui/kit.dart';
 import 'package:sailry_mobile/ui/theme.dart';
 

@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sailry_mobile/features/conversations/conversation_page.dart';
-import 'package:sailry_mobile/features/conversations/tasks_page.dart';
+import '../preview/features/conversations/conversation_page.dart';
+import '../preview/features/conversations/tasks_page.dart';
 import 'package:sailry_mobile/features/conversations/running_task_frame.dart';
-import 'package:sailry_mobile/l10n/strings.dart';
+import '../preview/l10n/strings.dart';
 import 'package:sailry_mobile/ui/theme.dart';
 
 Future<void> mount(

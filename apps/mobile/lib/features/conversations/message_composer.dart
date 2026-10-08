@@ -16,6 +16,7 @@ class MessageComposer extends StatelessWidget {
     this.focusNode,
     this.priority,
     this.attachments,
+    this.attachmentLabel,
     this.enabled = true,
     this.sendEnabled = true,
     this.attachmentsEnabled = true,
@@ -32,6 +33,7 @@ class MessageComposer extends StatelessWidget {
   final VoidCallback onSend;
   final Widget? priority;
   final Widget? attachments;
+  final String? attachmentLabel;
   final bool enabled;
   final bool sendEnabled;
   final bool attachmentsEnabled;
@@ -72,7 +74,7 @@ class MessageComposer extends StatelessWidget {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: InputChip(
-                      label: Text(context.tr('attachment')),
+                      label: Text(attachmentLabel ?? context.tr('attachment')),
                       avatar: const AppIcon('file', size: 15),
                       deleteIcon: const AppIcon('close', size: 18),
                       onDeleted: enabled ? () => onAttachment(false) : null,

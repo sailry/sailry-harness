@@ -244,7 +244,7 @@ jobs:
       - name: Flutter analysis and widget tests
         working-directory: apps/mobile
         run: |
-          dart format --output=none --set-exit-if-changed lib test integration_test
+          dart format --output=none --set-exit-if-changed lib preview test integration_test tool
           flutter analyze --no-pub
           flutter test --no-pub
       - name: Native shared bridge

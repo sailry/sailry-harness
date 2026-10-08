@@ -168,12 +168,6 @@ abstract class AppLocalizations {
   /// **'Could not open the download'**
   String get updatesOpenFailed;
 
-  /// No description provided for @retryTask.
-  ///
-  /// In en, this message translates to:
-  /// **'Retry'**
-  String get retryTask;
-
   /// No description provided for @welcomeTitle.
   ///
   /// In en, this message translates to:
@@ -1932,18 +1926,6 @@ abstract class AppLocalizations {
   /// **'Generate video'**
   String get tool_generate_video;
 
-  /// No description provided for @terminalUnavailable.
-  ///
-  /// In en, this message translates to:
-  /// **'Terminal is not connected'**
-  String get terminalUnavailable;
-
-  /// No description provided for @terminalFixture.
-  ///
-  /// In en, this message translates to:
-  /// **'~/Projects/sailry-web\n❯ pnpm test\n\n PASS  src/tests/login.test.ts\n PASS  src/tests/session.test.ts\n PASS  src/tests/navigation.test.ts\n\nTest Suites  3 passed, 3 total\nTests        18 passed, 18 total\nTime         2.41 s\n\n✓ All tests passed\n\n❯'**
-  String get terminalFixture;
-
   /// No description provided for @refresh.
   ///
   /// In en, this message translates to:
@@ -2052,12 +2034,6 @@ abstract class AppLocalizations {
   /// **'Stop task'**
   String get stopBeforeDelete;
 
-  /// No description provided for @deleted.
-  ///
-  /// In en, this message translates to:
-  /// **'Chat removed from preview'**
-  String get deleted;
-
   /// No description provided for @restored.
   ///
   /// In en, this message translates to:
@@ -2081,12 +2057,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Archiving does not stop running tasks'**
   String get archiveKeepsRunning;
-
-  /// No description provided for @title.
-  ///
-  /// In en, this message translates to:
-  /// **'Sailry · Mobile preview'**
-  String get title;
 
   /// No description provided for @brand.
   ///
@@ -2118,12 +2088,6 @@ abstract class AppLocalizations {
   /// **'Preview'**
   String get preview;
 
-  /// No description provided for @sample.
-  ///
-  /// In en, this message translates to:
-  /// **'Sample data · Changes stay on this page'**
-  String get sample;
-
   /// No description provided for @mixed.
   ///
   /// In en, this message translates to:
@@ -2154,12 +2118,6 @@ abstract class AppLocalizations {
   /// **'Single screen'**
   String get focus;
 
-  /// No description provided for @reset.
-  ///
-  /// In en, this message translates to:
-  /// **'Reset preview'**
-  String get reset;
-
   /// No description provided for @page.
   ///
   /// In en, this message translates to:
@@ -2189,12 +2147,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'SAILRY / MOBILE'**
   String get footer;
-
-  /// No description provided for @footerNote.
-  ///
-  /// In en, this message translates to:
-  /// **'Local HTML preview · No service connection'**
-  String get footerNote;
 
   /// No description provided for @tasks.
   ///
@@ -2412,53 +2364,11 @@ abstract class AppLocalizations {
   /// **'New chat'**
   String get newConversation;
 
-  /// No description provided for @approveTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Update the login layout'**
-  String get approveTitle;
-
-  /// No description provided for @approveNote.
-  ///
-  /// In en, this message translates to:
-  /// **'Run project tests'**
-  String get approveNote;
-
-  /// No description provided for @approveContext.
-  ///
-  /// In en, this message translates to:
-  /// **'sailry-web · feature/sign-in'**
-  String get approveContext;
-
-  /// No description provided for @questionTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Organize API documentation'**
-  String get questionTitle;
-
-  /// No description provided for @questionNote.
-  ///
-  /// In en, this message translates to:
-  /// **'Awaiting reply'**
-  String get questionNote;
-
   /// No description provided for @question.
   ///
   /// In en, this message translates to:
   /// **'Which language should the documentation use?'**
   String get question;
-
-  /// No description provided for @optionChinese.
-  ///
-  /// In en, this message translates to:
-  /// **'Chinese'**
-  String get optionChinese;
-
-  /// No description provided for @optionEnglish.
-  ///
-  /// In en, this message translates to:
-  /// **'English'**
-  String get optionEnglish;
 
   /// No description provided for @reply.
   ///
@@ -2477,42 +2387,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'View request'**
   String get viewRequest;
-
-  /// No description provided for @taskSearch.
-  ///
-  /// In en, this message translates to:
-  /// **'Improve file search'**
-  String get taskSearch;
-
-  /// No description provided for @taskSearchNote.
-  ///
-  /// In en, this message translates to:
-  /// **'Checking the directory index'**
-  String get taskSearchNote;
-
-  /// No description provided for @taskTest.
-  ///
-  /// In en, this message translates to:
-  /// **'Fix chat recovery'**
-  String get taskTest;
-
-  /// No description provided for @taskTestNote.
-  ///
-  /// In en, this message translates to:
-  /// **'Running tests'**
-  String get taskTestNote;
-
-  /// No description provided for @taskDone.
-  ///
-  /// In en, this message translates to:
-  /// **'Update the project README'**
-  String get taskDone;
-
-  /// No description provided for @taskDoneNote.
-  ///
-  /// In en, this message translates to:
-  /// **'3 files changed'**
-  String get taskDoneNote;
 
   /// No description provided for @ago.
   ///
@@ -2538,30 +2412,6 @@ abstract class AppLocalizations {
   /// **'Deny'**
   String get deny;
 
-  /// No description provided for @approved.
-  ///
-  /// In en, this message translates to:
-  /// **'Allowed · Sample'**
-  String get approved;
-
-  /// No description provided for @denied.
-  ///
-  /// In en, this message translates to:
-  /// **'Denied · Sample'**
-  String get denied;
-
-  /// No description provided for @answered.
-  ///
-  /// In en, this message translates to:
-  /// **'Replied · Sample'**
-  String get answered;
-
-  /// No description provided for @awaiting.
-  ///
-  /// In en, this message translates to:
-  /// **'Awaiting approval'**
-  String get awaiting;
-
   /// No description provided for @working.
   ///
   /// In en, this message translates to:
@@ -2580,18 +2430,6 @@ abstract class AppLocalizations {
   /// **'View chat'**
   String get viewConversation;
 
-  /// No description provided for @chatTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Update the login layout'**
-  String get chatTitle;
-
-  /// No description provided for @chatHost.
-  ///
-  /// In en, this message translates to:
-  /// **'sailry-web · Studio'**
-  String get chatHost;
-
   /// No description provided for @branch.
   ///
   /// In en, this message translates to:
@@ -2603,24 +2441,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Today 09:36'**
   String get today;
-
-  /// No description provided for @userMessage.
-  ///
-  /// In en, this message translates to:
-  /// **'Adjust the login spacing and unify input and button styles while preserving the login logic'**
-  String get userMessage;
-
-  /// No description provided for @assistantMessage.
-  ///
-  /// In en, this message translates to:
-  /// **'I checked the login page and shared form components, unified input spacing and added keyboard focus styles'**
-  String get assistantMessage;
-
-  /// No description provided for @replyPreview.
-  ///
-  /// In en, this message translates to:
-  /// **'Sample task flow'**
-  String get replyPreview;
 
   /// No description provided for @phaseThinking.
   ///
@@ -2694,119 +2514,11 @@ abstract class AppLocalizations {
   /// **'Queue'**
   String get queueShort;
 
-  /// No description provided for @confirmShort.
-  ///
-  /// In en, this message translates to:
-  /// **'Confirm'**
-  String get confirmShort;
-
-  /// No description provided for @todoShort.
-  ///
-  /// In en, this message translates to:
-  /// **'To do'**
-  String get todoShort;
-
-  /// No description provided for @todoInspect.
-  ///
-  /// In en, this message translates to:
-  /// **'Inspect the login page'**
-  String get todoInspect;
-
-  /// No description provided for @todoEdit.
-  ///
-  /// In en, this message translates to:
-  /// **'Adjust form styles'**
-  String get todoEdit;
-
-  /// No description provided for @todoTest.
-  ///
-  /// In en, this message translates to:
-  /// **'Run project tests'**
-  String get todoTest;
-
-  /// No description provided for @todoNarrow.
-  ///
-  /// In en, this message translates to:
-  /// **'Check narrow-screen spacing'**
-  String get todoNarrow;
-
-  /// No description provided for @workProcess.
-  ///
-  /// In en, this message translates to:
-  /// **'Activity'**
-  String get workProcess;
-
-  /// No description provided for @workSteps.
-  ///
-  /// In en, this message translates to:
-  /// **'· {count} steps'**
-  String workSteps(String count);
-
-  /// No description provided for @questionRecord.
-  ///
-  /// In en, this message translates to:
-  /// **'Confirm layout'**
-  String get questionRecord;
-
-  /// No description provided for @answerRecorded.
-  ///
-  /// In en, this message translates to:
-  /// **'Replied'**
-  String get answerRecorded;
-
-  /// No description provided for @playFlow.
-  ///
-  /// In en, this message translates to:
-  /// **'Play task'**
-  String get playFlow;
-
-  /// No description provided for @pauseFlow.
-  ///
-  /// In en, this message translates to:
-  /// **'Pause demo'**
-  String get pauseFlow;
-
-  /// No description provided for @nextFlow.
-  ///
-  /// In en, this message translates to:
-  /// **'Next step'**
-  String get nextFlow;
-
   /// No description provided for @replyingNow.
   ///
   /// In en, this message translates to:
   /// **'Responding'**
   String get replyingNow;
-
-  /// No description provided for @toolReadLabel.
-  ///
-  /// In en, this message translates to:
-  /// **'Read'**
-  String get toolReadLabel;
-
-  /// No description provided for @toolEditLabel.
-  ///
-  /// In en, this message translates to:
-  /// **'Edit'**
-  String get toolEditLabel;
-
-  /// No description provided for @toolRunLabel.
-  ///
-  /// In en, this message translates to:
-  /// **'Run'**
-  String get toolRunLabel;
-
-  /// No description provided for @readGroup.
-  ///
-  /// In en, this message translates to:
-  /// **'3 files'**
-  String get readGroup;
-
-  /// No description provided for @readFileResult.
-  ///
-  /// In en, this message translates to:
-  /// **'File read'**
-  String get readFileResult;
 
   /// No description provided for @readFileProgress.
   ///
@@ -2814,77 +2526,11 @@ abstract class AppLocalizations {
   /// **'Reading file'**
   String get readFileProgress;
 
-  /// No description provided for @flowAttachment.
-  ///
-  /// In en, this message translates to:
-  /// **'Login update: unify form spacing, add keyboard focus styles and preserve login logic'**
-  String get flowAttachment;
-
-  /// No description provided for @readResult.
-  ///
-  /// In en, this message translates to:
-  /// **'Read Login.tsx and shared form styles\nThe mobile button width differs from the form'**
-  String get readResult;
-
-  /// No description provided for @layoutFindings.
-  ///
-  /// In en, this message translates to:
-  /// **'The login form uses desktop spacing and the mobile button does not fill its container'**
-  String get layoutFindings;
-
-  /// No description provided for @layoutQuestion.
-  ///
-  /// In en, this message translates to:
-  /// **'Should the mobile login button fill the width?'**
-  String get layoutQuestion;
-
   /// No description provided for @questionPending.
   ///
   /// In en, this message translates to:
   /// **'Awaiting your reply'**
   String get questionPending;
-
-  /// No description provided for @wideButton.
-  ///
-  /// In en, this message translates to:
-  /// **'Use full-width button'**
-  String get wideButton;
-
-  /// No description provided for @keepButton.
-  ///
-  /// In en, this message translates to:
-  /// **'Keep current width'**
-  String get keepButton;
-
-  /// No description provided for @editPlan.
-  ///
-  /// In en, this message translates to:
-  /// **'I will preserve login logic, unify spacing and make the mobile button full width'**
-  String get editPlan;
-
-  /// No description provided for @editPlanKeep.
-  ///
-  /// In en, this message translates to:
-  /// **'I will keep the button width and login logic, adjusting only spacing and focus styles'**
-  String get editPlanKeep;
-
-  /// No description provided for @editThinking.
-  ///
-  /// In en, this message translates to:
-  /// **'Reuse existing style variables and limit layout changes to the login form'**
-  String get editThinking;
-
-  /// No description provided for @editResult.
-  ///
-  /// In en, this message translates to:
-  /// **'Updated 3 files\nAdded focus styles and mobile layout rules'**
-  String get editResult;
-
-  /// No description provided for @beforeTest.
-  ///
-  /// In en, this message translates to:
-  /// **'Layout changes are complete. Next I will run project tests to check for regressions'**
-  String get beforeTest;
 
   /// No description provided for @testTool.
   ///
@@ -2892,41 +2538,11 @@ abstract class AppLocalizations {
   /// **'Run project tests'**
   String get testTool;
 
-  /// No description provided for @testProgress.
-  ///
-  /// In en, this message translates to:
-  /// **'Running login form tests…\nChecking focus and keyboard interaction'**
-  String get testProgress;
-
-  /// No description provided for @testResult.
-  ///
-  /// In en, this message translates to:
-  /// **'12 tests passed\nNo login logic regressions found'**
-  String get testResult;
-
-  /// No description provided for @testFailure.
-  ///
-  /// In en, this message translates to:
-  /// **'Focus order test failed\nExpected focus on the password field, but it remained on the username field'**
-  String get testFailure;
-
   /// No description provided for @testFailed.
   ///
   /// In en, this message translates to:
   /// **'Tests failed'**
   String get testFailed;
-
-  /// No description provided for @flowResult.
-  ///
-  /// In en, this message translates to:
-  /// **'Login spacing and focus styles are unified, with a full-width mobile button. All 12 tests passed and login logic is unchanged'**
-  String get flowResult;
-
-  /// No description provided for @queueSample.
-  ///
-  /// In en, this message translates to:
-  /// **'Check the button spacing on narrow screens too'**
-  String get queueSample;
 
   /// No description provided for @queueCount.
   ///
@@ -2952,59 +2568,17 @@ abstract class AppLocalizations {
   /// **'Resume queue'**
   String get resumeQueue;
 
-  /// No description provided for @sendNext.
-  ///
-  /// In en, this message translates to:
-  /// **'Send next'**
-  String get sendNext;
-
   /// No description provided for @enqueue.
   ///
   /// In en, this message translates to:
   /// **'Add to queue'**
   String get enqueue;
 
-  /// No description provided for @queuedPreview.
-  ///
-  /// In en, this message translates to:
-  /// **'Added to sample queue'**
-  String get queuedPreview;
-
   /// No description provided for @moveUp.
   ///
   /// In en, this message translates to:
   /// **'Move up'**
   String get moveUp;
-
-  /// No description provided for @followupThinking.
-  ///
-  /// In en, this message translates to:
-  /// **'Check existing breakpoints to confirm consistent button spacing on narrow screens'**
-  String get followupThinking;
-
-  /// No description provided for @followupTool.
-  ///
-  /// In en, this message translates to:
-  /// **'Check narrow-screen styles'**
-  String get followupTool;
-
-  /// No description provided for @followupToolResult.
-  ///
-  /// In en, this message translates to:
-  /// **'320px and 390px use the same spacing rules'**
-  String get followupToolResult;
-
-  /// No description provided for @followupResult.
-  ///
-  /// In en, this message translates to:
-  /// **'Narrow-screen button spacing is consistent; no further changes are needed'**
-  String get followupResult;
-
-  /// No description provided for @deniedResult.
-  ///
-  /// In en, this message translates to:
-  /// **'Tests were not run; current changes are preserved'**
-  String get deniedResult;
 
   /// No description provided for @thinkingNow.
   ///
@@ -3018,71 +2592,17 @@ abstract class AppLocalizations {
   /// **'Executing'**
   String get toolsNow;
 
-  /// No description provided for @toolPending.
-  ///
-  /// In en, this message translates to:
-  /// **'Not started'**
-  String get toolPending;
-
-  /// No description provided for @thoughtLive.
-  ///
-  /// In en, this message translates to:
-  /// **'First inspect the login page and form components to identify spacing and focus changes'**
-  String get thoughtLive;
-
-  /// No description provided for @toolsShort.
-  ///
-  /// In en, this message translates to:
-  /// **'3 actions'**
-  String get toolsShort;
-
   /// No description provided for @thought.
   ///
   /// In en, this message translates to:
   /// **'Reasoning'**
   String get thought;
 
-  /// No description provided for @thoughtContent.
-  ///
-  /// In en, this message translates to:
-  /// **'Reuse existing form components and adjust only the login layout and focus styles'**
-  String get thoughtContent;
-
-  /// No description provided for @toolsComplete.
-  ///
-  /// In en, this message translates to:
-  /// **'3 actions completed'**
-  String get toolsComplete;
-
-  /// No description provided for @toolRead.
-  ///
-  /// In en, this message translates to:
-  /// **'Read login and form components'**
-  String get toolRead;
-
-  /// No description provided for @toolEdit.
-  ///
-  /// In en, this message translates to:
-  /// **'Update spacing and focus styles'**
-  String get toolEdit;
-
   /// No description provided for @toolDiff.
   ///
   /// In en, this message translates to:
   /// **'Inspect file diffs'**
   String get toolDiff;
-
-  /// No description provided for @changedFiles.
-  ///
-  /// In en, this message translates to:
-  /// **'3 files changed'**
-  String get changedFiles;
-
-  /// No description provided for @approvalBody.
-  ///
-  /// In en, this message translates to:
-  /// **'Run tests in the sailry-web worktree on Studio'**
-  String get approvalBody;
 
   /// No description provided for @approvalResolved.
   ///
@@ -3120,22 +2640,10 @@ abstract class AppLocalizations {
   /// **'Voice input'**
   String get voice;
 
-  /// No description provided for @voiceNote.
-  ///
-  /// In en, this message translates to:
-  /// **'This preview does not access the microphone'**
-  String get voiceNote;
-
-  /// No description provided for @attachmentNote.
-  ///
-  /// In en, this message translates to:
-  /// **'Sample attachment added'**
-  String get attachmentNote;
-
   /// No description provided for @attachment.
   ///
   /// In en, this message translates to:
-  /// **'design-notes.md'**
+  /// **'Attachment'**
   String get attachment;
 
   /// No description provided for @removeAttachment.
@@ -3144,23 +2652,11 @@ abstract class AppLocalizations {
   /// **'Remove attachment'**
   String get removeAttachment;
 
-  /// No description provided for @sentPreview.
-  ///
-  /// In en, this message translates to:
-  /// **'Preview only, not sent'**
-  String get sentPreview;
-
   /// No description provided for @model.
   ///
   /// In en, this message translates to:
   /// **'Model'**
   String get model;
-
-  /// No description provided for @modelSource.
-  ///
-  /// In en, this message translates to:
-  /// **'Current chat configuration · Studio'**
-  String get modelSource;
 
   /// No description provided for @copy.
   ///
@@ -3210,18 +2706,6 @@ abstract class AppLocalizations {
   /// **'Save'**
   String get save;
 
-  /// No description provided for @select.
-  ///
-  /// In en, this message translates to:
-  /// **'Select'**
-  String get select;
-
-  /// No description provided for @sessionActions.
-  ///
-  /// In en, this message translates to:
-  /// **'Chat actions'**
-  String get sessionActions;
-
   /// No description provided for @queue.
   ///
   /// In en, this message translates to:
@@ -3240,35 +2724,11 @@ abstract class AppLocalizations {
   /// **'Fork chat'**
   String get fork;
 
-  /// No description provided for @forked.
-  ///
-  /// In en, this message translates to:
-  /// **'Sample fork created'**
-  String get forked;
-
-  /// No description provided for @archive.
-  ///
-  /// In en, this message translates to:
-  /// **'Archive chat'**
-  String get archive;
-
-  /// No description provided for @archived.
-  ///
-  /// In en, this message translates to:
-  /// **'Archived in preview'**
-  String get archived;
-
   /// No description provided for @stop.
   ///
   /// In en, this message translates to:
   /// **'Stop task'**
   String get stop;
-
-  /// No description provided for @stopped.
-  ///
-  /// In en, this message translates to:
-  /// **'Task stopped in preview'**
-  String get stopped;
 
   /// No description provided for @stoppedStatus.
   ///
@@ -3300,54 +2760,6 @@ abstract class AppLocalizations {
   /// **'Offline'**
   String get offline;
 
-  /// No description provided for @connection.
-  ///
-  /// In en, this message translates to:
-  /// **'Connection'**
-  String get connection;
-
-  /// No description provided for @studio.
-  ///
-  /// In en, this message translates to:
-  /// **'Studio'**
-  String get studio;
-
-  /// No description provided for @server.
-  ///
-  /// In en, this message translates to:
-  /// **'Build Server'**
-  String get server;
-
-  /// No description provided for @laptop.
-  ///
-  /// In en, this message translates to:
-  /// **'MacBook Air'**
-  String get laptop;
-
-  /// No description provided for @hostSystem.
-  ///
-  /// In en, this message translates to:
-  /// **'macOS · Apple Silicon'**
-  String get hostSystem;
-
-  /// No description provided for @serverSystem.
-  ///
-  /// In en, this message translates to:
-  /// **'Linux · 8 cores'**
-  String get serverSystem;
-
-  /// No description provided for @laptopSystem.
-  ///
-  /// In en, this message translates to:
-  /// **'Last online 2 hours ago'**
-  String get laptopSystem;
-
-  /// No description provided for @statusHealthy.
-  ///
-  /// In en, this message translates to:
-  /// **'Healthy'**
-  String get statusHealthy;
-
   /// No description provided for @cpu.
   ///
   /// In en, this message translates to:
@@ -3359,12 +2771,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Memory'**
   String get memory;
-
-  /// No description provided for @disk.
-  ///
-  /// In en, this message translates to:
-  /// **'Disk'**
-  String get disk;
 
   /// No description provided for @metrics.
   ///
@@ -3378,41 +2784,11 @@ abstract class AppLocalizations {
   /// **'Activity'**
   String get activity;
 
-  /// No description provided for @lastHour.
-  ///
-  /// In en, this message translates to:
-  /// **'Last 60 minutes'**
-  String get lastHour;
-
-  /// No description provided for @sessionCount.
-  ///
-  /// In en, this message translates to:
-  /// **'Chats'**
-  String get sessionCount;
-
-  /// No description provided for @terminalCount.
-  ///
-  /// In en, this message translates to:
-  /// **'Terminals'**
-  String get terminalCount;
-
-  /// No description provided for @projectCount.
-  ///
-  /// In en, this message translates to:
-  /// **'Projects'**
-  String get projectCount;
-
   /// No description provided for @processes.
   ///
   /// In en, this message translates to:
   /// **'Processes'**
   String get processes;
-
-  /// No description provided for @process.
-  ///
-  /// In en, this message translates to:
-  /// **'Name'**
-  String get process;
 
   /// No description provided for @network.
   ///
@@ -3426,47 +2802,11 @@ abstract class AppLocalizations {
   /// **'Details'**
   String get details;
 
-  /// No description provided for @manageHost.
-  ///
-  /// In en, this message translates to:
-  /// **'Host details'**
-  String get manageHost;
-
-  /// No description provided for @hostProjects.
-  ///
-  /// In en, this message translates to:
-  /// **'Host projects'**
-  String get hostProjects;
-
-  /// No description provided for @connectionDetails.
-  ///
-  /// In en, this message translates to:
-  /// **'Connection details'**
-  String get connectionDetails;
-
-  /// No description provided for @direct.
-  ///
-  /// In en, this message translates to:
-  /// **'Direct'**
-  String get direct;
-
   /// No description provided for @relay.
   ///
   /// In en, this message translates to:
   /// **'Relay'**
   String get relay;
-
-  /// No description provided for @latency.
-  ///
-  /// In en, this message translates to:
-  /// **'Latency'**
-  String get latency;
-
-  /// No description provided for @hostOffline.
-  ///
-  /// In en, this message translates to:
-  /// **'Host offline; showing its last known state'**
-  String get hostOffline;
 
   /// No description provided for @retry.
   ///
@@ -3474,47 +2814,17 @@ abstract class AppLocalizations {
   /// **'Retry'**
   String get retry;
 
-  /// No description provided for @retryNote.
-  ///
-  /// In en, this message translates to:
-  /// **'Preview is not connected to a real host'**
-  String get retryNote;
-
   /// No description provided for @pairTitle.
   ///
   /// In en, this message translates to:
   /// **'Connect a host'**
   String get pairTitle;
 
-  /// No description provided for @pairDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Enter the 6-digit pairing code shown on the host'**
-  String get pairDescription;
-
   /// No description provided for @pairCode.
   ///
   /// In en, this message translates to:
   /// **'Pairing code'**
   String get pairCode;
-
-  /// No description provided for @pairHint.
-  ///
-  /// In en, this message translates to:
-  /// **'Pairing code expires in 60 seconds'**
-  String get pairHint;
-
-  /// No description provided for @pairDemo.
-  ///
-  /// In en, this message translates to:
-  /// **'Simulate connection'**
-  String get pairDemo;
-
-  /// No description provided for @pairSuccess.
-  ///
-  /// In en, this message translates to:
-  /// **'Sample host added'**
-  String get pairSuccess;
 
   /// No description provided for @pairInvalid.
   ///
@@ -3527,12 +2837,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Workspace'**
   String get workspace;
-
-  /// No description provided for @workspaceSub.
-  ///
-  /// In en, this message translates to:
-  /// **'Studio / sailry-web'**
-  String get workspaceSub;
 
   /// No description provided for @selectHost.
   ///
@@ -3558,12 +2862,6 @@ abstract class AppLocalizations {
   /// **'Main worktree'**
   String get mainBranch;
 
-  /// No description provided for @featureBranch.
-  ///
-  /// In en, this message translates to:
-  /// **'Login layout'**
-  String get featureBranch;
-
   /// No description provided for @connectionTools.
   ///
   /// In en, this message translates to:
@@ -3587,12 +2885,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Git'**
   String get git;
-
-  /// No description provided for @gitSummary.
-  ///
-  /// In en, this message translates to:
-  /// **'Changes, branches and history'**
-  String get gitSummary;
 
   /// No description provided for @gitBranches.
   ///
@@ -3672,30 +2964,6 @@ abstract class AppLocalizations {
   /// **'Delete branch'**
   String get gitDeleteBranch;
 
-  /// No description provided for @gitHistoryLayout.
-  ///
-  /// In en, this message translates to:
-  /// **'Adjust login form spacing'**
-  String get gitHistoryLayout;
-
-  /// No description provided for @gitHistoryInit.
-  ///
-  /// In en, this message translates to:
-  /// **'Initialize login page'**
-  String get gitHistoryInit;
-
-  /// No description provided for @gitPreview.
-  ///
-  /// In en, this message translates to:
-  /// **'Git simulation only; repository unchanged'**
-  String get gitPreview;
-
-  /// No description provided for @gitDirty.
-  ///
-  /// In en, this message translates to:
-  /// **'Commit current changes first'**
-  String get gitDirty;
-
   /// No description provided for @gitSwitchNote.
   ///
   /// In en, this message translates to:
@@ -3708,23 +2976,11 @@ abstract class AppLocalizations {
   /// **'Delete selected branch; simulation only'**
   String get gitDeleteNote;
 
-  /// No description provided for @gitInvalidBranch.
-  ///
-  /// In en, this message translates to:
-  /// **'Invalid name or branch already exists'**
-  String get gitInvalidBranch;
-
   /// No description provided for @review.
   ///
   /// In en, this message translates to:
   /// **'Review'**
   String get review;
-
-  /// No description provided for @browseFiles.
-  ///
-  /// In en, this message translates to:
-  /// **'Browse worktree'**
-  String get browseFiles;
 
   /// No description provided for @reviewFiles.
   ///
@@ -3737,12 +2993,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Project and worktree'**
   String get selectWorkspace;
-
-  /// No description provided for @resourceSummary.
-  ///
-  /// In en, this message translates to:
-  /// **'2 chats · 1 terminal'**
-  String get resourceSummary;
 
   /// No description provided for @searchFiles.
   ///
@@ -3780,23 +3030,11 @@ abstract class AppLocalizations {
   /// **'File preview'**
   String get filePreview;
 
-  /// No description provided for @fileSample.
-  ///
-  /// In en, this message translates to:
-  /// **'Sample file content'**
-  String get fileSample;
-
   /// No description provided for @edit.
   ///
   /// In en, this message translates to:
   /// **'Edit'**
   String get edit;
-
-  /// No description provided for @savePreview.
-  ///
-  /// In en, this message translates to:
-  /// **'Changes saved in this preview'**
-  String get savePreview;
 
   /// No description provided for @unsaved.
   ///
@@ -3809,18 +3047,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Discard changes'**
   String get discard;
-
-  /// No description provided for @discardConfirm.
-  ///
-  /// In en, this message translates to:
-  /// **'Discard unsaved changes to this file?'**
-  String get discardConfirm;
-
-  /// No description provided for @markdownExample.
-  ///
-  /// In en, this message translates to:
-  /// **'# Sailry Web\n\nA workspace for your next idea.\n\n## Development\n\npnpm install\npnpm dev'**
-  String get markdownExample;
 
   /// No description provided for @connections.
   ///
@@ -3852,18 +3078,6 @@ abstract class AppLocalizations {
   /// **'Web preview'**
   String get browser;
 
-  /// No description provided for @portsSub.
-  ///
-  /// In en, this message translates to:
-  /// **'1 forward'**
-  String get portsSub;
-
-  /// No description provided for @connectionOwner.
-  ///
-  /// In en, this message translates to:
-  /// **'Execution Node · Studio'**
-  String get connectionOwner;
-
   /// No description provided for @openTerminal.
   ///
   /// In en, this message translates to:
@@ -3876,41 +3090,11 @@ abstract class AppLocalizations {
   /// **'Tables'**
   String get tables;
 
-  /// No description provided for @portNote.
-  ///
-  /// In en, this message translates to:
-  /// **'Sample forward · No local port listener'**
-  String get portNote;
-
-  /// No description provided for @portTarget.
-  ///
-  /// In en, this message translates to:
-  /// **'Target port'**
-  String get portTarget;
-
-  /// No description provided for @localPort.
-  ///
-  /// In en, this message translates to:
-  /// **'Local port'**
-  String get localPort;
-
   /// No description provided for @closePort.
   ///
   /// In en, this message translates to:
   /// **'Close forward'**
   String get closePort;
-
-  /// No description provided for @portClosed.
-  ///
-  /// In en, this message translates to:
-  /// **'Sample forward closed'**
-  String get portClosed;
-
-  /// No description provided for @diffSubtitle.
-  ///
-  /// In en, this message translates to:
-  /// **'sailry-web · feature/sign-in'**
-  String get diffSubtitle;
 
   /// No description provided for @workingTree.
   ///
@@ -3923,12 +3107,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Staged'**
   String get staged;
-
-  /// No description provided for @diffSummary.
-  ///
-  /// In en, this message translates to:
-  /// **'3 files'**
-  String get diffSummary;
 
   /// No description provided for @stage.
   ///
@@ -3948,65 +3126,17 @@ abstract class AppLocalizations {
   /// **'Commit'**
   String get commit;
 
-  /// No description provided for @commitTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Commit changes'**
-  String get commitTitle;
-
   /// No description provided for @commitMessage.
   ///
   /// In en, this message translates to:
   /// **'Commit message'**
   String get commitMessage;
 
-  /// No description provided for @commitPlaceholder.
-  ///
-  /// In en, this message translates to:
-  /// **'Describe the changes'**
-  String get commitPlaceholder;
-
-  /// No description provided for @commitPreview.
-  ///
-  /// In en, this message translates to:
-  /// **'Simulate commit'**
-  String get commitPreview;
-
-  /// No description provided for @committed.
-  ///
-  /// In en, this message translates to:
-  /// **'Sample commit completed'**
-  String get committed;
-
   /// No description provided for @noChanges.
   ///
   /// In en, this message translates to:
   /// **'No changes to commit'**
   String get noChanges;
-
-  /// No description provided for @diffFile.
-  ///
-  /// In en, this message translates to:
-  /// **'login.css'**
-  String get diffFile;
-
-  /// No description provided for @diffPath.
-  ///
-  /// In en, this message translates to:
-  /// **'src/styles/login.css'**
-  String get diffPath;
-
-  /// No description provided for @continueEdit.
-  ///
-  /// In en, this message translates to:
-  /// **'Continue editing'**
-  String get continueEdit;
-
-  /// No description provided for @diffSelection.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose changed file'**
-  String get diffSelection;
 
   /// No description provided for @terminalKeyboard.
   ///
@@ -4025,12 +3155,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Terminal output'**
   String get terminalOutputLabel;
-
-  /// No description provided for @terminalSubtitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Studio / sailry-web'**
-  String get terminalSubtitle;
 
   /// No description provided for @readOnly.
   ///
@@ -4055,30 +3179,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Release control'**
   String get releaseControl;
-
-  /// No description provided for @terminalPlaceholder.
-  ///
-  /// In en, this message translates to:
-  /// **'Enter a sample command'**
-  String get terminalPlaceholder;
-
-  /// No description provided for @terminalPreview.
-  ///
-  /// In en, this message translates to:
-  /// **'Sample terminal · Commands are not executed'**
-  String get terminalPreview;
-
-  /// No description provided for @terminalOutput.
-  ///
-  /// In en, this message translates to:
-  /// **'Command received in preview, not executed'**
-  String get terminalOutput;
-
-  /// No description provided for @terminalControlNote.
-  ///
-  /// In en, this message translates to:
-  /// **'Take control to send input; simulated here'**
-  String get terminalControlNote;
 
   /// No description provided for @usageSubtitle.
   ///
@@ -4128,23 +3228,11 @@ abstract class AppLocalizations {
   /// **'Estimated cost'**
   String get estimatedCost;
 
-  /// No description provided for @costCoverage.
-  ///
-  /// In en, this message translates to:
-  /// **'42 / 48 responses priced'**
-  String get costCoverage;
-
   /// No description provided for @partial.
   ///
   /// In en, this message translates to:
   /// **'Partial data'**
   String get partial;
-
-  /// No description provided for @sourcesPartial.
-  ///
-  /// In en, this message translates to:
-  /// **'2 / 3 hosts updated'**
-  String get sourcesPartial;
 
   /// No description provided for @input.
   ///
@@ -4211,12 +3299,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Local preferences'**
   String get localSettings;
-
-  /// No description provided for @nodeSettings.
-  ///
-  /// In en, this message translates to:
-  /// **'Execution Node settings'**
-  String get nodeSettings;
 
   /// No description provided for @appearance.
   ///
@@ -4362,18 +3444,6 @@ abstract class AppLocalizations {
   /// **'About Sailry'**
   String get about;
 
-  /// No description provided for @aboutBody.
-  ///
-  /// In en, this message translates to:
-  /// **'Mobile interaction preview, not connected to services'**
-  String get aboutBody;
-
-  /// No description provided for @settingsSaved.
-  ///
-  /// In en, this message translates to:
-  /// **'Settings updated in this preview'**
-  String get settingsSaved;
-
   /// No description provided for @modelPicker.
   ///
   /// In en, this message translates to:
@@ -4385,18 +3455,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Node defaults'**
   String get nodeDefaults;
-
-  /// No description provided for @providerNote.
-  ///
-  /// In en, this message translates to:
-  /// **'Sample configuration · Credentials stay on the execution Node'**
-  String get providerNote;
-
-  /// No description provided for @roleNote.
-  ///
-  /// In en, this message translates to:
-  /// **'Sample role · Applies to new chats'**
-  String get roleNote;
 
   /// No description provided for @auto.
   ///
@@ -4410,53 +3468,11 @@ abstract class AppLocalizations {
   /// **'Ask each time'**
   String get manual;
 
-  /// No description provided for @notificationsNote.
-  ///
-  /// In en, this message translates to:
-  /// **'Controls preview notifications only'**
-  String get notificationsNote;
-
-  /// No description provided for @memoryNote.
-  ///
-  /// In en, this message translates to:
-  /// **'Sample Node memory'**
-  String get memoryNote;
-
   /// No description provided for @speechNote.
   ///
   /// In en, this message translates to:
   /// **'Uses the execution Node speech configuration'**
   String get speechNote;
-
-  /// No description provided for @newTaskHost.
-  ///
-  /// In en, this message translates to:
-  /// **'Execution host'**
-  String get newTaskHost;
-
-  /// No description provided for @newTaskProject.
-  ///
-  /// In en, this message translates to:
-  /// **'Project'**
-  String get newTaskProject;
-
-  /// No description provided for @newTaskWorktree.
-  ///
-  /// In en, this message translates to:
-  /// **'Worktree'**
-  String get newTaskWorktree;
-
-  /// No description provided for @create.
-  ///
-  /// In en, this message translates to:
-  /// **'Create'**
-  String get create;
-
-  /// No description provided for @taskCreated.
-  ///
-  /// In en, this message translates to:
-  /// **'Sample chat created'**
-  String get taskCreated;
 
   /// No description provided for @required.
   ///
@@ -4475,12 +3491,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Design references'**
   String get reviewTitle;
-
-  /// No description provided for @reviewIntro.
-  ///
-  /// In en, this message translates to:
-  /// **'Pages follow the current source; this preview does not establish mobile service acceptance'**
-  String get reviewIntro;
 
   /// No description provided for @reviewConversation.
   ///
@@ -4535,12 +3545,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Mobile boundary'**
   String get reviewBoundary;
-
-  /// No description provided for @reviewBoundaryText.
-  ///
-  /// In en, this message translates to:
-  /// **'The mobile bridge exposes connections, chats, terminals and usage; this preview starts no Node, models, pairing, terminals or plugins'**
-  String get reviewBoundaryText;
 
   /// No description provided for @reviewVisual.
   ///
