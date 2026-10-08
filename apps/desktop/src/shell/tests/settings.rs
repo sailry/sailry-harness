@@ -689,6 +689,7 @@ fn grouped_rows(cx: &mut TestAppContext) {
 #[gpui::test]
 fn provider_dialog_scrolling(cx: &mut TestAppContext) {
     let (shell, mut cx) = setup(cx);
+    cx.update(|_, cx| cx.set_reduce_motion(true));
     open(&shell, &mut cx);
     cx.update(|_, cx| {
         shell.read(cx).settings.clone().update(cx, |settings, cx| {
@@ -699,7 +700,6 @@ fn provider_dialog_scrolling(cx: &mut TestAppContext) {
     let edit = cx.debug_bounds("provider-edit-0").unwrap();
     cx.simulate_click(edit.center(), Modifiers::none());
     draw(&mut cx);
-    std::thread::sleep(*gpui_kit::component::dialog::ANIMATION_DURATION);
     for height in [560., 820., 1100.] {
         let handle = cx.update(|window, _| window.window_handle());
         cx.simulate_window_resize(handle, size(px(1280.), px(height)));

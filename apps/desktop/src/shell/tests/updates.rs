@@ -103,7 +103,10 @@ fn snapshots_update_open_dialog(cx: &mut TestAppContext) {
 #[gpui::test]
 fn keeps_actions_stable_after_failure(cx: &mut TestAppContext) {
     let (shell, mut cx) = setup(cx);
-    let handle = cx.update(|window, _| window.window_handle());
+    let handle = cx.update(|window, cx| {
+        cx.set_reduce_motion(true);
+        window.window_handle()
+    });
     cx.simulate_window_resize(handle, size(px(760.), px(560.)));
     for mode in [ThemeMode::Light, ThemeMode::Dark] {
         cx.update(|window, cx| Theme::change(mode, Some(window), cx));
@@ -120,7 +123,6 @@ fn keeps_actions_stable_after_failure(cx: &mut TestAppContext) {
             })
         });
         redraw(&mut cx);
-        std::thread::sleep(std::time::Duration::from_millis(300));
         redraw(&mut cx);
         let close = cx.debug_bounds("host-update-close").unwrap();
         let action = cx.debug_bounds("host-update-action").unwrap();

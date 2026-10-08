@@ -211,7 +211,6 @@ fn long_confirmation_bounds(cx: &mut TestAppContext) {
             });
             cx.simulate_window_resize(handle, size(px(width), px(560.)));
             open(&shell, &mut cx, owner);
-            std::thread::sleep(std::time::Duration::from_millis(300));
             cx.update(|window, cx| {
                 _ = window.draw(cx);
             });

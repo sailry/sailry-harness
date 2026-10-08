@@ -8,9 +8,9 @@ pub(super) fn click(cx: &mut VisualTestContext, selector: &'static str) {
         window.draw(cx).clear(cx);
     });
     if cx.update(|window, cx| window.has_active_dialog(cx)) {
-        // Kit animates dialog geometry with wall time, not the test executor clock.
-        std::thread::sleep(std::time::Duration::from_millis(300));
+        // These interaction tests inspect settled dialog geometry, not motion.
         cx.update(|window, cx| {
+            cx.set_reduce_motion(true);
             window.refresh();
             window.draw(cx).clear(cx);
         });

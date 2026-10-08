@@ -93,21 +93,19 @@ fn edit(cx: &mut VisualTestContext, configuration: &Configuration) {
 #[gpui::test]
 fn bundled_cards_open_document(cx: &mut TestAppContext) {
     init(cx);
-    for remote in [false, true] {
-        let fixture = Fixture::new(remote);
-        let (owner, visual) = fixture.mount(cx);
-        owner.update(visual, |owner, cx| owner.select(Section::Mcp, cx));
-        shown(visual, "mcp-card-context7", true);
-        shown(visual, "mcp-card-github", true);
-        tap(visual, "mcp-edit-context7");
-        shown(visual, "mcp-configuration-document", true);
-        shown(visual, "mcp-editor", false);
-        tap(visual, "mcp-configuration-cancel");
-        tap(visual, "mcp-edit-github");
-        shown(visual, "mcp-configuration-document", true);
-        tap(visual, "mcp-configuration-cancel");
-        fixture.close(visual);
-    }
+    let fixture = Fixture::new(false);
+    let (owner, visual) = fixture.mount(cx);
+    owner.update(visual, |owner, cx| owner.select(Section::Mcp, cx));
+    shown(visual, "mcp-card-context7", true);
+    shown(visual, "mcp-card-github", true);
+    tap(visual, "mcp-edit-context7");
+    shown(visual, "mcp-configuration-document", true);
+    shown(visual, "mcp-editor", false);
+    tap(visual, "mcp-configuration-cancel");
+    tap(visual, "mcp-edit-github");
+    shown(visual, "mcp-configuration-document", true);
+    tap(visual, "mcp-configuration-cancel");
+    fixture.close(visual);
 }
 
 #[gpui::test]

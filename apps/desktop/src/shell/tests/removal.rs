@@ -193,8 +193,6 @@ fn geometry_and_protection(cx: &mut TestAppContext) {
             });
             cx.simulate_window_resize(handle, size(px(width), px(560.)));
             open(&shell, &mut cx, owner);
-            // Allow the Kit dialog animation to finish before checking geometry.
-            std::thread::sleep(std::time::Duration::from_millis(300));
             cx.update(|window, cx| {
                 _ = window.draw(cx);
             });
@@ -220,6 +218,7 @@ fn geometry_and_protection(cx: &mut TestAppContext) {
 fn long_manager_scrolling(cx: &mut TestAppContext) {
     let (shell, mut cx) = setup(cx);
     let handle = cx.update(|window, cx| {
+        cx.set_reduce_motion(true);
         shell.update(cx, |shell, _| {
             for index in 0..24 {
                 shell
@@ -245,7 +244,6 @@ fn long_manager_scrolling(cx: &mut TestAppContext) {
         Target::Project(selected),
         Command::Worktrees,
     );
-    std::thread::sleep(std::time::Duration::from_millis(300));
     cx.update(|window, cx| {
         _ = window.draw(cx);
     });

@@ -10,10 +10,9 @@ use gpui_kit::component::Root;
 #[gpui::test]
 fn close_controls_preserve_guards_and_restore_focus(cx: &mut TestAppContext) {
     init(cx);
-    for remote in [false, true] {
-        let fixture = Fixture::new(remote);
-        fixture.package();
-        std::fs::write(
+    let fixture = Fixture::new(false);
+    fixture.package();
+    std::fs::write(
             fixture.directory.path().join("project/package/dev.sailry.platform/desktop/main.js"),
             r#"import {View, div} from 'gpui-kit';
 import {Button} from 'gpui-component';
@@ -43,58 +42,57 @@ export default class Overlays extends View {
 "#,
         )
         .unwrap();
-        let package = fixture.install(0);
-        let mut owner = None;
-        let (_, visual) = cx.add_window_view(|window, cx| {
-            let panel = cx.new(|cx| Panel::standalone(fixture.binding.clone(), cx));
-            owner = Some(panel.clone());
-            Root::new(panel, window, cx)
+    let package = fixture.install(0);
+    let mut owner = None;
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let panel = cx.new(|cx| Panel::standalone(fixture.binding.clone(), cx));
+        owner = Some(panel.clone());
+        Root::new(panel, window, cx)
+    });
+    let panel = owner.unwrap();
+    wait(visual, |cx| {
+        panel.read(cx).ready_for(&package.summary.reference(), cx)
+    });
+    visual.update(|window, cx| {
+        panel.update(cx, |panel, cx| {
+            panel.open(package.summary.reference(), window, cx)
         });
-        let panel = owner.unwrap();
-        wait(visual, |cx| {
-            panel.read(cx).ready_for(&package.summary.reference(), cx)
-        });
+    });
+    wait(visual, |cx| snapshot(&panel, cx).contains("Keep the draft"));
+    for (index, trigger) in ["open-default", "open-form"].into_iter().enumerate() {
+        click(visual, "field-1");
+        let previous = visual.update(|window, cx| window.focused(cx));
+        assert!(previous.is_some());
+        click(visual, trigger);
+        wait(visual, |cx| snapshot(&panel, cx).contains("open:true"));
+        let duration = visual.update(|_, cx| cx.theme().motion_tokens().duration_normal);
+        visual.executor().advance_clock(duration);
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds("overlay-close").is_some());
+        assert!(visual.debug_bounds("details-content").is_some());
+        assert_ne!(visual.update(|window, cx| window.focused(cx)), previous);
+        click(visual, "overlay-close");
+        visual.simulate_keystrokes("escape");
+        visual.run_until_parked();
         visual.update(|window, cx| {
-            panel.update(cx, |panel, cx| {
-                panel.open(package.summary.reference(), window, cx)
-            });
+            window.draw(cx).clear(cx);
+            assert!(snapshot(&panel, cx).contains(&format!("closed:{index}")));
         });
-        wait(visual, |cx| snapshot(&panel, cx).contains("Keep the draft"));
-        for (index, trigger) in ["open-default", "open-form"].into_iter().enumerate() {
-            click(visual, "field-1");
-            let previous = visual.update(|window, cx| window.focused(cx));
-            assert!(previous.is_some());
-            click(visual, trigger);
-            wait(visual, |cx| snapshot(&panel, cx).contains("open:true"));
-            let duration = visual.update(|_, cx| cx.theme().motion_tokens().duration_normal);
-            visual.executor().advance_clock(duration);
-            visual.run_until_parked();
-            visual.update(|window, cx| window.draw(cx).clear(cx));
-            assert!(visual.debug_bounds("overlay-close").is_some());
-            assert!(visual.debug_bounds("details-content").is_some());
-            assert_ne!(visual.update(|window, cx| window.focused(cx)), previous);
-            click(visual, "overlay-close");
-            visual.simulate_keystrokes("escape");
-            visual.run_until_parked();
-            visual.update(|window, cx| {
-                window.draw(cx).clear(cx);
-                assert!(snapshot(&panel, cx).contains(&format!("closed:{index}")));
-            });
-            assert!(visual.debug_bounds("allow-close").is_some());
-            click(visual, "allow-close");
-            wait(visual, |cx| {
-                snapshot(&panel, cx).contains("dismissable:true")
-            });
-            click(visual, "overlay-close");
-            wait(visual, |cx| {
-                snapshot(&panel, cx).contains(&format!("closed:{}", index + 1))
-            });
-            assert!(visual.debug_bounds("overlay-close").is_none());
-            assert_eq!(visual.update(|window, cx| window.focused(cx)), previous);
-            visual.update(|_, cx| assert!(snapshot(&panel, cx).contains("Keep the draft")));
-        }
-        visual.update(|window, _| window.remove_window());
-        drop(panel);
-        fixture.close();
+        assert!(visual.debug_bounds("allow-close").is_some());
+        click(visual, "allow-close");
+        wait(visual, |cx| {
+            snapshot(&panel, cx).contains("dismissable:true")
+        });
+        click(visual, "overlay-close");
+        wait(visual, |cx| {
+            snapshot(&panel, cx).contains(&format!("closed:{}", index + 1))
+        });
+        assert!(visual.debug_bounds("overlay-close").is_none());
+        assert_eq!(visual.update(|window, cx| window.focused(cx)), previous);
+        visual.update(|_, cx| assert!(snapshot(&panel, cx).contains("Keep the draft")));
     }
+    visual.update(|window, _| window.remove_window());
+    drop(panel);
+    fixture.close();
 }

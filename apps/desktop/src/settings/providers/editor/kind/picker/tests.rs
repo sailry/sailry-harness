@@ -30,6 +30,7 @@ fn setup(cx: &mut TestAppContext) -> (Entity<Editor>, &mut VisualTestContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::theme::init(cx);
+        cx.set_reduce_motion(true);
     });
     let mut workspace = None;
     let (_, visual) = cx.add_window_view(|window, cx| {
@@ -39,7 +40,6 @@ fn setup(cx: &mut TestAppContext) -> (Entity<Editor>, &mut VisualTestContext) {
         Root::new(surface, window, cx)
     });
     let editor = visual.update(|window, cx| open(workspace.unwrap(), None, window, cx));
-    std::thread::sleep(std::time::Duration::from_millis(300));
     draw(visual);
     (editor, visual)
 }

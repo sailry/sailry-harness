@@ -1,10 +1,9 @@
 use super::*;
 use gpui_kit::component::{
     Root, WindowExt,
-    dialog::{DialogAction, DialogFooter},
+    dialog::{ANIMATION_DURATION, DialogAction, DialogFooter},
 };
 use gpui_kit::{FocusHandle, Modifiers};
-use std::time::Duration;
 
 struct Frame {
     alert: bool,
@@ -127,7 +126,7 @@ fn refined(corners: &RefCell<Vec<Corners<AbsoluteLength>>>) {
 
 fn finish_close(cx: &mut VisualTestContext, trigger: &FocusHandle) {
     cx.run_until_parked();
-    cx.executor().advance_clock(Duration::from_millis(300));
+    cx.executor().advance_clock(*ANIMATION_DURATION);
     cx.run_until_parked();
     draw(cx);
     assert!(cx.debug_bounds("dialog-layer").is_none());
@@ -184,8 +183,9 @@ fn motion_and_escape_focus(cx: &mut TestAppContext) {
     assert_eq!(opening.size.width, px(320.));
     assert!(opening.size.height > px(0.));
 
-    // Kit's enter animation uses wall time, not the executor's timer clock.
-    std::thread::sleep(Duration::from_millis(300));
+    // GPUI's supported reduced-motion setting settles the existing animation
+    // on its next frame; no wall-clock delay is needed to verify both positions.
+    visual.update(|_, cx| cx.set_reduce_motion(true));
     draw(visual);
     let settled = visual.debug_bounds("material-dialog-surface").unwrap();
     let settled_body = visual.debug_bounds("material-dialog-body").unwrap();
@@ -205,6 +205,7 @@ fn motion_and_escape_focus(cx: &mut TestAppContext) {
 #[gpui::test]
 fn alert_focus(cx: &mut TestAppContext) {
     let corners = renderer(cx);
+    cx.update(|cx| cx.set_reduce_motion(true));
     let accepted = Rc::new(Cell::new(0));
     let (_, visual) = cx.add_window_view({
         let accepted = accepted.clone();
@@ -219,7 +220,6 @@ fn alert_focus(cx: &mut TestAppContext) {
         }
     });
     let trigger = open(visual);
-    std::thread::sleep(Duration::from_millis(300));
     draw(visual);
     refined(&corners);
     let surface = visual.debug_bounds("material-dialog-surface").unwrap();

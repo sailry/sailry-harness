@@ -239,7 +239,6 @@ fn small_window_bounds(cx: &mut TestAppContext) {
             });
             cx.simulate_window_resize(handle, size(px(width), px(560.)));
             click(&mut cx, "git-initialize");
-            std::thread::sleep(std::time::Duration::from_millis(300));
             cx.update(|window, cx| {
                 _ = window.draw(cx);
             });
