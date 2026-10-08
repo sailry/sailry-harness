@@ -20,6 +20,9 @@ env:
   CARGO_PROFILE_TEST_DEBUG: '0'
   CARGO_PROFILE_DEV_SPLIT_DEBUGINFO: 'off'
   CARGO_PROFILE_TEST_SPLIT_DEBUGINFO: 'off'
+  # Avoid a Homebrew index refresh before every package install.
+  HOMEBREW_NO_AUTO_UPDATE: '1'
+  HOMEBREW_NO_INSTALL_CLEANUP: '1'
 
 jobs:
   source:
@@ -66,29 +69,21 @@ jobs:
           pnpm build:edgeone
 
   rust:
-    name: Rust ${{ matrix.kind }} (${{ matrix.platform.target }})
+    # GitHub runs only a few macOS jobs at once; extra jobs queue for hours.
+    # Keep Checks to three macOS jobs: lint+backend, desktop, mobile+iOS.
+    # Intel macOS is built and packaged by the release workflow.
+    name: Rust ${{ matrix.kind }}
     strategy:
       fail-fast: false
       matrix:
-        kind: [backend, desktop, lint]
-        platform:
-          - runner: macos-15
-            target: aarch64-apple-darwin
-            # Large Rust targets can exceed the standard ARM runner's 7 GB RAM.
-            jobs: 1
-            threads: 4
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
-            jobs: 2
-            # Concurrent real-Node fixtures repeatedly exhausted their deadlines.
-            threads: 2
-    runs-on: ${{ matrix.platform.runner }}
-    timeout-minutes: 120
+        kind: [backend, desktop]
+    runs-on: macos-15
+    timeout-minutes: 150
     env:
       # CLI job limits keep this cache-hashed environment shared with Mobile.
       CARGO_BUILD_JOBS: '2'
-      # Main and test Desktop targets together can exceed Intel's 14 GB RAM too.
-      BUILD_JOBS: ${{ matrix.kind == 'desktop' && 1 || matrix.platform.jobs }}
+      # Large Rust targets can exceed the standard ARM runner's 7 GB RAM.
+      BUILD_JOBS: '1'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: 'true'
@@ -103,11 +98,9 @@ jobs:
           version: '0.16.0'
           use-cache: false
       - name: Pinned Rust toolchain
-        env:
-          DESKTOP_TARGET: ${{ matrix.platform.target }}
         run: |
           rustup show active-toolchain
-          test "$(rustc -vV | awk '/^host: / {print $2}')" = "$DESKTOP_TARGET"
+          test "$(rustc -vV | awk '/^host: / {print $2}')" = aarch64-apple-darwin
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
       - name: Search prerequisite
@@ -117,57 +110,48 @@ jobs:
         with:
           version: v0.18.0
       - name: Process-isolated test runner
-        if: matrix.kind != 'lint'
         uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with:
           tool: cargo-nextest@0.9.143
           fallback: none
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          # Retain native dependencies; avoid duplicating them in lint archives.
-          shared-key: ${{ matrix.platform.target }}${{ matrix.kind == 'lint' && '-lint-sources' || '' }}-rust
-          save-if: ${{ matrix.kind != 'backend' }}
-          cache-on-failure: true
-          cache-targets: ${{ matrix.kind != 'lint' }}
+          # sccache holds compiled objects; multi-GB target archives would
+          # exceed the repository cache quota and evict each other.
+          shared-key: macos-cargo-home
+          save-if: ${{ matrix.kind == 'backend' && github.ref == 'refs/heads/main' }}
+          cache-targets: false
           cache-bin: false
-          env-vars: CARGO CC CFLAGS CXX CMAKE RUST DEVELOPER_DIR SDKROOT MACOSX_DEPLOYMENT_TARGET
       - name: Speech native libraries
-        if: matrix.kind != 'backend'
         id: speech-cache
         uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: target/sherpa-onnx-prebuilt
-          key: speech-${{ matrix.platform.target }}-${{ hashFiles('Cargo.lock') }}
+          key: speech-aarch64-apple-darwin-${{ hashFiles('Cargo.lock') }}
       - name: Prepare uncached speech libraries
-        if: matrix.kind != 'backend' && steps.speech-cache.outputs.cache-hit != 'true'
-        # A restored build-script fingerprint can outlive its downloaded libraries.
-        run: |
-          cargo clean --locked -p sherpa-onnx-sys
-          cargo build --locked -p sailry-speech --jobs "$BUILD_JOBS" -vv
+        if: steps.speech-cache.outputs.cache-hit != 'true'
+        run: cargo build --locked -p sailry-speech --jobs "$BUILD_JOBS" -vv
       - name: Save speech native libraries
-        if: matrix.kind != 'backend' && steps.speech-cache.outputs.cache-hit != 'true'
-        # Save before later checks fail or rust-cache prunes target directories.
+        if: steps.speech-cache.outputs.cache-hit != 'true' && matrix.kind == 'desktop'
+        # Save before later checks fail.
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: target/sherpa-onnx-prebuilt
           key: ${{ steps.speech-cache.outputs.cache-primary-key }}
       - name: Formatting
-        if: matrix.kind == 'lint'
+        if: matrix.kind == 'backend'
         run: cargo fmt --all -- --check
       - name: Strict lint
-        if: matrix.kind == 'lint'
+        if: matrix.kind == 'backend'
         run: cargo clippy --locked --workspace --all-targets --jobs "$BUILD_JOBS" -- -D warnings
       - name: Backend test compilation
         if: matrix.kind == 'backend'
         run: cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --no-run --timings --jobs "$BUILD_JOBS"
       - name: Backend unit and local/remote integration
         if: matrix.kind == 'backend'
-        run: cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --build-jobs "$BUILD_JOBS" --profile ci --test-threads=${{ matrix.platform.threads }}
-      - name: Backend documentation tests
-        if: matrix.kind == 'backend'
-        run: cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --doc --jobs "$BUILD_JOBS"
+        run: cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --build-jobs "$BUILD_JOBS" --profile ci --test-threads=4
       - name: Isolated database engines
-        if: matrix.kind == 'backend' && matrix.platform.target == 'aarch64-apple-darwin'
+        if: matrix.kind == 'backend'
         run: |
           brew install postgresql@17 mysql@8.4
           export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
@@ -179,17 +163,18 @@ jobs:
         if: matrix.kind == 'desktop'
         # Process isolation permits bounded concurrency without shared locale/UI state.
         run: cargo nextest run --locked -p sailry-desktop --bin sailry-desktop --build-jobs "$BUILD_JOBS" --profile ci
-      - name: Desktop and Host binaries
+      - name: Desktop and Host without test features
         if: matrix.kind == 'desktop'
-        run: cargo build --locked -p sailry-desktop -p sailry-host --jobs "$BUILD_JOBS"
+        # Tests enable test-support features; type-check the shipped feature set.
+        run: cargo check --locked -p sailry-desktop -p sailry-host --jobs "$BUILD_JOBS"
       - name: Desktop process lifecycle
         if: matrix.kind == 'desktop'
         run: cargo nextest run --locked -p sailry-desktop --test lifecycle --build-jobs "$BUILD_JOBS" --profile lifecycle
       - name: Compilation timings
-        if: always() && matrix.kind != 'lint'
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: cargo-timings-${{ matrix.kind }}-${{ matrix.platform.target }}
+          name: cargo-timings-${{ matrix.kind }}
           path: |
             target/cargo-timings
             target/nextest/ci/junit.xml
@@ -202,9 +187,9 @@ jobs:
         run: sccache --show-stats
 
   mobile:
-    name: Mobile and shared bridge
+    name: Mobile, shared bridge and iOS
     runs-on: macos-15
-    timeout-minutes: 120
+    timeout-minutes: 150
     env:
       CARGO_BUILD_JOBS: '2'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
@@ -235,11 +220,10 @@ jobs:
           version: v0.18.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          # Reuse Desktop's dependencies without another target archive.
-          shared-key: aarch64-apple-darwin-rust
+          shared-key: macos-cargo-home
           save-if: false
+          cache-targets: false
           cache-bin: false
-          env-vars: CARGO CC CFLAGS CXX CMAKE RUST DEVELOPER_DIR SDKROOT MACOSX_DEPLOYMENT_TARGET
       - name: Speech native libraries
         id: speech-cache
         uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
@@ -248,10 +232,7 @@ jobs:
           key: speech-aarch64-apple-darwin-${{ hashFiles('Cargo.lock') }}
       - name: Prepare uncached speech libraries
         if: steps.speech-cache.outputs.cache-hit != 'true'
-        # The shared Rust cache includes build scripts, not their downloaded libraries.
-        run: |
-          cargo clean --locked -p sherpa-onnx-sys
-          cargo build --locked -p sailry-speech --jobs 1 -vv
+        run: cargo build --locked -p sailry-speech --jobs 1 -vv
       - name: Save speech native libraries
         if: steps.speech-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
@@ -279,6 +260,17 @@ jobs:
           cargo test --locked -p sailry-mobile-bridge --test dart -- --ignored --skip mcp_peer::stdio_peer --test-threads=4 --nocapture
       - name: Flutter controls a real remote Node
         run: cargo test --locked -p sailry-mobile-bridge --test flutter controls_remote_node -- --ignored --exact --nocapture
+      - name: iOS Rust dependency boundary
+        if: ${{ !cancelled() }}
+        run: |
+          rustup target add aarch64-apple-ios
+          bash scripts/check-mobile-boundary.sh aarch64-apple-ios sailry-mobile-bridge
+      - name: Unsigned iOS application
+        if: ${{ !cancelled() }}
+        working-directory: apps/mobile
+        run: |
+          flutter build ios --release --no-codesign --build-name="$(python3 ../../scripts/package/versions.py --apple)"
+          git diff --exit-code -- pubspec.lock
       - name: Compiler cache statistics
         if: always()
         run: sccache --show-stats
@@ -332,42 +324,10 @@ jobs:
             --version "$(python3 scripts/package/versions.py)" \
             --code "$(python3 scripts/package/versions.py --android-code)"
 
-  ios:
-    name: Mobile iOS
-    runs-on: macos-15
-    timeout-minutes: 60
-    env:
-      CARGO_BUILD_JOBS: '2'
-      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-    steps:
-      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-        with:
-          persist-credentials: false
-          submodules: recursive
-      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
-        with:
-          flutter-version: '3.44.7'
-          channel: stable
-      - name: iOS toolchain
-        run: |
-          xcodebuild -version
-          brew install ripgrep
-          rustup target add aarch64-apple-ios
-      - name: Pinned Flutter dependencies
-        working-directory: apps/mobile
-        run: flutter pub get --enforce-lockfile
-      - name: Rust dependency boundary
-        run: bash scripts/check-mobile-boundary.sh aarch64-apple-ios sailry-mobile-bridge
-      - name: Unsigned iOS application
-        working-directory: apps/mobile
-        run: |
-          flutter build ios --release --no-codesign --build-name="$(python3 ../../scripts/package/versions.py --apple)"
-          git diff --exit-code -- pubspec.lock
-
   checks:
     name: Checks passed
     if: ${{ !cancelled() }}
-    needs: [source, rust, mobile, android, ios]
+    needs: [source, rust, mobile, android]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

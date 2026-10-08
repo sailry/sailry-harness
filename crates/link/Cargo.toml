@@ -5,6 +5,10 @@ edition.workspace = true
 publish.workspace = true
 license.workspace = true
 
+# The library has no documentation examples; skip the empty rustdoc pass.
+[lib]
+doctest = false
+
 [dependencies]
 sailry-protocol.workspace = true
 tokio.workspace = true

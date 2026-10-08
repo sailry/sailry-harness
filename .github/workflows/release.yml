@@ -84,9 +84,10 @@ jobs:
             ~/.cargo/git
             target/release
             target/sherpa-onnx-prebuilt
-          key: packages-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'scripts/package/linux-sysroot.lock.json') }}-${{ github.sha }}
+          # One entry per dependency set; per-commit keys add multi-GB entries
+          # that evict the Checks compiler cache.
+          key: packages-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'scripts/package/linux-sysroot.lock.json') }}
           restore-keys: |
-            packages-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'scripts/package/linux-sysroot.lock.json') }}-
             packages-${{ matrix.target }}-
       - name: Verify distribution signing configuration
         env:
@@ -237,9 +238,10 @@ jobs:
             target/host-cross
             target/host-sysroots
             target/tooling
-          key: host-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'scripts/package/linux-sysroot.lock.json') }}-${{ github.sha }}
+          # One entry per dependency set; per-commit keys add multi-GB entries
+          # that evict the Checks compiler cache.
+          key: host-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'scripts/package/linux-sysroot.lock.json') }}
           restore-keys: |
-            host-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'scripts/package/linux-sysroot.lock.json') }}-
             host-${{ matrix.target }}-
       - name: Host prerequisites
         run: |

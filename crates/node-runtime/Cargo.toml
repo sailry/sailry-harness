@@ -6,6 +6,10 @@ publish.workspace = true
 license.workspace = true
 autotests = false
 
+# The library has no documentation examples; skip the empty rustdoc pass.
+[lib]
+doctest = false
+
 [[test]]
 name = "agent"
 path = "tests/agent.rs"

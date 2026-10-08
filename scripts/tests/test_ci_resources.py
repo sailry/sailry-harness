@@ -11,7 +11,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-JOBS = ("source", "rust", "mobile", "android", "ios")
+JOBS = ("source", "rust", "mobile", "android")
 
 
 class CheckResults(unittest.TestCase):
