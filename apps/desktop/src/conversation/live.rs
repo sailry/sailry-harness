@@ -639,6 +639,8 @@ impl Render for View {
         v_flex()
             .key_context("LiveConversation")
             .debug_selector(|| "live-conversation".into())
+            .relative()
+            .overflow_hidden()
             .on_scroll_wheel(cx.listener(|view, _, _, cx| view.dismiss_selection(cx)))
             .on_key_down(cx.listener(|view, event: &KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" && view.selection.is_some() {
@@ -648,6 +650,7 @@ impl Render for View {
             }))
             .size_full()
             .min_h_0()
+            .children(crate::theme::effects::layer("conversation", cx))
             .when(
                 self.sidebar && self.assistant.is_some() && !self.external_header,
                 |body| body.child(self.session_controls(cx)),

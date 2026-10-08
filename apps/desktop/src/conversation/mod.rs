@@ -63,8 +63,11 @@ impl Shell {
         };
         v_flex()
             .debug_selector(|| "conversation-page".into())
+            .relative()
+            .overflow_hidden()
             .size_full()
             .min_h_0()
+            .children(crate::theme::effects::layer("conversation", cx))
             .children(crate::theme::banner(
                 if conversation.turns.is_empty() {
                     "banner.new_session"

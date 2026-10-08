@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 mod actions;
 mod corners;
+mod effects;
 mod preview;
 
 struct Mounted(Entity<Workspace>);

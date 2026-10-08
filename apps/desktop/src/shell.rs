@@ -162,6 +162,8 @@ impl Shell {
         .detach();
         cx.observe_window_activation(window, |shell, window, cx| {
             shell.read_current_session(window, cx);
+            // Decorative animation stops and resumes with window activation.
+            cx.notify();
             #[cfg(target_os = "macos")]
             if window.is_window_active() {
                 crate::app_menu::navigation(shell.application_navigation(cx), cx);

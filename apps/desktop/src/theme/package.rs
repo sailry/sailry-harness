@@ -1,10 +1,12 @@
 //! Current v1 desktop theme packages. Resources are local, licensed raster images.
 mod archive;
+mod effects;
 mod installation;
 mod resources;
 #[cfg(test)]
 mod tests;
 
+pub(super) use effects::{Effect, Kind};
 use gpui_kit::{RenderImage, component::theme::ThemeConfig};
 pub use installation::InstallError;
 use serde::{Deserialize, Serialize};
@@ -99,6 +101,8 @@ pub struct Variant {
     pub messages: BTreeMap<String, Message>,
     #[serde(default)]
     pub wordmark: Wordmark,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub effects: BTreeMap<String, Vec<Effect>>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -250,6 +254,7 @@ impl Manifest {
             return Err("theme package requires light and dark variants".into());
         }
         for variant in [&self.light, &self.dark] {
+            effects::validate(&variant.effects, &variant.assets)?;
             for (key, message) in &variant.messages {
                 if !["user", "assistant"].contains(&key.as_str()) {
                     return Err(format!("unsupported message style: {key}"));

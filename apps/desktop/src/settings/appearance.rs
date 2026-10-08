@@ -33,24 +33,41 @@ impl Workspace {
             .on_action(cx.listener(Self::theme_action))
             .gap_6()
             .child(
-                Group::new("settings_interface").child(Row::new(
-                    "appearance_mode",
-                    TabBar::new("appearance-mode")
-                        .segmented()
-                        .selected_index(selected)
-                        .children(
-                            ["appearance_system", "appearance_light", "appearance_dark"].map(
-                                |key| Tab::new().debug_selector(move || key.into()).label(tr(key)),
-                            ),
-                        )
-                        .on_click(|index, window, cx| {
-                            theme::select(
-                                [None, Some(ThemeMode::Light), Some(ThemeMode::Dark)][*index],
-                                window,
-                                cx,
+                Group::new("settings_interface")
+                    .child(Row::new(
+                        "appearance_mode",
+                        TabBar::new("appearance-mode")
+                            .segmented()
+                            .selected_index(selected)
+                            .children(
+                                ["appearance_system", "appearance_light", "appearance_dark"].map(
+                                    |key| {
+                                        Tab::new().debug_selector(move || key.into()).label(tr(key))
+                                    },
+                                ),
                             )
-                        }),
-                )),
+                            .on_click(|index, window, cx| {
+                                theme::select(
+                                    [None, Some(ThemeMode::Light), Some(ThemeMode::Dark)][*index],
+                                    window,
+                                    cx,
+                                )
+                            }),
+                    ))
+                    .child(Row::new(
+                        "appearance_effects",
+                        div().debug_selector(|| "appearance-effects".into()).child(
+                            Switch::new("appearance-effects")
+                                .accessibility_label(tr("appearance_effects"))
+                                .checked(crate::preferences::data(cx).theme_effects.unwrap_or(true))
+                                .on_click(|checked, _, cx| {
+                                    crate::preferences::update(cx, |data| {
+                                        data.theme_effects = Some(*checked)
+                                    });
+                                    cx.refresh_windows();
+                                }),
+                        ),
+                    )),
             )
             .child(self.opacity.controls(cx))
             .child(

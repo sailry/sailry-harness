@@ -3,7 +3,7 @@
   "id": "great-sage",
   "name": "Great Sage",
   "description": "A theme inspired by the Great Sage, with golden accents and ink landscapes",
-  "package_version": "0.1.4",
+  "package_version": "0.1.5",
   "license": {
     "author": "Sailry",
     "name": "Apache-2.0",
@@ -250,6 +250,50 @@
       "assistant": {
         "foreground": "#32281E"
       }
+    },
+    "effects": {
+      "background.window": [
+        {
+          "kind": "embers",
+          "color": "#DAB15F",
+          "count": 28,
+          "opacity": 0.18,
+          "size": 1.8,
+          "duration": 22,
+          "seed": 11
+        },
+        {
+          "kind": "embers",
+          "color": "#E56D47",
+          "count": 8,
+          "opacity": 0.1,
+          "size": 1.4,
+          "duration": 28,
+          "seed": 23
+        }
+      ],
+      "hero.new_session": [
+        {
+          "kind": "pulse",
+          "color": "#E7B55B",
+          "count": 1,
+          "opacity": 0.09,
+          "size": 6,
+          "duration": 8,
+          "seed": 0
+        }
+      ],
+      "conversation": [
+        {
+          "kind": "embers",
+          "color": "#DAB15F",
+          "count": 8,
+          "opacity": 0.08,
+          "size": 1.2,
+          "duration": 30,
+          "seed": 37
+        }
+      ]
     }
   },
   "dark": {
@@ -493,6 +537,50 @@
       "assistant": {
         "foreground": "#F2E6CF"
       }
+    },
+    "effects": {
+      "background.window": [
+        {
+          "kind": "embers",
+          "color": "#DAB15F",
+          "count": 28,
+          "opacity": 0.32,
+          "size": 1.8,
+          "duration": 22,
+          "seed": 11
+        },
+        {
+          "kind": "embers",
+          "color": "#E56D47",
+          "count": 8,
+          "opacity": 0.18,
+          "size": 1.4,
+          "duration": 28,
+          "seed": 23
+        }
+      ],
+      "hero.new_session": [
+        {
+          "kind": "pulse",
+          "color": "#E7B55B",
+          "count": 1,
+          "opacity": 0.15,
+          "size": 6,
+          "duration": 8,
+          "seed": 0
+        }
+      ],
+      "conversation": [
+        {
+          "kind": "embers",
+          "color": "#DAB15F",
+          "count": 8,
+          "opacity": 0.12,
+          "size": 1.2,
+          "duration": 30,
+          "seed": 37
+        }
+      ]
     }
   }
 }

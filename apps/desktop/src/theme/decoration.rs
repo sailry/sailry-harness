@@ -199,13 +199,18 @@ pub fn new_session_button(button: button::Button, cx: &App) -> AnyElement {
 }
 
 pub fn background(slot: &'static str, cx: &App) -> Option<AnyElement> {
-    let (decoration, image) = selected(slot, cx)?;
+    let artwork = selected(slot, cx);
+    let effects = super::effects::layer(slot, cx);
+    if artwork.is_none() && effects.is_none() {
+        return None;
+    }
     Some(
         div()
             .debug_selector(move || format!("theme-{slot}"))
             .absolute()
             .inset_0()
-            .child(picture(decoration, image))
+            .children(artwork.map(|(decoration, image)| picture(decoration, image)))
+            .children(effects)
             .into_any_element(),
     )
 }
@@ -215,9 +220,12 @@ pub fn banner(slot: &'static str, cx: &App) -> Option<AnyElement> {
     Some(
         div()
             .debug_selector(move || format!("theme-{slot}"))
+            .relative()
+            .overflow_hidden()
             .w_full()
             .h(px(f32::from(decoration.height)))
             .flex_shrink_0()
+            .children(super::effects::layer(slot, cx))
             .child(picture(decoration, image))
             .into_any_element(),
     )

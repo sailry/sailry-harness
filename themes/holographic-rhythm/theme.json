@@ -3,7 +3,7 @@
   "id": "holographic-rhythm",
   "name": "Holographic Rhythm",
   "description": "A blue-to-pink virtual singer above a luminous holographic sky city, with pink technology accents",
-  "package_version": "0.1.0",
+  "package_version": "0.1.1",
   "license": {
     "author": "Sailry",
     "name": "Apache-2.0",
@@ -273,6 +273,59 @@
         "height": 24,
         "opacity": 0.18
       }
+    },
+    "effects": {
+      "background.window": [
+        {
+          "kind": "twinkle",
+          "color": "#8DEAFF",
+          "count": 32,
+          "opacity": 0.16,
+          "size": 1.3,
+          "duration": 9,
+          "seed": 61
+        },
+        {
+          "kind": "twinkle",
+          "color": "#F8A2DA",
+          "count": 12,
+          "opacity": 0.12,
+          "size": 1.2,
+          "duration": 12,
+          "seed": 71
+        }
+      ],
+      "hero.new_session": [
+        {
+          "kind": "pulse",
+          "color": "#75DEFF",
+          "count": 1,
+          "opacity": 0.1,
+          "size": 6,
+          "duration": 9,
+          "seed": 0
+        },
+        {
+          "kind": "twinkle",
+          "color": "#FFAFE2",
+          "count": 8,
+          "opacity": 0.18,
+          "size": 1.3,
+          "duration": 9,
+          "seed": 83
+        }
+      ],
+      "conversation": [
+        {
+          "kind": "dust",
+          "color": "#F8A2DA",
+          "count": 8,
+          "opacity": 0.1,
+          "size": 1.4,
+          "duration": 50,
+          "seed": 97
+        }
+      ]
     }
   },
   "dark": {
@@ -539,6 +592,59 @@
         "height": 24,
         "opacity": 0.18
       }
+    },
+    "effects": {
+      "background.window": [
+        {
+          "kind": "twinkle",
+          "color": "#8DEAFF",
+          "count": 32,
+          "opacity": 0.3,
+          "size": 1.3,
+          "duration": 9,
+          "seed": 61
+        },
+        {
+          "kind": "twinkle",
+          "color": "#F8A2DA",
+          "count": 12,
+          "opacity": 0.22,
+          "size": 1.2,
+          "duration": 12,
+          "seed": 71
+        }
+      ],
+      "hero.new_session": [
+        {
+          "kind": "pulse",
+          "color": "#75DEFF",
+          "count": 1,
+          "opacity": 0.16,
+          "size": 6,
+          "duration": 9,
+          "seed": 0
+        },
+        {
+          "kind": "twinkle",
+          "color": "#FFAFE2",
+          "count": 8,
+          "opacity": 0.32,
+          "size": 1.3,
+          "duration": 9,
+          "seed": 83
+        }
+      ],
+      "conversation": [
+        {
+          "kind": "dust",
+          "color": "#F8A2DA",
+          "count": 8,
+          "opacity": 0.18,
+          "size": 1.4,
+          "duration": 50,
+          "seed": 97
+        }
+      ]
     }
   }
 }

@@ -14,6 +14,9 @@ use std::{
 };
 
 #[cfg(test)]
+#[path = "preferences/effects_tests.rs"]
+mod effects_tests;
+#[cfg(test)]
 mod tests;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -26,6 +29,7 @@ pub(crate) struct Data {
     pub devices: Option<std::collections::BTreeMap<String, Device>>,
     pub terminal: Terminal,
     pub appearance: crate::theme::Selection,
+    pub theme_effects: Option<bool>,
     pub composer: Option<Composer>,
     pub workspaces: Option<serde_json::Value>,
     pub feature_pins: Option<std::collections::BTreeMap<String, bool>>,
@@ -102,6 +106,7 @@ impl Default for Data {
             devices: None,
             terminal: Terminal::default(),
             appearance: crate::theme::Selection::default(),
+            theme_effects: None,
             composer: None,
             workspaces: None,
             feature_pins: None,

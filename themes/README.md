@@ -119,6 +119,49 @@ configured height is capped at the button height; shorter strips leave the rest
 of the overlay transparent. Decoration never creates an inset border or changes
 button hit testing.
 
+## Decorative animation
+
+Settings → Appearance → Theme animation controls all theme motion. The choice
+is saved locally, applies immediately and survives theme/mode changes. It defaults
+to enabled. Kit's reduced-motion state removes these layers; inactive
+windows keep a static frame without scheduling decorative redraws.
+
+Each light/dark variant may define `effects`, independently of its static assets:
+
+```json
+"effects": {
+  "background.window": [
+    {
+      "kind": "twinkle", "color": "#8DEAFF", "count": 24,
+      "opacity": 0.25, "size": 1.5, "duration": 12, "seed": 61
+    }
+  ]
+}
+```
+
+Targets are `background.window`, `background.content`, `background.sidebar`,
+`conversation`, `hero.new_session` and the existing `banner.*` slots. Background
+and conversation effects also work without an image; hero/banner targets require
+their corresponding artwork to establish the region's height. Hero effects paint
+behind the illustration. Window effects paint above the wallpaper and beneath
+the Shell's translucent surfaces. Conversation effects paint beneath content
+and remain clipped to their container. These inert layers do not capture clicks,
+focus, scrolling or text selection.
+
+Kinds are `twinkle` (stars), `embers` (rising sparks), `dust` (drifting specks),
+`petals` (falling curved petals), `pulse` (soft halo) and `scan` (moving light line).
+`color` uses Kit's solid color syntax; `opacity` is 0–1, `size` is 0.5–12 logical
+pixels and `duration` is one loop in seconds (3–120). `seed` is an optional unsigned
+32-bit value for repeatable placement. Each target accepts 1–4 layers, each layer
+1–64 particles, and each variant at most 192 particles. Pulse and scan require
+`count: 1`; their extent follows the target bounds. Motion uses Kit's animation
+clock, capped at 20 redraws per second, with stable loops across viewport changes.
+GIF artwork remains static; these effects do not add a video or script runtime.
+
+Import/check/export use the same v1 parser for this configuration. Updated theme
+packages need a Sailry binary containing this extension; reimport them after
+updating the app. Static artwork remains when theme animation is disabled.
+
 ## Global control colors
 
 The theme's `colors` already exposes Kit's global button treatments:

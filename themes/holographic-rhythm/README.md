@@ -19,6 +19,10 @@ the existing window surface preferences control its visibility through panels.
 Changing those preferences can change text contrast. The package checks cover
 the default main-panel tint, card states and modal control colors.
 
+Cyan and pink stars twinkle over the skyline; the portrait has a soft cyan halo
+and pink glints, with slower holographic specks in conversations. Light mode
+uses lower opacity. Settings → Appearance → Theme animation controls these layers.
+
 Run the shared checks from the Sailry repository, passing this directory (or an
 absolute path to a theme in another repository):
 
