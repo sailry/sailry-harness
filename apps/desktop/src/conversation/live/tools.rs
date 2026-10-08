@@ -263,12 +263,7 @@ impl View {
                         |column, error| {
                             let selector = format!("live-tool-error-{key}");
                             column.child(
-                                surface::notice(
-                                    error,
-                                    output::is_error(&call.name, Some(result)),
-                                    cx,
-                                )
-                                .debug_selector(move || selector.clone()),
+                                surface::notice(error, cx).debug_selector(move || selector.clone()),
                             )
                         },
                     )
@@ -368,7 +363,6 @@ impl View {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let fault = output::failure(&call.name, Some(result));
-        let is_error = output::is_error(&call.name, Some(result));
         let body = output::tool_preview(&call.name, call.presentation, result);
         let mut actions = Vec::new();
         let copy = body.copy_text();
@@ -381,13 +375,11 @@ impl View {
         let notices = v_flex().children(
             body.notices
                 .iter()
-                .map(|notice| surface::notice(tr(notice), is_error, cx)),
+                .map(|notice| surface::notice(tr(notice), cx)),
         );
         let content = if fault.is_some() && !body.text.is_empty() {
             let selector = format!("live-tool-error-{key}");
-            v_flex().child(
-                surface::notice(body.text, is_error, cx).debug_selector(move || selector.clone()),
-            )
+            v_flex().child(surface::notice(body.text, cx).debug_selector(move || selector.clone()))
         } else if body.text.is_empty() {
             v_flex().child(notices)
         } else {

@@ -81,6 +81,7 @@ impl RenderOnce for Rows {
                             .flex_shrink_0()
                             .child(if row.state == State::InProgress {
                                 Spinner::new()
+                                    .ease(linear)
                                     .icon(icon)
                                     .with_size(px(16.))
                                     .color(tone)

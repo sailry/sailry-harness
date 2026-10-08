@@ -24,7 +24,7 @@ pub(super) fn render(
             ))
         })
         .children(data.notices.iter().map(|notice| {
-            surface::notice(notice.label(&rust_i18n::locale()).to_owned(), false, cx)
+            surface::notice(notice.label(&rust_i18n::locale()).to_owned(), cx)
                 .py_0()
                 .pb_2()
         }));

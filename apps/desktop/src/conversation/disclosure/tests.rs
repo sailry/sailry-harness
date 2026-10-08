@@ -2,6 +2,34 @@ use super::*;
 use core::prelude::v1::test;
 use gpui_kit::component::collapsible::Collapsible;
 
+#[gpui::test]
+fn keeps_failure_text_subdued(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+            Theme::change(mode, None, cx);
+            let detail = Detail::mono("missing.txt").state(Some("Read failed".into()), true);
+            assert_eq!(tone(&detail, cx), cx.theme().muted_foreground);
+            assert_ne!(tone(&detail, cx), cx.theme().danger);
+            assert_eq!(
+                detail.accessible(&"Read".into()),
+                "Read missing.txt Read failed"
+            );
+            assert_eq!(
+                tone(
+                    &Detail {
+                        running: true,
+                        ..detail
+                    },
+                    cx
+                ),
+                cx.theme().muted_foreground
+            );
+        }
+    });
+}
+
 struct Harness {
     open: bool,
     detail: SharedString,

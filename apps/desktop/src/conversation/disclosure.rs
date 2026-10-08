@@ -7,7 +7,7 @@ use gpui_kit::{
     *,
 };
 
-/// Activity details; failures use the danger tone and retain accessible diagnostics.
+/// Activity details; failures accent only the icon and retain accessible diagnostics.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Detail {
     pub text: SharedString,
@@ -142,9 +142,7 @@ pub(crate) fn summary(
 }
 
 fn tone(detail: &Detail, cx: &App) -> Hsla {
-    if detail.failed {
-        cx.theme().danger
-    } else if detail.running && !detail.pending {
+    if detail.running && !detail.pending && !detail.failed {
         cx.theme().muted_foreground.mix(cx.theme().foreground, 0.35)
     } else {
         cx.theme().muted_foreground
@@ -241,7 +239,12 @@ fn glyph(icon: Icon, detail: &Detail, cx: &App) -> AnyElement {
             .size_4()
             .into_any_element()
     } else {
-        crate::ui::identicon::animated(icon.size_4().flex_shrink_0(), detail.rotate_icon)
+        crate::ui::identicon::animated(
+            icon.size_4()
+                .flex_shrink_0()
+                .when(detail.failed, |icon| icon.text_color(cx.theme().danger)),
+            detail.rotate_icon,
+        )
     }
 }
 

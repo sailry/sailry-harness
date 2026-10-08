@@ -176,7 +176,7 @@ impl View {
             .outline()
             .small()
             .px_3()
-            .child(gpui_kit::component::spinner::Spinner::new().small())
+            .icon(gpui_kit::component::spinner::Spinner::new().small())
             .rounded_full()
             .debug_selector(move || id.into())
             .font_normal()

@@ -184,7 +184,11 @@ impl Shell {
 pub(in crate::conversation) fn status_icon(row: &Row) -> AnyElement {
     use gpui_kit::component::{Icon, IconName, Sizable as _};
     if row.running {
-        crate::ui::identicon::animated(Icon::new(IconName::LoaderCircle).small(), true)
+        gpui_kit::component::spinner::Spinner::new()
+            .icon(IconName::LoaderCircle)
+            .small()
+            .ease(linear)
+            .into_any_element()
     } else {
         Icon::new(row.icon.clone())
             .size_4()

@@ -25,7 +25,7 @@ impl View {
             blocks.push(match block {
                 Block::Text(data) => text::render(&id, data, result, literal, cx),
                 Block::Notice { message } => {
-                    surface::notice(message.label(&rust_i18n::locale()).to_owned(), false, cx)
+                    surface::notice(message.label(&rust_i18n::locale()).to_owned(), cx)
                         .into_any_element()
                 }
                 // Published files remain visible below the answer when tool work collapses.
@@ -37,7 +37,7 @@ impl View {
                         data: data.clone(),
                     })
                     .when(data.truncated, |column| {
-                        column.child(surface::notice(tr("tool_partial"), false, cx))
+                        column.child(surface::notice(tr("tool_partial"), cx))
                     })
                     .into_any_element(),
                 Block::Diff(data) => {
@@ -48,7 +48,7 @@ impl View {
                         .debug_selector(move || selector.clone())
                         .child(diff::file_rows(&id, &lines, &data.path, Vec::new(), cx))
                         .when(data.truncated, |column| {
-                            column.child(surface::notice(tr("tool_partial"), false, cx))
+                            column.child(surface::notice(tr("tool_partial"), cx))
                         })
                         .into_any_element()
                 }

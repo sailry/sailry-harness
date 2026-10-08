@@ -47,6 +47,18 @@ fn reserves_danger_for_execution_errors(cx: &mut TestAppContext) {
         let history = view.read_with(visual, |view, _| view.history.clone());
         let cases = [
             (
+                "read_file",
+                json!({"error":Fault::new(ErrorCode::NotFound, "worktree filesystem operation failed: No such file or directory (os error 2)")}),
+                true,
+                Some("tool_failed"),
+            ),
+            (
+                "external_tool",
+                json!({"error":Fault::new(ErrorCode::PermissionDenied, "Access denied")}),
+                true,
+                Some("tool_failed"),
+            ),
+            (
                 "external_tool",
                 json!({"error":Fault::new(ErrorCode::Cancelled, "Cancelled")}),
                 false,
@@ -124,6 +136,7 @@ fn reserves_danger_for_execution_errors(cx: &mut TestAppContext) {
             ),
         ];
         for (name, result, danger, label) in cases {
+            let diagnostic = output::failure(name, Some(&result));
             let mut sample = history.clone();
             let call = &mut Arc::make_mut(&mut sample.calls)[0];
             call.name = name.into();
@@ -169,6 +182,14 @@ fn reserves_danger_for_execution_errors(cx: &mut TestAppContext) {
             let group = group_summary(&[call], page);
             assert_eq!(group.detail.failed, danger);
             assert_eq!(group.detail.state, label.map(tr));
+            assert_eq!(output::failure(name, call.result(page)), diagnostic);
+            if output::fault(call.result(page)).is_some() {
+                assert_eq!(
+                    output::tool_preview(name, call.presentation, call.result(page).unwrap())
+                        .copy_text(),
+                    diagnostic.unwrap()
+                );
+            }
             let has_result = has_content(call, page);
             let selector = format!("live-tool-result-{}-{}", call.turn, call.source.key());
             let key = (call.turn, format!("tools-{}", call.source.key()));

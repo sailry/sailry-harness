@@ -473,7 +473,7 @@ impl Render for Card {
                 )
             })
             .when(data.partial, |body| {
-                body.child(surface::notice(tr("tool_partial"), false, cx))
+                body.child(surface::notice(tr("tool_partial"), cx))
             });
         surface::card(Some(header.into_any_element()), body.into_any_element(), cx)
             .bg(cx.theme().muted.opacity(0.2))

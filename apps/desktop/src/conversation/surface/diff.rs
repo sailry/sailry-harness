@@ -108,7 +108,7 @@ pub(crate) fn file_rows(
                 // the rounded frame; the diff itself spans its full inner width.
                 .child(div().pb(cx.theme().radius).child(
                     if crate::content::diff::is_binary(lines) {
-                        super::notice(crate::tr("git_diff_binary"), false, cx).into_any_element()
+                        super::notice(crate::tr("git_diff_binary"), cx).into_any_element()
                     } else {
                         crate::content::diff::rows(
                             id,

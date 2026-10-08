@@ -200,17 +200,13 @@ impl RenderOnce for ActivityScroll {
     }
 }
 
-/// Short status line inside a body; `danger` marks a failure.
-pub(crate) fn notice(text: impl Into<SharedString>, danger: bool, cx: &App) -> Div {
+/// Literal diagnostics stay readable; the activity icon carries failure emphasis.
+pub(crate) fn notice(text: impl Into<SharedString>, cx: &App) -> Div {
     div()
         .px_3()
         .py_2()
         .text_sm()
-        .text_color(if danger {
-            cx.theme().danger
-        } else {
-            cx.theme().muted_foreground
-        })
+        .text_color(cx.theme().muted_foreground)
         .child(text.into())
 }
 
@@ -251,5 +247,21 @@ mod tests {
         assert_eq!(literal("line"), "```text\nline\n```");
         assert_eq!(literal("line\n\n"), "```text\nline\n\n```");
         assert_eq!(literal("```\n"), "````text\n```\n````");
+    }
+
+    #[gpui::test]
+    fn diagnostic_text_uses_the_body_tone(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::init(cx);
+            for mode in [ThemeMode::Light, ThemeMode::Dark] {
+                Theme::change(mode, None, cx);
+                let mut diagnostic = notice("No such file or directory (os error 2)", cx);
+                assert_eq!(
+                    diagnostic.style().text.color,
+                    Some(cx.theme().muted_foreground)
+                );
+            }
+        });
     }
 }

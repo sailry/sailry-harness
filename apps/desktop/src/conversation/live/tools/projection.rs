@@ -151,20 +151,21 @@ pub(super) fn render(
                 cx,
             ));
         }
-        let content = if text.is_empty() {
-            v_flex()
-                .children(body.empty.as_ref().map(|empty| {
-                    surface::notice(empty.label(&rust_i18n::locale()).to_owned(), false, cx)
-                }))
-                .into_any_element()
-        } else {
-            surface::code(
-                &format!("{key}-output"),
-                text,
-                px(f32::from(crate::preferences::data(cx).message_text_size())),
-                cx,
-            )
-        };
+        let content =
+            if text.is_empty() {
+                v_flex()
+                    .children(body.empty.as_ref().map(|empty| {
+                        surface::notice(empty.label(&rust_i18n::locale()).to_owned(), cx)
+                    }))
+                    .into_any_element()
+            } else {
+                surface::code(
+                    &format!("{key}-output"),
+                    text,
+                    px(f32::from(crate::preferences::data(cx).message_text_size())),
+                    cx,
+                )
+            };
         return Some(surface::result(key, content, actions, cx).into_any_element());
     }
     if projection.preview.is_none() && projection.notices.is_empty() {
@@ -193,7 +194,7 @@ pub(super) fn render(
         .children(
             notices
                 .into_iter()
-                .map(|notice| surface::notice(notice, false, cx)),
+                .map(|notice| surface::notice(notice, cx)),
         );
     let mut actions = Vec::new();
     if !copy.is_empty() {

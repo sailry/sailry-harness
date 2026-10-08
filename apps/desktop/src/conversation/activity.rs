@@ -207,6 +207,7 @@ fn todo_content(
                                 Icon::new(IconName::CircleCheck).size_4().into_any_element()
                             }
                             TaskStatus::Active => Spinner::new()
+                                .ease(linear)
                                 .color(cx.theme().muted_foreground)
                                 .icon(IconName::LoaderCircle)
                                 .with_size(px(16.))
