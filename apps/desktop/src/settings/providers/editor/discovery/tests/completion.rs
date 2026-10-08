@@ -2,7 +2,7 @@ use super::*;
 use sailry_protocol::Effort;
 
 #[gpui::test]
-fn preserves_manual_models(cx: &mut TestAppContext) {
+fn refreshes_metadata_preserves_limits(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     cx.update(gpui_kit::init);
     let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -23,6 +23,7 @@ fn preserves_manual_models(cx: &mut TestAppContext) {
                 display_name: None,
                 context: 65536,
                 output: 2048,
+                capabilities: None,
                 vision: false,
                 tools: false,
                 reasoning: true,
@@ -55,6 +56,9 @@ fn preserves_manual_models(cx: &mut TestAppContext) {
             editor.read_with(visual, |editor, cx| {
                 assert_eq!(editor.error, None);
                 let mut expected = manual.clone();
+                expected.vision = true;
+                expected.tools = true;
+                expected.generates.clear();
                 expected.efforts = [Effort::Low, Effort::Medium, Effort::High, Effort::XHigh]
                     .into_iter()
                     .filter(|effort| effort.validate(preset.api(), expected.output).is_ok())
@@ -118,7 +122,8 @@ fn keeps_late_edits(cx: &mut TestAppContext) {
             for draft in &editor.models {
                 let model = draft.value(cx).unwrap();
                 assert_eq!((model.context, model.output), (200_000, 16_384));
-                assert!(!model.vision && !model.tools && !model.reasoning);
+                assert!(model.vision && model.tools);
+                assert!(!model.reasoning);
             }
         });
         visual.update(|window, cx| {

@@ -26,6 +26,7 @@ impl Fixture {
                 display_name: None,
                 context: 8192,
                 output: 512,
+                capabilities: None,
                 vision: false,
                 tools: false,
                 reasoning: false,

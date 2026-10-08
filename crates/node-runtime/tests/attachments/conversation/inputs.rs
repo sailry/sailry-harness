@@ -11,7 +11,10 @@ async fn configure(
     permission: Permission,
 ) -> Session {
     provider.models[0].tools = true;
-    provider.models[0].vision = false;
+    provider.models[0]
+        .capabilities
+        .get_or_insert_with(Default::default)
+        .vision = Some(false);
     client
         .execute(client.prepare(Command::PutProvider {
             provider,

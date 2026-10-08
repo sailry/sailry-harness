@@ -86,6 +86,7 @@ impl Fixture {
             web_search: false,
             generates: vec![],
             efforts: vec![effort],
+            capabilities: None,
             custom_efforts: false,
             default_effort: effort,
         });
@@ -192,7 +193,10 @@ async fn restores_authenticated_history() {
             let mut changed = fixture.provider.clone();
             changed.endpoint = "http://127.0.0.1:9/changed".into();
             changed.models[0].output = 16;
-            changed.models[0].reasoning = false;
+            changed.models[0]
+                .capabilities
+                .get_or_insert_with(Default::default)
+                .reasoning = Some(false);
             execute(
                 &fixture.client,
                 Command::PutProvider {

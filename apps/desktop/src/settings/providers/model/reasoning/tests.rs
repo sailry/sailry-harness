@@ -171,7 +171,11 @@ fn preserves_custom_refresh(cx: &mut TestAppContext) {
             window,
             cx,
         );
-        assert_eq!(reopened.value(cx).unwrap(), saved);
+        let refreshed = reopened.value(cx).unwrap();
+        assert_eq!(refreshed.capabilities, native.capabilities);
+        let mut expected = saved;
+        expected.capabilities = native.capabilities.clone();
+        assert_eq!(refreshed, expected);
         draft.efforts.edit(Edit::Add, window, cx);
         draft.fill(
             Some(&native),

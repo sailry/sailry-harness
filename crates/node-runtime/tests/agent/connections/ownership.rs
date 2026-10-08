@@ -66,6 +66,7 @@ async fn survives_without_projects() {
                 web_search: false,
                 generates: vec![],
                 efforts: vec![],
+                capabilities: None,
                 custom_efforts: false,
                 default_effort: Effort::Default,
             }],

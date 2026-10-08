@@ -58,13 +58,13 @@ pub(super) async fn build(
         }),
         ingress: ingress.clone(),
         turn: invocation.turn.id,
-        vision: metadata.is_some_and(|model| model.vision),
+        vision: metadata.is_none_or(|model| model.vision),
         api: matches!(
             provider.authentication,
             Authentication::ApiKey | Authentication::Host
         )
         .then_some(opencode::api(provider.api, &config.model)?),
-        tools: metadata.is_some_and(|model| model.tools),
+        tools: metadata.is_none_or(|model| model.tools),
         stop: stop.clone(),
     }))
 }
@@ -94,7 +94,13 @@ pub(super) async fn configured(
     if let Some(model) = metadata {
         model.validate_effort(api, config.effort)?;
     }
-    let effort = if metadata.is_none_or(|model| model.reasoning) {
+    let effort = if metadata.is_none_or(|model| {
+        model
+            .capabilities
+            .as_ref()
+            .and_then(|value| value.reasoning)
+            != Some(false)
+    }) {
         config.effort
     } else {
         Effort::Default
@@ -185,11 +191,16 @@ pub(super) fn native(
                         || provider.endpoint.trim_end_matches('/') != "https://api.openai.com/v1",
                 );
             let config = if effort != Effort::Disabled
-                && provider
-                    .models
-                    .iter()
-                    .any(|model| model.id == config.model && model.reasoning)
-            {
+                && provider.models.iter().any(|model| {
+                    model.id == config.model
+                        && (model.reasoning
+                            || (effort != Effort::Default
+                                && model
+                                    .capabilities
+                                    .as_ref()
+                                    .and_then(|value| value.reasoning)
+                                    != Some(false)))
+                }) {
                 config.with_reasoning_summary(ReasoningSummary::Auto)
             } else {
                 config

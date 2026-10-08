@@ -1,6 +1,57 @@
 use super::*;
 
 #[tokio::test]
+async fn attempts_explicit_unknown_effort() {
+    for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
+        for remote in [false, true] {
+            let server = crate::agent_support::Server::start(false).await;
+            let fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let mut provider = fixture.provider.clone();
+            provider.models[0].reasoning = false;
+            provider.models[0].efforts.clear();
+            provider.models[0].default_effort = Effort::Default;
+            provider.models[0].capabilities = None;
+            let Output::Provider(provider) = execute(
+                &fixture.client,
+                Command::PutProvider {
+                    expected_revision: provider.revision,
+                    provider,
+                },
+            )
+            .await
+            else {
+                panic!("provider expected")
+            };
+            assert!(!provider.models[0].reasoning);
+            assert!(provider.models[0].efforts.is_empty());
+            assert!(provider.models[0].capabilities.is_none());
+            assert_eq!(fixture.session.config.effort, Effort::High);
+            let turn = fixture.submit("Use the selected effort").await;
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            assert_eq!(
+                page.runs.last().unwrap().status,
+                Status::Completed,
+                "{:?}",
+                page.runs
+            );
+            {
+                let requests = server.requests.lock().unwrap();
+                assert_eq!(requests.len(), 1);
+                assert_eq!(requests[0]["model"], fixture.session.config.model);
+                let effort = if api == ModelApi::Responses {
+                    &requests[0]["reasoning"]["effort"]
+                } else {
+                    &requests[0]["reasoning_effort"]
+                };
+                assert_eq!(effort, "high");
+            }
+            fixture.controller.close().await.unwrap();
+            fixture.node.shutdown().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
 async fn replays_selected_field() {
     use adk_core::{Content, FunctionResponseData, Llm, LlmRequest, Part as AdkPart};
     use adk_model::{OpenAICompatible, OpenAICompatibleConfig, ReasoningReplayField};
@@ -78,12 +129,14 @@ async fn accepts_unannotated_responses() {
     // Compatible providers can omit annotations even when authenticated with an API key.
     let item = serde_json::json!({"type":"message", "id":"message-fixture", "role":"assistant", "status":"completed",
         "content":[{"type":"output_text", "text":"Compatible response"}]});
+    let reasoning = serde_json::json!({"type":"reasoning", "id":"reasoning-fixture", "status":"completed",
+        "summary":[{"type":"summary_text","text":"Inspect the requested files"}]});
     let events = [
         serde_json::json!({"type":"response.reasoning_summary_text.delta", "sequence_number":0, "item_id":"reasoning-fixture", "output_index":0, "summary_index":0, "delta":"Inspect the requested files"}),
-        serde_json::json!({"type":"response.output_item.added", "sequence_number":0, "output_index":0, "item":item}),
-        serde_json::json!({"type":"response.output_text.delta", "sequence_number":1, "item_id":"message-fixture", "output_index":0, "content_index":0, "delta":"Compatible response", "logprobs":[]}),
-        serde_json::json!({"type":"response.completed", "sequence_number":2, "response":{
-            "id":"response-fixture", "object":"response", "created_at":1, "status":"completed", "model":"fixture-a", "output":[item]}}),
+        serde_json::json!({"type":"response.output_item.added", "sequence_number":1, "output_index":1, "item":item}),
+        serde_json::json!({"type":"response.output_text.delta", "sequence_number":2, "item_id":"message-fixture", "output_index":1, "content_index":0, "delta":"Compatible response", "logprobs":[]}),
+        serde_json::json!({"type":"response.completed", "sequence_number":3, "response":{
+            "id":"response-fixture", "object":"response", "created_at":1, "status":"completed", "model":"fixture-a", "output":[reasoning,item]}}),
     ];
     let body = events
         .into_iter()
@@ -281,7 +334,12 @@ async fn restores_native_choices() {
             let mut changed = provider;
             changed.endpoint = "http://127.0.0.1:9/changed".into();
             changed.models[0].reasoning = false;
+            changed.models[0]
+                .capabilities
+                .get_or_insert_with(Default::default)
+                .reasoning = Some(false);
             changed.models[0].efforts.clear();
+            changed.models[0].default_effort = Effort::Default;
             execute(
                 &fixture.client,
                 Command::PutProvider {

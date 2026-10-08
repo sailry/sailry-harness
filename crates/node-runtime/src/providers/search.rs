@@ -21,7 +21,11 @@ pub(crate) fn enable(provider: &mut Provider) {
         return;
     }
     for model in &mut provider.models {
-        model.web_search |= supported(provider.api, &model.id);
+        model.web_search = model
+            .capabilities
+            .as_ref()
+            .and_then(|value| value.web_search)
+            .unwrap_or_else(|| model.web_search || supported(provider.api, &model.id));
     }
 }
 

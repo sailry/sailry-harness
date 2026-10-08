@@ -39,7 +39,10 @@ async fn waits_for_choice_and_recovers() {
                 };
                 let mut provider = providers.remove(0);
                 for model in &mut provider.models {
-                    model.tools = false;
+                    model
+                        .capabilities
+                        .get_or_insert_with(Default::default)
+                        .tools = Some(false);
                 }
                 fixture
                     .client

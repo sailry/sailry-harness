@@ -8,7 +8,6 @@ mod tests;
 use crate::tr;
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
-    checkbox::Checkbox,
     collapsible::Collapsible,
     form::{Field, Form},
     input::{Input, InputState},
@@ -44,6 +43,7 @@ impl Draft {
             display_name: completed.display_name,
             context: completed.context,
             output: completed.output,
+            capabilities: completed.capabilities,
             vision: completed.vision,
             tools: completed.tools,
             reasoning: completed.reasoning,
@@ -97,19 +97,22 @@ impl Draft {
         if context == 0 || output == 0 || output > context {
             return Err("provider_limits_invalid");
         }
+        let unchanged = id == self.model.id;
         let mut model = Model {
-            display_name: self
-                .model
-                .display_name
-                .clone()
-                .filter(|_| id == self.model.id),
+            display_name: self.model.display_name.clone().filter(|_| unchanged),
             id,
             context,
             output,
+            capabilities: self.model.capabilities.clone().filter(|_| unchanged),
             ..self.model.clone()
         };
         let efforts = self.efforts.apply(&mut model, cx);
-        if model.reasoning {
+        if model
+            .capabilities
+            .as_ref()
+            .and_then(|value| value.reasoning)
+            != Some(false)
+        {
             efforts?;
         }
         Ok(model)
@@ -121,7 +124,8 @@ impl Editor {
         let draft = &self.models[index];
         let key = draft.key;
         let id = draft.id.read(cx).value();
-        let title = if id.as_ref() == draft.model.id {
+        let unchanged = id.as_ref() == draft.model.id;
+        let title = if unchanged {
             SharedString::from(draft.model.label())
         } else {
             id
@@ -240,114 +244,39 @@ impl Editor {
                         },
                     ))),
             );
-            let mut capabilities = h_flex().flex_wrap().gap_4().child(
-                Checkbox::new(("model-text", key))
-                    .text_sm()
-                    .label(tr("provider_cap_text"))
-                    .checked(true)
-                    .disabled(true),
-            );
-            for (kind, label, checked) in [
-                (0, "provider_cap_vision", draft.model.vision),
-                (1, "provider_cap_tools", draft.model.tools),
-                (2, "provider_cap_reasoning", draft.model.reasoning),
-                (
-                    4,
-                    "provider_cap_image",
-                    draft
-                        .model
-                        .generates
-                        .contains(&sailry_protocol::media::Generation::Image),
-                ),
-                (
-                    5,
-                    "provider_cap_video",
-                    draft
-                        .model
-                        .generates
-                        .contains(&sailry_protocol::media::Generation::Video),
-                ),
-                (
-                    6,
-                    "provider_cap_image_tool",
-                    draft
-                        .model
-                        .generates
-                        .contains(&sailry_protocol::media::Generation::ImageTool),
-                ),
-            ] {
-                capabilities = capabilities.child(
-                    Checkbox::new((label, key))
-                        .text_sm()
-                        .debug_selector(move || format!("model-capability-{key}-{kind}"))
-                        .disabled(self.pending)
-                        .label(tr(label))
-                        .checked(checked)
-                        .on_click(cx.listener(move |editor, checked, window, cx| {
-                            let draft = &mut editor.models[index];
-                            let model = &mut draft.model;
-                            match kind {
-                                0 => {
-                                    draft.missing.vision = false;
-                                    model.vision = *checked;
-                                }
-                                1 => {
-                                    draft.missing.tools = false;
-                                    model.tools = *checked;
-                                }
-                                2 => {
-                                    draft.missing.reasoning = false;
-                                    model.reasoning = *checked;
-                                    if !checked {
-                                        editor.focus.focus(window, cx);
-                                    }
-                                }
-                                _ => {
-                                    draft.missing.generates = false;
-                                    let output = match kind {
-                                        4 => sailry_protocol::media::Generation::Image,
-                                        5 => sailry_protocol::media::Generation::Video,
-                                        _ => sailry_protocol::media::Generation::ImageTool,
-                                    };
-                                    model.generates.retain(|value| *value != output);
-                                    if *checked {
-                                        model.generates.push(output);
-                                    }
-                                }
-                            }
-                            cx.notify();
-                        })),
+            card = card.child(form).child(self.limits(index, cx));
+            if !unchanged
+                || draft
+                    .model
+                    .capabilities
+                    .as_ref()
+                    .and_then(|value| value.reasoning)
+                    != Some(false)
+            {
+                let details = v_flex().gap_4().pt_3().child(self.reasoning(index, cx));
+                let advanced = Button::new(("model-advanced", key))
+                    .debug_selector(move || format!("model-advanced-{key}"))
+                    .text()
+                    .label(tr("provider_advanced"))
+                    .icon(if draft.advanced {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    })
+                    .on_click(cx.listener(move |editor, _, window, cx| {
+                        editor.models[index].advanced = !editor.models[index].advanced;
+                        if !editor.models[index].advanced {
+                            editor.focus.focus(window, cx);
+                        }
+                        cx.notify();
+                    }));
+                card = card.child(
+                    Collapsible::new()
+                        .open(draft.advanced)
+                        .child(h_flex().child(advanced))
+                        .content(details),
                 );
             }
-            let details = v_flex()
-                .gap_4()
-                .pt_3()
-                .child(capabilities)
-                .when(draft.model.reasoning, |details| {
-                    details.child(self.reasoning(index, cx))
-                });
-            let advanced = Button::new(("model-advanced", key))
-                .debug_selector(move || format!("model-advanced-{key}"))
-                .text()
-                .label(tr("provider_advanced"))
-                .icon(if draft.advanced {
-                    IconName::ChevronDown
-                } else {
-                    IconName::ChevronRight
-                })
-                .on_click(cx.listener(move |editor, _, window, cx| {
-                    editor.models[index].advanced = !editor.models[index].advanced;
-                    if !editor.models[index].advanced {
-                        editor.focus.focus(window, cx);
-                    }
-                    cx.notify();
-                }));
-            card = card.child(form).child(self.limits(index, cx)).child(
-                Collapsible::new()
-                    .open(draft.advanced)
-                    .child(h_flex().child(advanced))
-                    .content(details),
-            );
         }
         card.into_any_element()
     }

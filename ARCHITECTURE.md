@@ -98,9 +98,13 @@ third-party billing are outside that boundary.
 ChatGPT OAuth uses device-code authorization and the account-scoped Codex backend
 catalog and Responses endpoint. ChatGPT SIWC uses the official browser flow,
 issued client registration and public OpenAI catalog and Responses endpoint.
-Their credentials and request adapters are distinct; neither falls back to the
-other account or an API key. Backend image generation requires an explicit model
-image-tool capability and retains the admitted model and credential.
+Their credentials and request adapters are distinct; neither silently changes
+authentication contracts or substitutes an API key. Model capabilities resolve
+automatically from native and cached metadata; unknown capabilities use the
+configured API contract.
+Media operations try the admitted model and credential first. Only a definite
+unsupported capability may use an explicitly configured, session-captured fallback;
+authentication, quota, timeout and uncertain outcomes never trigger fallback.
 
 ## Runtime behavior
 

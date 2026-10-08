@@ -1,21 +1,16 @@
 use super::*;
 use sailry_protocol::conversation::{catalog, discovery};
 
-// Only unreported fields in an unsaved draft are eligible for completion.
-// Saved models and explicit user choices never become missing again.
+// Only unreported limits in an unsaved draft are eligible for completion.
+// Saved limits and explicit user choices never become missing again.
 #[derive(Default)]
 pub(super) struct Missing {
     pub(super) context: bool,
     output: bool,
-    pub vision: bool,
-    pub tools: bool,
-    pub reasoning: bool,
-    pub generates: bool,
 }
 
 impl Missing {
     pub fn new(value: &discovery::Model, reference: Option<&catalog::Model>) -> Self {
-        let capabilities = value.capabilities.as_ref();
         Self {
             context: value
                 .context
@@ -25,17 +20,6 @@ impl Missing {
                 .output
                 .or(reference.and_then(|model| model.output))
                 .is_none(),
-            vision: capabilities.and_then(|value| value.vision).is_none()
-                && reference.is_none_or(|model| model.inputs.is_empty()),
-            tools: capabilities
-                .and_then(|value| value.tools)
-                .or(reference.and_then(|model| model.tools))
-                .is_none(),
-            reasoning: capabilities
-                .and_then(|value| value.reasoning)
-                .or(reference.and_then(|model| model.reasoning))
-                .is_none(),
-            generates: reference.is_none_or(|model| model.outputs.is_empty()),
         }
     }
 }
@@ -53,11 +37,15 @@ impl Draft {
             return;
         };
         self.missing.context &= current.context == self.model.context;
-        let capabilities = native.and_then(|value| value.capabilities.as_ref());
-        // Automatic choices may refresh; explicit edits remain authoritative.
+        let capabilities = native
+            .map(|value| value.capabilities.clone())
+            .unwrap_or_else(|| current.capabilities.clone());
+        // Fill absent choices without replacing configured lists or defaults.
         let refresh_efforts = !current.custom_efforts
-            && (capabilities.is_some_and(|value| value.efforts.is_some())
-                || reference.is_some_and(|model| !model.options.is_empty()));
+            && current
+                .efforts
+                .iter()
+                .all(|effort| *effort == Effort::Default);
         let completed = Self::discovered(
             self.key,
             discovery::Model {
@@ -75,36 +63,7 @@ impl Draft {
                 } else {
                     Some(current.output)
                 },
-                capabilities: Some(discovery::Capabilities {
-                    web_search: capabilities
-                        .and_then(|value| value.web_search)
-                        .or(Some(current.web_search)),
-                    vision: if self.missing.vision {
-                        capabilities.and_then(|value| value.vision)
-                    } else {
-                        Some(current.vision)
-                    },
-                    tools: if self.missing.tools {
-                        capabilities.and_then(|value| value.tools)
-                    } else {
-                        Some(current.tools)
-                    },
-                    reasoning: if self.missing.reasoning {
-                        capabilities.and_then(|value| value.reasoning)
-                    } else {
-                        Some(current.reasoning)
-                    },
-                    efforts: if refresh_efforts {
-                        capabilities.and_then(|value| value.efforts.clone())
-                    } else {
-                        Some(current.efforts.clone())
-                    },
-                    default_effort: if refresh_efforts {
-                        capabilities.and_then(|value| value.default_effort)
-                    } else {
-                        Some(current.default_effort)
-                    },
-                }),
+                capabilities,
             },
             reference,
             preset,
@@ -113,10 +72,29 @@ impl Draft {
         );
         let mut model = completed.model;
         model.custom_efforts = current.custom_efforts;
-        if !self.missing.generates {
-            model.generates = current.generates;
+        if model
+            .capabilities
+            .as_ref()
+            .and_then(|value| value.reasoning)
+            .or(reference.and_then(|value| value.reasoning))
+            .is_none()
+        {
+            model.reasoning = model
+                .capabilities
+                .as_ref()
+                .and_then(|value| value.efforts.as_ref())
+                .is_some_and(|efforts| efforts.iter().any(|effort| *effort != Effort::Default))
+                || current
+                    .efforts
+                    .iter()
+                    .any(|effort| *effort != Effort::Default);
         }
-        if !refresh_efforts && !current.efforts.is_empty() {
+        model.web_search = model
+            .capabilities
+            .as_ref()
+            .and_then(|value| value.web_search)
+            .unwrap_or(current.web_search);
+        if !refresh_efforts || model.efforts.is_empty() {
             model.efforts = current.efforts;
             model.default_effort = current.default_effort;
         }
@@ -125,9 +103,7 @@ impl Draft {
                 input.set_value(model.context.to_string(), window, cx)
             });
         }
-        let generates = self.missing.generates && completed.missing.generates;
         self.missing = completed.missing;
-        self.missing.generates = generates;
         if !current.custom_efforts {
             self.efforts = reasoning::Rows::new(&model, window, cx);
         }

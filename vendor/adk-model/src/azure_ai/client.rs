@@ -154,12 +154,12 @@ impl Llm for AzureAIClient {
                             _ if status_code >= 500 => ErrorCategory::Internal,
                             _ => ErrorCategory::InvalidInput,
                         };
-                        return Err(AdkError::new(
+                        return Err(crate::error_metadata::from_body(AdkError::new(
                             ErrorComponent::Model,
                             category,
                             "model.azure_ai.api_error",
                             format!("Azure AI error for endpoint={endpoint}, status={status}: {error_text}"),
-                        ).with_upstream_status(status_code).with_provider("azure-ai"));
+                        ).with_upstream_status(status_code).with_provider("azure-ai"), &error_text));
                     }
 
                     Ok(resp)

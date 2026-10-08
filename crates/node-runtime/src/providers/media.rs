@@ -14,94 +14,77 @@ pub(crate) enum ImageRoute {
 }
 
 pub(crate) fn image_route(provider: &Provider, model: &Model) -> Option<ImageRoute> {
+    let route = image_api(provider)?;
+    if route == ImageRoute::Responses && model.generates.contains(&Generation::Image) {
+        Some(ImageRoute::Images)
+    } else {
+        Some(route)
+    }
+}
+
+/// Select an attempt from the configured API when native model metadata is absent.
+pub(crate) fn image_api(provider: &Provider) -> Option<ImageRoute> {
     if !provider.enabled {
         return None;
     }
-    if model.generates.contains(&Generation::Image)
-        && matches!(
-            (provider.api, provider.authentication),
-            (ModelApi::Gemini | ModelApi::Vertex, Authentication::ApiKey)
-                | (ModelApi::Vertex, Authentication::Host)
-        )
-    {
-        return Some(ImageRoute::Native);
+    match provider.authentication {
+        Authentication::ApiKey => match provider.api {
+            ModelApi::ChatCompletions => Some(ImageRoute::Images),
+            ModelApi::Responses => Some(ImageRoute::Responses),
+            ModelApi::Gemini | ModelApi::Vertex => Some(ImageRoute::Native),
+            // These adapters do not share generic bearer-authenticated media
+            // routing. Cloud deployment, Converse, Messages and OpenCode
+            // conversation contracts must not be sent to /images/generations.
+            ModelApi::Anthropic
+            | ModelApi::DeepSeek
+            | ModelApi::OpenCodeGo
+            | ModelApi::OpenCodeZen
+            | ModelApi::AzureOpenAi
+            | ModelApi::AzureAi
+            | ModelApi::Bedrock => None,
+        },
+        Authentication::ChatGptOAuth | Authentication::Copilot => {
+            (provider.api == ModelApi::Responses).then_some(ImageRoute::Authorized)
+        }
+        Authentication::Host => (provider.api == ModelApi::Vertex).then_some(ImageRoute::Native),
+        Authentication::ChatGpt => None,
     }
-    if provider.authentication == Authentication::ChatGptOAuth {
-        return (provider.api == ModelApi::Responses
-            && model.generates.contains(&Generation::ImageTool))
-        .then_some(ImageRoute::Authorized);
-    }
-    if provider.authentication != Authentication::ApiKey {
-        return None;
-    }
-    if matches!(
-        provider.api,
-        ModelApi::ChatCompletions | ModelApi::Responses
-    ) && model.generates.contains(&Generation::Image)
-    {
-        return Some(ImageRoute::Images);
-    }
-    if provider.api == ModelApi::Responses
-        && (model.generates.contains(&Generation::ImageTool) || hosted(&model.id))
-    {
-        return Some(ImageRoute::Responses);
-    }
-    None
 }
 
 pub(crate) fn supports(kind: Kind, provider: &Provider, model: &Model) -> bool {
+    supports_api(kind, provider)
+        // Model summaries are normalized before catalog selection and admission.
+        && (kind != Kind::Vision || model.vision)
+}
+
+/// Check the selected API and authentication contract without model observations.
+pub(crate) fn supports_api(kind: Kind, provider: &Provider) -> bool {
     if !provider.enabled {
         return false;
     }
     match kind {
-        Kind::Vision => {
-            model.vision
-                && match provider.authentication {
-                    Authentication::ApiKey => true,
-                    Authentication::Host => {
-                        matches!(provider.api, ModelApi::Bedrock | ModelApi::Vertex)
-                    }
-                    Authentication::ChatGpt | Authentication::ChatGptOAuth => {
-                        provider.api == ModelApi::Responses
-                    }
-                    Authentication::Copilot => matches!(
-                        provider.api,
-                        ModelApi::ChatCompletions | ModelApi::Responses
-                    ),
-                }
-        }
-        Kind::Image => image_route(provider, model).is_some(),
+        Kind::Vision => match provider.authentication {
+            Authentication::ApiKey => true,
+            Authentication::Host => {
+                matches!(provider.api, ModelApi::Bedrock | ModelApi::Vertex)
+            }
+            Authentication::ChatGpt | Authentication::ChatGptOAuth => {
+                provider.api == ModelApi::Responses
+            }
+            Authentication::Copilot => matches!(
+                provider.api,
+                ModelApi::ChatCompletions | ModelApi::Responses
+            ),
+        },
+        Kind::Image => image_api(provider).is_some(),
         Kind::Video => {
             provider.authentication == Authentication::ApiKey
                 && matches!(
                     provider.api,
                     ModelApi::ChatCompletions | ModelApi::Responses
                 )
-                && model.generates.contains(&Generation::Video)
         }
     }
-}
-
-fn hosted(id: &str) -> bool {
-    // Exact documented IDs, not generic function calling or a model-family prefix.
-    // https://developers.openai.com/api/docs/guides/tools-image-generation
-    // https://developers.openai.com/api/docs/models/gpt-6-astra
-    [
-        "gpt-6-astra",
-        "gpt-5.5",
-        "gpt-5.4-mini",
-        "gpt-5.4-nano",
-        "gpt-5.2",
-        "gpt-5",
-        "gpt-5-nano",
-        "o3",
-        "gpt-4.1",
-        "gpt-4.1-mini",
-        "gpt-4.1-nano",
-        "gpt-4o",
-        "gpt-4o-mini",
-    ]
-    .contains(&id)
 }
 
 #[cfg(test)]
@@ -121,6 +104,7 @@ mod tests {
             web_search: false,
             generates: vec![],
             efforts: vec![],
+            capabilities: None,
             custom_efforts: false,
             default_effort: Effort::Default,
         };
@@ -142,102 +126,118 @@ mod tests {
     }
 
     #[test]
-    fn preserves_direct_companions() {
-        for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
-            let (provider, mut model) = fixture(api, Authentication::ApiKey, "image-model");
-            model.generates.push(Generation::Image);
-            assert_eq!(image_route(&provider, &model), Some(ImageRoute::Images));
-            assert!(supports(Kind::Image, &provider, &model));
+    fn attempts_unknown_models_by_api() {
+        for (api, route, video) in routes() {
+            let (mut provider, mut model) = fixture(api, Authentication::ApiKey, "custom-model");
+            provider.models.clear();
+            model.tools = false;
+            assert_eq!(image_api(&provider), route, "{api:?}");
+            assert_eq!(image_route(&provider, &model), route, "{api:?}");
+            assert_eq!(supports_api(Kind::Image, &provider), route.is_some());
+            assert_eq!(supports_api(Kind::Video, &provider), video);
+            assert!(supports_api(Kind::Vision, &provider));
+            assert_eq!(supports(Kind::Image, &provider, &model), route.is_some());
+            assert_eq!(supports(Kind::Video, &provider, &model), video);
+            assert!(supports(Kind::Vision, &provider, &model));
         }
     }
 
+    fn routes() -> [(ModelApi, Option<ImageRoute>, bool); 11] {
+        [
+            (ModelApi::ChatCompletions, Some(ImageRoute::Images), true),
+            (ModelApi::Responses, Some(ImageRoute::Responses), true),
+            (ModelApi::Anthropic, None, false),
+            (ModelApi::Gemini, Some(ImageRoute::Native), false),
+            (ModelApi::DeepSeek, None, false),
+            (ModelApi::OpenCodeGo, None, false),
+            (ModelApi::OpenCodeZen, None, false),
+            (ModelApi::AzureOpenAi, None, false),
+            (ModelApi::AzureAi, None, false),
+            (ModelApi::Bedrock, None, false),
+            (ModelApi::Vertex, Some(ImageRoute::Native), false),
+        ]
+    }
+
     #[test]
-    fn requires_a_declared_or_documented_tool() {
-        let (mut provider, mut model) =
-            fixture(ModelApi::Responses, Authentication::ApiKey, "unknown-model");
-        assert_eq!(image_route(&provider, &model), None);
-        model.generates.push(Generation::ImageTool);
+    fn selects_direct_output_from_metadata() {
+        let (provider, mut model) =
+            fixture(ModelApi::Responses, Authentication::ApiKey, "custom-model");
         assert_eq!(image_route(&provider, &model), Some(ImageRoute::Responses));
-        provider.api = ModelApi::ChatCompletions;
-        assert_eq!(image_route(&provider, &model), None);
-        provider.api = ModelApi::Responses;
-        provider.enabled = false;
-        assert_eq!(image_route(&provider, &model), None);
-        for id in ["gpt-5.5", "gpt-5.4-mini", "gpt-4.1", "gpt-6-astra"] {
-            let (provider, model) = fixture(ModelApi::Responses, Authentication::ApiKey, id);
-            assert_eq!(image_route(&provider, &model), Some(ImageRoute::Responses));
-        }
-        for id in [
-            "gpt-6.1-sol",
-            "gpt-5.5-unknown",
-            "gpt-image-1",
-            "unknown-model",
-        ] {
-            let (provider, model) = fixture(ModelApi::Responses, Authentication::ApiKey, id);
-            assert_eq!(image_route(&provider, &model), None);
-        }
+        model.generates = vec![Generation::Image];
+        assert_eq!(image_route(&provider, &model), Some(ImageRoute::Images));
     }
 
     #[test]
-    fn excludes_login_hosted_generation() {
-        for authentication in [
-            Authentication::ChatGpt,
-            Authentication::Copilot,
-            Authentication::Host,
+    fn preserves_authentication_contracts() {
+        for (api, authentication, image, vision) in [
+            (
+                ModelApi::Responses,
+                Authentication::ChatGptOAuth,
+                Some(ImageRoute::Authorized),
+                true,
+            ),
+            (
+                ModelApi::Responses,
+                Authentication::Copilot,
+                Some(ImageRoute::Authorized),
+                true,
+            ),
+            (
+                ModelApi::ChatCompletions,
+                Authentication::Copilot,
+                None,
+                true,
+            ),
+            (ModelApi::Responses, Authentication::ChatGpt, None, true),
+            (ModelApi::Gemini, Authentication::ChatGptOAuth, None, false),
+            (ModelApi::Bedrock, Authentication::Host, None, true),
+            (
+                ModelApi::Vertex,
+                Authentication::Host,
+                Some(ImageRoute::Native),
+                true,
+            ),
+            (ModelApi::ChatCompletions, Authentication::Host, None, false),
+            (ModelApi::Responses, Authentication::Host, None, false),
+            (ModelApi::Gemini, Authentication::Host, None, false),
         ] {
-            let (provider, mut model) = fixture(ModelApi::Responses, authentication, "gpt-5.5");
+            let (provider, mut model) = fixture(api, authentication, "custom-model");
             model.generates = vec![Generation::Image, Generation::ImageTool, Generation::Video];
-            assert_eq!(image_route(&provider, &model), None);
-            assert!(!supports(Kind::Image, &provider, &model));
+            assert_eq!(image_api(&provider), image);
+            assert_eq!(image_route(&provider, &model), image);
+            assert_eq!(supports_api(Kind::Vision, &provider), vision);
+            assert_eq!(supports_api(Kind::Image, &provider), image.is_some());
+            assert!(!supports_api(Kind::Video, &provider));
+            assert_eq!(supports(Kind::Vision, &provider, &model), vision);
             assert!(!supports(Kind::Video, &provider, &model));
         }
     }
 
     #[test]
-    fn retains_native_vision_authentication() {
-        for (api, authentication) in [
-            (ModelApi::Gemini, Authentication::ApiKey),
-            (ModelApi::Responses, Authentication::ChatGpt),
-            (ModelApi::Responses, Authentication::ChatGptOAuth),
-            (ModelApi::ChatCompletions, Authentication::Copilot),
-            (ModelApi::Vertex, Authentication::Host),
-        ] {
-            let (provider, model) = fixture(api, authentication, "vision-model");
-            assert!(supports(Kind::Vision, &provider, &model));
+    fn respects_native_vision_denial() {
+        for (api, _, _) in routes() {
+            let (provider, mut model) = fixture(api, Authentication::ApiKey, "custom-model");
+            model.capabilities = Some(sailry_protocol::conversation::discovery::Capabilities {
+                vision: Some(false),
+                ..Default::default()
+            });
+            model.vision = false;
+            assert!(supports_api(Kind::Vision, &provider));
+            assert!(!supports(Kind::Vision, &provider, &model));
         }
     }
 
     #[test]
-    fn requires_declared_backend_generation() {
-        let (mut provider, mut model) = fixture(
-            ModelApi::Responses,
-            Authentication::ChatGptOAuth,
-            "gpt-6.1-sol",
-        );
-        assert_eq!(image_route(&provider, &model), None);
-        model.generates.push(Generation::ImageTool);
-        assert_eq!(image_route(&provider, &model), Some(ImageRoute::Authorized));
-        assert!(supports(Kind::Image, &provider, &model));
-        assert!(!supports(Kind::Video, &provider, &model));
-        provider.api = ModelApi::ChatCompletions;
-        assert_eq!(image_route(&provider, &model), None);
-        provider.api = ModelApi::Responses;
-        provider.authentication = Authentication::ChatGpt;
-        assert_eq!(image_route(&provider, &model), None);
-    }
-
-    #[test]
-    fn requires_declared_native_output() {
-        for (api, authentication) in [
-            (ModelApi::Gemini, Authentication::ApiKey),
-            (ModelApi::Vertex, Authentication::ApiKey),
-            (ModelApi::Vertex, Authentication::Host),
-        ] {
-            let (provider, mut model) = fixture(api, authentication, "native-image-model");
+    fn excludes_disabled_providers() {
+        for (api, _, _) in routes() {
+            let (mut provider, model) = fixture(api, Authentication::ApiKey, "custom-model");
+            provider.enabled = false;
+            assert_eq!(image_api(&provider), None);
             assert_eq!(image_route(&provider, &model), None);
-            model.generates.push(Generation::Image);
-            assert_eq!(image_route(&provider, &model), Some(ImageRoute::Native));
-            assert!(supports(Kind::Image, &provider, &model));
+            for kind in [Kind::Vision, Kind::Image, Kind::Video] {
+                assert!(!supports_api(kind, &provider));
+                assert!(!supports(kind, &provider, &model));
+            }
         }
     }
 }

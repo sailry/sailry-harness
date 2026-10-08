@@ -173,6 +173,7 @@ async fn discovers_without_persistence() {
                         web_search: false,
                         generates: vec![],
                         efforts: vec![],
+                        capabilities: None,
                         custom_efforts: false,
                         default_effort: sailry_protocol::Effort::Default,
                     })

@@ -5,15 +5,15 @@ use sailry_protocol::conversation::ModelApi;
 pub(super) async fn generate(
     media: &Media,
     prompt: String,
-) -> Result<(Vec<u8>, Option<Value>), Fault> {
-    let config = vision::configuration(&media.config, &media.model)?;
-    let metadata = media
+) -> Result<(Vec<u8>, Option<Value>), Failure> {
+    let config = vision::configuration(&media.config, &media.model);
+    let output = media
         .model
         .provider
         .models
         .iter()
         .find(|model| model.id == config.model)
-        .ok_or_else(|| unavailable("frozen image model is unavailable"))?;
+        .map_or(8192, |model| model.output);
     let model = model::configured(
         &media.ingress,
         &media.model.provider,
@@ -26,21 +26,18 @@ pub(super) async fn generate(
         &media.stop,
     )
     .await?;
-    let request = request(
-        media.model.provider.api,
-        &config.model,
-        metadata.output,
-        prompt,
-    );
+    let request = request(media.model.provider.api, &config.model, output, prompt);
     let mut responses = model::timing::generate(&model, request, false)
         .await
-        .map_err(model::error)?;
+        .map_err(|error| Failure::model(error, true))?;
     let mut image = None;
     let mut completed = false;
     let mut usage = None;
     let mut timing = None;
+    let mut received = false;
     while let Some(response) = responses.next().await {
-        let response = response.map_err(model::error)?;
+        let response = response.map_err(|error| Failure::model(error, !received))?;
+        received = true;
         collect(&mut image, &response)?;
         completed |= !response.partial && response.turn_complete;
         if response.usage_metadata.is_some() {
@@ -50,7 +47,7 @@ pub(super) async fn generate(
     }
     media.record_usage(usage.clone(), timing).await?;
     if !completed {
-        return Err(unavailable("image response was not completed"));
+        return Err(unavailable("image response was not completed").into());
     }
     let image = image.ok_or_else(|| unavailable("generation returned no image"))?;
     Ok((

@@ -340,6 +340,8 @@ async fn respond(
     };
     let headers = std::str::from_utf8(&request[..header_end]).unwrap();
     let responses = headers.starts_with("POST /v1/responses ");
+    let media = headers.starts_with("POST /v1/images/generations ")
+        || headers.starts_with("POST /v1/videos ");
     authorization.lock().unwrap().push(
         headers
             .lines()
@@ -364,6 +366,25 @@ async fn respond(
         request.extend_from_slice(&buffer[..count]);
     }
     let body: Value = serde_json::from_slice(&request[header_end..header_end + length]).unwrap();
+    let vision = matches!(reply, Reply::Tools(_))
+        && body["stream"] != true
+        && body["messages"].as_array().is_some_and(|messages| {
+            messages.iter().any(|message| {
+                message["content"]
+                    .as_array()
+                    .is_some_and(|parts| parts.iter().any(|part| part["type"] == "image_url"))
+            })
+        });
+    if media || vision {
+        records.lock().unwrap().push(body.clone());
+        let body = if vision {
+            r#"{"error":{"code":"unsupported_capability","message":"Fixture model does not accept image inputs"}}"#
+        } else {
+            r#"{"error":{"code":"unsupported_model","message":"Fixture model does not generate media"}}"#
+        };
+        stream.write_all(format!("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await?;
+        return stream.shutdown().await;
+    }
     let model = body["model"].as_str().unwrap().to_owned();
     if let Reply::Http { failures, status } = reply {
         let count = records.lock().unwrap().len();

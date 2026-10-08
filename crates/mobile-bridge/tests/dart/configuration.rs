@@ -35,6 +35,7 @@ pub(super) async fn provider(client: &Client, endpoint: &str, model: &str) -> Pr
                     web_search: false,
                     generates: vec![],
                     efforts: Vec::new(),
+                    capabilities: None,
                     custom_efforts: false,
                     default_effort: sailry_protocol::Effort::Default,
                 }],

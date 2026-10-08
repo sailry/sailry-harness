@@ -1,4 +1,4 @@
-# Gemini instruction routing patch
+# Provider adapter patches
 
 Source: `adk-model` from `dux-web/adk-rust` revision
 `b3e360bbf49ca39d49cccba182c0f7cb4d251970`, under its retained Apache-2.0 license.
@@ -13,3 +13,12 @@ history, tool responses and generation options retain their existing conversion.
 
 Remove this patch when the pinned upstream adapter preserves system instructions
 through the same request boundary.
+
+Provider adapters preserve bounded, structured provider error codes in
+`AdkError.details.metadata["provider_error_code"]`. Gemini uses the actual
+`BadResponse.code` or the Vertex SDK's HTTP status and typed `ErrorInfo.reason`,
+not provider message text.
+This lets Sailry distinguish an unsupported media request from authentication,
+quota and server failures without publishing unchecked provider bodies or
+replaying uncertain work. Remove these changes when upstream preserves the
+same structured error facts.

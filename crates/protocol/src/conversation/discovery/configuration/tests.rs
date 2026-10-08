@@ -12,17 +12,38 @@ fn model() -> Model {
 }
 
 #[test]
-fn enables_chatgpt_local_tools() {
+fn attempts_unknown_input_and_tools() {
     let discovered = model();
-    for authentication in [Authentication::ChatGpt, Authentication::ChatGptOAuth] {
-        let configured = discovered.configuration(None, ModelApi::Responses, authentication);
-        assert!(configured.tools);
-        assert_eq!(configured.id, "gpt-6.1-sol");
-        assert_eq!(configured.display_name.as_deref(), Some("GPT-6.1 Sol"));
-        assert!(discovered.capabilities.is_none());
-        assert!(!configured.vision);
-        assert!(!configured.web_search);
-        assert!(!configured.reasoning);
+    for api in [
+        ModelApi::Responses,
+        ModelApi::ChatCompletions,
+        ModelApi::Anthropic,
+        ModelApi::Gemini,
+        ModelApi::DeepSeek,
+        ModelApi::OpenCodeGo,
+        ModelApi::OpenCodeZen,
+        ModelApi::AzureOpenAi,
+        ModelApi::AzureAi,
+        ModelApi::Bedrock,
+        ModelApi::Vertex,
+    ] {
+        for authentication in [
+            Authentication::ApiKey,
+            Authentication::ChatGpt,
+            Authentication::ChatGptOAuth,
+            Authentication::Copilot,
+            Authentication::Host,
+        ] {
+            let configured = discovered.configuration(None, api, authentication);
+            assert!(configured.tools && configured.vision);
+            assert_eq!(configured.id, "gpt-6.1-sol");
+            assert_eq!(configured.display_name.as_deref(), Some("GPT-6.1 Sol"));
+            assert!(discovered.capabilities.is_none());
+            assert!(!configured.web_search);
+            assert!(!configured.reasoning);
+            assert!(configured.efforts.is_empty());
+            assert_eq!(configured.default_effort, Effort::Default);
+        }
     }
 }
 
@@ -75,18 +96,15 @@ fn preserves_explicit_tool_capabilities() {
 }
 
 #[test]
-fn keeps_other_provider_defaults() {
-    for authentication in [
+fn respects_text_only_input_metadata() {
+    let mut reference = reference();
+    reference.inputs = vec!["text".into()];
+    let configured = model().configuration(
+        Some(&reference),
+        ModelApi::Responses,
         Authentication::ApiKey,
-        Authentication::Copilot,
-        Authentication::Host,
-    ] {
-        assert!(
-            !model()
-                .configuration(None, ModelApi::Responses, authentication)
-                .tools
-        );
-    }
+    );
+    assert!(!configured.vision);
 }
 
 fn reference() -> catalog::Model {

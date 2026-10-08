@@ -1,32 +1,19 @@
-//! Fill missing automatic model choices from the Node's cached reference catalog.
+//! Resolve automatic capabilities without replacing configured limits or choices.
 use super::super::database::storage_error;
 use rusqlite::{Connection, params};
 use sailry_protocol::{
     Effort, Event, EventEnvelope, Fault, NodeId,
-    conversation::{Provider, catalog},
+    conversation::{Model, Provider, catalog, discovery},
 };
 
 pub(in crate::store) fn fill(db: &Connection, provider: &mut Provider) -> Result<(), Fault> {
     crate::providers::search::enable(provider);
-    if super::catalog::status(db)?.revision == 0 {
-        return Ok(());
-    }
+    let cached = super::catalog::status(db)?.revision != 0;
     for models in provider.models.chunks_mut(100) {
         let ids = models
             .iter()
-            .filter(|model| {
-                model.reasoning
-                    && !model.custom_efforts
-                    && model
-                        .efforts
-                        .iter()
-                        .all(|effort| *effort == Effort::Default)
-            })
             .map(|model| model.id.clone())
             .collect::<Vec<_>>();
-        if ids.is_empty() {
-            continue;
-        }
         let mut query = catalog::Query {
             provider: match provider.endpoint.trim_end_matches('/') {
                 "https://api.openai.com/v1" => Some("openai"),
@@ -42,39 +29,71 @@ pub(in crate::store) fn fill(db: &Connection, provider: &mut Provider) -> Result
             limit: 100,
         };
         let mut references = Vec::new();
-        loop {
-            let page = super::catalog::page(db, &query)?;
-            references.extend(page.models);
-            query.revision = Some(page.revision);
-            query.after = page.next;
-            if query.after.is_none() {
-                break;
+        if cached {
+            loop {
+                let page = super::catalog::page(db, &query)?;
+                references.extend(page.models);
+                query.revision = Some(page.revision);
+                query.after = page.next;
+                if query.after.is_none() {
+                    break;
+                }
             }
         }
         for model in models {
-            if !model.reasoning
-                || model.custom_efforts
-                || model
-                    .efforts
-                    .iter()
-                    .any(|effort| *effort != Effort::Default)
-            {
-                continue;
-            }
-            let Some(reference) = references.iter().find(|reference| reference.id == model.id)
-            else {
-                continue;
-            };
-            let efforts = reference.efforts(provider.api, model.output);
-            if !efforts.iter().any(|effort| *effort != Effort::Default) {
-                continue;
-            }
-            model.default_effort = Effort::initial(&efforts, model.default_effort);
-            model.efforts = efforts;
+            let reference = references.iter().find(|reference| reference.id == model.id);
+            resolve(model, reference, provider.api, provider.authentication);
         }
     }
     Ok(())
 }
+
+fn resolve(
+    model: &mut Model,
+    reference: Option<&catalog::Model>,
+    api: sailry_protocol::conversation::ModelApi,
+    authentication: sailry_protocol::Authentication,
+) {
+    let native = model.capabilities.as_ref();
+    let reasoning = native
+        .and_then(|value| value.reasoning)
+        .or(reference.and_then(|value| value.reasoning))
+        .unwrap_or_else(|| {
+            native
+                .and_then(|value| value.efforts.as_ref())
+                .is_some_and(|efforts| efforts.iter().any(|effort| *effort != Effort::Default))
+                || model
+                    .efforts
+                    .iter()
+                    .any(|effort| *effort != Effort::Default)
+        });
+    let refresh_efforts = !model.custom_efforts
+        && model
+            .efforts
+            .iter()
+            .all(|effort| *effort == Effort::Default);
+    let mut completed = discovery::Model {
+        id: model.id.clone(),
+        display_name: model.display_name.clone(),
+        context: Some(model.context),
+        output: Some(model.output),
+        capabilities: model.capabilities.clone(),
+    }
+    .configuration(reference, api, authentication);
+    completed.reasoning = reasoning;
+    completed.web_search = native
+        .and_then(|value| value.web_search)
+        .unwrap_or(model.web_search);
+    if !refresh_efforts || completed.efforts.is_empty() {
+        completed.efforts = model.efforts.clone();
+        completed.default_effort = model.default_effort;
+    }
+    completed.custom_efforts = model.custom_efforts;
+    *model = completed;
+}
+
+#[cfg(test)]
+mod tests;
 
 pub(super) fn refresh(db: &Connection, node: NodeId) -> Result<Vec<EventEnvelope>, Fault> {
     let mut events = Vec::new();

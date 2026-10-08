@@ -118,6 +118,7 @@ pub(super) fn provider(endpoint: &str, name: &str) -> Provider {
             display_name: None,
             context: 4096,
             output: 128,
+            capabilities: None,
             vision: false,
             tools: false,
             reasoning: true,

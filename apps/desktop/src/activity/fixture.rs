@@ -66,6 +66,7 @@ impl Fixture {
                     display_name: None,
                     context: 16000,
                     output: 2048,
+                    capabilities: None,
                     vision: false,
                     tools: true,
                     reasoning: false,

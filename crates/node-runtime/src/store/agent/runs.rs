@@ -22,7 +22,7 @@ pub(super) fn record(
     if let Some(provider) = &mut provider {
         crate::providers::login::capture(provider)?;
         // Freeze automatic tool availability at admission, never at execution/replay.
-        crate::providers::search::enable(provider);
+        super::super::providers::completion::fill(db, provider)?;
     }
     if let Some(provider) = &provider {
         providers::selection(provider, &turn.config)?;

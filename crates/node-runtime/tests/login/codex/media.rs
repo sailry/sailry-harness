@@ -1,5 +1,5 @@
 use super::*;
-use sailry_protocol::media::{Action, Generation};
+use sailry_protocol::media::{Action, Binding, Kind, Settings};
 use std::sync::Mutex;
 
 const PNG: &str =
@@ -8,10 +8,22 @@ const PNG: &str =
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn publishes_only_completed_image() {
     for remote in [false, true] {
-        for outcome in ["completed", "eof", "incomplete"] {
+        for outcome in [
+            "completed",
+            "empty_tail",
+            "unsupported",
+            "eof",
+            "incomplete",
+        ] {
             let session = Arc::new(Mutex::new(None::<SessionId>));
             let captured = session.clone();
             let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+                if request.path == "/images/generations" {
+                    assert_eq!(request.headers["authorization"], "Bearer isolated-codex-image-companion");
+                    let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+                    assert_eq!(body["model"], "companion-image");
+                    return Reply::Json(json!({"data":[{"b64_json":PNG}]}));
+                }
                 if request.path != "/responses" {
                     return server::standard(request, 3600);
                 }
@@ -31,9 +43,24 @@ async fn publishes_only_completed_image() {
                 }
                 assert_eq!(body["tools"], json!([{"type":"image_generation","output_format":"png"}]));
                 assert!(body["instructions"].is_string());
-                let item = json!({"type":"image_generation_call","id":"codex-image","status":"completed","result":PNG});
+                if outcome == "unsupported" {
+                    let body = json!({"error":{"message":"Fixture capability unavailable","type":"invalid_request_error","code":"unsupported_capability","param":"tools"}}).to_string();
+                    return Reply::Raw(format!("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()));
+                }
+                let item = json!({"type":"image_generation_call","id":"codex-image","status":"completed","result":PNG,"output_format":"png"});
+                let done = json!({"type":"response.output_item.done","sequence_number":1,"output_index":0,"item":item});
                 if outcome == "eof" {
-                    return server::stream(vec![json!({"type":"response.output_item.done","sequence_number":1,"output_index":0,"item":item})], false);
+                    return server::stream(vec![done], false);
+                }
+                if outcome == "empty_tail" {
+                    let message = json!({"type":"message","id":"codex-message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Generated","annotations":[]}]});
+                    let mut completed = server::completed(json!([]));
+                    completed["sequence_number"] = json!(3);
+                    return server::stream(vec![
+                        done,
+                        json!({"type":"response.output_item.done","sequence_number":2,"output_index":1,"item":message}),
+                        completed,
+                    ], true);
                 }
                 let mut completed = server::completed(json!([item]));
                 if outcome == "incomplete" {
@@ -43,19 +70,47 @@ async fn publishes_only_completed_image() {
                 server::stream(vec![completed], true)
             }).await;
             let fixture = Fixture::new(remote, &server).await;
-            let mut provider = configured(&fixture, None).await;
-            provider.models[0].generates = vec![Generation::ImageTool];
-            let Output::Provider(provider) = fixture
+            let provider = configured(&fixture, None).await;
+            assert!(provider.models[0].generates.is_empty());
+            let mut companion = provider.clone();
+            companion.id = ProviderId::new();
+            companion.revision = 0;
+            companion.api = ModelApi::ChatCompletions;
+            companion.authentication = Authentication::ApiKey;
+            companion.endpoint = server.endpoint.clone();
+            companion.oauth = None;
+            companion.credential = None;
+            companion.models[0].id = "companion-image".into();
+            companion.default_model = "companion-image".into();
+            let Output::Provider(companion) = fixture
                 .client
-                .execute(fixture.client.prepare(Command::PutProvider {
-                    expected_revision: provider.revision,
-                    provider,
+                .execute(fixture.client.prepare(Command::SaveProvider {
+                    expected_revision: 0,
+                    provider: companion,
+                    secret: Some(Secret::new("isolated-codex-image-companion".into())),
                 }))
                 .await
                 .unwrap()
             else {
-                panic!("provider expected")
+                panic!("companion provider expected")
             };
+            fixture
+                .client
+                .execute(
+                    fixture.client.prepare(Command::SaveMediaSettings(Settings {
+                        revision: 0,
+                        bindings: [(
+                            Kind::Image,
+                            Some(Binding {
+                                provider: companion.id,
+                                model: "companion-image".into(),
+                            }),
+                        )]
+                        .into(),
+                    })),
+                )
+                .await
+                .unwrap();
             let base = super::super::execution::session(&fixture, &provider).await;
             let Output::Session(active) = fixture
                 .client
@@ -129,7 +184,7 @@ async fn publishes_only_completed_image() {
                         }),
                 )
                 .await;
-            if outcome == "completed" {
+            if matches!(outcome, "completed" | "empty_tail" | "unsupported") {
                 assert!(
                     matches!(generated.unwrap(), Output::Media(value) if value["path"] == path)
                 );
@@ -158,6 +213,17 @@ async fn publishes_only_completed_image() {
                     .count(),
                 2,
                 "image generation must not replay or change model routes"
+            );
+            assert_eq!(
+                server
+                    .requests
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|request| request.path == "/images/generations")
+                    .count(),
+                usize::from(outcome == "unsupported"),
+                "only a definite capability rejection may use the companion"
             );
             fixture
                 .client

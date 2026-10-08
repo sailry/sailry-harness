@@ -18,7 +18,14 @@ pub(crate) struct Model {
 }
 
 pub(crate) type Snapshot = BTreeMap<Kind, Option<Model>>;
-pub(crate) type Models = BTreeMap<Kind, Model>;
+
+#[derive(Clone, Debug)]
+pub(crate) struct Plan {
+    pub primary: Option<Model>,
+    pub fallback: Option<Model>,
+}
+
+pub(crate) type Models = BTreeMap<Kind, Plan>;
 
 pub(super) fn read(db: &Connection) -> Result<media::Settings, Fault> {
     let body: Option<Vec<u8>> = db
@@ -35,7 +42,11 @@ pub(super) fn read(db: &Connection) -> Result<media::Settings, Fault> {
 }
 
 pub(super) fn catalog(db: &Connection) -> Result<Vec<media::Candidate>, Fault> {
-    Ok(super::agent::providers::list(db)?
+    let mut providers = super::agent::providers::list(db)?;
+    for provider in &mut providers {
+        super::providers::completion::fill(db, provider)?;
+    }
+    Ok(providers
         .into_iter()
         .flat_map(|provider| {
             provider
@@ -70,6 +81,7 @@ fn resolve(db: &Connection, settings: &media::Settings) -> Result<Snapshot, Faul
                 super::agent::providers::get(db, binding.provider)?.ok_or_else(|| {
                     Fault::new(ErrorCode::NotConfigured, "media provider is unavailable")
                 })?;
+            super::providers::completion::fill(db, &mut provider)?;
             let model = provider
                 .models
                 .iter()
@@ -96,41 +108,41 @@ fn resolve(db: &Connection, settings: &media::Settings) -> Result<Snapshot, Faul
         .collect()
 }
 
-/// Follow choices resolve only against the provider and configuration captured
-/// for this turn. Explicit companions retain their session-owned snapshot.
+/// Automatic routes use the admitted model; explicit fallbacks retain the
+/// session-owned snapshot and disabled roles never create an execution plan.
 pub(crate) fn for_turn(
     snapshot: Snapshot,
     provider: Option<&Provider>,
     config: &SessionConfig,
 ) -> Models {
-    let mut models: Models = snapshot
-        .iter()
-        .filter_map(|(&kind, model)| model.clone().map(|model| (kind, model)))
-        .collect();
-    if let Some(provider) = provider
-        && let Some(model) = provider
-            .models
-            .iter()
-            .find(|model| model.id == config.model)
-    {
-        for kind in [Kind::Vision, Kind::Image, Kind::Video] {
-            if !snapshot.contains_key(&kind)
-                && crate::providers::media::supports(kind, provider, model)
-            {
-                let mut provider = provider.clone();
-                provider.credential = config.credential.clone();
-                models.insert(
-                    kind,
-                    Model {
-                        provider,
-                        model: config.model.clone(),
-                        effort: Some(config.effort),
-                    },
-                );
-            }
+    let primary = provider.map(|provider| {
+        let mut provider = provider.clone();
+        provider.credential = config.credential.clone();
+        Model {
+            provider,
+            model: config.model.clone(),
+            effort: Some(config.effort),
         }
-    }
-    models
+    });
+    [Kind::Vision, Kind::Image, Kind::Video]
+        .into_iter()
+        .filter_map(|kind| {
+            let fallback = match snapshot.get(&kind) {
+                Some(None) => return None,
+                Some(Some(model)) => Some(model.clone()),
+                None => None,
+            };
+            (primary.is_some() || fallback.is_some()).then(|| {
+                (
+                    kind,
+                    Plan {
+                        primary: primary.clone(),
+                        fallback,
+                    },
+                )
+            })
+        })
+        .collect()
 }
 
 pub(super) fn save(

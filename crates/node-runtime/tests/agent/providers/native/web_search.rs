@@ -109,7 +109,10 @@ async fn freezes_queued_settings() {
         let server = SearchServer::web_search().await;
         let mut fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
         fixture.provider.models[0].web_search = true;
-        fixture.provider.models[0].tools = false;
+        fixture.provider.models[0]
+            .capabilities
+            .get_or_insert_with(Default::default)
+            .tools = Some(false);
         let Output::Provider(mut provider) = execute(
             &fixture.client,
             Command::PutProvider {
@@ -221,7 +224,10 @@ async fn supports_compatible_endpoints() {
         let model = "gpt-5.6-luna";
         fixture.provider.models[0].id = model.into();
         fixture.provider.default_model = model.into();
-        fixture.provider.models[0].tools = false;
+        fixture.provider.models[0]
+            .capabilities
+            .get_or_insert_with(Default::default)
+            .tools = Some(false);
         assert!(!fixture.provider.models[0].web_search);
         let Output::Provider(provider) = execute(
             &fixture.client,
@@ -272,7 +278,10 @@ async fn delivers_text_before_native_response_completes() {
         let server = SearchServer::web_search_held(finish.clone()).await;
         let mut fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
         fixture.provider.models[0].web_search = true;
-        fixture.provider.models[0].tools = false;
+        fixture.provider.models[0]
+            .capabilities
+            .get_or_insert_with(Default::default)
+            .tools = Some(false);
         execute(
             &fixture.client,
             Command::PutProvider {

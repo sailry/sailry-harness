@@ -1,7 +1,7 @@
 //! Generation stays on the admitted route, without replay or account fallback.
 use super::*;
-use crate::providers::media::{ImageRoute, image_route};
-use reqwest::{Client, Response, StatusCode};
+use crate::providers::media::{ImageRoute, image_api, image_route, supports_api};
+use reqwest::{Client, Response};
 mod image;
 mod native;
 
@@ -20,22 +20,26 @@ enum Generated {
 }
 
 impl Media {
-    pub(super) async fn generate(&self, prompt: String, path: String) -> Result<Value, Fault> {
+    pub(super) async fn generate(&self, prompt: String, path: String) -> Result<Value, Failure> {
         let route = if self.kind == Kind::Image {
             let metadata = self
                 .model
                 .provider
                 .models
                 .iter()
-                .find(|model| model.id == self.model.model)
-                .ok_or_else(|| unavailable("frozen image model is unavailable"))?;
-            Some(image_route(&self.model.provider, metadata).ok_or_else(|| {
-                Fault::new(
-                    ErrorCode::NotConfigured,
-                    "image generation is not configured",
-                )
-            })?)
+                .find(|model| model.id == self.model.model);
+            Some(
+                metadata
+                    .map_or_else(
+                        || image_api(&self.model.provider),
+                        |model| image_route(&self.model.provider, model),
+                    )
+                    .ok_or_else(Failure::unsupported)?,
+            )
         } else {
+            if !supports_api(Kind::Video, &self.model.provider) {
+                return Err(Failure::unsupported());
+            }
             None
         };
         let root = self.ingress.worktree_root(self.worktree).await?;
@@ -73,7 +77,8 @@ impl Media {
         {
             return Err(unavailable(
                 "image generation returned an unsupported format; PNG required",
-            ));
+            )
+            .into());
         }
         if self.kind == Kind::Video
             && !matches!(
@@ -83,7 +88,8 @@ impl Media {
         {
             return Err(unavailable(
                 "video generation returned an unsupported format; MP4 required",
-            ));
+            )
+            .into());
         }
         let path = self
             .ingress
@@ -93,8 +99,8 @@ impl Media {
         Ok(json!({"path":path,"job":job,"usage":reported_usage}))
     }
 
-    async fn http(&self, prompt: String, route: Option<ImageRoute>) -> Result<Generated, Fault> {
-        let config = vision::configuration(&self.config, &self.model)?;
+    async fn http(&self, prompt: String, route: Option<ImageRoute>) -> Result<Generated, Failure> {
+        let config = vision::configuration(&self.config, &self.model);
         let credential = match &config.credential {
             Some(reference) => Some(
                 self.ingress
@@ -124,6 +130,7 @@ impl Media {
             } else {
                 1024 * 1024
             },
+            true,
         )
         .await?;
         let value: Value = serde_json::from_slice(&response_bytes)
@@ -145,7 +152,7 @@ impl Media {
                     || !url.username().is_empty()
                     || url.password().is_some()
                 {
-                    return Err(unavailable("invalid generated image URL"));
+                    return Err(unavailable("invalid generated image URL").into());
                 }
                 body(
                     client
@@ -154,10 +161,11 @@ impl Media {
                         .await
                         .map_err(|_| unavailable("generated image download failed"))?,
                     IMAGE_BYTES,
+                    false,
                 )
                 .await?
             } else {
-                return Err(unavailable("generation returned no image content"));
+                return Err(unavailable("generation returned no image content").into());
             };
             (bytes, None)
         } else {
@@ -180,15 +188,23 @@ impl Media {
                     Some("failed" | "cancelled") => {
                         return Ok(Generated::Failed { job: id.to_owned() });
                     }
-                    _ => return Err(unavailable("video generation returned an invalid status")),
+                    _ => {
+                        return Err(
+                            unavailable("video generation returned an invalid status").into()
+                        );
+                    }
                 }
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 let mut request = client.get(format!("{base}/videos/{id}"));
                 if let Some(secret) = &credential {
                     request = request.bearer_auth(secret.expose());
                 }
-                let bytes =
-                    body(request.send().await.map_err(|_| uncertain())?, 1024 * 1024).await?;
+                let bytes = body(
+                    request.send().await.map_err(|_| uncertain())?,
+                    1024 * 1024,
+                    false,
+                )
+                .await?;
                 current = serde_json::from_slice(&bytes)
                     .map_err(|_| unavailable("invalid video status response"))?;
             }
@@ -208,6 +224,7 @@ impl Media {
                         .await
                         .map_err(|_| unavailable("video download failed"))?,
                     VIDEO_BYTES,
+                    false,
                 )
                 .await?,
                 Some(id.to_owned()),
@@ -221,23 +238,16 @@ impl Media {
     }
 }
 
-async fn body(mut response: Response, limit: usize) -> Result<Vec<u8>, Fault> {
+async fn body(mut response: Response, limit: usize, initial: bool) -> Result<Vec<u8>, Failure> {
     let status = response.status();
     if !status.is_success() {
-        return Err(Fault::new(
-            if matches!(
-                status,
-                StatusCode::NOT_FOUND
-                    | StatusCode::METHOD_NOT_ALLOWED
-                    | StatusCode::NOT_IMPLEMENTED
-            ) {
-                ErrorCode::NotConfigured
-            } else {
-                ErrorCode::Unavailable
-            },
-            format!("media endpoint returned HTTP {}", status.as_u16()),
-        ));
+        let bytes = read_body(&mut response, 64 * 1024).await?;
+        return Err(Failure::http(status.as_u16(), &bytes, initial));
     }
+    read_body(&mut response, limit).await.map_err(Into::into)
+}
+
+async fn read_body(response: &mut Response, limit: usize) -> Result<Vec<u8>, Fault> {
     if response
         .content_length()
         .is_some_and(|size| size > limit as u64)

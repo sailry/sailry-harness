@@ -67,7 +67,8 @@ fn fills_cloud_models(cx: &mut TestAppContext) {
                 );
                 let alias = editor.models[1].value(cx).unwrap();
                 assert_eq!((alias.context, alias.output), (200_000, 16_384));
-                assert!(!alias.vision && !alias.tools && !alias.reasoning);
+                assert!(alias.vision && alias.tools);
+                assert!(!alias.reasoning);
                 assert!(editor.credential.read(cx).value().is_empty());
             });
             visual.update(|window, cx| {

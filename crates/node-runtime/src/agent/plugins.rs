@@ -36,7 +36,7 @@ pub(super) async fn bind(
                 .iter()
                 .find(|model| model.id == invocation.turn.config.model)
         })
-        .is_some_and(|model| model.tools);
+        .is_none_or(|model| model.tools);
     let mut bound = Contribution::default();
     if !restricted || invocation.turn.config.assistant.is_some() {
         bound.tools.extend(model_tools::bind(invocation)?);

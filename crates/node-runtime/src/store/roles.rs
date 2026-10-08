@@ -95,13 +95,19 @@ pub(super) fn validate_model(
         .find(|model| model.id == selection.model)
         .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "role model is unavailable"))?;
     if let Some(effort) = selection.effort {
-        if !model.reasoning {
+        if model
+            .capabilities
+            .as_ref()
+            .and_then(|value| value.reasoning)
+            == Some(false)
+        {
             return Err(Fault::new(
                 ErrorCode::InvalidRequest,
                 "role reasoning effort is unavailable",
             ));
         }
         model.validate_effort(provider.api, effort)?;
+        effort.validate(provider.api, model.output)?;
     }
     Ok(())
 }

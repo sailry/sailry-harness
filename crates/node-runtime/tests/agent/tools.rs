@@ -73,6 +73,7 @@ async fn reads_bound_worktree() {
             web_search: false,
             generates: vec![],
             efforts: Vec::new(),
+            capabilities: None,
             custom_efforts: false,
             default_effort: sailry_protocol::Effort::Default,
         }];
@@ -96,7 +97,10 @@ async fn reads_bound_worktree() {
         let Output::QueuedTurn(turn) = client.execute(request.clone()).await.unwrap() else {
             panic!("turn expected")
         };
-        provider.models[0].tools = false;
+        provider.models[0]
+            .capabilities
+            .get_or_insert_with(Default::default)
+            .tools = Some(false);
         let changed = client.prepare(Command::PutProvider {
             provider,
             expected_revision: 2,

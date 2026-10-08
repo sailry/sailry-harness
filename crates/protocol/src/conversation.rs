@@ -89,6 +89,7 @@ pub struct Provider {
     pub credential: Option<CredentialRef>,
 }
 
+/// Configured limits and automatic capability summaries; capabilities are not user gates.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Model {
     pub id: String,
@@ -96,6 +97,9 @@ pub struct Model {
     pub display_name: Option<String>,
     pub context: u32,
     pub output: u32,
+    /// Native tri-state metadata, separate from the automatic capability summaries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<discovery::Capabilities>,
     #[serde(default)]
     pub vision: bool,
     #[serde(default)]

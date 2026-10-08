@@ -15,6 +15,7 @@ pub(super) async fn prepare(client: &Client, server: &Server, root: &std::path::
         web_search: false,
         generates: vec![],
         efforts: Vec::new(),
+        capabilities: None,
         custom_efforts: false,
         default_effort: sailry_protocol::Effort::Default,
     }];

@@ -69,6 +69,7 @@ fn enforces_native_bounds_and_choices() {
         web_search: false,
         generates: vec![],
         efforts: vec![Effort::Default, Effort::Budget(1024)],
+        capabilities: None,
         custom_efforts: false,
         default_effort: Effort::Budget(1024),
     };

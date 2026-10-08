@@ -3,12 +3,24 @@ use adk_core::{Content, GenerateContentConfig, LlmRequest, LlmResponse, Part};
 use sailry_protocol::SessionConfig;
 
 impl Media {
-    pub(super) async fn inspect(&self, prompt: String, source: Source) -> Result<Value, Fault> {
+    pub(super) async fn inspect(&self, prompt: String, source: Source) -> Result<Value, Failure> {
+        let provider = &self.model.provider;
+        let metadata = provider
+            .models
+            .iter()
+            .find(|model| model.id == self.model.model);
+        if !crate::providers::media::supports_api(Kind::Vision, provider)
+            || metadata.is_some_and(|model| {
+                !crate::providers::media::supports(Kind::Vision, provider, model)
+            })
+        {
+            return Err(Failure::unsupported());
+        }
         let bytes = match source {
             Source::Attachment(id) => {
                 let attachment = self.ingress.attachment(self.turn, id).await?;
                 if attachment.spec.size > adk_core::MAX_INLINE_DATA_SIZE as u64 {
-                    return Err(invalid("image exceeds the model inline limit"));
+                    return Err(invalid("image exceeds the model inline limit").into());
                 }
                 self.ingress
                     .attachment_bytes(attachment, self.stop.clone())
@@ -33,15 +45,9 @@ impl Media {
                 | file_format::FileFormat::Webp
                 | file_format::FileFormat::GraphicsInterchangeFormat
         ) {
-            return Err(invalid("unsupported image input format"));
+            return Err(invalid("unsupported image input format").into());
         }
-        let config = configuration(&self.config, &self.model)?;
-        let provider = &self.model.provider;
-        let metadata = provider
-            .models
-            .iter()
-            .find(|model| model.id == config.model)
-            .ok_or_else(|| invalid("frozen vision model is unavailable"))?;
+        let config = configuration(&self.config, &self.model);
         let model = model::configured(
             &self.ingress,
             provider,
@@ -64,7 +70,9 @@ impl Media {
             model: config.model.clone(),
             contents: vec![content],
             config: Some(GenerateContentConfig {
-                max_output_tokens: Some(metadata.output.min(8192) as i32),
+                max_output_tokens: Some(
+                    metadata.map_or(8192, |model| model.output.min(8192)) as i32
+                ),
                 ..Default::default()
             }),
             tools: Default::default(),
@@ -72,13 +80,15 @@ impl Media {
         };
         let mut responses = model::timing::generate(&model, request, false)
             .await
-            .map_err(model::error)?;
+            .map_err(|error| Failure::model(error, true))?;
         let mut text = String::new();
         let mut usage = None;
         let mut timing = None;
         let mut completed = false;
+        let mut received = false;
         while let Some(response) = responses.next().await {
-            let response = response.map_err(model::error)?;
+            let response = response.map_err(|error| Failure::model(error, !received))?;
+            received = true;
             append(&mut text, &response)?;
             completed |= !response.partial && response.turn_complete;
             if response.usage_metadata.is_some() {
@@ -88,16 +98,12 @@ impl Media {
         }
         self.record_usage(usage.clone(), timing).await?;
         if !completed {
-            return Err(Fault::new(
-                ErrorCode::Unavailable,
-                "vision response was not completed",
-            ));
+            return Err(
+                Fault::new(ErrorCode::Unavailable, "vision response was not completed").into(),
+            );
         }
         if text.is_empty() {
-            return Err(Fault::new(
-                ErrorCode::Unavailable,
-                "vision model returned no text",
-            ));
+            return Err(Fault::new(ErrorCode::Unavailable, "vision model returned no text").into());
         }
         Ok(json!({"text":text,"usage":usage}))
     }
@@ -106,19 +112,20 @@ impl Media {
 pub(super) fn configuration(
     primary: &SessionConfig,
     selected: &crate::store::media::Model,
-) -> Result<SessionConfig, Fault> {
+) -> SessionConfig {
     let provider = &selected.provider;
     let metadata = provider
         .models
         .iter()
-        .find(|model| model.id == selected.model)
-        .ok_or_else(|| invalid("frozen media model is unavailable"))?;
+        .find(|model| model.id == selected.model);
     let mut config = primary.clone();
     config.provider = provider.id;
     config.model = selected.model.clone();
     config.credential = provider.credential.clone();
-    config.effort = selected.effort.unwrap_or(metadata.default_effort);
-    Ok(config)
+    config.effort = selected
+        .effort
+        .unwrap_or_else(|| metadata.map_or(Default::default(), |model| model.default_effort));
+    config
 }
 
 fn append(text: &mut String, response: &LlmResponse) -> Result<(), Fault> {
@@ -190,6 +197,7 @@ mod tests {
                 web_search: false,
                 generates: vec![],
                 efforts: vec![Effort::High, Effort::Low],
+                capabilities: None,
                 custom_efforts: false,
                 default_effort: Effort::Low,
             }],
@@ -222,14 +230,14 @@ mod tests {
         let (primary, mut selected) = fixture();
         selected.provider.credential = primary.credential.clone();
         selected.effort = Some(primary.effort);
-        assert_eq!(configuration(&primary, &selected).unwrap(), primary);
+        assert_eq!(configuration(&primary, &selected), primary);
     }
 
     #[test]
     fn preserves_same_model_override_credentials() {
         let (primary, selected) = fixture();
         assert_ne!(primary.credential, selected.provider.credential);
-        let config = configuration(&primary, &selected).unwrap();
+        let config = configuration(&primary, &selected);
         assert_eq!(config.provider, primary.provider);
         assert_eq!(config.model, primary.model);
         assert_eq!(config.credential, selected.provider.credential);
@@ -240,13 +248,16 @@ mod tests {
     fn uses_frozen_override_defaults() {
         let (primary, mut selected) = fixture();
         selected.provider.id = ProviderId::new();
-        let config = configuration(&primary, &selected).unwrap();
+        let config = configuration(&primary, &selected);
         assert_eq!(config.provider, selected.provider.id);
         assert_eq!(config.credential, selected.provider.credential);
         assert_eq!(config.effort, Effort::Low);
         assert_eq!(config.permission, primary.permission);
         selected.model = "unavailable".into();
-        assert!(configuration(&primary, &selected).is_err());
+        let config = configuration(&primary, &selected);
+        assert_eq!(config.model, selected.model);
+        assert_eq!(config.effort, Effort::Default);
+        assert_eq!(config.credential, selected.provider.credential);
     }
 
     #[test]

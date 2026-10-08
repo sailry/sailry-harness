@@ -757,7 +757,10 @@ pub(super) fn map_openai_error(e: async_openai::error::OpenAIError) -> AdkError 
     if let async_openai::error::OpenAIError::ApiError(ref api_err) = e {
         let status_code = api_err.status_code.as_u16();
         if let Some(error) = errors::sharing_error(api_err.api_error.code.as_deref()) {
-            return error.with_upstream_status(status_code);
+            return crate::error_metadata::with_code(
+                error.with_upstream_status(status_code),
+                api_err.api_error.code.as_deref(),
+            );
         }
         let (category, code) = match status_code {
             401 => (ErrorCategory::Unauthorized, "model.openai_responses.unauthorized"),
@@ -772,14 +775,17 @@ pub(super) fn map_openai_error(e: async_openai::error::OpenAIError) -> AdkError 
             _ => (ErrorCategory::Internal, "model.openai_responses.api_error"),
         };
 
-        return AdkError::new(
-            ErrorComponent::Model,
-            category,
-            code,
-            format!("OpenAI Responses API error: {api_err}"),
-        )
-        .with_provider("openai-responses")
-        .with_upstream_status(status_code);
+        return crate::error_metadata::with_code(
+            AdkError::new(
+                ErrorComponent::Model,
+                category,
+                code,
+                format!("OpenAI Responses API error: {api_err}"),
+            )
+            .with_provider("openai-responses")
+            .with_upstream_status(status_code),
+            api_err.api_error.code.as_deref(),
+        );
     }
 
     // Reqwest / network errors → Unavailable (retryable)
@@ -1295,6 +1301,50 @@ mod tests {
                 code: None,
             },
         })
+    }
+
+    #[test]
+    fn preserves_provider_error_codes() {
+        for code in [
+            "unsupported_model",
+            "unsupported_tool",
+            "unsupported_capability",
+            "subscription_sharing_unsupported_capability",
+            "subscription_sharing_usage_unavailable",
+        ] {
+            let OpenAIError::ApiError(mut response) = api_error(400) else { unreachable!() };
+            response.api_error.code = Some(code.into());
+            let error = map_openai_error(OpenAIError::ApiError(response));
+            assert_eq!(error.details.metadata.len(), 1);
+            assert_eq!(error.details.metadata["provider_error_code"], code);
+            assert_eq!(error.details.upstream_status_code, Some(400));
+            assert!(std::error::Error::source(&error).is_none());
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_provider_error_codes() {
+        for code in [
+            "".into(),
+            "unsupported model".into(),
+            "code\ntext".into(),
+            "https://example.test".into(),
+            "x".repeat(129),
+        ] {
+            let OpenAIError::ApiError(mut response) = api_error(400) else { unreachable!() };
+            response.api_error.code = Some(code);
+            assert!(map_openai_error(OpenAIError::ApiError(response)).details.metadata.is_empty());
+        }
+        let error = map_openai_error(OpenAIError::InvalidArgument("unsupported_capability".into()));
+        assert!(error.details.metadata.is_empty());
+        assert_eq!(error.code, "model.openai_responses.unknown");
+        let code = "x".repeat(128);
+        let OpenAIError::ApiError(mut response) = api_error(400) else { unreachable!() };
+        response.api_error.code = Some(code.clone());
+        assert_eq!(
+            map_openai_error(OpenAIError::ApiError(response)).details.metadata["provider_error_code"],
+            code
+        );
     }
 
     #[test]

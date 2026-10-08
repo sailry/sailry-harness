@@ -32,7 +32,10 @@ async fn preserves_video_and_audio_references() {
             input("Inspect media", &attachments.iter().collect::<Vec<_>>()),
         )
         .await;
-        provider.models[0].vision = false;
+        provider.models[0]
+            .capabilities
+            .get_or_insert_with(Default::default)
+            .vision = Some(false);
         provider.models[0].tools = true;
         client
             .execute(client.prepare(Command::PutProvider {

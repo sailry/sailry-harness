@@ -14,6 +14,16 @@ use tokio::{
 
 pub const KEY: &str = "isolated-follow-image-key";
 
+#[derive(Clone, Copy, Debug)]
+pub enum Outcome {
+    Completed,
+    Rejected(u16, &'static str),
+    Disconnected,
+    Invalid,
+    Empty,
+    Incomplete,
+}
+
 #[derive(Clone, Debug)]
 pub struct Request {
     pub path: String,
@@ -23,22 +33,31 @@ pub struct Request {
 
 impl Request {
     pub fn primary(&self) -> bool {
-        self.body["stream"] == true || self.path.contains(":streamGenerateContent")
+        self.body["stream"] == true
+            || self.path.contains(":streamGenerateContent")
+            || self.path.ends_with("/converse")
     }
 }
 
 pub struct Server {
     pub endpoint: String,
     pub requests: Arc<Mutex<Vec<Request>>>,
+    outcome: Arc<Mutex<Outcome>>,
     stop: CancellationToken,
 }
 
 impl Server {
     pub async fn start() -> Self {
+        Self::with_outcome(Outcome::Completed).await
+    }
+
+    pub async fn with_outcome(outcome: Outcome) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
         let records = requests.clone();
+        let outcome = Arc::new(Mutex::new(outcome));
+        let selected = outcome.clone();
         let stop = CancellationToken::new();
         let stopped = stop.clone();
         tokio::spawn(async move {
@@ -50,7 +69,8 @@ impl Server {
                     result = listener.accept() => {
                         let (stream, _) = result.unwrap();
                         let records = records.clone();
-                        tasks.spawn(async move { let _ = respond(stream, records).await; });
+                        let outcome = *selected.lock().unwrap();
+                        tasks.spawn(async move { let _ = respond(stream, records, outcome).await; });
                     }
                 }
             }
@@ -59,8 +79,13 @@ impl Server {
         Self {
             endpoint,
             requests,
+            outcome,
             stop,
         }
+    }
+
+    pub fn set_outcome(&self, outcome: Outcome) {
+        *self.outcome.lock().unwrap() = outcome;
     }
 
     pub async fn wait_primary(&self, count: usize) -> Result<(), tokio::time::error::Elapsed> {
@@ -87,7 +112,11 @@ impl Drop for Server {
     }
 }
 
-async fn respond(mut stream: TcpStream, records: Arc<Mutex<Vec<Request>>>) -> std::io::Result<()> {
+async fn respond(
+    mut stream: TcpStream,
+    records: Arc<Mutex<Vec<Request>>>,
+    outcome: Outcome,
+) -> std::io::Result<()> {
     let mut bytes = Vec::new();
     let mut buffer = [0; 8192];
     let end = loop {
@@ -137,12 +166,39 @@ async fn respond(mut stream: TcpStream, records: Arc<Mutex<Vec<Request>>>) -> st
         let _ = stream.read(&mut [0]).await?;
         return Ok(());
     }
+    if matches!(outcome, Outcome::Disconnected) {
+        return stream.shutdown().await;
+    }
+    if let Outcome::Rejected(status, code) = outcome {
+        let body = if path.contains("/publishers/google/models/") {
+            let state = match status {
+                400 | 422 => "INVALID_ARGUMENT",
+                401 => "UNAUTHENTICATED",
+                403 => "PERMISSION_DENIED",
+                404 => "NOT_FOUND",
+                405 | 501 => "UNIMPLEMENTED",
+                429 => "RESOURCE_EXHAUSTED",
+                500 => "INTERNAL",
+                503 => "UNAVAILABLE",
+                _ => "UNKNOWN",
+            };
+            json!({"error":{"code":status,"status":state,"message":"Fixture generation rejected",
+                "details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":code,
+                    "domain":"aiplatform.googleapis.com"}]}})
+        } else {
+            json!({"error":{"code":code,"message":"Fixture generation rejected"}})
+        }
+        .to_string();
+        stream.write_all(format!("HTTP/1.1 {status} Fixture Rejection\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await?;
+        return stream.shutdown().await;
+    }
     let png = super::super::server::PNG;
-    let value = if path == "/v1/responses" {
+    let route = path.split('?').next().unwrap();
+    let mut value = if path == "/v1/responses" {
         json!({"id":"image-response", "object":"response", "created_at":1,
             "status":"completed", "output":[{"id":"image-call", "type":"image_generation_call",
             "status":"completed", "result":png}], "usage":{"input_tokens":5,"output_tokens":4,"total_tokens":9}})
-    } else if path.ends_with(":generateContent") {
+    } else if route.ends_with(":generateContent") {
         json!({"candidates":[{"content":{"role":"model","parts":[{"inlineData":{"mimeType":"image/png","data":png}}]},
             "finishReason":"STOP", "index":0}], "usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":4,"totalTokenCount":9}})
     } else if path == "/v1/images/generations" {
@@ -150,6 +206,37 @@ async fn respond(mut stream: TcpStream, records: Arc<Mutex<Vec<Request>>>) -> st
     } else {
         panic!("unexpected image fixture route: {path}");
     };
+    match outcome {
+        Outcome::Invalid => {
+            if path == "/v1/responses" {
+                value["output"][0]["result"] = json!("not-base64!");
+            } else if route.ends_with(":generateContent") {
+                value["candidates"][0]["content"]["parts"][0]["inlineData"]["data"] =
+                    json!("not-base64!");
+            } else {
+                value["data"][0]["b64_json"] = json!("not-base64!");
+            }
+        }
+        Outcome::Empty => {
+            if path == "/v1/responses" {
+                value["output"] = json!([]);
+            } else if route.ends_with(":generateContent") {
+                value["candidates"][0]["content"]["parts"] = json!([]);
+            } else {
+                value["data"] = json!([]);
+            }
+        }
+        Outcome::Incomplete => {
+            if path == "/v1/responses" {
+                value["status"] = json!("incomplete");
+            } else if route.ends_with(":generateContent") {
+                value["candidates"][0]["finishReason"] = json!("MAX_TOKENS");
+            } else {
+                panic!("incomplete fixture requires a native image response");
+            }
+        }
+        _ => {}
+    }
     let body = serde_json::to_vec(&value).unwrap();
     stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).as_bytes()).await?;
     stream.write_all(&body).await?;

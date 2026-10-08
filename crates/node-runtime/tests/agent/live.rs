@@ -48,6 +48,7 @@ async fn completes_file_task() {
             web_search: false,
             generates: vec![],
             efforts: vec![Effort::Low],
+            capabilities: None,
             custom_efforts: false,
             default_effort: Effort::Low,
         }];

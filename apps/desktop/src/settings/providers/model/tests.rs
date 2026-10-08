@@ -39,7 +39,8 @@ fn default_capabilities(cx: &mut TestAppContext) {
             );
             let model = draft.value(cx).unwrap();
             assert_eq!((model.context, model.output), expected);
-            assert!(!model.vision && !model.tools && !model.reasoning && !model.web_search);
+            assert!(model.vision && model.tools);
+            assert!(!model.reasoning && !model.web_search);
             assert!(model.generates.is_empty());
         }
         let draft = Draft::discovered(
@@ -72,7 +73,10 @@ fn keeps_display_name_separate_from_id(cx: &mut TestAppContext) {
                 display_name: Some("Readable name".into()),
                 context: None,
                 output: None,
-                capabilities: None,
+                capabilities: Some(discovery::Capabilities {
+                    vision: Some(false),
+                    ..Default::default()
+                }),
             },
             None,
             Preset::ChatGpt,
@@ -83,42 +87,32 @@ fn keeps_display_name_separate_from_id(cx: &mut TestAppContext) {
         assert_eq!(saved.id, "execution-id");
         assert_eq!(saved.label(), "Readable name");
         assert!(saved.tools);
+        assert_eq!(saved.capabilities.as_ref().unwrap().vision, Some(false));
         draft
             .id
             .update(cx, |input, cx| input.set_value("another-id", window, cx));
         let edited = draft.value(cx).unwrap();
         assert_eq!(edited.id, "another-id");
         assert_eq!(edited.display_name, None);
+        assert_eq!(edited.capabilities, None);
         assert_eq!(edited.label(), "another-id");
     });
 }
 
 #[gpui::test]
-fn preserves_explicit_image_tool_capability(cx: &mut TestAppContext) {
+fn clears_unreported_generation_summary(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let (_, visual) = cx.add_window_view(|_, _| View);
     visual.update(|window, cx| {
-        let mut draft = Draft::discovered(
-            0,
-            discovery::Model {
-                id: "image-tool-model".into(),
-                display_name: None,
-                context: None,
-                output: None,
-                capabilities: None,
-            },
-            None,
-            Preset::CompatibleResponses,
-            window,
-            cx,
-        );
-        draft.model.generates = vec![sailry_protocol::media::Generation::ImageTool];
-        draft.missing.generates = false;
+        let mut model = Model::example("image-tool-model");
+        model.generates = vec![
+            sailry_protocol::media::Generation::Image,
+            sailry_protocol::media::Generation::ImageTool,
+            sailry_protocol::media::Generation::Video,
+        ];
+        let mut draft = Draft::new(0, model, window, cx);
         draft.fill(None, None, Preset::CompatibleResponses, window, cx);
-        assert_eq!(
-            draft.value(cx).unwrap().generates,
-            vec![sailry_protocol::media::Generation::ImageTool]
-        );
+        assert!(draft.value(cx).unwrap().generates.is_empty());
     });
 }
 

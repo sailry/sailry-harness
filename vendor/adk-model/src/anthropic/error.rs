@@ -77,7 +77,7 @@ impl From<AnthropicApiError> for AdkError {
         if let Some(ref rid) = err.request_id {
             adk_err = adk_err.with_request_id(rid.clone());
         }
-        adk_err
+        crate::error_metadata::with_code(adk_err, Some(&err.error_type))
     }
 }
 

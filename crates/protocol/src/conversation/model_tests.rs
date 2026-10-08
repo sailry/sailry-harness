@@ -5,6 +5,7 @@ use serde_json::json;
 fn missing_capabilities_are_disabled() {
     let value = json!({"id":"fixture","context":4096,"output":1024,"future_metadata":true});
     let model: Model = serde_json::from_value(value).unwrap();
+    assert!(model.capabilities.is_none());
     assert!(!model.vision);
     assert!(!model.tools);
     assert!(!model.reasoning);
@@ -13,6 +14,25 @@ fn missing_capabilities_are_disabled() {
     assert!(model.efforts.is_empty());
     assert!(!model.custom_efforts);
     assert_eq!(model.default_effort, crate::Effort::Default);
+}
+
+#[test]
+fn preserves_native_capability_observations() {
+    let model: Model = serde_json::from_value(json!({
+        "id": "fixture",
+        "context": 4096,
+        "output": 1024,
+        "capabilities": {"vision": false, "tools": true},
+    }))
+    .unwrap();
+    let native = model.capabilities.as_ref().unwrap();
+    assert_eq!(native.vision, Some(false));
+    assert_eq!(native.tools, Some(true));
+    assert_eq!(native.reasoning, None);
+    assert_eq!(
+        serde_json::to_value(model).unwrap()["capabilities"]["vision"],
+        false
+    );
 }
 
 #[test]

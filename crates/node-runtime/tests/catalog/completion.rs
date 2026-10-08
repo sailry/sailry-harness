@@ -25,6 +25,7 @@ fn provider() -> Provider {
             web_search: false,
             generates: vec![],
             efforts: vec![Effort::Default],
+            capabilities: None,
             custom_efforts: false,
             default_effort: Effort::Default,
         }],
@@ -110,6 +111,9 @@ async fn fills_missing_choices() {
             (200_000, 8192)
         );
         assert_eq!(completed.models[0].default_effort, Effort::Disabled);
+        let mut manual = manual;
+        manual.revision += 1;
+        manual.models[0].reasoning = true;
         assert_eq!(
             snapshot
                 .providers

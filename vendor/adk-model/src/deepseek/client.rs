@@ -257,12 +257,12 @@ impl Llm for DeepSeekClient {
                             _ if status_code >= 500 => ErrorCategory::Internal,
                             _ => ErrorCategory::InvalidInput,
                         };
-                        return Err(AdkError::new(
+                        return Err(crate::error_metadata::from_body(AdkError::new(
                             ErrorComponent::Model,
                             category,
                             "model.deepseek.api_error",
                             format!("DeepSeek API error (HTTP {status}): {error_text}"),
-                        ).with_upstream_status(status_code).with_provider("deepseek"));
+                        ).with_upstream_status(status_code).with_provider("deepseek"), &error_text));
                     }
 
                     Ok(response)

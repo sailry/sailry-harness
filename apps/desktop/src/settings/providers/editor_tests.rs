@@ -406,16 +406,27 @@ fn model_rows_and_toasts(cx: &mut TestAppContext) {
     visual.simulate_click(title.center(), Modifiers::default());
     draw(visual);
     assert!(editor.read_with(visual, |editor, _| editor.models[0].expanded));
-    assert!(visual.debug_bounds("model-capability-0-0").is_none());
+    assert!(visual.debug_bounds("model-context-input-0").is_some());
+    assert!(visual.debug_bounds("effort-add-0").is_none());
     let advanced = visual.debug_bounds("model-advanced-0").unwrap();
     visual.simulate_click(advanced.center(), Modifiers::default());
     draw(visual);
     assert!(editor.read_with(visual, |editor, _| editor.models[0].advanced));
-    assert!(visual.debug_bounds("model-capability-0-0").is_some());
+    assert!(visual.debug_bounds("effort-add-0").is_some());
+    for selector in [
+        "model-capability-0-0",
+        "model-capability-0-1",
+        "model-capability-0-2",
+        "model-capability-0-4",
+        "model-capability-0-5",
+        "model-capability-0-6",
+    ] {
+        assert!(visual.debug_bounds(selector).is_none());
+    }
     let advanced = visual.debug_bounds("model-advanced-0").unwrap();
     visual.simulate_click(advanced.center(), Modifiers::default());
     draw(visual);
-    assert!(visual.debug_bounds("model-capability-0-0").is_none());
+    assert!(visual.debug_bounds("effort-add-0").is_none());
     let trigger = visual.debug_bounds("model-expand-0").unwrap();
     visual.simulate_click(trigger.center(), Modifiers::default());
     draw(visual);

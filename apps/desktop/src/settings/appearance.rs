@@ -12,6 +12,7 @@ use super::{
 use crate::{theme, tr};
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
+    switch::Switch,
     tab::{Tab, TabBar},
     *,
 };

@@ -21,7 +21,10 @@ async fn freezes_native_input_support() {
         )
         .await;
         let turn = queue(&client, &session, input("Read the PDF", &[&pdf])).await;
-        provider.models[0].vision = false;
+        provider.models[0]
+            .capabilities
+            .get_or_insert_with(Default::default)
+            .vision = Some(false);
         provider.models[0].tools = true;
         client
             .execute(client.prepare(Command::PutProvider {
@@ -94,7 +97,10 @@ async fn retains_revisions() {
                 .code,
             ErrorCode::Conflict
         );
-        provider.models[0].vision = false;
+        provider.models[0]
+            .capabilities
+            .get_or_insert_with(Default::default)
+            .vision = Some(false);
         client
             .execute(client.prepare(Command::PutProvider {
                 provider,
@@ -210,7 +216,10 @@ async fn rejects_invalid_inputs() {
                     .is_err()
             );
         }
-        provider.models[0].vision = false;
+        provider.models[0]
+            .capabilities
+            .get_or_insert_with(Default::default)
+            .vision = Some(false);
         client
             .execute(client.prepare(Command::PutProvider {
                 provider,

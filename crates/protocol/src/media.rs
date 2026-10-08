@@ -1,4 +1,4 @@
-//! Execution-owned companion models, following Code Pi d9b56405.
+//! Execution-owned automatic media routes and explicit fallback models.
 use crate::ProviderId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -29,7 +29,8 @@ pub struct Binding {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
     pub revision: u64,
-    /// Missing roles follow the admitted session model; null disables a role.
+    /// Missing roles use the admitted model automatically; explicit bindings
+    /// provide fallback models and null disables the role.
     pub bindings: BTreeMap<Kind, Option<Binding>>,
 }
 
@@ -110,7 +111,7 @@ mod tests {
     }
 
     #[test]
-    fn distinguishes_follow_override_and_disabled() {
+    fn distinguishes_automatic_fallback_and_disabled() {
         let binding = Binding {
             provider: ProviderId::new(),
             model: "image-model".into(),

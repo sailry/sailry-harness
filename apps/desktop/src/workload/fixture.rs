@@ -68,6 +68,7 @@ pub(super) async fn prepare(
                         id: "fixture".into(),
                         context: 262144,
                         output: 4096,
+                        capabilities: None,
                         vision: false,
                         tools: true,
                         reasoning: false,

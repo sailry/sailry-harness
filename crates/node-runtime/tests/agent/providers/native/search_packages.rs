@@ -4,7 +4,10 @@ use crate::agent_support::Server as SearchServer;
 async fn prepare(remote: bool, server: &SearchServer) -> Fixture {
     let mut fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
     fixture.provider.models[0].web_search = true;
-    fixture.provider.models[0].tools = false;
+    fixture.provider.models[0]
+        .capabilities
+        .get_or_insert_with(Default::default)
+        .tools = Some(false);
     execute(
         &fixture.client,
         Command::PutProvider {

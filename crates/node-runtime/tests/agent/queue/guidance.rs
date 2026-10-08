@@ -48,6 +48,7 @@ async fn tools(fixture: &mut Fixture) {
         web_search: false,
         generates: Vec::new(),
         efforts: Vec::new(),
+        capabilities: None,
         custom_efforts: false,
         default_effort: Effort::Default,
     }];

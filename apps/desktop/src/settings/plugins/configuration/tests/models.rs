@@ -55,6 +55,7 @@ fn selects_a_concrete_model(cx: &mut TestAppContext) {
                 display_name: None,
                 context: 4096,
                 output: 128,
+                capabilities: None,
                 vision: false,
                 tools: false,
                 reasoning: true,

@@ -1,5 +1,5 @@
 use super::*;
-use sailry_protocol::media::{Binding, Generation, Kind, Settings};
+use sailry_protocol::media::{Binding, Kind, Settings};
 use serde_json::json;
 #[path = "media/follow.rs"]
 mod follow;
@@ -16,8 +16,9 @@ pub(super) fn model(id: &str) -> Model {
         tools: true,
         reasoning: false,
         web_search: false,
-        generates: vec![Generation::Image, Generation::Video],
+        generates: vec![],
         efforts: vec![],
+        capabilities: None,
         custom_efforts: false,
         default_effort: Effort::Default,
     }

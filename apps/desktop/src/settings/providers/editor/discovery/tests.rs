@@ -183,7 +183,7 @@ fn merges_without_overwriting_drafts(cx: &mut TestAppContext) {
             assert_eq!(editor.models[0].value(cx).unwrap().context, 2048);
             assert_eq!(editor.models[1].value(cx).unwrap().context, 32768);
             assert_eq!(editor.models[3].value(cx).unwrap().context, 4096);
-            assert!(!editor.models[3].value(cx).unwrap().tools);
+            assert!(editor.models[3].value(cx).unwrap().tools);
             assert_eq!(editor.models[4].value(cx).unwrap().context, 200000);
             assert_eq!(
                 editor.name.read(cx).value().as_ref(),
@@ -283,6 +283,7 @@ fn refreshes_saved_drafts(cx: &mut TestAppContext) {
                     display_name: None,
                     context: 1024,
                     output: 64,
+                    capabilities: None,
                     vision: false,
                     tools: false,
                     reasoning: false,

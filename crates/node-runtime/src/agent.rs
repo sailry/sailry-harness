@@ -312,32 +312,33 @@ async fn execute_with(
     {
         agent = agent.max_iterations(limit);
     }
-    if let Some(model) = invocation.provider.as_ref().and_then(|provider| {
+    let metadata = invocation.provider.as_ref().and_then(|provider| {
         provider
             .models
             .iter()
             .find(|model| model.id == invocation.turn.config.model)
-    }) {
+    });
+    if let Some(model) = metadata {
         agent = agent.max_output_tokens(model.output as i32);
-        if model.tools {
-            extensions.tools.extend([
-                catalog::Registration::managed(compact_tool),
-                catalog::Registration::managed(Arc::new(title::SetTitle {
-                    session: invocation.turn.session.to_string(),
-                    stop: stop.clone(),
-                })),
-                catalog::Registration::managed(Arc::new(question::Question {
-                    ingress: ingress.clone(),
-                    turn: invocation.turn.id,
-                    session: invocation.turn.session.to_string(),
-                    stop: stop.clone(),
-                    planning: reviewing,
-                })),
-            ]);
-            agent = agent
-                .parallelize_agent_delegations(true)
-                .tool_execution_strategy(adk_core::ToolExecutionStrategy::Auto);
-        }
+    }
+    if metadata.is_none_or(|model| model.tools) {
+        extensions.tools.extend([
+            catalog::Registration::managed(compact_tool),
+            catalog::Registration::managed(Arc::new(title::SetTitle {
+                session: invocation.turn.session.to_string(),
+                stop: stop.clone(),
+            })),
+            catalog::Registration::managed(Arc::new(question::Question {
+                ingress: ingress.clone(),
+                turn: invocation.turn.id,
+                session: invocation.turn.session.to_string(),
+                stop: stop.clone(),
+                planning: reviewing,
+            })),
+        ]);
+        agent = agent
+            .parallelize_agent_delegations(true)
+            .tool_execution_strategy(adk_core::ToolExecutionStrategy::Auto);
     }
     for registration in extensions.tools {
         let confirmation = !registration.managed && !registration.tool.is_read_only();

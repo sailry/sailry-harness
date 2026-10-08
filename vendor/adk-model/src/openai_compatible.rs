@@ -602,14 +602,14 @@ async fn send_request(
             _ if status_code >= 500 => ErrorCategory::Internal,
             _ => ErrorCategory::InvalidInput,
         };
-        return Err(AdkError::new(
+        return Err(crate::error_metadata::from_body(AdkError::new(
             ErrorComponent::Model,
             category,
             "model.openai_compat.api_error",
             format!("{provider_name} API error (HTTP {status}): {body}"),
         )
         .with_upstream_status(status_code)
-        .with_provider(provider_name));
+        .with_provider(provider_name), &body));
     }
 
     Ok(http_resp)

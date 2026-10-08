@@ -1,3 +1,4 @@
+use crate::discovery_fixture::{Reply, Server};
 use sailry_client::Client;
 use sailry_link::Transport;
 use sailry_node_runtime::Node;
@@ -9,6 +10,7 @@ use sailry_protocol::{
 use std::sync::Arc;
 
 pub struct Fixture {
+    catalog: Server,
     pub runtime: Arc<tokio::runtime::Runtime>,
     pub nodes: Vec<Node>,
     pub transports: Vec<Arc<dyn Transport>>,
@@ -20,11 +22,19 @@ impl Fixture {
     pub fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
+        let catalog = runtime.block_on(Server::start(ModelApi::Anthropic, |path| {
+            assert_eq!(path, "/api.json");
+            Reply::Json(serde_json::json!({"fixture": {"models": {}}}))
+        }));
+        let endpoint = format!("{}/api.json", catalog.endpoint);
         let nodes: Vec<_> = ["local", "remote"]
             .into_iter()
             .map(|name| {
                 runtime
-                    .block_on(Node::start(directory.path().join(name)))
+                    .block_on(Node::start_with_catalog(
+                        directory.path().join(name),
+                        &endpoint,
+                    ))
                     .unwrap()
             })
             .collect();
@@ -60,6 +70,12 @@ impl Fixture {
                             display_name: None,
                             context: 16000,
                             output: 2048,
+                            capabilities: Some(conversation::discovery::Capabilities {
+                                vision: Some(id == "vision"),
+                                tools: Some(true),
+                                reasoning: Some(false),
+                                ..Default::default()
+                            }),
                             vision: id == "vision",
                             tools: true,
                             reasoning: false,
@@ -88,6 +104,7 @@ impl Fixture {
             })
             .collect();
         Self {
+            catalog,
             directory,
             runtime,
             nodes,
@@ -97,6 +114,7 @@ impl Fixture {
     }
 
     pub fn close(self) {
+        drop(self.catalog);
         drop(self.transports);
         for node in self.nodes {
             self.runtime.block_on(node.shutdown()).unwrap();

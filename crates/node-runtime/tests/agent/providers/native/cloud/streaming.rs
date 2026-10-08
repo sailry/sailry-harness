@@ -45,7 +45,10 @@ async fn stream(remote: bool, incomplete: bool) -> (Fixture, Page) {
     let server = Server::start(ModelApi::Bedrock, events(incomplete)).await;
     let fixture = Fixture::new(remote, ModelApi::Bedrock, &server.endpoint).await;
     let mut provider = fixture.provider.clone();
-    provider.models[0].tools = false;
+    provider.models[0]
+        .capabilities
+        .get_or_insert_with(Default::default)
+        .tools = Some(false);
     execute(
         &fixture.client,
         Command::PutProvider {

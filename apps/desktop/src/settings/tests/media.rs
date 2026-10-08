@@ -25,6 +25,20 @@ fn read(fixture: &Fixture, index: usize) -> Settings {
     settings
 }
 
+fn choices(fixture: &Fixture, index: usize, kind: Kind) -> Vec<Binding> {
+    let Output::MediaModels(models) = execute(fixture, index, Command::ListMediaModels) else {
+        panic!("media models expected")
+    };
+    models
+        .into_iter()
+        .filter(|model| model.kinds.contains(&kind))
+        .map(|model| Binding {
+            provider: model.provider,
+            model: model.model,
+        })
+        .collect()
+}
+
 fn ready_menu(owner: &Entity<Workspace>, visual: &mut VisualTestContext, selector: &str) {
     wait(visual, |cx| {
         owner.read(cx).plugin_settings_panel().is_some_and(|panel| {
@@ -37,13 +51,17 @@ fn ready_menu(owner: &Entity<Workspace>, visual: &mut VisualTestContext, selecto
     });
 }
 
-fn select(visual: &mut VisualTestContext, selector: &'static str, current: usize, index: usize) {
-    // Each fixture role has Follow, Disabled and one override. Kit retains the
-    // committed cursor and wraps at either end instead of clamping to the first.
-    const OPTIONS: usize = 3;
-    assert!(current < OPTIONS && index < OPTIONS);
+fn select(
+    visual: &mut VisualTestContext,
+    selector: &'static str,
+    current: usize,
+    index: usize,
+    options: usize,
+) {
+    // Kit retains the committed cursor and wraps through the current candidates.
+    assert!(current < options && index < options);
     tap(visual, selector);
-    for _ in 0..(index + OPTIONS - current) % OPTIONS {
+    for _ in 0..(index + options - current) % options {
         visual.simulate_keystrokes("down");
     }
     visual.simulate_keystrokes("enter");
@@ -128,13 +146,34 @@ fn saves_clears_and_isolates_hosts(cx: &mut TestAppContext) {
             });
         }
         assert!(read(&fixture, index).bindings.is_empty());
-        ready_menu(&owner, visual, "media_image_understanding");
-        select(visual, "media_image_understanding", 0, 2);
-        wait(visual, |_| read(&fixture, index).revision == 1);
+        let vision = choices(&fixture, index, Kind::Vision);
+        let image = choices(&fixture, index, Kind::Image);
         let binding = Binding {
             provider: fixture.providers[index].id,
             model: "vision".into(),
         };
+        let image_binding = Binding {
+            provider: fixture.providers[index].id,
+            model: "image".into(),
+        };
+        let vision_index = vision.iter().position(|value| value == &binding).unwrap() + 2;
+        let image_index = image
+            .iter()
+            .position(|value| value == &image_binding)
+            .unwrap()
+            + 2;
+        let vision_options = vision.len() + 2;
+        let image_options = image.len() + 2;
+        assert!(image.len() > 1);
+        ready_menu(&owner, visual, "media_image_understanding");
+        select(
+            visual,
+            "media_image_understanding",
+            0,
+            vision_index,
+            vision_options,
+        );
+        wait(visual, |_| read(&fixture, index).revision == 1);
         assert_eq!(
             read(&fixture, index).bindings[&Kind::Vision],
             Some(binding.clone())
@@ -143,9 +182,20 @@ fn saves_clears_and_isolates_hosts(cx: &mut TestAppContext) {
         // An already-open select must reject a choice from a stale Node revision.
         ready_menu(&owner, visual, "media_image_generation");
         tap(visual, "media_image_generation");
-        let settings = read(&fixture, index);
-        execute(&fixture, index, Command::SaveMediaSettings(settings));
-        visual.simulate_keystrokes("down down enter");
+        visual.update(|window, cx| {
+            let settings = read(&fixture, index);
+            let Output::MediaSettings(saved) =
+                execute(&fixture, index, Command::SaveMediaSettings(settings))
+            else {
+                panic!("media settings expected")
+            };
+            assert_eq!(saved.revision, 2);
+            // Keep the captured choices until confirm; subscriptions resume afterward.
+            for _ in 0..image_index {
+                window.dispatch_keystroke(gpui::Keystroke::parse("down").unwrap(), cx);
+            }
+            window.dispatch_keystroke(gpui::Keystroke::parse("enter").unwrap(), cx);
+        });
         wait(visual, |_| read(&fixture, index).revision == 2);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         loop {
@@ -162,24 +212,39 @@ fn saves_clears_and_isolates_hosts(cx: &mut TestAppContext) {
         assert!(!read(&fixture, index).bindings.contains_key(&Kind::Image));
 
         ready_menu(&owner, visual, "media_image_generation");
-        select(visual, "media_image_generation", 0, 2);
+        select(
+            visual,
+            "media_image_generation",
+            0,
+            image_index,
+            image_options,
+        );
         wait(visual, |_| read(&fixture, index).revision == 3);
         assert_eq!(
             read(&fixture, index).bindings[&Kind::Image],
-            Some(Binding {
-                provider: fixture.providers[index].id,
-                model: "image".into()
-            })
+            Some(image_binding)
         );
         ready_menu(&owner, visual, "media_image_generation");
-        select(visual, "media_image_generation", 2, 0);
+        select(
+            visual,
+            "media_image_generation",
+            image_index,
+            0,
+            image_options,
+        );
         wait(visual, |_| read(&fixture, index).revision == 4);
         assert_eq!(
             read(&fixture, index).bindings,
             [(Kind::Vision, Some(binding))].into_iter().collect()
         );
         ready_menu(&owner, visual, "media_image_understanding");
-        select(visual, "media_image_understanding", 2, 0);
+        select(
+            visual,
+            "media_image_understanding",
+            vision_index,
+            0,
+            vision_options,
+        );
         wait(visual, |_| read(&fixture, index).revision == 5);
         assert!(read(&fixture, index).bindings.is_empty());
         let Output::Plugins(packages) = execute(&fixture, index, Command::ListPlugins) else {
@@ -209,7 +274,13 @@ fn saves_clears_and_isolates_hosts(cx: &mut TestAppContext) {
         });
         shown_settings(&owner, visual, "media-settings", true);
         ready_menu(&owner, visual, "media_image_understanding");
-        select(visual, "media_image_understanding", 0, 2);
+        select(
+            visual,
+            "media_image_understanding",
+            0,
+            vision_index,
+            vision_options,
+        );
         wait(visual, |_| read(&fixture, index).revision == 6);
         assert_eq!(
             read(&fixture, index).bindings[&Kind::Vision]
@@ -219,14 +290,20 @@ fn saves_clears_and_isolates_hosts(cx: &mut TestAppContext) {
             fixture.providers[index].id
         );
         ready_menu(&owner, visual, "media_image_understanding");
-        select(visual, "media_image_understanding", 2, 0);
+        select(
+            visual,
+            "media_image_understanding",
+            vision_index,
+            0,
+            vision_options,
+        );
         wait(visual, |_| read(&fixture, index).revision == 7);
         ready_menu(&owner, visual, "media_image_generation");
-        select(visual, "media_image_generation", 0, 1);
+        select(visual, "media_image_generation", 0, 1, image_options);
         wait(visual, |_| read(&fixture, index).revision == 8);
         assert_eq!(read(&fixture, index).bindings[&Kind::Image], None);
         ready_menu(&owner, visual, "media_image_generation");
-        select(visual, "media_image_generation", 1, 0);
+        select(visual, "media_image_generation", 1, 0, image_options);
         wait(visual, |_| read(&fixture, index).revision == 9);
         assert!(read(&fixture, index).bindings.is_empty());
         prior = Some(owner.read_with(visual, |owner, _| {

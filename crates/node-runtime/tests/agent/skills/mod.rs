@@ -113,6 +113,7 @@ async fn fixture(
         web_search: false,
         generates: vec![],
         efforts: vec![],
+        capabilities: None,
         custom_efforts: false,
         default_effort: sailry_protocol::Effort::Default,
     }];

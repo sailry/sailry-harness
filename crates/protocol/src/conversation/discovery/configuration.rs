@@ -5,13 +5,13 @@ const DEFAULT_CONTEXT: u32 = 200_000;
 const DEFAULT_OUTPUT: u32 = 16_384;
 
 impl Model {
-    /// Complete a new model from native metadata and an optional cached reference.
-    /// Saved configuration is never passed through this resolver.
+    /// Resolve reported limits and automatic capabilities against an optional reference.
+    /// Callers retain configured limits and explicit reasoning choices when refreshing.
     pub fn configuration(
         &self,
         reference: Option<&catalog::Model>,
         api: ModelApi,
-        authentication: Authentication,
+        _authentication: Authentication,
     ) -> crate::conversation::Model {
         let reported_output = self.output.or(reference.and_then(|model| model.output));
         let context = self
@@ -39,20 +39,20 @@ impl Model {
             display_name: self.display_name.clone(),
             context,
             output,
+            capabilities: self.capabilities.clone(),
             vision: capabilities
                 .and_then(|value| value.vision)
                 .unwrap_or_else(|| {
-                    reference.is_some_and(|model| model.inputs.iter().any(|value| value == "image"))
+                    reference
+                        .filter(|model| !model.inputs.is_empty())
+                        .is_none_or(|model| model.inputs.iter().any(|value| value == "image"))
                 }),
             tools: capabilities
                 .and_then(|value| value.tools)
                 .or(reference.and_then(|model| model.tools))
-                // Both ChatGPT contracts support local tools when their account
-                // catalogs omit per-model capability metadata.
-                .unwrap_or(matches!(
-                    authentication,
-                    Authentication::ChatGpt | Authentication::ChatGptOAuth
-                )),
+                // Missing metadata is not a denial. The selected API receives
+                // ordinary tools and reports unsupported features normally.
+                .unwrap_or(true),
             reasoning: capabilities
                 .and_then(|value| value.reasoning)
                 .or(reference.and_then(|model| model.reasoning))

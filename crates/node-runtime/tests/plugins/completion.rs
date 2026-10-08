@@ -43,6 +43,7 @@ async fn configure_api(client: &Client, endpoint: String, api: conversation::Mod
             reasoning: api == conversation::ModelApi::DeepSeek,
             web_search: false,
             generates: vec![],
+            capabilities: None,
             custom_efforts: false,
             efforts: if api == conversation::ModelApi::DeepSeek {
                 vec![Effort::High, Effort::Max, Effort::Low, Effort::Disabled]
