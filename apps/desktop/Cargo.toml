@@ -14,6 +14,7 @@ embed-resource.workspace = true
 [dependencies]
 cpal.workspace = true
 sailry-speech.workspace = true
+sailry-content.workspace = true
 sha2.workspace = true
 self_update.workspace = true
 ed25519-dalek.workspace = true
@@ -46,7 +47,6 @@ futures.workspace = true
 url.workspace = true
 rfd.workspace = true
 pulldown-cmark.workspace = true
-unicode-segmentation.workspace = true
 
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 gpui-wry.workspace = true

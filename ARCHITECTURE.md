@@ -39,6 +39,7 @@ a controller does not stop already admitted work.
 | `crates/node-runtime` | Admission, persistence, configuration, ADK execution and resource services | GPUI, Flutter and controller presentation |
 | `crates/mobile-bridge` | Client handles, subscriptions and Rust/Dart adaptation | Node, ADK, PTY, Git execution and tool drivers |
 | `crates/speech` | Shared speech capability and native audio integration | Conversation ownership |
+| `crates/content` | Reusable GPUI Kit editors, Markdown, diffs and selection | Node, Client, file acquisition and application state |
 | `apps/desktop` | GPUI Kit composition, focus, drafts and native integrations | Duplicate history or request recovery engines |
 | `apps/host` | Service arguments, signals and shared Node lifecycle | Desktop dependencies and a prompt loop |
 | `apps/mobile` | Flutter controller presentation | Independent business rules or credential storage |
@@ -47,7 +48,8 @@ a controller does not stop already admitted work.
 Production dependency direction is acyclic:
 
 ```text
-desktop       → client + node-runtime + GPUI Kit
+desktop       → client + node-runtime + content + GPUI Kit
+content       → GPUI Kit
 host          → node-runtime
 mobile-bridge → client
 client        → protocol + link

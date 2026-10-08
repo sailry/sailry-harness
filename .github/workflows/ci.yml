@@ -158,11 +158,11 @@ jobs:
           cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --build-jobs "$BUILD_JOBS" --profile databases --run-ignored only --filterset 'binary(databases)' --test-threads=1
       - name: Desktop test compilation
         if: matrix.kind == 'desktop'
-        run: cargo test --locked -p sailry-desktop --bin sailry-desktop --no-run --timings --jobs "$BUILD_JOBS"
+        run: cargo test --locked -p sailry-content -p sailry-desktop --lib --bin sailry-desktop --no-run --timings --jobs "$BUILD_JOBS"
       - name: Desktop behavior and Kit interactions
         if: matrix.kind == 'desktop'
         # Process isolation permits bounded concurrency without shared locale/UI state.
-        run: cargo nextest run --locked -p sailry-desktop --bin sailry-desktop --build-jobs "$BUILD_JOBS" --profile ci
+        run: cargo nextest run --locked -p sailry-content -p sailry-desktop --lib --bin sailry-desktop --build-jobs "$BUILD_JOBS" --profile ci
       - name: Desktop and Host without test features
         if: matrix.kind == 'desktop'
         # Tests enable test-support features; type-check the shipped feature set.

@@ -18,7 +18,7 @@ struct Binding {
 }
 
 const THUMBNAIL_SIDE: u32 = 320;
-pub(crate) const GROUP_WIDTH: f32 = 160.;
+pub(crate) use sailry_content::media::GROUP_WIDTH;
 
 pub(crate) mod decode;
 mod load;

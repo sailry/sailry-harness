@@ -1,4 +1,5 @@
 use super::*;
+pub(super) use sailry_content::media::file_format;
 use sailry_protocol::{SessionId, WorktreeId, conversation::Image};
 
 /// Image metadata selects an existing authenticated download source.
@@ -206,17 +207,4 @@ fn byte_size(size: u64) -> String {
         (size.to_string(), "chat_attachment_bytes")
     };
     rust_i18n::t!(key, value = value).to_string()
-}
-
-pub(super) fn file_format(path: &str) -> Option<image::ImageFormat> {
-    let extension = std::path::Path::new(path).extension()?.to_str()?;
-    match extension.to_ascii_lowercase().as_str() {
-        "png" => Some(image::ImageFormat::Png),
-        "jpg" | "jpeg" => Some(image::ImageFormat::Jpeg),
-        "gif" => Some(image::ImageFormat::Gif),
-        "webp" => Some(image::ImageFormat::WebP),
-        "tif" | "tiff" => Some(image::ImageFormat::Tiff),
-        "bmp" => Some(image::ImageFormat::Bmp),
-        _ => None,
-    }
 }

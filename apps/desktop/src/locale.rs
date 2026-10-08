@@ -96,11 +96,12 @@ fn preferred(value: &str) -> Option<&'static str> {
     }
 }
 
-pub(crate) fn init(cx: &App) {
+pub(crate) fn init(cx: &mut App) {
     let language = crate::preferences::data(cx).language.unwrap_or_default();
     let locale = language.resolve(sys_locale::get_locales());
     rust_i18n::set_locale(locale);
     gpui_kit::component::set_locale(locale);
+    crate::content::init(cx);
 }
 
 #[cfg(test)]
@@ -162,6 +163,10 @@ mod tests {
                 init(cx);
                 assert_eq!(rust_i18n::locale().to_string(), expected);
                 assert_eq!(gpui_kit::component::locale().to_string(), expected);
+                let labels = cx.global::<sailry_content::Labels>();
+                assert_eq!(labels.note, crate::tr("content_note"));
+                assert_eq!(labels.copy_code, crate::tr("content_copy"));
+                assert_eq!(labels.copy, crate::tr("files_copy"));
             });
         }
         rust_i18n::set_locale(&before);

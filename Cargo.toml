@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/desktop", "apps/host", "crates/node-runtime", "crates/protocol", "crates/link", "crates/client", "crates/mobile-bridge", "crates/speech"]
+members = ["apps/desktop", "apps/host", "crates/node-runtime", "crates/protocol", "crates/link", "crates/client", "crates/mobile-bridge", "crates/speech", "crates/content"]
 exclude = ["vendor/rmcp", "vendor/gpui-base", "vendor/gpui-component", "vendor/gpui-renderer/gpui", "vendor/gpui-renderer/apple", "vendor/gpui-renderer/wgpu", "vendor/gpui-renderer/windows", "vendor/rquickjs-compat", "vendor/block", "vendor/libghostty-vt-sys", "vendor/adk-model"]
 resolver = "2"
 
@@ -17,6 +17,7 @@ cua-driver-contract = { git = "https://github.com/trycua/cua.git", rev = "58aba8
 cua-platform-macos = { package = "platform-macos", git = "https://github.com/trycua/cua.git", rev = "58aba84b5b83d77e7e2b0f006547699eb594e50d" }
 sherpa-onnx = { version = "=1.13.8", default-features = false }
 sailry-speech = { path = "crates/speech" }
+sailry-content = { path = "crates/content" }
 # The pinned release exposes owned provider construction through this feature.
 objc2-application-services = { version = "=0.3.2", default-features = false, features = ["std", "libc", "HIServices", "AXUIElement", "AXError", "AXAttributeConstants", "AXRoleConstants", "AXActionConstants", "AXValue"] }
 objc2-core-graphics = { version = "=0.3.2", features = ["CGWindow"] }

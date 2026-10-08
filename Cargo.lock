@@ -14372,6 +14372,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sailry-content"
+version = "0.1.0"
+dependencies = [
+ "gpui-kit",
+ "image",
+ "pulldown-cmark",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "sailry-desktop"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -14416,6 +14426,7 @@ dependencies = [
  "russh",
  "rust-i18n",
  "sailry-client",
+ "sailry-content",
  "sailry-link",
  "sailry-node-runtime",
  "sailry-protocol",
@@ -14430,7 +14441,6 @@ dependencies = [
  "sys-locale",
  "tempfile",
  "tokio",
- "unicode-segmentation",
  "url",
  "uuid",
  "windows-sys 0.61.2",

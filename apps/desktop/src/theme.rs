@@ -71,8 +71,7 @@ pub fn select(mode: Option<gpui_kit::component::ThemeMode>, window: &mut Window,
 
 /// Resolve translucent card tints against the theme base, excluding wallpaper.
 pub(crate) fn review_background(cx: &App) -> Hsla {
-    let theme = cx.theme();
-    theme.background.alpha(1.).blend(theme.group_box)
+    crate::content::diff::background(cx)
 }
 
 /// Panel tint only; child text and interactive controls retain full opacity.
@@ -135,6 +134,7 @@ pub fn send_button(button: Button, disabled: bool, active: bool, cx: &App) -> Bu
 }
 
 pub fn init(cx: &mut App) {
+    crate::content::init(cx);
     crate::ui::material::init(cx);
     let selection = crate::preferences::data(cx).appearance;
     cx.set_global(SystemAppearance(selection.mode == Mode::System));

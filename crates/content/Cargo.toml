@@ -1,0 +1,15 @@
+[package]
+name = "sailry-content"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+image.workspace = true
+pulldown-cmark.workspace = true
+unicode-segmentation.workspace = true
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }
