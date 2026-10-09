@@ -9,6 +9,8 @@ license.workspace = true
 onnx = ["dep:ort", "dep:libloading", "dep:prost", "dep:memmap2"]
 
 [dependencies]
+serde.workspace = true
+serde_json.workspace = true
 cap-fs-ext.workspace = true
 cap-std.workspace = true
 cap-tempfile.workspace = true

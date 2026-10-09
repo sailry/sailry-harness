@@ -14,6 +14,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
+mod resume;
 
 enum Reply {
     Body(Vec<u8>),
@@ -404,7 +405,16 @@ async fn cancellation_preserves_the_existing_asset() {
         std::fs::read(directory.path().join("model")).unwrap(),
         b"previous"
     );
-    assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 3);
+    let part = std::fs::read_dir(directory.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "part")
+        })
+        .unwrap();
+    assert_eq!(std::fs::read(part).unwrap(), b"mo");
 }
 
 #[tokio::test]

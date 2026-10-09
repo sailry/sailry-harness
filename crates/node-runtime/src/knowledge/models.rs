@@ -354,11 +354,16 @@ impl Models {
             *state.epochs.entry(model).or_default() += 1;
             Ok(())
         };
+        tokio::pin!(operation);
         tokio::select! {
             biased;
-            _ = cancel.cancelled() => { transfer.cancel(); Err(cancelled()) },
-            _ = transfer.cancelled() => Err(cancelled()),
-            result = operation => result,
+            _ = cancel.cancelled() => {
+                transfer.cancel();
+                // The downloader flushes its resumable checkpoint before releasing the job.
+                let _ = operation.await;
+                Err(cancelled())
+            },
+            result = &mut operation => result,
         }
     }
 

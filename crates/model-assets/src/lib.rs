@@ -1,6 +1,7 @@
 //! Pinned model-file acquisition extracted from Sailry's speech asset downloader.
 #[cfg(feature = "onnx")]
 pub mod onnx;
+mod resume;
 pub mod runtime;
 mod storage;
 mod transfer;

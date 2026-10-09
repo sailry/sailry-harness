@@ -1,6 +1,6 @@
-use crate::{Download, Error, File, Progress, Result, progress, storage, validate};
-use reqwest::Client;
-use sha2::{Digest, Sha256};
+use crate::{Download, Error, File, Progress, Result, progress, resume, storage, validate};
+use reqwest::{Client, StatusCode, header};
+use sha2::Digest;
 use std::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
@@ -59,6 +59,7 @@ pub(super) async fn acquire(
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
+        let _lease = resume::lock(path, specification.name, cancel).await?;
         storage::target(&directory, specification.name)?;
         let check = directory.try_clone().map_err(|_| Error::Storage)?;
         let name = specification.name.to_owned();
@@ -86,74 +87,82 @@ pub(super) async fn acquire(
             notify(progress(completed, total, transferred, started.elapsed()));
             continue;
         }
-        let temporary = storage::temporary(&directory)?;
-        let mut output = tokio::fs::File::from_std(
-            temporary
-                .as_file()
-                .try_clone()
-                .map_err(|_| Error::Storage)?
-                .into_std(),
-        );
-        let mut response = tokio::select! {
-            biased;
-            _ = cancel.cancelled() => return Err(Error::Cancelled),
-            response = client.get(download.url.clone()).send() => response.and_then(reqwest::Response::error_for_status).map_err(|_| Error::Download)?,
-        };
-        if response
-            .content_length()
-            .is_some_and(|size| size != specification.size)
-        {
-            return Err(Error::InvalidAsset);
-        }
-        let mut received = 0u64;
-        let mut hash = Sha256::new();
-        loop {
-            let chunk = tokio::select! {
-                biased;
-                _ = cancel.cancelled() => return Err(Error::Cancelled),
-                chunk = response.chunk() => chunk.map_err(|_| Error::Download)?,
-            };
-            let Some(chunk) = chunk else {
-                break;
-            };
-            received = received
-                .checked_add(chunk.len() as u64)
-                .filter(|size| *size <= specification.size)
-                .ok_or(Error::InvalidAsset)?;
-            transferred = transferred
-                .checked_add(chunk.len() as u64)
-                .ok_or(Error::InvalidAsset)?;
-            hash.update(&chunk);
-            tokio::select! {
-                biased;
-                _ = cancel.cancelled() => return Err(Error::Cancelled),
-                written = output.write_all(&chunk) => written.map_err(|_| Error::Storage)?,
-            }
-            notify(progress(
-                completed + received,
-                total,
-                transferred,
-                started.elapsed(),
-            ));
-        }
-        if received != specification.size
-            || !format!("{:x}", hash.finalize()).eq_ignore_ascii_case(specification.sha256)
-        {
-            return Err(Error::InvalidAsset);
-        }
-        tokio::select! {
-            biased;
-            _ = cancel.cancelled() => return Err(Error::Cancelled),
-            synced = async { output.flush().await?; output.sync_all().await } => synced.map_err(|_| Error::Storage)?,
-        }
-        drop(output);
+        let checkpoint = directory.try_clone().map_err(|_| Error::Storage)?;
+        let name = specification.name.to_owned();
+        let checksum = specification.sha256.to_owned();
+        let size = specification.size;
+        let url = download.url.clone();
+        let stopping = cancel.clone();
+        let mut part = tokio::task::spawn_blocking(move || {
+            resume::Part::open(
+                checkpoint,
+                &Download {
+                    file: File {
+                        name: &name,
+                        size,
+                        sha256: &checksum,
+                    },
+                    url,
+                },
+                &stopping,
+            )
+        })
+        .await
+        .map_err(|_| Error::Storage)??;
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
-        storage::target(&directory, specification.name)?;
-        temporary
-            .replace(specification.name)
-            .map_err(|_| Error::Storage)?;
+        if part.received == specification.size
+            && format!("{:x}", part.hash.clone().finalize())
+                .eq_ignore_ascii_case(specification.sha256)
+        {
+            part.publish(specification.name)?;
+            completed += specification.size;
+            notify(progress(completed, total, transferred, started.elapsed()));
+            continue;
+        }
+        let mut output =
+            tokio::fs::File::from_std(part.file.try_clone().map_err(|_| Error::Storage)?);
+        let result = receive(
+            download,
+            &mut part,
+            &mut output,
+            client,
+            cancel,
+            |received, bytes| {
+                transferred += bytes;
+                notify(progress(
+                    completed + received,
+                    total,
+                    transferred,
+                    started.elapsed(),
+                ));
+            },
+        )
+        .await;
+        output.flush().await.map_err(|_| Error::Storage)?;
+        output.sync_all().await.map_err(|_| Error::Storage)?;
+        drop(output);
+        if let Err(error) = result {
+            if error == Error::InvalidAsset || part.received == 0 {
+                part.discard()?;
+            } else {
+                part.checkpoint()?;
+            }
+            return Err(error);
+        }
+        if part.received != specification.size
+            || !format!("{:x}", part.hash.clone().finalize())
+                .eq_ignore_ascii_case(specification.sha256)
+        {
+            part.discard()?;
+            return Err(Error::InvalidAsset);
+        }
+        if cancel.is_cancelled() {
+            part.checkpoint()?;
+            return Err(Error::Cancelled);
+        }
+        part.publish(specification.name)?;
         completed += specification.size;
     }
     if cancel.is_cancelled() {
@@ -164,4 +173,100 @@ pub(super) async fn acquire(
         bytes_per_second: 0.,
     });
     Ok(path.to_owned())
+}
+
+async fn receive(
+    download: &Download<'_>,
+    part: &mut resume::Part,
+    output: &mut tokio::fs::File,
+    client: &Client,
+    cancel: &CancellationToken,
+    mut notify: impl FnMut(u64, u64),
+) -> Result<()> {
+    let size = download.file.size;
+    for attempt in 0..2 {
+        let mut request = client
+            .get(download.url.clone())
+            .header(header::ACCEPT_ENCODING, "identity");
+        if let Some(validator) = part.range() {
+            request = request
+                .header(header::RANGE, format!("bytes={}-", part.received))
+                .header(header::IF_RANGE, validator);
+        }
+        let mut response = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err(Error::Cancelled),
+            response = request.send() => response.map_err(|_| Error::Download)?,
+        };
+        match response.status() {
+            StatusCode::PARTIAL_CONTENT
+                if part.range().is_some()
+                    && resume::range(&response, part.received, size)
+                    && part.matches(&response) => {}
+            StatusCode::OK => {
+                part.reset()?;
+                if response
+                    .content_length()
+                    .is_some_and(|length| length != size)
+                {
+                    return Err(Error::InvalidAsset);
+                }
+            }
+            StatusCode::PARTIAL_CONTENT | StatusCode::RANGE_NOT_SATISFIABLE => {
+                if attempt != 0 || part.range().is_none() {
+                    return Err(Error::InvalidAsset);
+                }
+                if response.status() == StatusCode::RANGE_NOT_SATISFIABLE
+                    && response
+                        .headers()
+                        .get(header::CONTENT_RANGE)
+                        .and_then(|value| value.to_str().ok())
+                        != Some(format!("bytes */{size}").as_str())
+                {
+                    return Err(Error::InvalidAsset);
+                }
+                part.reset()?;
+                continue;
+            }
+            _ => return Err(Error::Download),
+        }
+        if response
+            .headers()
+            .get(header::CONTENT_ENCODING)
+            .is_some_and(|value| value != "identity")
+        {
+            return Err(Error::InvalidAsset);
+        }
+        part.headers(&response);
+        part.checkpoint()?;
+        notify(part.received, 0);
+        let mut checkpoint = part.received;
+        loop {
+            let chunk = tokio::select! {
+                biased;
+                _ = cancel.cancelled() => return Err(Error::Cancelled),
+                chunk = response.chunk() => chunk.map_err(|_| Error::Download)?,
+            };
+            let Some(chunk) = chunk else {
+                return Ok(());
+            };
+            let received = part
+                .received
+                .checked_add(chunk.len() as u64)
+                .filter(|received| *received <= size)
+                .ok_or(Error::InvalidAsset)?;
+            // Finish each bounded body write before recording its prefix hash.
+            // Dropping write_all on cancellation could leave a half-written chunk.
+            output.write_all(&chunk).await.map_err(|_| Error::Storage)?;
+            part.received = received;
+            part.hash.update(&chunk);
+            if received - checkpoint >= 8 * 1024 * 1024 {
+                output.flush().await.map_err(|_| Error::Storage)?;
+                part.checkpoint()?;
+                checkpoint = received;
+            }
+            notify(received, chunk.len() as u64);
+        }
+    }
+    Err(Error::InvalidAsset)
 }
