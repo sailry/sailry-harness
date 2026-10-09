@@ -20,6 +20,12 @@
   <a href="https://github.com/sailry/sailry-harness/issues">Feedback</a>
 </p>
 
+> [!NOTE]
+> Sailry Harness is in early development and changes quickly. Features,
+> settings, and plugin APIs may change between releases, and some features are
+> still incomplete. Check [What's new](CHANGELOG.md) before updating, and
+> [report issues](https://github.com/sailry/sailry-harness/issues) you run into.
+
 ![Sailry workspace with an English conversation and weekly plan](assets/readme/workspace.png)
 
 Sailry Harness brings **AI agents and the tools they work with into a native

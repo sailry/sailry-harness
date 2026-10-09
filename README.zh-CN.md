@@ -20,6 +20,10 @@
   <a href="https://github.com/sailry/sailry-harness/issues">反馈</a>
 </p>
 
+> [!NOTE]
+> Sailry Harness 仍处于早期开发阶段，迭代较快。功能、设置和插件接口可能随版本调整，
+> 部分功能尚未完善。更新前建议先查看[更新日志](CHANGELOG.md)，遇到问题欢迎[反馈](https://github.com/sailry/sailry-harness/issues)。
+
 ![Sailry 工作区中的英文对话与一周计划](assets/readme/workspace.png)
 
 Sailry Harness 把 **AI 智能体和实际工作的工具放进同一个原生工作区**。
