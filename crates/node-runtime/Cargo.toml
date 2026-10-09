@@ -130,12 +130,14 @@ chrono.workspace = true
 futures.workspace = true
 reqwest = { workspace = true, features = ["form"] }
 url.workspace = true
+hyper-util = { workspace = true, features = ["client-proxy"] }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 trash.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
+system-configuration.workspace = true
 cua-platform-macos = { workspace = true, optional = true }
 objc2-app-kit = { workspace = true, features = ["NSRunningApplication", "NSWorkspace", "libc"] }
 objc2-core-graphics.workspace = true
@@ -147,6 +149,7 @@ objc2-io-kit.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Security", "Win32_Security_Authorization", "Win32_System_JobObjects", "Win32_System_SystemServices", "Win32_System_Threading"] }
 windows.workspace = true
+windows-registry.workspace = true
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 objc2-foundation = { workspace = true, features = ["NSFileManager", "NSPathUtilities", "NSURL"] }

@@ -4,6 +4,7 @@ use sailry_protocol::{ErrorCode, Fault, web};
 use std::{net::SocketAddr, time::Duration};
 
 mod encoding;
+mod proxy;
 #[cfg(test)]
 mod tests;
 
@@ -11,7 +12,7 @@ fn unavailable(message: &str) -> Fault {
     Fault::new(ErrorCode::Unavailable, message)
 }
 
-async fn resolve(_owner: &Fetcher, url: &Url) -> Result<Vec<SocketAddr>, Fault> {
+async fn lookup(_owner: &Fetcher, url: &Url) -> Result<Vec<SocketAddr>, Fault> {
     let port = url.port_or_known_default().expect("HTTP(S) URL port");
     let host = url.host_str().expect("HTTP(S) URL host");
     #[cfg(any(test, feature = "test-support"))]
@@ -22,15 +23,14 @@ async fn resolve(_owner: &Fetcher, url: &Url) -> Result<Vec<SocketAddr>, Fault> 
         .get(host)
         .cloned()
     {
-        policy::addresses(
-            &fixture
-                .resolved
-                .iter()
-                .map(|ip| SocketAddr::new(*ip, port))
-                .collect::<Vec<_>>(),
-            &[],
-        )?;
-        return Ok(vec![fixture.address]);
+        if fixture.resolved.is_empty() {
+            return Err(unavailable("web hostname could not be resolved"));
+        }
+        return Ok(fixture
+            .resolved
+            .iter()
+            .map(|ip| SocketAddr::new(*ip, port))
+            .collect());
     }
     let addresses: Vec<_> = match url.host().expect("HTTP(S) URL host") {
         url::Host::Ipv4(ip) => vec![SocketAddr::new(ip.into(), port)],
@@ -40,33 +40,70 @@ async fn resolve(_owner: &Fetcher, url: &Url) -> Result<Vec<SocketAddr>, Fault> 
             .map_err(|_| unavailable("web hostname could not be resolved"))?
             .collect(),
     };
-    let local = tokio::task::spawn_blocking(|| {
+    Ok(addresses)
+}
+
+async fn local_addresses() -> Result<Vec<std::net::IpAddr>, Fault> {
+    tokio::task::spawn_blocking(|| {
         sysinfo::Networks::new_with_refreshed_list()
             .values()
             .flat_map(|network| network.ip_networks().iter().map(|network| network.addr))
             .collect::<Vec<_>>()
     })
     .await
-    .map_err(|_| unavailable("local network addresses are unavailable"))?;
-    policy::addresses(&addresses, &local)?;
+    .map_err(|_| unavailable("local network addresses are unavailable"))
+}
+
+async fn resolve(owner: &Fetcher, url: &Url) -> Result<Vec<SocketAddr>, Fault> {
+    let addresses = lookup(owner, url).await?;
+    policy::addresses(&addresses, &local_addresses().await?)?;
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(fixture) = owner
+        .fixtures
+        .lock()
+        .expect("web fixture lock is healthy")
+        .get(url.host_str().expect("validated URL host"))
+    {
+        return Ok(vec![fixture.address]);
+    }
     Ok(addresses)
+}
+
+async fn check_proxy(owner: &Fetcher, url: &Url) -> Result<(), Fault> {
+    // A configured proxy resolves the destination. Local DNS is only a best-effort
+    // check; fake-IP answers used by TUN proxies are not destination addresses.
+    if let Ok(Ok(addresses)) =
+        tokio::time::timeout(Duration::from_millis(500), lookup(owner, url)).await
+    {
+        let addresses: Vec<_> = addresses.into_iter().filter(|address| !matches!(address.ip(), std::net::IpAddr::V4(ip) if ip.octets()[0] == 198 && matches!(ip.octets()[1], 18 | 19))).collect();
+        if !addresses.is_empty() {
+            policy::addresses(&addresses, &local_addresses().await?)?;
+        }
+    }
+    Ok(())
 }
 
 pub(super) async fn fetch(owner: &Fetcher, mut url: Url) -> Result<Document, Fault> {
     for redirects in 0..=web::MAX_REDIRECTS {
-        let addresses = resolve(owner, &url).await?;
+        let proxy = proxy::select(owner, &url).await?;
         let builder = reqwest::Client::builder()
+            .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .retry(reqwest::retry::never())
-            .proxy_pinned_targets(true)
             .referer(false)
             .no_gzip()
             .no_brotli()
             .no_deflate()
             .no_zstd()
             .connect_timeout(Duration::from_secs(10))
-            .read_timeout(Duration::from_secs(10))
-            .resolve_to_addrs(url.host_str().expect("validated URL host"), &addresses);
+            .read_timeout(Duration::from_secs(10));
+        let builder = if let Some(proxy) = proxy {
+            check_proxy(owner, &url).await?;
+            builder.proxy(proxy)
+        } else {
+            let addresses = resolve(owner, &url).await?;
+            builder.resolve_to_addrs(url.host_str().expect("validated URL host"), &addresses)
+        };
         #[cfg(any(test, feature = "test-support"))]
         let builder = owner.configure_fixture(&url, builder);
         let client = builder
@@ -165,7 +202,7 @@ pub(super) async fn fetch(owner: &Fetcher, mut url: Url) -> Result<Document, Fau
                     .join("\n\n");
                 Ok((None, content))
             } else {
-                let body = encoding::decode(&body, &declared_type, html)?;
+                let body = encoding::decode(&body, &declared_type, html);
                 if html {
                     html::convert(&body)
                 } else {

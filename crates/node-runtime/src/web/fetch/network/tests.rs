@@ -1,5 +1,6 @@
 use super::super::tests::server;
 use super::*;
+use hyper_util::client::proxy::matcher::Matcher;
 #[path = "../../../../tests/support/web_proxy.rs"]
 mod proxy;
 mod tls;
@@ -10,9 +11,9 @@ fn configured(host: &str, address: SocketAddr, proxy: Option<&proxy::Proxy>) -> 
     if let Some(proxy) = proxy {
         owner.fixture_proxy(
             host,
-            reqwest::Proxy::all(&proxy.url)
-                .unwrap()
-                .basic_auth("fixture", "private"),
+            Matcher::builder()
+                .all(proxy.url.replacen("http://", "http://fixture:private@", 1))
+                .build(),
         );
     }
     owner
@@ -27,16 +28,16 @@ fn authenticated(request: &str) {
 }
 
 #[tokio::test]
-async fn forwards_http_to_pinned_ips() {
+async fn delegates_hostname_resolution() {
     let server = server::Server::start().await;
     let proxy = proxy::Proxy::start(vec![server.address]).await;
     let owner = configured(server::HOST, server.address, None);
     owner.fixture_proxy(
         server::HOST,
-        reqwest::Proxy::all(&proxy.url)
-            .unwrap()
-            .basic_auth("fixture", "private")
-            .no_proxy(reqwest::NoProxy::from_string("127.0.0.1")),
+        Matcher::builder()
+            .all(proxy.url.replacen("http://", "http://fixture:private@", 1))
+            .no("127.0.0.1")
+            .build(),
     );
     let page = fetch(
         &owner,
@@ -48,7 +49,7 @@ async fn forwards_http_to_pinned_ips() {
     {
         let requests = proxy.requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
-        assert!(requests[0].starts_with(&format!("GET http://{}/html HTTP/1.1", server.address)));
+        assert!(requests[0].starts_with(&format!("GET {}/html HTTP/1.1", server.origin)));
         authenticated(&requests[0]);
     }
     let requests = server.requests.lock().unwrap();
@@ -83,7 +84,11 @@ async fn preserves_tls_hostname_and_origin_headers() {
     {
         let requests = proxy.requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
-        assert!(requests[0].starts_with(&format!("CONNECT {} HTTP/1.1", server.address)));
+        assert!(requests[0].starts_with(&format!(
+            "CONNECT {}:{} HTTP/1.1",
+            tls::HOST,
+            server.address.port()
+        )));
         authenticated(&requests[0]);
     }
     {
@@ -154,26 +159,75 @@ async fn rechecks_redirects_before_proxy_connections() {
 }
 
 #[tokio::test]
-async fn rejects_unpinned_proxy_destinations() {
+async fn tolerates_fake_ips_and_unavailable_dns() {
+    for resolved in [vec!["198.18.0.7".parse().unwrap()], Vec::new()] {
+        let server = server::Server::start().await;
+        let proxy = proxy::Proxy::start(vec![server.address]).await;
+        let owner = configured(server::HOST, server.address, Some(&proxy));
+        owner
+            .fixtures
+            .lock()
+            .unwrap()
+            .get_mut(server::HOST)
+            .unwrap()
+            .resolved = resolved;
+        assert_eq!(
+            fetch(
+                &owner,
+                Url::parse(&format!("{}/html", server.origin)).unwrap()
+            )
+            .await
+            .unwrap()
+            .content,
+            server::TEXT
+        );
+        assert_eq!(proxy.requests.lock().unwrap().len(), 1);
+        let direct = configured(server::HOST, server.address, None);
+        direct
+            .fixtures
+            .lock()
+            .unwrap()
+            .get_mut(server::HOST)
+            .unwrap()
+            .resolved = vec!["198.18.0.7".parse().unwrap()];
+        assert_eq!(
+            fetch(
+                &direct,
+                Url::parse(&format!("{}/html", server.origin)).unwrap()
+            )
+            .await
+            .err()
+            .unwrap()
+            .code,
+            ErrorCode::PermissionDenied
+        );
+    }
+}
+
+#[tokio::test]
+async fn rejects_private_answers_before_proxy_access() {
     let server = server::Server::start().await;
     let proxy = proxy::Proxy::start(vec![server.address]).await;
-    let client = reqwest::Client::builder()
-        .proxy(reqwest::Proxy::all(&proxy.url).unwrap())
-        .proxy_pinned_targets(true)
-        .build()
-        .unwrap();
-    let failure = client
-        .get(format!("{}/html", server.origin))
-        .send()
-        .await
-        .unwrap_err();
-    assert!(failure.is_request());
+    let owner = configured(server::HOST, server.address, Some(&proxy));
+    owner
+        .fixtures
+        .lock()
+        .unwrap()
+        .get_mut(server::HOST)
+        .unwrap()
+        .resolved = vec!["127.0.0.1".parse().unwrap()];
     assert_eq!(
-        std::error::Error::source(&failure).unwrap().to_string(),
-        "proxy destination has no pinned addresses"
+        fetch(
+            &owner,
+            Url::parse(&format!("{}/html", server.origin)).unwrap()
+        )
+        .await
+        .err()
+        .unwrap()
+        .code,
+        ErrorCode::PermissionDenied
     );
     assert!(proxy.requests.lock().unwrap().is_empty());
-    assert!(server.requests.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -183,10 +237,10 @@ async fn preserves_original_hostname_exclusions() {
     let owner = configured(server::HOST, server.address, None);
     owner.fixture_proxy(
         server::HOST,
-        reqwest::Proxy::all(&proxy.url)
-            .unwrap()
-            .basic_auth("fixture", "private")
-            .no_proxy(reqwest::NoProxy::from_string(server::HOST)),
+        Matcher::builder()
+            .all(proxy.url.replacen("http://", "http://fixture:private@", 1))
+            .no(server::HOST)
+            .build(),
     );
     assert_eq!(
         fetch(
@@ -246,26 +300,4 @@ async fn keeps_default_forwarding_unchanged() {
     let request = capture.await.unwrap();
     assert!(request.starts_with("GET http://unchanged.sailry.test:1234/path HTTP/1.1"));
     authenticated(&request);
-}
-
-#[tokio::test]
-async fn rejects_conflicting_proxy_routes() {
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    let address = "8.8.8.8:80".parse().unwrap();
-    let result = reqwest::Client::builder()
-        .proxy(
-            reqwest::Proxy::all("http://127.0.0.1:8080")
-                .unwrap()
-                .no_proxy(reqwest::NoProxy::from_string("direct.sailry.test")),
-        )
-        .proxy_pinned_targets(true)
-        .resolve_to_addrs("direct.sailry.test", &[address])
-        .resolve_to_addrs("proxied.sailry.test", &[address])
-        .build();
-    let fault = result.unwrap_err();
-    assert!(fault.is_builder());
-    assert_eq!(
-        std::error::Error::source(&fault).unwrap().to_string(),
-        "pinned addresses have conflicting HTTP proxy routes"
-    );
 }

@@ -102,13 +102,23 @@ impl Fetcher {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn fixture_proxy(&self, host: &str, proxy: reqwest::Proxy) {
+    pub fn fixture_proxy(&self, host: &str, proxy: hyper_util::client::proxy::matcher::Matcher) {
         self.fixtures
             .lock()
             .expect("web fixture lock is healthy")
             .get_mut(host)
             .expect("web proxy requires an existing fixture")
-            .proxy = Some(proxy);
+            .proxy = Some(Arc::new(proxy));
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn fixture_dns(&self, host: &str, addresses: Vec<std::net::IpAddr>) {
+        self.fixtures
+            .lock()
+            .expect("web fixture lock is healthy")
+            .get_mut(host)
+            .expect("web DNS requires an existing fixture")
+            .resolved = addresses;
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -121,10 +131,7 @@ impl Fetcher {
         let Some(fixture) = url.host_str().and_then(|host| fixtures.get(host)) else {
             return builder;
         };
-        let mut builder = builder.no_proxy();
-        if let Some(proxy) = &fixture.proxy {
-            builder = builder.proxy(proxy.clone());
-        }
+        let mut builder = builder;
         if !fixture.roots.is_empty() {
             builder = builder.tls_certs_only(fixture.roots.clone());
         }
@@ -158,7 +165,7 @@ impl Fetcher {
 struct Fixture {
     address: std::net::SocketAddr,
     resolved: Vec<std::net::IpAddr>,
-    proxy: Option<reqwest::Proxy>,
+    proxy: Option<Arc<hyper_util::client::proxy::matcher::Matcher>>,
     roots: Vec<reqwest::Certificate>,
 }
 

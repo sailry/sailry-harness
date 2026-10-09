@@ -52,24 +52,27 @@ impl Proxy {
                     let method = line.next().unwrap();
                     let destination = line.next().unwrap();
                     assert_eq!(line.next(), Some("HTTP/1.1"));
-                    let (target, forwarded) = if method == "CONNECT" {
-                        (
-                            destination
-                                .parse::<SocketAddr>()
-                                .expect("proxy must receive a numeric IP"),
-                            None,
-                        )
+                    let destination_url = if method == "CONNECT" {
+                        reqwest::Url::parse(&format!("http://{destination}")).unwrap()
+                    } else {
+                        reqwest::Url::parse(destination).unwrap()
+                    };
+                    assert!(
+                        destination_url.host_str().unwrap().ends_with(".test"),
+                        "proxy must resolve the original test hostname"
+                    );
+                    let target = *targets
+                        .iter()
+                        .find(|address| {
+                            Some(address.port()) == destination_url.port_or_known_default()
+                        })
+                        .expect("proxy may only resolve declared isolated targets");
+                    let forwarded = if method == "CONNECT" {
+                        None
                     } else {
                         assert_eq!(method, "GET");
                         let url = reqwest::Url::parse(destination).unwrap();
                         assert_eq!(url.scheme(), "http");
-                        let ip = url
-                            .host_str()
-                            .unwrap()
-                            .trim_matches(['[', ']'])
-                            .parse()
-                            .expect("forwarded URL must use a numeric IP");
-                        let target = SocketAddr::new(ip, url.port_or_known_default().unwrap());
                         let mut forwarded = format!(
                             "GET {}{} HTTP/1.1\r\n",
                             url.path(),
@@ -85,7 +88,7 @@ impl Proxy {
                             }
                         }
                         forwarded.push_str("\r\n");
-                        (target, Some(forwarded))
+                        Some(forwarded)
                     };
                     assert!(
                         targets.contains(&target),

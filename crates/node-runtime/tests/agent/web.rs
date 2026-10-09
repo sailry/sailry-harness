@@ -394,19 +394,20 @@ async fn decodes_declared_and_fallback_charsets() {
                 assert_eq!(page.title.as_deref(), Some("中文"));
             }
         }
-        assert_eq!(
-            client
-                .execute(
-                    client.prepare(Command::FetchWeb(sailry_protocol::web::Request {
-                        url: format!("{}/invalid-charset", http.origin),
-                        offset: 0
-                    }))
-                )
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::Unavailable
-        );
+        let Output::WebPage(page) = client
+            .execute(
+                client.prepare(Command::FetchWeb(sailry_protocol::web::Request {
+                    url: format!("{}/invalid-charset", http.origin),
+                    offset: 0,
+                })),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("web page expected");
+        };
+        assert_eq!(page.content, "��");
+        assert!(page.untrusted);
         assert_eq!(http.requests.lock().unwrap().len(), 5);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
@@ -428,10 +429,11 @@ async fn proxies_public_reads_and_blocks_private_redirects() {
         node.set_web_fixture(server::HOST, http.address);
         node.set_web_proxy_fixture(
             server::HOST,
-            reqwest::Proxy::all(&proxy.url)
-                .unwrap()
-                .basic_auth("fixture", "private"),
+            hyper_util::client::proxy::matcher::Matcher::builder()
+                .all(proxy.url.replacen("http://", "http://fixture:private@", 1))
+                .build(),
         );
+        node.set_web_dns_fixture(server::HOST, vec!["198.18.0.7".parse().unwrap()]);
         let (client, controller) = client(&node, directory.path(), remote).await;
         let Output::WebPage(page) = client
             .execute(
@@ -467,7 +469,7 @@ async fn proxies_public_reads_and_blocks_private_redirects() {
             assert!(
                 forwarded
                     .iter()
-                    .all(|request| request.starts_with(&format!("GET http://{}/", http.address)))
+                    .all(|request| request.starts_with(&format!("GET {}/", http.origin)))
             );
             assert!(forwarded.iter().all(|request| {
                 request

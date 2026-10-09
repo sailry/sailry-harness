@@ -269,8 +269,17 @@ impl Node {
     }
 
     #[cfg(feature = "test-support")]
-    pub fn set_web_proxy_fixture(&self, host: &str, proxy: reqwest::Proxy) {
+    pub fn set_web_proxy_fixture(
+        &self,
+        host: &str,
+        proxy: hyper_util::client::proxy::matcher::Matcher,
+    ) {
         self.ingress.web.fixture_proxy(host, proxy);
+    }
+
+    #[cfg(feature = "test-support")]
+    pub fn set_web_dns_fixture(&self, host: &str, addresses: Vec<std::net::IpAddr>) {
+        self.ingress.web.fixture_dns(host, addresses);
     }
 
     /// Replaces a search driver's endpoint with an isolated loopback service.

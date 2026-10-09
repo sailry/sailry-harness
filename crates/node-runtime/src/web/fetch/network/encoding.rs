@@ -1,7 +1,5 @@
-use super::unavailable;
 use encoding_rs::Encoding;
 use htmd::{Element, HtmlToMarkdown, element_handler::Handlers};
-use sailry_protocol::Fault;
 use std::{
     borrow::Cow,
     sync::{Arc, Mutex},
@@ -58,41 +56,48 @@ fn meta(bytes: &[u8]) -> Option<String> {
     label.take()
 }
 
-pub(super) fn decode<'a>(
-    bytes: &'a [u8],
-    content_type: &str,
-    html: bool,
-) -> Result<Cow<'a, str>, Fault> {
+pub(super) fn decode<'a>(bytes: &'a [u8], content_type: &str, html: bool) -> Cow<'a, str> {
     let declaration = charset(content_type)
         .map(str::to_owned)
         .or_else(|| html.then(|| meta(bytes)).flatten());
     let (encoding, body) = if let Some((encoding, size)) = Encoding::for_bom(bytes) {
         (Some(encoding), &bytes[size..])
-    } else if let Some(label) = declaration {
+    } else {
         (
-            Some(
-                Encoding::for_label(label.as_bytes())
-                    .ok_or_else(|| unavailable("web response declares an unsupported charset"))?,
-            ),
+            declaration
+                .as_deref()
+                .and_then(|label| Encoding::for_label(label.as_bytes())),
             bytes,
         )
-    } else {
-        (None, bytes)
     };
     let decoded = if let Some(encoding) = encoding {
-        encoding
-            .decode_without_bom_handling_and_without_replacement(body)
-            .ok_or_else(|| unavailable("web response contains invalid text for its charset"))?
+        encoding.decode_without_bom_handling(body).0
+    } else if let Ok(text) = std::str::from_utf8(body) {
+        Cow::Borrowed(text)
     } else {
-        crate::files::text::decode(body)
-            .map_err(|_| unavailable("web response contains unsupported text"))?
+        encoding_rs::GB18030
+            .decode_without_bom_handling_and_without_replacement(body)
+            .unwrap_or_else(|| String::from_utf8_lossy(body))
     };
-    if decoded.chars().any(|character| {
+    let invalid = |character: char| {
         character.is_control() && !matches!(character, '\t' | '\n' | '\r' | '\u{c}')
-    }) {
-        return Err(unavailable("web response contains binary content"));
+    };
+    if decoded.chars().any(invalid) {
+        Cow::Owned(
+            decoded
+                .chars()
+                .map(|character| {
+                    if invalid(character) {
+                        '\u{fffd}'
+                    } else {
+                        character
+                    }
+                })
+                .collect(),
+        )
+    } else {
+        decoded
     }
-    Ok(decoded)
 }
 
 #[cfg(test)]
