@@ -16,6 +16,8 @@ export default class Example extends View {
       const event = await nextControlEvent();
       cx.spawn(async cx => {
       try {
+        if (event.id === "document-source") await documentAction(this.current,{kind:"source"});
+        if (event.id === "document-preview") await documentAction(this.current,{kind:"document"});
         if (event.id === "document-focus") await documentAction(this.current,{kind:"focus"});
         if (event.id === "document-save") await saveDocument(this.current);
         if (event.id === "document-discard") await closeDocument(this.current,{discard:true});
@@ -39,6 +41,8 @@ export default class Example extends View {
       .child(div().v_flex().flex_1().min_w_0().min_h_0()
         .child(div().id(`document-status-${this.status}`).child(this.status))
         .child(div().h_flex().children([
+          IconButton.new("document-source",{icon:"file",label:"Source"}),
+          IconButton.new("document-preview",{icon:"file",label:"Preview"}),
           IconButton.new("document-focus",{icon:"file",label:"Focus document"}),
           IconButton.new("document-rename",{icon:"file",label:"Rename document"}),
           IconButton.new("document-save",{icon:"file",label:"Save document"}),

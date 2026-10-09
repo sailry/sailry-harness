@@ -46,6 +46,7 @@ fn kind(file: &File) -> SharedString {
         "xlsx" | "xls" => "Excel".into(),
         "pptx" | "ppt" => "PowerPoint".into(),
         "pdf" => "PDF".into(),
+        "ipynb" => "Notebook".into(),
         "html" | "htm" => "HTML".into(),
         "md" | "markdown" | "mdown" => tr("content_document"),
         _ => file.mime.clone().into(),
@@ -63,8 +64,17 @@ pub(crate) fn markdown(path: &str) -> bool {
         })
 }
 
+pub(crate) fn notebook(path: &str) -> bool {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("ipynb"))
+}
+
 pub(crate) fn mime(path: &str) -> String {
-    if markdown(path) {
+    if notebook(path) {
+        "application/x-ipynb+json".to_owned()
+    } else if markdown(path) {
         "text/markdown".to_owned()
     } else {
         mime_guess::from_path(path)

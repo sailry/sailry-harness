@@ -155,6 +155,10 @@ pub enum Operation {
     SearchFiles,
     #[serde(rename = "office.read")]
     ReadOffice,
+    #[serde(rename = "notebook.read")]
+    ReadNotebook,
+    #[serde(rename = "notebook.edit")]
+    EditNotebook,
     #[serde(rename = "media.inspect")]
     InspectMedia,
     #[serde(rename = "media.image")]
@@ -245,9 +249,11 @@ impl Operation {
             | Self::ReadFile
             | Self::FindFiles
             | Self::SearchFiles
-            | Self::ReadOffice => Some(Action::ReadFiles),
+            | Self::ReadOffice
+            | Self::ReadNotebook => Some(Action::ReadFiles),
             Self::WriteFile
             | Self::EditFile
+            | Self::EditNotebook
             | Self::DeleteFile
             | Self::MoveFile
             | Self::CreateDirectory => Some(Action::WriteFiles),
@@ -293,6 +299,7 @@ impl Operation {
                 | Self::TransferSsh
                 | Self::WriteFile
                 | Self::EditFile
+                | Self::EditNotebook
                 | Self::DeleteFile
                 | Self::MoveFile
                 | Self::CreateDirectory
@@ -365,6 +372,7 @@ impl Declaration {
                                         | Operation::ReadSettings
                                         | Operation::WriteFile
                                         | Operation::EditFile
+                                        | Operation::EditNotebook
                                 ) && !flow.operations[..index].contains(operation)
                             })
                 })

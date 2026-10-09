@@ -7,6 +7,8 @@ use std::io::{Cursor, Write as _};
 mod edits;
 #[path = "files/mutations.rs"]
 mod mutations;
+#[path = "files/notebooks.rs"]
+mod notebooks;
 #[path = "files/search.rs"]
 mod search;
 
@@ -82,6 +84,16 @@ async fn install(fixture: &process::Fixture) -> plugin::Info {
             ("find_files", "find", Some(Operation::FindFiles)),
             ("search_files", "search", Some(Operation::SearchFiles)),
             ("read_office", "office", Some(Operation::ReadOffice)),
+            (
+                "read_notebook",
+                "notebook_read",
+                Some(Operation::ReadNotebook)
+            ),
+            (
+                "edit_notebook",
+                "notebook_edit",
+                Some(Operation::EditNotebook)
+            ),
         ]
     );
     package

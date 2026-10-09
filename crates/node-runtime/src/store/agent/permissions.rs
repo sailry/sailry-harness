@@ -95,6 +95,7 @@ pub(super) fn source(
                 Some(
                     sailry_protocol::tool::Operation::WriteFile
                         | sailry_protocol::tool::Operation::EditFile
+                        | sailry_protocol::tool::Operation::EditNotebook
                         | sailry_protocol::tool::Operation::DeleteFile
                         | sailry_protocol::tool::Operation::MoveFile
                         | sailry_protocol::tool::Operation::CreateDirectory

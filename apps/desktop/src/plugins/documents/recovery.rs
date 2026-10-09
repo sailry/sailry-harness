@@ -31,10 +31,9 @@ impl Controller {
         let worktree = self.binding.worktree.expect("document worktree");
         let stop = self.stop.child_token();
         let task_path = path.clone();
-        let job = self
-            .binding
-            .runtime
-            .spawn(async move { client.read_document(worktree, &task_path, stop).await });
+        let job = self.binding.runtime.spawn(async move {
+            super::notebook::load(client, worktree, task_path, None, stop).await
+        });
         cx.spawn_in(window, async move |controller, cx| {
             let result = job.await;
             let _ = controller.update_in(cx, |controller, window, cx| {
@@ -50,7 +49,7 @@ impl Controller {
                     return;
                 };
                 match result {
-                    Ok(Ok(content)) => {
+                    Ok(Ok((content, notebook_page))) => {
                         document.input.update(cx, |input, cx| {
                             if input.value().as_ref() != content.text {
                                 let selection = input.selected_range();
@@ -60,6 +59,10 @@ impl Controller {
                                 input.set_scroll_offset(scroll, cx);
                             }
                         });
+                        if let Some(page) = notebook_page {
+                            document.notebook =
+                                Some(super::notebook::Notebook::new(page, window, cx));
+                        }
                         document.baseline = content.text;
                         document.revision = content.revision;
                         document.truncated = content.truncated;

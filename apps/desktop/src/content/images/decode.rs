@@ -15,7 +15,7 @@ pub(super) fn format(attachment: &Attachment) -> Option<ImageFormat> {
     }
 }
 
-pub(super) fn decode(
+pub(crate) fn decode(
     bytes: &[u8],
     format: ImageFormat,
     side: u32,

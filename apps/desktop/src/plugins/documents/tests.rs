@@ -10,6 +10,7 @@ use sailry_protocol::{Command, Output};
 mod closing;
 #[cfg(unix)]
 mod code;
+mod notebook;
 mod observed;
 mod publication;
 

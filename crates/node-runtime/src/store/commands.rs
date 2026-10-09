@@ -666,6 +666,8 @@ pub(super) fn execute(
         | Command::ReadFileLines { .. }
         | Command::FindFiles { .. }
         | Command::ReadOffice { .. }
+        | Command::ReadNotebook { .. }
+        | Command::EditNotebook { .. }
         | Command::DownloadFile { .. }
         | Command::UploadFile(_)
         | Command::StageSshUpload(_)

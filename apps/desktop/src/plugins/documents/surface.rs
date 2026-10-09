@@ -54,7 +54,11 @@ impl Render for Surface {
             || document.revision.is_none()
             || document.uncertain
             || controller.locked(&document.path, cx);
-        let view = if let Some(markdown) = &document.markdown {
+        let view = if let Some(notebook) = &document.notebook
+            && notebook.preview
+        {
+            notebook.render(self.document, &self.controller, &self.host.context(), cx)
+        } else if let Some(markdown) = &document.markdown {
             crate::content::editor::View::new(markdown)
                 .readonly(readonly)
                 .aria_label(document.path.clone())

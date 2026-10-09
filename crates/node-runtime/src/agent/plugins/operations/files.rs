@@ -106,6 +106,12 @@ pub(super) fn description(operation: Operation) -> &'static str {
             "Search UTF-8 files within path using embedded ripgrep matching, respecting .gitignore and never following symlinks. Choose content rows, matching paths, or matching line counts. type uses ripgrep language names; context adds up to five neighboring lines; multiline permits newline-spanning matches. Use next_offset for complete-scan pagination; narrow path if partial"
         }
         Operation::ReadOffice => "Read document sections in the captured worktree",
+        Operation::ReadNotebook => {
+            "Read numbered notebook cells without executing a kernel. Use next_offset to continue; truncated cells omit oversized metadata or outputs"
+        }
+        Operation::EditNotebook => {
+            "Atomically replace cell sources, insert cells or delete cells using the notebook revision. Indices refer to the original notebook; untouched metadata, IDs and outputs are retained. No kernel is executed"
+        }
         _ => unreachable!("not a file operation"),
     }
 }
@@ -143,6 +149,14 @@ pub(super) fn parameters(operation: Operation) -> Value {
             json!({"query":{"type":"string","minLength":1},"regex":{"type":"boolean","default":false},"case_sensitive":{"type":"boolean","default":false},"globs":{"type":"array","items":{"type":"string"},"default":[]},"path":{"type":"string","default":""},"mode":{"type":"string","enum":["content","files","count"],"default":"content"},"context":{"type":"integer","minimum":0,"maximum":5,"default":0},"type":{"type":["string","null"]},"limit":{"type":"integer","minimum":1,"maximum":200,"default":200},"offset":{"type":"integer","minimum":0,"default":0},"multiline":{"type":"boolean","default":false}}),
             vec!["query"],
         ),
+        Operation::ReadNotebook => {
+            return serde_json::to_value(schemars::schema_for!(sailry_protocol::notebook::Read))
+                .expect("Notebook read schema is JSON");
+        }
+        Operation::EditNotebook => {
+            return serde_json::to_value(schemars::schema_for!(sailry_protocol::notebook::Edit))
+                .expect("Notebook edit schema is JSON");
+        }
         Operation::ReadOffice => {
             return serde_json::to_value(schemars::schema_for!(office::Read))
                 .expect("Office schema is JSON");
@@ -260,6 +274,14 @@ pub(super) fn command(
         Operation::SearchFiles => Command::SearchFiles {
             worktree,
             options: decode::<FileSearch>(arguments)?,
+        },
+        Operation::ReadNotebook => Command::ReadNotebook {
+            worktree,
+            options: decode(arguments)?,
+        },
+        Operation::EditNotebook => Command::EditNotebook {
+            worktree,
+            edit: decode(arguments)?,
         },
         Operation::ReadOffice => Command::ReadOffice {
             worktree,

@@ -45,10 +45,16 @@ impl Ingress {
                 expected_revision,
                 ..
             } => (*worktree, path, Some(expected_revision)),
+            Command::EditNotebook { worktree, edit } => {
+                (*worktree, &edit.path, Some(&edit.expected_revision))
+            }
             _ => return Err(Fault::invalid("file checkpoint requires a write or edit")),
         };
         let root = self.worktree_root(worktree).await?;
-        let before = if matches!(request.command, Command::EditFile { .. }) {
+        let before = if matches!(
+            request.command,
+            Command::EditFile { .. } | Command::EditNotebook { .. }
+        ) {
             Some(
                 self.files
                     .capture(
@@ -160,6 +166,22 @@ pub(super) fn capture(
                 Cow::Owned(after),
                 Some(expected_revision.as_str()),
                 sailry_protocol::tool::Operation::EditFile,
+                MAX_EDIT_BYTES,
+            )
+        }
+        Command::EditNotebook { worktree, edit } => {
+            let original = before.ok_or_else(|| {
+                Fault::new(
+                    ErrorCode::RevisionConflict,
+                    "notebook checkpoint has no original content",
+                )
+            })?;
+            (
+                *worktree,
+                edit.path.as_str(),
+                Cow::Owned(crate::files::notebook::prepare(original, edit)?),
+                Some(edit.expected_revision.as_str()),
+                sailry_protocol::tool::Operation::EditNotebook,
                 MAX_EDIT_BYTES,
             )
         }

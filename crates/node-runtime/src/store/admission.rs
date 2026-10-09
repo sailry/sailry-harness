@@ -308,6 +308,7 @@ impl Ingress {
                     | sailry_protocol::Command::ReadFileLines { .. }
                     | sailry_protocol::Command::FindFiles { .. }
                     | sailry_protocol::Command::ReadOffice { .. }
+                    | sailry_protocol::Command::ReadNotebook { .. }
                     | sailry_protocol::Command::SearchFiles { .. }
                     | sailry_protocol::Command::InspectGit { .. }
                     | sailry_protocol::Command::ReadGitStash { .. }

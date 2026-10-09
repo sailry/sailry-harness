@@ -42,6 +42,7 @@ impl Roots {
             | Command::FinishFileUpload { path, .. } => {
                 vec![(self.target.clone(), path.clone())]
             }
+            Command::EditNotebook { edit, .. } => vec![(self.target.clone(), edit.path.clone())],
             Command::ApplyTurnHunk(selection) => {
                 vec![(self.target.clone(), selection.path.clone())]
             }
@@ -171,6 +172,7 @@ pub(super) fn target(command: &Command) -> Option<Target> {
         }
         Command::WriteFile { worktree, .. }
         | Command::EditFile { worktree, .. }
+        | Command::EditNotebook { worktree, .. }
         | Command::DeleteFile { worktree, .. }
         | Command::MoveFile { worktree, .. }
         | Command::InstallPlugin { worktree, .. }
@@ -408,6 +410,9 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
                 edits.as_deref(),
             )?;
             crate::files::edit(root, path, &changes, expected_revision).map(Output::FileWritten)
+        }
+        Command::EditNotebook { edit, .. } => {
+            crate::files::notebook::edit(root, edit).map(Output::FileWritten)
         }
         Command::UpdateGitIndex {
             paths,

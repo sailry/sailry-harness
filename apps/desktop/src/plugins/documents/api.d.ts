@@ -2,7 +2,7 @@ export interface Document {
   id: string; path: string; revision: string | null; lines: number;
   position: { line: number; column: number }; language: string;
   dirty: boolean; saving: boolean; uncertain: boolean; truncated: boolean;
-  mode: "source" | "document"; markdown: boolean; can_copy: boolean;
+  mode: "source" | "document"; markdown: boolean; notebook: boolean; can_copy: boolean;
   can_edit: boolean; readonly: boolean; can_cut_paste: boolean; can_save: boolean;
   error: { code: string; message: string } | null;
 }

@@ -55,9 +55,17 @@ impl Controller {
         let task_path = path.clone();
         let task_context = context.clone();
         let job = self.binding.runtime.spawn(async move {
-            client
-                .read_document_scoped(&task_context, &task_path, cancellation)
-                .await
+            let worktree = task_context
+                .worktree
+                .ok_or_else(|| Fault::invalid("document requires a worktree"))?;
+            super::notebook::load(
+                client,
+                worktree,
+                task_path,
+                Some(task_context),
+                cancellation,
+            )
+            .await
         });
         cx.spawn_in(window, async move |controller, cx| {
             let result = job.await.unwrap_or_else(|_| Err(unavailable()));
@@ -69,7 +77,7 @@ impl Controller {
                     return;
                 }
                 controller.reads.remove(&path);
-                let content = match result {
+                let (content, notebook_page) = match result {
                     Ok(content) => content,
                     Err(fault) => {
                         let _ = reply.send(Err(fault));
@@ -92,6 +100,10 @@ impl Controller {
                                 input.set_scroll_offset(scroll, cx);
                             }
                         });
+                        if let Some(page) = notebook_page {
+                            document.notebook =
+                                Some(super::notebook::Notebook::new(page, window, cx));
+                        }
                         document.baseline = content.text;
                         document.revision = content.revision;
                         document.truncated = content.truncated;
@@ -138,6 +150,8 @@ impl Controller {
                             path,
                             input,
                             markdown,
+                            notebook: notebook_page
+                                .map(|page| super::notebook::Notebook::new(page, window, cx)),
                             baseline: content.text,
                             revision: content.revision,
                             truncated: content.truncated,

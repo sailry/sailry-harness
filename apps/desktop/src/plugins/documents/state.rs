@@ -32,6 +32,7 @@ pub(super) struct Document {
     pub path: String,
     pub input: Entity<EditorState>,
     pub markdown: Option<Entity<crate::content::editor::State>>,
+    pub notebook: Option<super::notebook::Notebook>,
     pub baseline: String,
     pub revision: Option<String>,
     pub truncated: bool,
@@ -73,6 +74,10 @@ impl Document {
             .and_then(|state| state.read(cx).source_cursor_position(cx))
             .unwrap_or_else(|| input.cursor_position());
         let mode = self.markdown.as_ref().map(|state| state.read(cx).mode());
+        let preview = self
+            .notebook
+            .as_ref()
+            .is_some_and(|notebook| notebook.preview);
         let can_cut_paste = self
             .markdown
             .as_ref()
@@ -82,14 +87,17 @@ impl Document {
             |state| state.read(cx).can_copy(cx),
         );
         json!({"id":id,"path":self.path,"lines":input.text().lines_len(),"position":{"line":position.line + 1,"column":position.character + 1},"language":input.language_name(),"revision":self.revision,"dirty":dirty,"saving":self.saving,"uncertain":self.uncertain,"truncated":self.truncated,
-            "mode":if mode == Some(crate::content::editor::Mode::Document) { "document" } else { "source" },
-            "markdown":self.markdown.is_some(),"can_copy":can_copy,"can_edit":self.revision.is_some() && !self.uncertain,"readonly":self.revision.is_none() || self.uncertain,
-            "can_cut_paste":self.revision.is_some() && !self.uncertain && can_cut_paste,"can_save":self.revision.is_some() && (dirty || self.uncertain) && !self.saving,"error":self.error})
+            "mode":if preview || mode == Some(crate::content::editor::Mode::Document) { "document" } else { "source" },
+            "markdown":self.markdown.is_some(),"notebook":self.notebook.is_some(),"can_copy":preview || can_copy,"can_edit":self.revision.is_some() && !self.uncertain && !preview,"readonly":self.revision.is_none() || self.uncertain,
+            "can_cut_paste":self.revision.is_some() && !self.uncertain && can_cut_paste && !preview,"can_save":self.revision.is_some() && (dirty || self.uncertain) && !self.saving,"error":self.error})
     }
 
     pub fn action(&mut self, action: Action, window: &mut Window, cx: &mut App) {
         use crate::content::editor::{Command, Mode};
         if let Action::Reveal { line } = action {
+            if let Some(notebook) = &mut self.notebook {
+                notebook.preview = false;
+            }
             self.input.update(cx, |input, cx| {
                 input.set_cursor_position(
                     Position::new(line.saturating_sub(1).min(u32::MAX as usize) as u32, 0),
@@ -98,6 +106,30 @@ impl Document {
                 )
             });
             return;
+        }
+        if let Some(notebook) = &mut self.notebook {
+            match &action {
+                Action::Source {} | Action::Find {} => notebook.preview = false,
+                Action::Document {} => {
+                    notebook.preview = true;
+                    notebook.focus(window, cx);
+                    return;
+                }
+                Action::Focus {} if notebook.preview => {
+                    notebook.focus(window, cx);
+                    return;
+                }
+                Action::Copy {} if notebook.preview => {
+                    notebook.copy(window, cx);
+                    return;
+                }
+                Action::Cut {} | Action::Paste {} | Action::Undo {} | Action::Redo {}
+                    if notebook.preview =>
+                {
+                    return;
+                }
+                _ => {}
+            }
         }
         if let Some(markdown) = &self.markdown {
             markdown.update(cx, |state, cx| match action {

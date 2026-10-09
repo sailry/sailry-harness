@@ -5,6 +5,7 @@ use gpui_kit::*;
 use gpui_shell::{HostModule, HostValue};
 use sailry_protocol::tool::File;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
+mod notebook;
 
 #[derive(Clone)]
 pub(crate) struct Resource {
@@ -41,7 +42,16 @@ impl Panel {
             .read(cx)
             .entries
             .values()
-            .find(|info| accepts(info, &resource.file.mime))
+            .find(|info| {
+                accepts(
+                    info,
+                    if crate::content::files::notebook(&resource.file.path) {
+                        "application/x-ipynb+json"
+                    } else {
+                        &resource.file.mime
+                    },
+                )
+            })
             .map(|info| info.summary.reference());
         if let Some(package) = package
             && self.selected.as_ref() != Some(&package)
@@ -89,13 +99,26 @@ pub(super) fn module(
             };
             let mut view = view.borrow_mut();
             if view.is_none() {
-                *view = crate::content::files::preview(
-                    resource.binding.clone(),
-                    resource.file.clone(),
-                    resource.source.clone(),
-                    host.context().clone(),
-                    cx,
-                );
+                *view = if crate::content::files::notebook(&resource.file.path) {
+                    Some(
+                        cx.new(|_| {
+                            notebook::View::new(
+                                resource.binding.clone(),
+                                resource.file.clone(),
+                                host.clone(),
+                            )
+                        })
+                        .into(),
+                    )
+                } else {
+                    crate::content::files::preview(
+                        resource.binding.clone(),
+                        resource.file.clone(),
+                        resource.source.clone(),
+                        host.context().clone(),
+                        cx,
+                    )
+                };
             }
             view.as_ref().map_or_else(
                 || {

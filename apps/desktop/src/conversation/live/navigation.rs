@@ -217,7 +217,7 @@ impl View {
                     }
                 }),
             )
-            .on_hover(cx.listener(|view, hovered, _, cx| {
+            .on_hover(cx.listener(|view, hovered: &bool, _, cx| {
                 if !hovered {
                     view.navigation.hover = None;
                     view.navigation.dragging = false;

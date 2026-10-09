@@ -1050,6 +1050,14 @@ pub enum Command {
         worktree: WorktreeId,
         options: crate::office::Read,
     },
+    ReadNotebook {
+        worktree: WorktreeId,
+        options: crate::notebook::Read,
+    },
+    EditNotebook {
+        worktree: WorktreeId,
+        edit: crate::notebook::Edit,
+    },
     /// Prepares a bounded-lifetime binary download without mutating the source.
     DownloadFile {
         worktree: WorktreeId,
@@ -1403,6 +1411,7 @@ impl Command {
                 | Self::ReadFileLines { .. }
                 | Self::FindFiles { .. }
                 | Self::ReadOffice { .. }
+                | Self::ReadNotebook { .. }
                 | Self::DownloadFile { .. }
                 | Self::UploadFile(_)
                 | Self::UploadAttachment(_)
@@ -1666,6 +1675,7 @@ pub enum Output {
     },
     FileWritten(crate::FileWritten),
     OfficeContent(crate::office::Inspection),
+    NotebookPage(crate::notebook::Page),
     DirectoryCreated {
         path: String,
     },

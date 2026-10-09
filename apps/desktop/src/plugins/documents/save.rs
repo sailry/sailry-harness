@@ -137,6 +137,9 @@ impl Controller {
                 let result = match result {
                     Ok(Output::FileWritten(written)) => {
                         document.baseline = text;
+                        if let Some(notebook) = &mut document.notebook {
+                            notebook.revision = written.revision.clone();
+                        }
                         document.revision = Some(written.revision);
                         document.request = None;
                         document.submitted_text = None;

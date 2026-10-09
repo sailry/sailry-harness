@@ -42,6 +42,7 @@ impl Ingress {
                 | Command::ReadFileLines { worktree, .. }
                 | Command::FindFiles { worktree, .. }
                 | Command::ReadOffice { worktree, .. }
+                | Command::ReadNotebook { worktree, .. }
                 | Command::SearchFiles { worktree, .. }
                 | Command::InspectGit { worktree }
                 | Command::ReadGitStash { worktree, .. }

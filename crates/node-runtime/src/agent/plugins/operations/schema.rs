@@ -45,6 +45,8 @@ pub(super) fn description(operation: Operation) -> &'static str {
         | Operation::MoveFile
         | Operation::CreateDirectory
         | Operation::SearchFiles
+        | Operation::ReadNotebook
+        | Operation::EditNotebook
         | Operation::ReadOffice => files::description(operation),
         Operation::InspectMedia => "Inspect an image with the model captured by this turn",
         Operation::GenerateImage => "Generate a PNG with the model captured by this turn",
@@ -114,6 +116,8 @@ pub(super) fn parameters(operation: Operation) -> Value {
             | Operation::MoveFile
             | Operation::CreateDirectory
             | Operation::SearchFiles
+            | Operation::ReadNotebook
+            | Operation::EditNotebook
             | Operation::ReadOffice
     ) {
         return files::parameters(operation);
@@ -243,6 +247,8 @@ pub(super) fn parameters(operation: Operation) -> Value {
         | Operation::MoveFile
         | Operation::CreateDirectory
         | Operation::SearchFiles
+        | Operation::ReadNotebook
+        | Operation::EditNotebook
         | Operation::ReadOffice => unreachable!("file parameters handled above"),
     };
     json!({"type":"object", "additionalProperties":false, "properties":properties, "required":required})
@@ -269,6 +275,8 @@ pub(super) fn command(
         | Operation::MoveFile
         | Operation::CreateDirectory
         | Operation::SearchFiles
+        | Operation::ReadNotebook
+        | Operation::EditNotebook
         | Operation::ReadOffice => return files::command(operation, arguments, context),
         Operation::InspectMedia | Operation::GenerateImage | Operation::GenerateVideo => {
             let mut arguments = arguments
@@ -536,6 +544,8 @@ pub(super) fn command(
         | Operation::MoveFile
         | Operation::CreateDirectory
         | Operation::SearchFiles
+        | Operation::ReadNotebook
+        | Operation::EditNotebook
         | Operation::ReadOffice
         | Operation::InspectMedia
         | Operation::GenerateImage

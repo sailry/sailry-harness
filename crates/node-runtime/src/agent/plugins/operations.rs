@@ -499,7 +499,9 @@ impl HostOperation {
                 request.id = id;
                 if matches!(
                     request.command,
-                    Command::WriteFile { .. } | Command::EditFile { .. }
+                    Command::WriteFile { .. }
+                        | Command::EditFile { .. }
+                        | Command::EditNotebook { .. }
                 ) {
                     self.ingress
                         .checkpoint_write(self.turn, &request, self.stop.clone())

@@ -3,6 +3,7 @@ mod closing;
 mod code;
 pub(in crate::plugins) mod entries;
 mod load;
+pub(in crate::plugins) mod notebook;
 mod recovery;
 pub(crate) mod routes;
 mod save;
@@ -408,6 +409,12 @@ impl Controller {
                 ErrorCode::PermissionDenied,
                 "document is read-only",
             ));
+        }
+        if matches!(action, Action::Document {})
+            && !document.truncated
+            && let Some(notebook) = &mut document.notebook
+        {
+            notebook.draft(document.input.read(cx).value().as_ref(), window, cx)?;
         }
         document.action(action, window, cx);
         let value = document.snapshot(id, cx);

@@ -8,6 +8,7 @@ pub(crate) mod edit;
 mod lines;
 mod media;
 pub(crate) mod mutations;
+pub(crate) mod notebook;
 pub(crate) mod path;
 pub(crate) mod rename;
 mod save;
@@ -87,6 +88,9 @@ impl Files {
                 }
                 Command::ReadOffice { options, .. } => {
                     crate::office::read(&root, &options).map(Output::OfficeContent)
+                }
+                Command::ReadNotebook { options, .. } => {
+                    notebook::read(&root, &options, &control).map(Output::NotebookPage)
                 }
                 Command::ReadFile { path, .. } => {
                     read(root, path, &control).map(Output::FileContent)

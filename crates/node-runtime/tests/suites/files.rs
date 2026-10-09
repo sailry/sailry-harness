@@ -31,3 +31,6 @@ mod file_upload;
 mod file_watch;
 #[path = "../files.rs"]
 mod files;
+
+#[path = "../notebooks.rs"]
+mod notebooks;
