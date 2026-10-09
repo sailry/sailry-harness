@@ -212,7 +212,7 @@ fn captures_nodes_and_publishes_attachment_links(cx: &mut TestAppContext) {
     let attachments = [seed(&fixture, 0), seed(&fixture, 1)];
     let output = tempfile::tempdir().unwrap();
     let (shell, visual) = mount(&fixture, cx);
-    for index in 0..2 {
+    for (index, attachment) in attachments.iter().enumerate() {
         for (format, action) in [
             (Format::Markdown, Action::ExportMarkdown),
             (Format::Html, Action::ExportHtml),
@@ -271,7 +271,7 @@ fn captures_nodes_and_publishes_attachment_links(cx: &mut TestAppContext) {
                         && document.contains("href=\"sailry-assets-")
                 ),
             }
-            let asset = sailry_client::conversation::export::attachment_name(&attachments[index]);
+            let asset = sailry_client::conversation::export::attachment_name(attachment);
             let published = entries(output.path())
                 .into_iter()
                 .find(|path| {

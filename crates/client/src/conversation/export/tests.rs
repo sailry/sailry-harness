@@ -84,7 +84,10 @@ fn deduplicates_attachments_without_path_escapes() {
         "export-assets",
     )
     .unwrap();
-    assert_eq!(document.attachments, [attachment.clone()]);
+    assert_eq!(
+        document.attachments.as_slice(),
+        std::slice::from_ref(&attachment)
+    );
     assert!(!attachment_name(&attachment).contains('/'));
     assert!(document.content.contains("export-assets/"));
     assert!(render(&page(vec![]), "Export", Format::Markdown, "../assets").is_err());
