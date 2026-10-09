@@ -86,9 +86,8 @@ async fn run(
     let session = invocation.turn.session;
     let main = invocation.child.is_none();
     let callbacks = plugins::callbacks::capture(&invocation);
-    let mut result = execute(ingress, tasks, invocation, token.clone()).await;
-    // Commands and children retain cleanup ownership after ADK drops their tool futures.
-    controls.drain(turn).await;
+    let hooks = crate::hooks::Binding::capture(ingress, &invocation, token.clone());
+    let mut result = execute(ingress, tasks, invocation, token.clone(), hooks.clone()).await;
     if owner.as_ref().is_some_and(CancellationToken::is_cancelled) {
         // Owner Stop or timeout must retain input before observers can see a
         // terminal child run. A guidance handoff cancels only the Runner token.
@@ -114,6 +113,21 @@ async fn run(
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
     }
+    if !controls.stopped.is_cancelled()
+        && !token.is_cancelled()
+        && let Some(hooks) = &hooks
+    {
+        let status = if result.is_ok() {
+            "completed"
+        } else {
+            "failed"
+        };
+        if let Err(error) = hooks.complete(status).await {
+            merge_failure(&mut result, error);
+        }
+    }
+    // Hook and tool process owners survive dropped ADK callback futures.
+    controls.drain(turn).await;
     let (status, error, output) = if controls.stopped.is_cancelled() {
         (
             Status::Interrupted,
@@ -156,15 +170,37 @@ async fn run(
     ))
 }
 
+fn merge_failure(result: &mut Result<Option<String>, Fault>, error: Fault) {
+    match result {
+        Ok(_) => *result = Err(error),
+        Err(original) => {
+            if error.code == ErrorCode::OutcomeUnknown {
+                original.code = ErrorCode::OutcomeUnknown;
+            }
+            original.message.push_str("; ");
+            original.message.push_str(&error.message);
+        }
+    }
+}
+
 async fn execute(
     ingress: &Arc<Ingress>,
     tasks: &Tasks,
     invocation: Invocation,
     stop: CancellationToken,
+    hooks: Option<Arc<crate::hooks::Binding>>,
 ) -> Result<Option<String>, Fault> {
     let session = invocation.turn.session;
     let mut connections = ingress.agents.mcp.take(session);
-    let result = execute_with(ingress, tasks, invocation, stop.clone(), &mut connections).await;
+    let result = execute_with(
+        ingress,
+        tasks,
+        invocation,
+        stop.clone(),
+        &mut connections,
+        hooks,
+    )
+    .await;
     // Computer observations belong to the conversation's trusted SDK handle,
     // not this turn. Retain it with the history across completion and stopping.
     // ADK can drop a tool future on interruption before its async cleanup runs.
@@ -202,6 +238,7 @@ async fn execute_with(
     invocation: Invocation,
     stop: CancellationToken,
     connections: &mut mcp::Connections,
+    hooks: Option<Arc<crate::hooks::Binding>>,
 ) -> Result<Option<String>, Fault> {
     if stop.is_cancelled() {
         return Ok(None);
@@ -305,6 +342,11 @@ async fn execute_with(
         .before_model_callback(guidance::bind(ingress, invocation.turn.id))
         .before_model_callback(approval::bind(ingress, invocation.turn.id, content.clone()))
         .before_model_callback(preamble);
+    if let Some(hooks) = hooks {
+        agent = agent
+            .before_tool_callback(hooks.before())
+            .after_tool_callback_full(hooks.after());
+    }
     extensions.callbacks.push((0, compact));
     extensions.callbacks.sort_by_key(|(order, _)| *order);
     for (_, callback) in extensions.callbacks {
@@ -474,5 +516,44 @@ async fn execute_with(
                 return Ok(output);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod failures {
+    use super::*;
+
+    #[test]
+    fn preserves_original_cause() {
+        let mut result = Err(Fault::new(ErrorCode::PermissionDenied, "original failure"));
+        merge_failure(
+            &mut result,
+            Fault::new(ErrorCode::Unavailable, "hook failure"),
+        );
+        let error = result.unwrap_err();
+        assert_eq!(error.code, ErrorCode::PermissionDenied);
+        assert_eq!(error.message, "original failure; hook failure");
+    }
+
+    #[test]
+    fn retains_uncertainty_from_either_cause() {
+        for (original, hook) in [
+            (ErrorCode::OutcomeUnknown, ErrorCode::Unavailable),
+            (ErrorCode::Unavailable, ErrorCode::OutcomeUnknown),
+        ] {
+            let mut result = Err(Fault::new(original, "original failure"));
+            merge_failure(&mut result, Fault::new(hook, "hook failure"));
+            let error = result.unwrap_err();
+            assert_eq!(error.code, ErrorCode::OutcomeUnknown);
+            assert_eq!(error.message, "original failure; hook failure");
+        }
+    }
+
+    #[test]
+    fn promotes_failure_after_success() {
+        let error = Fault::new(ErrorCode::Unavailable, "hook failure");
+        let mut result = Ok(Some("original answer".into()));
+        merge_failure(&mut result, error.clone());
+        assert_eq!(result, Err(error));
     }
 }

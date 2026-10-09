@@ -63,6 +63,19 @@ pub(crate) const USER: &str = "node";
 // Job boxes the entire operation; boxing its event again adds no queue saving.
 #[allow(clippy::large_enum_variant)]
 pub(super) enum Operation {
+    ClaimHook {
+        turn: TurnId,
+        phase: hooks::Phase,
+        ordinal: u64,
+        reply: oneshot::Sender<Result<(), Fault>>,
+    },
+    FinishHook {
+        turn: TurnId,
+        phase: hooks::Phase,
+        ordinal: u64,
+        result: Result<process::Outcome, Fault>,
+        reply: oneshot::Sender<Result<(), Fault>>,
+    },
     Worktrees {
         turn: TurnId,
         reply: oneshot::Sender<Result<Vec<Worktree>, Fault>>,
@@ -185,6 +198,7 @@ pub(super) enum Operation {
 }
 
 pub(crate) struct Invocation {
+    pub hooks: hooks::Settings,
     pub automatic: bool,
     pub connections: connections::Catalog,
     pub turn: QueuedTurn,
@@ -389,6 +403,34 @@ pub(super) fn execute(
     controls: &crate::agent::Controls,
 ) {
     match operation {
+        Operation::ClaimHook {
+            turn,
+            phase,
+            ordinal,
+            reply,
+        } => {
+            let _ = reply.send(super::hooks::claim(
+                &database.connection,
+                turn,
+                phase,
+                ordinal,
+            ));
+        }
+        Operation::FinishHook {
+            turn,
+            phase,
+            ordinal,
+            result,
+            reply,
+        } => {
+            let _ = reply.send(super::hooks::finish(
+                &database.connection,
+                turn,
+                phase,
+                ordinal,
+                &result,
+            ));
+        }
         Operation::Worktrees { turn, reply } => {
             let _ = reply.send(worktrees::list(database, turn));
         }

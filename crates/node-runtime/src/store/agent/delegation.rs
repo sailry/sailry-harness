@@ -343,6 +343,7 @@ pub(super) fn admit(
         let _ = events.send(envelope);
     }
     Ok(Invocation {
+        hooks: super::super::hooks::frozen(&database.connection, turn.id)?,
         automatic: false,
         project: previous.project,
         connections: connections::catalog(&database.connection, turn.session)?,

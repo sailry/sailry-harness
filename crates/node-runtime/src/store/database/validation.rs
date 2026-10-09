@@ -7,6 +7,21 @@ use sailry_protocol::{
 use serde::de::DeserializeOwned;
 
 pub(super) fn stored(db: &Connection) -> Result<(), Error> {
+    records::<sailry_protocol::hooks::Settings>(
+        db,
+        "hook_settings.body",
+        "SELECT body FROM hook_settings",
+    )?;
+    records::<sailry_protocol::hooks::Settings>(
+        db,
+        "agent_runs.hooks",
+        "SELECT hooks FROM agent_runs",
+    )?;
+    records::<Result<sailry_protocol::process::Outcome, Fault>>(
+        db,
+        "hook_executions.result",
+        "SELECT result FROM hook_executions WHERE result IS NOT NULL",
+    )?;
     records::<sailry_protocol::code::Settings>(
         db,
         "code_settings.body",

@@ -35,6 +35,9 @@ mod forks;
 #[cfg(unix)]
 #[path = "agent/goals.rs"]
 mod goals;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[path = "agent/hooks.rs"]
+mod hooks;
 #[cfg(unix)]
 #[path = "agent/mcp/mod.rs"]
 mod mcp;

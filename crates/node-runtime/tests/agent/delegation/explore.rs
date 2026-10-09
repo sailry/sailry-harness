@@ -3,6 +3,7 @@ use super::*;
 use sailry_protocol::plugin;
 
 mod dispatch;
+mod hooks;
 
 async fn execute(client: &Client, command: Command) -> Output {
     client.execute(client.prepare(command)).await.unwrap()

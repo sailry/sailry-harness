@@ -6,6 +6,7 @@ mod continuation;
 mod conversation_values;
 pub(super) mod fixture;
 mod forks;
+mod hooks;
 mod images;
 mod location;
 mod preview;

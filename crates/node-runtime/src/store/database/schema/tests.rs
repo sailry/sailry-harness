@@ -234,6 +234,7 @@ mod startup {
     fn missing_columns_preserve_profile() {
         for (table, column) in [
             ("agent_runs", "provider"),
+            ("agent_runs", "hooks"),
             ("plugin_values", "index_data"),
             ("sessions", "state"),
         ] {

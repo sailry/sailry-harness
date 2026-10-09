@@ -108,11 +108,32 @@ pub(crate) async fn execute(
 }
 
 pub(crate) async fn execute_observed(
+    launch: Launch,
+    environment: &Environment,
+    stop: &CancellationToken,
+    closed: &CancellationToken,
+    progress: Option<&tokio::sync::watch::Sender<(Capture, Capture)>>,
+) -> Result<Completion, Fault> {
+    execute_configured(launch, environment, stop, closed, progress, None).await
+}
+
+pub(crate) async fn execute_hook(
+    launch: Launch,
+    environment: &Environment,
+    stop: &CancellationToken,
+    closed: &CancellationToken,
+    metadata: &std::collections::BTreeMap<&'static str, String>,
+) -> Result<Completion, Fault> {
+    execute_configured(launch, environment, stop, closed, None, Some(metadata)).await
+}
+
+async fn execute_configured(
     mut launch: Launch,
     environment: &Environment,
     stop: &CancellationToken,
     closed: &CancellationToken,
     progress: Option<&tokio::sync::watch::Sender<(Capture, Capture)>>,
+    metadata: Option<&std::collections::BTreeMap<&'static str, String>>,
 ) -> Result<Completion, Fault> {
     let started = Instant::now();
     if stop.is_cancelled() || closed.is_cancelled() {
@@ -133,10 +154,13 @@ pub(crate) async fn execute_observed(
         &directory,
         inputs.as_ref().map(|directory| directory.path()),
     );
-    let command = match &sandbox {
+    let mut command = match &sandbox {
         Some(sandbox) => sandbox.command(command)?,
         None => command,
     };
+    if let Some(metadata) = metadata {
+        command.envs(metadata);
+    }
     let mut command = CommandWrap::from(command);
     command.wrap(KillOnDrop);
     #[cfg(unix)]

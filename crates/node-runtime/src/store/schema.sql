@@ -175,7 +175,8 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     turn TEXT PRIMARY KEY REFERENCES turns(id),
     ready INTEGER NOT NULL CHECK(ready IN (0,1)),
     body BLOB NOT NULL,
-    provider BLOB
+    provider BLOB,
+    hooks BLOB NOT NULL
 );
 CREATE TABLE IF NOT EXISTS agent_events (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -358,3 +359,15 @@ CREATE TABLE code_startups (
 );
 
 CREATE TABLE code_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
+
+CREATE TABLE hook_settings (
+    worktree TEXT PRIMARY KEY REFERENCES worktrees(id) ON DELETE CASCADE,
+    body BLOB NOT NULL
+);
+CREATE TABLE hook_executions (
+    turn TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
+    phase TEXT NOT NULL CHECK(phase IN ('before_tool','after_tool','turn_end')),
+    ordinal INTEGER NOT NULL CHECK(ordinal>=0),
+    result BLOB,
+    PRIMARY KEY(turn,phase,ordinal)
+);

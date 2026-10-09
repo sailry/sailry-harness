@@ -17,8 +17,16 @@ impl Shell {
             let runtime = cx.global::<crate::backend::Services>().runtime.clone();
             let label = live.name(node);
             let sources = self.usage_sources();
+            let worktree = (node == live.selected)
+                .then(|| live.selected_worktree().map(|tree| tree.id))
+                .flatten();
             self.settings.update(cx, |settings, cx| {
-                settings.bind_providers(transport, runtime, label, cx);
+                settings.bind_providers(transport.clone(), runtime.clone(), label.clone(), cx);
+                if settings.section == crate::settings::Section::Hooks {
+                    settings.bind_hooks(transport, runtime, label, worktree, window, cx);
+                } else {
+                    settings.clear_hooks(cx);
+                }
                 settings.usage_sources = sources;
             });
         }

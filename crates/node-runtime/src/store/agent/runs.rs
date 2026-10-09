@@ -28,7 +28,7 @@ pub(super) fn record(
         providers::selection(provider, &turn.config)?;
     }
     let provider = provider.as_ref().map(encode).transpose()?;
-    insert(db, turn, status, ready, provider)
+    insert(db, turn, status, ready, provider, None)
 }
 
 pub(super) fn inherit(
@@ -45,7 +45,14 @@ pub(super) fn inherit(
             |row| row.get(0),
         )
         .map_err(storage_error)?;
-    insert(db, turn, status, ready, provider)
+    insert(
+        db,
+        turn,
+        status,
+        ready,
+        provider,
+        Some(super::super::hooks::frozen(db, source)?),
+    )
 }
 
 fn insert(
@@ -54,6 +61,7 @@ fn insert(
     status: Status,
     ready: bool,
     provider: Option<Vec<u8>>,
+    hooks: Option<sailry_protocol::hooks::Settings>,
 ) -> Result<(), Fault> {
     let worktree: String = db
         .query_row(
@@ -62,6 +70,9 @@ fn insert(
             |row| row.get(0),
         )
         .map_err(storage_error)?;
+    let hooks = hooks.map(Ok).unwrap_or_else(|| {
+        super::super::hooks::read(db, worktree.parse().map_err(storage_error)?)
+    })?;
     let run = Run {
         worktree: worktree.parse().map_err(storage_error)?,
         turn: turn.id,
@@ -82,8 +93,14 @@ fn insert(
         origin: None,
     };
     db.execute(
-        "INSERT INTO agent_runs(turn,ready,body,provider) VALUES(?1,?2,?3,?4)",
-        params![turn.id.to_string(), ready, encode(&run)?, provider],
+        "INSERT INTO agent_runs(turn,ready,body,provider,hooks) VALUES(?1,?2,?3,?4,?5)",
+        params![
+            turn.id.to_string(),
+            ready,
+            encode(&run)?,
+            provider,
+            encode(&hooks)?
+        ],
     )
     .map_err(storage_error)?;
     db.execute(
@@ -313,6 +330,7 @@ fn claim_with(
         &queued.turn.config,
     );
     let invocation = Invocation {
+        hooks: super::super::hooks::frozen(&transaction, queued.turn.id)?,
         automatic: transaction
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM agent_continuations WHERE turn=?1)",

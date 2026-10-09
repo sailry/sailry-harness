@@ -98,6 +98,30 @@ pub(super) fn execute(
         Command::ListMediaModels => Ok((Output::MediaModels(super::media::catalog(db)?), None)),
         Command::ReadMediaSettings => Ok((Output::MediaSettings(super::media::read(db)?), None)),
         Command::SaveMediaSettings(settings) => super::media::save(db, settings),
+        Command::ReadHooks { worktree } => {
+            super::hooks::controller(request)?;
+            Ok((
+                Output::HookSettings(super::hooks::state(
+                    *worktree,
+                    super::hooks::read(db, *worktree)?,
+                )),
+                None,
+            ))
+        }
+        Command::SaveHooks {
+            worktree,
+            settings,
+            expected_revision,
+        } => {
+            super::hooks::controller(request)?;
+            Ok((
+                Output::HookSettings(super::hooks::state(
+                    *worktree,
+                    super::hooks::save(db, *worktree, settings, *expected_revision)?,
+                )),
+                None,
+            ))
+        }
         Command::ReadCode { .. }
         | Command::ListCodeServers { .. }
         | Command::StartCodeServer { .. }

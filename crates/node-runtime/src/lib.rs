@@ -7,6 +7,7 @@ mod agent;
 mod browser;
 mod code;
 mod computer;
+mod hooks;
 #[cfg(all(target_os = "macos", feature = "computer-worker"))]
 pub use computer::worker_host as computer_worker;
 mod databases;

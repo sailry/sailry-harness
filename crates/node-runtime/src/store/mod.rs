@@ -9,6 +9,7 @@ mod databases;
 pub(crate) mod dispatch;
 mod external;
 mod forwarding;
+pub(crate) mod hooks;
 mod login;
 mod mcp;
 pub(crate) mod media;

@@ -931,6 +931,14 @@ pub enum Command {
     ReadCodeRules,
     UpdateCodeRules,
     ReadCodeSettings,
+    ReadHooks {
+        worktree: WorktreeId,
+    },
+    SaveHooks {
+        worktree: WorktreeId,
+        settings: crate::hooks::Settings,
+        expected_revision: u64,
+    },
     SaveCodeSettings {
         settings: crate::code::Settings,
         expected_revision: u64,
@@ -1265,6 +1273,7 @@ impl Command {
                 | Self::CancelCodeQuery { .. }
                 | Self::ReadCodeRules
                 | Self::ReadCodeSettings
+                | Self::ReadHooks { .. }
                 | Self::ReadFileLines { .. }
                 | Self::FindFiles { .. }
                 | Self::ReadOffice { .. }
@@ -1348,6 +1357,7 @@ pub struct Snapshot {
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Output {
     Code(crate::code::Result),
+    HookSettings(crate::hooks::State),
     CodeSettings(crate::code::Settings),
     CodeServer(crate::code::Server),
     CodeServers(Vec<crate::code::Server>),
