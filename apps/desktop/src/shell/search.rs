@@ -117,7 +117,7 @@ impl Render for Palette {
 }
 
 impl Shell {
-    pub(super) fn search(&mut self, _: &Search, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn search(&mut self, _: &Search, window: &mut Window, cx: &mut Context<Self>) {
         if window.has_active_dialog(cx) {
             return;
         }

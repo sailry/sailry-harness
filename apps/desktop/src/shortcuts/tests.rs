@@ -86,7 +86,9 @@ fn stale_navigation_overrides_are_inert(cx: &mut TestAppContext) {
                 "app.search",
                 "sidebar.toggle",
                 "panel.toggle",
-                "host.refresh"
+                "host.refresh",
+                "system.activate",
+                "system.selection"
             ]
         );
         for id in [

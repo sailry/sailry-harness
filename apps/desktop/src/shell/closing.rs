@@ -12,6 +12,21 @@ enum Exit {
 struct Windows(Vec<(AnyWindowHandle, WeakEntity<Shell>)>);
 impl Global for Windows {}
 
+#[cfg(not(test))]
+pub(crate) fn front(cx: &App) -> Option<(AnyWindowHandle, WeakEntity<Shell>)> {
+    let windows = &cx.try_global::<Windows>()?.0;
+    windows
+        .iter()
+        .find(|(handle, _)| Some(*handle) == cx.active_window())
+        .or_else(|| {
+            windows
+                .iter()
+                .rev()
+                .find(|(_, owner)| owner.upgrade().is_some())
+        })
+        .cloned()
+}
+
 pub(crate) fn update_guard(cx: &App) -> Result<(), &'static str> {
     if cx.try_global::<Windows>().is_some_and(|windows| {
         windows.0.iter().any(|(_, owner)| {
@@ -64,6 +79,7 @@ pub(super) fn install(window: &mut Window, cx: &mut Context<Shell>) {
     let windows = &mut cx.global_mut::<Windows>().0;
     windows.retain(|(_, owner)| owner.upgrade().is_some());
     windows.push((handle, owner.clone()));
+    crate::system_shortcuts::install(window, cx);
     window.on_window_should_close(cx, move |window, cx| {
         let allowed = owner
             .update(cx, |shell, cx| {

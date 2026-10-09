@@ -550,8 +550,32 @@ impl View {
                 .when(run.status != Status::Cancelled && !copy.is_empty(), |row| {
                     row.child(
                         Clipboard::new(format!("{turn}-copy"))
-                            .value(copy)
+                            .value(copy.clone())
                             .tooltip(tr("turn_copy")),
+                    )
+                })
+                .when(run.status != Status::Cancelled && !copy.is_empty(), |row| {
+                    let id = format!("{turn}-read");
+                    let active = crate::reader::active(&id, cx);
+                    row.child(
+                        Button::new(id.clone())
+                            .ghost()
+                            .small()
+                            .icon(if active {
+                                gpui_kit::assets::IconName::Square
+                            } else {
+                                gpui_kit::assets::IconName::Volume2
+                            })
+                            .tooltip(tr(if active { "reader_stop" } else { "reader_read" }))
+                            .accessibility_label(tr(if active {
+                                "reader_stop"
+                            } else {
+                                "reader_read"
+                            }))
+                            .debug_selector(move || format!("live-turn-read-{turn}"))
+                            .on_click(move |_, window, cx| {
+                                crate::reader::toggle(id.clone(), &copy, window, cx)
+                            }),
                     )
                 })
                 .when(run.status != Status::Cancelled && !self.readonly(), |row| {

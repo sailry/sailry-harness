@@ -55,6 +55,7 @@ mod prompts;
 #[cfg(test)]
 #[allow(dead_code)]
 mod provider_fixture;
+mod reader;
 mod reasoning;
 mod resources;
 mod settings;
@@ -66,6 +67,7 @@ mod sidebar;
 #[path = "../../../crates/node-runtime/tests/ssh/server.rs"]
 mod ssh_fixture;
 mod startup;
+mod system_shortcuts;
 mod terminal;
 mod theme;
 mod ui;

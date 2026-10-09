@@ -312,6 +312,10 @@ terminal renderer is a custom rendering boundary; surrounding controls still use
 Kit. Flutter consumes shared Client state rather than another conversation state
 machine. UI preview data is isolated from execution and user profiles.
 
+System voice reading and global selection shortcuts remain controller-local.
+Selection insertion rechecks the captured Node, worktree and conversation before
+changing a draft; neither reading nor selection starts an Agent turn.
+
 ## Deployment and operations
 
 Desktop bundles presentation and a local Node. Host deploys the same Node as a

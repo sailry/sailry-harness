@@ -74,6 +74,20 @@ pub(crate) fn init(cx: &mut App) {
         &[Some("Sailry")],
         RefreshHost,
     );
+    registry.add(
+        "system.activate",
+        "shortcut_activate",
+        "secondary-alt-space",
+        &[],
+        shell::Search,
+    );
+    registry.add(
+        "system.selection",
+        "shortcut_selection",
+        "secondary-alt-s",
+        &[],
+        shell::Search,
+    );
     let overrides = crate::preferences::data(cx).shortcuts.unwrap_or_default();
     for entry in &mut registry.0 {
         if let Some(key) = overrides.get(entry.id)
@@ -188,6 +202,9 @@ pub(crate) fn save(id: &str, key: Option<&str>, cx: &mut App) -> Result<(), &'st
         return Err("shortcut_conflict");
     }
     let reset = key.is_none();
+    if id.starts_with("system.") {
+        crate::system_shortcuts::configure(id, &candidate, cx)?;
+    }
     cx.update_global::<Registry, _>(|registry, _| {
         registry
             .0
