@@ -42,6 +42,7 @@ struct Connected {
     peer: rmcp::Peer<RoleClient>,
     toolset: adk_tool::McpToolset<Arc<input::Handler>>,
     handler: Arc<input::Handler>,
+    github: Option<crate::plugins::github::login::Binding>,
 }
 
 impl Connected {
@@ -66,7 +67,7 @@ impl Connections {
         let mut tools: Vec<Registration> = Vec::new();
         let mut diagnostics = String::new();
         let mut previous = std::mem::take(&mut self.active);
-        let configurations = resources.mcp().await;
+        let configurations = resources.mcp(&ingress.environment).await;
         let selected = configurations.into_iter().filter(|config| {
             assistant.is_none_or(|(package, declaration)| {
                 config.reference == *package
@@ -82,6 +83,7 @@ impl Connections {
             let result = async {
                 if index >= crate::plugins::mcp::MAX_SERVERS { return Err(unavailable()); }
                 let launch = config.launch?;
+                let github = match &launch { crate::plugins::resources::mcp::Launch::Http {github,..} => github.clone(), _ => None };
                 let authorized = tokio::select! {
                     _ = stop.cancelled() => return Err(unavailable()),
                     result = tokio::time::timeout(Duration::from_secs(10), resources.mcp_client(ingress, &config.plugin, &config.name, &launch)) => result.map_err(|_| unavailable())??,
@@ -89,7 +91,7 @@ impl Connections {
                 let cached = previous.iter().position(|connection| connection.reference == config.reference && connection.name == config.name)
                     .map(|index| previous.remove(index));
                 let cached = match cached {
-                    Some(connection) if connection.toolset.is_closed().await => {
+                    Some(connection) if connection.toolset.is_closed().await || connection.github != github => {
                         connection.close().await?;
                         None
                     }
@@ -103,7 +105,7 @@ impl Connections {
                     let peer = service.peer().clone();
                     let toolset = adk_tool::McpToolset::new(service)
                         .with_task_support(adk_tool::mcp::McpTaskConfig::enabled().no_timeout());
-                    Connected { reference: config.reference, name: config.name.clone(), transport, peer, toolset, handler }
+                    Connected { reference: config.reference, name: config.name.clone(), transport, peer, toolset, handler, github }
                 };
                 let listed = tokio::select! {
                     _ = stop.cancelled() => Err(unavailable()),
@@ -120,6 +122,7 @@ impl Connections {
                                 description: format!("MCP {}/{}/{}\n{}", config.plugin, config.name, descriptor.name, descriptor.description.as_deref().unwrap_or("")),
                                 descriptor, toolset: connection.toolset.clone(), ingress: ingress.clone(), handler: connection.handler.clone(), poisoned: self.poisoned.clone(),
                                 turn: invocation.turn.id, session: invocation.turn.session.to_string(), stop: stop.clone(),
+                                github: connection.github.clone(),
                             }), presentation);
                             registration.grouping = grouping;
                             registration.display = display.map(|display| (registration.tool.name().into(), display));
@@ -259,6 +262,7 @@ struct Bound {
     session: String,
     stop: CancellationToken,
     poisoned: Arc<AtomicBool>,
+    github: Option<crate::plugins::github::login::Binding>,
 }
 
 #[async_trait]
@@ -326,6 +330,9 @@ impl Tool for Bound {
         };
         if context.is_cancelled() || self.stop.is_cancelled() {
             return Err(adk_core::AdkError::tool("MCP invocation was cancelled"));
+        }
+        if let Some(binding) = &self.github {
+            binding.validate(&self.ingress.environment, &self.stop).await.map_err(|_| adk_core::AdkError::tool("GitHub CLI account is signed out or changed; link the active account again"))?;
         }
         let active = self.handler.begin(
             self.ingress.clone(),

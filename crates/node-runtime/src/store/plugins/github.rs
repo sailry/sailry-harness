@@ -1,12 +1,12 @@
-//! Explicit CLI import targets one protected slot at the official GitHub MCP endpoint.
+//! Explicit CLI linkage targets only the official GitHub MCP endpoint.
 use super::*;
-use sailry_protocol::Secret;
+use crate::plugins::github::login::Identity;
 
 pub(in crate::store) fn prepare(
     db: &Connection,
     host: &crate::plugins::Host,
     package: &plugin::Reference,
-) -> Result<(), Fault> {
+) -> Result<Option<Identity>, Fault> {
     let info = settings::current(db, package)?;
     if package.name != "github" {
         return Err(Fault::invalid("GitHub login requires the GitHub plugin"));
@@ -48,23 +48,23 @@ pub(in crate::store) fn prepare(
             "GitHub login requires the official MCP endpoint",
         ));
     }
-    Ok(())
+    Ok(stored.github)
 }
 
 pub(in crate::store) fn save(
     db: &Connection,
     host: &crate::plugins::Host,
     package: &plugin::Reference,
-    token: Secret,
+    identity: Identity,
 ) -> Result<(Output, Option<Event>), Fault> {
     prepare(db, host, package)?;
-    let current = settings::read(db, package)?;
-    let updates = std::collections::BTreeMap::from([(
-        "token".into(),
-        plugin::settings::SecretUpdate::Replace(token),
-    )]);
-    let state = settings::save(db, package, &current.values, &updates)?;
-    let info = required(db, "github")?;
+    let mut info = required(db, "github")?;
+    let mut saved = settings::stored(db, &info)?;
+    saved.schema = info.settings.clone();
+    saved.slots.remove("token");
+    saved.github = Some(identity);
+    settings::persist(db, &mut info, &saved)?;
+    let state = settings::read(db, &info.summary.reference())?;
     Ok((
         Output::PluginSettings(state),
         Some(Event::PluginChanged(info.summary)),

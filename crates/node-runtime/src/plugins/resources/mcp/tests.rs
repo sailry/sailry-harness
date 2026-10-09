@@ -30,7 +30,7 @@ async fn resolves_roots_with_literal_arguments() {
         "data": {"type": "stdio", "command": "runtime", "cwd": "${PLUGIN_DATA}"}
     }));
     let package = resources.directory(0).await.unwrap();
-    let configured = resources.mcp().await;
+    let configured = resources.mcp(&crate::process::Environment::ambient()).await;
     assert_eq!(configured.len(), 3);
     for config in configured {
         let Launch::Stdio {
@@ -122,6 +122,7 @@ async fn fills_only_declared_header_slots() {
             ]),
             authorizations: BTreeMap::new(),
             mcp: None,
+            github: None,
         };
         let resources = Resources::new(
             host,
@@ -129,7 +130,7 @@ async fn fills_only_declared_header_slots() {
             BTreeMap::from([("example".into(), Ok(settings))]),
             CancellationToken::new(),
         );
-        let configured = resources.mcp().await;
+        let configured = resources.mcp(&crate::process::Environment::ambient()).await;
         assert_eq!(configured.len(), 3);
         for config in configured {
             let Launch::Http {
@@ -174,7 +175,7 @@ async fn validates_paths_and_invalidates_cache() {
         "directory": {"type": "stdio", "command": "./bin"},
         "cwd": {"type": "stdio", "command": "runtime", "cwd": "${PLUGIN_DATA}/.."}
     }));
-    let configured = resources.mcp().await;
+    let configured = resources.mcp(&crate::process::Environment::ambient()).await;
     assert_eq!(
         configured
             .iter()
@@ -186,7 +187,7 @@ async fn validates_paths_and_invalidates_cache() {
     fs::write(package.path.join("mcp.json"), "{}").unwrap();
     assert!(
         resources
-            .mcp()
+            .mcp(&crate::process::Environment::ambient())
             .await
             .iter()
             .all(|config| config.launch.is_err())
@@ -206,7 +207,11 @@ async fn rejects_unconfined_roots() {
         base.join("node/plugins/data/example/linked"),
     )
     .unwrap();
-    assert!(resources.mcp().await[0].launch.is_err());
+    assert!(
+        resources.mcp(&crate::process::Environment::ambient()).await[0]
+            .launch
+            .is_err()
+    );
     fs::rename(
         base.join("node/plugins/data/example"),
         base.join("retained-data"),
@@ -214,5 +219,86 @@ async fn rejects_unconfined_roots() {
     .unwrap();
     std::os::unix::fs::symlink(base.join("source"), base.join("node/plugins/data/example"))
         .unwrap();
-    assert!(resources.mcp().await[0].launch.is_err());
+    assert!(
+        resources.mcp(&crate::process::Environment::ambient()).await[0]
+            .launch
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn confines_cli_bindings_and_resolves_private_headers() {
+    let directory = tempfile::tempdir().unwrap();
+    let host = Host::new(Some(directory.path().canonicalize().unwrap()));
+    let info = host.install_bundled("github").unwrap();
+    let resources = Resources::new(
+        host.clone(),
+        vec![info.clone()],
+        BTreeMap::new(),
+        CancellationToken::new(),
+    );
+    let package = resources.directory(0).await.unwrap();
+    let settings = crate::plugins::settings::Resolved {
+        values: BTreeMap::new(),
+        secrets: BTreeMap::from([(
+            "token".into(),
+            sailry_protocol::Secret::new("transient-cli-token".into()),
+        )]),
+        authorizations: BTreeMap::new(),
+        mcp: None,
+        github: Some(crate::plugins::github::login::Identity {
+            login: "fixture-user".into(),
+            source: "keyring".into(),
+        }),
+    };
+    let config = Server::Http {
+        url: "https://api.githubcopilot.com/mcp/".into(),
+        headers: BTreeMap::from([("Authorization".into(), String::new())]),
+    };
+    let Launch::Http {
+        headers,
+        github: Some(binding),
+        ..
+    } = prepare(
+        &host,
+        &package,
+        "github",
+        "github",
+        config.clone(),
+        info.settings.as_ref(),
+        &settings,
+    )
+    .unwrap()
+    else {
+        panic!("bound HTTP launch expected")
+    };
+    assert_eq!(headers["Authorization"], "Bearer transient-cli-token");
+    assert_eq!(binding.identity.login, "fixture-user");
+    assert_eq!(binding.fingerprint, blake3::hash(b"transient-cli-token"));
+    for (name, server, url) in [
+        ("other", "github", "https://api.githubcopilot.com/mcp/"),
+        ("github", "other", "https://api.githubcopilot.com/mcp/"),
+        ("github", "github", "https://changed.invalid/mcp/"),
+    ] {
+        let mut changed = config.clone();
+        let Server::Http { url: target, .. } = &mut changed else {
+            unreachable!()
+        };
+        *target = url.into();
+        assert_eq!(
+            prepare(
+                &host,
+                &package,
+                name,
+                server,
+                changed,
+                info.settings.as_ref(),
+                &settings
+            )
+            .err()
+            .unwrap()
+            .code,
+            ErrorCode::PermissionDenied
+        );
+    }
 }

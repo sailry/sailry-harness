@@ -26,6 +26,7 @@ pub(crate) enum Launch {
         headers: BTreeMap<String, String>,
         sse: bool,
         authorization: Option<sailry_protocol::CredentialId>,
+        github: Option<crate::plugins::github::login::Binding>,
     },
 }
 
@@ -103,7 +104,7 @@ impl Resources {
         .map_err(|_| unavailable())?
     }
 
-    pub(crate) async fn mcp(&self) -> Vec<Configured> {
+    pub(crate) async fn mcp(&self, environment: &crate::process::Environment) -> Vec<Configured> {
         let mut configured = Vec::new();
         for (index, package) in self.packages.iter().enumerate() {
             if package.mcp.is_empty() {
@@ -127,9 +128,20 @@ impl Resources {
                             secrets: BTreeMap::new(),
                             authorizations: BTreeMap::new(),
                             mcp: None,
+                            github: None,
                         })
                     }
                 })?;
+                let mut settings = settings;
+                if let Some(identity) = &settings.github {
+                    let token = crate::plugins::github::login::credential(
+                        environment,
+                        identity,
+                        &self.stop,
+                    )
+                    .await?;
+                    settings.secrets.insert("token".into(), token);
+                }
                 let stop = self.stop.clone();
                 tokio::task::spawn_blocking(move || {
                     if stop.is_cancelled() {
@@ -248,6 +260,38 @@ fn prepare(
     let sse = matches!(&server, Server::Sse { .. });
     match server {
         Server::Http { url, mut headers } | Server::Sse { url, mut headers } => {
+            let github = if let Some(identity) = &settings.github {
+                if name != "github"
+                    || server_name != "github"
+                    || sse
+                    || url != "https://api.githubcopilot.com/mcp/"
+                {
+                    return Err(Fault::new(
+                        ErrorCode::PermissionDenied,
+                        "GitHub CLI binding requires the official MCP endpoint",
+                    ));
+                }
+                let binding = schema
+                    .and_then(|schema| schema.properties.get("token"))
+                    .and_then(|field| field.secret.as_ref())
+                    .ok_or_else(unavailable)?;
+                if binding.unsupported
+                    || binding.server.as_deref() != Some("github")
+                    || binding.header.as_deref() != Some("Authorization")
+                    || binding.prefix.as_deref() != Some("Bearer ")
+                    || binding.origin.is_some()
+                    || binding.env.is_some()
+                {
+                    return Err(unavailable());
+                }
+                let token = settings.secrets.get("token").ok_or_else(unavailable)?;
+                Some(crate::plugins::github::login::Binding {
+                    identity: identity.clone(),
+                    fingerprint: blake3::hash(token.expose().as_bytes()),
+                })
+            } else {
+                None
+            };
             for (field, secret) in &settings.secrets {
                 let binding = schema
                     .and_then(|schema| schema.properties.get(field))
@@ -273,6 +317,7 @@ fn prepare(
                 headers,
                 sse,
                 authorization: settings.authorizations.get(server_name).copied(),
+                github,
             })
         }
         Server::Stdio {

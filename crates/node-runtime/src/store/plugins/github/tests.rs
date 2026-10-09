@@ -1,5 +1,12 @@
 use super::*;
 
+fn identity() -> Identity {
+    Identity {
+        login: "fixture-user".into(),
+        source: "keyring".into(),
+    }
+}
+
 fn fixture() -> (tempfile::TempDir, crate::plugins::Host, Connection, Info) {
     let directory = tempfile::tempdir().unwrap();
     let host = crate::plugins::Host::new(Some(directory.path().canonicalize().unwrap()));
@@ -65,14 +72,9 @@ fn confines_saved_endpoint_changes() {
     stored.mcp = Some(configuration);
     settings::persist(&db, &mut info, &stored).unwrap();
     assert_eq!(
-        save(
-            &db,
-            &host,
-            &info.summary.reference(),
-            Secret::new("synthetic-token".into())
-        )
-        .unwrap_err()
-        .code,
+        save(&db, &host, &info.summary.reference(), identity())
+            .unwrap_err()
+            .code,
         ErrorCode::PermissionDenied
     );
     assert!(
@@ -88,13 +90,7 @@ fn binds_the_imported_slot_without_public_plaintext() {
     let (_directory, host, db, info) = fixture();
     let before = info.summary.reference();
     let transaction = db.unchecked_transaction().unwrap();
-    let (output, event) = save(
-        &transaction,
-        &host,
-        &before,
-        Secret::new("synthetic-token".into()),
-    )
-    .unwrap();
+    let (output, event) = save(&transaction, &host, &before, identity()).unwrap();
     transaction.commit().unwrap();
     let Output::PluginSettings(state) = &output else {
         panic!("settings expected")
@@ -105,11 +101,67 @@ fn binds_the_imported_slot_without_public_plaintext() {
         before.settings_revision + 1
     );
     assert!(
-        !serde_json::to_string(&(output, event))
+        !serde_json::to_string(&(&output, &event))
             .unwrap()
             .contains("synthetic-token")
     );
     let current = required(&db, "github").unwrap();
     let resolved = settings::resolve(&db, &current).unwrap();
-    assert_eq!(resolved.secrets["token"].expose(), "synthetic-token");
+    assert!(resolved.secrets.is_empty());
+    let captured = resolved.github.unwrap();
+    assert_eq!(captured.login, "fixture-user");
+    let saved = settings::stored(&db, &current).unwrap();
+    assert!(!saved.slots.contains_key("token"));
+    assert!(saved.github.is_some());
+    assert!(
+        settings::read_secret(&db, &state.package, "token")
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn keeps_links_and_preserves_explicit_manual_tokens() {
+    let (_directory, host, db, info) = fixture();
+    let (output, _) = save(&db, &host, &info.summary.reference(), identity()).unwrap();
+    let Output::PluginSettings(state) = output else {
+        panic!("settings expected")
+    };
+    let kept = settings::save(
+        &db,
+        &state.package,
+        &state.values,
+        &std::collections::BTreeMap::from([("token".into(), plugin::settings::SecretUpdate::Keep)]),
+    )
+    .unwrap();
+    assert!(
+        settings::stored(&db, &required(&db, "github").unwrap())
+            .unwrap()
+            .github
+            .is_some()
+    );
+    let manual = settings::save(
+        &db,
+        &kept.package,
+        &kept.values,
+        &std::collections::BTreeMap::from([(
+            "token".into(),
+            plugin::settings::SecretUpdate::Replace(sailry_protocol::Secret::new(
+                "manual-token".into(),
+            )),
+        )]),
+    )
+    .unwrap();
+    let current = required(&db, "github").unwrap();
+    assert!(settings::stored(&db, &current).unwrap().github.is_none());
+    assert_eq!(
+        settings::read_secret(&db, &manual.package, "token")
+            .unwrap()
+            .unwrap()
+            .expose(),
+        "manual-token"
+    );
+    let resolved = settings::resolve(&db, &current).unwrap();
+    assert!(resolved.github.is_none());
+    assert_eq!(resolved.secrets["token"].expose(), "manual-token");
 }

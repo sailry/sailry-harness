@@ -112,6 +112,7 @@ async fn imports_explicitly_and_replays_without_token_output() {
             panic!("CLI status expected")
         };
         assert!(status.available && status.authenticated);
+        assert!(!status.bound);
         assert!(!serde_json::to_string(&status).unwrap().contains(cli::TOKEN));
         assert_eq!(fixture.cli.calls("token"), 0);
         assert!(fixture.state().await.configured.is_empty());
@@ -130,6 +131,34 @@ async fn imports_explicitly_and_replays_without_token_output() {
         assert_eq!(state.configured, ["token"]);
         assert!(state.values.is_empty());
         assert_eq!(fixture.state().await, state);
+        let Output::PluginSecret(secret) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ReadPluginSecret {
+                package: state.package.clone(),
+                field: "token".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("secret slot expected")
+        };
+        assert!(secret.is_none());
+        let database =
+            rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
+                .unwrap();
+        let bodies: Vec<Vec<u8>> = database
+            .prepare("SELECT body FROM plugin_settings WHERE plugin='github'")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(
+            bodies
+                .iter()
+                .all(|body| !String::from_utf8_lossy(body).contains(cli::TOKEN))
+        );
+        drop(database);
         tokio::time::timeout(Duration::from_secs(5),async {
             loop {let event=events.next().await.unwrap();assert!(!serde_json::to_string(&event).unwrap().contains(cli::TOKEN));
                 if matches!(event,sailry_protocol::Update::Event(ref envelope) if matches!(&envelope.event,sailry_protocol::Event::PluginChanged(summary) if summary.name=="github" && summary.settings_revision==state.package.settings_revision)) {break;}
@@ -322,7 +351,9 @@ async fn discards_status_and_failure_streams() {
             panic!("status expected")
         };
         assert!(status.available && !status.authenticated);
+        assert!(!status.bound);
         assert_eq!(fixture.cli.calls("token"), 0);
+        fixture.cli.clear("signed-out");
         fixture.cli.set("fail");
         let error = fixture
             .client
@@ -420,5 +451,78 @@ async fn rolls_back_when_completion_cannot_be_recorded() {
         assert_eq!(fixture.cli.calls("token"), 1);
         node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn invalidates_links_after_logout_and_account_switch() {
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote).await;
+        let Output::PluginSettings(linked) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ImportGithubLogin {
+                package: fixture.package().await,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("linked settings expected")
+        };
+        for (flag, authenticated, bound) in [
+            (None, true, true),
+            (Some("signed-out"), false, false),
+            (Some("switched"), true, false),
+        ] {
+            if let Some(flag) = flag {
+                fixture.cli.set(flag);
+            }
+            let Output::GithubLogin(status) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::ReadGithubLogin {
+                    package: linked.package.clone(),
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("CLI status expected")
+            };
+            assert_eq!(status.authenticated, authenticated);
+            assert_eq!(status.bound, bound);
+            assert_eq!(fixture.cli.calls("token"), 1);
+            assert!(!serde_json::to_string(&status).unwrap().contains(cli::TOKEN));
+            if let Some(flag) = flag {
+                fixture.cli.clear(flag);
+            }
+        }
+        fixture.cli.set("signed-out");
+        let Output::PluginSettings(manual) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SavePluginSettings {
+                package: linked.package,
+                values: linked.values,
+                secrets: BTreeMap::from([(
+                    "token".into(),
+                    SecretUpdate::Replace(Secret::new("explicit-manual-token".into())),
+                )]),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("manual settings expected")
+        };
+        let Output::PluginSecret(secret) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ReadPluginSecret {
+                package: manual.package.clone(),
+                field: "token".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("manual secret expected")
+        };
+        assert_eq!(secret.unwrap().expose(), "explicit-manual-token");
+        assert_eq!(manual.configured, ["token"]);
+        fixture.close().await;
     }
 }

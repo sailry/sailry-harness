@@ -184,7 +184,7 @@ enum Job {
     },
     GithubTarget {
         package: sailry_protocol::plugin::Reference,
-        reply: oneshot::Sender<Result<(), Fault>>,
+        reply: oneshot::Sender<Result<Option<crate::plugins::github::login::Identity>, Fault>>,
     },
     TerminalOpening {
         id: sailry_protocol::TerminalId,

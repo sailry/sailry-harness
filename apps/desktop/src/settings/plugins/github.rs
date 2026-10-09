@@ -1,4 +1,4 @@
-//! CLI login import keeps its private result inside the execution Node.
+//! CLI account linking keeps credentials in the execution Node's GitHub CLI storage.
 use super::*;
 
 pub(super) struct Login {
@@ -158,6 +158,8 @@ impl Editor {
             "github_login_unavailable"
         } else if status.is_some_and(|status| !status.authenticated) {
             "github_login_signed_out"
+        } else if status.is_some_and(|status| status.bound) {
+            "github_login_linked"
         } else {
             "github_login_ready"
         };

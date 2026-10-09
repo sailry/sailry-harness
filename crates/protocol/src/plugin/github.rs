@@ -7,4 +7,6 @@ pub struct Status {
     pub package: Reference,
     pub available: bool,
     pub authenticated: bool,
+    #[serde(default)]
+    pub bound: bool,
 }

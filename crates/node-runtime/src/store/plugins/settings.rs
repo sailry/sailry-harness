@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::store) struct Stored {
-    schema: Option<Schema>,
+    pub(super) schema: Option<Schema>,
     #[serde(default)]
     values: BTreeMap<String, Value>,
     #[serde(default)]
@@ -18,6 +18,8 @@ pub(in crate::store) struct Stored {
     pub(super) authorizations: BTreeMap<String, super::grants::Grant>,
     #[serde(default)]
     pub(super) mcp: Option<plugin::mcp::Configuration>,
+    #[serde(default)]
+    pub(super) github: Option<crate::plugins::github::login::Identity>,
 }
 
 pub(super) fn current(db: &Connection, package: &plugin::Reference) -> Result<Info, Fault> {
@@ -39,6 +41,7 @@ pub(super) fn stored(db: &Connection, info: &Info) -> Result<Stored, Fault> {
             slots: BTreeMap::new(),
             authorizations: BTreeMap::new(),
             mcp: None,
+            github: None,
         });
     }
     let body: Option<Vec<u8>> = db
@@ -136,6 +139,13 @@ fn project(_db: &Connection, info: &Info, stored: &Stored) -> Result<State, Faul
         if same_binding(stored, schema, name) && value.is_some() {
             configured.push(name.clone());
         }
+    }
+    if info.summary.name == "github"
+        && stored.github.is_some()
+        && same_binding(stored, schema, "token")
+        && !configured.iter().any(|name| name == "token")
+    {
+        configured.push("token".into());
     }
     let ready = stored.schema.as_ref() == Some(schema)
         && validate_values(schema, &values).is_ok()
@@ -294,7 +304,12 @@ pub(in crate::store) fn save(
         }
     }
     let mut slots = BTreeMap::new();
+    let mut github = previous.github.clone();
     for (name, update) in updates {
+        if package.name == "github" && name == "token" && !matches!(update, SecretUpdate::Keep) {
+            github = None;
+            edit_revisions(db, &package.name, |saved| saved.github = None)?;
+        }
         match update {
             SecretUpdate::Keep => {
                 if let Some(value) = previous.slots.get(name) {
@@ -320,6 +335,7 @@ pub(in crate::store) fn save(
         slots,
         authorizations: previous.authorizations,
         mcp: previous.mcp,
+        github,
     };
     persist(db, &mut info, &saved)?;
     project(db, &info, &saved)
@@ -374,6 +390,7 @@ pub(in crate::store) fn resolve(db: &Connection, info: &Info) -> Result<Resolved
             secrets: BTreeMap::new(),
             authorizations: authorizations(&saved),
             mcp: saved.mcp,
+            github: None,
         });
     }
     let state = project(db, info, &saved)?;
@@ -386,9 +403,13 @@ pub(in crate::store) fn resolve(db: &Connection, info: &Info) -> Result<Resolved
     let secrets = state
         .configured
         .iter()
+        .filter(|name| saved.github.is_none() || name.as_str() != "token")
         .map(|name| {
-            saved.slots[name]
-                .clone()
+            saved
+                .slots
+                .get(name)
+                .cloned()
+                .flatten()
                 .map(|value| (name.clone(), value))
                 .ok_or_else(|| {
                     sailry_protocol::Fault::invalid("configured plugin setting is unavailable")
@@ -400,6 +421,11 @@ pub(in crate::store) fn resolve(db: &Connection, info: &Info) -> Result<Resolved
         secrets,
         authorizations: authorizations(&saved),
         mcp: saved.mcp,
+        github: if info.summary.name == "github" {
+            saved.github
+        } else {
+            None
+        },
     })
 }
 

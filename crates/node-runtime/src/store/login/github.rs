@@ -5,7 +5,7 @@ pub(in crate::store) struct Completed {
     pub caller: NodeId,
     pub request: Request,
     pub reply: oneshot::Sender<Response>,
-    pub result: Result<Secret, Fault>,
+    pub result: Result<crate::plugins::github::login::Identity, Fault>,
 }
 
 impl Worker {
@@ -44,7 +44,7 @@ impl Worker {
         );
         self.runtime.spawn(async move {
             let result =
-                AssertUnwindSafe(crate::plugins::github::login::token(&environment, &stop))
+                AssertUnwindSafe(crate::plugins::github::login::import(&environment, &stop))
                     .catch_unwind()
                     .await
                     .unwrap_or_else(|_| Err(super::super::unavailable()));
@@ -123,15 +123,16 @@ impl Ingress {
         let Command::ReadGithubLogin { package } = &request.command else {
             unreachable!()
         };
-        self.github_target(package.clone()).await?;
-        let (available, authenticated) =
+        let binding = self.github_target(package.clone()).await?;
+        let (available, identity) =
             crate::plugins::github::login::status(&self.environment, &self.closed).await?;
         self.github_target(package.clone()).await?;
         let (reply, completion) = oneshot::channel();
         let _ = reply.send(Ok(Output::GithubLogin(plugin::github::Status {
             package: package.clone(),
             available,
-            authenticated,
+            authenticated: identity.is_some(),
+            bound: binding.is_some() && binding == identity,
         })));
         Ok(sailry_link::Admission {
             receipt: Receipt {
@@ -142,7 +143,10 @@ impl Ingress {
         })
     }
 
-    async fn github_target(&self, package: plugin::Reference) -> Result<(), Fault> {
+    async fn github_target(
+        &self,
+        package: plugin::Reference,
+    ) -> Result<Option<crate::plugins::github::login::Identity>, Fault> {
         let (reply, response) = oneshot::channel();
         self.sender
             .try_send(Job::GithubTarget { package, reply })

@@ -78,6 +78,16 @@ fn imports_without_exposing_the_token(cx: &mut TestAppContext) {
                     .is_some_and(|login| !login.pending && !login.reading)
         });
         assert_eq!(state(&fixture).configured, ["token"]);
+        assert!(editor.read_with(visual, |editor, _| {
+            editor
+                .github
+                .as_ref()
+                .unwrap()
+                .status
+                .as_ref()
+                .unwrap()
+                .bound
+        }));
         assert_eq!(cli.calls("token"), 1);
         let other = sailry_client::Client::new(fixture.other.local());
         let Output::Plugin(info) = fixture
@@ -125,6 +135,42 @@ fn imports_without_exposing_the_token(cx: &mut TestAppContext) {
             )
             .contains(cli::TOKEN)
         );
+        visual.simulate_keystrokes("escape");
+        fixture.close(visual);
+    }
+}
+
+#[gpui::test]
+fn refreshes_links_after_logout_and_switch(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let cli = cli::Cli::new(directory.path());
+        let fixture = Fixture::with_environment(remote, cli.source());
+        let (owner, visual) = fixture.mount(cx);
+        let editor = open(&fixture, &owner, visual);
+        tap(visual, "github-login-import");
+        wait(visual, |cx| {
+            editor.read(cx).github.as_ref().is_some_and(|login| {
+                !login.pending
+                    && !login.reading
+                    && login.status.as_ref().is_some_and(|status| status.bound)
+            })
+        });
+        for (flag, authenticated) in [("signed-out", false), ("switched", true)] {
+            std::fs::write(cli.home().join(format!("gh-{flag}")), "").unwrap();
+            tap(visual, "github-login-check");
+            wait(visual, |cx| {
+                editor.read(cx).github.as_ref().is_some_and(|login| {
+                    !login.reading
+                        && login.status.as_ref().is_some_and(|status| {
+                            !status.bound && status.authenticated == authenticated
+                        })
+                })
+            });
+            assert_eq!(cli.calls("token"), 1);
+            std::fs::remove_file(cli.home().join(format!("gh-{flag}"))).unwrap();
+        }
         visual.simulate_keystrokes("escape");
         fixture.close(visual);
     }
