@@ -1,0 +1,4 @@
+editor_code_start: "Start language server"
+editor_code_retry: "Retry startup"
+editor_code_started: "Language server started"
+editor_code_failed: "Could not start language server"

@@ -53,9 +53,10 @@ impl Controller {
         let client = self.binding.client.clone();
         let cancellation = stop.clone();
         let task_path = path.clone();
+        let task_context = context.clone();
         let job = self.binding.runtime.spawn(async move {
             client
-                .read_document_scoped(&context, &task_path, cancellation)
+                .read_document_scoped(&task_context, &task_path, cancellation)
                 .await
         });
         cx.spawn_in(window, async move |controller, cx| {
@@ -148,11 +149,13 @@ impl Controller {
                             uncertain: false,
                             error: None,
                             stop: controller.stop.child_token(),
+                            code: None,
                             _observers: observers,
                         },
                     );
                     id
                 };
+                controller.attach_code(id, context, window, cx);
                 if let Some(intent) = intent {
                     controller.reveal(id, intent, line, window, cx);
                 } else {

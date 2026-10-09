@@ -1,0 +1,4 @@
+editor_code_start: "Запустить языковой сервер"
+editor_code_retry: "Повторить запуск"
+editor_code_started: "Языковой сервер запущен"
+editor_code_failed: "Не удалось запустить языковой сервер"

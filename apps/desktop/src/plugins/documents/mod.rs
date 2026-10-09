@@ -1,5 +1,6 @@
 //! Captured document buffers outlive plugin renderers; Kit owns editing and undo.
 mod closing;
+mod code;
 pub(in crate::plugins) mod entries;
 mod load;
 mod recovery;
@@ -43,7 +44,9 @@ impl Store {
 
     pub(crate) fn release(&mut self, scope: (NodeId, WorktreeId), cx: &App) {
         self.controllers.retain(|(node, tree, _), controller| {
-            (*node, *tree) != scope || controller.read(cx).affects("", cx)
+            (*node, *tree) != scope
+                || controller.read(cx).affects("", cx)
+                || controller.read(cx).pending_code()
         });
     }
     pub(crate) fn get(
@@ -84,6 +87,7 @@ pub(crate) struct Controller {
     reads: BTreeMap<String, u64>,
     reveal: Option<(RequestId, u64)>,
     stop: CancellationToken,
+    code_watch: Option<Task<()>>,
 }
 
 enum Operation {
@@ -241,6 +245,7 @@ impl Controller {
             reads: BTreeMap::new(),
             reveal: None,
             stop: CancellationToken::new(),
+            code_watch: None,
         }
     }
 
@@ -356,6 +361,7 @@ impl Controller {
     }
 
     pub(in crate::plugins) fn changed(&mut self, cx: &mut Context<Self>) {
+        self.refresh_code(cx);
         self.cursor += 1;
         self.changes.send_replace(self.snapshot(cx));
         cx.notify();
@@ -420,7 +426,13 @@ impl Controller {
         if document.unsaved(cx) && !discard {
             return Ok(false);
         }
-        if document.uncertain || (document.saving && document.staging.is_none()) {
+        if document.uncertain
+            || (document.saving && document.staging.is_none())
+            || document
+                .code
+                .as_ref()
+                .is_some_and(|provider| provider.pending())
+        {
             self.documents.get_mut(&id).unwrap().dismissed = true;
         } else {
             self.documents.remove(&id);

@@ -254,6 +254,9 @@ impl InputBaseState<EditorMode> {
             return false;
         };
         let handled = handler(kind, action, window, cx);
+        if handled {
+            cx.stop_propagation();
+        }
         if handled && closes_overlay {
             self.hide_context_menu(cx);
         }

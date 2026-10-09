@@ -1,0 +1,4 @@
+editor_code_start: "Iniciar servidor de linguagem"
+editor_code_retry: "Tentar iniciar novamente"
+editor_code_started: "Servidor de linguagem iniciado"
+editor_code_failed: "Não foi possível iniciar o servidor de linguagem"

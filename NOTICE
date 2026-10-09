@@ -17,3 +17,9 @@ Helix language rules and Mason package registry
 Helix: https://github.com/helix-editor/helix at ba40e547426b0f9896c8bdc699a4ab11f2b37dbc (MPL-2.0)
 Mason: https://github.com/mason-org/mason-registry at 2026-10-08-head-mirror, 73f39fa4b90654e88737aedf72e44b14ff92c5e5 (Apache-2.0)
 Original snapshots, checksums, provenance and license copies: crates/node-runtime/src/code/upstream/
+
+GPUI Kit editor overlays
+Vendored gpui-base sources originate from https://github.com/longbridge/gpui-kit
+at 0c830f4d257e69fdd17200650533ab4ca9a40cc0 (Apache-2.0). Sailry consumes handled
+completion and code-action menu keys before later bindings can edit the document.
+The upstream license remains in vendor/gpui-base/LICENSE-APACHE.

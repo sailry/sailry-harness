@@ -1,5 +1,6 @@
 mod appearance;
 mod catalog;
+mod code;
 mod connections;
 mod conversation;
 mod dictation;
@@ -36,6 +37,7 @@ pub enum Section {
     Appearance,
     Conversation,
     Terminal,
+    Code,
     Hooks,
     Plugin,
     Market,
@@ -59,11 +61,12 @@ impl Section {
 
     // Sailry Code 67ae9fa0: app/sailry_code_app/lib/settings/settings_models.dart.
     #[cfg(test)]
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::General,
         Self::Appearance,
         Self::Conversation,
         Self::Terminal,
+        Self::Code,
         Self::Hooks,
         Self::Plugins,
         Self::Market,
@@ -91,7 +94,7 @@ impl Section {
         ("settings_group_ai", &[Self::Providers]),
         (
             "settings_group_tools",
-            &[Self::Terminal, Self::Connections, Self::Hooks],
+            &[Self::Terminal, Self::Connections, Self::Code, Self::Hooks],
         ),
         ("settings_group_system", &[Self::Permissions, Self::About]),
     ];
@@ -101,7 +104,7 @@ impl Section {
             Self::General | Self::Providers | Self::Terminal | Self::Permissions => 100,
             Self::About => 200,
             Self::Appearance | Self::Connections => 200,
-            Self::Conversation => 300,
+            Self::Conversation | Self::Code => 300,
             Self::Shortcuts | Self::Hooks => 400,
             Self::Dictation => 500,
             _ => 10_000,
@@ -114,6 +117,7 @@ impl Section {
             Self::Appearance => "settings_appearance",
             Self::Conversation => "settings_conversation",
             Self::Terminal => "settings_terminal",
+            Self::Code => "settings_code",
             Self::Hooks => "hooks_settings",
             Self::Plugin => "plugins_settings_title",
             Self::Market => "plugins_market",
@@ -135,6 +139,7 @@ impl Section {
             Self::Appearance => IconName::Palette,
             Self::Conversation => return Icon::default().path("reicon:messages/chat-round"),
             Self::Terminal => IconName::SquareTerminal,
+            Self::Code => IconName::Cpu,
             Self::Hooks => IconName::Settings2,
             Self::Plugin => IconName::Settings2,
             Self::Market | Self::Plugins => IconName::GalleryVerticalEnd,
@@ -159,6 +164,7 @@ pub struct Workspace {
     providers: providers::Store,
     provider_link: Option<providers::Live>,
     terminal: terminal::State,
+    code: code::State,
     hooks: hooks::State,
     conversation: conversation::State,
     opacity: appearance::opacity::State,
@@ -248,6 +254,7 @@ impl Workspace {
             providers: providers::Store::default(),
             provider_link: None,
             terminal,
+            code: code::State::default(),
             hooks: hooks::State::default(),
             conversation: conversation::State::new(cx),
             opacity: appearance::opacity::State::new(cx),
@@ -298,6 +305,7 @@ impl Workspace {
     }
 
     pub fn deactivate(&mut self, cx: &mut Context<Self>) {
+        self.clear_code(cx);
         self.clear_hooks(cx);
         self.permissions
             .update(cx, |panel, cx| panel.activate(false, cx));
@@ -318,6 +326,7 @@ impl Render for Workspace {
             Section::Appearance => self.appearance(cx),
             Section::Conversation => self.conversation(cx),
             Section::Terminal => self.terminal(window, cx),
+            Section::Code => self.code.render(window, cx),
             Section::Hooks => self.hooks.render(window, cx),
             Section::Shortcuts => self.shortcuts.clone().into_any_element(),
             Section::Dictation => self.dictation.clone().into_any_element(),

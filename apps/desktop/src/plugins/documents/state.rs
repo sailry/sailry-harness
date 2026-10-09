@@ -43,6 +43,7 @@ pub(super) struct Document {
     pub uncertain: bool,
     pub error: Option<Fault>,
     pub stop: CancellationToken,
+    pub code: Option<std::rc::Rc<super::code::Provider>>,
     pub _observers: Vec<Subscription>,
 }
 

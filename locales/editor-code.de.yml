@@ -1,0 +1,4 @@
+editor_code_start: "Sprachserver starten"
+editor_code_retry: "Start erneut versuchen"
+editor_code_started: "Sprachserver gestartet"
+editor_code_failed: "Sprachserver konnte nicht gestartet werden"

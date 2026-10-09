@@ -1,0 +1,4 @@
+editor_code_start: "啟動語言伺服器"
+editor_code_retry: "重試啟動"
+editor_code_started: "語言伺服器已啟動"
+editor_code_failed: "無法啟動語言伺服器"

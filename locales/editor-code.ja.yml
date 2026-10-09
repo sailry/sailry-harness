@@ -1,0 +1,4 @@
+editor_code_start: "言語サーバーを起動"
+editor_code_retry: "起動を再試行"
+editor_code_started: "言語サーバーを起動しました"
+editor_code_failed: "言語サーバーを起動できませんでした"

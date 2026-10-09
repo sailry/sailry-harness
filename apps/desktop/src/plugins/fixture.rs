@@ -1,4 +1,7 @@
 use crate::conversation::live::Binding;
+
+#[cfg(unix)]
+pub(crate) mod code;
 use sailry_client::Client;
 use sailry_link::{Admission, CancellationToken, Pending, Subscription, Transport};
 use sailry_node_runtime::Node;
@@ -298,11 +301,31 @@ impl Fixture {
     }
 
     fn with_git(remote: bool, initialized: bool) -> Self {
+        Self::with_setup(remote, initialized, |_| None)
+    }
+
+    pub(crate) fn with_environment(
+        remote: bool,
+        setup: impl FnOnce(&std::path::Path) -> sailry_node_runtime::EnvironmentFixture,
+    ) -> Self {
+        Self::with_setup(remote, true, |directory| Some(setup(directory)))
+    }
+
+    fn with_setup(
+        remote: bool,
+        initialized: bool,
+        setup: impl FnOnce(&std::path::Path) -> Option<sailry_node_runtime::EnvironmentFixture>,
+    ) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
-        let node = runtime
-            .block_on(Node::start_isolated(directory.path().join("node")))
-            .unwrap();
+        let node = match setup(directory.path()) {
+            Some(environment) => runtime.block_on(Node::start_with_environment(
+                directory.path().join("node"),
+                environment,
+            )),
+            None => runtime.block_on(Node::start_isolated(directory.path().join("node"))),
+        }
+        .unwrap();
         let controller = runtime
             .block_on(Node::start_isolated(directory.path().join("controller")))
             .unwrap();

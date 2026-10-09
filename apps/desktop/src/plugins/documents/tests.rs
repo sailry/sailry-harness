@@ -8,6 +8,8 @@ use core::prelude::v1::test;
 use gpui_kit::component::Root;
 use sailry_protocol::{Command, Output};
 mod closing;
+#[cfg(unix)]
+mod code;
 mod observed;
 mod publication;
 
