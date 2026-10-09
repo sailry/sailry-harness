@@ -3,7 +3,9 @@ use super::*;
 #[tokio::test]
 async fn presents_complete_frames() {
     let directory = tempfile::tempdir().unwrap();
-    let script = directory.path().join("animation.sh");
+    let root = directory.path().join("project");
+    std::fs::create_dir(&root).unwrap();
+    let script = root.join("animation.sh");
     std::fs::write(
         &script,
         r#"stty -echo
@@ -19,7 +21,11 @@ printf '\033[?2026h\033[3;1HEXIT_FRAME'
 "#,
     )
     .unwrap();
-    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let node = isolated(
+        &directory.path().join("node"),
+        &directory.path().join("shell-home"),
+    )
+    .await;
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();
@@ -29,19 +35,28 @@ printf '\033[?2026h\033[3;1HEXIT_FRAME'
         .await
         .unwrap();
     let local = Client::new(node.local());
-    local
+    let Output::Project(project) = local
         .execute(local.prepare(Command::RegisterProject {
             name: "Animation fixture".into(),
-            path: directory.path().to_str().unwrap().into(),
+            path: root.to_str().unwrap().into(),
         }))
         .await
-        .unwrap();
+        .unwrap()
+    else {
+        panic!("project expected")
+    };
     local
-        .execute(local.prepare(Command::SaveTerminalSettings(Settings {
-            shell: "/bin/sh".into(),
-            environment: [("HOME".into(), directory.path().to_str().unwrap().into())].into(),
-            ..Default::default()
-        })))
+        .execute(
+            local.prepare(Command::SaveTerminalSettings(Settings {
+                shell: "/bin/sh".into(),
+                environment: [
+                    ("HOME".into(), root.to_str().unwrap().into()),
+                    ("PATH".into(), "/usr/bin:/bin".into()),
+                ]
+                .into(),
+                ..Default::default()
+            })),
+        )
         .await
         .unwrap();
     let Output::Snapshot(snapshot) = local
@@ -51,7 +66,12 @@ printf '\033[?2026h\033[3;1HEXIT_FRAME'
     else {
         panic!("snapshot expected")
     };
-    let tree = snapshot.worktrees[0].id;
+    let tree = snapshot
+        .worktrees
+        .iter()
+        .find(|tree| tree.project == Some(project.id) && tree.main)
+        .unwrap()
+        .id;
     for transport in [node.local(), controller.handle().remote(address)] {
         let client = Client::new(transport);
         let Output::Terminal(info) = client

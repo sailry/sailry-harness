@@ -22,6 +22,7 @@ impl Host {
             })
             .function("prepareTerminal", move |args| {
                 let launch = terminal::Launch {
+                    access: access(args.get(1))?,
                     worktree: create.terminal_worktree()?,
                     viewport: viewport(),
                     appearance: appearance()?,
@@ -69,6 +70,14 @@ fn identity(value: &str) -> Result<TerminalId, HostError> {
         .map_err(|_| HostError::new("invalid terminal ID"))
 }
 
+fn access(value: Option<&HostValue>) -> Result<sailry_protocol::process::Access, HostError> {
+    match value {
+        None => Ok(sailry_protocol::process::Access::Workspace),
+        Some(value) => serde_json::from_value(decode(value)?)
+            .map_err(|_| HostError::new("invalid terminal access")),
+    }
+}
+
 fn viewport() -> terminal::Viewport {
     terminal::Viewport {
         columns: 80,
@@ -81,4 +90,30 @@ fn viewport() -> terminal::Viewport {
 fn appearance() -> Result<terminal::Appearance, HostError> {
     gpui_shell::with_current_app(|cx| crate::theme::terminal(cx))
         .ok_or_else(|| HostError::new("terminal creation requires an active view"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sailry_protocol::process::Access;
+
+    #[test]
+    fn requires_explicit_unrestricted_access() {
+        assert_eq!(access(None).unwrap(), Access::Workspace);
+        assert_eq!(
+            access(Some(&HostValue::from("workspace"))).unwrap(),
+            Access::Workspace
+        );
+        assert_eq!(
+            access(Some(&HostValue::from("unrestricted"))).unwrap(),
+            Access::Unrestricted
+        );
+        for value in [
+            HostValue::Null,
+            HostValue::from("full"),
+            HostValue::from(true),
+        ] {
+            assert!(access(Some(&value)).is_err());
+        }
+    }
 }

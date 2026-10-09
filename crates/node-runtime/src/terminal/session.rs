@@ -64,12 +64,14 @@ impl Handle {
                     let vt = Vt::new(&viewport, &appearance, MAX_SCROLLBACK_ROWS)?;
                     let ssh = source.profile();
                     let tool = source.tool();
+                    let access = source.access();
                     let process = Process::start(source, &viewport, output)?;
                     let info = Info {
                         id: identity.map_or_else(TerminalId::new, |(id, _)| id),
                         worktree,
                         ssh,
                         tool,
+                        access,
                         status: Status::Running,
                         activity: None,
                         title: None,

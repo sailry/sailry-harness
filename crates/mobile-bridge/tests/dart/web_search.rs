@@ -72,6 +72,11 @@ fn check(api: ModelApi) {
         provider.api = api;
         provider.models[0].tools = false;
         provider.models[0].web_search = true;
+        let capabilities = provider.models[0]
+            .capabilities
+            .get_or_insert_with(Default::default);
+        capabilities.tools = Some(false);
+        capabilities.reasoning = Some(false);
         let Output::Provider(provider) = client
             .execute(client.prepare(Command::PutProvider {
                 expected_revision: provider.revision,
@@ -90,8 +95,17 @@ fn check(api: ModelApi) {
         .env("SAILRY_PROVIDER", serde_json::to_string(&selected).unwrap())
         .spawn()
         .unwrap();
-    assert!(super::wait(child).success());
+    let status = super::wait(child);
     let pages = runtime.block_on(tools::pages(&client, &sessions));
+    assert!(
+        status.success(),
+        "native search Dart contract failed: api={api:?}, runs={:?}, requests={}",
+        pages[0].runs,
+        gemini.as_ref().map_or_else(
+            || server.requests.lock().unwrap().len(),
+            |server| server.requests.lock().unwrap().len()
+        )
+    );
     assert_eq!(
         pages[0]
             .entries
@@ -112,6 +126,7 @@ fn check(api: ModelApi) {
     if let Some(gemini) = gemini {
         let requests = gemini.requests.lock().unwrap();
         assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].body["tools"].as_array().unwrap().len(), 1);
         assert!(
             requests[0].body["tools"]
                 .as_array()
@@ -133,6 +148,7 @@ fn check(api: ModelApi) {
     }
     let requests = server.requests.lock().unwrap();
     assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0]["tools"].as_array().unwrap().len(), 1);
     let kind = if api == ModelApi::Anthropic {
         "web_search_20250305"
     } else {

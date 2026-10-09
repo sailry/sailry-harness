@@ -329,6 +329,11 @@ impl Database {
                     (Some(Action::ReadTerminals), Some(*worktree), None)
                 }
                 Command::CreateTerminal(launch) | Command::OpenToolTerminal { launch, .. } => {
+                    if launch.access == sailry_protocol::process::Access::Unrestricted
+                        && !desktop(context)
+                    {
+                        return Err(denied("plugins cannot create unrestricted terminals"));
+                    }
                     (Some(Action::ControlTerminals), Some(launch.worktree), None)
                 }
                 Command::CloseTerminal { worktree, terminal } => {
@@ -345,6 +350,13 @@ impl Database {
                 | Command::ResizeTerminal { terminal, .. }
                 | Command::SetTerminalAppearance { terminal, .. } => {
                     let info = super::super::terminals::required(&self.connection, *terminal)?;
+                    if info.access == Some(sailry_protocol::process::Access::Unrestricted)
+                        && (matches!(request.command, Command::InputTerminal { .. })
+                            || matches!(request.command, Command::OpenTerminal { .. })
+                                && !desktop(context))
+                    {
+                        return Err(denied("plugins cannot execute in unrestricted terminals"));
+                    }
                     let worktree = info
                         .worktree
                         .ok_or_else(|| denied("terminal has no worktree scope"))?;
@@ -603,6 +615,14 @@ impl Database {
             super::required(&self.connection, &context.package.name)
         }
     }
+}
+
+fn desktop(context: &sailry_protocol::plugin::Context) -> bool {
+    use sailry_protocol::plugin::desktop::Surface;
+
+    context.turn.is_none()
+        && context.invocation.is_none()
+        && matches!(context.surface, Surface::Workspace | Surface::Project)
 }
 
 fn denied(message: &str) -> Fault {

@@ -2,6 +2,7 @@ use super::super::tests::command;
 use super::*;
 use serde_json::json;
 
+mod access;
 mod permissions;
 mod planning;
 mod rules;

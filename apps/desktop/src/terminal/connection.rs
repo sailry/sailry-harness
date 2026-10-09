@@ -115,7 +115,11 @@ impl Connection {
                 };
                 let report = !matches!(command, Command::InputTerminal { .. });
                 let mut request = client.prepare(command);
-                if let Some(scope) = &scope { request.plugin = Some(scope.context.clone()); }
+                // Byte input is owned by this native renderer; SDK requests retain their scope.
+                if !matches!(request.command, Command::InputTerminal { .. })
+                    && let Some(scope) = &scope {
+                    request.plugin = Some(scope.context.clone());
+                }
                 let result = tokio::select! {
                     _ = closed.cancelled() => break,
                     result = client.execute(request) => result.map(|_| ()),

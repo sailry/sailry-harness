@@ -160,38 +160,42 @@ pub(crate) fn results(page: &Page, turn: TurnId) -> Vec<(Option<String>, String,
 #[tokio::test]
 async fn remembers_across_turns_and_restart() {
     for remote in [false, true] {
-        let server = Server::turn_tools(vec![(
-            plugin_tool("commands", "run_command"),
-            json!({"command":"printf x >> count.txt"}),
+        let first_server = Server::turn_tools(vec![(
+            plugin_tool("files", "write_file"),
+            json!({"path":"first.txt","text":"first","expected_revision":null}),
         )])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let second_server = Server::turn_tools(vec![(
+            plugin_tool("files", "write_file"),
+            json!({"path":"second.txt","text":"second","expected_revision":null}),
+        )])
+        .await;
+        let third_server = Server::turn_tools(vec![(
+            plugin_tool("files", "write_file"),
+            json!({"path":"third.txt","text":"third","expected_revision":null}),
+        )])
+        .await;
+        let mut fixture = Fixture::new(remote, &first_server).await;
         let first = submit(&fixture.client, &fixture.session).await;
         let approval = pending(&fixture.client, fixture.session.id).await;
         assert!(approval.can_remember);
-        assert!(!fixture.root.join("count.txt").exists());
+        assert!(!fixture.root.join("first.txt").exists());
         let (decision, receipt) =
             process::decide(&fixture.client, &approval, Decision::ApproveSession).await;
-        let page = completed(&fixture.client, fixture.session.id, first.id).await;
-        let approved = page
-            .approvals
-            .iter()
-            .find(|item| item.id == approval.id)
-            .unwrap();
-        assert_eq!(approved.choice, Some(ApprovalChoice::Session));
-        assert_eq!(approved.source, ApprovalSource::User);
+        completed(&fixture.client, fixture.session.id, first.id).await;
         assert_eq!(
-            std::fs::read_to_string(fixture.root.join("count.txt")).unwrap(),
-            "x"
+            std::fs::read_to_string(fixture.root.join("first.txt")).unwrap(),
+            "first"
         );
-
+        route(&fixture.client, &fixture.session, &second_server.endpoint).await;
         let second = submit(&fixture.client, &fixture.session).await;
         completed(&fixture.client, fixture.session.id, second.id).await;
         assert_eq!(
-            std::fs::read_to_string(fixture.root.join("count.txt")).unwrap(),
-            "xx"
+            std::fs::read_to_string(fixture.root.join("second.txt")).unwrap(),
+            "second"
         );
         fixture = restart(fixture, remote).await;
+        route(&fixture.client, &fixture.session, &third_server.endpoint).await;
         let third = submit(&fixture.client, &fixture.session).await;
         let page = completed(&fixture.client, fixture.session.id, third.id).await;
         assert_eq!(page.approvals.len(), 3);
@@ -209,18 +213,29 @@ async fn remembers_across_turns_and_restart() {
                 .unwrap();
             assert_eq!(approval.state, ApprovalState::Approved);
             assert_eq!(approval.source, source);
+            assert_eq!(approval.choice, Some(ApprovalChoice::Session));
             let (request, consumed) = claimed(&fixture.node, approval);
             assert!(consumed);
             assert!(requests.insert(request));
             assert!(approvals.insert(approval.id));
-            assert_eq!(results(&page, turn).len(), 1);
+            let results = results(&page, turn);
+            assert_eq!(results.len(), 1);
+            assert!(results[0].2.get("error").is_none(), "{:?}", results[0]);
         }
         assert_eq!(fixture.client.execute(decision).await.unwrap(), receipt);
+        for (name, content) in [("first", "first"), ("second", "second"), ("third", "third")] {
+            assert_eq!(
+                std::fs::read_to_string(fixture.root.join(format!("{name}.txt"))).unwrap(),
+                content
+            );
+        }
         assert_eq!(
-            std::fs::read_to_string(fixture.root.join("count.txt")).unwrap(),
-            "xxx"
+            [first_server, second_server, third_server]
+                .iter()
+                .map(|server| server.requests.lock().unwrap().len())
+                .sum::<usize>(),
+            6
         );
-        assert_eq!(server.requests.lock().unwrap().len(), 6);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
@@ -231,12 +246,12 @@ async fn keeps_plain_approval_once() {
     for remote in [false, true] {
         let server = Server::tools(vec![
             (
-                plugin_tool("commands", "run_command"),
-                json!({"command":"printf x >> count.txt"}),
+                plugin_tool("files", "write_file"),
+                json!({"path":"count.txt","text":"x","expected_revision":null}),
             ),
             (
-                plugin_tool("commands", "run_command"),
-                json!({"command":"printf x >> count.txt"}),
+                plugin_tool("files", "write_file"),
+                json!({"path":"count.txt","text":"x","expected_revision":null}),
             ),
         ])
         .await;
@@ -271,8 +286,8 @@ async fn keeps_plain_approval_once() {
 async fn isolates_sessions_forks_and_worktrees() {
     for remote in [false, true] {
         let server = Server::turn_tools(vec![(
-            plugin_tool("commands", "run_command"),
-            json!({"command":"printf x >> count.txt"}),
+            plugin_tool("files", "write_file"),
+            json!({"path":"count.txt","text":"x","expected_revision":null}),
         )])
         .await;
         let mut fixture = Fixture::new(remote, &server).await;
@@ -508,8 +523,8 @@ async fn binds_package_settings_and_tool() {
 async fn isolates_delegated_children() {
     for remote in [false, true] {
         let server = Server::turn_tools(vec![(
-            plugin_tool("commands", "run_command"),
-            json!({"command":"printf x >> count.txt"}),
+            plugin_tool("files", "write_file"),
+            json!({"path":"count.txt","text":"x","expected_revision":null}),
         )])
         .await;
         let mut fixture = Fixture::new(remote, &server).await;
@@ -518,8 +533,8 @@ async fn isolates_delegated_children() {
         process::decide(&fixture.client, &approval, Decision::ApproveSession).await;
         completed(&fixture.client, fixture.session.id, first.id).await;
         let child = Server::turn_tools(vec![(
-            plugin_tool("commands", "run_command"),
-            json!({"command":"printf x >> count.txt"}),
+            plugin_tool("files", "write_file"),
+            json!({"path":"count.txt","text":"x","expected_revision":null}),
         )])
         .await;
         let Output::Providers(providers) = execute(&fixture.client, Command::ListProviders).await

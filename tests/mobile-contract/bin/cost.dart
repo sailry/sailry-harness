@@ -48,14 +48,21 @@ Future<void> main() async {
     'overview combines measured output and duration without averaging per-node rates',
   );
   check(
-    total['cost']['usd_micros'] == 250000 && total['cost']['responses'] == 2,
+    total['cost']?['usd_micros'] == 32 && total['cost']['responses'] == 2,
     'overview preserves partial price coverage and deduplicates Nodes',
+  );
+  final unpriced = (original['summary']['groups'] as List).singleWhere(
+    (entry) => entry['group']['key']['data']['model'] == 'unpriced-fixture',
+  )['group']['metrics'];
+  check(
+    unpriced['responses'] == 1 && unpriced['cost'] == null,
+    'missing catalog prices remain unpriced after the session model changes',
   );
   final connection = await controller.connect(address: first);
   final single = await connection.watchUsage(query: query);
   final report = await until(single, (_) => true);
   check(
-    report['totals']['cost']['usd_micros'] == 125000 &&
+    report['totals']['cost']?['usd_micros'] == 16 &&
         report['totals']['cost']['responses'] == 1,
     'single Node exposes cost through the shared report',
   );

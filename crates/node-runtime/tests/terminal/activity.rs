@@ -4,6 +4,8 @@ use super::*;
 #[cfg(unix)]
 async fn restores_reported_activity() {
     let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("project");
+    std::fs::create_dir(&root).unwrap();
     let node = Node::start(directory.path().join("node")).await.unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
@@ -17,7 +19,7 @@ async fn restores_reported_activity() {
     local
         .execute(local.prepare(Command::RegisterProject {
             name: "Activity fixture".into(),
-            path: directory.path().to_str().unwrap().into(),
+            path: root.to_str().unwrap().into(),
         }))
         .await
         .unwrap();
@@ -27,7 +29,7 @@ async fn restores_reported_activity() {
     };
     settings
         .environment
-        .insert("HOME".into(), directory.path().to_str().unwrap().into());
+        .insert("HOME".into(), root.to_str().unwrap().into());
     local
         .execute(local.prepare(Command::SaveTerminalSettings(settings)))
         .await

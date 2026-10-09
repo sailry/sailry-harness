@@ -66,6 +66,7 @@ impl Viewport {
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct Launch {
     pub worktree: WorktreeId,
+    pub access: crate::process::Access,
     pub viewport: Viewport,
     pub appearance: Appearance,
 }
@@ -104,6 +105,7 @@ pub struct Info {
     pub worktree: Option<WorktreeId>,
     pub ssh: Option<crate::SshId>,
     pub tool: Option<Tool>,
+    pub access: Option<crate::process::Access>,
     pub status: Status,
     /// Absent until the terminal reports activity through OSC.
     pub activity: Option<ActivityReport>,

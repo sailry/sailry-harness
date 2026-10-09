@@ -146,6 +146,7 @@ class _TerminalPageState extends State<TerminalPage>
         }
         final result = _launchRequest == null
             ? await host.command('create_terminal', {
+                'access': 'workspace',
                 'worktree': widget.worktreeId,
                 ...terminalLaunch(context),
               })

@@ -31,7 +31,7 @@ fn shows_description_and_preserves_command(cx: &mut TestAppContext) {
             remote,
             vec![(
                 crate::agent_fixture::plugin_tool("commands", "run_command"),
-                json!({"command":command,"description":description,"timeout_ms":5000}),
+                json!({"access":"unrestricted","command":command,"description":description,"timeout_ms":5000}),
             )],
         );
         fixture.start();
@@ -91,7 +91,7 @@ fn clamps_without_changing_command(cx: &mut TestAppContext) {
             remote,
             vec![(
                 crate::agent_fixture::plugin_tool("commands", "run_command"),
-                json!({"command": command, "timeout_ms": 5_000}),
+                json!({"access":"unrestricted","command": command, "timeout_ms": 5_000}),
             )],
         );
         fixture.start();
@@ -148,15 +148,15 @@ fn executes_reopens_and_denies(cx: &mut TestAppContext) {
             vec![
                 (
                     crate::agent_fixture::plugin_tool("commands", "run_command"),
-                    json!({"command": "printf '完整内容 中文 🙂\\n```rust\\n' > '资料.txt'\ncat '资料.txt'\nprintf 'failure detail\\377' >&2\nexit 7", "cwd": "nested", "timeout_ms": 5_000}),
+                    json!({"access":"unrestricted","command": "printf '完整内容 中文 🙂\\n```rust\\n' > '资料.txt'\ncat '资料.txt'\nprintf 'failure detail\\377' >&2\nexit 7", "cwd": "nested", "timeout_ms": 5_000}),
                 ),
                 (
                     crate::agent_fixture::plugin_tool("commands", "run_command"),
-                    json!({"command": "printf 'before timeout\\n'; sleep 30", "timeout_ms": 100}),
+                    json!({"access":"unrestricted","command": "printf 'before timeout\\n'; sleep 30", "timeout_ms": 100}),
                 ),
                 (
                     crate::agent_fixture::plugin_tool("commands", "run_command"),
-                    json!({"command": "printf never > denied.txt"}),
+                    json!({"access":"unrestricted","command": "printf never > denied.txt"}),
                 ),
             ],
         );
@@ -282,7 +282,7 @@ fn stops_without_a_tool_result(cx: &mut TestAppContext) {
             remote,
             vec![(
                 crate::agent_fixture::plugin_tool("commands", "run_command"),
-                json!({"command": "printf ready > ready.txt; sleep 30; printf unexpected > after.txt"}),
+                json!({"access":"unrestricted","command": "printf ready > ready.txt; sleep 30; printf unexpected > after.txt"}),
             )],
         );
         fixture.start();

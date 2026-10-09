@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, path::PathBuf};
 
-pub fn list() -> Vec<String> {
+pub fn list(environment: &crate::process::Environment) -> Vec<String> {
     let mut candidates = Vec::new();
     #[cfg(unix)]
     {
@@ -10,18 +10,22 @@ pub fn list() -> Vec<String> {
                 path.starts_with('/').then(|| PathBuf::from(path))
             }));
         }
-        candidates.extend(std::env::var_os("SHELL").map(PathBuf::from));
+        candidates.extend(environment.login_shell().map(PathBuf::from));
     }
     #[cfg(windows)]
-    candidates.extend(std::env::var_os("COMSPEC").map(PathBuf::from));
+    candidates.extend(Some(environment.shell()).map(PathBuf::from));
     #[cfg(windows)]
     let names = ["pwsh", "powershell", "cmd"];
     #[cfg(not(windows))]
     let names = ["sh", "bash", "zsh", "fish", "nu", "pwsh"];
-    candidates.extend(names.into_iter().filter_map(|name| which::which(name).ok()));
+    candidates.extend(
+        names
+            .into_iter()
+            .filter_map(|name| which::which_in(name, environment.path(), "/").ok()),
+    );
     candidates
         .into_iter()
-        .filter_map(|path| which::which(path).ok())
+        .filter_map(|path| which::which_in(path, environment.path(), "/").ok())
         .filter_map(|path| path.into_os_string().into_string().ok())
         .collect::<BTreeSet<_>>()
         .into_iter()

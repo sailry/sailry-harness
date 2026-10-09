@@ -202,12 +202,17 @@ Future<void> main() async {
   );
   messages(page, 46, 45, 'ffi-history');
   check(
-    (all['calls'] as List).every(
-      (call) =>
-          call['state'] == 'returned' &&
-          part(all, call['response'])['result']['data']['text'] ==
-              'History 中文 🙂',
-    ),
+    (all['calls'] as List).every((call) {
+      final file = part(all, call['response'])['result']['data'];
+      return call['state'] == 'returned' &&
+          file['path'] == '资料.txt' &&
+          file['offset'] == 0 &&
+          file['next_offset'] == null &&
+          jsonEncode(file['lines']) ==
+              jsonEncode([
+                {'number': 1, 'text': 'History 中文 🙂'},
+              ]);
+    }),
     'canonical tool results retain their complete Unicode content',
   );
   await execute(connection, 'stop_turn', {'turn': turn['id']});

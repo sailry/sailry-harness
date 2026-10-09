@@ -37,7 +37,7 @@ fn discovers_and_stops_session_services() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let server = runtime.block_on(support::Server::tools(vec![(
         super::agent_support::plugin_tool("commands", "run_command"),
-        serde_json::json!({"background": true, "command": "node -e 'const server=require(\"http\").createServer((q,r)=>r.end(\"service:\"+q.url)); server.listen(0,\"127.0.0.1\",()=>console.log(\"http://localhost:\"+server.address().port+\"/app?q=1\"));'"}),
+        serde_json::json!({"background": true, "access": "unrestricted", "command": "node -e 'const server=require(\"http\").createServer((q,r)=>r.end(\"service:\"+q.url)); server.listen(0,\"127.0.0.1\",()=>console.log(\"http://localhost:\"+server.address().port+\"/app?q=1\"));'"}),
     )]));
     let (node, sessions) = runtime.block_on(tools::sessions(
         directory.path(),

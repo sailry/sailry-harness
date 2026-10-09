@@ -113,6 +113,15 @@ impl View {
                     .when_some(details.context, |row, path| {
                         row.child(div().text_color(cx.theme().muted_foreground).child(path))
                     })
+                    .when_some(details.access, |row, scope| {
+                        row.child(
+                            div()
+                                .debug_selector(move || format!("live-approval-access-{id}"))
+                                .font_medium()
+                                .whitespace_normal()
+                                .child(scope),
+                        )
+                    })
                     .children(
                         details
                             .notices
@@ -207,13 +216,21 @@ pub(super) struct Details {
     pub prompt: Option<SharedString>,
     pub context: Option<String>,
     pub description: Option<SharedString>,
+    pub access: Option<SharedString>,
     pub notices: Vec<SharedString>,
 }
 
 pub(super) fn details(call: &Call, page: &Page) -> Details {
     let arguments = call.arguments(page).unwrap_or(&serde_json::Value::Null);
+    let access = call.approval.as_ref().and_then(|approval| {
+        (approval.access == Some(sailry_protocol::process::Access::Unrestricted))
+            .then(|| tr("approval_unrestricted"))
+    });
     let Some(display) = call.display(page) else {
-        return Details::default();
+        return Details {
+            access,
+            ..Default::default()
+        };
     };
     let read = |field: &Option<sailry_protocol::tool::Field>| {
         field
@@ -246,6 +263,7 @@ pub(super) fn details(call: &Call, page: &Page) -> Details {
             .map(Into::into)
             .collect(),
         description,
+        access,
     }
 }
 

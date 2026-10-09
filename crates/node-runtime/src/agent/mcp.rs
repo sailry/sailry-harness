@@ -99,7 +99,7 @@ impl Connections {
                     connection
                 } else {
                     let handler = Arc::new(input::Handler::new());
-                    let (transport, service) = transport::Connection::open(launch, authorized, stop, handler.clone()).await?;
+                    let (transport, service) = transport::Connection::open(launch, authorized, stop, handler.clone(), &ingress.environment).await?;
                     let peer = service.peer().clone();
                     let toolset = adk_tool::McpToolset::new(service)
                         .with_task_support(adk_tool::mcp::McpTaskConfig::enabled().no_timeout());

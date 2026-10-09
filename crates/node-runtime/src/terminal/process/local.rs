@@ -22,30 +22,91 @@ pub(in crate::terminal) struct Process {
     master: Option<Box<dyn MasterPty + Send>>,
     io: io::Io,
     _integration: Option<tempfile::TempDir>,
+    _sandbox: Option<crate::process::sandbox::Sandbox>,
 }
 
 impl Process {
     pub fn start(
-        root: &Path,
+        source: super::Source,
         viewport: &Viewport,
-        settings: &sailry_protocol::terminal::Settings,
-        tool: Option<sailry_protocol::terminal::Tool>,
         messages: SyncSender<Message>,
     ) -> Result<Self, Fault> {
+        let super::Source::Local {
+            root,
+            profile,
+            access,
+            settings,
+            tool,
+            environment,
+        } = source
+        else {
+            unreachable!("local terminal source expected")
+        };
+        let root = root.as_path();
+        let profile = profile.as_deref();
         let pair = portable_pty::native_pty_system()
             .openpty(size(viewport))
             .map_err(failure)?;
         let mut command = if let Some(tool) = tool {
-            CommandBuilder::new(super::super::tools::resolve(root, settings, tool)?)
+            CommandBuilder::new(super::super::tools::resolve(
+                root,
+                &settings,
+                tool,
+                &environment,
+            )?)
         } else {
-            shell(&settings.shell)?
+            CommandBuilder::new_default_prog()
         };
+        environment.apply_terminal(&mut command);
         for (key, value) in &settings.environment {
             command.env(key, value);
         }
+        if tool.is_none() {
+            shell(&settings.shell, root, &mut command)?;
+        }
+        let scratch = if access == sailry_protocol::process::Access::Workspace
+            && crate::process::sandbox::SUPPORTED
+        {
+            let directory = if let Some(profile) = profile {
+                let directory = profile.join("tmp");
+                std::fs::create_dir_all(&directory).map_err(failure)?;
+                tempfile::Builder::new()
+                    .prefix("terminal-")
+                    .tempdir_in(directory)
+                    .map_err(failure)?
+            } else {
+                tempfile::Builder::new()
+                    .prefix("sailry-terminal-")
+                    .tempdir()
+                    .map_err(failure)?
+            };
+            Some(std::sync::Arc::new(directory))
+        } else {
+            None
+        };
+        let sandbox = crate::process::sandbox::Sandbox::prepare(
+            &crate::process::Launch {
+                root: root.to_owned(),
+                profile: profile.map(Path::to_owned),
+                command: "terminal".into(),
+                access,
+                cwd: String::new(),
+                timeout_ms: 900_000,
+                inputs: None,
+                scratch,
+            },
+            &environment,
+            None,
+        )?;
+        if let Some(sandbox) = &sandbox {
+            sandbox.apply_terminal(&mut command);
+        }
         #[cfg(unix)]
         let integration = if tool.is_none() {
-            integration::configure(&mut command)?
+            integration::configure(
+                &mut command,
+                sandbox.as_ref().map(|sandbox| sandbox.scratch()),
+            )?
         } else {
             None
         };
@@ -61,6 +122,13 @@ impl Process {
         );
         command.env_remove("VTE_VERSION");
         command.env("PWD", root);
+        if let Some(sandbox) = &sandbox {
+            #[cfg(unix)]
+            let device = pair.master.tty_name();
+            #[cfg(not(unix))]
+            let device: Option<std::path::PathBuf> = None;
+            sandbox.terminal(&mut command, device.as_deref())?;
+        }
         let mut child = pair.slave.spawn_command(command).map_err(failure)?;
         drop(pair.slave);
         let io = match io::Io::start(&*pair.master, messages) {
@@ -77,6 +145,7 @@ impl Process {
             master: Some(pair.master),
             io,
             _integration: integration,
+            _sandbox: sandbox,
         })
     }
 
@@ -107,18 +176,18 @@ impl Drop for Process {
     }
 }
 
-fn shell(configured: &str) -> Result<CommandBuilder, Fault> {
+fn shell(configured: &str, root: &Path, command: &mut CommandBuilder) -> Result<(), Fault> {
     #[cfg(unix)]
     {
-        login::command(configured)
+        login::configure(configured, root, command)
     }
     #[cfg(windows)]
     {
-        Ok(if configured.is_empty() {
-            CommandBuilder::new_default_prog()
-        } else {
-            CommandBuilder::new(configured)
-        })
+        let _ = root;
+        if !configured.is_empty() {
+            command.get_argv_mut().push(configured.into());
+        }
+        Ok(())
     }
 }
 

@@ -6,7 +6,10 @@ use portable_pty::CommandBuilder;
 use sailry_protocol::Fault;
 use std::{ffi::OsString, path::Path};
 
-pub(super) fn configure(command: &mut CommandBuilder) -> Result<Option<tempfile::TempDir>, Fault> {
+pub(super) fn configure(
+    command: &mut CommandBuilder,
+    scratch: Option<&Path>,
+) -> Result<Option<tempfile::TempDir>, Fault> {
     let shell = command.get_shell();
     let name = Path::new(&shell)
         .file_name()
@@ -24,10 +27,13 @@ pub(super) fn configure(command: &mut CommandBuilder) -> Result<Option<tempfile:
     if !matches!(name, "zsh" | "bash" | "fish") {
         return Ok(None);
     }
-    let directory = tempfile::Builder::new()
-        .prefix("sailry-shell-")
-        .tempdir()
-        .map_err(failure)?;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("sailry-shell-");
+    let directory = match scratch {
+        Some(scratch) => builder.tempdir_in(scratch),
+        None => builder.tempdir(),
+    }
+    .map_err(failure)?;
     let root = directory.path();
     let write = |name: &str, text: &str| std::fs::write(root.join(name), text).map_err(failure);
     command.env("GHOSTTY_SHELL_FEATURES", "title");

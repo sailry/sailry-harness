@@ -10,7 +10,7 @@ mod http;
 use peer as mcp_peer;
 #[path = "../../support/mcp_input.rs"]
 #[allow(dead_code, unused_imports)]
-mod input;
+pub(super) mod input;
 #[path = "../../support/mcp.rs"]
 pub(super) mod peer;
 mod planning;

@@ -39,13 +39,13 @@ pub(super) fn bindings(
 pub(super) fn instruction(permission: sailry_protocol::Permission) -> &'static str {
     match permission {
         sailry_protocol::Permission::Ask => {
-            "This turn uses Ask permission. Invoke tools directly for the user's task; the runtime pauses file writes, shell commands, worktree changes and non-read-only MCP tools for approval before execution unless a matching user-approved rule applies in this session. Do not request those tool approvals through a question tool or prose. Prior task authorization does not bypass runtime approval. Prefer dedicated read-only tools for exploration; they run without approval. MCP annotations describe the configured server's behavior; they are not an OS sandbox."
+            "This turn uses Ask permission. Invoke tools directly for the user's task; the runtime pauses file writes, worktree changes and non-read-only MCP tools for approval before execution unless a matching user-approved rule applies in this session. Do not request those tool approvals through a question tool or prose. Prior task authorization does not bypass runtime approval. Prefer dedicated read-only tools for exploration; they run without approval. MCP annotations describe the configured server's behavior; they are not an OS sandbox. On macOS/Linux, workspace commands run without approval inside a worktree sandbox with no network; unrestricted commands require fresh user approval. Windows retains command approval by permission mode."
         }
         sailry_protocol::Permission::Project => {
-            "This turn uses Project permission. Writes through project file tools run without individual approval. Invoke shell commands, worktree changes and non-read-only MCP tools directly for the user's task; the runtime pauses them for approval before execution unless a matching user-approved rule applies in this session. Do not request those tool approvals through a question tool or prose. Prior task authorization does not bypass runtime approval. Their effects cannot be confined by their working directory; there is no OS sandbox. Prefer dedicated read-only tools for exploration; they run without approval."
+            "This turn uses Project permission. Writes through project file tools run without individual approval. Invoke worktree changes and non-read-only MCP tools directly for the user's task; the runtime pauses them for approval before execution unless a matching user-approved rule applies in this session. Do not request those tool approvals through a question tool or prose. Prior task authorization does not bypass runtime approval. Prefer dedicated read-only tools for exploration; they run without approval. On macOS/Linux, workspace commands run without approval inside a worktree sandbox with no network; unrestricted commands require fresh user approval. Windows retains command approval by permission mode."
         }
         sailry_protocol::Permission::Full => {
-            "This turn has full permission for available tools under the OS access of the machine running this session. File writes, shell commands and worktree changes do not require individual approval. Follow the user's intent and do not infer that unrelated destructive actions are authorized."
+            "This turn has full permission for available tools under the OS access of the machine running this session. File writes and worktree changes do not require individual approval. On macOS/Linux, workspace commands use a worktree sandbox with no network. Unrestricted commands require fresh user approval, even with Full permission. Windows retains ordinary command execution under Full permission. Follow the user's intent and do not infer that unrelated destructive actions are authorized."
         }
     }
 }
@@ -91,6 +91,21 @@ impl ToolConfirmationHandler for Handler {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn distinguishes_fresh_command_consent() {
+        for permission in [
+            sailry_protocol::Permission::Ask,
+            sailry_protocol::Permission::Project,
+            sailry_protocol::Permission::Full,
+        ] {
+            let text = instruction(permission);
+            assert!(text.contains("worktree sandbox with no network"));
+            assert!(text.contains("fresh user approval"));
+            assert!(text.contains("Windows retains"));
+            assert!(!text.contains("there is no OS sandbox"));
+        }
+    }
 
     #[test]
     fn describes_explicit_session_rules() {

@@ -63,12 +63,12 @@ async fn reuses_approved_arguments() {
     for remote in [false, true] {
         let command = "printf '记录 🙂' >> once.txt; printf 'stdout'; printf 'stderr' >&2; exit 7";
         let server = Server::tools(vec![
-            (name("run_command"), json!({"command":command})),
+            (name("run_command"), json!({"access":"unrestricted","command":command})),
             (
                 name("run_command"),
-                json!({"command":"printf before; sleep 60", "timeout_ms":100}),
+                json!({"access":"unrestricted","command":"printf before; sleep 60", "timeout_ms":100}),
             ),
-            (name("run_command"), json!({"command":"touch denied.txt"})),
+            (name("run_command"), json!({"access":"unrestricted","command":"touch denied.txt"})),
         ])
         .await;
         let fixture = Fixture::new(remote, &server).await;
@@ -145,6 +145,7 @@ async fn reuses_approved_arguments() {
                 .prepare(Command::RunCommand {
                     turn,
                     command: command.into(),
+                    access: sailry_protocol::process::Access::Unrestricted,
                     description: None,
                     cwd: String::new(),
                     timeout_ms: 120000,
@@ -190,7 +191,7 @@ async fn retains_background_processes_and_scopes_public_actions() {
         let server = Server::tools(vec![
             (
                 name("run_command"),
-                json!({"command":"printf ready; sleep 60", "background":true}),
+                json!({"access":"unrestricted","command":"printf ready; sleep 60", "background":true}),
             ),
             (name("read_command"), json!({})),
         ])
@@ -210,6 +211,13 @@ async fn retains_background_processes_and_scopes_public_actions() {
         else {
             panic!()
         };
+        let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
+        assert_eq!(
+            approval.access,
+            Some(sailry_protocol::process::Access::Unrestricted)
+        );
+        assert!(!approval.can_remember);
+        process::decide(&fixture.client, &approval, Decision::Approve).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         let result = results(&page);
         assert_eq!(result[0]["kind"], "command_started", "{page:?}");
@@ -395,7 +403,7 @@ async fn rejects_invalid_inputs_with_typed_errors() {
         let server = Server::tools(vec![
             (
                 name("run_command"),
-                json!({"command":"touch forbidden.txt", "turn":TurnId::new()}),
+                json!({"access":"workspace","command":"touch forbidden.txt", "turn":TurnId::new()}),
             ),
             (name("read_command"), json!({"id":"invalid-command-id"})),
         ])

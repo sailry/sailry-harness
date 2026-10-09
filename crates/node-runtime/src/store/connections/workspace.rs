@@ -7,14 +7,12 @@ pub(in crate::store) fn workspace(
     profile: Option<&Path>,
     resource: Resource,
 ) -> Result<WorktreeId, Fault> {
-    let (kind, id) = match resource {
+    match resource {
         Resource::Database(id) => {
             super::super::databases::read(db, id)?.ok_or_else(missing)?;
-            ("database", id.to_string())
         }
         Resource::Ssh(id) => {
             super::super::ssh::read(db, id)?.ok_or_else(missing)?;
-            ("ssh", id.to_string())
         }
     };
     let profile = profile.ok_or_else(|| {
@@ -23,10 +21,6 @@ pub(in crate::store) fn workspace(
             "connection workspace storage is unavailable",
         )
     })?;
-    let root = profile
-        .join("connections")
-        .join(kind)
-        .join(id)
-        .join("workspace");
+    let root = crate::workspaces::connection(profile, resource);
     super::super::worktrees::scratch(db, &root)
 }

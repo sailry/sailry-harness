@@ -5,11 +5,16 @@ use sailry_protocol::{terminal::*, *};
 use std::{sync::Arc, time::Duration};
 #[path = "terminal/activity.rs"]
 mod activity;
+#[cfg(unix)]
+#[path = "terminal/environment.rs"]
+mod environment;
 #[path = "terminal/reopen.rs"]
 mod reopen;
 #[path = "terminal/resize.rs"]
 #[cfg(target_os = "macos")]
 mod resize;
+#[path = "terminal/sandbox.rs"]
+mod sandbox;
 #[path = "terminal/settings.rs"]
 mod settings;
 #[path = "terminal/synchronized_output.rs"]
@@ -19,9 +24,30 @@ mod synchronized_output;
 #[cfg(unix)]
 mod tools;
 
+#[cfg(unix)]
+async fn isolated(profile: &std::path::Path, home: &std::path::Path) -> Node {
+    std::fs::create_dir(home).unwrap();
+    Node::start_with_environment(
+        profile,
+        sailry_node_runtime::EnvironmentFixture {
+            home: home.to_owned(),
+            shell: "/usr/bin/false".into(),
+            environment: [
+                ("PATH".into(), "/usr/bin:/bin".into()),
+                ("LANG".into(), "C".into()),
+            ]
+            .into(),
+            timeout: Duration::from_secs(5),
+        },
+    )
+    .await
+    .unwrap()
+}
+
 fn launch(worktree: WorktreeId) -> Launch {
     Launch {
         worktree,
+        access: sailry_protocol::process::Access::Workspace,
         viewport: Viewport {
             columns: 80,
             rows: 24,
@@ -98,7 +124,14 @@ async fn until(stream: &mut dyn Subscription, projection: &mut Projection, needl
         }
     })
     .await
-    .expect("terminal output deadline");
+    .unwrap_or_else(|_| {
+        panic!(
+            "terminal output deadline for {needle:?}: {:?}",
+            projection
+                .snapshot()
+                .map(|snapshot| (&snapshot.info, content(&snapshot.screen)))
+        )
+    });
 }
 
 #[tokio::test]
@@ -106,6 +139,9 @@ async fn shares_process_and_input_ownership() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("project");
     std::fs::create_dir(&root).unwrap();
+    #[cfg(unix)]
+    let node = isolated(&temp.path().join("node"), &temp.path().join("shell-home")).await;
+    #[cfg(not(unix))]
     let node = Node::start(temp.path().join("node")).await.unwrap();
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
         .await
@@ -117,11 +153,33 @@ async fn shares_process_and_input_ownership() {
         .unwrap();
     let transports: [Arc<dyn Transport>; 2] = [node.local(), controller.handle().remote(address)];
     let local = Client::new(transports[0].clone());
-    local
+    let Output::Project(project) = local
         .execute(local.prepare(Command::RegisterProject {
             name: "Terminal fixture".into(),
             path: root.to_str().unwrap().into(),
         }))
+        .await
+        .unwrap()
+    else {
+        panic!("project expected")
+    };
+    #[cfg(target_os = "macos")]
+    let shell = "/bin/zsh";
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let shell = "/bin/sh";
+    #[cfg(unix)]
+    local
+        .execute(
+            local.prepare(Command::SaveTerminalSettings(Settings {
+                shell: shell.into(),
+                environment: [
+                    ("HOME".into(), root.to_str().unwrap().into()),
+                    ("PATH".into(), "/usr/bin:/bin".into()),
+                ]
+                .into(),
+                ..Default::default()
+            })),
+        )
         .await
         .unwrap();
     let Output::Snapshot(snapshot) = local
@@ -131,7 +189,12 @@ async fn shares_process_and_input_ownership() {
     else {
         panic!("snapshot expected")
     };
-    let worktree = snapshot.worktrees[0].id;
+    let worktree = snapshot
+        .worktrees
+        .iter()
+        .find(|tree| tree.project == Some(project.id) && tree.main)
+        .unwrap()
+        .id;
     let count = || {
         rusqlite::Connection::open(node.profile().join("storage/node.sqlite3"))
             .unwrap()

@@ -105,9 +105,15 @@ class Fixture {
       await response.close();
       return;
     }
+    final file = jsonDecode(results.single['content'])['data'];
     check(
-      jsonDecode(results.single['content'])['data']['text'] ==
-          '中文 tool result 🙂',
+      file['path'] == 'tool.txt' &&
+          file['offset'] == 0 &&
+          file['next_offset'] == null &&
+          jsonEncode(file['lines']) ==
+              jsonEncode([
+                {'number': 1, 'text': '中文 tool result 🙂'},
+              ]),
       'tool result returns to actual model context',
     );
     final chunk = {
@@ -277,8 +283,12 @@ Future<Fixture> create(
     (entry) => entry['id'] == response['entry'],
   );
   check(
-    entry['parts'][response['index']]['data']['result']['data']['text'] ==
-        '中文 tool result 🙂',
+    jsonEncode(
+          entry['parts'][response['index']]['data']['result']['data']['lines'],
+        ) ==
+        jsonEncode([
+          {'number': 1, 'text': '中文 tool result 🙂'},
+        ]),
     'reference resolves to canonical tool output',
   );
   final pending = updates.next().then((_) => true, onError: (_) => true);

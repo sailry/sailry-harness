@@ -91,9 +91,9 @@ fn remembers_session(cx: &mut TestAppContext) {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[gpui::test]
-fn remembers_prefix(cx: &mut TestAppContext) {
+fn admits_workspace_without_remembered_rules(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::with_tools(
@@ -112,38 +112,32 @@ fn remembers_prefix(cx: &mut TestAppContext) {
         fixture.start();
         let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
         wait(visual, |cx| {
-            view.read(cx).connected() && pending(&view, cx).is_some()
-        });
-        let id = view.read_with(visual, |_, cx| pending(&view, cx).unwrap());
-        view.read_with(visual, |view, _| {
-            let approval = view.history.calls[0].approval.as_ref().unwrap();
-            assert!(approval.can_remember);
-            assert_eq!(approval.prefix.as_deref(), Some("printf %s"));
-        });
-        choose(visual, id, "approve", 1);
-        wait(visual, |cx| {
-            view.read(cx).active().is_none() && !view.read(cx).approvals.pending
+            view.read(cx)
+                .history
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot
+                        .page
+                        .runs
+                        .iter()
+                        .any(|run| run.status == Status::Completed)
+                })
         });
         view.read_with(visual, |view, _| {
             assert_eq!(view.history.calls.len(), 2);
-            assert_eq!(view.history.calls[0].approval.as_ref().unwrap().id, id);
-            assert_eq!(
-                view.history.calls[0].approval.as_ref().unwrap().source,
-                ApprovalSource::User
-            );
-            assert_eq!(
-                view.history.calls[1].approval.as_ref().unwrap().source,
-                ApprovalSource::PrefixRule
-            );
             for (index, text) in ["first", "second"].into_iter().enumerate() {
                 let call = &view.history.calls[index];
                 let approval = call.approval.as_ref().unwrap();
+                assert_eq!(approval.source, ApprovalSource::Sandbox);
                 assert_eq!(
-                    approval.choice,
-                    Some(ApprovalChoice::Prefix("printf %s".into()))
+                    approval.access,
+                    Some(sailry_protocol::process::Access::Workspace)
                 );
                 assert_eq!(approval.state, ApprovalState::Approved);
-                assert!(approval.reason.is_none());
+                assert!(approval.choice.is_none());
+                assert!(!approval.can_remember);
+                assert!(approval.prefix.is_none());
                 let value = call
                     .result(&view.history.snapshot.as_ref().unwrap().page)
                     .unwrap();
@@ -156,6 +150,18 @@ fn remembers_prefix(cx: &mut TestAppContext) {
             }
         });
         assert_eq!(fixture.server.requests.lock().unwrap().len(), 3);
+        assert!(visual.debug_bounds("pending-approvals").is_none());
+        let restored = super::lifecycle::restored(&fixture);
+        assert_eq!(restored.page.approvals.len(), 2);
+        for approval in &restored.page.approvals {
+            assert_eq!(approval.source, ApprovalSource::Sandbox);
+            assert_eq!(
+                approval.access,
+                Some(sailry_protocol::process::Access::Workspace)
+            );
+            assert_eq!(approval.state, ApprovalState::Approved);
+            assert!(!approval.can_remember);
+        }
         visual.update(|window, _| window.remove_window());
         fixture.close();
     }

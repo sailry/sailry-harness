@@ -13,6 +13,8 @@ Future<void> main() async {
   final path = env['SAILRY_CONTROLLER_PROFILE']!;
   final session = env['SAILRY_SESSION']!;
   final manual = env['SAILRY_MANUAL_CONTEXT'] == '1';
+  final latest = env['SAILRY_LATEST_INSTRUCTION']!;
+  final requirement = 'Original requirement 中文 🙂 ' * 700;
   var controller = await Controller.open(
     path: path,
     internet: false,
@@ -26,7 +28,8 @@ Future<void> main() async {
   String? receipt;
   Map<String, dynamic>? finished;
   for (final text in [
-    'Original requirement 中文 🙂 ' * 700,
+    requirement,
+    if (manual) latest,
     if (!manual) 'Recent context',
     if (!manual) 'Current task',
   ]) {
@@ -71,11 +74,11 @@ Future<void> main() async {
       ),
     );
     check(
-      finished['snapshot']['statistics']['turns'] == 1,
+      finished['snapshot']['statistics']['turns'] == 2,
       'maintenance does not add a user turn',
     );
     check(
-      finished['snapshot']['statistics']['responses'] == 3,
+      finished['snapshot']['statistics']['responses'] == 4,
       'summary usage remains counted',
     );
   }
@@ -93,12 +96,18 @@ Future<void> main() async {
     (original.single['data'] as String).contains('中文 🙂'),
     'summary text is preserved',
   );
+  if (manual) {
+    check(
+      (original.single['data'] as String).endsWith(
+        'Latest user instruction (verbatim data)\n$latest',
+      ),
+      'the latest explicit safety instruction is retained verbatim',
+    );
+  }
   check(
     (finished['snapshot']['page']['entries'] as List).any(
       (entry) => (entry['parts'] as List).any(
-        (part) =>
-            part['kind'] == 'text' &&
-            (part['data'] as String).contains('Original requirement'),
+        (part) => part['kind'] == 'text' && part['data'] == requirement,
       ),
     ),
     'original history remains available',

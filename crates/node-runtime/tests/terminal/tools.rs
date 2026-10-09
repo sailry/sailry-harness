@@ -108,7 +108,10 @@ async fn restores_execution_receipt() {
         );
         let request = client.prepare(Command::OpenToolTerminal {
             tool: Tool::Codex,
-            launch: launch(worktree),
+            launch: Launch {
+                access: sailry_protocol::process::Access::Unrestricted,
+                ..launch(worktree)
+            },
         });
         let Output::Terminal(info) = client.execute(request.clone()).await.unwrap() else {
             panic!("terminal expected")
@@ -152,7 +155,10 @@ async fn restores_execution_receipt() {
         remote
             .execute(remote.prepare(Command::OpenToolTerminal {
                 tool: Tool::Codex,
-                launch: launch(worktree)
+                launch: Launch {
+                    access: sailry_protocol::process::Access::Unrestricted,
+                    ..launch(worktree)
+                }
             }))
             .await
             .unwrap_err()

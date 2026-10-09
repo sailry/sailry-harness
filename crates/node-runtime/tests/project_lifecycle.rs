@@ -137,6 +137,7 @@ async fn edits_and_restores() {
             .unwrap();
         let Output::Terminal(terminal) = client
             .execute(client.prepare(Command::CreateTerminal(terminal::Launch {
+                access: sailry_protocol::process::Access::Workspace,
                 worktree: session.worktree,
                 viewport: terminal::Viewport {
                     columns: 80,

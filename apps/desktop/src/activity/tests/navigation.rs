@@ -59,6 +59,7 @@ fn terminal_targets(cx: &mut TestAppContext) {
             .runtime
             .block_on(
                 client.execute(client.prepare(Command::CreateTerminal(Launch {
+                    access: sailry_protocol::process::Access::Workspace,
                     worktree: fixture.sessions[index].worktree,
                     viewport: Viewport {
                         columns: 80,

@@ -48,6 +48,7 @@ async fn catalog_matches_canonical_resources() {
             let Output::Terminal(terminal) = execute(
                 &client,
                 Command::CreateTerminal(Launch {
+                    access: sailry_protocol::process::Access::Workspace,
                     worktree,
                     viewport: Viewport {
                         columns: 80,

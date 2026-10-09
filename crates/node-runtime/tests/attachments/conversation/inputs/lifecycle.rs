@@ -36,7 +36,7 @@ async fn verifies_after_approval() {
         .await;
         let server = server::Server::tools(vec![(
             server::plugin_tool("commands", "run_command"),
-            json!({"command": "touch unexpected.txt", "attachments": [file.id]}),
+            json!({"command": "touch unexpected.txt", "access":"unrestricted", "attachments": [file.id]}),
         )])
         .await;
         let (session, provider) = session(

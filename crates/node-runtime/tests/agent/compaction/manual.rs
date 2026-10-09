@@ -250,6 +250,7 @@ async fn preserves_cancelled_configuration() {
         let error = fixture
             .client
             .execute(fixture.client.prepare(Command::RunCommand {
+                access: sailry_protocol::process::Access::Workspace,
                 description: None,
                 turn: active.id,
                 command: "printf 'must not execute'".into(),

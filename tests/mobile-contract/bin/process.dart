@@ -67,6 +67,13 @@ Future<void> main() async {
   });
   final waiting = await until(updates, hasPending);
   final first = pending(waiting);
+  check(
+    first['source'] == 'user' &&
+        first['access'] == 'unrestricted' &&
+        first['can_remember'] == false &&
+        first['prefix'] == null,
+    'unrestricted execution requires a fresh decision',
+  );
   final source = part(waiting, waiting['calls'][0]['source']);
   final text = List.filled(
     100,
@@ -121,12 +128,19 @@ Future<void> main() async {
         hasPending(snapshot) &&
         (snapshot['page']['approvals'] as List).length == 2,
   );
+  check(
+    pending(next)['source'] == 'user' &&
+        pending(next)['access'] == 'unrestricted' &&
+        pending(next)['can_remember'] == false,
+    'a prior decision does not authorize another unrestricted call',
+  );
   final fileRequest = await connection.prepare(
     command: jsonEncode({
       'kind': 'run_command',
       'data': {
         'turn': first['turn'],
         'command': 'od -An -tx1 "\$SAILRY_ATTACHMENTS/${attachment['id']}"',
+        'access': 'workspace',
         'cwd': '',
         'timeout_ms': 1000,
         'background': false,
@@ -184,6 +198,11 @@ Future<void> main() async {
         (snapshot['page']['approvals'] as List).length == 3,
   );
   check(
+    pending(third)['source'] == 'user' &&
+        pending(third)['access'] == 'unrestricted',
+    'unrestricted denial targets a fresh pending call',
+  );
+  check(
     result(third, 1)['outcome']['kind'] == 'timed_out' &&
         result(third, 1)['stdout']['text'] == 'before timeout\n',
     'timeout retains partial output',
@@ -238,6 +257,12 @@ Future<void> main() async {
     'message': {'text': 'Stop an executing command', 'attachments': []},
   });
   final stopping = pending(await until(updates, hasPending));
+  check(
+    stopping['source'] == 'user' &&
+        stopping['access'] == 'unrestricted' &&
+        stopping['can_remember'] == false,
+    'a new session still requires fresh unrestricted consent',
+  );
   await execute(connection, 'resolve_approval', {
     'session': session,
     'approval': stopping['id'],

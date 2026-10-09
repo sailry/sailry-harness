@@ -191,6 +191,7 @@ pub(super) async fn terminal(client: &Client, session: &Session) -> Info {
     let Output::Terminal(info) = execute(
         client,
         Command::CreateTerminal(Launch {
+            access: sailry_protocol::process::Access::Workspace,
             worktree: session.worktree,
             viewport: Viewport {
                 columns: 100,

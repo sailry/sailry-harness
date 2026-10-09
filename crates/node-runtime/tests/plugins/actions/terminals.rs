@@ -2,6 +2,9 @@
 use super::*;
 use sailry_protocol::terminal::{self, Appearance, Input, Launch, Status, Viewport};
 
+#[path = "terminals/access.rs"]
+mod access;
+
 fn viewport() -> Viewport {
     Viewport {
         columns: 80,
@@ -47,6 +50,7 @@ async fn scopes_control_and_replays() {
         .await;
         let launch = client
             .prepare(Command::CreateTerminal(Launch {
+                access: sailry_protocol::process::Access::Workspace,
                 worktree,
                 viewport: viewport(),
                 appearance: appearance(),

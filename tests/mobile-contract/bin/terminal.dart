@@ -46,6 +46,7 @@ String content(Map<String, dynamic> snapshot) {
 Future<String> create(Connection connection, String worktree) async {
   final color = {'red': 240, 'green': 241, 'blue': 242};
   final created = await execute(connection, 'create_terminal', {
+    'access': 'workspace',
     'worktree': worktree,
     'viewport': {
       'columns': 80,
@@ -61,6 +62,7 @@ Future<String> create(Connection connection, String worktree) async {
     },
   });
   final info = created['data'];
+  check(info['access'] == 'workspace', 'local terminal retains workspace access');
   final id = info['id'] as String;
   final revision = info['revision'];
   final updates = await connection.watchTerminal(terminal: id);

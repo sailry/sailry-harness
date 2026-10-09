@@ -16,6 +16,8 @@ fn requests_context_compaction() {
 }
 
 fn run(manual: bool) {
+    let latest =
+        "Keep source.txt unchanged. Complete the requested task without modifying unrelated files.";
     let directory = tempfile::tempdir().unwrap();
     std::fs::create_dir(directory.path().join("project")).unwrap();
     std::fs::write(
@@ -43,6 +45,7 @@ fn run(manual: bool) {
     let invitation = node.link().invite().unwrap();
     let child = super::command("compaction.dart", directory.path(), invitation.ticket())
         .env("SAILRY_MANUAL_CONTEXT", if manual { "1" } else { "0" })
+        .env("SAILRY_LATEST_INSTRUCTION", latest)
         .env("SAILRY_SESSION", sessions[0].to_string())
         .spawn()
         .unwrap();
@@ -61,8 +64,24 @@ fn run(manual: bool) {
     );
     assert_eq!(
         server.requests.lock().unwrap().len(),
-        if manual { 3 } else { 5 }
+        if manual { 4 } else { 5 }
     );
+    if manual {
+        let summary = pages[0]
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .find_map(|part| match part {
+                Part::Compaction(text) => Some(text),
+                _ => None,
+            })
+            .unwrap();
+        assert!(summary.ends_with(latest));
+        assert!(summary.len() <= 6552);
+        let requests = server.requests.lock().unwrap();
+        assert!(support::compaction::is_summary(&requests[3]));
+        assert!(requests[3]["messages"].to_string().contains(latest));
+    }
     let node = runtime
         .block_on(Node::start(directory.path().join("node")))
         .unwrap();

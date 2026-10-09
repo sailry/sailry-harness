@@ -260,6 +260,7 @@ pub enum ApprovalState {
 pub enum ApprovalSource {
     /// A granted mutation of the captured plugin's own private values.
     Storage,
+    Sandbox,
     User,
     Project,
     Full,
@@ -282,6 +283,7 @@ pub struct Approval {
     pub reason: Option<String>,
     pub prefix: Option<String>,
     pub can_remember: bool,
+    pub access: Option<crate::process::Access>,
 }
 
 #[cfg(test)]

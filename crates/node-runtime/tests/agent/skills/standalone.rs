@@ -62,7 +62,7 @@ async fn executes_retained_import() {
             ),
             (
                 plugin_tool("commands", "run_command"),
-                json!({"command": command}),
+                json!({"access":"unrestricted","command": command}),
             ),
         ];
         let server = Server::tools(calls.clone()).await;

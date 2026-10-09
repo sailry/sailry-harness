@@ -135,13 +135,12 @@ async fn binds_closed_choices_and_durable_retries() {
         for decision in [
             Decision::Approve,
             Decision::ApproveSession,
-            Decision::ApprovePrefix("touch".into()),
             Decision::Deny,
             Decision::DenyWithReason("Keep the original file 🙂".into()),
         ] {
             let server = Server::tools(vec![(
-                plugin_tool("commands", "run_command"),
-                json!({"command":"touch effect.txt"}),
+                plugin_tool("files", "write_file"),
+                json!({"path":"effect.txt","text":"approved","expected_revision":null}),
             )])
             .await;
             let mut fixture = Fixture::new(remote, &server).await;

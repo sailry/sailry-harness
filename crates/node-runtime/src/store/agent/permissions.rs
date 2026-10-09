@@ -26,6 +26,19 @@ pub(super) fn source(
         ));
     }
     let operation = super::plugins::operation(db, turn, &request.tool_name)?;
+    if crate::process::sandbox::SUPPORTED
+        && request
+            .args
+            .get("access")
+            .is_some_and(|value| value == "unrestricted")
+    {
+        return Ok(ApprovalSource::User);
+    }
+    if crate::process::sandbox::SUPPORTED
+        && operation == Some(sailry_protocol::tool::Operation::RunCommand)
+    {
+        return Ok(ApprovalSource::Sandbox);
+    }
     if matches!(
         operation,
         Some(

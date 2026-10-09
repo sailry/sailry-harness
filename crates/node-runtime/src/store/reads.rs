@@ -78,10 +78,12 @@ impl Ingress {
                     })?;
             }
             let settings = response.await.map_err(|_| unavailable())??;
-            let tools =
-                tokio::task::spawn_blocking(move || crate::terminal::tools::list(&root, &settings))
-                    .await
-                    .map_err(|_| unavailable())?;
+            let environment = self.environment.clone();
+            let tools = tokio::task::spawn_blocking(move || {
+                crate::terminal::tools::list(&root, &settings, &environment)
+            })
+            .await
+            .map_err(|_| unavailable())?;
             sailry_protocol::Output::TerminalTools(tools)
         } else if matches!(
             request.command,

@@ -536,6 +536,7 @@ fn restores_active_terminal(cx: &mut TestAppContext) {
             .runtime
             .block_on(
                 client.execute(client.prepare(Command::CreateTerminal(Launch {
+                    access: sailry_protocol::process::Access::Workspace,
                     worktree: tree,
                     viewport: Viewport {
                         columns: 80,
@@ -800,6 +801,7 @@ fn drag_and_terminal_close(cx: &mut TestAppContext) {
             .runtime
             .block_on(
                 client.execute(client.prepare(Command::CreateTerminal(Launch {
+                    access: sailry_protocol::process::Access::Workspace,
                     worktree: fixture.sessions[index].worktree,
                     viewport: Viewport {
                         columns: 80,

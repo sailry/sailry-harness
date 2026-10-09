@@ -2613,3 +2613,4 @@ reference_group_context: "追加"
 provider_key_hint: "キー API を入力"
 form_date_hint: "日付を選択"
 form_time_hint: "HH:mm:ss"
+approval_unrestricted: ファイルシステムとネットワークへのフルアクセス

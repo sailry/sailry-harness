@@ -62,7 +62,7 @@ async fn scripts_use_node_environment() {
             ("load_skill".into(), json!({"skill":"office:word"})),
             (
                 plugin_tool("commands", "run_command"),
-                json!({"command":command}),
+                json!({"access":"unrestricted","command":command}),
             ),
         ])
         .await;
@@ -107,6 +107,13 @@ async fn scripts_use_node_environment() {
         else {
             panic!("turn expected")
         };
+        let (_, approval) = approvals::pending(&client, session.id).await;
+        assert_eq!(
+            approval.access,
+            Some(sailry_protocol::process::Access::Unrestricted)
+        );
+        assert_eq!(approval.source, ApprovalSource::User);
+        process::decide(&client, &approval, Decision::Approve).await;
         let page = finished(&client, session.id, turn.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         let requests = author.requests.lock().unwrap().clone();

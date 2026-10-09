@@ -24,8 +24,8 @@ async fn runs_from_skill_and_project_directories() {
         let script = skill_directory.join("scripts/query.sh");
         let server = Server::tools(vec![
             ("load_skill".into(), json!({"skill":"example:analysis"})),
-            (plugin_tool("commands", "run_command"), json!({"command":"sh scripts/query.sh skill", "cwd":skill_directory})),
-            (plugin_tool("commands", "run_command"), json!({"command":format!("sh '{}' project",script.to_str().unwrap().replace('\'',"'\\''")), "cwd":"."})),
+            (plugin_tool("commands", "run_command"), json!({"access":"unrestricted","command":"sh scripts/query.sh skill", "cwd":skill_directory})),
+            (plugin_tool("commands", "run_command"), json!({"access":"unrestricted","command":format!("sh '{}' project",script.to_str().unwrap().replace('\'',"'\\''")), "cwd":"."})),
         ]).await;
         let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
             panic!("snapshot expected")
@@ -136,7 +136,7 @@ async fn scripts_require_approval() {
                 ("load_skill".into(), json!({"skill": "example:analysis"})),
                 (
                     plugin_tool("commands", "run_command"),
-                    json!({"command": command}),
+                    json!({"access":"unrestricted","command": command}),
                 ),
             ])
             .await;

@@ -145,7 +145,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
         ),
         Operation::RunCommand => (
             json!({
-                "command":{"type":"string"}, "description":{"type":["string","null"],"maxLength":2000}, "cwd":{"type":"string"},
+                "command":{"type":"string"}, "access":{"type":["string","null"],"enum":["workspace","unrestricted",null],"description":"Workspace access is confined and has no network on macOS/Linux. Unrestricted access requires a fresh user approval."}, "description":{"type":["string","null"],"maxLength":2000}, "cwd":{"type":"string"},
                 "timeout_ms":{"type":"integer", "minimum":1, "maximum":900000},
                 "background":{"type":"boolean"},
                 "attachments":{"type":"array", "items":{"type":"string"}, "maxItems":8, "uniqueItems":true}
@@ -153,6 +153,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
             vec![
                 "command",
                 "description",
+                "access",
                 "cwd",
                 "timeout_ms",
                 "background",
@@ -321,6 +322,7 @@ pub(super) fn command(
             #[serde(deny_unknown_fields)]
             struct Launch {
                 command: String,
+                access: Option<sailry_protocol::process::Access>,
                 description: Option<String>,
                 cwd: String,
                 timeout_ms: u64,
@@ -333,6 +335,7 @@ pub(super) fn command(
                     .turn
                     .ok_or_else(|| Fault::invalid("operation requires a turn"))?,
                 command: launch.command,
+                access: launch.access.unwrap_or_default(),
                 description: launch.description,
                 cwd: launch.cwd,
                 timeout_ms: launch.timeout_ms,

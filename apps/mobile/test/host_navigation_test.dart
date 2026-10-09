@@ -68,6 +68,7 @@ HostConnection host(
     }
     if (kind == 'create_terminal') {
       expect(data!['worktree'], 'tree');
+      expect(data['access'], 'workspace');
       return {
         'data': {'id': 'new-terminal', 'revision': 1},
       };

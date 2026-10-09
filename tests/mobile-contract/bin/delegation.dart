@@ -138,9 +138,16 @@ Future<void> main() async {
       'full child tool arguments survive FFI',
     );
     final read = (view['calls'] as List).first;
+    final result = part(view, read['response'])['result'];
     check(
-      part(view, read['response'])['result']['data']['text'] == 'Read 子任务 🙂',
-      'child uses its bound worktree',
+      result['kind'] == 'file_lines' &&
+          result['data']['offset'] == 0 &&
+          result['data']['next_offset'] == null &&
+          jsonEncode(result['data']['lines']) ==
+              jsonEncode([
+                {'number': 1, 'text': 'Read 子任务 🙂'},
+              ]),
+      'child uses its bound worktree with canonical numbered output',
     );
   }
   await rejects(connection, 'resolve_approval', {

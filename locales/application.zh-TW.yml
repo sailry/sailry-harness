@@ -2613,3 +2613,4 @@ updates_receipt_failed: "更新已安裝，但無法儲存恢復資訊"
 updates_details: "詳情"
 updates_recovery_failed: "草稿恢復未完成"
 updates_profile_inside: "資料目錄位於 Sailry 應用內，請移出後再更新"
+approval_unrestricted: 完整檔案系統和網路存取

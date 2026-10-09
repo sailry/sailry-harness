@@ -94,6 +94,26 @@ async fn local_and_remote_lifecycle() {
             .join("workspaces/sessions")
             .join(second.id.to_string());
 
+        for path in [
+            "../../../storage/node.sqlite3".to_owned(),
+            format!("../{}/escaped.txt", second.id),
+        ] {
+            assert_eq!(
+                client
+                    .execute(client.prepare(Command::WriteFile {
+                        worktree: session.worktree,
+                        path,
+                        text: "denied".into(),
+                        expected_revision: None,
+                    }))
+                    .await
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidRequest
+            );
+        }
+        assert!(!second_workspace.exists());
+
         client
             .execute(client.prepare(Command::WriteFile {
                 worktree: session.worktree,

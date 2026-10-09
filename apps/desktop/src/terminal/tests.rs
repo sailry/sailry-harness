@@ -76,6 +76,8 @@ fn paste(cx: &mut VisualTestContext, text: &str) {
 fn input_and_remount(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     let directory = tempfile::tempdir().unwrap();
+    let project_root = directory.path().join("project");
+    std::fs::create_dir(&project_root).unwrap();
     let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
     let local = runtime
         .block_on(Node::start_isolated(directory.path().join("local")))
@@ -107,7 +109,7 @@ fn input_and_remount(cx: &mut TestAppContext) {
         runtime
             .block_on(client.execute(client.prepare(Command::RegisterProject {
                 name: "Terminal fixture".into(),
-                path: directory.path().to_str().unwrap().into(),
+                path: project_root.to_str().unwrap().into(),
             })))
             .unwrap();
         let Output::Snapshot(snapshot) = runtime
@@ -122,6 +124,7 @@ fn input_and_remount(cx: &mut TestAppContext) {
             .block_on(
                 controller.execute(
                     controller.prepare(Command::CreateTerminal(protocol::Launch {
+                        access: sailry_protocol::process::Access::Workspace,
                         worktree,
                         viewport: protocol::Viewport {
                             columns: 80,
@@ -459,9 +462,9 @@ fn input_and_remount(cx: &mut TestAppContext) {
         wait(visual, &view, |view| !view.search.matches.is_empty());
         visual.simulate_keystrokes("escape");
         wait(visual, &view, |view| !view.search.open);
-        keyboard::check(visual, &view, directory.path());
-        effects::check(visual, &view, directory.path());
-        links::check(visual, &view, directory.path());
+        keyboard::check(visual, &view, &project_root);
+        effects::check(visual, &view, &project_root);
+        links::check(visual, &view, &project_root);
         cursor::check(visual, &view);
         // A real editor exercises alternate screen, mouse positioning, and process input.
         // Paste the script as one event; simulated typing emits an unpaced burst.
@@ -506,7 +509,7 @@ fn input_and_remount(cx: &mut TestAppContext) {
                 .is_some_and(|snapshot| !snapshot.screen.alternate)
         });
         assert_eq!(
-            std::fs::read_to_string(directory.path().join("tui.txt")).unwrap(),
+            std::fs::read_to_string(project_root.join("tui.txt")).unwrap(),
             "first\nedited-second\nthird\n"
         );
         visual.update(|window, _| window.remove_window());

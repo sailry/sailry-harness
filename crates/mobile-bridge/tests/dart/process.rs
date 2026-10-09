@@ -17,15 +17,15 @@ fn executes_and_stops() {
     let server = runtime.block_on(support::Server::tools(vec![
         (
             super::agent_support::plugin_tool("commands", "run_command"),
-            json!({"command": command, "cwd": "", "timeout_ms": 60_000}),
+            json!({"command": command, "access": "unrestricted", "cwd": "", "timeout_ms": 60_000}),
         ),
         (
             super::agent_support::plugin_tool("commands", "run_command"),
-            json!({"command": "printf 'before timeout\\n'; sleep 30", "timeout_ms": 100}),
+            json!({"command": "printf 'before timeout\\n'; sleep 30", "access": "unrestricted", "timeout_ms": 100}),
         ),
         (
             super::agent_support::plugin_tool("commands", "run_command"),
-            json!({"command": "printf never > denied.txt"}),
+            json!({"command": "printf never > denied.txt", "access": "unrestricted"}),
         ),
     ]));
     let (node, sessions) = runtime.block_on(tools::sessions(

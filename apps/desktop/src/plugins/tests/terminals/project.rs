@@ -5,11 +5,11 @@ use crate::{
     preview::Page,
     shell::Shell,
 };
-use sailry_protocol::{Request, plugin::ui::Slot, terminal::Tool};
+use sailry_protocol::{Request, plugin::ui::Slot, process::Access, terminal::Tool};
 use std::os::unix::fs::PermissionsExt;
 
 fn programs(fixture: &Fixture) {
-    let programs = fixture.directory.path().join("programs");
+    let programs = fixture.directory.path().join("project/programs");
     std::fs::create_dir(&programs).unwrap();
     let program = programs.join("claude");
     std::fs::write(
@@ -196,6 +196,15 @@ fn toolbar_uses_scoped_rust_terminals(cx: &mut TestAppContext) {
                     .unwrap()
                     .enabled
             );
+            let full = choices
+                .iter()
+                .find(|choice| choice.id == "claude:unrestricted")
+                .unwrap();
+            assert!(full.enabled);
+            assert_eq!(
+                full.label.label("en"),
+                "Claude · Full filesystem and network access"
+            );
             assert_eq!(cli.key.node, fixture.node.id());
             assert_eq!(cli.key.worktree, Some(fixture.session.worktree));
             assert_eq!(cli.key.session, None);
@@ -204,6 +213,7 @@ fn toolbar_uses_scoped_rust_terminals(cx: &mut TestAppContext) {
         wait(visual, |_| terminals(&fixture).len() == 1);
         let terminal = terminals(&fixture).remove(0);
         assert_eq!(terminal.tool, None);
+        assert_eq!(terminal.access, Some(Access::Workspace));
         let panel = pane(&fixture, &shell, terminal.id, visual);
         visual.simulate_input("printf 'project-%s\\n' rust-terminal");
         visual.simulate_keystrokes("enter");
@@ -220,14 +230,14 @@ fn toolbar_uses_scoped_rust_terminals(cx: &mut TestAppContext) {
             entry(&registry, "terminal-cli", cx).state.enabled
         });
         click(visual, "plugin-control-commands-terminal-cli");
-        // Kit first selects row zero; the next Down reaches the available Claude entry.
-        visual.simulate_keystrokes("down down enter");
+        choose(visual, "Claude · Full filesystem and network access");
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
         wait(visual, |_| terminals(&fixture).len() == 2);
         let cli = terminals(&fixture)
             .into_iter()
             .find(|item| item.tool == Some(Tool::Claude))
             .unwrap();
+        assert_eq!(cli.access, Some(Access::Unrestricted));
         let cli_panel = pane(&fixture, &shell, cli.id, visual);
         wait(visual, |_| {
             content(&fixture, cli.id).contains("Project CLI ready")
@@ -237,9 +247,18 @@ fn toolbar_uses_scoped_rust_terminals(cx: &mut TestAppContext) {
         assert_eq!(calls.len(), 2, "remote={remote}, calls={calls:?}");
         for request in calls {
             assert_eq!(request.target, fixture.node.id());
+            match &request.command {
+                Command::CreateTerminal(launch) => assert_eq!(launch.access, Access::Workspace),
+                Command::OpenToolTerminal { launch, .. } => {
+                    assert_eq!(launch.access, Access::Unrestricted)
+                }
+                _ => unreachable!(),
+            }
             let context = request.plugin.unwrap();
             assert_eq!(context.worktree, Some(fixture.session.worktree));
             assert_eq!(context.session, None);
+            assert!(context.turn.is_none());
+            assert!(context.invocation.is_none());
         }
         visual.update(|_, cx| {
             shell.update(cx, |shell, cx| {
@@ -480,7 +499,7 @@ fn retry_keeps_original_target(cx: &mut TestAppContext) {
         let (shell, registry, visual) = mount(&fixture, remote, cx);
         fixture.transport.mode.store(12, Ordering::SeqCst);
         click(visual, "plugin-control-commands-terminal-cli");
-        visual.simulate_keystrokes("down down enter");
+        choose(visual, "Claude");
         wait(visual, |cx| {
             entry(&registry, "terminal-cli", cx)
                 .choices()
@@ -534,6 +553,7 @@ fn retry_keeps_original_target(cx: &mut TestAppContext) {
         let items = terminals(&fixture);
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].tool, Some(Tool::Claude));
+        assert_eq!(items[0].access, Some(Access::Workspace));
         shell.read_with(visual, |shell, _| {
             assert_eq!(
                 shell.live.as_ref().unwrap().selected,

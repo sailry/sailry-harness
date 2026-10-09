@@ -161,6 +161,7 @@ fn terminal_updates_preserve_order() {
     let first = Info {
         id: TerminalId::new(),
         worktree: None,
+        access: Some(sailry_protocol::process::Access::Workspace),
         ssh: None,
         tool: None,
         status: Status::Running,

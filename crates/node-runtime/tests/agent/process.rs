@@ -49,6 +49,7 @@ impl Fixture {
         self.client.prepare(Command::RunCommand {
             turn,
             command: command.into(),
+            access: sailry_protocol::process::Access::Unrestricted,
             description: None,
             cwd: String::new(),
             timeout_ms: 60_000,
@@ -120,11 +121,11 @@ async fn reuses_turn_scratch() {
         let server = Server::tools(vec![
             (
                 plugin_tool("commands", "run_command"),
-                json!({"command": "test \"$TMPDIR\" = \"$TMP\" && test \"$TMPDIR\" = \"$TEMP\" && printf scratch > \"$TMPDIR/shared.txt\" && printf '%s' \"$TMPDIR\" > scratch-first.txt"}),
+                json!({"access":"unrestricted","command": "test \"$TMPDIR\" = \"$TMP\" && test \"$TMPDIR\" = \"$TEMP\" && printf scratch > \"$TMPDIR/shared.txt\" && printf '%s' \"$TMPDIR\" > scratch-first.txt"}),
             ),
             (
                 plugin_tool("commands", "run_command"),
-                json!({"command": "test \"$(cat \"$TMPDIR/shared.txt\")\" = scratch && printf '%s' \"$TMPDIR\" > scratch-second.txt && printf reused"}),
+                json!({"access":"unrestricted","command": "test \"$(cat \"$TMPDIR/shared.txt\")\" = scratch && printf '%s' \"$TMPDIR\" > scratch-second.txt && printf reused"}),
             ),
         ])
         .await;
@@ -169,15 +170,15 @@ async fn bounds_approved_results() {
         let server = Server::tools(vec![
             (
                 plugin_tool("commands", "run_command"),
-                json!({"command": command, "cwd": "项目", "timeout_ms": 1000}),
+                json!({"access":"unrestricted","command": command, "cwd": "项目", "timeout_ms": 1000}),
             ),
             (
                 plugin_tool("commands", "run_command"),
-                json!({"command": "printf 'before timeout'; sleep 60", "timeout_ms": 100}),
+                json!({"access":"unrestricted","command": "printf 'before timeout'; sleep 60", "timeout_ms": 100}),
             ),
             (
                 plugin_tool("commands", "run_command"),
-                json!({"command": "touch denied.txt"}),
+                json!({"access":"unrestricted","command": "touch denied.txt"}),
             ),
         ])
         .await;
@@ -239,6 +240,7 @@ async fn bounds_approved_results() {
                 .prepare(Command::RunCommand {
                     turn,
                     command: command.into(),
+                    access: sailry_protocol::process::Access::Unrestricted,
                     description: None,
                     cwd: "项目".into(),
                     timeout_ms: 1000,
@@ -406,11 +408,11 @@ async fn orders_batch_results() {
         let server = Server::parallel(vec![
             (
                 plugin_tool("commands", "run_command"),
-                json!({"command":"printf first > first.txt; sleep 1; printf first"}),
+                json!({"access":"unrestricted","command":"printf first > first.txt; sleep 1; printf first"}),
             ),
             (
                 plugin_tool("commands", "run_command"),
-                json!({"command":"printf second > second.txt"}),
+                json!({"access":"unrestricted","command":"printf second > second.txt"}),
             ),
             (
                 plugin_tool("files", "read_file"),

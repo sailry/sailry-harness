@@ -12,6 +12,7 @@ fn ignores_stale_metadata() {
         worktree: None,
         ssh: Some(SshId::new()),
         tool: None,
+        access: None,
         status: Status::Running,
         activity: None,
         title: None,
@@ -67,6 +68,9 @@ fn requires_explicit_relaunch() {
             worktree: ssh.is_none().then_some(worktree),
             ssh,
             tool,
+            access: ssh
+                .is_none()
+                .then_some(sailry_protocol::process::Access::Workspace),
             status: Status::Stopped,
             activity: None,
             title: None,

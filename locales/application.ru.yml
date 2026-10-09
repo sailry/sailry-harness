@@ -2613,3 +2613,4 @@ reference_group_context: "Добавить"
 provider_key_hint: "Введите ключ API"
 form_date_hint: "Выберите дату"
 form_time_hint: "HH:mm:ss"
+approval_unrestricted: Полный доступ к файловой системе и сети

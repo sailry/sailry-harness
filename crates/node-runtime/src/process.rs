@@ -1,8 +1,11 @@
 //! Approved commands use a managed process group/Job, not the interactive PTY.
 //! Behavioral reference: sailry-code 67ae9fa0, terminal-host/src/headless.
 pub(crate) mod background;
+pub(crate) mod environment;
+pub(crate) use environment::Environment;
 #[path = "process/output.rs"]
 pub(crate) mod output;
+pub(crate) mod sandbox;
 #[cfg(test)]
 #[path = "process/tests.rs"]
 mod tests;
@@ -11,34 +14,19 @@ use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop};
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, process::*};
 use std::{
-    collections::BTreeMap,
-    ffi::OsString,
-    path::{Path, PathBuf},
-    process::{ExitStatus, Stdio},
+    path::PathBuf,
+    process::ExitStatus,
     sync::Arc,
     time::{Duration, Instant},
 };
 
 const CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
-const ENVIRONMENT: &[&str] = &[
-    "HOME",
-    "USERPROFILE",
-    "PATH",
-    "PATHEXT",
-    "LANG",
-    "LC_ALL",
-    "LC_CTYPE",
-    "SystemRoot",
-    "SystemDrive",
-    "COMSPEC",
-    "TEMP",
-    "TMP",
-    "TMPDIR",
-];
 
 pub(crate) struct Launch {
     pub root: PathBuf,
+    pub profile: Option<PathBuf>,
     pub command: String,
+    pub access: Access,
     pub cwd: String,
     pub timeout_ms: u64,
     pub inputs: Option<crate::files::attachments::Inputs>,
@@ -62,9 +50,7 @@ impl Launch {
 
     fn directory(&self) -> Result<PathBuf, Fault> {
         self.validate()?;
-        // Retain the registered worktree check, but do not apply file-operation
-        // confinement to an approved shell's explicitly selected directory.
-        let _root = crate::files::path::root(&self.root)?;
+        let _anchor = crate::files::path::root(&self.root)?;
         let directory = self.root.join(&self.cwd).canonicalize().map_err(|error| {
             Fault::invalid(format!("command working directory is unavailable: {error}"))
         })?;
@@ -73,69 +59,16 @@ impl Launch {
                 "command working directory is not a directory",
             ));
         }
+        if self.access == Access::Workspace
+            && sandbox::SUPPORTED
+            && !directory.starts_with(&self.root)
+        {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "command working directory is outside the workspace",
+            ));
+        }
         Ok(directory)
-    }
-}
-
-pub(crate) struct Environment(BTreeMap<OsString, OsString>);
-
-impl Environment {
-    pub(crate) fn shell(&self) -> &std::ffi::OsStr {
-        #[cfg(unix)]
-        {
-            std::ffi::OsStr::new("/bin/sh")
-        }
-        #[cfg(windows)]
-        {
-            self.0
-                .get(std::ffi::OsStr::new("COMSPEC"))
-                .map(OsString::as_os_str)
-                .unwrap_or_else(|| std::ffi::OsStr::new("cmd.exe"))
-        }
-    }
-
-    pub(crate) fn apply(&self, command: &mut tokio::process::Command) {
-        command.env_clear().envs(&self.0);
-    }
-
-    pub fn capture() -> Self {
-        Self(
-            ENVIRONMENT
-                .iter()
-                .filter_map(|name| {
-                    std::env::var_os(name).map(|value| (OsString::from(name), value))
-                })
-                .collect(),
-        )
-    }
-
-    fn command(
-        &self,
-        launch: &Launch,
-        directory: &Path,
-        inputs: Option<&Path>,
-    ) -> tokio::process::Command {
-        let mut command = tokio::process::Command::new(self.shell());
-        #[cfg(unix)]
-        command.args(["-c", &launch.command]);
-        #[cfg(windows)]
-        command.args(["/D", "/S", "/C", &launch.command]);
-        self.apply(&mut command);
-        if let Some(inputs) = inputs {
-            command.env("SAILRY_ATTACHMENTS", inputs);
-        }
-        if let Some(scratch) = &launch.scratch {
-            for name in ["TMPDIR", "TMP", "TEMP"] {
-                command.env(name, scratch.path());
-            }
-        }
-        command
-            .current_dir(directory)
-            .env("PWD", directory)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        command
     }
 }
 
@@ -190,11 +123,21 @@ pub(crate) async fn execute_observed(
         Some(inputs) => Some(inputs.stage(stop.clone()).await?),
         None => None,
     };
-    let mut command = CommandWrap::from(environment.command(
+    let sandbox = sandbox::Sandbox::prepare(
+        &launch,
+        environment,
+        inputs.as_ref().map(|directory| directory.path()),
+    )?;
+    let command = environment.command(
         &launch,
         &directory,
         inputs.as_ref().map(|directory| directory.path()),
-    ));
+    );
+    let command = match &sandbox {
+        Some(sandbox) => sandbox.command(command)?,
+        None => command,
+    };
+    let mut command = CommandWrap::from(command);
     command.wrap(KillOnDrop);
     #[cfg(unix)]
     command.wrap(process_wrap::tokio::ProcessGroup::leader());

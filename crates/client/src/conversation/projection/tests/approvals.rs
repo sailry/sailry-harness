@@ -12,8 +12,9 @@ fn recovers_decisions() {
         index: 0,
         state: ApprovalState::Pending,
         source: sailry_protocol::conversation::ApprovalSource::User,
-        can_remember: true,
-        prefix: Some("cargo test".into()),
+        access: Some(sailry_protocol::process::Access::Unrestricted),
+        can_remember: false,
+        prefix: None,
         choice: None,
         reason: None,
     };
@@ -74,7 +75,7 @@ fn recovers_decisions() {
 
 #[test]
 fn preserves_rule_identity() {
-    for change in 0..3 {
+    for change in 0..5 {
         let (mut projection, mut snapshot, run, _) = fixture();
         let approval = Approval {
             id: ApprovalId::new(),
@@ -84,6 +85,7 @@ fn preserves_rule_identity() {
             index: 0,
             state: ApprovalState::Pending,
             source: conversation::ApprovalSource::User,
+            access: None,
             can_remember: true,
             prefix: Some("cargo test".into()),
             choice: None,
@@ -99,7 +101,9 @@ fn preserves_rule_identity() {
         match change {
             0 => changed.source = conversation::ApprovalSource::SessionRule,
             1 => changed.prefix = Some("cargo build".into()),
-            _ => changed.can_remember = false,
+            2 => changed.can_remember = false,
+            3 => changed.access = Some(sailry_protocol::process::Access::Unrestricted),
+            _ => changed.source = conversation::ApprovalSource::Sandbox,
         }
         assert!(
             projection
@@ -131,6 +135,7 @@ fn preserves_complete_decision() {
                 index: 0,
                 state,
                 source: conversation::ApprovalSource::User,
+                access: None,
                 can_remember: true,
                 prefix: Some("cargo test".into()),
                 choice: choice.clone(),

@@ -16,6 +16,7 @@ pub(in crate::conversation) fn check_transition(
         || previous.entry != incoming.entry
         || previous.index != incoming.index
         || previous.source != incoming.source
+        || previous.access != incoming.access
         || previous.prefix != incoming.prefix
         || previous.can_remember != incoming.can_remember
         || terminal

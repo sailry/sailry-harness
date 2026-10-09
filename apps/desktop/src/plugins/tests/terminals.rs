@@ -5,6 +5,7 @@ use sailry_protocol::{
     terminal::{Info, Status},
 };
 
+mod access;
 mod panes;
 mod project;
 
@@ -25,6 +26,49 @@ fn terminals(fixture: &Fixture) -> Vec<Info> {
         panic!()
     };
     items
+}
+
+fn choose(cx: &mut VisualTestContext, label: &str) {
+    use gpui_kit::test::TestWindowExt as _;
+    cx.simulate_mouse_move(point(px(-100.), px(-100.)), None, Modifiers::default());
+    wait(cx, |_| true);
+    cx.update(|window, cx| {
+        window.render_frame(cx);
+        let menu = window.find("popup-menu");
+        assert_eq!(menu.focused(), Some(true));
+        assert!(!menu.bounds().contains(&window.mouse_position()));
+        // Project menus add group separators and a refresh choice to the tool choices.
+        let limit = sailry_protocol::terminal::Tool::ALL.len() * 2 + 4;
+        let rows: Vec<_> = (0..limit)
+            .filter_map(|index| {
+                window
+                    .within("popup-menu")
+                    .try_find(index)
+                    .map(|row| (index, row))
+            })
+            .collect();
+        let (index, _) = rows
+            .iter()
+            .find(|(_, row)| row.label() == Some(label))
+            .unwrap_or_else(|| panic!("menu choice {label:?} missing: {rows:?}"));
+        // Native Down skips disabled rows after the first row. Always navigate before
+        // confirming; the pinned Kit does not report an explicit enabled snapshot.
+        assert!(*index > 0, "fixture choice must follow the first menu row");
+        for _ in 0..=rows.len() {
+            window.within("popup-menu").press("down", cx);
+            let row = window.within("popup-menu").find(*index);
+            if row.selected() == Some(true) {
+                assert_eq!(row.label(), Some(label));
+                assert_ne!(row.disabled(), Some(true));
+                window.within("popup-menu").press("enter", cx);
+                return;
+            }
+        }
+        let current: Vec<_> = (0..limit)
+            .filter_map(|index| window.within("popup-menu").try_find(index))
+            .collect();
+        panic!("menu choice {label:?} not selected: initial={rows:?}, current={current:?}");
+    });
 }
 
 fn content(fixture: &Fixture, id: TerminalId) -> String {
@@ -274,10 +318,15 @@ fn preserves_pty_on_release(cx: &mut TestAppContext) {
                     | Command::CloseTerminal { .. }
             )
         }) {
+            assert_eq!(request.target, fixture.node.id());
+            if let Command::InputTerminal { terminal, .. } = &request.command {
+                assert!([first, second].contains(terminal));
+                assert!(request.plugin.is_none());
+                continue;
+            }
             let context = request.plugin.as_ref().unwrap();
             assert_eq!(context.worktree, Some(fixture.session.worktree));
             assert_eq!(context.session, Some(fixture.session.id));
-            assert_eq!(request.target, fixture.node.id());
         }
         drop(requests);
         visual.update(|window, _| window.remove_window());
@@ -292,7 +341,7 @@ fn launches_available_cli(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = fixture(remote);
-        let programs = fixture.directory.path().join("programs");
+        let programs = fixture.directory.path().join("project/programs");
         std::fs::create_dir(&programs).unwrap();
         let program = programs.join("claude");
         let source = concat!(
@@ -321,8 +370,7 @@ fn launches_available_cli(cx: &mut TestAppContext) {
         click(visual, "terminal-tools");
         // Simulate a confirmed capacity failure; the following attempt launches a real PTY.
         fixture.transport.mode.store(13, Ordering::SeqCst);
-        // Kit keyboard navigation skips the unavailable Codex item before Claude.
-        visual.simulate_keystrokes("down enter");
+        choose(visual, "Claude");
         toast(visual, "Terminal action failed");
         wait(visual, |cx| claude(cx, true));
         assert!(panel.read_with(visual, |_, cx| {
@@ -376,7 +424,7 @@ fn launches_available_cli(cx: &mut TestAppContext) {
             root,
         );
         click(visual, "terminal-tools");
-        visual.simulate_keystrokes("down enter");
+        choose(visual, "Claude");
         wait(visual, |_| terminals(&fixture).len() == 1);
         let terminal = terminals(&fixture).remove(0);
         assert_eq!(terminal.tool, Some(sailry_protocol::terminal::Tool::Claude));
@@ -465,6 +513,7 @@ fn rejects_unscoped_mounts(cx: &mut TestAppContext) {
             let appearance = cx.update(|cx| crate::theme::terminal(cx));
             let Output::Terminal(terminal) =
                 fixture.execute(Command::CreateTerminal(sailry_protocol::terminal::Launch {
+                    access: sailry_protocol::process::Access::Workspace,
                     worktree,
                     appearance,
                     viewport: sailry_protocol::terminal::Viewport {

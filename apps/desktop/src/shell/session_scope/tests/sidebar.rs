@@ -89,6 +89,7 @@ fn groups_and_headings(cx: &mut TestAppContext) {
             .runtime
             .block_on(
                 client.execute(client.prepare(Command::CreateTerminal(Launch {
+                    access: sailry_protocol::process::Access::Workspace,
                     worktree: original.worktree,
                     viewport: Viewport {
                         columns: 80,

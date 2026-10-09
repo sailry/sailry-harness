@@ -92,6 +92,8 @@ mod web_search;
 #[ignore = "requires built bridge and dart pub get in tests/mobile-contract"]
 fn controls_a_real_node() {
     let directory = tempfile::tempdir().unwrap();
+    let project = directory.path().join("project");
+    std::fs::create_dir(&project).unwrap();
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let node = runtime
         .block_on(sailry_node_runtime::Node::start(
@@ -100,6 +102,7 @@ fn controls_a_real_node() {
         .unwrap();
     let invitation = node.link().invite().unwrap();
     let child = command("contract.dart", directory.path(), invitation.ticket())
+        .env("SAILRY_PROJECT_PATH", project)
         .spawn()
         .unwrap();
     let status = wait(child);

@@ -4,6 +4,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'conversation.dart' show check, execute, until;
+import 'questions.dart' show hasPending, pending;
+import 'approvals.dart' show part;
 
 Future<void> main() async {
   final env = Platform.environment;
@@ -101,12 +103,61 @@ Future<void> main() async {
     var updates = await connection.watchConversation(session: session);
     await until(updates, (_) => true);
     await execute(connection, 'start_queued_turn', {'turn': turn['id']});
+    if (mode == 'plan') {
+      final waiting = await until(updates, hasPending);
+      final question = pending(waiting);
+      final call = part(waiting, question);
+      check(
+        question['session'] == session &&
+            question['turn'] == turn['id'] &&
+            call['name'] == 'plan_review' &&
+            (call['arguments'] as Map).length == 2 &&
+            call['arguments']['prompt'] == '' &&
+            (call['arguments']['input'] as Map).length == 1 &&
+            call['arguments']['input']['kind'] == 'plan' &&
+            waiting['snapshot']['page']['runs'].single['revision'] ==
+                revision &&
+            waiting['snapshot']['page']['runs'].single['status'] == 'running' &&
+            (waiting['snapshot']['page']['approvals'] as List).isEmpty,
+        'the frozen planning completion waits for canonical review',
+      );
+      await updates.close();
+      updates.dispose();
+      await reopen();
+      updates = await connection.watchConversation(session: session);
+      final resumed = await until(updates, hasPending);
+      check(
+        pending(resumed)['id'] == question['id'] &&
+            pending(resumed)['turn'] == turn['id'],
+        'current coding mode and reconnect do not answer the frozen plan',
+      );
+      final answer = await connection.prepare(
+        command: jsonEncode({
+          'kind': 'resolve_question',
+          'data': {
+            'session': session,
+            'question': question['id'],
+            'response': {
+              'kind': 'answer',
+              'data': {'kind': 'text', 'data': ''},
+            },
+          },
+        }),
+      );
+      final receipt = await connection.execute(request: answer);
+      check(
+        jsonDecode(receipt)['Ok']['data']['state']['kind'] == 'answered' &&
+            jsonDecode(receipt)['Ok']['data']['state']['data']['kind'] ==
+                'text' &&
+            jsonDecode(receipt)['Ok']['data']['state']['data']['data'] == '' &&
+            await connection.execute(request: answer) == receipt,
+        'review ends planning without admitting coding and retains its receipt',
+      );
+    }
     final completed = await until(
       updates,
       (snapshot) => (snapshot['page']['runs'] as List).any(
-        (run) =>
-            run['turn'] == turn['id'] &&
-            ['completed', 'failed'].contains(run['status']),
+        (run) => run['turn'] == turn['id'] && run['status'] == 'completed',
       ),
     );
     final page = completed['snapshot']['page'];

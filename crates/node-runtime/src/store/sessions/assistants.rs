@@ -50,11 +50,6 @@ pub(super) fn workspace(
             "plugin assistant requires its declared resource",
         ));
     }
-    let identity =
-        serde_json::to_vec(&(&binding.package.name, &binding.id)).map_err(storage_error)?;
-    let root = profile
-        .join("assistants")
-        .join(blake3::hash(&identity).to_hex().as_str())
-        .join("workspace");
+    let root = crate::workspaces::assistant(profile, binding)?;
     super::super::worktrees::scratch(db, &root)
 }

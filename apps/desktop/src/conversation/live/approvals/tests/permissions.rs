@@ -95,7 +95,8 @@ fn applies_project_and_full(cx: &mut TestAppContext) {
             visual.simulate_input("apply selected permission");
             visual.simulate_keystrokes("enter");
             let root = fixture.directory.path().join("project");
-            if mode == Permission::Project {
+            let sandboxed = cfg!(any(target_os = "macos", target_os = "linux"));
+            if mode == Permission::Project && !sandboxed {
                 wait(visual, |cx| pending(&view, cx).is_some());
                 assert_eq!(
                     std::fs::read_to_string(root.join("自动.txt")).unwrap(),
@@ -127,7 +128,16 @@ fn applies_project_and_full(cx: &mut TestAppContext) {
                     .collect();
                 assert_eq!(
                     sources,
-                    if mode == Permission::Project {
+                    if sandboxed {
+                        vec![
+                            if mode == Permission::Project {
+                                ApprovalSource::Project
+                            } else {
+                                ApprovalSource::Full
+                            },
+                            ApprovalSource::Sandbox,
+                        ]
+                    } else if mode == Permission::Project {
                         vec![ApprovalSource::Project, ApprovalSource::User]
                     } else {
                         vec![ApprovalSource::Full, ApprovalSource::Full]

@@ -77,6 +77,7 @@ impl Commands {
             session,
             turn,
             command: launch.command.clone(),
+            access: launch.access,
             cwd: launch.cwd.clone(),
             started_ms: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -242,7 +243,7 @@ fn missing() -> Fault {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sailry_protocol::process::Outcome;
+    use sailry_protocol::process::{Access, Outcome};
     use std::time::{Duration, Instant};
 
     async fn finished(commands: &Commands, session: SessionId, id: RequestId) -> Snapshot {
@@ -285,6 +286,8 @@ mod tests {
                 session,
                 turn,
                 Launch {
+                    profile: None,
+                    access: Access::Workspace,
                     root: root.path().canonicalize().unwrap(),
                     command: "test \"$TMPDIR\" = \"$TMP\" && test \"$TMPDIR\" = \"$TEMP\" && printf started > ready.txt; sleep 60".into(),
                     cwd: String::new(),
@@ -292,7 +295,7 @@ mod tests {
                     inputs: None,
                     scratch: Some(scratch),
                 },
-                Arc::new(Environment::capture()),
+                Arc::new(Environment::ambient()),
                 CancellationToken::new(),
             )
             .unwrap();
@@ -329,6 +332,8 @@ mod tests {
                     owner,
                     TurnId::new(),
                     Launch {
+                        profile: None,
+                        access: Access::Workspace,
                         root: root.path().canonicalize().unwrap(),
                         command: command.into(),
                         cwd: String::new(),
@@ -336,7 +341,7 @@ mod tests {
                         inputs: None,
                         scratch: None,
                     },
-                    Arc::new(Environment::capture()),
+                    Arc::new(Environment::ambient()),
                     CancellationToken::new(),
                 )
                 .unwrap();
@@ -379,6 +384,8 @@ mod tests {
                     session,
                     TurnId::new(),
                     Launch {
+                        profile: None,
+                        access: Access::Workspace,
                         root: root.path().canonicalize().unwrap(),
                         command: text.into(),
                         cwd: String::new(),
@@ -386,7 +393,7 @@ mod tests {
                         inputs: None,
                         scratch: None,
                     },
-                    Arc::new(Environment::capture()),
+                    Arc::new(Environment::ambient()),
                     CancellationToken::new(),
                 )
                 .unwrap()

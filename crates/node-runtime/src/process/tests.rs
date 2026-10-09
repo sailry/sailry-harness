@@ -1,8 +1,11 @@
 use super::*;
+use std::path::Path;
 
 fn launch(root: &Path, command: &str) -> Launch {
     Launch {
         root: root.canonicalize().unwrap(),
+        profile: None,
+        access: Access::Unrestricted,
         command: command.into(),
         cwd: String::new(),
         timeout_ms: 5000,
@@ -72,7 +75,7 @@ mod unix {
     async fn run(launch: Launch) -> Completion {
         execute(
             launch,
-            &Environment::capture(),
+            &Environment::ambient(),
             &CancellationToken::new(),
             &CancellationToken::new(),
         )
@@ -204,7 +207,7 @@ mod unix {
                 stop.clone()
             };
             let running = tokio::spawn(async move {
-                execute(request, &Environment::capture(), &stop, &closed)
+                execute(request, &Environment::ambient(), &stop, &closed)
                     .await
                     .unwrap()
             });
@@ -246,7 +249,7 @@ mod unix {
         stop.cancel();
         let output = execute(
             launch(directory.path(), "touch marker"),
-            &Environment::capture(),
+            &Environment::ambient(),
             &stop,
             &CancellationToken::new(),
         )

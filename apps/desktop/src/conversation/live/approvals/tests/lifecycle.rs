@@ -3,6 +3,29 @@ use sailry_link::{Admission, Pending, Subscription};
 use sailry_protocol::{ErrorCode, Fault, RequestId, Topic};
 use std::sync::Mutex;
 
+pub(super) fn restored(fixture: &Fixture) -> sailry_protocol::conversation::Snapshot {
+    fixture.runtime.block_on(async {
+        let client = Client::new(fixture.transport.clone());
+        let mut stream = client
+            .subscribe_conversation(fixture.session.id)
+            .await
+            .unwrap();
+        let update = tokio::time::timeout(Duration::from_secs(10), stream.next())
+            .await
+            .unwrap()
+            .unwrap();
+        let sailry_protocol::Update::ConversationSnapshot(snapshot) = update else {
+            panic!("initial conversation snapshot expected")
+        };
+        let history = client
+            .read_conversation(fixture.session.id, None, 100)
+            .await
+            .unwrap();
+        assert_eq!(snapshot.page.approvals, history.page.approvals);
+        snapshot
+    })
+}
+
 struct Lost {
     inner: Arc<dyn Transport>,
     ids: Mutex<Vec<RequestId>>,
@@ -114,6 +137,173 @@ fn retries_original_decision(cx: &mut TestAppContext) {
             view.read(cx).active().is_none() && !view.read(cx).approvals.pending
         });
         assert_eq!(fixture.server.requests.lock().unwrap().len(), 3);
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
+#[cfg(unix)]
+#[gpui::test]
+fn full_access_keeps_fresh_consent(cx: &mut TestAppContext) {
+    use sailry_protocol::{
+        Permission,
+        conversation::{ApprovalChoice, ApprovalSource},
+        process::Access,
+    };
+    init(cx);
+    for remote in [false, true] {
+        let mut fixture = Fixture::with_tools(
+            remote,
+            vec![
+                (
+                    crate::agent_fixture::plugin_tool("commands", "run_command"),
+                    json!({"command":"printf first > first.txt","description":"Inspect the execution environment","access":"unrestricted"}),
+                ),
+                (
+                    crate::agent_fixture::plugin_tool("commands", "run_command"),
+                    json!({"command":"printf second > second.txt","access":"unrestricted"}),
+                ),
+            ],
+        );
+        let mut config = fixture.session.config.clone();
+        config.permission = Permission::Full;
+        let Output::Session(session) = fixture.execute(Command::SetSessionConfig {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            config,
+        }) else {
+            panic!("session expected")
+        };
+        fixture.session = session;
+        fixture.execute(Command::SubmitTurn {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            message: "Inspect with explicit access".into(),
+        });
+        let lost = Arc::new(Lost {
+            inner: fixture.transport.clone(),
+            ids: Mutex::new(Vec::new()),
+            decisions: Mutex::new(Vec::new()),
+        });
+        let mut binding = fixture.binding.clone();
+        binding.client = Arc::new(Client::new(lost.clone()));
+        let (view, visual) = open(cx, binding, fixture.session.clone());
+        wait(visual, |cx| {
+            view.read(cx).connected() && pending(&view, cx).is_some()
+        });
+        let first = view.read_with(visual, |_, cx| pending(&view, cx).unwrap());
+        let initial = restored(&fixture);
+        let mut projection =
+            sailry_client::conversation::Projection::new(fixture.node.id(), fixture.session.id, 1);
+        projection
+            .apply(
+                1,
+                sailry_protocol::Update::ConversationSnapshot(initial.clone()),
+            )
+            .unwrap();
+        assert_eq!(initial.page.approvals.len(), 1);
+        assert_eq!(initial.page.approvals[0].id, first);
+        assert_eq!(initial.page.approvals[0].state, ApprovalState::Pending);
+        view.read_with(visual, |view, _| {
+            let call = &view.history.calls[0];
+            let approval = call.approval.as_ref().unwrap();
+            assert_eq!(approval.access, Some(Access::Unrestricted));
+            assert_eq!(approval.source, ApprovalSource::User);
+            assert!(!approval.can_remember);
+            assert!(approval.prefix.is_none());
+            let details = details(call, &view.history.snapshot.as_ref().unwrap().page);
+            assert_eq!(
+                details.access.as_deref(),
+                Some("Full filesystem and network access")
+            );
+            assert_eq!(
+                details.description.as_deref(),
+                Some("printf first > first.txt")
+            );
+            assert_eq!(
+                details.notices,
+                vec![SharedString::from("Inspect the execution environment")]
+            );
+        });
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            visual
+                .debug_bounds(Box::leak(
+                    format!("live-approval-access-{first}").into_boxed_str()
+                ))
+                .is_some()
+        );
+        assert!(
+            visual
+                .debug_bounds(Box::leak(
+                    format!("live-approval-approve-options-{first}").into_boxed_str()
+                ))
+                .is_none()
+        );
+        assert!(!fixture.directory.path().join("project/first.txt").exists());
+        tap(visual, &format!("live-approval-approve-{first}"));
+        wait(visual, |cx| {
+            view.read(cx).approvals.error.is_some()
+                && pending(&view, cx).is_some_and(|id| id != first)
+        });
+        let second = view.read_with(visual, |_, cx| pending(&view, cx).unwrap());
+        assert!(!fixture.directory.path().join("project/second.txt").exists());
+        tap(visual, &format!("live-approval-approve-{second}"));
+        assert_eq!(lost.ids.lock().unwrap().len(), 1);
+        tap(visual, "live-approval-retry");
+        wait(visual, |cx| view.read(cx).approvals.attempt.is_none());
+        let ids = lost.ids.lock().unwrap().clone();
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids[0], ids[1]);
+        assert_eq!(
+            *lost.decisions.lock().unwrap(),
+            vec![Decision::Approve, Decision::Approve]
+        );
+        tap(visual, &format!("live-approval-reject-{second}"));
+        wait(visual, |cx| {
+            view.read(cx).active().is_none() && !view.read(cx).approvals.pending
+        });
+        view.read_with(visual, |view, _| {
+            let page = &view.history.snapshot.as_ref().unwrap().page;
+            let approvals = &page.approvals;
+            assert_eq!(approvals.len(), 2);
+            assert_eq!(approvals[0].choice, Some(ApprovalChoice::Once));
+            assert_eq!(approvals[1].state, ApprovalState::Denied);
+            assert!(
+                approvals
+                    .iter()
+                    .all(|approval| approval.source == ApprovalSource::User
+                        && approval.access == Some(Access::Unrestricted)
+                        && !approval.can_remember)
+            );
+        });
+        assert_eq!(
+            std::fs::read_to_string(fixture.directory.path().join("project/first.txt")).unwrap(),
+            "first"
+        );
+        assert!(!fixture.directory.path().join("project/second.txt").exists());
+        let completed = restored(&fixture);
+        projection.reconnect(2).unwrap();
+        projection
+            .apply(
+                2,
+                sailry_protocol::Update::ConversationSnapshot(completed.clone()),
+            )
+            .unwrap();
+        let recovered = &projection.snapshot().unwrap().page.approvals;
+        assert_eq!(recovered, &completed.page.approvals);
+        assert_eq!(recovered.len(), 2);
+        let original = &initial.page.approvals[0];
+        let recovered = recovered
+            .iter()
+            .find(|approval| approval.id == original.id)
+            .unwrap();
+        assert_eq!(recovered.state, ApprovalState::Approved);
+        assert_eq!(recovered.choice, Some(ApprovalChoice::Once));
+        assert_eq!(recovered.source, original.source);
+        assert_eq!(recovered.access, original.access);
+        assert_eq!(recovered.can_remember, original.can_remember);
+        assert_eq!(recovered.prefix, original.prefix);
         visual.update(|window, _| window.remove_window());
         fixture.close();
     }

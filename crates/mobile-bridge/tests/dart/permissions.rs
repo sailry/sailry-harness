@@ -14,6 +14,7 @@ fn preserves_frozen_authority() {
     let server = runtime.block_on(support::Server::tools(vec![
         (super::agent_support::plugin_tool("files", "write_file"), json!({"path": "permission.txt", "text": "自动与手动 中文 🙂", "expected_revision": null})),
         (super::agent_support::plugin_tool("commands", "run_command"), json!({"command": "printf x >> count.txt"})),
+        (super::agent_support::plugin_tool("commands", "run_command"), json!({"command": "printf x >> unrestricted-count.txt", "access": "unrestricted"})),
     ]));
     let (node, mut sessions) = runtime.block_on(tools::sessions(
         directory.path(),
@@ -52,6 +53,10 @@ fn preserves_frozen_authority() {
         std::fs::read_to_string(root.join("count.txt")).unwrap(),
         "xxx"
     );
+    assert_eq!(
+        std::fs::read_to_string(root.join("unrestricted-count.txt")).unwrap(),
+        "xxx"
+    );
     for mode in ["ask", "project", "full"] {
         assert_eq!(
             std::fs::read_to_string(root.join(format!("permission-{mode}.txt"))).unwrap(),
@@ -67,7 +72,7 @@ fn preserves_frozen_authority() {
     );
     runtime.block_on(node.shutdown()).unwrap();
     let requests = server.requests.lock().unwrap();
-    assert_eq!(requests.len(), 9);
+    assert_eq!(requests.len(), 12);
     assert!(
         requests
             .iter()

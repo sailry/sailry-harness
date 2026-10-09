@@ -3,7 +3,7 @@ use sailry_protocol::{GitChangeKind, GitEntry, GitLineStats, GitLogEntry};
 
 #[test]
 fn captures_execution_facts() {
-    let environment = Environment::capture();
+    let environment = Environment::ambient();
     let before = chrono::Local::now().format("%Y-%m-%d (UTC%:z)").to_string();
     let instruction = facts(&environment, "selected-model", true);
     let after = chrono::Local::now().format("%Y-%m-%d (UTC%:z)").to_string();
@@ -24,7 +24,7 @@ fn captures_execution_facts() {
 
 #[test]
 fn omits_unavailable_project_facts() {
-    let instruction = facts(&Environment::capture(), "selected-model", false);
+    let instruction = facts(&Environment::ambient(), "selected-model", false);
     assert!(instruction.contains("Date: "));
     assert!(instruction.contains("Model: \"selected-model\""));
     assert!(!instruction.contains("Working directory: "));

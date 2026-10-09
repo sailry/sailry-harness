@@ -143,11 +143,11 @@ async fn confirms_project_commands() {
             ),
             (
                 plugin_tool("commands", "run_command"),
-                json!({"command": "printf x >> count.txt; printf allowed > ../outside.txt"}),
+                json!({"access":"unrestricted","command": "printf x >> count.txt; printf allowed > ../outside.txt"}),
             ),
             (
                 plugin_tool("commands", "run_command"),
-                json!({"command": "printf denied > ../denied.txt"}),
+                json!({"access":"unrestricted","command": "printf denied > ../denied.txt"}),
             ),
         ])
         .await;
@@ -223,15 +223,20 @@ async fn permits_authorized_commands() {
     for remote in [false, true] {
         let server = Server::tools(vec![(
             plugin_tool("commands", "run_command"),
-            json!({"command": "printf x >> ../outside.txt"}),
+            json!({"access":"unrestricted","command": "printf x >> ../outside.txt"}),
         )])
         .await;
         let mut fixture = Fixture::new(remote, &server).await;
         configure(&mut fixture, Permission::Full).await;
         let (request, turn) = submit(&fixture).await;
+        let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
+        assert_eq!(approval.source, ApprovalSource::User);
+        assert!(!approval.can_remember);
+        assert!(!fixture.directory.path().join("outside.txt").exists());
+        decide(&fixture.client, &approval, Decision::Approve).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
-        assert_eq!(page.approvals[0].source, ApprovalSource::Full);
+        assert_eq!(page.approvals[0].source, ApprovalSource::User);
         assert_eq!(results(&page)[0].outcome, Outcome::Exited(0));
         assert_eq!(
             fixture.client.execute(request).await.unwrap(),

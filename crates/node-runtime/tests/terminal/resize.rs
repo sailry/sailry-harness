@@ -3,8 +3,12 @@ use super::*;
 #[tokio::test]
 async fn redraws_prompt() {
     let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("project");
+    let home = directory.path().join("shell-home");
+    let node = isolated(&directory.path().join("node"), &home).await;
+    std::fs::create_dir(&root).unwrap();
     std::fs::write(
-        directory.path().join(".zshrc"),
+        home.join(".zshrc"),
         r#"setopt promptsubst
 fixture_prompt() { sleep 0.03; print -rn '%K{magenta}resize-fixture%k %F{green}project%f > '; }
 PROMPT='$(fixture_prompt)'
@@ -12,7 +16,6 @@ RPROMPT=''
 "#,
     )
     .unwrap();
-    let node = Node::start(directory.path().join("node")).await.unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();
@@ -22,17 +25,20 @@ RPROMPT=''
         .await
         .unwrap();
     let local = Client::new(node.local());
-    local
+    let Output::Project(project) = local
         .execute(local.prepare(Command::RegisterProject {
             name: "Resize fixture".into(),
-            path: directory.path().to_str().unwrap().into(),
+            path: root.to_str().unwrap().into(),
         }))
         .await
-        .unwrap();
+        .unwrap()
+    else {
+        panic!("project expected")
+    };
     local
         .execute(local.prepare(Command::SaveTerminalSettings(Settings {
             shell: "/bin/zsh".into(),
-            environment: [("HOME".into(), directory.path().to_str().unwrap().into())].into(),
+            environment: [("HOME".into(), home.to_str().unwrap().into())].into(),
             ..Default::default()
         })))
         .await
@@ -44,11 +50,19 @@ RPROMPT=''
     else {
         panic!("snapshot expected")
     };
-    let tree = snapshot.worktrees[0].id;
+    let tree = snapshot
+        .worktrees
+        .iter()
+        .find(|tree| tree.project == Some(project.id) && tree.main)
+        .unwrap()
+        .id;
     for transport in [node.local(), controller.handle().remote(address)] {
         let client = Client::new(transport);
         let Output::Terminal(info) = client
-            .execute(client.prepare(Command::CreateTerminal(launch(tree))))
+            .execute(client.prepare(Command::CreateTerminal(Launch {
+                access: sailry_protocol::process::Access::Unrestricted,
+                ..launch(tree)
+            })))
             .await
             .unwrap()
         else {

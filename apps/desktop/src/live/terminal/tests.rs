@@ -119,6 +119,8 @@ fn remote_page_lifecycle(cx: &mut TestAppContext) {
 fn lifecycle(cx: &mut TestAppContext, remote: bool) {
     cx.executor().allow_parking();
     let directory = tempfile::tempdir().unwrap();
+    let project_root = directory.path().join("project");
+    std::fs::create_dir(&project_root).unwrap();
     let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
     let node = runtime
         .block_on(Node::start_isolated(directory.path().join("node")))
@@ -152,7 +154,7 @@ fn lifecycle(cx: &mut TestAppContext, remote: bool) {
     let Output::Project(project) = runtime
         .block_on(client.execute(client.prepare(Command::RegisterProject {
             name: "Terminal fixture".into(),
-            path: directory.path().to_str().unwrap().into(),
+            path: project_root.to_str().unwrap().into(),
         })))
         .unwrap()
     else {
@@ -226,6 +228,7 @@ fn lifecycle(cx: &mut TestAppContext, remote: bool) {
     let Output::Terminal(inventory) = runtime
         .block_on(client.execute(client.prepare(Command::CreateTerminal(
             sailry_protocol::terminal::Launch {
+                access: sailry_protocol::process::Access::Workspace,
                 worktree: tree,
                 viewport: sailry_protocol::terminal::Viewport {
                     columns: 80,

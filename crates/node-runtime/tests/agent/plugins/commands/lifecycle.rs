@@ -141,73 +141,80 @@ async fn preserves_frozen_transforms_and_known_results() {
 }
 
 #[tokio::test]
-async fn guards_prepared_commands_before_claiming() {
+async fn guards_prepared_escape_before_claiming() {
     use crate::approvals::rules;
+    use sailry_protocol::{conversation::ApprovalChoice, process::Access};
     for remote in [false, true] {
-        for initial in [false, true] {
-            for within in [false, true] {
-                let mut calls = vec![(name("run_command"), json!({"command":"touch seed.txt"}))];
-                if !initial {
-                    calls.push((
-                        name("run_command"),
-                        json!({"command":"touch requested.txt"}),
-                    ));
-                }
-                let expected = calls.len();
-                let server = Server::tools(calls).await;
-                let fixture = Fixture::new(remote, &server).await;
+        for requested in [Access::Workspace, Access::Unrestricted] {
+            for prepared in [Access::Workspace, Access::Unrestricted] {
+                let server = Server::tools(vec![(
+                    name("run_command"),
+                    json!({"access":requested,"command":"touch actual.txt"}),
+                )])
+                .await;
+                let mut fixture = Fixture::new(remote, &server).await;
                 let original = include_str!(
                     "../../../../../../plugins/commands/dev.sailry.platform/host/main.js"
                 );
-                let replacement = if within {
-                    "touch actual.txt"
+                let replacement = if prepared == Access::Workspace {
+                    "workspace"
                 } else {
-                    "mkdir denied-dir"
+                    "unrestricted"
                 };
                 let transformed = original.replace(
-                    "return { command, description, cwd",
-                    &format!("return {{ command: command === 'touch seed.txt' && {} ? command : {replacement:?}, description, cwd", !initial),
+                    "attachments, access };",
+                    &format!("attachments, access: '{replacement}' }};"),
                 );
                 assert_ne!(transformed, original);
                 source(&fixture, &transformed);
                 let installed = update(&fixture, 1).await;
+                let mut config = fixture.session.config.clone();
+                config.permission = Permission::Full;
+                let Output::Session(session) = execute(
+                    &fixture,
+                    Command::SetSessionConfig {
+                        session: fixture.session.id,
+                        expected_revision: fixture.session.revision,
+                        config,
+                    },
+                )
+                .await
+                else {
+                    panic!("session expected")
+                };
+                fixture.session = session;
                 let turn = rules::submit(&fixture.client, &fixture.session).await;
                 assert!(turn.plugins.contains(&installed.summary.reference()));
-                let approval = rules::pending(&fixture.client, fixture.session.id).await;
-                assert_eq!(approval.prefix.as_deref(), Some("touch seed.txt"));
-                process::decide(
-                    &fixture.client,
-                    &approval,
-                    Decision::ApprovePrefix("touch".into()),
-                )
-                .await;
+                if requested == Access::Unrestricted {
+                    let approval = rules::pending(&fixture.client, fixture.session.id).await;
+                    assert_eq!(approval.source, ApprovalSource::User);
+                    assert!(!approval.can_remember);
+                    assert_eq!(approval.prefix, None);
+                    assert!(!fixture.root.join("actual.txt").exists());
+                    process::decide(&fixture.client, &approval, Decision::Approve).await;
+                }
                 let page = rules::completed(&fixture.client, fixture.session.id, turn.id).await;
                 let result = results(&page);
-                assert_eq!(result.len(), expected);
-                assert_eq!(page.approvals.len(), expected);
-                let guarded = page.approvals.last().unwrap();
-                assert_eq!(
-                    guarded.source,
-                    if initial {
-                        sailry_protocol::conversation::ApprovalSource::User
-                    } else {
-                        sailry_protocol::conversation::ApprovalSource::PrefixRule
-                    }
-                );
-                assert_eq!(rules::claimed(&fixture.node, guarded).1, within);
-                assert_eq!(fixture.root.join("actual.txt").exists(), within);
-                assert_eq!(fixture.root.join("seed.txt").exists(), !initial);
-                assert!(!fixture.root.join("requested.txt").exists());
-                assert!(!fixture.root.join("denied-dir").exists());
-                let final_result = result.last().unwrap();
-                if within {
-                    assert!(final_result.get("isError").is_none(), "{final_result}");
+                assert_eq!(result.len(), 1);
+                assert_eq!(page.approvals.len(), 1);
+                let approval = &page.approvals[0];
+                assert_eq!(approval.access, Some(requested));
+                let allowed = prepared == Access::Workspace || requested == Access::Unrestricted;
+                assert_eq!(rules::claimed(&fixture.node, approval).1, allowed);
+                assert_eq!(fixture.root.join("actual.txt").exists(), allowed);
+                if requested == Access::Unrestricted {
+                    assert_eq!(approval.choice, Some(ApprovalChoice::Once));
                 } else {
-                    assert_eq!(final_result["isError"], true);
-                    assert_eq!(final_result["error"]["code"], "permission_denied");
+                    assert_eq!(approval.source, ApprovalSource::Sandbox);
+                }
+                if allowed {
+                    assert!(result[0].get("isError").is_none(), "{}", result[0]);
+                } else {
+                    assert_eq!(result[0]["isError"], true);
+                    assert_eq!(result[0]["error"]["code"], "permission_denied");
                     assert_eq!(
-                        final_result["error"]["message"],
-                        "prepared command is outside the approved prefix"
+                        result[0]["error"]["message"],
+                        "prepared command requires fresh unrestricted approval"
                     );
                 }
                 fixture.node.shutdown().await.unwrap();
@@ -222,7 +229,7 @@ async fn waiting_releases_vm_capacity() {
     for remote in [false, true] {
         let server = Server::tools(vec![(
             name("run_command"),
-            json!({"command":"sleep 60 & task_pid=$!; printf '%s' \"$task_pid\" > child.pid; printf started > running.txt; wait \"$task_pid\""}),
+            json!({"access":"unrestricted","command":"sleep 60 & task_pid=$!; printf '%s' \"$task_pid\" > child.pid; printf started > running.txt; wait \"$task_pid\""}),
         )])
         .await;
         let fixture = Fixture::new(remote, &server).await;

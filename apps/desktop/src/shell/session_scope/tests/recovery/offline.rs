@@ -83,6 +83,7 @@ fn retains_remote_restart_layout(cx: &mut TestAppContext) {
     let handle = visual.update(|window, _| window.window_handle());
     visual.simulate_window_resize(handle, size(px(1400.), px(900.)));
     let Output::Terminal(info) = execute(Command::CreateTerminal(Launch {
+        access: sailry_protocol::process::Access::Workspace,
         worktree: session.worktree,
         viewport: Viewport {
             columns: 80,

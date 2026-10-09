@@ -159,98 +159,194 @@ fn result<'a>(page: &'a Page, tool: &str) -> &'a Value {
 #[tokio::test]
 async fn selects_tools_without_importing_resources() {
     for remote in [false, true] {
-        let inspect = plugin_tool(PROVIDER, "inspect");
-        let read = plugin_tool(PROVIDER, "read_note");
-        let run = plugin_tool("commands", "run_command");
-        let server = Server::tools(vec![
-            (inspect.clone(), json!({})),
-            (read.clone(), json!({"key":"review"})),
-            (alias("read_note"), json!({"key":"review"})),
-            (
-                "load_skill".into(),
-                json!({"skill":"assistant-tools:hidden"}),
-            ),
-            (
-                "load_skill".into(),
-                json!({"skill":"assistant-notes:review"}),
-            ),
-            (
-                run.clone(),
-                json!({"command":"printf imported > imported.txt"}),
-            ),
-        ])
-        .await;
-        let fixture = process::Fixture::new(remote, &server).await;
-        let provider = provider(&fixture, 0, "1.0.0").await;
-        let provider = configure(&fixture, &provider, "Captured label").await;
-        let owner = assistant(
-            &fixture,
-            json!([
-                {"kind":"package","package":PROVIDER,"name":"inspect"},
-                {"kind":"package","package":PROVIDER,"name":"read_note"},
-                {"kind":"package","package":"commands","name":"run_command"},
-                {"kind":"plugin","name":"read_note"},
-                {"kind":"builtin","name":"load_skill"},
-                {"kind":"builtin","name":"read_skill_resource"}
-            ]),
-        )
-        .await;
-        let session = create(&fixture, &owner).await;
-        let scratch = scratch(&fixture, &session).await;
-        seed(&fixture, &session, &owner).await;
-        seed_provider(&fixture, &session, &provider).await;
-        let turn = submit(&fixture.client, &session, false).await;
-        assert_eq!(turn.plugins.len(), 3);
-        assert!(turn.plugins.contains(&provider.summary.reference()));
-        let page = finished(&fixture.client, session.id, turn.id).await;
-        assert_eq!(
-            page.runs.last().unwrap().status,
-            Status::Completed,
-            "{page:?}"
-        );
-        assert_eq!(
-            result(&page, &inspect),
-            &json!({
-                "version":"1.0.0","package":PROVIDER,"session":session.id,"worktree":session.worktree,
-                "label":"Captured label","text":"Assistant scratch file","note":"Provider-owned note"
-            })
-        );
-        assert_eq!(result(&page, &read)["value"], "Provider-owned note");
-        note(&page);
-        assert!(result(&page, "load_skill")["error"].is_object());
-        assert_eq!(
-            std::fs::read_to_string(scratch.join("imported.txt")).unwrap(),
-            "imported"
-        );
-        assert!(!fixture.root.join("imported.txt").exists());
-        let request = server.requests.lock().unwrap()[0].clone();
-        let names: BTreeSet<_> = request["tools"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|tool| tool["function"]["name"].as_str().unwrap().to_owned())
-            .collect();
-        assert_eq!(
-            names,
-            BTreeSet::from([
-                inspect,
-                read,
-                run,
-                alias("read_note"),
-                "load_skill".into(),
-                "read_skill_resource".into(),
-                "ask_user".into(),
-                "set_session_title".into(),
-                "compact_context".into()
-            ])
-        );
-        let messages = request["messages"].to_string();
-        assert!(messages.contains("assistant-notes:review"));
-        assert!(!messages.contains("assistant-tools:hidden"));
-        assert!(!messages.contains("MCP server assistant-tools/hidden"));
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
+        selected(remote, false).await;
     }
+}
+
+#[tokio::test]
+async fn requires_unrestricted_consent() {
+    for remote in [false, true] {
+        selected(remote, true).await;
+    }
+}
+
+async fn files(fixture: &process::Fixture, session: &Session, root: &Path) {
+    let Output::FileWritten(written) = execute(
+        &fixture.client,
+        Command::WriteFile {
+            worktree: session.worktree,
+            path: "native.txt".into(),
+            text: "Original note".into(),
+            expected_revision: None,
+        },
+    )
+    .await
+    else {
+        panic!("written file expected")
+    };
+    let Output::FileWritten(edited) = execute(
+        &fixture.client,
+        Command::EditFile {
+            worktree: session.worktree,
+            path: written.path.clone(),
+            old_text: "Original".into(),
+            new_text: "Updated".into(),
+            expected_revision: written.revision.clone(),
+        },
+    )
+    .await
+    else {
+        panic!("edited file expected")
+    };
+    assert_eq!(
+        std::fs::read_to_string(root.join("native.txt")).unwrap(),
+        "Updated note"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("source.txt")).unwrap(),
+        "Assistant scratch file"
+    );
+    assert!(!fixture.root.join("native.txt").exists());
+    let stale = fixture
+        .client
+        .execute(fixture.client.prepare(Command::EditFile {
+            worktree: session.worktree,
+            path: written.path,
+            old_text: "Updated".into(),
+            new_text: "Stale".into(),
+            expected_revision: written.revision,
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(stale.code, ErrorCode::RevisionConflict);
+    let Output::FileContent(file) = execute(
+        &fixture.client,
+        Command::ReadFile {
+            worktree: session.worktree,
+            path: "native.txt".into(),
+        },
+    )
+    .await
+    else {
+        panic!("file expected")
+    };
+    assert_eq!(file.revision, Some(edited.revision));
+    assert_eq!(file.text, "Updated note");
+}
+
+async fn selected(remote: bool, unrestricted: bool) {
+    let command = if unrestricted {
+        json!({"command":"printf imported > imported.txt", "access":"unrestricted"})
+    } else {
+        json!({"command":"printf imported > imported.txt"})
+    };
+    let inspect = plugin_tool(PROVIDER, "inspect");
+    let read = plugin_tool(PROVIDER, "read_note");
+    let run = plugin_tool("commands", "run_command");
+    let server = Server::tools(vec![
+        (inspect.clone(), json!({})),
+        (read.clone(), json!({"key":"review"})),
+        (alias("read_note"), json!({"key":"review"})),
+        (
+            "load_skill".into(),
+            json!({"skill":"assistant-tools:hidden"}),
+        ),
+        (
+            "load_skill".into(),
+            json!({"skill":"assistant-notes:review"}),
+        ),
+        (run.clone(), command),
+    ])
+    .await;
+    let fixture = process::Fixture::new(remote, &server).await;
+    let provider = provider(&fixture, 0, "1.0.0").await;
+    let provider = configure(&fixture, &provider, "Captured label").await;
+    let owner = assistant(
+        &fixture,
+        json!([
+            {"kind":"package","package":PROVIDER,"name":"inspect"},
+            {"kind":"package","package":PROVIDER,"name":"read_note"},
+            {"kind":"package","package":"commands","name":"run_command"},
+            {"kind":"plugin","name":"read_note"},
+            {"kind":"builtin","name":"load_skill"},
+            {"kind":"builtin","name":"read_skill_resource"}
+        ]),
+    )
+    .await;
+    let session = create(&fixture, &owner).await;
+    let scratch = scratch(&fixture, &session).await;
+    if !unrestricted {
+        files(&fixture, &session, &scratch).await;
+    }
+    seed(&fixture, &session, &owner).await;
+    seed_provider(&fixture, &session, &provider).await;
+    let turn = submit(&fixture.client, &session, false).await;
+    assert_eq!(turn.plugins.len(), 3);
+    assert!(turn.plugins.contains(&provider.summary.reference()));
+    if unrestricted {
+        let (_, approval) = approvals::pending(&fixture.client, session.id).await;
+        assert_eq!(approval.source, ApprovalSource::User);
+        assert_eq!(
+            approval.access,
+            Some(sailry_protocol::process::Access::Unrestricted)
+        );
+        process::decide(&fixture.client, &approval, Decision::Approve).await;
+    }
+    let page = finished(&fixture.client, session.id, turn.id).await;
+    if !unrestricted {
+        assert!(
+            page.approvals
+                .iter()
+                .all(|approval| approval.source != ApprovalSource::User)
+        );
+    }
+    assert_eq!(
+        page.runs.last().unwrap().status,
+        Status::Completed,
+        "{page:?}"
+    );
+    assert_eq!(
+        result(&page, &inspect),
+        &json!({
+            "version":"1.0.0","package":PROVIDER,"session":session.id,"worktree":session.worktree,
+            "label":"Captured label","text":"Assistant scratch file","note":"Provider-owned note"
+        })
+    );
+    assert_eq!(result(&page, &read)["value"], "Provider-owned note");
+    note(&page);
+    assert!(result(&page, "load_skill")["error"].is_object());
+    assert_eq!(
+        std::fs::read_to_string(scratch.join("imported.txt")).unwrap(),
+        "imported"
+    );
+    assert!(!fixture.root.join("imported.txt").exists());
+    let request = server.requests.lock().unwrap()[0].clone();
+    let names: BTreeSet<_> = request["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["function"]["name"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(
+        names,
+        BTreeSet::from([
+            inspect,
+            read,
+            run,
+            alias("read_note"),
+            "load_skill".into(),
+            "read_skill_resource".into(),
+            "ask_user".into(),
+            "set_session_title".into(),
+            "compact_context".into()
+        ])
+    );
+    let messages = request["messages"].to_string();
+    assert!(messages.contains("assistant-notes:review"));
+    assert!(!messages.contains("assistant-tools:hidden"));
+    assert!(!messages.contains("MCP server assistant-tools/hidden"));
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]

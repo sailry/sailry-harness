@@ -267,6 +267,7 @@ async fn interrupted_command_preserves_uncertainty() {
     let request = client.prepare(Command::RunCommand {
         turn: TurnId::new(),
         command: "exit 0".into(),
+        access: sailry_protocol::process::Access::Unrestricted,
         description: None,
         cwd: String::new(),
         timeout_ms: 1_000,

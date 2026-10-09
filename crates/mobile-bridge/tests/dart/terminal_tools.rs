@@ -4,8 +4,9 @@ use std::os::unix::fs::PermissionsExt;
 #[ignore = "requires built bridge and dart pub get in tests/mobile-contract"]
 fn launches_execution_owned_cli() {
     let directory = tempfile::tempdir().unwrap();
-    let programs = directory.path().join("programs");
-    std::fs::create_dir(&programs).unwrap();
+    let project = directory.path().join("project");
+    let programs = project.join("programs");
+    std::fs::create_dir_all(&programs).unwrap();
     let program = programs.join("codex");
     std::fs::write(
         &program,
@@ -26,6 +27,7 @@ fn launches_execution_owned_cli() {
         .unwrap();
     let invitation = node.link().invite().unwrap();
     let child = super::command("terminal_tools.dart", directory.path(), invitation.ticket())
+        .env("SAILRY_PROJECT_PATH", &project)
         .env("SAILRY_TOOL_PATH", programs)
         .spawn()
         .unwrap();
@@ -33,7 +35,7 @@ fn launches_execution_owned_cli() {
     runtime.block_on(node.shutdown()).unwrap();
     assert!(status.success());
     assert_eq!(
-        std::fs::read_to_string(directory.path().join("cli-starts.txt")).unwrap(),
+        std::fs::read_to_string(project.join("cli-starts.txt")).unwrap(),
         "started\n"
     );
 }

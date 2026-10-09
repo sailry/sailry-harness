@@ -70,7 +70,7 @@ async fn reads_copies_and_restores_receipts() {
         .await;
         std::fs::write(fixture.root.join("expected.bin"), bytes).unwrap();
         let command = format!(
-            "cmp \"$SAILRY_ATTACHMENTS/{}\" expected.bin && printf '%s' \"$SAILRY_ATTACHMENTS\" > staged.txt && printf changed > \"$SAILRY_ATTACHMENTS/{}\" && printf x >> count.txt && printf read-ok",
+            "cmp \"$SAILRY_ATTACHMENTS/{}\" expected.bin && printf '%s' \"$SAILRY_ATTACHMENTS\" > staged.txt && if printf changed > \"$SAILRY_ATTACHMENTS/{}\"; then exit 99; fi && printf x >> count.txt && printf read-ok",
             input_file.id, input_file.id
         );
         let calls = vec![
@@ -185,6 +185,7 @@ async fn reads_copies_and_restores_receipts() {
                 .prepare(Command::RunCommand {
                     turn: turn.id,
                     command,
+                    access: sailry_protocol::process::Access::Workspace,
                     description: None,
                     cwd: String::new(),
                     timeout_ms: 120000,

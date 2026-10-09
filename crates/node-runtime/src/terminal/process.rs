@@ -6,13 +6,19 @@ use sailry_protocol::{
     Fault, SshId,
     terminal::{Settings, Tool, Viewport},
 };
-use std::{path::PathBuf, sync::mpsc::SyncSender};
+use std::{
+    path::PathBuf,
+    sync::{Arc, mpsc::SyncSender},
+};
 
 pub(crate) enum Source {
     Local {
         root: PathBuf,
         settings: Settings,
         tool: Option<Tool>,
+        environment: Arc<crate::process::Environment>,
+        profile: Option<PathBuf>,
+        access: sailry_protocol::process::Access,
     },
     Ssh {
         profile: SshId,
@@ -21,6 +27,12 @@ pub(crate) enum Source {
 }
 
 impl Source {
+    pub fn access(&self) -> Option<sailry_protocol::process::Access> {
+        match self {
+            Self::Local { access, .. } => Some(*access),
+            Self::Ssh { .. } => None,
+        }
+    }
     pub fn tool(&self) -> Option<Tool> {
         match self {
             Self::Local { tool, .. } => *tool,
@@ -37,7 +49,7 @@ impl Source {
 }
 
 pub(super) enum Process {
-    Local(local::Process),
+    Local(Box<local::Process>),
     Ssh(ssh::Process),
 }
 
@@ -48,11 +60,9 @@ impl Process {
         messages: SyncSender<Message>,
     ) -> Result<Self, Fault> {
         match source {
-            Source::Local {
-                root,
-                settings,
-                tool,
-            } => local::Process::start(&root, viewport, &settings, tool, messages).map(Self::Local),
+            source @ Source::Local { .. } => local::Process::start(source, viewport, messages)
+                .map(Box::new)
+                .map(Self::Local),
             Source::Ssh { connection, .. } => {
                 Ok(Self::Ssh(ssh::Process::start(connection, messages)))
             }

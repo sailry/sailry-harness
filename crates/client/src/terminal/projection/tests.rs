@@ -11,6 +11,7 @@ fn snapshot() -> Snapshot {
         info: terminal::Info {
             id: TerminalId::new(),
             worktree: Some(WorktreeId::new()),
+            access: Some(sailry_protocol::process::Access::Workspace),
             ssh: None,
             tool: None,
             status: terminal::Status::Running,

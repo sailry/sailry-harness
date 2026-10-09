@@ -86,7 +86,10 @@ async fn applies_execution_settings() {
         assert_eq!(snapshot.terminal_settings_revision, updated.revision);
         assert!(!serde_json::to_string(&snapshot).unwrap().contains(&marker));
         let Output::Terminal(info) = client
-            .execute(client.prepare(Command::CreateTerminal(launch(tree))))
+            .execute(client.prepare(Command::CreateTerminal(Launch {
+                access: sailry_protocol::process::Access::Unrestricted,
+                ..launch(tree)
+            })))
             .await
             .unwrap()
         else {
@@ -153,7 +156,7 @@ async fn loads_shell_configuration() {
     let root = directory.path().join("project");
     let home = directory.path().join("shell-home");
     std::fs::create_dir(&root).unwrap();
-    std::fs::create_dir(&home).unwrap();
+    let node = isolated(&directory.path().join("node"), &home).await;
     std::fs::write(
         home.join(".zprofile"),
         "export SAILRY_LOGIN_FIXTURE=login\n",
@@ -174,7 +177,6 @@ async fn loads_shell_configuration() {
         "export SAILRY_INTERACTIVE_FIXTURE=interactive\n",
     )
     .unwrap();
-    let node = Node::start(directory.path().join("node")).await.unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();
@@ -184,13 +186,17 @@ async fn loads_shell_configuration() {
         .await
         .unwrap();
     let client = Client::new(node.local());
-    client
+    let Output::Project(project) = client
         .execute(client.prepare(Command::RegisterProject {
             name: "Login fixture".into(),
             path: root.to_str().unwrap().into(),
         }))
         .await
-        .unwrap();
+        .unwrap()
+    else {
+        panic!("project expected")
+    };
+    let root = std::path::PathBuf::from(&project.path);
     for shell in ["/bin/zsh", "/bin/bash"] {
         for transport in [node.local(), controller.handle().remote(address.clone())] {
             let client = Client::new(transport);
@@ -216,9 +222,17 @@ async fn loads_shell_configuration() {
             else {
                 panic!("snapshot expected")
             };
-            let tree = snapshot.worktrees[0].id;
+            let tree = snapshot
+                .worktrees
+                .iter()
+                .find(|tree| tree.project == Some(project.id) && tree.main)
+                .unwrap()
+                .id;
             let Output::Terminal(info) = client
-                .execute(client.prepare(Command::CreateTerminal(launch(tree))))
+                .execute(client.prepare(Command::CreateTerminal(Launch {
+                    access: sailry_protocol::process::Access::Unrestricted,
+                    ..launch(tree)
+                })))
                 .await
                 .unwrap()
             else {

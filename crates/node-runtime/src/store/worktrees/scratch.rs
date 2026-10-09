@@ -14,10 +14,7 @@ pub(in crate::store) fn reserve_session(
             "session workspace storage is unavailable",
         )
     })?;
-    let root = profile
-        .join("workspaces")
-        .join("sessions")
-        .join(session.to_string());
+    let root = crate::workspaces::session(profile, session);
     let path = root
         .to_str()
         .ok_or_else(|| storage_error("session workspace path is not UTF-8"))?;
@@ -51,12 +48,7 @@ pub(in crate::store) fn materialize_session(
     let Ok(session) = name.parse::<SessionId>() else {
         return Ok(());
     };
-    if root
-        != profile
-            .join("workspaces")
-            .join("sessions")
-            .join(session.to_string())
-    {
+    if root != crate::workspaces::session(profile, session) {
         return Ok(());
     }
     let owned: bool = db

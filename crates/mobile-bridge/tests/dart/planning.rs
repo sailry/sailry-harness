@@ -1,6 +1,10 @@
 use super::{configuration::support, tools};
 use sailry_client::Client;
 use sailry_node_runtime::Node;
+use sailry_protocol::conversation::{
+    Status,
+    question::{Answer, State},
+};
 use serde_json::json;
 
 #[test]
@@ -31,12 +35,19 @@ fn preserves_frozen_work_modes() {
     runtime.block_on(node.shutdown()).unwrap();
     assert!(status.success());
     assert!(pages[0].approvals.is_empty());
+    assert_eq!(pages[0].runs[0].status, Status::Completed);
+    assert_eq!(pages[0].questions.len(), 1);
+    assert_eq!(
+        pages[0].questions[0].state,
+        State::Answered(Answer::Text(String::new()))
+    );
     assert_eq!(pages[1].approvals.len(), 1);
     assert_eq!(
         std::fs::read_to_string(root.join("mode.txt")).unwrap(),
         "Coding after planning 中文 🙂"
     );
     let requests = server.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 4);
     assert!(requests.iter().any(|request| {
         request["messages"]
             .to_string()

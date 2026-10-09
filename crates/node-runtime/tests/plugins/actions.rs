@@ -259,6 +259,7 @@ async fn rejects_scope_escape() {
             Command::Snapshot,
             Command::InspectHost,
             Command::CreateTerminal(terminal::Launch {
+                access: sailry_protocol::process::Access::Workspace,
                 worktree,
                 viewport: terminal::Viewport {
                     columns: 80,

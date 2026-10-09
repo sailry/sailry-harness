@@ -191,6 +191,13 @@ pub(crate) struct Ingress {
     closed: CancellationToken,
 }
 
+struct Services {
+    catalog: crate::providers::catalog::Catalog,
+    authorization: crate::providers::login::Service,
+    skills: crate::plugins::github::Github,
+    environment: Arc<crate::process::Environment>,
+}
+
 pub(crate) struct Store {
     pub(crate) ingress: Arc<Ingress>,
     worker: Option<std::thread::JoinHandle<Result<(), Error>>>,
@@ -203,19 +210,25 @@ impl Store {
         catalog: crate::providers::catalog::Catalog,
         authorization: crate::providers::login::Service,
         skills: crate::plugins::github::Github,
+        source: crate::process::environment::Source,
     ) -> Result<Self, Error> {
-        Self::start(
+        let environment = Arc::new(crate::process::Environment::capture(source).await);
+        Self::start_ready(
             profile.join("storage/node.sqlite3"),
             node,
             Some(profile),
-            catalog,
-            authorization,
-            skills,
+            Services {
+                catalog,
+                authorization,
+                skills,
+                environment,
+            },
             mutations::execute,
         )
         .await
     }
 
+    #[cfg(test)]
     async fn start(
         path: PathBuf,
         node: NodeId,
@@ -225,6 +238,34 @@ impl Store {
         skills: crate::plugins::github::Github,
         execute: impl Fn(&mutations::Roots, &Request) -> sailry_link::Response + Send + 'static,
     ) -> Result<Self, Error> {
+        Self::start_ready(
+            path,
+            node,
+            profile,
+            Services {
+                catalog,
+                authorization,
+                skills,
+                environment: Arc::new(crate::process::Environment::ambient()),
+            },
+            execute,
+        )
+        .await
+    }
+
+    async fn start_ready(
+        path: PathBuf,
+        node: NodeId,
+        profile: Option<PathBuf>,
+        services: Services,
+        execute: impl Fn(&mutations::Roots, &Request) -> sailry_link::Response + Send + 'static,
+    ) -> Result<Self, Error> {
+        let Services {
+            catalog,
+            authorization,
+            skills,
+            environment,
+        } = services;
         let (sender, mut receiver) = mpsc::channel(CAPACITY);
         let (events, _) = broadcast::channel(CAPACITY);
         let accepting = Arc::new(AtomicBool::new(true));
@@ -252,7 +293,7 @@ impl Store {
             git: crate::git::Git::new(),
             terminals: terminals.clone(),
             commands: Arc::default(),
-            environment: Arc::new(crate::process::Environment::capture()),
+            environment: environment.clone(),
             sender,
             events: events.clone(),
             accepting: accepting.clone(),
@@ -275,6 +316,7 @@ impl Store {
         let cleanup_runtime = tokio::runtime::Handle::current();
         let computer = ingress.computer.clone();
         let attachment_profile = profile.clone();
+        let terminal_profile = profile.clone();
         let mut forwarder = forwarding::Forwarder::new(
             tokio::runtime::Handle::current(),
             ingress.sender.clone(),
@@ -439,6 +481,9 @@ impl Store {
                                             root: opening.root,
                                             settings: opening.settings,
                                             tool: None,
+                                            environment: environment.clone(),
+                                            profile: terminal_profile.clone(),
+                                            access: opening.info.access.ok_or_else(|| sailry_protocol::Fault::invalid("local terminal has no access policy"))?,
                                         },
                                     )
                                     .map(sailry_protocol::Output::Terminal);
@@ -458,6 +503,9 @@ impl Store {
                                         crate::terminal::Source::Local {
                                             root: root.to_owned(),
                                             settings,
+                                            environment: environment.clone(),
+                                            profile: terminal_profile.clone(),
+                                            access: launch.access,
                                             tool: match &request.command {
                                                 sailry_protocol::Command::OpenToolTerminal {
                                                     tool,

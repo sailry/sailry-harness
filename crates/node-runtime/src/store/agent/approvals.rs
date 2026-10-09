@@ -4,6 +4,7 @@ use super::*;
 use adk_core::ToolConfirmationRequest;
 use std::collections::BTreeMap;
 
+mod access;
 mod prefix;
 pub(crate) mod results;
 mod rules;
@@ -79,12 +80,19 @@ pub(super) fn begin(
     if let Some(binding) = binding {
         rules::validate(&transaction, turn, request, binding)?;
     }
-    let can_remember = binding.is_some() && source == ApprovalSource::User;
+    let access = access::requested(request, binding)?;
+    let escape = crate::process::sandbox::SUPPORTED
+        && access == Some(sailry_protocol::process::Access::Unrestricted);
+    if escape {
+        source = ApprovalSource::User;
+    }
+    let can_remember = binding.is_some() && source == ApprovalSource::User && !escape;
     let prefix = binding
         .and_then(|binding| rules::command(binding, request))
-        .and_then(prefix::offered);
+        .and_then(prefix::offered)
+        .filter(|_| can_remember);
     let mut choice = None;
-    if source == ApprovalSource::User
+    if can_remember
         && let Some(binding) = binding
         && let Some((matched, remembered)) = rules::matching(&transaction, &run, binding, request)?
     {
@@ -107,6 +115,7 @@ pub(super) fn begin(
         reason: None,
         prefix,
         can_remember,
+        access,
     };
     let exists: bool = transaction
         .query_row(
@@ -262,6 +271,7 @@ pub(super) fn authorize(
             "tool arguments differ from the approved call",
         ));
     }
+    access::check(&approval, prepared)?;
     rules::check_prepared(&approval, prepared)?;
     transaction
         .execute(

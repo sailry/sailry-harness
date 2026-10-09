@@ -1,4 +1,4 @@
-//! Stored JSON is read tolerantly without rewriting history or replaying receipts.
+//! Optional defaults restore without replay; incompatible records preserve stored bytes.
 use rusqlite::{Connection, OpenFlags, params};
 use sailry_client::Client;
 use sailry_link::{Link, NetworkScope};
@@ -314,7 +314,7 @@ mod recovery {
     use super::*;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn defaults_and_unknown_receipts_do_not_replay() {
+    async fn restores_defaults_and_canonical_receipts() {
         for remote in [false, true] {
             let directory = tempfile::tempdir().unwrap();
             let project_path = directory.path().join("project");
@@ -380,24 +380,6 @@ mod recovery {
                 params![serde_json::to_vec(&config).unwrap(), session.id.to_string()],
             )
             .unwrap();
-            db.execute(
-                "INSERT INTO events(body) VALUES(?1)",
-                [
-                    serde_json::to_vec(&json!({"kind":"future_event","data":{"inert":true}}))
-                        .unwrap(),
-                ],
-            )
-            .unwrap();
-            let receipt =
-                json!({ "Ok": { "kind": "future_output", "data": { "inert": true } } }).to_string();
-            assert_eq!(
-                db.execute(
-                    "UPDATE requests SET result=?1 WHERE id=?2",
-                    params![receipt, creation.id.to_string()]
-                )
-                .unwrap(),
-                1
-            );
             drop(db);
             let before = retained(&profile);
 
@@ -423,8 +405,14 @@ mod recovery {
             );
             assert_eq!(restored.snapshot.projects.len(), 1);
             for _ in 0..2 {
-                let fault = client.execute(creation.clone()).await.unwrap_err();
-                assert_eq!(fault.code, ErrorCode::Unavailable);
+                assert_eq!(
+                    client.execute(creation.clone()).await.unwrap(),
+                    Output::Session(session.clone())
+                );
+                assert_eq!(
+                    client.execute(registration.clone()).await.unwrap(),
+                    Output::Project(project.clone())
+                );
             }
             let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await.unwrap()
             else {
@@ -439,7 +427,124 @@ mod recovery {
             node.shutdown().await.unwrap();
             assert!(
                 retained(&profile) == before,
-                "JSON reads or unsupported receipt recovery rewrote stored bodies"
+                "JSON reads or receipt recovery rewrote stored bodies"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn rejects_incompatible_records_without_replay() {
+        for source in ["events.body", "requests.result"] {
+            let directory = tempfile::tempdir().unwrap();
+            let profile = directory.path().join("node");
+            let node = Node::start(&profile).await.unwrap();
+            let client = Client::new(node.local());
+            let creation = client.prepare(Command::CreateSession {
+                project: None,
+                worktree: None,
+                config: Some(SessionConfig {
+                    assistant: None,
+                    resource: None,
+                    provider: ProviderId::new(),
+                    model: "fixture".into(),
+                    effort: Effort::Default,
+                    mode: WorkMode::Code,
+                    permission: Permission::Ask,
+                    credential: None,
+                }),
+            });
+            let Output::Session(session) = client.execute(creation.clone()).await.unwrap() else {
+                panic!("session expected")
+            };
+            drop(client);
+            node.shutdown().await.unwrap();
+            let path = profile.join("storage/node.sqlite3");
+            let db = Connection::open(&path).unwrap();
+            let value = json!({"kind":"future_record","data":{"token":"diagnostic-secret-marker"}});
+            match source {
+                "events.body" => {
+                    db.execute(
+                        "INSERT INTO events(body) VALUES(?1)",
+                        [serde_json::to_vec(&value).unwrap()],
+                    )
+                    .unwrap();
+                }
+                "requests.result" => {
+                    assert_eq!(
+                        db.execute(
+                            "UPDATE requests SET result=?1 WHERE id=?2",
+                            params![json!({"Ok":value}).to_string(), creation.id.to_string()],
+                        )
+                        .unwrap(),
+                        1
+                    );
+                }
+                _ => unreachable!(),
+            }
+            let pending = RequestId::new();
+            assert_eq!(
+                db.execute(
+                    "INSERT INTO requests(caller,id,body,status) SELECT caller,?1,?2,'admitted' FROM requests WHERE id=?3",
+                    params![pending.to_string(), b"retained-pending-request".as_slice(), creation.id.to_string()],
+                )
+                .unwrap(),
+                1
+            );
+            drop(db);
+            let before = fs::read(&path).unwrap();
+            let bodies = retained(&profile);
+            let error = Node::start(&profile)
+                .await
+                .err()
+                .expect("incompatible profile accepted");
+            let error = error.to_string();
+            assert!(
+                error.contains(&format!("invalid stored JSON in {source}")),
+                "{error}"
+            );
+            assert!(error.contains("existing data was not changed"), "{error}");
+            assert!(!error.contains("diagnostic-secret-marker"), "{error}");
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                before,
+                "rejected startup changed storage bytes"
+            );
+            assert!(
+                retained(&profile) == bodies,
+                "rejected startup changed stored JSON"
+            );
+            let db = database(&profile);
+            let stored: (String, String) = db
+                .query_row("SELECT id,worktree FROM sessions", [], |row| {
+                    Ok((row.get(0)?, row.get(1)?))
+                })
+                .unwrap();
+            assert_eq!(
+                stored,
+                (session.id.to_string(), session.worktree.to_string())
+            );
+            let completed: String = db
+                .query_row(
+                    "SELECT status FROM requests WHERE id=?1",
+                    [creation.id.to_string()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(completed, "completed");
+            let pending: (String, Vec<u8>, Option<String>) = db
+                .query_row(
+                    "SELECT status,body,result FROM requests WHERE id=?1",
+                    [pending.to_string()],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .unwrap();
+            assert_eq!(
+                pending,
+                (
+                    "admitted".into(),
+                    b"retained-pending-request".to_vec(),
+                    None
+                )
             );
         }
     }

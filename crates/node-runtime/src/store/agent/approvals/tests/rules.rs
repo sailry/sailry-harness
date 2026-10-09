@@ -288,6 +288,7 @@ fn preserves_base_permission_precedence() {
             reason: None,
             prefix: None,
             can_remember: true,
+            access: None,
         };
         fixture.database.connection.execute("INSERT INTO agent_approvals(id,turn,call,body,binding,request,claimed) VALUES(?1,?2,'earlier',?3,?4,?5,1)",params![remembered.id.to_string(),fixture.turn.to_string(),encode(&remembered).unwrap(),encode(&Some(&binding)).unwrap(),RequestId::new().to_string()]).unwrap();
         registry::insert(
@@ -326,6 +327,7 @@ fn validates_prepared_prefix_before_claim() {
     let mut prepared = Command::RunCommand {
         turn: fixture.turn,
         command: "cargo build".into(),
+        access: sailry_protocol::process::Access::Workspace,
         description: None,
         cwd: ".".into(),
         timeout_ms: 1000,

@@ -47,8 +47,8 @@ fn controls_host_skills() {
             ("load_skill".into(), json!({"skill": "example:analysis"})),
             ("read_skill_resource".into(), json!({"skill": "example:analysis", "path": "references/guide.md"})),
             ("ask_user".into(), json!({"prompt": "补充要求 中文 🙂", "input": {"kind": "text", "multiline": true, "max_bytes": 128}})),
-            (super::agent_support::plugin_tool("commands", "run_command"), json!({"command": command})),
-            (super::agent_support::plugin_tool("commands", "run_command"), json!({"command": "printf denied > denied.txt"})),
+            (super::agent_support::plugin_tool("commands", "run_command"), json!({"command": command, "access": "unrestricted"})),
+            (super::agent_support::plugin_tool("commands", "run_command"), json!({"command": "printf denied > denied.txt", "access": "unrestricted"})),
         ]).await;
         let mut provider = snapshot.providers[0].clone();
         provider.endpoint = server.endpoint.clone();

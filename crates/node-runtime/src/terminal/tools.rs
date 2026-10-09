@@ -4,18 +4,28 @@ use sailry_protocol::{
 };
 use std::path::{Path, PathBuf};
 
-pub fn list(root: &Path, settings: &Settings) -> Vec<ToolInfo> {
+pub fn list(
+    root: &Path,
+    settings: &Settings,
+    environment: &crate::process::Environment,
+) -> Vec<ToolInfo> {
     Tool::ALL
         .into_iter()
         .map(|tool| ToolInfo {
             tool,
-            available: resolve(root, settings, tool).is_ok(),
+            available: resolve(root, settings, tool, environment).is_ok(),
         })
         .collect()
 }
 
-pub fn resolve(root: &Path, settings: &Settings, tool: Tool) -> Result<PathBuf, Fault> {
+pub fn resolve(
+    root: &Path,
+    settings: &Settings,
+    tool: Tool,
+    environment: &crate::process::Environment,
+) -> Result<PathBuf, Fault> {
     let mut command = portable_pty::CommandBuilder::new(tool.executable());
+    environment.apply_terminal(&mut command);
     for (key, value) in &settings.environment {
         command.env(key, value);
     }

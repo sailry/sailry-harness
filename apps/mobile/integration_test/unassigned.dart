@@ -56,6 +56,7 @@ Future<void> conversationWithoutProject(
 
     final created = object(
       (await node.command('create_terminal', {
+        'access': 'workspace',
         'worktree': conversation['worktree'],
         ...terminalLaunch(tester.element(find.byType(LiveConversationPage))),
       }))['data'],

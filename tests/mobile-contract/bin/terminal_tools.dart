@@ -52,6 +52,7 @@ Future<void> main() async {
       'data': {
         'tool': 'codex',
         'launch': {
+          'access': 'workspace',
           'worktree': worktree,
           'viewport': {
             'columns': 80,
@@ -76,7 +77,9 @@ Future<void> main() async {
     await connection.execute(request: request),
   )['Ok']['data'];
   check(
-    opened['id'] == repeated['id'] && opened['tool'] == 'codex',
+    opened['id'] == repeated['id'] &&
+        opened['tool'] == 'codex' &&
+        opened['access'] == 'workspace',
     'CLI launch retains its original receipt and tool',
   );
   final id = opened['id'] as String;

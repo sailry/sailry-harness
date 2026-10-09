@@ -22,6 +22,9 @@ mod configuration;
 mod connections;
 #[path = "agent/delegation/mod.rs"]
 mod delegation;
+#[cfg(unix)]
+#[path = "agent/environment.rs"]
+mod environment;
 #[path = "agent/external_browser.rs"]
 mod external_browser;
 #[path = "agent/forks.rs"]
@@ -70,6 +73,8 @@ mod references;
 mod retry_fixture;
 #[path = "agent/rewind.rs"]
 mod rewind;
+#[path = "agent/sandbox.rs"]
+mod sandbox;
 #[path = "agent/search.rs"]
 mod search;
 #[path = "agent/skills/mod.rs"]

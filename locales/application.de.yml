@@ -2613,3 +2613,4 @@ reference_group_context: "Hinzufügen"
 provider_key_hint: "Geben Sie API Schlüssel ein"
 form_date_hint: "Wählen Sie ein Datum"
 form_time_hint: "HH:mm:ss"
+approval_unrestricted: Voller Dateisystem- und Netzwerkzugriff

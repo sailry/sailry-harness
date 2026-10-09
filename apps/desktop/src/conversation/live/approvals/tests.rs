@@ -120,6 +120,44 @@ fn omits_missing_optional_notices() {
     assert!(details.notices.is_empty());
 }
 
+#[test]
+fn uses_captured_access_without_display() {
+    use sailry_protocol::{conversation::ApprovalSource, process::Access};
+    let (mut call, mut page) = sample(None);
+    call.approval = Some(Approval {
+        id: ApprovalId::new(),
+        session: page.session,
+        turn: call.turn,
+        entry: call.source.entry.clone(),
+        index: call.source.index,
+        state: ApprovalState::Pending,
+        source: ApprovalSource::User,
+        access: Some(Access::Unrestricted),
+        can_remember: false,
+        prefix: None,
+        choice: None,
+        reason: None,
+    });
+    let sailry_protocol::conversation::Part::ToolCall { arguments, .. } =
+        &mut page.entries[0].parts[0]
+    else {
+        unreachable!()
+    };
+    arguments["access"] = json!("workspace");
+    assert_eq!(
+        details(&call, &page).access.as_deref(),
+        Some("Full filesystem and network access")
+    );
+    call.approval.as_mut().unwrap().access = Some(Access::Workspace);
+    let sailry_protocol::conversation::Part::ToolCall { arguments, .. } =
+        &mut page.entries[0].parts[0]
+    else {
+        unreachable!()
+    };
+    arguments["access"] = json!("unrestricted");
+    assert!(details(&call, &page).access.is_none());
+}
+
 impl Fixture {
     fn new(remote: bool) -> Self {
         Self::with_tools(

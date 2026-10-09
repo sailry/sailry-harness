@@ -25,6 +25,7 @@ mod ssh;
 mod store;
 mod tasks;
 mod terminal;
+mod workspaces;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -34,6 +35,8 @@ use tokio::task::JoinHandle;
 
 pub use computer::Worker as ComputerWorker;
 pub use error::Error;
+#[cfg(any(test, feature = "test-support"))]
+pub use process::environment::EnvironmentFixture;
 use profile::Profile;
 pub use profile::default_data_dir;
 pub use sailry_link::{EndpointAddr, NetworkScope};
@@ -116,6 +119,7 @@ impl Node {
             Default::default(),
             Default::default(),
             computer,
+            Default::default(),
         ))
         .await
         .map_err(|error| Error::Worker(error.to_string()))?
@@ -131,6 +135,7 @@ impl Node {
             Default::default(),
             Default::default(),
             None,
+            Default::default(),
         ))
         .await
         .map_err(|error| Error::Worker(error.to_string()))?
@@ -146,6 +151,7 @@ impl Node {
             Default::default(),
             Default::default(),
             None,
+            Default::default(),
         ))
         .await
         .map_err(|error| Error::Worker(error.to_string()))?
@@ -164,6 +170,7 @@ impl Node {
             providers::login::Service::fixture(endpoint),
             Default::default(),
             None,
+            Default::default(),
         ))
         .await
         .map_err(|error| Error::Worker(error.to_string()))?
@@ -182,6 +189,7 @@ impl Node {
             Default::default(),
             crate::plugins::github::Github::fixture(endpoint),
             None,
+            Default::default(),
         ))
         .await
         .map_err(|error| Error::Worker(error.to_string()))?
@@ -200,6 +208,26 @@ impl Node {
             Default::default(),
             crate::plugins::github::Github::catalog_fixture(endpoint),
             None,
+            Default::default(),
+        ))
+        .await
+        .map_err(|error| Error::Worker(error.to_string()))?
+    }
+
+    /// Captures an explicit temporary login environment through the real Node bootstrap.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn start_with_environment(
+        path: impl AsRef<Path>,
+        environment: EnvironmentFixture,
+    ) -> Result<Self, Error> {
+        tokio::spawn(Self::start_owned(
+            path.as_ref().to_owned(),
+            NetworkScope::default(),
+            providers::catalog::Catalog::empty(),
+            Default::default(),
+            Default::default(),
+            None,
+            process::environment::Source::Fixture(environment),
         ))
         .await
         .map_err(|error| Error::Worker(error.to_string()))?
@@ -212,6 +240,7 @@ impl Node {
         authorization: providers::login::Service,
         skills: crate::plugins::github::Github,
         computer: Option<ComputerWorker>,
+        environment: process::environment::Source,
     ) -> Result<Self, Error> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let (profile, identity) = tokio::task::spawn_blocking(move || {
@@ -223,8 +252,15 @@ impl Node {
         .map_err(|error| Error::Worker(error.to_string()))??;
         let path = profile.path.clone();
         let identity = std::sync::Arc::new(identity);
-        let store =
-            Store::open(path.clone(), identity.id(), catalog, authorization, skills).await?;
+        let store = Store::open(
+            path.clone(),
+            identity.id(),
+            catalog,
+            authorization,
+            skills,
+            environment,
+        )
+        .await?;
         let ingress = store.ingress.clone();
         ingress.computer.configure_worker(computer).await;
         let network = match sailry_link::Link::bind(

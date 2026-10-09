@@ -584,6 +584,7 @@ pub enum Command {
     RunCommand {
         turn: crate::TurnId,
         command: String,
+        access: crate::process::Access,
         description: Option<String>,
         cwd: String,
         timeout_ms: u64,

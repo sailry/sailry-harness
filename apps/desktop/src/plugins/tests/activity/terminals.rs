@@ -18,6 +18,7 @@ fn unread_result_opens_captured_terminal(cx: &mut TestAppContext) {
         }));
         let appearance = visual.update(|_, cx| crate::theme::terminal(cx));
         let Output::Terminal(info) = fixture.execute(Command::CreateTerminal(Launch {
+            access: sailry_protocol::process::Access::Workspace,
             worktree: fixture.session.worktree,
             viewport: Viewport {
                 columns: 80,

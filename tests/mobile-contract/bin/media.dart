@@ -58,6 +58,7 @@ Future<void> main() async {
       ...Map<String, dynamic>.from(main['models'].single),
       'id': 'video-fixture',
       'tools': false,
+      'capabilities': {'vision': false, 'tools': false},
       'generates': ['video'],
     },
   ];
@@ -97,10 +98,10 @@ Future<void> main() async {
       },
     }),
   );
+  final invalidResult = jsonDecode(await connection.execute(request: invalid));
   check(
-    jsonDecode(await connection.execute(request: invalid))['Err']['code'] ==
-        'invalid_request',
-    'incompatible media capability is rejected',
+    invalidResult['Err']?['code'] == 'invalid_request',
+    'incompatible media capability is rejected: $invalidResult',
   );
   for (final permission in ['ask', 'full']) {
     final session = (await execute(connection, 'create_session', {

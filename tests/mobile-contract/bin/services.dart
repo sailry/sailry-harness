@@ -6,6 +6,7 @@ import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/api/commands.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'conversation.dart' show check, execute, until;
+import 'approvals.dart' show hasPending, pending, part;
 import 'ports.dart' show released;
 
 Future<Map<String, dynamic>> serviceView(
@@ -51,6 +52,34 @@ Future<void> main() async {
     'expected_revision': updated['revision'],
     'message': {'text': 'Run the test service', 'attachments': []},
   });
+  final waiting = await until(history, hasPending);
+  final approval = pending(waiting);
+  check(
+    approval['source'] == 'user' &&
+        approval['access'] == 'unrestricted' &&
+        approval['can_remember'] == false &&
+        approval['prefix'] == null &&
+        part(waiting, approval)['arguments']['access'] == 'unrestricted',
+    'network services require fresh unrestricted consent in full mode',
+  );
+  final before = await serviceView(commands, (_) => true);
+  check((before['items'] as List).isEmpty, 'a pending service has not started');
+  final allow = await connection.prepare(
+    command: jsonEncode({
+      'kind': 'resolve_approval',
+      'data': {
+        'session': session,
+        'approval': approval['id'],
+        'decision': 'approve',
+      },
+    }),
+  );
+  final receipt = await connection.execute(request: allow);
+  check(
+    jsonDecode(receipt)['Ok']['data']['choice'] == 'once' &&
+        await connection.execute(request: allow) == receipt,
+    'the exact service approval retains its original receipt',
+  );
   final view = await serviceView(
     commands,
     (view) => (view['items'] as List).any(

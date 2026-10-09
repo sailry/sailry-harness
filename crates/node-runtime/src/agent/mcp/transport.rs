@@ -158,6 +158,7 @@ impl Connection {
         authorized: Option<rmcp::transport::auth::AuthClient<reqwest::Client>>,
         turn_stop: &CancellationToken,
         handler: Arc<input::Handler>,
+        environment: &crate::process::Environment,
     ) -> Result<(Self, Service), Fault> {
         match launch {
             Launch::Stdio {
@@ -169,7 +170,7 @@ impl Connection {
                 settings,
             } => {
                 let mut command = tokio::process::Command::new(command);
-                crate::process::Environment::capture().apply(&mut command);
+                environment.apply(&mut command);
                 command
                     .args(args)
                     .envs(env)

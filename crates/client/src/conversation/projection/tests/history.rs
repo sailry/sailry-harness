@@ -162,6 +162,7 @@ fn preserves_live_metadata() {
         index: 0,
         state: ApprovalState::Approved,
         source: ApprovalSource::User,
+        access: None,
         can_remember: true,
         prefix: Some("cargo test".into()),
         choice: Some(conversation::ApprovalChoice::Session),
@@ -189,14 +190,15 @@ fn preserves_live_metadata() {
     changed.approvals[0].state = ApprovalState::Denied;
     assert!(crate::conversation::history::merge(&mut page, changed, true).is_err());
     assert_eq!(page, original);
-    for field in 0..5 {
+    for field in 0..6 {
         let mut changed = original.clone();
         match field {
             0 => changed.approvals[0].choice = Some(conversation::ApprovalChoice::Once),
             1 => changed.approvals[0].reason = Some("Changed constraint".into()),
             2 => changed.approvals[0].prefix = Some("cargo build".into()),
             3 => changed.approvals[0].can_remember = false,
-            _ => changed.approvals[0].source = ApprovalSource::SessionRule,
+            4 => changed.approvals[0].source = ApprovalSource::SessionRule,
+            _ => changed.approvals[0].access = Some(sailry_protocol::process::Access::Unrestricted),
         }
         assert!(crate::conversation::history::merge(&mut page, changed, true).is_err());
         assert_eq!(page, original);

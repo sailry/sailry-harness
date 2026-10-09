@@ -2315,3 +2315,4 @@ updates_receipt_failed: "The update was installed; could not save recovery detai
 updates_details: "Details"
 updates_recovery_failed: "Draft recovery could not complete"
 updates_profile_inside: "The data profile is inside Sailry; move it before updating"
+approval_unrestricted: Full filesystem and network access

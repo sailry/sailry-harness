@@ -20,7 +20,20 @@ fn restores_partial_costs_across_nodes() {
         let node = runtime.block_on(async {
             let node = Node::start(&profile).await.unwrap();
             let client = Client::new(node.local());
-            let selected = provider(&client, &model.endpoint, "priced-fixture").await;
+            let mut selected = provider(&client, &model.endpoint, "priced-fixture").await;
+            let mut unpriced = selected.models[0].clone();
+            unpriced.id = "unpriced-fixture".into();
+            selected.models.push(unpriced);
+            let Output::Provider(selected) = client
+                .execute(client.prepare(Command::PutProvider {
+                    expected_revision: selected.revision,
+                    provider: selected,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("provider expected")
+            };
             let Output::Project(project) = client
                 .execute(client.prepare(Command::RegisterProject {
                     name: "Usage fixture".into(),
@@ -31,7 +44,7 @@ fn restores_partial_costs_across_nodes() {
             else {
                 panic!("project expected")
             };
-            let Output::Session(session) = client
+            let Output::Session(mut session) = client
                 .execute(client.prepare(Command::CreateSession {
                     project: Some(project.id),
                     worktree: None,
@@ -42,11 +55,27 @@ fn restores_partial_costs_across_nodes() {
             else {
                 panic!("session expected")
             };
-            for _ in 0..count {
+            for index in 0..count {
+                if index == 1 {
+                    let mut config = session.config.clone();
+                    config.model = "unpriced-fixture".into();
+                    let Output::Session(updated) = client
+                        .execute(client.prepare(Command::SetSessionConfig {
+                            session: session.id,
+                            expected_revision: session.revision,
+                            config,
+                        }))
+                        .await
+                        .unwrap()
+                    else {
+                        panic!("session expected")
+                    };
+                    session = updated;
+                }
                 let Output::QueuedTurn(turn) = client
                     .execute(client.prepare(Command::SubmitTurn {
                         session: session.id,
-                        expected_revision: 1,
+                        expected_revision: session.revision,
                         message: "Report usage".into(),
                     }))
                     .await
@@ -80,6 +109,7 @@ fn restores_partial_costs_across_nodes() {
             }
             node.shutdown().await.unwrap();
             pricing::seed(&profile);
+            seed_catalog(&profile);
             Node::start(&profile).await.unwrap()
         });
         nodes.push(node);
@@ -96,4 +126,24 @@ fn restores_partial_costs_across_nodes() {
     }
     assert!(status.success());
     assert_eq!(model.requests.lock().unwrap().len(), 3);
+}
+
+fn seed_catalog(profile: &std::path::Path) {
+    let db = rusqlite::Connection::open_with_flags(
+        profile.join("storage/node.sqlite3"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO model_catalog(provider,id,body) VALUES('openai',?1,?2)",
+        rusqlite::params![
+            "priced-fixture",
+            serde_json::to_vec(&serde_json::json!({
+                "id": "priced-fixture",
+                "cost": {"input":1,"output":1,"cache_read":1,"cache_write":1}
+            }))
+            .unwrap()
+        ],
+    )
+    .unwrap();
 }

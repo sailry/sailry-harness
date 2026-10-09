@@ -139,12 +139,13 @@ export function readProjectCatalog(): Promise<Json>;
 export function startSession(draft: {project: string | null; worktree: string | null; config: Json; title: string; message: {text: string; attachments: string[]; references?: Json[]}}): string;
 
 export type TerminalTool = "codex" | "claude" | "gemini" | "agy" | "grok" | "opencode" | "kimi";
-export type TerminalInfo = {id: string; revision: number; worktree: string | null; title: string | null; directory: string | null; tool: TerminalTool | null; ssh: string | null; status: {kind: "running" | "closed" | "stopped"} | {kind:"exited"; data:{code:number}} | {kind:"failed"; data:{message:string}}};
+export type TerminalAccess = "workspace" | "unrestricted";
+export type TerminalInfo = {id: string; revision: number; worktree: string | null; title: string | null; directory: string | null; tool: TerminalTool | null; access: TerminalAccess | null; ssh: string | null; status: {kind: "running" | "closed" | "stopped"} | {kind:"exited"; data:{code:number}} | {kind:"failed"; data:{message:string}}};
 /** Reads only the worktree captured by this view; requires terminals.read. */
 export function listTerminals(): Promise<TerminalInfo[]>;
 export function listTerminalTools(): Promise<{tool: TerminalTool; available: boolean}[]>;
-/** Requires terminals.control. Submit with completeRequest; reuse the original ID on an uncertain outcome. */
-export function prepareTerminal(tool?: TerminalTool | null): string;
+/** Requires terminals.control. Defaults to workspace access; unrestricted access requires an explicit user choice. Reuse the original request ID on an uncertain outcome. */
+export function prepareTerminal(tool?: TerminalTool | null, access?: TerminalAccess): string;
 export function prepareOpenTerminal(terminal: string): string;
 export function prepareCloseTerminal(terminal: string): string;
 

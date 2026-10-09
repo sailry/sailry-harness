@@ -35,6 +35,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared
     let Command::RunCommand {
         turn,
         command,
+        access,
         description,
         cwd,
         timeout_ms,
@@ -55,7 +56,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared
         return Err(Fault::invalid("invalid command description"));
     }
     let row: Option<(String, String, String, String)> = database.connection.query_row(
-        "SELECT s.worktree,json_extract(a.body,'$.status'),t.kind,s.id FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN sessions s ON s.id=t.session WHERE a.turn=?1",
+        "SELECT r.worktree,json_extract(a.body,'$.status'),t.kind,t.session FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision WHERE a.turn=?1",
         [turn.to_string()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     ).optional().map_err(storage_error)?;
     let (worktree, state, kind, session) =
@@ -90,7 +91,9 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared
     let profile = database.profile.clone().ok_or_else(super::unavailable)?;
     let launch = Launch {
         root: database.worktree_root(worktree)?,
+        profile: Some(profile.clone()),
         command: command.clone(),
+        access: *access,
         cwd: cwd.clone(),
         timeout_ms: *timeout_ms,
         inputs,
@@ -239,3 +242,6 @@ impl super::Ingress {
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

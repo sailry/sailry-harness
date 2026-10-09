@@ -1,6 +1,14 @@
 //! Bounded command results; process handles and execution remain on the Node.
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Access {
+    #[default]
+    Workspace,
+    Unrestricted,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Outcome {
@@ -42,6 +50,7 @@ pub struct Info {
     pub session: crate::SessionId,
     pub turn: crate::TurnId,
     pub command: String,
+    pub access: Access,
     pub cwd: String,
     pub started_ms: u64,
     pub status: Status,
