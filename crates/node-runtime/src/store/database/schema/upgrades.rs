@@ -7,7 +7,7 @@ pub(super) fn column(table: &str, name: &str) -> Option<&'static [u8]> {
     match (table, name) {
         ("agent_approvals", "binding") => Some(b"null"),
         ("agent_runs", "hooks") => Some(
-            br#"{"revision":0,"enabled":false,"before_tool":null,"after_tool":null,"turn_end":null}"#,
+            br#"{"revision":0,"enabled":false,"before_tool":null,"after_tool":null,"turn_end":null,"additional":[]}"#,
         ),
         _ => None,
     }

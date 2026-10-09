@@ -15,6 +15,9 @@ pub(super) struct Observed {
     inner: Arc<dyn Transport>,
     pub requests: Mutex<Vec<Request>>,
     pub drop_next: AtomicBool,
+    drop_inspect: AtomicBool,
+    pub hold: AtomicBool,
+    pub release: Arc<tokio::sync::Semaphore>,
 }
 
 impl Transport for Observed {
@@ -26,18 +29,36 @@ impl Transport for Observed {
     }
     fn dispatch(&self, request: Request) -> Pending<'_, Result<Admission, Fault>> {
         Box::pin(async move {
+            if matches!(request.command, Command::InspectRequest { .. })
+                && self.drop_inspect.swap(false, Ordering::SeqCst)
+            {
+                return Err(Fault::new(
+                    sailry_protocol::ErrorCode::Unavailable,
+                    "fixture lost outcome inspection",
+                ));
+            }
             let tracked = matches!(request.command, Command::SaveHooks { .. });
             if tracked {
                 self.requests.lock().unwrap().push(request.clone());
             }
             let dropped = tracked && self.drop_next.swap(false, Ordering::SeqCst);
-            let mut admission = self.inner.dispatch(request).await?;
             if dropped {
+                self.drop_inspect.store(true, Ordering::SeqCst);
+            }
+            let held = tracked && self.hold.load(Ordering::SeqCst);
+            let mut admission = self.inner.dispatch(request).await?;
+            if dropped || held {
                 let (sender, receiver) = tokio::sync::oneshot::channel();
                 let completion = std::mem::replace(&mut admission.completion, receiver);
+                let release = self.release.clone();
                 tokio::spawn(async move {
-                    let _ = completion.await;
-                    drop(sender);
+                    let result = completion.await;
+                    if held {
+                        release.acquire().await.unwrap().forget();
+                    }
+                    if !dropped && let Ok(result) = result {
+                        _ = sender.send(result);
+                    }
                 });
             }
             Ok(admission)
@@ -91,6 +112,9 @@ impl Fixture {
             inner,
             requests: Mutex::new(Vec::new()),
             drop_next: AtomicBool::new(false),
+            drop_inspect: AtomicBool::new(false),
+            hold: AtomicBool::new(false),
+            release: Arc::new(tokio::sync::Semaphore::new(0)),
         });
         let client = sailry_client::Client::new(transport.clone());
         for (name, path) in [
@@ -240,9 +264,12 @@ pub(super) fn draw(cx: &mut VisualTestContext) {
         let _ = window.draw(cx);
     });
 }
+#[track_caller]
 pub(super) fn wait(cx: &mut VisualTestContext, predicate: impl Fn(&App) -> bool) {
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
+        // Debounced editor saves use the deterministic GPUI clock; Node IO uses real time.
+        cx.executor().advance_clock(Duration::from_millis(10));
         draw(cx);
         if cx.update(|_, cx| predicate(cx)) {
             return;
@@ -251,15 +278,15 @@ pub(super) fn wait(cx: &mut VisualTestContext, predicate: impl Fn(&App) -> bool)
         std::thread::sleep(Duration::from_millis(10));
     }
 }
+pub(super) fn lookup(cx: &mut VisualTestContext, selector: &str) -> Option<Bounds<Pixels>> {
+    cx.debug_bounds(Box::leak(selector.to_owned().into_boxed_str()))
+}
 pub(super) fn tap(cx: &mut VisualTestContext, selector: &str) {
-    let selector: &'static str = Box::leak(selector.to_owned().into_boxed_str());
     if cx.update(|window, cx| window.has_active_dialog(cx)) {
         std::thread::sleep(*dialog::ANIMATION_DURATION);
     }
     draw(cx);
-    let bounds = cx
-        .debug_bounds(selector)
-        .unwrap_or_else(|| panic!("missing {selector}"));
+    let bounds = lookup(cx, selector).unwrap_or_else(|| panic!("missing {selector}"));
     cx.simulate_mouse_move(bounds.center(), None, Modifiers::default());
     cx.simulate_click(bounds.center(), Modifiers::default());
     draw(cx);

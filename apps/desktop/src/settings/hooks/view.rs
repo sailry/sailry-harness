@@ -1,19 +1,21 @@
 use super::*;
 use crate::{
-    settings::group::{Group, Row},
+    settings::{
+        entry::Entry as RowEntry,
+        group::{Group, Row},
+    },
     theme::DialogStyle as _,
     tr,
 };
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
     dialog::DialogFooter,
-    input::Input,
     scroll::ScrollableElement,
     switch::Switch,
 };
-use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::prelude::FluentBuilder as _;
 
-fn key(phase: Phase) -> &'static str {
+pub(super) fn key(phase: Phase) -> &'static str {
     match phase {
         Phase::BeforeTool => "hooks_before_tool",
         Phase::AfterTool => "hooks_after_tool",
@@ -22,24 +24,23 @@ fn key(phase: Phase) -> &'static str {
 }
 
 impl Panel {
-    fn consent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn consent(&mut self, settings: Settings, window: &mut Window, cx: &mut Context<Self>) {
         if self.locked() {
             return;
         }
-        let Ok(settings) = self.draft(cx) else {
-            self.error = Some("hooks_invalid");
-            cx.notify();
-            return;
-        };
+        let baseline = self.current().cloned();
+        let root = self
+            .root
+            .clone()
+            .unwrap_or_else(|| self.worktree.to_string());
         let worktree = self.worktree;
-        let root = self.root.clone().unwrap_or_else(|| worktree.to_string());
         let node = self.binding.label.clone();
         let sandboxed = self.sandboxed;
         let owner = cx.entity();
         window.open_dialog(cx, move |dialog, window, cx| {
             let submit = owner.clone();
-            let settings = settings.clone();
             let captured = settings.clone();
+            let baseline = baseline.clone();
             let details = v_flex()
                 .id("hooks-consent-details")
                 .gap_3()
@@ -56,47 +57,35 @@ impl Panel {
                         .debug_selector(|| "hooks-consent-scope".into())
                         .child(format!("{node} · {root} · {worktree}")),
                 )
-                .child(div().child(tr(if settings.enabled {
-                    "hooks_enabled"
-                } else {
-                    "hooks_disabled"
-                })))
                 .children(
-                    [Phase::BeforeTool, Phase::AfterTool, Phase::TurnEnd]
-                        .into_iter()
-                        .filter_map(|phase| {
-                            let script = match phase {
-                                Phase::BeforeTool => settings.before_tool.as_ref(),
-                                Phase::AfterTool => settings.after_tool.as_ref(),
-                                Phase::TurnEnd => settings.turn_end.as_ref(),
-                            }?;
-                            Some(
-                                v_flex()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(tr(key(phase))),
-                                    )
-                                    .child(
-                                        div()
-                                            .whitespace_normal()
-                                            .debug_selector(move || {
-                                                format!("hooks-consent-{}", phase.name())
-                                            })
-                                            .child(script.command.clone()),
-                                    )
-                                    .child(div().text_sm().child(format!(
-                                        "{}: {}",
-                                        tr("hooks_timeout"),
-                                        script.timeout_ms
-                                    ))),
-                            )
+                    settings
+                        .entries()
+                        .filter(|(_, _, script)| script.enabled)
+                        .map(|(id, phase, script)| {
+                            let id = id.to_owned();
+                            v_flex()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(tr(key(phase))),
+                                )
+                                .child(
+                                    div()
+                                        .whitespace_normal()
+                                        .debug_selector(move || format!("hooks-consent-{id}"))
+                                        .child(script.command.clone()),
+                                )
+                                .child(div().text_sm().child(format!(
+                                    "{}: {}",
+                                    tr("hooks_timeout"),
+                                    script.timeout_ms
+                                )))
                         }),
                 );
             dialog
-                .form_title(tr("hooks_save"))
+                .form_title(tr("hooks_enable"))
                 .w((window.viewport_size().width - px(48.)).min(px(600.)))
                 .overlay_closable(false)
                 .child(details)
@@ -111,13 +100,18 @@ impl Panel {
                                 .on_click(|_, window, cx| window.close_dialog(cx)),
                         )
                         .child(
-                            Button::new("hooks-consent-save")
-                                .debug_selector(|| "hooks-consent-save".into())
+                            Button::new("hooks-consent-enable")
+                                .debug_selector(|| "hooks-consent-enable".into())
                                 .primary()
-                                .label(tr("settings_save"))
+                                .label(tr("hooks_enable"))
                                 .on_click(move |_, window, cx| {
                                     submit.update(cx, |panel, cx| {
-                                        panel.submit(captured.clone(), window, cx)
+                                        if !panel.active || panel.current() != baseline.as_ref() {
+                                            panel.error = Some("hooks_target_changed");
+                                            cx.notify();
+                                        } else {
+                                            panel.submit(captured.clone(), window, cx);
+                                        }
                                     });
                                     window.close_dialog(cx);
                                 }),
@@ -129,71 +123,141 @@ impl Panel {
 
 impl Render for Panel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let settings = self.current().cloned().unwrap_or_default();
         let locked = self.locked();
-        let mut group = Group::new("hooks_settings").child(Row::new(
-            "hooks_enabled",
-            div().debug_selector(|| "hooks-enabled".into()).child(
-                Switch::new("hooks-enabled")
-                    .checked(self.enabled)
+        let owner = cx.entity();
+        let mut list = Group::new("hooks_scripts")
+            .empty(IconName::Settings2, "hooks_empty")
+            .action(
+                Button::new("hooks-add")
+                    .debug_selector(|| "hooks-add".into())
+                    .ghost()
+                    .small()
+                    .icon(IconName::Plus)
+                    .tooltip(tr("hooks_add"))
+                    .accessibility_label(tr("hooks_add"))
                     .disabled(locked)
-                    .accessibility_label(tr("hooks_enabled"))
-                    .on_click(cx.listener(|panel, value, _, cx| {
-                        panel.enabled = *value;
-                        cx.notify();
-                    })),
-            ),
-        ));
-        for (index, (phase, command, timeout)) in self.fields.iter().enumerate() {
-            group = group.child(
-                v_flex()
-                    .w_full()
-                    .py_3()
-                    .gap_2()
-                    .child(div().child(tr(key(*phase))))
-                    .child(
-                        div()
-                            .debug_selector(move || format!("hooks-command-{index}"))
-                            .child(
-                                Input::new(command)
-                                    .disabled(locked)
-                                    .aria_label(tr(key(*phase))),
-                            ),
-                    )
-                    .child(Row::new(
-                        "hooks_timeout",
-                        div()
-                            .w(px(120.))
-                            .debug_selector(move || format!("hooks-timeout-{index}"))
-                            .child(
-                                Input::new(timeout)
-                                    .disabled(locked)
-                                    .aria_label(tr("hooks_timeout")),
-                            ),
-                    )),
+                    .on_click(move |_, window, cx| {
+                        editor::open(owner.clone(), None, window, cx);
+                    }),
+            );
+        for (id, phase, script) in settings.entries() {
+            let id = id.to_owned();
+            let toggle_id = id.clone();
+            let edit_id = id.clone();
+            let remove_id = id.clone();
+            let owner = cx.entity();
+            list = list.child(
+                RowEntry::new(
+                    format!("hooks-script-{id}"),
+                    v_flex()
+                        .gap_1()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .truncate()
+                                .font_medium()
+                                .child(if script.name.is_empty() {
+                                    tr(key(phase))
+                                } else {
+                                    script.name.clone().into()
+                                }),
+                        )
+                        .child(
+                            div()
+                                .truncate()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(if script.name.is_empty() {
+                                    script.command.clone().into()
+                                } else {
+                                    tr(key(phase))
+                                }),
+                        ),
+                )
+                .control(
+                    div()
+                        .debug_selector({
+                            let id = id.clone();
+                            move || format!("hooks-enabled-{id}")
+                        })
+                        .child(
+                            Switch::new(SharedString::from(format!("hooks-enabled-{id}")))
+                                .checked(script.enabled)
+                                .disabled(locked)
+                                .accessibility_label(tr("hooks_enabled"))
+                                .on_click(cx.listener(move |panel, value, window, cx| {
+                                    let Some(mut settings) = panel.current().cloned() else {
+                                        return;
+                                    };
+                                    let Some((phase, mut script)) = panel.entry(&toggle_id) else {
+                                        return;
+                                    };
+                                    script.enabled = *value;
+                                    Self::replace(&mut settings, &toggle_id, phase, Some(script));
+                                    if *value {
+                                        panel.consent(settings, window, cx);
+                                    } else {
+                                        panel.submit(settings, window, cx);
+                                    }
+                                })),
+                        ),
+                )
+                .action(
+                    Button::new(SharedString::from(format!("hooks-edit-{id}")))
+                        .debug_selector({
+                            let id = id.clone();
+                            move || format!("hooks-edit-{id}")
+                        })
+                        .icon(IconName::Settings2)
+                        .tooltip(tr("hooks_configure"))
+                        .accessibility_label(tr("hooks_configure"))
+                        .disabled(locked)
+                        .on_click(move |_, window, cx| {
+                            editor::open(owner.clone(), Some(edit_id.clone()), window, cx);
+                        }),
+                )
+                .action(
+                    Button::new(SharedString::from(format!("hooks-remove-{id}")))
+                        .debug_selector(move || format!("hooks-remove-{id}"))
+                        .icon(IconName::CircleX)
+                        .tooltip(tr("hooks_remove"))
+                        .accessibility_label(tr("hooks_remove"))
+                        .disabled(locked)
+                        .on_click(cx.listener(move |panel, _, window, cx| {
+                            let Some(mut settings) = panel.current().cloned() else {
+                                return;
+                            };
+                            Self::replace(&mut settings, &remove_id, phase, None);
+                            if settings.entries().next().is_none() {
+                                settings.enabled = false;
+                            }
+                            panel.submit(settings, window, cx);
+                        })),
+                ),
             );
         }
-        group = group
-            .action(
-                Button::new("hooks-save")
-                    .debug_selector(|| "hooks-save".into())
-                    .label(tr("settings_save"))
-                    .primary()
-                    .disabled(locked)
-                    .on_click(cx.listener(|panel, _, window, cx| panel.consent(window, cx))),
-            )
-            .action(
-                Button::new("hooks-reload")
-                    .debug_selector(|| "hooks-reload".into())
-                    .label(tr("hooks_reload"))
-                    .disabled(self.pending || self.request.is_some())
-                    .on_click(cx.listener(|panel, _, window, cx| panel.load(window, cx))),
-            );
+        let toggle = div().debug_selector(|| "hooks-enabled".into()).child(
+            Switch::new("hooks-enabled")
+                .checked(settings.enabled)
+                .disabled(locked || settings.entries().next().is_none())
+                .accessibility_label(tr("hooks_enabled"))
+                .on_click(cx.listener(|panel, value, window, cx| {
+                    let Some(mut settings) = panel.current().cloned() else {
+                        return;
+                    };
+                    settings.enabled = *value;
+                    if *value && settings.entries().any(|(_, _, script)| script.enabled) {
+                        panel.consent(settings, window, cx);
+                    } else {
+                        panel.submit(settings, window, cx);
+                    }
+                })),
+        );
         v_flex()
-            .gap_4()
-            .child(group)
-            .when(self.loading, |view| {
-                view.child(gpui_kit::component::spinner::Spinner::new())
-            })
+            .gap_6()
+            .child(Group::new("hooks_settings").child(Row::new("hooks_enabled", toggle)))
+            .child(list)
+            .when(self.loading, |view| view.child(spinner::Spinner::new()))
             .when(self.request.is_some() && !self.pending, |view| {
                 view.child(
                     Button::new("hooks-retry")

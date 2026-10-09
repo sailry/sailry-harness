@@ -6,7 +6,17 @@ async fn never_replays_end_after_restart() {
         let server = Server::start(false).await;
         let mut fixture = Fixture::new(remote, &server).await;
         ready(&mut fixture, WorkMode::Code).await;
-        save(&fixture.client,fixture.session.worktree,Settings {enabled:true,turn_end:script("printf '%s\\n' \"$SAILRY_HOOK_TURN\" >> ends.txt; /bin/sleep 2; printf late > late.txt"),..Default::default()}).await;
+        save(
+            &fixture.client,
+            fixture.session.worktree,
+            Settings {
+                enabled: true,
+                turn_end: script("printf '%s\\n' \"$SAILRY_HOOK_TURN\" >> ends.txt; /bin/sleep 2; printf late > late.txt"),
+                additional: vec![entry("end-later", Phase::TurnEnd, "printf later > later-script.txt", true)],
+                ..Default::default()
+            },
+        ).await;
+
         let request = fixture.client.prepare(Command::SubmitTurn {
             session: fixture.session.id,
             expected_revision: fixture.session.revision,
@@ -61,6 +71,7 @@ async fn never_replays_end_after_restart() {
             format!("{}\n", turn.id)
         );
         assert!(!root.join("late.txt").exists());
+        assert!(!root.join("later-script.txt").exists());
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
         let db =

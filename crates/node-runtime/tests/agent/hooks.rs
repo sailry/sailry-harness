@@ -2,7 +2,7 @@
 use super::*;
 use process::Fixture;
 use sailry_protocol::{
-    hooks::{Script, Settings},
+    hooks::{Entry, Phase, Script, Settings},
     process::Outcome,
 };
 use serde_json::json;
@@ -20,7 +20,19 @@ fn script(command: &str) -> Option<Script> {
     Some(Script {
         command: command.into(),
         timeout_ms: 5_000,
+        ..Default::default()
     })
+}
+
+fn entry(id: &str, phase: Phase, command: &str, enabled: bool) -> Entry {
+    Entry {
+        id: id.into(),
+        phase,
+        script: Script {
+            enabled,
+            ..script(command).unwrap()
+        },
+    }
 }
 
 async fn read(client: &Client, worktree: WorktreeId) -> Settings {
@@ -171,6 +183,32 @@ async fn orders_callbacks_in_worktree_scope() {
                 turn_end: script(
                     "test \"$SAILRY_HOOK_STATUS\" = completed && printf 'end\\n' >> order.txt",
                 ),
+                additional: vec![
+                    entry(
+                        "before-second",
+                        Phase::BeforeTool,
+                        "printf 'before-second\\n' >> order.txt",
+                        true,
+                    ),
+                    entry(
+                        "before-disabled",
+                        Phase::BeforeTool,
+                        "printf forbidden > disabled.txt",
+                        false,
+                    ),
+                    entry(
+                        "after-second",
+                        Phase::AfterTool,
+                        "printf 'after-second\\n' >> order.txt",
+                        true,
+                    ),
+                    entry(
+                        "end-second",
+                        Phase::TurnEnd,
+                        "printf 'end-second\\n' >> order.txt",
+                        true,
+                    ),
+                ],
                 ..Default::default()
             },
         )
@@ -189,7 +227,7 @@ async fn orders_callbacks_in_worktree_scope() {
         assert_eq!(process::results(&page)[0].outcome, Outcome::Exited(0));
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("order.txt")).unwrap(),
-            "before\ntool\nafter\nend\n"
+            "before\nbefore-second\ntool\nafter\nafter-second\nend\nend-second\n"
         );
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("cwd.txt"))
@@ -197,8 +235,44 @@ async fn orders_callbacks_in_worktree_scope() {
                 .trim(),
             fixture.root.canonicalize().unwrap().to_str().unwrap()
         );
+        assert!(!fixture.root.join("disabled.txt").exists());
+        let directory = fixture.directory.path().to_path_buf();
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
+        let db = rusqlite::Connection::open(directory.join("node/storage/node.sqlite3")).unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT count(*) FROM hook_executions WHERE turn=?1",
+                [turn.id.to_string()],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            3
+        );
+        let mut query = db
+            .prepare("SELECT body FROM agent_events WHERE session=?1")
+            .unwrap();
+        let events = query
+            .query_map([fixture.session.id.to_string()], |row| {
+                row.get::<_, Vec<u8>>(0)
+            })
+            .unwrap()
+            .map(|row| serde_json::from_slice::<adk_core::Event>(&row.unwrap()).unwrap())
+            .collect::<Vec<_>>();
+        let hooks = events
+            .iter()
+            .filter_map(|event| event.provider_metadata.get("sailry.hook"))
+            .map(|body| serde_json::from_str::<serde_json::Value>(body).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(hooks.len(), 3);
+        for phase in Phase::ALL {
+            let record = hooks
+                .iter()
+                .find(|record| record["phase"] == phase.name())
+                .unwrap();
+            assert_eq!(record["scripts"].as_array().unwrap().len(), 2);
+            assert_eq!(record["scripts"][0]["id"], phase.name());
+        }
     }
 }
 
@@ -219,6 +293,20 @@ async fn freezes_settings_before_queued_execution() {
                 enabled: true,
                 before_tool: script("printf admitted >> order.txt"),
                 turn_end: script("printf end >> order.txt"),
+                additional: vec![
+                    entry(
+                        "captured-second",
+                        Phase::BeforeTool,
+                        "printf second >> order.txt",
+                        true,
+                    ),
+                    entry(
+                        "captured-disabled",
+                        Phase::BeforeTool,
+                        "printf forbidden >> order.txt",
+                        false,
+                    ),
+                ],
                 ..Default::default()
             },
         )
@@ -242,6 +330,20 @@ async fn freezes_settings_before_queued_execution() {
                 revision: first.revision,
                 enabled: false,
                 before_tool: script("printf changed >> order.txt"),
+                additional: vec![
+                    entry(
+                        "captured-disabled",
+                        Phase::BeforeTool,
+                        "printf newly-enabled >> order.txt",
+                        true,
+                    ),
+                    entry(
+                        "captured-second",
+                        Phase::BeforeTool,
+                        "printf changed-second >> order.txt",
+                        false,
+                    ),
+                ],
                 ..Default::default()
             },
         )
@@ -259,7 +361,7 @@ async fn freezes_settings_before_queued_execution() {
         );
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("order.txt")).unwrap(),
-            "admittedtoolend"
+            "admittedsecondtoolend"
         );
         assert!(
             !read(&fixture.client, fixture.session.worktree)
@@ -292,6 +394,16 @@ async fn reports_failures_without_replaying_tools() {
                 } else {
                     script("printf end >> hooks.txt")
                 },
+                additional: if phase == "before" {
+                    vec![entry(
+                        "before-later",
+                        Phase::BeforeTool,
+                        "printf forbidden > later.txt",
+                        true,
+                    )]
+                } else {
+                    vec![]
+                },
                 ..Default::default()
             };
             save(&fixture.client, fixture.session.worktree, settings).await;
@@ -299,6 +411,7 @@ async fn reports_failures_without_replaying_tools() {
             let page = finished(&fixture.client, fixture.session.id, turn.id).await;
             if phase == "before" {
                 assert!(!fixture.root.join("actual.txt").exists());
+                assert!(!fixture.root.join("later.txt").exists());
                 assert!(page.entries.iter().flat_map(|entry|&entry.parts).any(|part|matches!(part,Part::ToolResult {result,..} if result.to_string().contains("before_tool hook failed"))));
             } else {
                 assert_eq!(
@@ -354,6 +467,7 @@ async fn cancels_and_bounds_hook_processes() {
                             "printf started > started.txt; /bin/sleep 2; printf late > late.txt"
                                 .into(),
                         timeout_ms: if cancel { 5_000 } else { 50 },
+                        ..Default::default()
                     }),
                     ..Default::default()
                 },

@@ -3,9 +3,10 @@ use sailry_protocol::{Command, ErrorCode, Output};
 
 impl Panel {
     pub(super) fn load(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.loading || self.pending || self.request.is_some() || !self.active {
+        if self.loading || self.pending || self.request.is_some() || !self.active || self.conflict {
             return;
         }
+        let preserve = self.draft.is_some() && self.draft != self.saved;
         self.loading = true;
         self.error = None;
         let binding = self.binding.clone();
@@ -27,7 +28,7 @@ impl Panel {
         });
         cx.spawn_in(window, async move |owner, cx| {
             let result = job.await;
-            _ = owner.update_in(cx, |panel, window, cx| {
+            _ = owner.update_in(cx, |panel, _, cx| {
                 panel.loading = false;
                 match result {
                     Ok(Ok((Output::HookSettings(state), Output::ProjectCatalog(catalog))))
@@ -39,7 +40,20 @@ impl Panel {
                             .find(|tree| tree.id == panel.worktree)
                             .map(|tree| tree.path.clone());
                         panel.sandboxed = state.sandboxed;
-                        panel.apply(state.settings, window, cx);
+                        if preserve {
+                            panel.saved = Some(state.settings);
+                            panel.conflict = panel.draft.as_ref().is_some_and(|draft| {
+                                panel
+                                    .saved
+                                    .as_ref()
+                                    .is_some_and(|saved| draft.revision != saved.revision)
+                            });
+                            if panel.conflict {
+                                panel.error = Some("hooks_conflict");
+                            }
+                        } else {
+                            panel.apply(state.settings);
+                        }
                     }
                     _ => panel.error = Some("hooks_failed"),
                 }
@@ -64,6 +78,17 @@ impl Panel {
         if self.locked() {
             return;
         }
+        self.draft = Some(settings);
+        self.save(window, cx);
+    }
+
+    pub(super) fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.locked() || self.draft == self.saved {
+            return;
+        }
+        let Some(settings) = self.draft.clone() else {
+            return;
+        };
         self.request = Some(self.binding.client.prepare(Command::SaveHooks {
             worktree: self.worktree,
             expected_revision: settings.revision,
@@ -77,6 +102,13 @@ impl Panel {
             return;
         }
         let Some(request) = self.request.clone() else {
+            return;
+        };
+        let Command::SaveHooks {
+            settings: submitted,
+            ..
+        } = request.command.clone()
+        else {
             return;
         };
         self.pending = true;
@@ -93,8 +125,16 @@ impl Panel {
                     Ok(Ok(Output::HookSettings(state))) if state.worktree == panel.worktree => {
                         panel.request = None;
                         panel.sandboxed = state.sandboxed;
-                        panel.apply(state.settings, window, cx);
+                        if panel.draft.as_ref() == Some(&submitted) {
+                            panel.apply(state.settings);
+                        } else {
+                            if let Some(draft) = panel.draft.as_mut() {
+                                draft.revision = state.settings.revision;
+                            }
+                            panel.saved = Some(state.settings);
+                        }
                         window.push_notification(crate::tr("hooks_saved"), cx);
+                        panel.save(window, cx);
                     }
                     Ok(Err(error)) => {
                         if !matches!(
@@ -103,6 +143,10 @@ impl Panel {
                         ) {
                             panel.request = None;
                         }
+                        panel.conflict = matches!(
+                            error.code,
+                            ErrorCode::Conflict | ErrorCode::RevisionConflict
+                        );
                         panel.error = Some(match error.code {
                             ErrorCode::Conflict | ErrorCode::RevisionConflict => "hooks_conflict",
                             ErrorCode::OutcomeUnknown | ErrorCode::Unavailable => "hooks_unknown",

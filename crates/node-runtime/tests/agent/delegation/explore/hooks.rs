@@ -20,6 +20,7 @@ async fn skips_scripts_in_read_only_children() {
         let script = Some(Script {
             command: "printf '%s\\n' \"$SAILRY_HOOK_TURN\" >> script-turns.txt".into(),
             timeout_ms: 5_000,
+            ..Default::default()
         });
         execute(
             &fixture.client,

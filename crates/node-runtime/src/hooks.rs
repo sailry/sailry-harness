@@ -106,9 +106,14 @@ impl Binding {
         tool: Option<&str>,
         status: Option<&str>,
     ) -> Result<(), Fault> {
-        let Some(script) = self.settings.script(phase) else {
+        let scripts = self
+            .settings
+            .scripts(phase)
+            .map(|(id, script)| (id.to_owned(), script.clone()))
+            .collect::<Vec<_>>();
+        if scripts.is_empty() {
             return Ok(());
-        };
+        }
         if self.stop.is_cancelled() {
             return Ok(());
         }
@@ -130,7 +135,6 @@ impl Binding {
             turn: self.turn,
         };
         let binding = self.clone();
-        let script = script.clone();
         let tool = tool.map(str::to_owned);
         let status = status.map(str::to_owned);
         let job = tokio::spawn(async move {
@@ -138,7 +142,7 @@ impl Binding {
             let result = std::panic::AssertUnwindSafe(binding.run(
                 phase,
                 ordinal,
-                script,
+                scripts,
                 tool.as_deref(),
                 status.as_deref(),
                 stop,
@@ -170,7 +174,7 @@ impl Binding {
         &self,
         phase: Phase,
         ordinal: u64,
-        script: sailry_protocol::hooks::Script,
+        scripts: Vec<(String, sailry_protocol::hooks::Script)>,
         tool: Option<&str>,
         status: Option<&str>,
         stop: CancellationToken,
@@ -198,11 +202,40 @@ impl Binding {
         }
         // Raw tool arguments, responses, provider configuration and credentials
         // are deliberately absent from the script environment and history record.
-        let result = self
-            .ingress
-            .launch_hook(self, script.command, script.timeout_ms, metadata, &stop)
-            .await
-            .map(|completion| completion.outcome);
+        let mut result = Ok(sailry_protocol::process::Outcome::Exited(0));
+        let mut records = Vec::new();
+        for (id, script) in scripts {
+            if stop.is_cancelled() {
+                if matches!(&result, Ok(sailry_protocol::process::Outcome::Exited(0))) {
+                    result = Ok(sailry_protocol::process::Outcome::Cancelled);
+                }
+                break;
+            }
+            let outcome = self
+                .ingress
+                .launch_hook(
+                    self,
+                    script.command,
+                    script.timeout_ms,
+                    metadata.clone(),
+                    &stop,
+                )
+                .await
+                .map(|completion| completion.outcome);
+            let success = matches!(&outcome, Ok(sailry_protocol::process::Outcome::Exited(0)));
+            records.push(serde_json::json!({"id": id, "result": &outcome}));
+            if !success {
+                let uncertain = matches!(&outcome, Err(error) if error.code == ErrorCode::OutcomeUnknown)
+                    || matches!(&outcome, Ok(sailry_protocol::process::Outcome::Unknown(_)));
+                if matches!(&result, Ok(sailry_protocol::process::Outcome::Exited(0))) || uncertain
+                {
+                    result = outcome;
+                }
+                if phase == Phase::BeforeTool || uncertain {
+                    break;
+                }
+            }
+        }
         self.ingress
             .finish_hook(self.turn, phase, ordinal, result.clone())
             .await
@@ -224,6 +257,7 @@ impl Binding {
             "tool": tool,
             "status": status,
             "result": &result,
+            "scripts": records,
         });
         let metadata = serde_json::to_string(&metadata)
             .map_err(|_| Fault::new(ErrorCode::Internal, "hook result could not be encoded"))?;

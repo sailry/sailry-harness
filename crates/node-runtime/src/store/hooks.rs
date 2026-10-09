@@ -69,15 +69,21 @@ pub(super) fn save(
             "hook settings changed; reload before saving",
         ));
     }
-    for script in [
-        &settings.before_tool,
-        &settings.after_tool,
-        &settings.turn_end,
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if script.command.trim().is_empty()
+    let mut ids = std::collections::BTreeSet::new();
+    for entry in &settings.additional {
+        if entry.id.trim().is_empty()
+            || entry.id.len() > 128
+            || entry.id.contains('\0')
+            || !ids.insert(&entry.id)
+            || Phase::ALL.iter().any(|phase| phase.name() == entry.id)
+        {
+            return Err(Fault::invalid("hook entry identity is invalid"));
+        }
+    }
+    for (_, _, script) in settings.entries() {
+        if script.name.len() > 1024
+            || script.name.contains('\0')
+            || script.command.trim().is_empty()
             || script.command.len() > 64 * 1024
             || script.command.contains('\0')
             || !(1..=60_000).contains(&script.timeout_ms)
@@ -85,15 +91,7 @@ pub(super) fn save(
             return Err(Fault::invalid("hook command or timeout is invalid"));
         }
     }
-    if settings.enabled
-        && [
-            &settings.before_tool,
-            &settings.after_tool,
-            &settings.turn_end,
-        ]
-        .iter()
-        .all(|script| script.is_none())
-    {
+    if settings.enabled && settings.entries().next().is_none() {
         return Err(Fault::invalid("enabled hooks require a command"));
     }
     let mut settings = settings.clone();
@@ -133,7 +131,7 @@ pub(in crate::store) fn claim(
             "hooks cannot execute in this turn",
         ));
     }
-    if frozen(db, turn)?.script(phase).is_none() {
+    if frozen(db, turn)?.scripts(phase).next().is_none() {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
             "hook is not enabled in the admitted turn",
