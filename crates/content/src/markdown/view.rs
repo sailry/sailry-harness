@@ -23,7 +23,8 @@ impl Global for Bindings {}
 
 pub struct State {
     source: SharedString,
-    document: Rc<Doc>,
+    pub(super) document: Rc<Doc>,
+    pub(super) visuals: super::visuals::state::Cache,
     layouts: BlockLayouts,
     selection: Option<Selection>,
     dragging: bool,
@@ -34,8 +35,8 @@ pub struct State {
     on_file: Option<OnFile>,
     on_selection: Option<OnSelection>,
     scroll: Option<Viewport>,
-    typography: Option<super::typography::Typography>,
-    foreground: Option<gpui_kit::Hsla>,
+    pub(super) typography: Option<super::typography::Typography>,
+    pub(super) foreground: Option<gpui_kit::Hsla>,
 }
 
 #[derive(Clone)]
@@ -99,6 +100,7 @@ impl State {
         let parsed = with_ranges(source.as_ref());
         Self {
             document: Rc::new(parsed.doc),
+            visuals: super::visuals::state::Cache::default(),
             source,
             layouts: BlockLayouts::default(),
             selection: None,
@@ -149,6 +151,27 @@ impl State {
     }
 
     fn press(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .document
+            .blocks
+            .iter()
+            .enumerate()
+            .any(|(index, block)| {
+                block.parts().iter().any(|part| {
+                    block.text_at(*part).is_some_and(|text| {
+                        text.marks.iter().any(|mark| mark.mark == super::Mark::Math)
+                    })
+                }) && self
+                    .layouts
+                    .block_bounds(index)
+                    .is_some_and(|bounds| bounds.contains(&event.position))
+            })
+        {
+            self.selection = None;
+            self.dragging = false;
+            cx.notify();
+            return;
+        }
         let Some(cursor) = self.layouts.hit(event.position) else {
             return;
         };
@@ -262,6 +285,19 @@ impl Focusable for State {
 
 impl Render for State {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        super::visuals::state::Cache::prepare(self, window, cx);
+        let visuals = self.visuals.images();
+        let math_entity = cx.weak_entity();
+        let on_math_link: super::render::OnMathLink =
+            std::sync::Arc::new(move |url, window, cx| {
+                let _ = math_entity.update(cx, |state, cx| {
+                    if let Some(listener) = &state.on_link {
+                        listener(url, window, cx);
+                    } else {
+                        cx.open_url(url);
+                    }
+                });
+            });
         let entity = cx.weak_entity();
         let listener = self.on_link.clone();
         let on_link: OnLink = Rc::new(move |url, window, cx| {
@@ -343,6 +379,8 @@ impl Render for State {
                     on_file: self.on_file.clone(),
                     typography: self.typography,
                     foreground: self.foreground,
+                    visuals: Some(&visuals),
+                    on_math_link: Some(on_math_link),
                     ..Editing::default()
                 },
                 window,
@@ -746,5 +784,28 @@ mod tests {
                 assert!(Rc::ptr_eq(&state.document, &doc));
             });
         }
+    }
+    #[gpui::test]
+    fn keeps_native_formula_selection_and_source(cx: &mut TestAppContext) {
+        let source = "Before\n\nFormula $x^2$\n\nAfter";
+        let (state, visual) = super::super::tests::setup(cx, source);
+        let bounds = state.read_with(visual, |state, _| state.layouts.block_bounds(1).unwrap());
+        visual.simulate_click(
+            gpui::point(bounds.origin.x + px(8.), bounds.center().y),
+            gpui::Modifiers::default(),
+        );
+        visual.simulate_keystrokes(if cfg!(target_os = "macos") {
+            "cmd-a cmd-c"
+        } else {
+            "ctrl-a ctrl-c"
+        });
+        visual.update(|_, cx| {
+            assert_eq!(
+                cx.read_from_clipboard().unwrap().text().unwrap(),
+                "Formula $x^2$"
+            );
+            assert_eq!(state.read(cx).selected_text(), "");
+            assert_eq!(state.read(cx).source(), source);
+        });
     }
 }

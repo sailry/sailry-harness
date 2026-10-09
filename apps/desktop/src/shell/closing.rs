@@ -94,6 +94,7 @@ pub(super) fn install(window: &mut Window, cx: &mut Context<Shell>) {
 }
 
 fn release_browser(owner: &WeakEntity<Shell>, window: &mut Window, cx: &mut App) {
+    crate::content::visuals::release(window, cx);
     let browsers = owner
         .update(cx, |shell, cx| {
             let cached = shell.browsers.close();

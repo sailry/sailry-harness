@@ -278,7 +278,7 @@ impl Map {
                 extents[index] = Some(range.clone());
             }
             let part = match block.kind {
-                BlockKind::Code { .. } => Part::Code,
+                BlockKind::Code { .. } | BlockKind::Math(_) => Part::Code,
                 BlockKind::Image { .. } => Part::Caption,
                 BlockKind::Table { .. } => match cell {
                     Some(part) => part,
@@ -323,6 +323,13 @@ impl Map {
                     span.push(&value, range, source, false)
                 }
                 Event::Code(value) => span.push(&value, range, source, true),
+                Event::InlineMath(value) | Event::DisplayMath(value) => {
+                    let body = value.trim_matches(['\r', '\n']);
+                    let start = source[range.clone()]
+                        .find(body)
+                        .map_or(range.start, |offset| range.start + offset);
+                    span.push(body, start..start + body.len(), source, false);
+                }
                 Event::SoftBreak | Event::HardBreak => span.push("\n", range, source, false),
                 Event::Start(
                     Tag::Emphasis

@@ -12,6 +12,34 @@ mod parsing {
     use super::*;
 
     #[test]
+    fn retains_formula_marks_and_partitions() {
+        let source =
+            "Before $\\frac{x}{2}$ and $y$.\n\n$$\n\\sum_{i=1}^{n}i\n$$\n\n```text\n$x$\n```\n";
+        let parsed = with_ranges(source);
+        let body = parsed.doc.blocks[0].text_at(Part::Body).unwrap();
+        assert_eq!(body.text, "Before \\frac{x}{2} and y.");
+        assert_eq!(
+            body.marks
+                .iter()
+                .filter(|mark| mark.mark == Mark::Math)
+                .count(),
+            2
+        );
+        assert!(
+            matches!(&parsed.doc.blocks[1].kind,BlockKind::Math(text) if text.text=="\\sum_{i=1}^{n}i")
+        );
+        assert!(matches!(&parsed.doc.blocks[2].kind,BlockKind::Code{code,..} if code.text=="$x$"));
+        assert_eq!(
+            parsed
+                .block_ranges
+                .iter()
+                .map(|range| &source[range.clone()])
+                .collect::<String>(),
+            source
+        );
+    }
+
+    #[test]
     fn keeps_mixed_container_order() {
         let doc = parse(
             "> - first\n>   > quoted\n>   >\n>   > ```rust\n>   > let value = 1;\n>   > ```\n",
@@ -108,7 +136,7 @@ impl Render for Fixture {
     }
 }
 
-fn setup<'a>(
+pub(super) fn setup<'a>(
     cx: &'a mut TestAppContext,
     source: &str,
 ) -> (Entity<State>, &'a mut VisualTestContext) {
@@ -150,6 +178,48 @@ fn keyboard_copy(cx: &mut TestAppContext) {
         });
         assert_eq!(state.read(cx).source(), format!("{source}\nmore"));
         assert!(!state.read(cx).selected_text().is_empty());
+    });
+}
+
+#[gpui::test]
+fn prepares_once_and_replaces_changed_source(cx: &mut TestAppContext) {
+    use super::visuals::{Kind, Renderer, Svg};
+    use std::{cell::RefCell, rc::Rc};
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let recorded = calls.clone();
+    cx.update(|cx|cx.set_global(Renderer(Rc::new(move |request,_,_| {
+        recorded.borrow_mut().push((request.kind,request.source));
+        gpui_kit::Task::ready(Ok(Svg{source:r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><path d="M0 0L20 20"/></svg>"#.into(),width:20.0,height:20.0,baseline:Some(15.0)}))
+    }))));
+    let source = "One $x^2$\n\n```mermaid\nflowchart LR\nA-->B\n```\n";
+    let (state, visual) = setup(cx, source);
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(calls.borrow().len(), 2);
+    assert!(calls.borrow().contains(&(Kind::InlineMath, "x^2".into())));
+    assert!(
+        calls
+            .borrow()
+            .contains(&(Kind::Mermaid, "flowchart LR\nA-->B".into()))
+    );
+    for _ in 0..3 {
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.run_until_parked();
+    }
+    assert_eq!(calls.borrow().len(), 2);
+    visual.update(|_, cx| state.update(cx, |state, cx| state.set_source("Next $y^3$", cx)));
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.run_until_parked();
+    state.read_with(visual, |state, _| {
+        assert_eq!(state.source(), "Next $y^3$");
+        assert_eq!(state.visuals.images().len(), 1);
+        assert!(
+            state
+                .visuals
+                .images()
+                .contains_key(&(Kind::InlineMath, "y^3".into()))
+        );
     });
 }
 

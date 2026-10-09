@@ -13774,6 +13774,9 @@ dependencies = [
  "gpui-kit",
  "image",
  "pulldown-cmark",
+ "roxmltree 0.21.1",
+ "serde",
+ "serde_json",
  "unicode-segmentation",
 ]
 

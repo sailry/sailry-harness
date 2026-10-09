@@ -35,6 +35,11 @@ pub(super) fn run(output: &Path) {
         crate::content::files::verify_native(output);
         return;
     }
+    #[cfg(target_os = "macos")]
+    if std::env::var("SAILRY_WORKLOAD_CASE").is_ok_and(|value| value == "markdown-visuals") {
+        crate::content::visuals::verify_native(output);
+        return;
+    }
     println!("Native frame scheduling: true");
     let directory = tempfile::tempdir().unwrap();
     let runtime = Arc::new(

@@ -81,7 +81,7 @@ pub(super) fn flatten_with(
                 Mark::Bold => bold = true,
                 Mark::Italic => italic = true,
                 Mark::Strike => strike = true,
-                Mark::Code => mono = true,
+                Mark::Code | Mark::Math => mono = true,
                 Mark::Mention { url, .. } => {
                     chip = true;
                     link = Some(url.clone());

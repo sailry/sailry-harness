@@ -1,0 +1,46 @@
+{
+  "packages": [
+    {
+      "name": "mermaid",
+      "version": "12.1.0",
+      "license": "MIT",
+      "archive": "https://registry.npmjs.org/mermaid/-/mermaid-12.1.0.tgz",
+      "integrity": "sha512-wlVCp+8eTupfCeeFvoZNNiTuHrvag0P2jz/ILgb/f/6jkVokUefOcujefi8qUe/j2asHiSePncVsz/xzzA80LQ==",
+      "files": [
+        {
+          "path": "mermaid.js",
+          "source": "package/dist/mermaid.min.js",
+          "sha256": "6484afc32872a3aa16cac9a76ba1816a1ed4cc870a6593cc2e17757750f518b2"
+        }
+      ]
+    },
+    {
+      "name": "mathjax",
+      "version": "4.1.3",
+      "license": "Apache-2.0",
+      "archive": "https://registry.npmjs.org/mathjax/-/mathjax-4.1.3.tgz",
+      "integrity": "sha512-BN/8Pkgn7G1pIDYJqd9md+JHsE/jydSYbyOZnSdSA0WziuVO8mRxdYiWFumkVVly/8U+hm9DpIIoWuvySverzw==",
+      "files": [
+        {
+          "path": "mathjax.js",
+          "source": "package/tex-svg-nofont.js",
+          "sha256": "0135c41e0f0e5c6f43c40bac71cc380ede68e42d6676414abfff40fff9b4c79f"
+        }
+      ]
+    },
+    {
+      "name": "@mathjax/mathjax-tex-font",
+      "version": "4.1.3",
+      "license": "Apache-2.0",
+      "archive": "https://registry.npmjs.org/@mathjax/mathjax-tex-font/-/mathjax-tex-font-4.1.3.tgz",
+      "integrity": "sha512-9B78brBEmmAwyumaREIyM1gF2HgDamDIXA36UyeXWxX7XrpLdmoSB5NLIf/c6tEA4L6xNrIdMxfgY6YX/kcSNw==",
+      "files": [
+        {
+          "path": "fonts.js",
+          "source": "package/svg.js",
+          "sha256": "ed5c78819c63883579fb8a4bcec97a2a2fe32e8a0a7f504273aeece0ca396a33"
+        }
+      ]
+    }
+  ]
+}

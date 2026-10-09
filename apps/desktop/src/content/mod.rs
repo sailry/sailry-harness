@@ -9,8 +9,10 @@ pub(crate) use sailry_content::syntax;
 pub(crate) use sailry_content::{diff, editor, markdown, selection};
 
 pub(crate) mod files;
+pub(crate) mod visuals;
 
 pub(crate) fn init(cx: &mut gpui_kit::App) {
+    visuals::init(cx);
     use crate::tr;
     cx.set_global(sailry_content::Labels {
         note: tr("content_note"),

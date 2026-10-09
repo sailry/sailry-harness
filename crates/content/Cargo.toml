@@ -10,6 +10,9 @@ gpui-kit.workspace = true
 image.workspace = true
 pulldown-cmark.workspace = true
 unicode-segmentation.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+roxmltree.workspace = true
 
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }

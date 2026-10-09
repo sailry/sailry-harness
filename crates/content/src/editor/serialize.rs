@@ -16,7 +16,7 @@ pub(super) fn block(value: &Block) -> String {
 }
 
 /// Spell an edited inline region, including its formatting and destinations.
-pub(super) fn text(value: &Text) -> String {
+pub(crate) fn text(value: &Text) -> String {
     inline(value)
 }
 
@@ -73,6 +73,9 @@ fn write_block(out: &mut String, kind: &BlockKind, indent: u8) {
             out.push('\n');
             out.push_str(&pad);
             out.push_str(&fence);
+        }
+        BlockKind::Math(code) => {
+            write_lines(out, &pad, &pad, &format!("$$\n{}\n$$", code.text));
         }
         BlockKind::Image { url, alt, width } => {
             out.push_str(&pad);
@@ -231,6 +234,13 @@ fn inline(text: &Text) -> String {
                 continue;
             }
             started[ix] = true;
+            if span.mark == Mark::Math {
+                out.push('$');
+                out.push_str(&text.text[span.range.clone()]);
+                out.push('$');
+                cursor = cursor.max(span.range.end);
+                continue;
+            }
             // Code spans are literal to their closing backtick: nothing inside
             // is markup, so they are emitted whole rather than opened.
             if span.mark == Mark::Code {
@@ -346,7 +356,7 @@ fn open_mark(out: &mut String, mark: &Mark, italic: char) {
         Mark::Strike => out.push_str("~~"),
         Mark::Link(_) | Mark::Mention { .. } => out.push('['),
         Mark::Image(_) => out.push_str("!["),
-        Mark::Code => {}
+        Mark::Code | Mark::Math => {}
     }
 }
 
@@ -369,7 +379,7 @@ fn close_mark(out: &mut String, mark: &Mark, italic: char) {
             out.push_str(form.title().unwrap_or("chip"));
             out.push_str("\")");
         }
-        Mark::Code => {}
+        Mark::Code | Mark::Math => {}
     }
 }
 
@@ -499,7 +509,7 @@ fn escape_span(out: &mut String, s: &str) {
             // to find each other. Pipes are here because two consecutive body
             // lines that happen to look like a header and a delimiter row will
             // otherwise reconstitute themselves into a table.
-            '\\' | '*' | '`' | '[' | ']' | '~' | '|' => {
+            '\\' | '*' | '`' | '[' | ']' | '~' | '|' | '$' => {
                 out.push('\\');
                 out.push(c);
             }
@@ -538,6 +548,24 @@ fn escape_span(out: &mut String, s: &str) {
 mod tests {
     use super::*;
     use crate::markdown::{doc::MarkSpan, with_ranges};
+
+    #[test]
+    fn preserves_formula_content_and_literal_dollars() {
+        for source in [
+            "**Equation** $\\frac{x}{2}$ and $y$",
+            "$$\n\\sum_{i=1}^{n} i\n$$",
+            "Escaped \\$x\\$ remains text",
+        ] {
+            let original = with_ranges(source).doc;
+            let serialized = original
+                .blocks
+                .iter()
+                .map(block)
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            assert_eq!(with_ranges(&serialized).doc, original, "{source}");
+        }
+    }
 
     #[test]
     fn preserves_mixed_inline_meaning() {

@@ -20,7 +20,8 @@ use crate::markdown::doc::{
 pub(crate) const OPTIONS: Options = Options::ENABLE_TABLES
     .union(Options::ENABLE_STRIKETHROUGH)
     .union(Options::ENABLE_TASKLISTS)
-    .union(Options::ENABLE_GFM);
+    .union(Options::ENABLE_GFM)
+    .union(Options::ENABLE_MATH);
 
 impl From<BlockQuoteKind> for QuoteKind {
     fn from(kind: BlockQuoteKind) -> Self {
@@ -286,7 +287,7 @@ fn linkify(text: &mut Text) {
             !text.marks.iter().any(|span| {
                 matches!(
                     span.mark,
-                    Mark::Link(_) | Mark::Mention { .. } | Mark::Image(_) | Mark::Code
+                    Mark::Link(_) | Mark::Mention { .. } | Mark::Image(_) | Mark::Code | Mark::Math
                 ) && span.range.start < range.end
                     && range.start < span.range.end
             })
@@ -327,7 +328,7 @@ pub(crate) fn normalize(text: &str, marks: &[MarkSpan]) -> Text {
     for span in marks.iter().filter(|span| {
         matches!(
             span.mark,
-            Mark::Code | Mark::Link(_) | Mark::Image(_) | Mark::Mention { .. }
+            Mark::Code | Mark::Math | Mark::Link(_) | Mark::Image(_) | Mark::Mention { .. }
         )
     }) {
         keep[span.range.clone()].fill(true);
@@ -386,7 +387,7 @@ fn merge_same_mark(mut marks: Vec<MarkSpan>) -> Vec<MarkSpan> {
         for other in ix + 1..marks.len() {
             let (a, b) = (&marks[ix], &marks[other]);
             if a.mark == b.mark
-                && !matches!(a.mark, Mark::Image(_) | Mark::Mention { .. })
+                && !matches!(a.mark, Mark::Image(_) | Mark::Mention { .. } | Mark::Math)
                 && a.range.start <= b.range.end
                 && b.range.start <= a.range.end
             {
@@ -633,6 +634,15 @@ impl ParseState {
                 None => self.builder.text.push_str(&t),
             },
             Event::Code(t) => self.builder.wrap(Mark::Code, &t),
+            Event::InlineMath(t) => self.builder.wrap(Mark::Math, &t),
+            Event::DisplayMath(t) => {
+                self.flush_inline();
+                self.flush_marker();
+                self.push(
+                    BlockKind::Math(Text::from(t.trim_matches(['\r', '\n']))),
+                    self.indent(),
+                );
+            }
             // Raw HTML is content, not structure: this model has no HTML node,
             // so it survives as the literal text the author typed.
             Event::Html(t) | Event::InlineHtml(t) => self.builder.text.push_str(&t),
@@ -654,7 +664,6 @@ impl ParseState {
             Event::FootnoteReference(label) => {
                 self.builder.text.push_str(&format!("[^{label}]"));
             }
-            _ => {}
         }
     }
 

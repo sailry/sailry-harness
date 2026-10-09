@@ -329,6 +329,13 @@ terminal renderer is a custom rendering boundary; surrounding controls still use
 Kit. Flutter consumes shared Client state rather than another conversation state
 machine. UI preview data is isolated from execution and user profiles.
 
+Markdown charts use native Kit chart components. Mermaid diagrams and formulas
+use a serialized controller-owned hidden WebView with pinned local assets, then
+render validated SVG as GPUI images. Message rows contain no embedded WebViews.
+Prepared visuals follow source and theme changes; unsupported platforms and
+rendering failures retain the original selectable text. The native adapter supports
+macOS and Windows; Linux retains that source fallback.
+
 Browser element annotations retain the selected page, tab and controller view.
 Their text and viewport image enter the captured composer's draft through its
 existing Client attachment upload; navigation or view changes cancel selection.

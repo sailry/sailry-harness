@@ -85,6 +85,7 @@ pub type OnLink = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 pub type OnFile = Rc<dyn Fn(usize, &str, &str, &App) -> Option<AnyElement>>;
 /// Image resources are resolved by the owning surface.
 pub type OnImage = Rc<dyn Fn(&str, &[&str], usize, &App) -> AnyElement>;
+pub type OnMathLink = std::sync::Arc<dyn Fn(&SharedString, &mut Window, &mut App) + Send + Sync>;
 
 /// Source-mapped draft decorations; never part of the document or its history.
 #[derive(Clone)]
@@ -117,6 +118,8 @@ pub struct Editing<'a> {
     pub on_image: Option<OnImage>,
     pub on_file: Option<OnFile>,
     pub annotations: &'a [Annotation],
+    pub visuals: Option<&'a super::visuals::Images>,
+    pub on_math_link: Option<OnMathLink>,
 }
 
 impl Default for Editing<'_> {
@@ -134,6 +137,8 @@ impl Default for Editing<'_> {
             on_image: None,
             on_file: None,
             annotations: &[],
+            visuals: None,
+            on_math_link: None,
         }
     }
 }
@@ -410,6 +415,8 @@ struct Overlay<'a> {
     image_index: usize,
     on_file: Option<&'a OnFile>,
     annotations: &'a [Annotation],
+    visuals: Option<&'a super::visuals::Images>,
+    on_math_link: Option<&'a OnMathLink>,
 }
 
 impl<'a> Overlay<'a> {
@@ -514,6 +521,8 @@ pub fn with_block(
         on_image,
         on_file,
         annotations,
+        visuals,
+        on_math_link,
     } = editing;
     // Refilled every frame, in paint order — and emptied in *prepaint*, not
     // here. An editor reads last frame's positions while building this frame's
@@ -577,6 +586,8 @@ pub fn with_block(
             image_index: 0,
             on_file: on_file.as_ref(),
             annotations,
+            visuals,
+            on_math_link: on_math_link.as_ref(),
         };
         // The block's own box, recorded for a gutter handle and a drop target.
         // A rule and an image hold no text, so a layout would not find them.
@@ -833,6 +844,49 @@ fn block_element(
                 cx,
             ))
             .into_any_element(),
+        BlockKind::Code {
+            language: Some(language),
+            code,
+        } if language == "chart" && overlay.visuals.is_some() => {
+            super::charts::render(&code.text, overlay.block, theme).unwrap_or_else(|| {
+                code_block(
+                    Some(language),
+                    &code.text,
+                    overlay.at(Part::Code),
+                    typography,
+                    theme,
+                    window,
+                    cx,
+                )
+            })
+        }
+        BlockKind::Code {
+            language: Some(language),
+            code,
+        } if language == "mermaid" => visual(super::visuals::Kind::Mermaid, &code.text, overlay)
+            .unwrap_or_else(|| {
+                code_block(
+                    Some(language),
+                    &code.text,
+                    overlay.at(Part::Code),
+                    typography,
+                    theme,
+                    window,
+                    cx,
+                )
+            }),
+        BlockKind::Math(code) => visual(super::visuals::Kind::DisplayMath, &code.text, overlay)
+            .unwrap_or_else(|| {
+                code_block(
+                    None,
+                    &code.text,
+                    overlay.at(Part::Code),
+                    typography,
+                    theme,
+                    window,
+                    cx,
+                )
+            }),
         BlockKind::Code { language, code } => code_block(
             language.as_deref(),
             &code.text,
@@ -1000,6 +1054,22 @@ fn text_element(
     theme: &Theme,
     _cx: &App,
 ) -> AnyElement {
+    if let Some(images) = overlay.visuals
+        && text
+            .marks
+            .iter()
+            .any(|mark| mark.mark == crate::markdown::Mark::Math)
+    {
+        return super::visuals::render(
+            text,
+            overlay.block,
+            images,
+            overlay.on_math_link.cloned(),
+            (size, line_height),
+            theme,
+            _cx,
+        );
+    }
     let annotations = overlay
         .annotations
         .iter()
@@ -1008,6 +1078,25 @@ fn text_element(
         .collect::<Vec<_>>();
     let flat = flatten_with(text, weight, theme, &annotations);
     painted_text(flat, text.text.len(), size, line_height, overlay, theme)
+}
+
+fn visual(kind: super::visuals::Kind, source: &str, overlay: Overlay) -> Option<AnyElement> {
+    let prepared = overlay.visuals?.get(&(kind, source.to_owned()))?;
+    Some(
+        div()
+            .w_full()
+            .min_w_0()
+            .flex()
+            .justify_center()
+            .child(
+                img(prepared.image.clone())
+                    .w(px(prepared.width))
+                    .h(px(prepared.height))
+                    .max_w_full()
+                    .object_fit(ObjectFit::Contain),
+            )
+            .into_any_element(),
+    )
 }
 
 /// Shaped inline content with the editing overlay under it: the selection, the

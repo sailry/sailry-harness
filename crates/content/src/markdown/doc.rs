@@ -108,7 +108,7 @@ impl Block {
                 | BlockKind::Quote { text, .. },
                 Part::Body,
             ) => Some(text),
-            (BlockKind::Code { code, .. }, Part::Code) => Some(code),
+            (BlockKind::Code { code, .. } | BlockKind::Math(code), Part::Code) => Some(code),
             (BlockKind::Image { alt, .. }, Part::Caption) => Some(alt),
             (BlockKind::Table { header, .. }, Part::Cell { row: 0, column }) => header.get(column),
             (BlockKind::Table { rows, .. }, Part::Cell { row, column }) => {
@@ -129,7 +129,7 @@ impl Block {
                 | BlockKind::Quote { text, .. },
                 Part::Body,
             ) => Some(text),
-            (BlockKind::Code { code, .. }, Part::Code) => Some(code),
+            (BlockKind::Code { code, .. } | BlockKind::Math(code), Part::Code) => Some(code),
             (BlockKind::Image { alt, .. }, Part::Caption) => Some(alt),
             (BlockKind::Table { header, .. }, Part::Cell { row: 0, column }) => {
                 header.get_mut(column)
@@ -150,7 +150,7 @@ impl Block {
             | BlockKind::Ordered { .. }
             | BlockKind::Task { .. }
             | BlockKind::Quote { .. } => vec![Part::Body],
-            BlockKind::Code { .. } => vec![Part::Code],
+            BlockKind::Code { .. } | BlockKind::Math(_) => vec![Part::Code],
             BlockKind::Image { .. } => vec![Part::Caption],
             BlockKind::Table { header, rows, .. } => {
                 let mut parts = Vec::new();
@@ -235,6 +235,7 @@ pub enum BlockKind {
         language: Option<String>,
         code: Text,
     },
+    Math(Text),
     /// The caption is the alt text — markdown has one slot, and a reader that
     /// cannot see the picture reads the same words. Like [`BlockKind::Code`]'s,
     /// its marks are unreachable rather than forbidden.
@@ -411,6 +412,7 @@ pub enum Mark {
     Italic,
     Strike,
     Code,
+    Math,
     Link(String),
     /// A link painted richly rather than as underlined text — a chip inline, a
     /// [`BlockKind::Bookmark`] with a block to itself.

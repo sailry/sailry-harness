@@ -73,6 +73,7 @@ impl ResultView {
         });
         let owner = cx.entity().downgrade();
         window.on_window_should_close(cx, move |window, cx| {
+            crate::content::visuals::release(window, cx);
             let _ = owner.update(cx, |view, _| {
                 view.webview.take();
             });

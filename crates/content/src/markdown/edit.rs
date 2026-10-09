@@ -266,7 +266,7 @@ impl Text {
                 if a.mark == b.mark
                     && a.range.start <= b.range.end
                     && b.range.start <= a.range.end
-                    && !matches!(a.mark, Mark::Image(_) | Mark::Mention { .. })
+                    && !matches!(a.mark, Mark::Image(_) | Mark::Mention { .. } | Mark::Math)
                 {
                     merged = Some((
                         other,
@@ -433,7 +433,7 @@ impl Doc {
         let unwrapped = match &block.kind {
             kind if is_marker(kind) => block.text_at(Part::Body).cloned(),
             BlockKind::Heading { text, .. } | BlockKind::Quote { text, .. } => Some(text.clone()),
-            BlockKind::Code { code, .. } => Some(code.clone()),
+            BlockKind::Code { code, .. } | BlockKind::Math(code) => Some(code.clone()),
             _ => None,
         };
         if let Some(text) = unwrapped {
@@ -540,7 +540,7 @@ impl Doc {
             // prose hands the URL over instead of an empty block.
             BlockKind::Bookmark { url, .. } => Text::link(url),
             BlockKind::Image { alt, .. } => alt.clone(),
-            BlockKind::Code { code, .. } => code.clone(),
+            BlockKind::Code { code, .. } | BlockKind::Math(code) => code.clone(),
             _ => block.text_at(Part::Body).cloned().unwrap_or_default(),
         };
         match (is_marker(&block.kind), is_marker(&kind)) {
@@ -558,7 +558,9 @@ impl Doc {
             // The two kinds whose text is not a body. Code is also the one the
             // marks cannot come with.
             None => match &mut block.kind {
-                BlockKind::Code { code, .. } => *code = Text::plain(text.text),
+                BlockKind::Code { code, .. } | BlockKind::Math(code) => {
+                    *code = Text::plain(text.text)
+                }
                 BlockKind::Image { alt, .. } => *alt = text,
                 _ => {}
             },

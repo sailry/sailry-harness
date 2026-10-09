@@ -1,4 +1,5 @@
 //! Selective Bezel content port; GPUI, controls and syntax remain owned by Kit.
+mod charts;
 pub mod doc;
 pub mod edit;
 mod files;
@@ -14,6 +15,7 @@ pub mod selectable;
 pub mod style;
 pub mod typography;
 mod view;
+pub mod visuals;
 
 pub use doc::{Block, BlockKind, Doc, Mark, Part};
 #[cfg(test)]
