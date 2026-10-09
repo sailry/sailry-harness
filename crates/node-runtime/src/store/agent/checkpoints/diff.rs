@@ -2,11 +2,21 @@
 use super::*;
 use std::{collections::BTreeMap, path::Path};
 
-pub(in crate::store) fn read(
+pub(super) struct FileVersions {
+    pub worktree: WorktreeId,
+    pub segments: Vec<(Option<String>, String)>,
+}
+
+pub(super) struct Versions {
+    pub files: BTreeMap<String, FileVersions>,
+    pub partial: bool,
+}
+
+pub(super) fn versions(
     db: &Connection,
     session: SessionId,
     turn: TurnId,
-) -> Result<checkpoint::TurnDiff, Fault> {
+) -> Result<Versions, Fault> {
     runs::visible(db, session, turn)?;
     if matches!(
         runs::get(db, turn)?.status,
@@ -16,7 +26,7 @@ pub(in crate::store) fn read(
     }
     let page = super::list(db, session, turn, None, 100)?;
     let mut partial = page.next.is_some();
-    let mut versions: BTreeMap<String, Vec<(Option<String>, String)>> = BTreeMap::new();
+    let mut versions: BTreeMap<String, FileVersions> = BTreeMap::new();
     // Checkpoints are newest first. Only join adjacent versions when no external
     // edit intervened, so a manual edit between two tool writes is never attributed.
     for file in page.files.into_iter().rev() {
@@ -46,7 +56,17 @@ pub(in crate::store) fn read(
             continue;
         }
         let content = super::reads::content(db, session, file.id)?;
-        let segments = versions.entry(file.path).or_default();
+        let entry = versions.entry(file.path).or_insert_with(|| FileVersions {
+            worktree: file.worktree,
+            segments: Vec::new(),
+        });
+        if entry.worktree != file.worktree {
+            return Err(Fault::new(
+                ErrorCode::WrongTarget,
+                "turn file changed worktree",
+            ));
+        }
+        let segments = &mut entry.segments;
         if let Some((_, after)) = segments.last_mut()
             && content.before.as_deref() == Some(after.as_str())
         {
@@ -55,9 +75,24 @@ pub(in crate::store) fn read(
             segments.push((content.before, content.after));
         }
     }
+    Ok(Versions {
+        files: versions,
+        partial,
+    })
+}
+
+pub(in crate::store) fn read(
+    db: &Connection,
+    session: SessionId,
+    turn: TurnId,
+) -> Result<checkpoint::TurnDiff, Fault> {
+    let Versions {
+        files: versions,
+        mut partial,
+    } = versions(db, session, turn)?;
     let mut remaining = MAX_DIFF_BYTES;
     let mut files = Vec::new();
-    for (path, segments) in versions {
+    for (path, versions) in versions {
         let mut file = GitDiff {
             path,
             scope: GitDiffScope::All,
@@ -67,7 +102,7 @@ pub(in crate::store) fn read(
             binary: false,
             truncated: false,
         };
-        for (before, after) in segments {
+        for (before, after) in versions.segments {
             if before.as_deref() == Some(after.as_str()) {
                 continue;
             }

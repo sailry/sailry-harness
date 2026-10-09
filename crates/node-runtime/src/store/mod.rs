@@ -108,6 +108,11 @@ enum Job {
             Result<sailry_protocol::conversation::checkpoint::Content, Fault>,
         >,
     },
+    PrepareHunk {
+        selection: sailry_protocol::conversation::checkpoint::hunk::Selection,
+        root: PathBuf,
+        reply: std::sync::mpsc::Sender<Result<agent::checkpoints::hunks::Change, Fault>>,
+    },
     WorktreeRoot {
         id: sailry_protocol::WorktreeId,
         reply: oneshot::Sender<Result<PathBuf, Fault>>,
@@ -453,6 +458,11 @@ impl Store {
                                     root,
                                     &request.command,
                                 );
+                            }
+                            sailry_protocol::Command::ApplyTurnHunk(selection) => {
+                                return agent::checkpoints::hunks::execute(
+                                    &validation, root, selection, request.id,
+                                ).map(sailry_protocol::Output::HunkApplied);
                             }
                             sailry_protocol::Command::OpenTerminal {
                                 terminal,
@@ -809,6 +819,11 @@ impl Store {
                         } => {
                             let _ = reply.send(agent::checkpoints::restore::prepare(
                                 &database, session, checkpoint, worktree, &root,
+                            ));
+                        }
+                        Job::PrepareHunk { selection, root, reply } => {
+                            let _ = reply.send(agent::checkpoints::hunks::prepare(
+                                &database, &selection, &root,
                             ));
                         }
                         Job::ResolveCredential {

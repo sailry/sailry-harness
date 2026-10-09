@@ -11,7 +11,7 @@ use serde_json::json;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-pub(super) struct Fixture {
+pub(in crate::resources) struct Fixture {
     pub chat: ChatFixture,
     desktop: Option<Node>,
     pub turn: TurnId,
@@ -199,14 +199,14 @@ impl Fixture {
     }
 }
 
-pub(super) fn before(index: usize) -> String {
+pub(in crate::resources) fn before(index: usize) -> String {
     format!("Before {index} 中文 🙂\n").repeat(20)
 }
-pub(super) fn after(index: usize) -> String {
+pub(in crate::resources) fn after(index: usize) -> String {
     format!("After {index} 中文 🙂\n").repeat(30)
 }
 
-pub(super) fn init(cx: &mut TestAppContext) {
+pub(in crate::resources) fn init(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     cx.update(|cx| {
         gpui_kit::init(cx);
@@ -215,7 +215,7 @@ pub(super) fn init(cx: &mut TestAppContext) {
     });
 }
 
-pub(super) fn wait(cx: &mut VisualTestContext, predicate: impl Fn(&App) -> bool) {
+pub(in crate::resources) fn wait(cx: &mut VisualTestContext, predicate: impl Fn(&App) -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         cx.run_until_parked();
@@ -230,7 +230,7 @@ pub(super) fn wait(cx: &mut VisualTestContext, predicate: impl Fn(&App) -> bool)
     }
 }
 
-pub(super) fn tap(cx: &mut VisualTestContext, selector: &str) {
+pub(in crate::resources) fn tap(cx: &mut VisualTestContext, selector: &str) {
     if cx.update(|window, cx| window.has_active_dialog(cx)) {
         std::thread::sleep(*dialog::ANIMATION_DURATION);
     }
@@ -247,12 +247,12 @@ pub(super) fn tap(cx: &mut VisualTestContext, selector: &str) {
     cx.run_until_parked();
 }
 
-pub(super) fn copied(cx: &mut VisualTestContext) -> String {
+pub(in crate::resources) fn copied(cx: &mut VisualTestContext) -> String {
     cx.simulate_keystrokes("secondary-a secondary-c");
     cx.update(|_, cx| cx.read_from_clipboard().unwrap().text().unwrap())
 }
 
-pub(super) fn restore(
+pub(in crate::resources) fn restore(
     cx: &mut VisualTestContext,
     fixture: &Fixture,
     shell: &Entity<Shell>,
@@ -272,7 +272,11 @@ pub(super) fn restore(
     })
 }
 
-pub(super) fn start(cx: &mut VisualTestContext, state: &Entity<Restore>, path: Option<&str>) {
+pub(in crate::resources) fn start(
+    cx: &mut VisualTestContext,
+    state: &Entity<Restore>,
+    path: Option<&str>,
+) {
     cx.update(|window, cx| {
         state.update(cx, |state, cx| {
             state.start(path.map(str::to_owned), window, cx)
@@ -281,7 +285,7 @@ pub(super) fn start(cx: &mut VisualTestContext, state: &Entity<Restore>, path: O
     wait(cx, |cx| !state.read(cx).pending);
 }
 
-pub(super) fn documents(
+pub(in crate::resources) fn documents(
     shell: &Entity<Shell>,
     cx: &App,
 ) -> Entity<crate::plugins::documents::Controller> {
@@ -295,7 +299,7 @@ pub(super) fn documents(
         .expect("document controller")
 }
 
-pub(super) fn open_path(
+pub(in crate::resources) fn open_path(
     cx: &mut VisualTestContext,
     shell: &Entity<Shell>,
     path: &str,
@@ -323,6 +327,9 @@ pub(super) fn open_path(
     cx.update(|_, cx| documents(shell, cx).read(cx).editor(path).unwrap())
 }
 
-pub(super) fn open_file(cx: &mut VisualTestContext, shell: &Entity<Shell>) -> Entity<EditorState> {
+pub(in crate::resources) fn open_file(
+    cx: &mut VisualTestContext,
+    shell: &Entity<Shell>,
+) -> Entity<EditorState> {
     open_path(cx, shell, "file-0.txt")
 }

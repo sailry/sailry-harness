@@ -1,7 +1,7 @@
 use super::*;
 use core::prelude::v1::test;
 use gpui_kit::component::WindowExt;
-mod fixture;
+pub(in crate::resources) mod fixture;
 mod lifecycle;
 mod location;
 #[cfg(target_os = "macos")]

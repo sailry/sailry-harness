@@ -40,6 +40,9 @@ impl Roots {
             | Command::FinishFileUpload { path, .. } => {
                 vec![(self.target.clone(), path.clone())]
             }
+            Command::ApplyTurnHunk(selection) => {
+                vec![(self.target.clone(), selection.path.clone())]
+            }
             _ => Vec::new(),
         }
     }
@@ -183,6 +186,7 @@ pub(super) fn target(command: &Command) -> Option<Target> {
         | Command::DeleteGitBranch { worktree, .. }
         | Command::MergeGitBranch { worktree, .. }
         | Command::SwitchGitBranch { worktree, .. } => Some(Target::Worktree(*worktree)),
+        Command::ApplyTurnHunk(selection) => Some(Target::Worktree(selection.worktree)),
         _ => None,
     }
 }

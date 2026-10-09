@@ -99,3 +99,31 @@ pub(crate) fn update(
         ))
     }
 }
+
+pub(crate) fn edit(
+    root: &Path,
+    path: &str,
+    expected: &str,
+    head: Option<&str>,
+    id: RequestId,
+    expected_source: &str,
+    transform: impl FnOnce(&str) -> Result<String, Fault>,
+) -> Result<GitIndex, Fault> {
+    super::valid_path(path)?;
+    if !(expected == "absent"
+        || (expected.len() == 64 && expected.bytes().all(|byte| byte.is_ascii_hexdigit())))
+    {
+        return Err(Fault::invalid("invalid Git index revision"));
+    }
+    #[cfg(unix)]
+    {
+        native::edit(root, path, expected, head, id, expected_source, transform)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (root, head, id, expected_source, transform);
+        Err(Fault::invalid(
+            "Git index publication is unsupported on this platform",
+        ))
+    }
+}

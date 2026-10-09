@@ -20,6 +20,7 @@ pub(crate) mod watch;
 pub(crate) use create::directory;
 pub(crate) use edit::edit;
 pub(crate) use rename::rename;
+pub(crate) use save::restore as restore_text;
 pub(crate) use save::save;
 pub(crate) use trash::remove_verified;
 pub(crate) use trash::trash;
@@ -129,15 +130,7 @@ impl Files {
                 cancelled,
                 deadline: Instant::now() + Duration::from_secs(5),
             };
-            let text = lines::complete(&root, &path, &control)?;
-            if blake3::hash(text.as_bytes()).to_hex().as_str() != expected {
-                return Err(Fault::new(
-                    ErrorCode::RevisionConflict,
-                    "file changed before checkpoint capture",
-                ));
-            }
-            control.check()?;
-            Ok(text)
+            capture_with(&root, &path, &expected, &control)
         });
         tokio::select! {
             _ = closed.cancelled() => Err(Fault::new(ErrorCode::Unavailable, "Node service is unavailable")),
@@ -146,6 +139,39 @@ impl Files {
                 .map_err(|_| Fault::new(ErrorCode::Internal, "file worker failed"))?,
         }
     }
+}
+
+pub(crate) fn capture_text(
+    root: &std::path::Path,
+    path: &str,
+    expected: &str,
+) -> Result<String, Fault> {
+    capture_with(
+        root,
+        path,
+        expected,
+        &Control {
+            cancelled: CancellationToken::new(),
+            deadline: Instant::now() + Duration::from_secs(5),
+        },
+    )
+}
+
+fn capture_with(
+    root: &std::path::Path,
+    path: &str,
+    expected: &str,
+    control: &Control,
+) -> Result<String, Fault> {
+    let text = lines::complete(root, path, control)?;
+    if blake3::hash(text.as_bytes()).to_hex().as_str() != expected {
+        return Err(Fault::new(
+            ErrorCode::RevisionConflict,
+            "file changed before checkpoint capture",
+        ));
+    }
+    control.check()?;
+    Ok(text)
 }
 
 struct Control {

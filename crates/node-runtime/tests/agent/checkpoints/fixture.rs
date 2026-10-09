@@ -17,6 +17,14 @@ pub(super) struct Fixture {
 
 impl Fixture {
     pub async fn start(remote: bool, changes: &[(&str, Option<&str>, &str)]) -> Self {
+        Self::start_with(remote, changes, false).await
+    }
+
+    pub async fn git(remote: bool, changes: &[(&str, Option<&str>, &str)]) -> Self {
+        Self::start_with(remote, changes, true).await
+    }
+
+    async fn start_with(remote: bool, changes: &[(&str, Option<&str>, &str)], git: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
@@ -27,6 +35,19 @@ impl Fixture {
             {
                 std::fs::write(root.join(path), before).unwrap();
             }
+        }
+        if git {
+            let repository = git2::Repository::init(&root).unwrap();
+            let mut index = repository.index().unwrap();
+            index
+                .add_all(["*"], git2::IndexAddOption::DEFAULT, None)
+                .unwrap();
+            index.write().unwrap();
+            let tree = repository.find_tree(index.write_tree().unwrap()).unwrap();
+            let signature = git2::Signature::now("Fixture", "fixture@example.invalid").unwrap();
+            repository
+                .commit(Some("HEAD"), &signature, &signature, "Initial", &tree, &[])
+                .unwrap();
         }
         let node = Node::start(directory.path().join("node")).await.unwrap();
         let controller =

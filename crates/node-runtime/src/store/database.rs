@@ -534,6 +534,9 @@ impl Database {
                     self.begin_removal(caller, &request, worktree, &roots.target)?;
                 }
                 let mut paths = roots.entries(&request.command);
+                if let Command::ApplyTurnHunk(selection) = &request.command {
+                    super::agent::checkpoints::hunks::prepare(self, selection, &roots.target)?;
+                }
                 if let Command::RestoreFileCheckpoint {
                     session,
                     checkpoint,

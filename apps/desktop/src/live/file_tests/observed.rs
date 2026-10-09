@@ -40,6 +40,7 @@ impl Transport for Observed {
                     | Command::ListFileCheckpoints { .. }
                     | Command::ReadFileCheckpoint { .. }
                     | Command::RestoreFileCheckpoint { .. }
+                    | Command::ApplyTurnHunk(_)
             );
             let hold = tracked && self.hold.load(Ordering::SeqCst);
             let drop_result = tracked && self.drop_next.swap(false, Ordering::SeqCst);

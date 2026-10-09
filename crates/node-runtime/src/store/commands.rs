@@ -397,6 +397,16 @@ pub(super) fn execute(
             Output::TurnDiff(super::agent::checkpoints::diff(db, *session, *turn)?),
             None,
         )),
+        Command::ReadTurnHunks {
+            session,
+            turn,
+            path,
+        } => Ok((
+            Output::TurnHunks(super::agent::checkpoints::hunks::read(
+                db, *session, *turn, path,
+            )?),
+            None,
+        )),
         Command::ReadFileCheckpoint {
             session,
             checkpoint,
@@ -595,6 +605,7 @@ pub(super) fn execute(
         | Command::UploadPlugin(_)
         | Command::InspectPluginUpload { .. }
         | Command::RestoreFileCheckpoint { .. }
+        | Command::ApplyTurnHunk(_)
         | Command::CreateDirectory { .. }
         | Command::RenameEntry { .. }
         | Command::CopyEntry { .. }

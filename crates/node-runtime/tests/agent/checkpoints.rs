@@ -3,6 +3,8 @@ use serde_json::json;
 
 #[path = "checkpoints/fixture.rs"]
 mod fixture;
+#[path = "checkpoints/hunks.rs"]
+mod hunks;
 #[cfg(target_os = "macos")]
 #[path = "checkpoints/native.rs"]
 mod native;

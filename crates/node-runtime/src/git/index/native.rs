@@ -1,4 +1,7 @@
 use super::*;
+
+#[cfg(test)]
+mod tests;
 use cap_fs_ext::DirExt;
 use cap_std::fs::{MetadataExt, OpenOptionsExt};
 use git2::{Index, IndexEntry, IndexTime, Oid};
@@ -28,6 +31,59 @@ pub(super) fn update(
     expected: &str,
     expected_head: Option<&str>,
     id: RequestId,
+) -> Result<GitIndex, Fault> {
+    publish(
+        root,
+        expected,
+        expected_head,
+        id,
+        |repository, index, tree, deadline| {
+            for value in paths {
+                if Instant::now() >= deadline {
+                    return Err(Fault::new(
+                        ErrorCode::Busy,
+                        "Git index update deadline exceeded",
+                    ));
+                }
+                if index.has_conflicts() {
+                    return Err(Fault::new(
+                        ErrorCode::Conflict,
+                        "resolve index conflicts before updating staged paths",
+                    ));
+                }
+                match operation {
+                    GitIndexChange::Stage => {
+                        stage(root, repository, index, value, deadline).map_err(|mut error| {
+                            error.message = format!("{}: {}", value, error.message);
+                            error
+                        })?;
+                    }
+                    GitIndexChange::Unstage => {
+                        match tree.map(|tree| tree.get_path(Path::new(value))) {
+                            Some(Ok(entry)) => index
+                                .add(&entry_record(value, entry.filemode() as u32, entry.id()))
+                                .map_err(fault)?,
+                            Some(Err(error)) if error.code() != git2::ErrorCode::NotFound => {
+                                return Err(fault(error));
+                            }
+                            _ => remove(index, value)?,
+                        }
+                    }
+                }
+            }
+            Ok(())
+        },
+        || Ok(()),
+    )
+}
+
+fn publish(
+    root: &Path,
+    expected: &str,
+    expected_head: Option<&str>,
+    id: RequestId,
+    mutate: impl FnOnce(&Repository, &mut Index, Option<&git2::Tree<'_>>, Instant) -> Result<(), Fault>,
+    validate: impl FnOnce() -> Result<(), Fault>,
 ) -> Result<GitIndex, Fault> {
     let deadline = Instant::now() + Duration::from_secs(5);
     let retained = path::root(root)?;
@@ -86,39 +142,7 @@ pub(super) fn update(
         Index::open(&candidate).map_err(fault)?
     };
     repository.set_index(&mut index).map_err(fault)?;
-    for value in paths {
-        if Instant::now() >= deadline {
-            return Err(Fault::new(
-                ErrorCode::Busy,
-                "Git index update deadline exceeded",
-            ));
-        }
-        if index.has_conflicts() {
-            return Err(Fault::new(
-                ErrorCode::Conflict,
-                "resolve index conflicts before updating staged paths",
-            ));
-        }
-        match operation {
-            GitIndexChange::Stage => {
-                stage(root, &repository, &mut index, value, deadline).map_err(|mut error| {
-                    error.message = format!("{}: {}", value, error.message);
-                    error
-                })?;
-            }
-            GitIndexChange::Unstage => {
-                match tree.as_ref().map(|tree| tree.get_path(Path::new(value))) {
-                    Some(Ok(entry)) => index
-                        .add(&entry_record(value, entry.filemode() as u32, entry.id()))
-                        .map_err(fault)?,
-                    Some(Err(error)) if error.code() != git2::ErrorCode::NotFound => {
-                        return Err(fault(error));
-                    }
-                    _ => remove(&mut index, value)?,
-                }
-            }
-        }
-    }
+    mutate(&repository, &mut index, tree.as_ref(), deadline)?;
     index.write().map_err(fault)?;
     let bytes = read(
         &publication.lock.dir,
@@ -149,6 +173,7 @@ pub(super) fn update(
     if current_head.as_deref() != expected_head {
         return Err(conflict());
     }
+    validate()?;
     let renamed = publication
         .lock
         .dir
@@ -265,6 +290,84 @@ fn stage(
     };
     index.add(&entry_record(value, mode, oid)).map_err(fault)?;
     sync_blob(repository, oid)
+}
+
+pub(super) fn edit(
+    root: &Path,
+    path: &str,
+    expected: &str,
+    head: Option<&str>,
+    id: RequestId,
+    expected_source: &str,
+    transform: impl FnOnce(&str) -> Result<String, Fault>,
+) -> Result<GitIndex, Fault> {
+    publish(
+        root,
+        expected,
+        head,
+        id,
+        |repository, index, _, _| {
+            if index.has_conflicts() {
+                return Err(Fault::new(
+                    ErrorCode::Conflict,
+                    "resolve index conflicts before staging a hunk",
+                ));
+            }
+            let entry = index.get_path(Path::new(path), 0);
+            let (before, mode) = match entry {
+                Some(entry) if matches!(entry.mode, 0o100644 | 0o100755) => {
+                    let blob = repository.find_blob(entry.id).map_err(fault)?;
+                    if blob.size() > MAX_EDIT_BYTES || blob.is_binary() {
+                        return Err(Fault::invalid("index content exceeds the text limit"));
+                    }
+                    (
+                        std::str::from_utf8(blob.content())
+                            .map_err(|_| Fault::invalid("index content is not UTF-8"))?
+                            .to_owned(),
+                        entry.mode,
+                    )
+                }
+                Some(_) => {
+                    return Err(Fault::invalid(
+                        "only regular text files support hunk staging",
+                    ));
+                }
+                None => {
+                    if repository
+                        .status_should_ignore(Path::new(path))
+                        .map_err(fault)?
+                    {
+                        return Err(Fault::invalid(
+                            "ignored files cannot be staged by this operation",
+                        ));
+                    }
+                    let parts = path::components(path, false)?;
+                    let directory = path::descend(path::root(root)?, &parts[..parts.len() - 1])?;
+                    let metadata = directory
+                        .symlink_metadata(parts[parts.len() - 1])
+                        .map_err(io_error)?;
+                    if !metadata.is_file() || metadata.is_symlink() {
+                        return Err(Fault::invalid(
+                            "only regular text files support hunk staging",
+                        ));
+                    }
+                    (
+                        String::new(),
+                        if metadata.mode() & 0o111 != 0 {
+                            0o100755
+                        } else {
+                            0o100644
+                        },
+                    )
+                }
+            };
+            let text = transform(&before)?;
+            let oid = repository.blob(text.as_bytes()).map_err(fault)?;
+            index.add(&entry_record(path, mode, oid)).map_err(fault)?;
+            sync_blob(repository, oid)
+        },
+        || crate::files::capture_text(root, path, expected_source).map(|_| ()),
+    )
 }
 
 fn sync_blob(repository: &Repository, oid: Oid) -> Result<(), Fault> {

@@ -25,6 +25,7 @@ pub(in crate::conversation::live) struct Card {
     expanded: bool,
     task: Option<Task<()>>,
     restore: Option<Entity<Restore>>,
+    reviews: std::collections::BTreeMap<String, Entity<crate::resources::hunks::Review>>,
 }
 
 impl View {
@@ -120,6 +121,7 @@ impl View {
                 expanded: false,
                 task: None,
                 restore: None,
+                reviews: std::collections::BTreeMap::new(),
             };
             card.load(
                 self.binding.clone(),
@@ -204,6 +206,43 @@ impl Card {
                 cx.emit(Event::GitFile(worktree, path));
             }
         });
+    }
+
+    fn review(&mut self, path: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(review) = self.reviews.get(path) {
+            review.update(cx, |review, cx| review.open(window, cx));
+            return;
+        }
+        let Some((mut binding, session, worktree)) = self
+            .owner
+            .read_with(cx, |view, _| {
+                if !view.connected() {
+                    return None;
+                }
+                Some((
+                    view.binding.clone(),
+                    view.session()?,
+                    view.turn_worktree(self.turn)?,
+                ))
+            })
+            .ok()
+            .flatten()
+        else {
+            return;
+        };
+        binding.worktree = Some(worktree);
+        let path = path.to_owned();
+        let review = cx.new(|_| {
+            crate::resources::hunks::Review::new(
+                self.owner.clone(),
+                binding,
+                session,
+                self.turn,
+                path.clone(),
+            )
+        });
+        self.reviews.insert(path, review.clone());
+        review.update(cx, |review, cx| review.open(window, cx));
     }
 }
 
@@ -295,6 +334,7 @@ impl Render for Card {
                             let path = file.path.clone();
                             let directory_end = path.rfind('/').map_or(0, |index| index + 1);
                             let tooltip_path = path.clone();
+                            let hunk_path = path.clone();
                             let undo_path = path.clone();
                             let group: SharedString = format!("changed-file-{turn}-{index}").into();
                             let restored = self
@@ -372,6 +412,32 @@ impl Render for Card {
                                                     file.additions,
                                                     file.deletions,
                                                     cx,
+                                                )),
+                                        )
+                                        .child(
+                                            Button::new(format!("review-hunks-{index}"))
+                                                .absolute()
+                                                .right_8()
+                                                .top_0()
+                                                .ghost()
+                                                .small()
+                                                .bg(cx.theme().tokens.list_hover)
+                                                .opacity(0.)
+                                                .group_hover(group.clone(), |style| {
+                                                    style.opacity(1.)
+                                                })
+                                                .focus_visible(|style| style.opacity(1.))
+                                                .icon(IconName::FileText)
+                                                .tooltip(tr("hunks_review"))
+                                                .accessibility_label(tr("hunks_review"))
+                                                .debug_selector(move || {
+                                                    format!("live-turn-hunks-{turn}-{index}")
+                                                })
+                                                .on_click(cx.listener(
+                                                    move |card, _, window, cx| {
+                                                        cx.stop_propagation();
+                                                        card.review(&hunk_path, window, cx);
+                                                    },
                                                 )),
                                         )
                                         .child(

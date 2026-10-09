@@ -2,6 +2,8 @@
 use crate::{CheckpointId, RequestOutcome, SessionId, TurnId, WorktreeId};
 use serde::{Deserialize, Serialize};
 
+pub mod hunk;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Version {
     pub revision: String,

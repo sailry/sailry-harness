@@ -47,7 +47,7 @@ pub(crate) fn save(
     )
 }
 
-pub(super) fn restore(
+pub(crate) fn restore(
     root: &Path,
     path: &str,
     text: &str,

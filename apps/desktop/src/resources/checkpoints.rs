@@ -13,7 +13,7 @@ use sailry_protocol::{
 use std::collections::HashSet;
 
 #[cfg(test)]
-mod tests;
+pub(in crate::resources) mod tests;
 
 pub(crate) struct Restore {
     shell: WeakEntity<Shell>,

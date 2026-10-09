@@ -7,6 +7,7 @@ mod documents;
 pub(crate) mod file_open;
 pub(crate) mod file_source;
 mod git;
+pub(crate) mod hunks;
 pub(crate) mod launcher;
 mod preview_files;
 mod preview_git;

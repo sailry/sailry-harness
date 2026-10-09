@@ -262,7 +262,7 @@ fn check_root(retained: &Dir, root: &Path) -> Result<(), Fault> {
     Ok(())
 }
 
-fn valid_path(value: &str) -> Result<(), Fault> {
+pub(crate) fn valid_path(value: &str) -> Result<(), Fault> {
     let parts = path::components(value, false)?;
     if value.chars().any(char::is_control)
         || parts.iter().any(|part| part.eq_ignore_ascii_case(".git"))

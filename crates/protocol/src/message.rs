@@ -509,6 +509,12 @@ pub enum Command {
         session: SessionId,
         turn: crate::TurnId,
     },
+    ReadTurnHunks {
+        session: SessionId,
+        turn: crate::TurnId,
+        path: String,
+    },
+    ApplyTurnHunk(crate::conversation::checkpoint::hunk::Selection),
     /// Restores pre-write text only when the current file matches the captured write.
     RestoreFileCheckpoint {
         session: SessionId,
@@ -1189,6 +1195,7 @@ impl Command {
                 | Self::ListFileCheckpoints { .. }
                 | Self::ReadFileCheckpoint { .. }
                 | Self::ReadTurnDiff { .. }
+                | Self::ReadTurnHunks { .. }
                 | Self::ReadQueuedTurn { .. }
                 | Self::ListTerminals { .. }
                 | Self::ListTerminalTools { .. }
@@ -1375,6 +1382,8 @@ pub enum Output {
     ConversationMatches(crate::conversation::search::Page),
     FileCheckpoints(crate::conversation::checkpoint::Page),
     TurnDiff(crate::conversation::checkpoint::TurnDiff),
+    TurnHunks(crate::conversation::checkpoint::hunk::Review),
+    HunkApplied(crate::conversation::checkpoint::hunk::Applied),
     FileCheckpoint(Box<crate::conversation::checkpoint::Content>),
     FileRestored(crate::conversation::checkpoint::Restored),
     Rewound(Box<crate::conversation::Rewind>),
