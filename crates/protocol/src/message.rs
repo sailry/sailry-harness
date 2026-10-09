@@ -398,6 +398,24 @@ pub enum Command {
         package: crate::plugin::Reference,
         server: String,
     },
+    ReadPluginAuthorization {
+        package: crate::plugin::Reference,
+    },
+    BeginPluginLogin {
+        package: crate::plugin::Reference,
+        redirect: String,
+        configuration: crate::plugin::oauth::Configuration,
+    },
+    CompletePluginLogin {
+        attempt: RequestId,
+        callback: Secret,
+    },
+    CancelPluginLogin {
+        attempt: RequestId,
+    },
+    RevokePluginAuthorization {
+        package: crate::plugin::Reference,
+    },
     BeginMcpLogin {
         package: crate::plugin::Reference,
         server: String,
@@ -1337,6 +1355,7 @@ impl Command {
                 | Self::ListPluginModels
                 | Self::ResolvePluginModel { .. }
                 | Self::ReadMcpAuthorization { .. }
+                | Self::ReadPluginAuthorization { .. }
                 | Self::ReadPluginView { .. }
                 | Self::ListRoles
                 | Self::ListProviders
@@ -1575,6 +1594,8 @@ pub enum Output {
     },
     McpAuthorization(crate::plugin::authorization::Status),
     McpLogin(crate::plugin::authorization::Attempt),
+    PluginAuthorization(crate::plugin::oauth::Status),
+    PluginLogin(crate::plugin::oauth::Attempt),
     Plugin(crate::plugin::Info),
     SkillDiscovery(crate::plugin::skills::Discovery),
     PluginCatalog(crate::plugin::catalog::Page),
@@ -1866,6 +1887,7 @@ pub enum Update {
     },
     BrowserCall(crate::browser::Call),
     McpLogin(crate::plugin::authorization::Update),
+    PluginLogin(crate::plugin::oauth::Update),
     ProviderLogin(crate::conversation::login::Update),
     ConversationSnapshot(crate::conversation::Snapshot),
     ConversationFrame(crate::conversation::Frame),
@@ -1889,6 +1911,7 @@ pub enum Topic {
     Commands(SessionId),
     Browser,
     McpLogin(RequestId),
+    PluginLogin(RequestId),
     ProviderLogin(RequestId),
     Conversation(crate::SessionId),
     Terminal(crate::TerminalId),

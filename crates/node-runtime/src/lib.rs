@@ -268,6 +268,15 @@ impl Node {
         self.ingress.web.fixture(host, address);
     }
 
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_plugin_oauth_fixture(
+        &self,
+        provider: sailry_protocol::plugin::oauth::Provider,
+        token_url: &str,
+    ) {
+        self.ingress.oauth.fixture(provider, token_url);
+    }
+
     #[cfg(feature = "test-support")]
     pub fn set_web_proxy_fixture(
         &self,

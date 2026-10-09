@@ -12,6 +12,7 @@ pub(crate) mod http;
 pub(crate) mod icon;
 mod manifest;
 pub(crate) mod mcp;
+pub(crate) mod oauth;
 mod package;
 mod repository;
 pub(crate) mod resources;

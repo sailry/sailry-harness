@@ -1,0 +1,3 @@
+plugin_oauth_client_id: "ID do cliente"
+plugin_oauth_client_secret: "Segredo do cliente"
+plugin_oauth_tenant: "Locatário (opcional)"

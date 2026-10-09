@@ -13,6 +13,9 @@ use sailry_protocol::{
     },
 };
 #[cfg(test)]
+#[path = "authorization/account_tests.rs"]
+mod account_tests;
+#[cfg(test)]
 #[path = "../../../../../crates/node-runtime/tests/support/mcp_oauth.rs"]
 #[allow(dead_code)]
 mod issuer;
@@ -27,8 +30,43 @@ pub(in crate::settings) fn open(
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<Login> {
+    mount(binding, package, server, None, window, cx)
+}
+
+pub(in crate::settings) fn open_plugin(
+    binding: Binding,
+    package: Reference,
+    provider: sailry_protocol::plugin::oauth::Provider,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<Login> {
+    mount(binding, package, String::new(), Some(provider), window, cx)
+}
+
+fn mount(
+    binding: Binding,
+    package: Reference,
+    server: String,
+    provider: Option<sailry_protocol::plugin::oauth::Provider>,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<Login> {
     let login = cx.new(|cx| Login {
-        client_id: cx.new(|cx| InputState::new(window, cx).placeholder(tr("mcp_oauth_client_id"))),
+        client_id: cx.new(|cx| {
+            InputState::new(window, cx).placeholder(tr(if provider.is_some() {
+                "plugin_oauth_client_id"
+            } else {
+                "mcp_oauth_client_id"
+            }))
+        }),
+        client_secret: cx.new(|cx| {
+            InputState::new(window, cx)
+                .masked(true)
+                .placeholder(tr("plugin_oauth_client_secret"))
+        }),
+        tenant: cx.new(|cx| InputState::new(window, cx).placeholder(tr("plugin_oauth_tenant"))),
+        provider,
+        plugin_view: Default::default(),
         binding,
         package,
         server,
@@ -49,9 +87,15 @@ pub(in crate::settings) fn open(
         crate::feedback::observe(window, cx, |view, _| view.error.into_iter().collect());
     });
     login.update(cx, |login, cx| {
-        login.prepare(Command::ReadMcpAuthorization {
-            package: login.package.clone(),
-            server: login.server.clone(),
+        login.prepare(if login.provider.is_some() {
+            Command::ReadPluginAuthorization {
+                package: login.package.clone(),
+            }
+        } else {
+            Command::ReadMcpAuthorization {
+                package: login.package.clone(),
+                server: login.server.clone(),
+            }
         });
         login.send(window, cx);
     });
@@ -84,6 +128,10 @@ pub(in crate::settings) struct Login {
     package: Reference,
     server: String,
     client_id: Entity<InputState>,
+    client_secret: Entity<InputState>,
+    tenant: Entity<InputState>,
+    provider: Option<sailry_protocol::plugin::oauth::Provider>,
+    plugin_view: sailry_client::plugin_login::View,
     configured: Option<bool>,
     view: View,
     request: Option<Request>,
@@ -106,7 +154,11 @@ impl Drop for Login {
 
 impl Login {
     fn state(&self) -> Option<&State> {
-        self.view.update.as_ref().map(|update| &update.state)
+        if self.provider.is_some() {
+            self.plugin_view.update.as_ref().map(|update| &update.state)
+        } else {
+            self.view.update.as_ref().map(|update| &update.state)
+        }
     }
     fn active(&self) -> bool {
         self.state().is_some_and(State::active)
@@ -130,14 +182,31 @@ impl Login {
         self.stop.cancel();
         self.stop = CancellationToken::new();
         self.view = View::default();
+        self.plugin_view = Default::default();
         self.receiver = None;
         let id = self.client_id.read(cx).value().trim().to_owned();
-        self.prepare(Command::BeginMcpLogin {
-            package: self.package.clone(),
-            server: self.server.clone(),
-            redirect: callback.redirect.clone(),
-            client_id: (!id.is_empty()).then_some(id),
-        });
+        let command = if self.provider.is_some() {
+            let secret = self.client_secret.read(cx).value().to_string();
+            let tenant = self.tenant.read(cx).value().trim().to_string();
+            Command::BeginPluginLogin {
+                package: self.package.clone(),
+                redirect: callback.redirect.clone(),
+                configuration: sailry_protocol::plugin::oauth::Configuration {
+                    client_id: id,
+                    client_secret: (!secret.is_empty())
+                        .then(|| sailry_protocol::Secret::new(secret)),
+                    tenant: (!tenant.is_empty()).then_some(tenant),
+                },
+            }
+        } else {
+            Command::BeginMcpLogin {
+                package: self.package.clone(),
+                server: self.server.clone(),
+                redirect: callback.redirect.clone(),
+                client_id: (!id.is_empty()).then_some(id),
+            }
+        };
+        self.prepare(command);
         self.callback = Some(callback);
         self.send(window, cx);
     }
@@ -177,6 +246,27 @@ impl Login {
                                 login.observe(attempt, window, cx)
                             }
                             (Command::CompleteMcpLogin { .. }, Output::McpLogin(_)) => {}
+                            (
+                                Command::ReadPluginAuthorization { .. },
+                                Output::PluginAuthorization(status),
+                            ) => login.configured = Some(status.configured),
+                            (Command::BeginPluginLogin { .. }, Output::PluginLogin(attempt)) => {
+                                login.observe_plugin(attempt, window, cx)
+                            }
+                            (Command::CompletePluginLogin { .. }, Output::PluginLogin(_)) => {}
+                            (Command::CancelPluginLogin { .. }, Output::PluginLogin(_)) => {
+                                login.closed = true;
+                                login.stop.cancel();
+                                window.close_dialog(cx);
+                            }
+                            (
+                                Command::RevokePluginAuthorization { .. },
+                                Output::PluginAuthorization(status),
+                            ) => {
+                                login.package = status.package;
+                                login.configured = Some(status.configured);
+                                login.plugin_view = Default::default();
+                            }
                             (Command::CancelMcpLogin { .. }, Output::McpLogin(_)) => {
                                 login.closed = true;
                                 login.stop.cancel();
@@ -272,6 +362,77 @@ impl Login {
         }));
     }
 
+    fn attempt(&self) -> sailry_protocol::RequestId {
+        if self.provider.is_some() {
+            self.plugin_view.update.as_ref().unwrap().attempt.id
+        } else {
+            self.view.update.as_ref().unwrap().attempt.id
+        }
+    }
+
+    fn observe_plugin(
+        &mut self,
+        attempt: sailry_protocol::plugin::oauth::Attempt,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (sender, mut receiver) =
+            tokio::sync::watch::channel(sailry_client::plugin_login::View::default());
+        self.plugin_view.update = Some(sailry_protocol::plugin::oauth::Update {
+            attempt: attempt.clone(),
+            revision: 1,
+            state: State::Starting,
+        });
+        let (client, stop) = (self.binding.client.clone(), self.stop.clone());
+        self.binding.runtime.spawn(async move {
+            let _ = client.watch_plugin_login(attempt, sender, stop).await;
+        });
+        self.observer = Some(cx.spawn_in(window, async move |owner, cx| {
+            loop {
+                let view = receiver.borrow_and_update().clone();
+                if owner
+                    .update_in(cx, |login, window, cx| {
+                        if login.closed {
+                            return;
+                        }
+                        if view.update.is_some() {
+                            login.plugin_view = view.clone();
+                        }
+                        if let Some(error) = &view.error {
+                            login.error = Some(live::error_key(error));
+                        }
+                        match login.state().cloned() {
+                            Some(State::Pending { url, .. }) if !login.closing => {
+                                login.receive(url, window, cx)
+                            }
+                            Some(State::Connected(package)) => {
+                                login.package = package;
+                                login.configured = Some(true);
+                                login.stop.cancel();
+                                login
+                                    .client_secret
+                                    .update(cx, |input, cx| input.set_value("", window, cx));
+                            }
+                            Some(State::Failed(_)) => {
+                                login.error = Some("mcp_oauth_failed");
+                                login.stop.cancel();
+                            }
+                            Some(State::Cancelled) => login.stop.cancel(),
+                            _ => {}
+                        }
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+                if receiver.changed().await.is_err() {
+                    break;
+                }
+            }
+        }));
+    }
+
     fn receive(&mut self, url: String, window: &mut Window, cx: &mut Context<Self>) {
         let Some(callback) = self.callback.take() else {
             return;
@@ -291,8 +452,12 @@ impl Login {
                 }
                 match result {
                     Ok(Ok(callback)) => {
-                        let attempt = login.view.update.as_ref().unwrap().attempt.id;
-                        login.prepare(Command::CompleteMcpLogin { attempt, callback });
+                        let attempt = login.attempt();
+                        login.prepare(if login.provider.is_some() {
+                            Command::CompletePluginLogin { attempt, callback }
+                        } else {
+                            Command::CompleteMcpLogin { attempt, callback }
+                        });
                         login.send(window, cx);
                     }
                     _ => {
@@ -315,8 +480,12 @@ impl Login {
             return false;
         }
         if self.active() {
-            let attempt = self.view.update.as_ref().unwrap().attempt.id;
-            self.prepare(Command::CancelMcpLogin { attempt });
+            let attempt = self.attempt();
+            self.prepare(if self.provider.is_some() {
+                Command::CancelPluginLogin { attempt }
+            } else {
+                Command::CancelMcpLogin { attempt }
+            });
             self.send(window, cx);
             return false;
         }

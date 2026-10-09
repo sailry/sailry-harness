@@ -6,11 +6,41 @@ impl Render for Login {
         let mut body = v_flex()
             .id("mcp-authorization")
             .gap_3()
-            .child(format!("{} / {}", self.package.name, self.server))
+            .child(if self.provider.is_some() {
+                self.package.name.clone()
+            } else {
+                format!("{} / {}", self.package.name, self.server)
+            })
             .child(
                 Input::new(&self.client_id)
-                    .aria_label(tr("mcp_oauth_client_id"))
+                    .aria_label(tr(if self.provider.is_some() {
+                        "plugin_oauth_client_id"
+                    } else {
+                        "mcp_oauth_client_id"
+                    }))
                     .disabled(busy),
+            )
+            .when(
+                self.provider.is_some_and(|provider| {
+                    provider != sailry_protocol::plugin::oauth::Provider::Microsoft
+                }),
+                |body| {
+                    body.child(
+                        Input::new(&self.client_secret)
+                            .aria_label(tr("plugin_oauth_client_secret"))
+                            .disabled(busy),
+                    )
+                },
+            )
+            .when(
+                self.provider == Some(sailry_protocol::plugin::oauth::Provider::Microsoft),
+                |body| {
+                    body.child(
+                        Input::new(&self.tenant)
+                            .aria_label(tr("plugin_oauth_tenant"))
+                            .disabled(busy),
+                    )
+                },
             )
             .child(tr(if self.closing {
                 "provider_login_cancelling"
@@ -71,9 +101,15 @@ impl Render for Login {
                                 cx,
                                 move |window, cx| {
                                     owner.update(cx, |login, cx| {
-                                        login.prepare(Command::RevokeMcpAuthorization {
-                                            package: login.package.clone(),
-                                            server: login.server.clone(),
+                                        login.prepare(if login.provider.is_some() {
+                                            Command::RevokePluginAuthorization {
+                                                package: login.package.clone(),
+                                            }
+                                        } else {
+                                            Command::RevokeMcpAuthorization {
+                                                package: login.package.clone(),
+                                                server: login.server.clone(),
+                                            }
                                         });
                                         login.send(window, cx);
                                     })

@@ -51,6 +51,7 @@ impl Projection {
             | Update::BrowserCall(_)
             | Update::ProviderLogin(_)
             | Update::McpLogin(_)
+            | Update::PluginLogin(_)
             | Update::FilesChanged { .. }
             | Update::ConversationSnapshot(_)
             | Update::ConversationFrame(_)

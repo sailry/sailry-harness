@@ -20,6 +20,8 @@ pub(in crate::store) struct Stored {
     pub(super) mcp: Option<plugin::mcp::Configuration>,
     #[serde(default)]
     pub(super) github: Option<crate::plugins::github::login::Identity>,
+    #[serde(default)]
+    pub(super) oauth: Option<super::oauth::Authorized>,
 }
 
 pub(super) fn current(db: &Connection, package: &plugin::Reference) -> Result<Info, Fault> {
@@ -42,6 +44,7 @@ pub(super) fn stored(db: &Connection, info: &Info) -> Result<Stored, Fault> {
             authorizations: BTreeMap::new(),
             mcp: None,
             github: None,
+            oauth: None,
         });
     }
     let body: Option<Vec<u8>> = db
@@ -305,6 +308,30 @@ pub(in crate::store) fn save(
     }
     let mut slots = BTreeMap::new();
     let mut github = previous.github.clone();
+    let mut oauth = previous.oauth.clone();
+    let mut revoked_fields = Vec::new();
+    if oauth
+        .as_ref()
+        .and_then(|saved| saved.grant.as_ref())
+        .is_some_and(|grant| {
+            info.extension
+                .as_ref()
+                .and_then(|extension| extension.oauth.as_ref())
+                != Some(&grant.declaration)
+                || grant.declaration.credentials.iter().any(|name| {
+                    !same_binding(&previous, schema, name)
+                        || !matches!(updates.get(name), Some(SecretUpdate::Keep))
+                })
+        })
+    {
+        revoked_fields = oauth
+            .as_ref()
+            .and_then(|saved| saved.grant.as_ref())
+            .map(|grant| grant.declaration.credentials.clone())
+            .unwrap_or_default();
+        super::oauth::clear(db, &package.name)?;
+        oauth = None;
+    }
     for (name, update) in updates {
         if package.name == "github" && name == "token" && !matches!(update, SecretUpdate::Keep) {
             github = None;
@@ -312,7 +339,9 @@ pub(in crate::store) fn save(
         }
         match update {
             SecretUpdate::Keep => {
-                if let Some(value) = previous.slots.get(name) {
+                if revoked_fields.contains(name) {
+                    slots.insert(name.clone(), None);
+                } else if let Some(value) = previous.slots.get(name) {
                     slots.insert(name.clone(), value.clone());
                 }
             }
@@ -336,6 +365,7 @@ pub(in crate::store) fn save(
         authorizations: previous.authorizations,
         mcp: previous.mcp,
         github,
+        oauth,
     };
     persist(db, &mut info, &saved)?;
     project(db, &info, &saved)

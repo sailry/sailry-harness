@@ -28,6 +28,7 @@ fn unsupported_bindings_never_reuse_credentials() {
             authorizations: BTreeMap::new(),
             mcp: None,
             github: None,
+            oauth: None,
         };
         let body = encode(&stored).unwrap();
         db.execute(

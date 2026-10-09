@@ -313,6 +313,9 @@ impl Database {
                 | Command::BeginMcpLogin { .. }
                 | Command::CompleteMcpLogin { .. }
                 | Command::CancelMcpLogin { .. }
+                | Command::BeginPluginLogin { .. }
+                | Command::CompletePluginLogin { .. }
+                | Command::CancelPluginLogin { .. }
                 | Command::ImportGithubLogin { .. }
         ) {
             return Some(Work::Login(super::login::Operation {
@@ -597,6 +600,8 @@ impl Database {
                 | Command::SaveDatabase { .. }
                 | Command::CompleteMcpLogin { .. }
                 | Command::CompleteProviderLogin { .. }
+                | Command::BeginPluginLogin { .. }
+                | Command::CompletePluginLogin { .. }
                 | Command::SavePluginSettings { .. }
                 | Command::SavePluginMcp { .. }
                 | Command::InstallMcp { .. }

@@ -1,11 +1,13 @@
 //! Provider authorization shares durable admission and the Node's credential transaction owner.
+#[path = "login/plugin.rs"]
+mod account;
 mod github;
 mod mcp;
 mod models;
 mod persistence;
 mod registration;
 mod renewals;
-use super::{Job, database::Database};
+use super::{Ingress, Job, database::Database};
 use crate::providers::login::{Grant, Service};
 use futures::FutureExt;
 pub(crate) use renewals::Authorization;
@@ -29,6 +31,7 @@ pub(super) struct Operation {
 pub(super) enum Progress {
     Github(Box<github::Completed>),
     Mcp(mcp::Progress),
+    Plugin(account::Progress),
     Registered {
         caller: NodeId,
         id: RequestId,
@@ -69,6 +72,8 @@ pub(super) struct Worker {
     pub pending: usize,
     entries: BTreeMap<(NodeId, RequestId), Entry>,
     mcp: BTreeMap<(NodeId, RequestId), mcp::Entry>,
+    plugin: BTreeMap<(NodeId, RequestId), account::Entry>,
+    oauth: std::sync::Arc<crate::plugins::oauth::Service>,
     plugins: crate::plugins::Host,
     environment: std::sync::Arc<crate::process::Environment>,
     renewals: renewals::Renewals,
@@ -83,26 +88,24 @@ pub(super) struct Worker {
 impl Worker {
     pub fn new(
         service: Service,
-        discovery: crate::providers::Discovery,
-        plugins: crate::plugins::Host,
-        environment: std::sync::Arc<crate::process::Environment>,
-        sender: mpsc::Sender<Job>,
-        closed: CancellationToken,
+        ingress: &Ingress,
         events: broadcast::Sender<EventEnvelope>,
     ) -> Self {
         Self {
             pending: 0,
             entries: BTreeMap::new(),
             mcp: BTreeMap::new(),
-            plugins,
-            environment,
+            plugin: BTreeMap::new(),
+            oauth: ingress.oauth.clone(),
+            plugins: ingress.plugins.clone(),
+            environment: ingress.environment.clone(),
             renewals: Default::default(),
             service,
-            discovery,
+            discovery: ingress.discovery.clone(),
             runtime: Handle::current(),
-            sender,
+            sender: ingress.sender.clone(),
             events,
-            closed,
+            closed: ingress.closed.clone(),
         }
     }
 
@@ -122,6 +125,11 @@ impl Worker {
             return;
         }
         let result = match request.command {
+            Command::BeginPluginLogin { .. }
+            | Command::CompletePluginLogin { .. }
+            | Command::CancelPluginLogin { .. } => {
+                self.plugin_command(database, caller, &request, events)
+            }
             Command::BeginMcpLogin { .. }
             | Command::CompleteMcpLogin { .. }
             | Command::CancelMcpLogin { .. } => {
@@ -397,6 +405,7 @@ impl Worker {
         match progress {
             Progress::Github(completed) => self.github_progress(database, *completed, events),
             Progress::Mcp(progress) => self.mcp_progress(database, progress, events),
+            Progress::Plugin(progress) => self.plugin_progress(database, progress, events),
             Progress::Registered {
                 caller,
                 id,

@@ -19,6 +19,7 @@ pub(crate) struct Input {
     headers: HeaderMap,
     body: Option<String>,
     timeout: Duration,
+    pub(crate) oauth: Option<super::oauth::Target>,
 }
 
 fn unknown(message: &str) -> Fault {
@@ -170,10 +171,19 @@ pub(crate) fn prepare(
         headers,
         body: request.body.clone(),
         timeout: Duration::from_millis(request.timeout_ms.into()),
+        oauth: None,
     })
 }
 
-pub(crate) async fn run(input: Input, stop: CancellationToken) -> Result<http::Response, Fault> {
+pub(crate) async fn run(
+    mut input: Input,
+    ingress: &crate::store::Ingress,
+    stop: CancellationToken,
+) -> Result<http::Response, Fault> {
+    if let Some(target) = &input.oauth {
+        let value = ingress.oauth.access(ingress, target, &stop).await?;
+        input.headers.insert(target.header.clone(), value);
+    }
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .retry(reqwest::retry::never())

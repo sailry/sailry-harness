@@ -13,6 +13,9 @@ mod actions;
 mod catalog;
 #[path = "plugins/completion.rs"]
 mod completion;
+#[cfg(feature = "test-support")]
+#[path = "plugins/connectors.rs"]
+mod connectors;
 #[path = "plugins/dispatch.rs"]
 mod dispatch;
 #[path = "plugins/distribution.rs"]
@@ -30,6 +33,9 @@ mod mcp_configuration;
 mod model_fixture;
 #[path = "plugins/notifications.rs"]
 mod notifications;
+#[cfg(feature = "test-support")]
+#[path = "plugins/oauth.rs"]
+mod oauth;
 #[path = "plugins/reminders_host.rs"]
 mod reminders_host;
 #[path = "plugins/scheduled_host.rs"]

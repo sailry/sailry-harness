@@ -19,6 +19,7 @@ pub(super) enum Call {
     WatchConversation(sailry_protocol::SessionId),
     WatchProviderLogin(sailry_protocol::RequestId),
     WatchMcpLogin(sailry_protocol::RequestId),
+    WatchPluginLogin(sailry_protocol::RequestId),
 }
 
 #[derive(Serialize, Deserialize)]

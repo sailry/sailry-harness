@@ -10,6 +10,7 @@ pub mod login;
 pub mod mcp_login;
 pub mod oauth;
 mod outcomes;
+pub mod plugin_login;
 pub mod ports;
 mod projection;
 pub mod terminal;

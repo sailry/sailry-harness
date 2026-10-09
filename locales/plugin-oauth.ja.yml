@@ -1,0 +1,3 @@
+plugin_oauth_client_id: "クライアント ID"
+plugin_oauth_client_secret: "クライアント シークレット"
+plugin_oauth_tenant: "テナント（任意）"

@@ -124,6 +124,11 @@ impl Database {
                     (Some(Action::WriteRoles), None, None)
                 }
                 Command::ReadPluginSecret { .. }
+                | Command::ReadPluginAuthorization { .. }
+                | Command::BeginPluginLogin { .. }
+                | Command::CompletePluginLogin { .. }
+                | Command::CancelPluginLogin { .. }
+                | Command::RevokePluginAuthorization { .. }
                 | Command::ReadPluginMcp { .. }
                 | Command::SavePluginMcp { .. } => {
                     return Err(denied(

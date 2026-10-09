@@ -287,6 +287,8 @@ pub(super) fn execute(
         }
         Command::ListPlugins
         | Command::ReadMcpAuthorization { .. }
+        | Command::ReadPluginAuthorization { .. }
+        | Command::RevokePluginAuthorization { .. }
         | Command::RevokeMcpAuthorization { .. }
         | Command::ReadPluginSettings { .. }
         | Command::ReadPluginSecret { .. }
@@ -570,7 +572,10 @@ pub(super) fn execute(
         | Command::CancelProviderLogin { .. }
         | Command::BeginMcpLogin { .. }
         | Command::CompleteMcpLogin { .. }
-        | Command::CancelMcpLogin { .. } => Err(Fault::new(
+        | Command::CancelMcpLogin { .. }
+        | Command::BeginPluginLogin { .. }
+        | Command::CompletePluginLogin { .. }
+        | Command::CancelPluginLogin { .. } => Err(Fault::new(
             ErrorCode::Internal,
             "authorization command must use its lifecycle owner",
         )),

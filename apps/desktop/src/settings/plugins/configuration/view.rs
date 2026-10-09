@@ -136,6 +136,7 @@ impl Render for Editor {
                     ),
             )
             .children(self.github_row(cx))
+            .children(self.oauth_row(cx))
             .when(self.embedded, |view| {
                 view.child(
                     h_flex()
@@ -175,5 +176,36 @@ impl Render for Editor {
                         ),
                 )
             })
+    }
+}
+
+impl Editor {
+    fn oauth_row(&self, _: &App) -> Option<AnyElement> {
+        let info = self.info.as_ref()?;
+        let provider = info.extension.as_ref()?.oauth.as_ref()?.provider;
+        let binding = self.binding.clone();
+        let package = info.summary.reference();
+        Some(
+            h_flex()
+                .justify_end()
+                .child(
+                    Button::new("plugin-oauth-connect")
+                        .debug_selector(|| "plugin-oauth-connect".into())
+                        .label(tr("mcp_oauth_title"))
+                        .disabled(
+                            self.pending || self.loading || self.changed || self.request.is_some(),
+                        )
+                        .on_click(move |_, window, cx| {
+                            super::super::authorization::open_plugin(
+                                binding.clone(),
+                                package.clone(),
+                                provider,
+                                window,
+                                cx,
+                            );
+                        }),
+                )
+                .into_any_element(),
+        )
     }
 }

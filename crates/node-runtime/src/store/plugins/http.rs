@@ -20,5 +20,34 @@ pub(super) fn prepare(
         .as_ref()
         .map(|_| settings::resolve(&db.connection, &info))
         .transpose()?;
-    crate::plugins::http::prepare(http, info.settings.as_ref(), resolved.as_ref())
+    let mut input = crate::plugins::http::prepare(http, info.settings.as_ref(), resolved.as_ref())?;
+    if let Some(field) = &http.credential {
+        let stored = settings::stored(&db.connection, &info)?;
+        if let Some(authorization) = stored.oauth
+            && let Some(grant) = authorization.grant
+            && grant.declaration.credentials.contains(field)
+            && info
+                .extension
+                .as_ref()
+                .and_then(|extension| extension.oauth.as_ref())
+                == Some(&grant.declaration)
+        {
+            crate::plugins::oauth::validate(&grant.declaration, info.settings.as_ref())?;
+            let binding = info
+                .settings
+                .as_ref()
+                .and_then(|schema| schema.properties.get(field))
+                .and_then(|field| field.secret.as_ref())
+                .ok_or_else(|| Fault::invalid("OAuth credential field is unavailable"))?;
+            let (_, header, prefix) = crate::plugins::http::binding(binding)?;
+            input.oauth = Some(crate::plugins::oauth::Target {
+                plugin: info.summary.name,
+                id: authorization.id,
+                declaration: grant.declaration,
+                header,
+                prefix: prefix.into(),
+            });
+        }
+    }
+    Ok(input)
 }

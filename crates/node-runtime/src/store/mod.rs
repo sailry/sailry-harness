@@ -18,6 +18,7 @@ mod models;
 mod mutations;
 mod notifications;
 mod outcomes;
+mod plugin_oauth;
 mod plugins;
 mod ports;
 mod processes;
@@ -115,6 +116,7 @@ enum Job {
         reply: oneshot::Sender<Result<(), Fault>>,
     },
     McpCredentials(mcp::Operation),
+    PluginOAuth(plugin_oauth::Operation),
     Authorization {
         reference: sailry_protocol::CredentialRef,
         provider: sailry_protocol::ProviderId,
@@ -128,6 +130,7 @@ enum Job {
         caller: NodeId,
         id: sailry_protocol::RequestId,
         mcp: bool,
+        plugin: bool,
         reply: oneshot::Sender<Result<Box<dyn Subscription>, Fault>>,
     },
     Agent(Box<agent::Operation>),
@@ -270,6 +273,7 @@ pub(crate) struct Ingress {
     pub(crate) agents: Arc<crate::agent::Controls>,
     pub(crate) dispatch: Arc<crate::dispatch::Controls>,
     pub(crate) plugins: crate::plugins::Host,
+    pub(crate) oauth: Arc<crate::plugins::oauth::Service>,
     closed: CancellationToken,
 }
 
@@ -365,6 +369,7 @@ impl Store {
             discovery: crate::providers::Discovery::new(),
             catalog,
             files: crate::files::Files::new(),
+            oauth: Arc::default(),
             #[cfg(any(test, feature = "test-support"))]
             authorization_endpoint: authorization.model_endpoint.clone(),
             #[cfg(any(test, feature = "test-support"))]
@@ -423,15 +428,7 @@ impl Store {
         );
         let mut plugin_work = plugins::execution::Worker::new(ingress.clone());
         let mut resource_work = resources::Worker::new(ingress.clone());
-        let mut logins = login::Worker::new(
-            authorization,
-            ingress.discovery.clone(),
-            plugins.clone(),
-            ingress.environment.clone(),
-            ingress.sender.clone(),
-            ingress.closed.clone(),
-            events.clone(),
-        );
+        let mut logins = login::Worker::new(authorization, &ingress, events.clone());
         let mut ssh = ssh::worker::Worker::new(
             ingress.transfers.clone(),
             tokio::runtime::Handle::current(),
@@ -764,13 +761,17 @@ impl Store {
                             let _ = providers::quota::observe(&mut database, observation, &events);
                         }
                         Job::McpCredentials(operation) => mcp::execute(&mut database, operation),
+                        Job::PluginOAuth(operation) => plugin_oauth::execute(&mut database, operation),
                         Job::SubscribeLogin {
                             caller,
                             id,
                             mcp,
+                            plugin,
                             reply,
                         } => {
-                            let _ = reply.send(if mcp {
+                            let _ = reply.send(if plugin {
+                                logins.subscribe_plugin(caller, id)
+                            } else if mcp {
                                 logins.subscribe_mcp(caller, id)
                             } else {
                                 logins.subscribe(caller, id)
@@ -1299,7 +1300,8 @@ impl Handler for Ingress {
                 return Err(unavailable());
             }
             if let sailry_protocol::Topic::ProviderLogin(id)
-            | sailry_protocol::Topic::McpLogin(id) = topic
+            | sailry_protocol::Topic::McpLogin(id)
+            | sailry_protocol::Topic::PluginLogin(id) = topic
             {
                 let (reply, response) = oneshot::channel();
                 self.sender
@@ -1307,6 +1309,7 @@ impl Handler for Ingress {
                         caller,
                         id,
                         mcp: matches!(topic, sailry_protocol::Topic::McpLogin(_)),
+                        plugin: matches!(topic, sailry_protocol::Topic::PluginLogin(_)),
                         reply,
                     })
                     .map_err(|_| unavailable())?;

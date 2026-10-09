@@ -13,6 +13,7 @@ pub mod http;
 pub mod mcp;
 pub mod model_tools;
 pub mod models;
+pub mod oauth;
 pub mod schema;
 pub mod settings;
 pub mod skills;
@@ -21,7 +22,7 @@ pub mod transaction;
 pub mod ui;
 pub mod updates;
 
-pub const MAX_INSTALLED: usize = 32;
+pub const MAX_INSTALLED: usize = 64;
 pub const API_VERSION: &str = "v1";
 pub const NAMESPACE: &str = "dev.sailry.platform";
 pub const MAX_PACKAGE_BYTES: u64 = 128 * 1024 * 1024;
@@ -90,6 +91,8 @@ pub struct Extension {
     pub settings_schema: Option<String>,
     /// Settings navigation and an optional custom desktop entry.
     pub settings_page: Option<desktop::Settings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth: Option<oauth::Declaration>,
     /// Inline schemas for package-owned Node and conversation values.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage: Option<storage::Declaration>,

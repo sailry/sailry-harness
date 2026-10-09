@@ -12,6 +12,7 @@ mod http;
 pub(super) mod invocations;
 pub(in crate::store) mod mcp;
 pub(super) mod models;
+pub(in crate::store) mod oauth;
 mod repository;
 mod script;
 pub(super) mod settings;
@@ -301,6 +302,16 @@ pub(super) fn execute(
     command: &Command,
 ) -> Result<(Output, Option<Event>), Fault> {
     match command {
+        Command::ReadPluginAuthorization { package } => {
+            Ok((Output::PluginAuthorization(oauth::read(db, package)?), None))
+        }
+        Command::RevokePluginAuthorization { package } => {
+            let info = oauth::revoke(db, package)?;
+            Ok((
+                Output::PluginAuthorization(oauth::read(db, &info.summary.reference())?),
+                Some(Event::PluginChanged(info.summary)),
+            ))
+        }
         Command::ListPluginModels => Ok((Output::PluginModels(models::catalog(db)?), None)),
         Command::ResolvePluginModel {
             model,

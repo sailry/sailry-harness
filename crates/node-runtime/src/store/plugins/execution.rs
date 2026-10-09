@@ -164,7 +164,7 @@ impl Worker {
                         result = crate::agent::completion::generate(
                             &ingress, &provider, &config, prompt, &stop) => result.map(Output::PluginText),
                     },
-                    Input::Http(input) => crate::plugins::http::run(input, stop.clone()).await.map(Output::PluginHttp),
+                    Input::Http(input) => crate::plugins::http::run(input, &ingress, stop.clone()).await.map(Output::PluginHttp),
                     Input::Script(info) => {
                         // Admission is already durable. Wait for a VM slot without allocating
                         // a VM or failing a valid dispatch group merely because two VMs are busy.
