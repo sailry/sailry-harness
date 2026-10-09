@@ -124,6 +124,13 @@ export type HttpRequest = {
 export type HttpResponse = { status: number; headers: Record<string, string[]>; body: string };
 /** Prepare a Node HTTP request. Complete its original ID; redirects/retries are disabled. */
 export function requestHttp(request: HttpRequest): string;
+export type WebRequest = { url: string; offset?: number };
+export type WebPage = {
+  url: string; status: number; content_type: string; content: string; title: string | null;
+  next_offset: number | null; truncated: boolean; untrusted: boolean;
+};
+/** Public, credential-free reads require web.read. Offsets count Unicode characters in the cached page. */
+export function fetchWeb(input: WebRequest): Promise<WebPage>;
 export type GitChange = "added" | "modified" | "deleted" | "renamed" | "type_changed";
 export type GitEntry = {
   path: string; staged: GitChange | null; unstaged: GitChange | null;

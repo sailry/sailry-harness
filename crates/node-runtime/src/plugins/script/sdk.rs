@@ -277,6 +277,8 @@ fn allowed(command: &Command) -> bool {
             | Command::WritePluginConversationValue { .. }
             | Command::WriteIndexedPluginValue { .. }
             | Command::SearchPluginValues(_)
+            | Command::FetchWeb(_)
+            | Command::CancelWebFetch { .. }
             | Command::QueryKnowledge(_)
             | Command::ListKnowledgeCollections
             | Command::CreateKnowledgeCollection { .. }

@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 mod conversation;
 mod knowledge;
 mod planning;
+mod web;
 
 fn context() -> plugin::Context {
     plugin::Context {

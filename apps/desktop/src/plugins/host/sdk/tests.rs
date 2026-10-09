@@ -4,6 +4,7 @@ mod knowledge;
 mod notifications;
 mod sessions;
 mod transactions;
+mod web;
 use crate::plugins::fixture::Fixture;
 use gpui_shell::HostArguments;
 

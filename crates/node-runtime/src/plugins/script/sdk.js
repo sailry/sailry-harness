@@ -28,6 +28,7 @@ export async function completeRequest(id) { return call("complete", id); }
 export function forgetRequest(id) { call("forget", id); }
 async function read(kind, data) { return call("read", {kind, data}).data; }
 export async function readSettings() { return read("read_plugin_settings", {package: scope.package}); }
+export async function fetchWeb(input) { return read("fetch_web", input); }
 export async function getValue(key) { return read("read_plugin_value", {key}); }
 export async function getConversationValue(key) { return read("read_plugin_conversation_value", {key}); }
 export async function listKeys(prefix = "", after = null, limit = 64) {

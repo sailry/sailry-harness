@@ -12,6 +12,7 @@ mod terminals;
 #[cfg(test)]
 mod tests;
 pub(in crate::plugins) mod values;
+mod web;
 mod worktrees;
 use super::*;
 use sailry_protocol::{Output, RequestOutcome};
@@ -222,6 +223,7 @@ impl Host {
         let module =
             self.session_model_module(self.worktree_module(self.usage_module(module, sources)));
         let module = self.knowledge_module(module);
+        let module = self.web_module(module);
         self.change_module(self.roles_module(self.media_module(self.computer_module(
             self.file_module(
                 self.terminal_module(self.git_module(self.conversation_module(module))),
@@ -279,18 +281,41 @@ impl Host {
             .map_err(|_| HostError::new("plugin request capacity exhausted"))?;
         let owner = self.clone();
         let request = owner.client.prepare(command).with_plugin(owner.context());
+        let cancellation = matches!(&request.command, Command::FetchWeb(_)).then(|| {
+            owner
+                .client
+                .prepare(Command::CancelWebFetch {
+                    request: request.id,
+                })
+                .with_plugin(owner.context())
+        });
         Ok(async move {
             let runtime = owner.runtime.clone();
-            runtime.spawn(async move {
-                let _permit = permit;
-                let result = tokio::select! {
-                    biased;
-                    _ = owner.stop.cancelled() => return Err(HostError::new("plugin view is closed")),
-                    result = owner.client.execute(request) => result,
-                }.map_err(|fault| if structured { values::fault(fault) } else {HostError::new(fault.message)})?;
-                let output = public_output(result)?;
-                encode(output.get("data").cloned().unwrap_or(Value::Null))
-            }).await.map_err(|_| HostError::new("plugin request worker failed"))?
+            runtime
+                .spawn(async move {
+                    let _permit = permit;
+                    let result = tokio::select! {
+                        biased;
+                        _ = owner.stop.cancelled() => {
+                            if let Some(cancellation) = cancellation {
+                                let _ = owner.client.execute(cancellation).await;
+                            }
+                            return Err(HostError::new("plugin view is closed"));
+                        },
+                        result = owner.client.execute(request) => result,
+                    }
+                    .map_err(|fault| {
+                        if structured {
+                            values::fault(fault)
+                        } else {
+                            HostError::new(fault.message)
+                        }
+                    })?;
+                    let output = public_output(result)?;
+                    encode(output.get("data").cloned().unwrap_or(Value::Null))
+                })
+                .await
+                .map_err(|_| HostError::new("plugin request worker failed"))?
         })
     }
 

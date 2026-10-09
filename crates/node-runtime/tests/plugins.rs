@@ -53,6 +53,9 @@ mod transactions;
 mod updates;
 #[path = "plugins/upload.rs"]
 mod upload;
+#[cfg(feature = "test-support")]
+#[path = "plugins/web.rs"]
+mod web;
 
 async fn inventory(client: &Client) -> Vec<Summary> {
     let Output::Plugins(plugins) = execute(client, Command::ListPlugins).await else {

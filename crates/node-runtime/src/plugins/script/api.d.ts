@@ -17,6 +17,13 @@ export function prepareTransaction(operations: Json[]): string;
 export function completeRequest(id: string): Promise<Json>;
 export function forgetRequest(id: string): void;
 export function readSettings(): Promise<{ values: Record<string, Json>; ready: boolean }>;
+export type WebRequest = { url: string; offset?: number };
+export type WebPage = {
+  url: string; status: number; content_type: string; content: string; title: string | null;
+  next_offset: number | null; truncated: boolean; untrusted: boolean;
+};
+/** Public, credential-free reads require web.read. Offsets count Unicode characters in the cached page. */
+export function fetchWeb(input: WebRequest): Promise<WebPage>;
 export function getValue(key: string): Promise<Entry>;
 export function getConversationValue(key: string): Promise<ConversationEntry>;
 export function listKeys(prefix?: string, after?: string | null, limit?: number): Promise<{ keys: string[]; after: string | null }>;

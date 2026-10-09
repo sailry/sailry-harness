@@ -20,6 +20,7 @@ pub(super) async fn run(
         context.invocation = Some(request.id);
         let bundle = ingress.plugins.read_host(&info, stop.clone())?;
         let target = ingress.node;
+        let stopped = stop.clone();
         crate::plugins::script::run(
             bundle,
             &handler,
@@ -31,13 +32,39 @@ pub(super) async fn run(
                 // Await the original child completion before releasing the parent. Closing a
                 // controller never drops admitted writes or causes automatic replay.
                 runtime.block_on(async {
-                    let admitted = ingress.dispatch(caller, request).await?;
-                    admitted.completion.await.map_err(|_| {
-                        Fault::new(
-                            ErrorCode::OutcomeUnknown,
-                            "plugin SDK completion is unknown",
-                        )
-                    })?
+                    let cancellation =
+                        matches!(&request.command, Command::FetchWeb(_)).then(|| {
+                            Request::new(
+                                target,
+                                Command::CancelWebFetch {
+                                    request: request.id,
+                                },
+                            )
+                            .with_plugin(request.plugin.clone().expect("captured plugin scope"))
+                        });
+                    let completion = async {
+                        let admitted = ingress.dispatch(caller, request).await?;
+                        admitted.completion.await.map_err(|_| {
+                            Fault::new(
+                                ErrorCode::OutcomeUnknown,
+                                "plugin SDK completion is unknown",
+                            )
+                        })?
+                    };
+                    if let Some(cancellation) = cancellation {
+                        tokio::select! {
+                            biased;
+                            _ = stopped.cancelled() => {
+                                if let Ok(admitted) = ingress.dispatch(caller, cancellation).await {
+                                    let _ = admitted.completion.await;
+                                }
+                                Err(Fault::new(ErrorCode::Cancelled, "plugin web fetch cancelled"))
+                            }
+                            result = completion => result,
+                        }
+                    } else {
+                        completion.await
+                    }
                 })
             },
         )
