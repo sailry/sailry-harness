@@ -107,6 +107,34 @@ impl Drafts {
 }
 
 impl View {
+    pub(crate) fn insert_browser_reference(
+        &mut self,
+        reference: &str,
+        bytes: Arc<[u8]>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), &'static str> {
+        if self.attachments_blocked() {
+            return Err("browser_annotation_stale");
+        }
+        if self.attachments.items.len() >= 8 {
+            return Err("chat_attachment_limit");
+        }
+        if !self.insert_quote(reference, window, cx) {
+            return Err("browser_annotation_stale");
+        }
+        self.attach_sources(
+            vec![Source::Image {
+                name: format!("browser-element-{}.jpg", self.attachments.next),
+                format: ImageFormat::Jpeg,
+                bytes,
+            }],
+            window,
+            cx,
+        );
+        Ok(())
+    }
+
     pub(super) fn restore_attachment_sources(
         &mut self,
         sources: Vec<Source>,

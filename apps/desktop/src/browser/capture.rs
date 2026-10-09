@@ -1,4 +1,4 @@
-//! Wry 0.53.3 has no portable capture API; macOS delegates to its native WKWebView.
+//! Wry 0.53.3 has no portable capture API; use its retained native platform handle.
 use super::*;
 use sailry_protocol::{ErrorCode, Fault, browser};
 
@@ -58,12 +58,109 @@ impl Browser {
                 _ = timer => return Err(failed()),
             };
             cx.background_executor()
-                .spawn(async move { encode(tab, &data) })
+                .spawn(async move { encode(tab, &data, image::ImageFormat::Tiff) })
                 .await
         })
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    pub(super) fn screenshot(
+        &self,
+        tab: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Task<browser::Result> {
+        use webview2_com::{
+            CapturePreviewCompletedHandler,
+            Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+        };
+        use windows_webview::Win32::{
+            Foundation::HGLOBAL,
+            System::Com::{
+                STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET, StructuredStorage::CreateStreamOnHGlobal,
+            },
+        };
+        use wry::WebViewExtWindows;
+        let Some(page) = self
+            .tabs
+            .iter()
+            .find(|value| value.id as u64 == tab)
+            .and_then(|tab| tab.page.as_ref())
+        else {
+            return Task::ready(Err(failed()));
+        };
+        // SAFETY: COM is initialized by Wry on this UI thread. A null HGLOBAL
+        // requests an owned stream which frees its backing allocation on release.
+        let stream = match unsafe { CreateStreamOnHGlobal(HGLOBAL::default(), true) } {
+            Ok(stream) => stream,
+            Err(_) => return Task::ready(Err(failed())),
+        };
+        let (sender, receive) = tokio::sync::oneshot::channel();
+        let sender = std::cell::RefCell::new(Some(sender));
+        let output = stream.clone();
+        let handler = CapturePreviewCompletedHandler::create(Box::new(move |status| {
+            let result = status.and_then(|()| {
+                let mut info = STATSTG::default();
+                // SAFETY: the completed native capture owns this valid IStream;
+                // stat/seek/read use correctly sized buffers on its UI thread.
+                unsafe {
+                    output.Stat(&mut info, STATFLAG_NONAME)?;
+                }
+                if info.cbSize == 0 || info.cbSize > 32 * 1024 * 1024 {
+                    return Err(windows_webview::core::Error::from_hresult(
+                        windows_webview::core::HRESULT(0x80004005u32 as i32),
+                    ));
+                }
+                let mut data = vec![0u8; info.cbSize as usize];
+                let mut read = 0;
+                // SAFETY: data is allocated for the exact validated size and
+                // the count pointer is valid for this synchronous COM call.
+                unsafe {
+                    output.Seek(0, STREAM_SEEK_SET, None)?;
+                    output
+                        .Read(data.as_mut_ptr().cast(), data.len() as u32, Some(&mut read))
+                        .ok()?;
+                }
+                if read as usize != data.len() {
+                    return Err(windows_webview::core::Error::from_hresult(
+                        windows_webview::core::HRESULT(0x80004005u32 as i32),
+                    ));
+                }
+                Ok(data)
+            });
+            if let Some(sender) = sender.borrow_mut().take() {
+                let _ = sender.send(result.map_err(|_| failed()));
+            }
+            Ok(())
+        }));
+        // SAFETY: Wry retains the WebView2 interface on this UI thread; WebView2
+        // retains the stream and completion handler throughout CapturePreview.
+        if unsafe {
+            page.read(cx).raw().webview().CapturePreview(
+                COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+                &stream,
+                &handler,
+            )
+        }
+        .is_err()
+        {
+            return Task::ready(Err(failed()));
+        }
+        cx.spawn_in(window, async move |_, cx| {
+            let timer = cx
+                .background_executor()
+                .timer(std::time::Duration::from_secs(5));
+            let data = tokio::select! {
+                result = receive => result.map_err(|_| failed())??,
+                _ = timer => return Err(failed()),
+            };
+            cx.background_executor()
+                .spawn(async move { encode(tab, &data, image::ImageFormat::Png) })
+                .await
+        })
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     pub(super) fn screenshot(
         &self,
         _tab: u64,
@@ -77,16 +174,15 @@ impl Browser {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn failed() -> Fault {
     Fault::new(ErrorCode::Unavailable, "browser capture failed")
 }
 
-#[cfg(target_os = "macos")]
-fn encode(tab: u64, bytes: &[u8]) -> browser::Result {
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn encode(tab: u64, bytes: &[u8], format: image::ImageFormat) -> browser::Result {
     use base64::Engine;
-    let mut image = image::load_from_memory_with_format(bytes, image::ImageFormat::Tiff)
-        .map_err(|_| failed())?;
+    let mut image = image::load_from_memory_with_format(bytes, format).map_err(|_| failed())?;
     image = image.thumbnail(960, 960);
     // Leave room for the JSON envelope within the existing browser result limit.
     for size in [960, 720, 480, 320] {

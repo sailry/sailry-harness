@@ -1,0 +1,7 @@
+browser_annotation: "元素"
+browser_annotation_note: "批注（可选）"
+browser_annotation_add: "添加到会话"
+browser_annotation_stale: "网页或会话已更改"
+browser_annotation_invalid: "无法读取所选元素"
+browser_annotation_unavailable: "无法截取所选元素"
+browser_annotation_truncated: "文字已截断"

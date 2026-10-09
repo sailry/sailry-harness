@@ -1,0 +1,7 @@
+browser_annotation: "元素"
+browser_annotation_note: "批註（選填）"
+browser_annotation_add: "加入對話"
+browser_annotation_stale: "網頁或對話已變更"
+browser_annotation_invalid: "無法讀取所選元素"
+browser_annotation_unavailable: "無法擷取所選元素"
+browser_annotation_truncated: "文字已截斷"

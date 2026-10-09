@@ -13,6 +13,9 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Owner {
     Session(NodeId, SessionId),
@@ -26,6 +29,29 @@ pub(crate) struct State {
     connections: BTreeMap<NodeId, Connection>,
 }
 impl State {
+    fn owns_composer(
+        &self,
+        key: Key,
+        source: &Entity<crate::conversation::live::View>,
+        browser: &Entity<Browser>,
+        cx: &App,
+    ) -> bool {
+        let binding = source.read(cx).binding();
+        let owner = match key {
+            Key::Session(node, session)
+                if binding.client.target() == node
+                    && source.read(cx).session() == Some(session) =>
+            {
+                Owner::Session(node, session)
+            }
+            Key::Draft if source.read(cx).session().is_none() => {
+                Owner::Draft(binding.client.target(), binding.worktree)
+            }
+            _ => return false,
+        };
+        self.views.get(&owner) == Some(browser)
+    }
+
     pub(crate) fn owns_session(&self, key: Key, browser: &Entity<Browser>) -> bool {
         let Key::Session(node, session) = key else {
             return false;
@@ -213,6 +239,34 @@ impl Shell {
         }
         let browser = cx.new(|cx| Browser::new(self.live.is_none(), window, cx));
         browser.update(cx, |browser, cx| browser.visibility(false, window, cx));
+        cx.subscribe_in(
+            &browser,
+            window,
+            |shell, browser, request: &super::annotation::Transfer, window, cx| {
+                let result = if request.stop.is_cancelled() {
+                    Err("browser_annotation_stale")
+                } else if let Some(source) = shell.current_chat().cloned().filter(|source| {
+                    shell
+                        .browsers
+                        .owns_composer(shell.session_scope.active, source, browser, cx)
+                }) {
+                    source.update(cx, |source, cx| {
+                        source.insert_browser_reference(
+                            &request.reference,
+                            request.image.clone(),
+                            window,
+                            cx,
+                        )
+                    })
+                } else {
+                    Err("browser_annotation_stale")
+                };
+                if let Some(reply) = request.reply.borrow_mut().take() {
+                    let _ = reply.send(result);
+                }
+            },
+        )
+        .detach();
         cx.subscribe_in(
             &browser,
             window,

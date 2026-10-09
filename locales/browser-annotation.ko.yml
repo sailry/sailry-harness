@@ -1,0 +1,7 @@
+browser_annotation: "요소"
+browser_annotation_note: "주석 (선택 사항)"
+browser_annotation_add: "대화에 추가"
+browser_annotation_stale: "페이지 또는 대화가 변경되었습니다"
+browser_annotation_invalid: "선택한 요소를 읽을 수 없습니다"
+browser_annotation_unavailable: "선택한 요소를 캡처할 수 없습니다"
+browser_annotation_truncated: "텍스트가 잘렸습니다"

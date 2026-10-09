@@ -7,6 +7,7 @@ use core::prelude::v1::test;
 use sailry_protocol::conversation::Part;
 use std::path::Path;
 
+mod browser;
 mod input;
 mod layout;
 mod lifecycle;

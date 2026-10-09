@@ -312,6 +312,9 @@ terminal renderer is a custom rendering boundary; surrounding controls still use
 Kit. Flutter consumes shared Client state rather than another conversation state
 machine. UI preview data is isolated from execution and user profiles.
 
+Browser element annotations retain the selected page, tab and controller view.
+Their text and viewport image enter the captured composer's draft through its
+existing Client attachment upload; navigation or view changes cancel selection.
 System voice reading and global selection shortcuts remain controller-local.
 Selection insertion rechecks the captured Node, worktree and conversation before
 changing a draft; neither reading nor selection starts an Agent turn.

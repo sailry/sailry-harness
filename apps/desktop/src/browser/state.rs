@@ -15,6 +15,7 @@ pub(crate) enum Action {
     Forward {},
     Reload {},
     Stop {},
+    Annotate {},
 }
 
 pub(crate) struct Request {
@@ -39,6 +40,7 @@ impl Browser {
             "selected": self.tabs.get(self.selected).map(|tab| tab.id),
             "history": history,
             "supported": cfg!(any(target_os="macos",target_os="windows")) && !self.preview,
+            "annotating": self.annotation.active(),
         })
     }
 
@@ -60,6 +62,7 @@ impl Browser {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         match action {
+            Action::Annotate {} => self.annotate(window, cx)?,
             Action::Add {} => self.add(window, cx),
             Action::Select { id } | Action::Close { id } => {
                 let index = self

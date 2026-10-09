@@ -12,6 +12,7 @@ pub(super) enum Event {
         cancelled: bool,
     },
     Close,
+    Annotation(super::annotation::Message),
     #[cfg(target_os = "macos")]
     Inspect,
 }
@@ -62,6 +63,7 @@ impl Browser {
     }
 
     pub(super) fn load(&mut self, url: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.cancel_annotation(cx);
         let tab = &mut self.tabs[self.selected];
         tab.error = None;
         if let Some(page) = &tab.page {
@@ -92,6 +94,14 @@ impl Browser {
                             }
                             if request.body() == "close-tab" {
                                 let _ = shortcuts.send((id, Event::Close));
+                            }
+                            if request.body().len() <= 32 * 1024
+                                && let Ok(message) =
+                                    serde_json::from_str::<super::annotation::Message>(
+                                        request.body(),
+                                    )
+                            {
+                                let _ = shortcuts.send((id, Event::Annotation(message)));
                             }
                         })
                         .with_incognito(true)
@@ -202,6 +212,10 @@ impl Browser {
             return;
         };
         match event {
+            Event::Annotation(message) => {
+                self.select_annotation(id, message, window, cx);
+                return;
+            }
             #[cfg(target_os = "macos")]
             Event::Inspect => {
                 if index == self.selected {
@@ -209,6 +223,9 @@ impl Browser {
                 }
             }
             Event::Navigating => {
+                if self.annotation.tab() == Some(id) {
+                    self.cancel_annotation(cx);
+                }
                 self.tabs[index].loading = true;
                 self.tabs[index].error = None;
             }
@@ -229,6 +246,9 @@ impl Browser {
                 };
             }
             Event::Load(url, loading) => {
+                if loading && self.annotation.tab() == Some(id) {
+                    self.cancel_annotation(cx);
+                }
                 if !loading {
                     self.sync_shortcuts(cx);
                 }

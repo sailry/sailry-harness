@@ -1,4 +1,5 @@
 //! Session-scoped native WebViews, navigation, and controller profile ownership.
+pub(crate) mod annotation;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod automation;
 pub(crate) mod bridge;
@@ -51,15 +52,18 @@ pub(crate) struct Browser {
     pub(crate) lease: u64,
     mounted: bool,
     preview: bool,
+    annotation: annotation::State,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     events: tokio::sync::mpsc::UnboundedSender<(usize, native::Event)>,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     _events: Task<()>,
 }
 impl EventEmitter<DismissEvent> for Browser {}
+impl EventEmitter<annotation::Transfer> for Browser {}
 
 impl Browser {
     pub(crate) fn close_all(&mut self) {
+        self.annotation.clear();
         self.tabs.clear();
     }
 
@@ -105,6 +109,7 @@ impl Browser {
         cx.observe_global::<crate::preferences::Preferences>(|this, cx| {
             let persistent = profile::persistent(cx);
             if this.persistent != persistent {
+                this.cancel_annotation(cx);
                 this.persistent = persistent;
                 this.store = None;
                 for tab in &mut this.tabs {
@@ -136,6 +141,7 @@ impl Browser {
             lease: 0,
             mounted: true,
             preview,
+            annotation: annotation::State::default(),
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             events,
             #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -164,6 +170,9 @@ impl Browser {
     }
 
     fn select(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if index != self.selected {
+            self.cancel_annotation(cx);
+        }
         self.selected = index;
         let url = self.tabs[index].url.clone();
         #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -182,6 +191,9 @@ impl Browser {
     }
 
     fn close(&mut self, id: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.annotation.tab() == Some(id) {
+            self.cancel_annotation(cx);
+        }
         let Some(index) = self.tabs.iter().position(|tab| tab.id == id) else {
             return;
         };
@@ -213,6 +225,9 @@ impl Browser {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !mounted && self.mounted {
+            self.cancel_annotation(cx);
+        }
         self.mounted = mounted;
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
