@@ -125,7 +125,7 @@ fn retains_native_names_and_unreadable_directory_boundaries() {
     metadata(&native.join(".git"));
     let restricted = root.join("restricted");
     metadata(&restricted.join(".git"));
-    fs::set_permissions(&restricted, Permissions::from_mode(0)).unwrap();
+    fs::set_permissions(&restricted, Permissions::from_mode(0o0)).unwrap();
     let inaccessible = crate::files::path::root(&restricted).is_err();
     let cache = Cache::default();
     let initial = cache.discover(&root).unwrap();

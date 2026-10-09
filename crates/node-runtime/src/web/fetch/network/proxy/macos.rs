@@ -13,7 +13,7 @@ use system_configuration::{
 fn endpoint(values: &CFDictionary<CFString, CFType>, scheme: &str) -> String {
     let number = |key: &str| {
         values
-            .find(&CFString::new(key))
+            .find(CFString::new(key))
             .and_then(|value| value.downcast::<CFNumber>())
             .and_then(|value| value.to_i32())
     };
@@ -21,7 +21,7 @@ fn endpoint(values: &CFDictionary<CFString, CFType>, scheme: &str) -> String {
         return String::new();
     }
     let host = values
-        .find(&CFString::new(&format!("{scheme}Proxy")))
+        .find(CFString::new(&format!("{scheme}Proxy")))
         .and_then(|value| value.downcast::<CFString>())
         .map(|value| value.to_string());
     let port = number(&format!("{scheme}Port"))
@@ -50,7 +50,7 @@ pub(super) fn settings() -> Settings {
 
 fn parse(values: &CFDictionary<CFString, CFType>) -> Settings {
     let bypass = values
-        .find(&CFString::new("ExceptionsList"))
+        .find(CFString::new("ExceptionsList"))
         .and_then(|value| value.downcast::<CFArray>())
         .map(|values| {
             values

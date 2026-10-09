@@ -239,7 +239,7 @@ async fn protects_native_metadata_despite_unreadable_siblings() {
     let original = std::fs::read(native.join(".git/config")).unwrap();
     let restricted = root.join("restricted");
     std::fs::create_dir(&restricted).unwrap();
-    std::fs::set_permissions(&restricted, std::fs::Permissions::from_mode(0)).unwrap();
+    std::fs::set_permissions(&restricted, std::fs::Permissions::from_mode(0o0)).unwrap();
     let output = run(
         &root,
         &profile,
