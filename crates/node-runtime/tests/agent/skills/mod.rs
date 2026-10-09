@@ -144,6 +144,8 @@ fn results(page: &Page) -> Vec<Value> {
 mod execution;
 mod forwarding;
 mod management;
+#[cfg(feature = "test-support")]
+mod python;
 #[cfg(all(unix, feature = "test-support"))]
 mod standalone;
 mod versions;

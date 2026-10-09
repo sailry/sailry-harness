@@ -9,6 +9,7 @@ use tokio::sync::OnceCell;
 mod desktop;
 mod host;
 pub(crate) mod mcp;
+mod python;
 
 struct Directory {
     root: Dir,

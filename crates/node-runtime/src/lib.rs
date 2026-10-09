@@ -26,6 +26,7 @@ mod ports;
 mod process;
 mod profile;
 mod providers;
+mod python;
 mod ssh;
 mod store;
 mod tasks;
@@ -276,6 +277,11 @@ impl Node {
         token_url: &str,
     ) {
         self.ingress.oauth.fixture(provider, token_url);
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_python_runtime_fixture(&self, path: &Path) -> Result<(), sailry_protocol::Fault> {
+        self.ingress.plugins.set_python_runtime_fixture(path)
     }
 
     #[cfg(feature = "test-support")]

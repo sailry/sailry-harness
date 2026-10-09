@@ -20,6 +20,7 @@ mod keywords;
 #[cfg(feature = "test-support")]
 mod performance;
 mod registered;
+mod runtime;
 mod sources;
 mod storage;
 mod transactions;

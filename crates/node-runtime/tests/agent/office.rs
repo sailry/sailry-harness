@@ -3,13 +3,13 @@ use serde_json::json;
 
 #[tokio::test]
 #[cfg(unix)]
-#[ignore = "requires SAILRY_TEST_OFFICE_PYTHON pointing to an external test environment"]
+#[ignore = "requires SAILRY_TEST_PYTHON_RUNTIME and network access for the locked Office wheels"]
 async fn scripts_use_node_environment() {
-    let python = std::path::PathBuf::from(
-        std::env::var_os("SAILRY_TEST_OFFICE_PYTHON").expect("external test interpreter required"),
+    let runtime = std::path::PathBuf::from(
+        std::env::var_os("SAILRY_TEST_PYTHON_RUNTIME").expect("bundled test runtime required"),
     );
-    assert!(python.is_absolute());
-    assert!(python.is_file());
+    assert!(runtime.is_absolute());
+    assert!(runtime.is_dir());
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
@@ -24,6 +24,7 @@ async fn scripts_use_node_environment() {
         )
         .unwrap();
         let node = Node::start(directory.path().join("node")).await.unwrap();
+        node.set_python_runtime_fixture(&runtime).unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -53,19 +54,8 @@ async fn scripts_use_node_environment() {
             .profile()
             .join("plugins/packages")
             .join(&package.summary.digest);
-        let command = format!(
-            "'{}' verify.py '{}'",
-            python.to_str().unwrap().replace('\'', "'\"'\"'"),
-            installed.to_str().unwrap().replace('\'', "'\"'\"'")
-        );
-        let author = Server::turn_tools(vec![
-            ("load_skill".into(), json!({"skill":"office:word"})),
-            (
-                plugin_tool("commands", "run_command"),
-                json!({"access":"unrestricted","command":command}),
-            ),
-        ])
-        .await;
+        let loader =
+            Server::turn_tools(vec![("load_skill".into(), json!({"skill":"office:word"}))]).await;
         let Output::Providers(mut providers) = client
             .execute(client.prepare(Command::ListProviders))
             .await
@@ -75,7 +65,7 @@ async fn scripts_use_node_environment() {
         };
         let mut provider = providers.remove(0);
         let revision = provider.revision;
-        provider.endpoint = author.endpoint.clone();
+        provider.endpoint = loader.endpoint.clone();
         client
             .execute(client.prepare(Command::PutProvider {
                 provider,
@@ -96,25 +86,84 @@ async fn scripts_use_node_environment() {
         else {
             panic!("session expected")
         };
+        let Output::QueuedTurn(preparing) = client
+            .execute(client.prepare(Command::SubmitTurn {
+                session: session.id,
+                expected_revision: session.revision,
+                message: "Prepare the managed Office environment".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("turn expected");
+        };
+        // This explicit real-service acceptance includes cold wheel downloads.
+        let ready =
+            finished_within(&client, session.id, preparing.id, Duration::from_secs(120)).await;
+        assert_eq!(ready.runs.last().unwrap().status, Status::Completed);
+        let python = ready
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .find_map(|part| match part {
+                Part::ToolResult { result, .. } => {
+                    result.get("python").and_then(|value| value.as_str())
+                }
+                _ => None,
+            })
+            .expect("managed Python returned");
+        assert!(
+            std::path::Path::new(python).starts_with(node.profile().join("python/environments"))
+        );
+        let command = format!(
+            "'{}' verify.py '{}'",
+            python.replace('\'', "'\"'\"'"),
+            installed.to_str().unwrap().replace('\'', "'\"'\"'")
+        );
+        let mut calls: Vec<_> = ["word", "excel", "powerpoint", "pdf"]
+            .into_iter()
+            .map(|name| {
+                (
+                    "load_skill".into(),
+                    json!({"skill":format!("office:{name}")}),
+                )
+            })
+            .collect();
+        calls.push((
+            plugin_tool("commands", "run_command"),
+            json!({"access":"workspace", "command":command}),
+        ));
+        let author = Server::turn_tools(calls).await;
+        let Output::Providers(mut providers) = client
+            .execute(client.prepare(Command::ListProviders))
+            .await
+            .unwrap()
+        else {
+            panic!("providers expected");
+        };
+        let mut provider = providers.remove(0);
+        let revision = provider.revision;
+        provider.endpoint = author.endpoint.clone();
+        client
+            .execute(client.prepare(Command::PutProvider {
+                provider,
+                expected_revision: revision,
+            }))
+            .await
+            .unwrap();
         let Output::QueuedTurn(turn) = client
             .execute(client.prepare(Command::SubmitTurn {
                 session: session.id,
                 expected_revision: session.revision,
-                message: "Create styled Office documents using the project environment".into(),
+                message: "Create styled Office documents using managed Python".into(),
             }))
             .await
             .unwrap()
         else {
             panic!("turn expected")
         };
-        let (_, approval) = approvals::pending(&client, session.id).await;
-        assert_eq!(
-            approval.access,
-            Some(sailry_protocol::process::Access::Unrestricted)
-        );
-        assert_eq!(approval.source, ApprovalSource::User);
-        process::decide(&client, &approval, Decision::Approve).await;
-        let page = finished(&client, session.id, turn.id).await;
+        // This acceptance invokes real authoring libraries and all four installed scripts.
+        let page = finished_within(&client, session.id, turn.id, Duration::from_secs(90)).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         let requests = author.requests.lock().unwrap().clone();
         let names: Vec<_> = requests[0]["tools"]
@@ -137,17 +186,33 @@ async fn scripts_use_node_environment() {
         let results: Vec<_> = page
             .entries
             .iter()
+            .filter(|entry| entry.turn == turn.id)
             .flat_map(|e| &e.parts)
             .filter_map(|part| match part {
-                Part::ToolResult { result, .. } => Some(result),
+                Part::ToolResult { name, result, .. } => Some((name, result)),
                 _ => None,
             })
             .collect();
-        assert_eq!(results.len(), 2);
-        for result in &results {
+        assert_eq!(results.len(), 5, "Office tool results: {results:?}");
+        for (_, result) in &results {
             assert!(result.get("error").is_none(), "{result}");
         }
-        let Output::CommandResult(completion) = serde_json::from_value(results[1].clone()).unwrap()
+        for ((name, result), skill) in
+            results[..4]
+                .iter()
+                .zip(["word", "excel", "powerpoint", "pdf"])
+        {
+            assert_eq!(name.as_str(), "load_skill");
+            assert_eq!(result["skill"], format!("office:{skill}"));
+            assert_eq!(result["python"], python);
+            assert_eq!(
+                result["directory"],
+                installed.join("skills").join(skill).to_str().unwrap()
+            );
+        }
+        assert_eq!(results[4].0, &plugin_tool("commands", "run_command"));
+        let Output::CommandResult(completion) =
+            serde_json::from_value(results[4].1.clone()).unwrap()
         else {
             panic!("command result expected")
         };

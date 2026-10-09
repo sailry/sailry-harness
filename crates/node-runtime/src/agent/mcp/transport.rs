@@ -73,6 +73,7 @@ struct Child {
     inner: Box<dyn ChildWrapper>,
     _roots: (cap_std::fs::Dir, cap_std::fs::Dir),
     settings: Option<crate::plugins::resources::mcp::Projection>,
+    _python: Option<crate::python::Ready>,
     armed: bool,
 }
 
@@ -168,6 +169,7 @@ impl Connection {
                 cwd,
                 roots,
                 settings,
+                python,
             } => {
                 let mut command = tokio::process::Command::new(command);
                 environment.apply(&mut command);
@@ -191,6 +193,7 @@ impl Connection {
                     inner: command.spawn().map_err(|_| unavailable())?,
                     _roots: roots,
                     settings,
+                    _python: python,
                     armed: true,
                 };
                 let input = child.inner.stdin().take().expect("MCP stdin was piped");

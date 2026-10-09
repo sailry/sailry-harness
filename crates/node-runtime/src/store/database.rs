@@ -542,6 +542,14 @@ impl Database {
                 {
                     super::plugins::check_install(&self.connection, name, *expected_revision)?;
                 }
+                if let Command::SetPluginEnabled {
+                    name,
+                    expected_revision,
+                    enabled: true,
+                } = &request.command
+                {
+                    super::plugins::prepare_enable(&self.connection, name, *expected_revision)?;
+                }
                 if let Command::RemoveWorktree { worktree, .. } = request.command {
                     self.begin_removal(caller, &request, worktree, &roots.target)?;
                 }

@@ -139,11 +139,56 @@ pub(super) fn check_install(
     Ok(current)
 }
 
+pub(super) fn prepare_enable(db: &Connection, name: &str, expected: u64) -> Result<Info, Fault> {
+    let info = required(db, name)?;
+    super::commands::check_revision(info.summary.revision, expected)?;
+    Ok(info)
+}
+
+pub(super) fn retain_python(db: &Connection, host: &crate::plugins::Host) -> Result<(), Fault> {
+    let packages = list(db)?
+        .into_iter()
+        .map(|summary| required(db, &summary.name))
+        .collect::<Result<_, _>>()?;
+    host.retain_python(packages);
+    Ok(())
+}
+
 pub(super) fn finish(
     db: &Connection,
     command: &Command,
     result: &mut sailry_link::Response,
 ) -> Result<Option<Event>, Fault> {
+    if let Command::SetPluginEnabled {
+        name,
+        expected_revision,
+        enabled: true,
+    } = command
+    {
+        if result.is_err() {
+            return Ok(None);
+        }
+        let Ok(Output::Plugin(prepared)) = result else {
+            return Err(storage_error("prepared plugin identity expected"));
+        };
+        let current = match prepare_enable(db, name, *expected_revision) {
+            Ok(info) => info,
+            Err(error) => {
+                *result = Err(error);
+                return Ok(None);
+            }
+        };
+        if prepared.summary.reference() != current.summary.reference() {
+            return Err(storage_error("prepared plugin identity changed"));
+        }
+        let info = enable(db, current, true)?;
+        if name == "code" {
+            super::code::enable(db, true)?;
+        }
+        let event = Event::PluginChanged(info.summary.clone());
+        *result = Ok(Output::Plugin(info));
+        return Ok(Some(event));
+    }
     if let Command::SavePluginMcp {
         package,
         configuration,

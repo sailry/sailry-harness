@@ -1,7 +1,7 @@
 use super::*;
 
-#[test]
-fn binds_captured_resources_without_plugin_identity() {
+#[tokio::test]
+async fn binds_captured_resources_without_plugin_identity() {
     let directory = tempfile::tempdir().unwrap();
     let profile = directory.path().join("profile");
     let source = directory.path().join("source");
@@ -21,14 +21,24 @@ fn binds_captured_resources_without_plugin_identity() {
         .unwrap();
     assert_eq!(package.skills.len(), 1);
     let stop = CancellationToken::new();
+    let node = crate::Node::start_isolated(directory.path().join("node"))
+        .await
+        .unwrap();
+    let turn = sailry_protocol::TurnId::new();
     let empty = Arc::new(Resources::new(
         host.clone(),
         vec![],
         Default::default(),
         stop.clone(),
     ));
-    let (tools, instruction) =
-        bind(empty, sailry_protocol::SessionId::new(), stop.clone()).unwrap();
+    let (tools, instruction) = bind(
+        empty,
+        sailry_protocol::SessionId::new(),
+        stop.clone(),
+        node.ingress.clone(),
+        turn,
+    )
+    .unwrap();
     assert!(tools.is_empty());
     assert!(instruction.is_empty());
     let resources = Arc::new(Resources::new(
@@ -37,7 +47,14 @@ fn binds_captured_resources_without_plugin_identity() {
         Default::default(),
         stop.clone(),
     ));
-    let (tools, instruction) = bind(resources, sailry_protocol::SessionId::new(), stop).unwrap();
+    let (tools, instruction) = bind(
+        resources,
+        sailry_protocol::SessionId::new(),
+        stop,
+        node.ingress.clone(),
+        turn,
+    )
+    .unwrap();
     assert_eq!(
         tools
             .iter()
@@ -60,4 +77,5 @@ fn binds_captured_resources_without_plugin_identity() {
     );
     assert!(instruction.contains("example:analysis"));
     assert!(!instruction.contains("Load this content on demand"));
+    node.shutdown().await.unwrap();
 }

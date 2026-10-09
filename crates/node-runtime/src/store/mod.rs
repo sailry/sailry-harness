@@ -25,6 +25,7 @@ mod ports;
 mod processes;
 mod projects;
 mod providers;
+mod python;
 mod reads;
 mod resources;
 mod roles;
@@ -63,6 +64,14 @@ enum Job {
         revision: u64,
         cancel: sailry_link::CancellationToken,
         reply: oneshot::Sender<Result<backup::Capture, Fault>>,
+    },
+    PythonSettings {
+        reply: oneshot::Sender<Result<sailry_protocol::python::Settings, Fault>>,
+    },
+    PluginPreparation {
+        name: String,
+        revision: u64,
+        reply: oneshot::Sender<Result<sailry_protocol::plugin::Info, Fault>>,
     },
     KnowledgeCatalog {
         reply: oneshot::Sender<Result<knowledge::Catalog, Fault>>,
@@ -417,6 +426,7 @@ impl Store {
         let collection = plugins.clone();
         let git = ingress.git.clone();
         let commands = ingress.commands.clone();
+        let cleanup_commands = ingress.commands.clone();
         let process_runtime = tokio::runtime::Handle::current();
         let cleanup_runtime = tokio::runtime::Handle::current();
         let computer = ingress.computer.clone();
@@ -430,11 +440,7 @@ impl Store {
         let mut processes = processes::Worker::new(
             tokio::runtime::Handle::current(),
             ingress.sender.clone(),
-            ingress.closed.clone(),
-            agents.clone(),
-            ingress.commands.clone(),
-            ingress.environment.clone(),
-            ingress.code.clone(),
+            &ingress,
         );
         let mut plugin_work = plugins::execution::Worker::new(ingress.clone());
         let mut resource_work = resources::Worker::new(ingress.clone());
@@ -453,6 +459,9 @@ impl Store {
         );
         let code_pool = ingress.code.clone();
         let searcher = ingress.search.clone();
+        let python_closed = ingress.closed.clone();
+        let python_agents = ingress.agents.clone();
+        let python_environment = ingress.environment.clone();
         let worker = std::thread::Builder::new()
             .name("sailry-store".into())
             .spawn(move || {
@@ -472,53 +481,41 @@ impl Store {
                     return Ok(());
                 }
                 plugins::collection::run(&mut database.connection, &collection);
+                if let Err(error) = plugins::retain_python(&database.connection, &collection) { let _ = ready.send(Err(crate::Error::from(error))); return Ok(()); }
                 match code::initialize(&mut database.connection) {Ok(settings)=>cleanup_runtime.block_on(code_pool.configure(settings)),Err(error)=>{let _=ready.send(Err(crate::Error::from(error)));return Ok(());}}
                 attachments::collect(&database.connection, attachment_profile.as_deref());
                 let mut mutations =
                     match mutations::Worker::start(completed, move |caller, roots, request| {
                         let root = &roots.target;
+                        let installed = match &request.command {
+                            sailry_protocol::Command::InstallPluginUpload { stream, name, .. } => Some(transfers.install_plugin(caller, *stream, name, &plugins)),
+                            sailry_protocol::Command::InstallPlugin { path, name, .. } => Some(plugins.install(root, path, name)),
+                            sailry_protocol::Command::InstallPluginSource { source, path, name, .. } => Some(process_runtime.block_on(plugins.install_source(source, path, name))),
+                            sailry_protocol::Command::InstallBundledPlugin { name, .. } => Some(plugins.install_bundled(name)),
+                            sailry_protocol::Command::InstallSkill { source, path, name, .. } => Some(process_runtime.block_on(plugins.install_skill(source, path, name))),
+                            sailry_protocol::Command::InstallMcp { name, definition, .. } => Some(plugins.install_mcp(name, definition)),
+                            sailry_protocol::Command::SetPluginEnabled { name, expected_revision, enabled: true } => {
+                                let (reply, response) = oneshot::channel();
+                                validation.blocking_send(Job::PluginPreparation { name: name.clone(), revision: *expected_revision, reply }).map_err(|_| unavailable())?;
+                                Some(response.blocking_recv().map_err(|_| unavailable())?)
+                            }
+                            _ => None,
+                        };
+                        if let Some(info) = installed {
+                            let info = info?;
+                            let stop = if let Some(turn) = request.plugin.as_ref().and_then(|context| context.turn) {
+                                python_agents.python_stop(turn).ok_or_else(|| Fault::new(ErrorCode::Cancelled, "plugin preparation turn is no longer active"))?
+                            } else { python_closed.child_token() };
+                            let stop = stop.child_token();
+                            let preparing = stop.clone();
+                            let closed = python_closed.clone();
+                            let closing = process_runtime.spawn(async move { closed.cancelled().await; preparing.cancel(); });
+                            let result = process_runtime.block_on(plugins.prepare_python(&info, &python_environment, &stop));
+                            closing.abort();
+                            result?;
+                            return Ok(sailry_protocol::Output::Plugin(info));
+                        }
                         match &request.command {
-                            sailry_protocol::Command::InstallPluginUpload {
-                                stream, name, ..
-                            } => {
-                                return transfers
-                                    .install_plugin(caller, *stream, name, &plugins)
-                                    .map(sailry_protocol::Output::Plugin);
-                            }
-                            sailry_protocol::Command::InstallPlugin { path, name, .. } => {
-                                return plugins
-                                    .install(root, path, name)
-                                    .map(sailry_protocol::Output::Plugin);
-                            }
-                            sailry_protocol::Command::InstallPluginSource {
-                                source,
-                                path,
-                                name,
-                                ..
-                            } => {
-                                return process_runtime
-                                    .block_on(plugins.install_source(source, path, name))
-                                    .map(sailry_protocol::Output::Plugin);
-                            }
-                            sailry_protocol::Command::InstallBundledPlugin { name, .. } => {
-                                return plugins
-                                    .install_bundled(name)
-                                    .map(sailry_protocol::Output::Plugin);
-                            }
-                            sailry_protocol::Command::InstallSkill {
-                                source, path, name, ..
-                            } => {
-                                return process_runtime
-                                    .block_on(plugins.install_skill(source, path, name))
-                                    .map(sailry_protocol::Output::Plugin);
-                            }
-                            sailry_protocol::Command::InstallMcp {
-                                name, definition, ..
-                            } => {
-                                return plugins
-                                    .install_mcp(name, definition)
-                                    .map(sailry_protocol::Output::Plugin);
-                            }
                             sailry_protocol::Command::SavePluginMcp {
                                 package,
                                 configuration,
@@ -716,6 +713,12 @@ impl Store {
                     match job {
                         Job::BackupPlan { expected, reply } => { let _ = reply.send(backup::plan(&database.connection, expected)); }
                         Job::BackupSnapshot { revision, cancel, reply } => { let _ = reply.send(backup::capture(&database, revision, &cancel)); }
+                        Job::PythonSettings { reply } => {
+                            let _ = reply.send(python::read(&database.connection));
+                        }
+                        Job::PluginPreparation { name, revision, reply } => {
+                            let _ = reply.send(plugins::prepare_enable(&database.connection, &name, revision));
+                        }
                         Job::KnowledgeCatalog { reply } => {
                             let _ = reply.send(knowledge::catalog(&database.connection));
                         }
@@ -1047,7 +1050,7 @@ impl Store {
                             reply,
                         } => {
                             let reply = if matches!(request.command, sailry_protocol::Command::RemoveSession { .. }) {
-                                admission::release_removed(computer.clone(), &cleanup_runtime, reply)
+                                admission::release_removed(computer.clone(), cleanup_commands.clone(), attachment_profile.clone(), &cleanup_runtime, reply)
                             } else {
                                 reply
                             };
@@ -1182,6 +1185,9 @@ impl Store {
                             }
                         }
                     }
+                    if package_change && let Err(error) = plugins::retain_python(&database.connection, &collection) {
+                        eprintln!("Python package references could not be refreshed: {error}");
+                    }
                     if package_change && let Ok(turns) = agent::continuation::stopping(&database.connection) {
                         for turn in turns {agents.cancel(turn);}
                         agents.wake.notify_waiters();
@@ -1212,6 +1218,15 @@ impl Store {
         initialized
             .await
             .map_err(|error| Error::Worker(error.to_string()))??;
+        let configured = async {
+            let settings = store.ingress.python_settings().await?;
+            store.ingress.plugins.configure_python(settings.index)
+        }
+        .await;
+        if let Err(error) = configured {
+            let _ = store.shutdown().await;
+            return Err(Error::from(error));
+        }
         if let Err(error) = knowledge::runtime::start(&store.ingress).await {
             let _ = store.shutdown().await;
             return Err(Error::from(error));

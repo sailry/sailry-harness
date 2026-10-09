@@ -13,6 +13,7 @@ struct Active {
     operations: usize,
     media: Option<super::media::Binding>,
     scratch: Option<Arc<tempfile::TempDir>>,
+    python: Vec<crate::python::Access>,
     finishing: bool,
     yielded: bool,
 }
@@ -45,6 +46,7 @@ impl Controls {
                 operations: 0,
                 media: None,
                 scratch: None,
+                python: Vec::new(),
                 finishing: false,
                 yielded: false,
             },
@@ -59,6 +61,45 @@ impl Controls {
 
     pub fn media(&self, turn: TurnId) -> Option<super::media::Binding> {
         self.active.lock().unwrap().get(&turn)?.media.clone()
+    }
+
+    pub(crate) fn bind_python(
+        &self,
+        turn: TurnId,
+        ready: crate::python::Ready,
+        directory: std::path::PathBuf,
+    ) -> Result<(), Fault> {
+        let mut runs = self.active.lock().unwrap();
+        let active = runs
+            .get_mut(&turn)
+            .filter(|active| !active.finishing && !active.stop.is_cancelled())
+            .ok_or_else(|| Fault::new(ErrorCode::Conflict, "turn is not running"))?;
+        if !active.python.iter().any(|existing| {
+            existing.ready.environment == ready.environment && existing.directory == directory
+        }) {
+            active
+                .python
+                .push(crate::python::Access { ready, directory });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn python(&self, turn: TurnId) -> Vec<crate::python::Access> {
+        self.active
+            .lock()
+            .unwrap()
+            .get(&turn)
+            .map(|active| active.python.clone())
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn python_stop(&self, turn: TurnId) -> Option<CancellationToken> {
+        self.active
+            .lock()
+            .unwrap()
+            .get(&turn)
+            .filter(|active| !active.finishing)
+            .map(|active| active.stop.clone())
     }
 
     pub(crate) fn scratch(

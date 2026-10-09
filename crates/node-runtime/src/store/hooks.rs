@@ -244,6 +244,7 @@ impl Ingress {
                 timeout_ms,
                 inputs: None,
                 scratch,
+                python: None,
             },
             &self.environment,
             stop,

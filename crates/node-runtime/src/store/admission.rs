@@ -7,6 +7,8 @@ use tokio::sync::{mpsc, oneshot};
 
 pub(super) fn release_removed(
     computer: Arc<crate::computer::Desktop>,
+    commands: Arc<crate::process::background::Commands>,
+    profile: Option<std::path::PathBuf>,
     runtime: &tokio::runtime::Handle,
     reply: oneshot::Sender<Result<Admission, Fault>>,
 ) -> oneshot::Sender<Result<Admission, Fault>> {
@@ -23,6 +25,24 @@ pub(super) fn release_removed(
                     if let Ok(sailry_protocol::Output::SessionsRemoved(sessions)) = &result {
                         for session in sessions {
                             computer.finish(*session).await;
+                            commands.close_session(*session).await;
+                            if let Some(profile) = &profile {
+                                let profile = profile.clone();
+                                let session = *session;
+                                match tokio::task::spawn_blocking(move || {
+                                    crate::python::remove_session(&profile, session)
+                                })
+                                .await
+                                {
+                                    Ok(Ok(())) => {}
+                                    Ok(Err(error)) => eprintln!(
+                                        "removed session directory cleanup failed: {error}"
+                                    ),
+                                    Err(error) => {
+                                        eprintln!("removed session cleanup worker failed: {error}")
+                                    }
+                                }
+                            }
                         }
                     }
                     let _ = completed.send(result);
@@ -396,6 +416,10 @@ impl Ingress {
             let (reply, response) = oneshot::channel();
             let knowledge_change = super::knowledge::runtime::changes(&request.command);
             let knowledge_invalidation = super::knowledge::runtime::invalidates(&request.command);
+            let python_change = matches!(
+                request.command,
+                sailry_protocol::Command::SavePythonSettings(_)
+            );
             let job = Job::Request {
                 caller,
                 request: Box::new(request),
@@ -414,7 +438,9 @@ impl Ingress {
             let result = response.await.map_err(|_| unavailable())?;
             self.dispatch.wake.notify_one();
             result.map(|admission| {
-                if knowledge_change {
+                if python_change {
+                    super::python::observe(self, admission)
+                } else if knowledge_change {
                     super::knowledge::runtime::observe(self, admission, knowledge_invalidation)
                 } else {
                     admission

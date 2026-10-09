@@ -719,6 +719,8 @@ pub enum Command {
         expected_revision: u64,
         target: String,
     },
+    ReadPythonSettings,
+    SavePythonSettings(crate::python::Settings),
     ListShells,
     SaveTerminalSettings(crate::terminal::Settings),
     ListMediaModels,
@@ -1397,6 +1399,7 @@ impl Command {
                 | Self::ReadSearchSettings
                 | Self::ReadBackupSettings
                 | Self::ListBackups
+                | Self::ReadPythonSettings
                 | Self::ListShells
                 | Self::ReadPluginSecret { .. }
                 | Self::ListMediaModels
@@ -1675,6 +1678,7 @@ pub enum Output {
         record: crate::backup::Record,
         target: String,
     },
+    PythonSettings(crate::python::Settings),
     Shells(Vec<String>),
     TerminalTools(Vec<crate::terminal::ToolInfo>),
     MediaSettings(crate::media::Settings),
@@ -1827,6 +1831,9 @@ pub enum Event {
         revision: u64,
     },
     BackupSettingsChanged {
+        revision: u64,
+    },
+    PythonSettingsChanged {
         revision: u64,
     },
     PluginChanged(crate::plugin::Summary),

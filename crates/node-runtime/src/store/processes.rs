@@ -100,6 +100,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared
         timeout_ms: *timeout_ms,
         inputs,
         scratch: None,
+        python: None,
     };
     launch.validate()?;
     if *pty && !background {
@@ -125,27 +126,21 @@ pub(super) struct Worker {
     capacity: Arc<Semaphore>,
     commands: Arc<process::background::Commands>,
     code: Arc<crate::code::Pool>,
+    plugins: crate::plugins::Host,
 }
 
 impl Worker {
-    pub fn new(
-        runtime: Handle,
-        completed: mpsc::Sender<Job>,
-        closed: CancellationToken,
-        agents: Arc<crate::agent::Controls>,
-        commands: Arc<process::background::Commands>,
-        environment: Arc<Environment>,
-        code: Arc<crate::code::Pool>,
-    ) -> Self {
+    pub fn new(runtime: Handle, completed: mpsc::Sender<Job>, ingress: &super::Ingress) -> Self {
         Self {
             pending: 0,
-            code,
-            commands,
+            code: ingress.code.clone(),
+            plugins: ingress.plugins.clone(),
+            commands: ingress.commands.clone(),
             runtime,
             completed,
-            closed,
-            agents,
-            environment,
+            closed: ingress.closed.clone(),
+            agents: ingress.agents.clone(),
+            environment: ingress.environment.clone(),
             capacity: Arc::new(Semaphore::new(8)),
         }
     }
@@ -168,6 +163,7 @@ impl Worker {
         let commands = self.commands.clone();
         let code = self.code.clone();
         let agents = self.agents.clone();
+        let plugins = self.plugins.clone();
         self.runtime.spawn(async move {
             let mut execution = execution;
             let operation = async {
@@ -177,6 +173,13 @@ impl Worker {
                     execution.launch.worktree,
                     execution.launch.session,
                 )?);
+                let preparing = stop.child_token();
+                let stopping = preparing.clone();
+                let closing = closed.clone();
+                let watch = tokio::spawn(async move { closing.cancelled().await; stopping.cancel(); });
+                let prepared = plugins.command_python(&environment, execution.launch.session, &agents.python(turn), &preparing).await;
+                watch.abort();
+                execution.launch.launch.python = prepared?;
                 if execution.launch.background {
                     if stop.is_cancelled() || closed.is_cancelled() {
                         return Ok(Output::CommandResult(process::cancelled()));

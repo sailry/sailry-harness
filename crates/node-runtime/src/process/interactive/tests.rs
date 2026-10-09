@@ -44,6 +44,7 @@ impl Running {
             timeout_ms: 1,
             inputs: None,
             scratch: None,
+            python: None,
         };
         let stop = CancellationToken::new();
         let closed = CancellationToken::new();

@@ -1,4 +1,4 @@
-# Exercise installed skill resources with the execution Node's external interpreter.
+# Exercise installed skill resources with the execution Node's managed interpreter.
 import json
 import subprocess
 import sys

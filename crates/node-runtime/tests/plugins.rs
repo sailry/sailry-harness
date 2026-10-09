@@ -36,6 +36,9 @@ mod notifications;
 #[cfg(feature = "test-support")]
 #[path = "plugins/oauth.rs"]
 mod oauth;
+#[cfg(feature = "test-support")]
+#[path = "plugins/python.rs"]
+mod python;
 #[path = "plugins/reminders_host.rs"]
 mod reminders_host;
 #[path = "plugins/scheduled_host.rs"]

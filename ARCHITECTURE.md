@@ -124,6 +124,15 @@ recognition algorithm. Model updates within supported formats do not require an
 application release, while new algorithms require implementation and validation.
 The shared model installer resumes verified partial downloads when the source
 validator is unchanged, and verifies the complete asset before publishing it.
+
+Desktop and Host bundle Python 3.12.13 in their installation directory. The Node
+lazily verifies that runtime and prepares profile-owned plugin environments from
+captured, hash-locked requirements using prebuilt wheels. Immutable packages share
+environments by runtime and requirements identity. Skills and MCP receive the
+owning interpreter; task scripts and additional environments use the private
+session directory through ordinary command permissions. The Node's PyPI setting
+is independent from model download sources.
+
 Disposable command, browser and transfer staging lives under the configurable
 profile's `tmp` directory, separate from durable worktree outputs and attachments.
 Command scratch is scoped to the admitted turn and retained while its commands
@@ -331,8 +340,8 @@ pairs through a private bootstrap ticket. It never uploads a bundled Host or
 overwrites an existing profile. Desktop still includes its own local Node.
 Office inspection uses Rust. Desktop previews original Office files and PDFs
 offline in its sidebar WebView; it does not require conversion or provide a native
-PDF export command. Document skills use the execution Node's command tools and
-project-local dependencies, not a bundled interpreter.
+PDF export command. Document skills use the execution Node's bundled Python and
+prepared plugin environments through ordinary command permissions.
 Model execution uses ADK's native OpenAI, Anthropic, Gemini, DeepSeek and Azure
 adapters or shared compatible endpoints. Sailry does not enable the Bedrock or
 Vertex SDKs or provide their IAM/ADC credential flows. Supported compatible

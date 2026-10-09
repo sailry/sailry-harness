@@ -101,6 +101,7 @@ impl Projection {
                     | Event::KnowledgeModelsChanged { .. }
                     | Event::KnowledgeSettingsChanged { .. }
                     | Event::BackupSettingsChanged { .. }
+                    | Event::PythonSettingsChanged { .. }
                     | Event::KnowledgeCollectionsChanged => {}
                     Event::PluginRemoved { name } => {
                         snapshot.plugins.retain(|item| item.name != name)

@@ -163,6 +163,11 @@ pub(super) async fn execute(
         #[cfg(windows)]
         command.args(["/D", "/S", "/C", &launch.command]);
         environment.apply_pty(&mut command);
+        if let Some(python) = &launch.python {
+            for (key, value) in python.variables() {
+                command.env(key, value);
+            }
+        }
         command.cwd(&directory);
         command.env("PWD", &directory);
         command.env("TERM", "xterm-256color");

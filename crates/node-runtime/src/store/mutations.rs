@@ -141,6 +141,7 @@ pub(super) fn target(command: &Command) -> Option<Target> {
         | Command::InstallSkill { .. }
         | Command::InstallMcp { .. }
         | Command::SavePluginMcp { .. } => Some(Target::Plugin),
+        Command::SetPluginEnabled { enabled: true, .. } => Some(Target::Plugin),
         Command::ManageFiles(_)
         | Command::StopHostProcess { .. }
         | Command::OpenTerminal { .. }

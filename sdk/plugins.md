@@ -154,4 +154,4 @@ The runnable [tool-content MCP example](../plugins/examples/tool-content) return
 
 Plugin commands retain the existing declaration, exact installed-package, Node, worktree and session checks. File/Git/conversation operations use the existing scoped protocol through `prepareRequest`; HTTP uses the declared Node service; the SDK grants no raw process or OS access. UI and game rules stay in plugins. Persistence, credentials, model execution and durable receipts stay in Rust.
 
-The current development schema remains v1. An incompatible existing profile is reported without conversion or deletion; tests use fresh isolated profiles.
+The current development schema remains v1. Startup fills missing schema objects and storage fields with their defaults, validates the update on an isolated snapshot, saves a private backup and applies it transactionally. Invalid updates preserve the existing profile; startup never resets or deletes user data.

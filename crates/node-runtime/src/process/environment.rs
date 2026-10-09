@@ -216,6 +216,9 @@ impl Environment {
         #[cfg(windows)]
         command.args(["/D", "/S", "/C", &launch.command]);
         self.apply(&mut command);
+        if let Some(python) = &launch.python {
+            command.envs(python.variables());
+        }
         if let Some(inputs) = inputs {
             command.env("SAILRY_ATTACHMENTS", inputs);
         }

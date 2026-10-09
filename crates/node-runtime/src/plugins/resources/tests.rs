@@ -158,8 +158,9 @@ async fn bundled_office_resources_use_the_installed_package() {
     for name in ["word", "excel", "powerpoint", "pdf"] {
         let key = format!("office:{name}");
         let text = resources.read(&key, "SKILL.md").await.unwrap();
-        assert!(text.content.contains("execution Node"));
-        assert!(text.content.contains("project-local"));
+        assert!(text.content.contains("bundles Python 3.12.13"));
+        assert!(text.content.contains("hash-locked, wheel-only environment"));
+        assert!(text.content.contains("SAILRY_SESSION_DIR"));
         assert!(!text.content.contains("get_office_runtime"));
         assert!(Path::new(&text.directory).is_dir());
         for relative in ["scripts/inspect_file.py", "templates/create.py"] {

@@ -14,6 +14,8 @@ pub(super) mod input;
 #[path = "../../support/mcp.rs"]
 pub(super) mod peer;
 mod planning;
+#[cfg(feature = "test-support")]
+mod python;
 mod settings;
 mod sse;
 mod stdio;

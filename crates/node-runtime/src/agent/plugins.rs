@@ -47,8 +47,13 @@ pub(super) async fn bind(
             .extend(skills::management::bind(ingress, invocation, stop));
     }
     if supports_tools && !restricted {
-        let (tools, instruction) =
-            skills::bind(resources.clone(), invocation.turn.session, stop.clone())?;
+        let (tools, instruction) = skills::bind(
+            resources.clone(),
+            invocation.turn.session,
+            stop.clone(),
+            ingress.clone(),
+            invocation.turn.id,
+        )?;
         bound.tools.extend(tools);
         bound.instruction.push_str(&instruction);
     }

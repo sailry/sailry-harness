@@ -34,6 +34,7 @@ pub(crate) struct Launch {
     pub timeout_ms: u64,
     pub inputs: Option<crate::files::attachments::Inputs>,
     pub scratch: Option<Arc<tempfile::TempDir>>,
+    pub python: Option<crate::python::Execution>,
 }
 
 impl Launch {

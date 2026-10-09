@@ -27,6 +27,7 @@ pub mod office;
 pub mod plugin;
 pub mod process;
 pub mod projects;
+pub mod python;
 pub mod role;
 pub mod sandbox;
 pub mod search;

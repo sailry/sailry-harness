@@ -188,6 +188,11 @@ pub(super) fn execute(
         Command::ListBackups | Command::ExportBackup { .. } | Command::RestoreBackup { .. } => Err(
             Fault::invalid("backup operation requires the resource worker"),
         ),
+        Command::ReadPythonSettings => {
+            super::python::controller(request)?;
+            Ok((Output::PythonSettings(super::python::read(db)?), None))
+        }
+        Command::SavePythonSettings(settings) => super::python::save(db, request, settings),
         Command::SearchWeb(_)
         | Command::CancelWebSearch { .. }
         | Command::TestSearchDriver { .. } => Err(Fault::new(

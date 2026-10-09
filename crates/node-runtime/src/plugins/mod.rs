@@ -42,6 +42,11 @@ pub(crate) struct Host {
     reads: std::sync::Arc<tokio::sync::Semaphore>,
     authorizations: std::sync::Arc<authorization::Clients>,
     github: github::Github,
+    python: std::sync::Arc<tokio::sync::OnceCell<std::sync::Arc<crate::python::Manager>>>,
+    python_index: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    python_packages: std::sync::Arc<std::sync::Mutex<Vec<Info>>>,
+    #[cfg(any(test, feature = "test-support"))]
+    python_runtime: std::sync::Arc<std::sync::Mutex<Option<PathBuf>>>,
 }
 
 impl Host {
@@ -52,7 +57,128 @@ impl Host {
             reads: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
             authorizations: Default::default(),
             github: Default::default(),
+            python: Default::default(),
+            python_index: Default::default(),
+            python_packages: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            python_runtime: Default::default(),
         }
+    }
+
+    pub(crate) fn configure_python(&self, index: Option<String>) -> Result<(), Fault> {
+        crate::python::validate_index(index.as_deref())?;
+        let mut current = self
+            .python_index
+            .lock()
+            .expect("Python configuration lock is valid");
+        if let Some(manager) = self.python.get() {
+            manager.configure(index.clone())?;
+        }
+        *current = index;
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn set_python_runtime_fixture(&self, path: &Path) -> Result<(), Fault> {
+        if self.python.get().is_some() {
+            return Err(Fault::new(
+                ErrorCode::Conflict,
+                "Python runtime is already initialized",
+            ));
+        }
+        if !path.is_absolute() {
+            return Err(Fault::invalid(
+                "Python fixture requires an absolute runtime directory",
+            ));
+        }
+        *self
+            .python_runtime
+            .lock()
+            .expect("Python fixture lock is valid") = Some(path.to_owned());
+        Ok(())
+    }
+
+    pub(crate) async fn python(
+        &self,
+        environment: &crate::process::Environment,
+    ) -> Result<std::sync::Arc<crate::python::Manager>, Fault> {
+        let manager = self
+            .python
+            .get_or_try_init(|| async {
+                let profile = self.profile.clone().ok_or_else(|| {
+                    Fault::new(ErrorCode::NotConfigured, "Python requires a Node profile")
+                })?;
+                let environment = std::sync::Arc::new(environment.clone());
+                #[cfg(any(test, feature = "test-support"))]
+                let fixture = self
+                    .python_runtime
+                    .lock()
+                    .expect("Python fixture lock is valid")
+                    .clone();
+                let manager = tokio::task::spawn_blocking(move || {
+                    #[cfg(any(test, feature = "test-support"))]
+                    let runtime = match fixture {
+                        Some(path) => crate::python::Runtime::open(&path),
+                        None => crate::python::Runtime::bundled(),
+                    }?;
+                    #[cfg(not(any(test, feature = "test-support")))]
+                    let runtime = crate::python::Runtime::bundled()?;
+                    crate::python::Manager::new(profile, runtime, environment)
+                })
+                .await
+                .map_err(|_| {
+                    Fault::new(ErrorCode::Unavailable, "Python runtime preparation failed")
+                })??;
+                manager.configure(
+                    self.python_index
+                        .lock()
+                        .expect("Python configuration lock is valid")
+                        .clone(),
+                )?;
+                Ok::<_, Fault>(std::sync::Arc::new(manager))
+            })
+            .await
+            .cloned()?;
+        // Configuration may change while the first runtime is being verified.
+        manager.configure(
+            self.python_index
+                .lock()
+                .expect("Python configuration lock is valid")
+                .clone(),
+        )?;
+        Ok(manager)
+    }
+
+    pub(crate) async fn command_python(
+        &self,
+        environment: &crate::process::Environment,
+        session: sailry_protocol::SessionId,
+        skills: &[crate::python::Access],
+        stop: &sailry_link::CancellationToken,
+    ) -> Result<Option<crate::python::Execution>, Fault> {
+        #[cfg(any(test, feature = "test-support"))]
+        if self
+            .python_runtime
+            .lock()
+            .expect("Python fixture lock is valid")
+            .is_none()
+            && std::env::current_exe()
+                .ok()
+                .and_then(|path| path.parent().map(|path| path.join("python")))
+                .is_none_or(|path| !path.is_dir())
+        {
+            // Non-Python test Nodes have no installation image. Explicit skill
+            // and MCP Python requests still use the strict runtime entry point.
+            return Ok(None);
+        }
+        let profile = self.profile.as_deref().ok_or_else(|| {
+            Fault::new(ErrorCode::NotConfigured, "Python requires a Node profile")
+        })?;
+        self.python(environment)
+            .await?
+            .execution(profile, session, skills, stop)
+            .await
+            .map(Some)
     }
 
     /// Called only on the existing resource worker, never on the storage or UI thread.

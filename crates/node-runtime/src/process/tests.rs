@@ -12,6 +12,7 @@ fn launch(root: &Path, command: &str) -> Launch {
         timeout_ms: 5000,
         inputs: None,
         scratch: None,
+        python: None,
     }
 }
 

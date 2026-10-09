@@ -20,6 +20,7 @@ pub(crate) enum Launch {
         // Keep resource roots alive until the managed connection is closed.
         roots: (Dir, Dir),
         settings: Option<Projection>,
+        python: Option<crate::python::Ready>,
     },
     Http {
         url: String,
@@ -174,15 +175,63 @@ impl Resources {
                 .map_err(|_| unavailable())?
             }
             .await;
-            let mut servers = result.unwrap_or_default();
+            let (mut servers, failure) = match result {
+                Ok(servers) => (servers, None),
+                Err(error) => (BTreeMap::new(), Some(error)),
+            };
             for server in &package.mcp {
+                let mut launch = servers
+                    .remove(&server.name)
+                    .unwrap_or_else(|| Err(failure.clone().unwrap_or_else(unavailable)));
+                if let Ok(Launch::Stdio {
+                    command,
+                    env,
+                    python,
+                    ..
+                }) = &mut launch
+                    && matches!(command.to_str(), Some("python" | "python3"))
+                {
+                    match self.python_package(index, environment).await {
+                        Ok(ready) => {
+                            *command = ready.python.clone();
+                            let mut paths = vec![
+                                ready
+                                    .python
+                                    .parent()
+                                    .expect("managed Python has a parent")
+                                    .to_owned(),
+                            ];
+                            if let Some(path) = env
+                                .get("PATH")
+                                .map(std::ffi::OsStr::new)
+                                .or_else(|| environment.path())
+                            {
+                                paths.extend(std::env::split_paths(path));
+                            }
+                            match std::env::join_paths(paths)
+                                .ok()
+                                .and_then(|path| path.into_string().ok())
+                            {
+                                Some(path) => {
+                                    env.insert("PATH".into(), path);
+                                    *python = Some(ready);
+                                }
+                                None => {
+                                    launch =
+                                        Err(Fault::invalid("Python MCP PATH could not be encoded"));
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            launch = Err(error);
+                        }
+                    }
+                }
                 configured.push(Configured {
                     plugin: package.summary.name.clone(),
                     reference: package.summary.reference(),
                     name: server.name.clone(),
-                    launch: servers
-                        .remove(&server.name)
-                        .unwrap_or_else(|| Err(unavailable())),
+                    launch,
                 });
             }
         }
@@ -419,6 +468,7 @@ fn prepare(
                 cwd,
                 roots: (package.root.try_clone().map_err(io_error)?, data),
                 settings: settings_file,
+                python: None,
             })
         }
     }

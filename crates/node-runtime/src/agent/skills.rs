@@ -14,6 +14,8 @@ struct Skills {
     session: String,
     stop: CancellationToken,
     resource: bool,
+    ingress: Arc<Ingress>,
+    turn: sailry_protocol::TurnId,
 }
 
 impl Skills {
@@ -21,6 +23,8 @@ impl Skills {
         resources: Arc<Resources>,
         session: String,
         stop: CancellationToken,
+        ingress: Arc<Ingress>,
+        turn: sailry_protocol::TurnId,
     ) -> [Arc<dyn Tool>; 2] {
         [false, true].map(|resource| {
             Arc::new(Self {
@@ -28,6 +32,8 @@ impl Skills {
                 session: session.clone(),
                 stop: stop.clone(),
                 resource,
+                ingress: ingress.clone(),
+                turn,
             }) as Arc<dyn Tool>
         })
     }
@@ -55,7 +61,7 @@ impl Tool for Skills {
         if self.resource {
             "Read complete UTF-8 text from a file relative to an available skill's directory. Use package:skill and a normalized relative path. Binary or oversized resources report an error, not a partial file."
         } else {
-            "Load the complete SKILL.md for an available package:skill. Read referenced documents with read_skill_resource. Resolve relative script paths against the returned execution Node directory, not the session worktree. Quote script paths when calling the command tool."
+            "Load the complete SKILL.md for an available package:skill. The execution Node prepares its managed Python environment and returns python beside directory. Run scripts with the quoted returned Python and absolute script paths. Read referenced documents with read_skill_resource. Skill loading grants no command permission."
         }
     }
     fn is_read_only(&self) -> bool {
@@ -93,7 +99,20 @@ impl Tool for Skills {
         };
         Ok(match self.resources.read(&key, &path).await {
             Ok(text) => {
-                json!({"skill": key, "path": path, "content": text.content, "directory": text.directory})
+                if self.resource {
+                    json!({"skill": key, "path": path, "content": text.content, "directory": text.directory})
+                } else {
+                    let ready = self
+                        .resources
+                        .python(&key, &self.ingress.environment)
+                        .await
+                        .map_err(|error| AdkError::tool(error.to_string()))?;
+                    self.ingress
+                        .agents
+                        .bind_python(self.turn, ready.clone(), text.directory.clone().into())
+                        .map_err(|error| AdkError::tool(error.to_string()))?;
+                    json!({"skill": key, "path": path, "content": text.content, "directory": text.directory,"python":ready.python})
+                }
             }
             Err(error) => json!({"error": error}),
         })
@@ -105,12 +124,14 @@ pub(super) fn bind(
     resources: Arc<Resources>,
     session: sailry_protocol::SessionId,
     stop: CancellationToken,
+    ingress: Arc<Ingress>,
+    turn: sailry_protocol::TurnId,
 ) -> Result<(Vec<catalog::Registration>, String), Fault> {
     let instruction = resources.catalog()?;
     let tools = if resources.skills().is_empty() {
         Vec::new()
     } else {
-        Skills::bind(resources.clone(), session.to_string(), stop)
+        Skills::bind(resources.clone(), session.to_string(), stop, ingress, turn)
             .into_iter()
             .map(catalog::Registration::managed)
             .collect()

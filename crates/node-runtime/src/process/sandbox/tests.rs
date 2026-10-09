@@ -39,6 +39,7 @@ fn launch(root: &Path, profile: &Path) -> Launch {
         timeout_ms: 1000,
         inputs: None,
         scratch: None,
+        python: None,
     }
 }
 

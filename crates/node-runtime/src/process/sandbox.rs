@@ -73,6 +73,31 @@ impl Sandbox {
                 environment,
                 inputs,
             )?;
+            let mut variables = variables;
+            if let Some(python) = &launch.python {
+                use adk_sandbox::sandbox::{AccessMode, AllowedPath};
+                for path in std::iter::once(&python.base.runtime).chain(
+                    python
+                        .skills
+                        .iter()
+                        .flat_map(|skill| [&skill.ready.environment, &skill.directory]),
+                ) {
+                    policy.allowed_paths.push(AllowedPath {
+                        path: path.canonicalize().map_err(runtime::failure)?,
+                        mode: AccessMode::ReadOnly,
+                    });
+                }
+                for path in [&python.session, &python.cache] {
+                    policy.allowed_paths.push(AllowedPath {
+                        path: path.canonicalize().map_err(runtime::failure)?,
+                        mode: AccessMode::ReadWrite,
+                    });
+                }
+                variables.insert(
+                    "PIP_CACHE_DIR".into(),
+                    python.cache.clone().into_os_string(),
+                );
+            }
             let home = environment.home().and_then(|path| path.canonicalize().ok());
             let profile = launch
                 .profile

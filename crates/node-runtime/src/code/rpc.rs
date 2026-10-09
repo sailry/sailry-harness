@@ -80,6 +80,7 @@ impl Rpc {
                 timeout_ms: plan.timeout.as_millis() as u64,
                 inputs: None,
                 scratch: None,
+                python: None,
             },
             environment,
             Some(&plan.dependency),

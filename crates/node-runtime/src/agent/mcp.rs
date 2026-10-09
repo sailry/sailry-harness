@@ -43,6 +43,7 @@ struct Connected {
     toolset: adk_tool::McpToolset<Arc<input::Handler>>,
     handler: Arc<input::Handler>,
     github: Option<crate::plugins::github::login::Binding>,
+    python: Option<crate::python::Ready>,
 }
 
 impl Connected {
@@ -84,6 +85,7 @@ impl Connections {
                 if index >= crate::plugins::mcp::MAX_SERVERS { return Err(unavailable()); }
                 let launch = config.launch?;
                 let github = match &launch { crate::plugins::resources::mcp::Launch::Http {github,..} => github.clone(), _ => None };
+                let python = match &launch { crate::plugins::resources::mcp::Launch::Stdio {python,..} => python.clone(), _ => None };
                 let authorized = tokio::select! {
                     _ = stop.cancelled() => return Err(unavailable()),
                     result = tokio::time::timeout(Duration::from_secs(10), resources.mcp_client(ingress, &config.plugin, &config.name, &launch)) => result.map_err(|_| unavailable())??,
@@ -105,7 +107,7 @@ impl Connections {
                     let peer = service.peer().clone();
                     let toolset = adk_tool::McpToolset::new(service)
                         .with_task_support(adk_tool::mcp::McpTaskConfig::enabled().no_timeout());
-                    Connected { reference: config.reference, name: config.name.clone(), transport, peer, toolset, handler, github }
+                    Connected { reference: config.reference, name: config.name.clone(), transport, peer, toolset, handler, github, python }
                 };
                 let listed = tokio::select! {
                     _ = stop.cancelled() => Err(unavailable()),
@@ -123,6 +125,7 @@ impl Connections {
                                 descriptor, toolset: connection.toolset.clone(), ingress: ingress.clone(), handler: connection.handler.clone(), poisoned: self.poisoned.clone(),
                                 turn: invocation.turn.id, session: invocation.turn.session.to_string(), stop: stop.clone(),
                                 github: connection.github.clone(),
+                                python: connection.python.clone(),
                             }), presentation);
                             registration.grouping = grouping;
                             registration.display = display.map(|display| (registration.tool.name().into(), display));
@@ -263,6 +266,7 @@ struct Bound {
     stop: CancellationToken,
     poisoned: Arc<AtomicBool>,
     github: Option<crate::plugins::github::login::Binding>,
+    python: Option<crate::python::Ready>,
 }
 
 #[async_trait]
@@ -309,6 +313,18 @@ impl Tool for Bound {
         let Value::Object(args) = &arguments else {
             return Err(adk_core::AdkError::tool("MCP arguments must be an object"));
         };
+        if let Some(ready) = &self.python {
+            let manager = self
+                .ingress
+                .plugins
+                .python(&self.ingress.environment)
+                .await
+                .map_err(|error| adk_core::AdkError::tool(error.to_string()))?;
+            manager
+                .refresh(ready, &self.stop)
+                .await
+                .map_err(|error| adk_core::AdkError::tool(error.to_string()))?;
+        }
         if !self.is_read_only() {
             self.ingress
                 .authorize(

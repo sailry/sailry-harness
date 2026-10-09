@@ -59,6 +59,7 @@ impl Fixture {
             timeout_ms: 5000,
             inputs: None,
             scratch: None,
+            python: None,
         }
     }
 
