@@ -18,6 +18,40 @@ MANIFEST = "python-runtime.json"
 MAX_EXPANDED = 512 * 1024 * 1024
 
 
+def runtime_output(output):
+    # TN2206 treats dotted directories in MacOS as bundles. Keep the intact
+    # Python data tree in Resources and seal its individually signed native code.
+    if (output.name == "MacOS" and output.parent.name == "Contents"
+            and output.parent.parent.suffix == ".app"):
+        return output.parent / "Resources"
+    return output
+
+
+def validate_link(output):
+    if runtime_output(output) == output:
+        return
+    link = output / "python"
+    if link.is_symlink():
+        if os.readlink(link) != "../Resources/python":
+            raise ValueError("Python bundle link is invalid")
+    elif link.exists():
+        receipt = link / MANIFEST
+        if not link.is_dir() or not receipt.is_file() or receipt.is_symlink():
+            raise ValueError("Existing Python directory is not a managed package")
+
+
+def publish_link(output):
+    if runtime_output(output) == output:
+        return
+    link = output / "python"
+    if link.is_symlink():
+        return
+    if link.exists():
+        remove(link)
+    output.mkdir(parents=True, exist_ok=True)
+    link.symlink_to("../Resources/python")
+
+
 def digest(path):
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
@@ -102,6 +136,7 @@ def extract(content, directory):
 
 
 def finalize(target, output):
+    output = runtime_output(output)
     lock, asset = specification(target)
     directory = output / "python"
     for path in list(directory.rglob("__pycache__")):
@@ -143,6 +178,9 @@ def remove(directory):
 
 
 def prepare(target, output, cache, source=None):
+    validate_link(output)
+    bundle_output = output
+    output = runtime_output(output)
     lock, asset = specification(target)
     output.mkdir(parents=True, exist_ok=True)
     destination = output / "python"
@@ -166,6 +204,7 @@ def prepare(target, output, cache, source=None):
                         and digest(destination / file["path"]) == file["sha256"]
                         for file in current["files"])
             if valid:
+                publish_link(bundle_output)
                 return
     with tempfile.TemporaryDirectory(prefix=".python-", dir=output) as temporary:
         staged = Path(temporary)
@@ -186,9 +225,11 @@ def prepare(target, output, cache, source=None):
         os.chmod(staged / "python", 0o755)
         os.replace(staged / "python", destination)
         os.chmod(destination, 0o555)
+    publish_link(bundle_output)
 
 
 def unlock(output):
+    output = runtime_output(output)
     directory = output / "python"
     if directory.is_symlink() or not (directory / MANIFEST).is_file():
         raise ValueError("Python signing requires a managed package")
@@ -200,7 +241,7 @@ def unlock(output):
 
 def signing_options(path, output):
     # Only the child interpreter loads third-party wheels outside the application.
-    if path == output / "python/bin/python3.12":
+    if path == runtime_output(output) / "python/bin/python3.12":
         return ["--entitlements", str(Path(__file__).with_name("python.entitlements.plist"))]
     return []
 
@@ -211,7 +252,7 @@ def sign(target, output, identity):
     unlock(output)
     magic = {b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",
              b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca", b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca"}
-    for path in sorted((output / "python").rglob("*"), key=lambda path: (-len(path.parts), str(path))):
+    for path in sorted((runtime_output(output) / "python").rglob("*"), key=lambda path: (-len(path.parts), str(path))):
         if path.is_file() and not path.is_symlink():
             with path.open("rb") as stream:
                 native = stream.read(4) in magic

@@ -64,7 +64,7 @@ class CodeSigning(unittest.TestCase):
                                           "archive": "python.tar.gz", "size": len(data),
                                           "sha256": digest}}}))
             outputs = [app / "Contents/MacOS", host]
-            python_objects = [output / "python" / name for output in outputs
+            python_objects = [signing.python_runtime.runtime_output(output) / "python" / name for output in outputs
                               for name in ["bin/python3.12", "lib/python3.12/fixture.so"]]
             def command(*args):
                 path = args[-1]

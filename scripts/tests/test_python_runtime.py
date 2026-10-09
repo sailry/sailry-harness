@@ -69,6 +69,37 @@ class Packaging(unittest.TestCase):
             runtime.prepare(TARGET, self.root / "output", self.cache)
         self.assertFalse((self.root / "output/python").exists())
 
+    def test_seals_bundle_resources_with_relative_link(self):
+        output = self.root / "Sailry.app/Contents/MacOS"
+        runtime.prepare(TARGET, output, self.cache)
+        link = output / "python"
+        resources = output.parent / "Resources/python"
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(link.readlink(), Path("../Resources/python"))
+        self.assertEqual(link.resolve(), resources.resolve())
+        self.assertTrue((resources / "lib/python3.12/site.py").is_file())
+        runtime.prepare(TARGET, output, self.cache)
+        runtime.unlock(output)
+        executable = resources / "bin/python3.12"
+        executable.write_bytes(b"signed bundle interpreter")
+        runtime.finalize(TARGET, output)
+        record = next(file for file in json.loads((resources / runtime.MANIFEST).read_text())["files"]
+                      if file["path"] == "bin/python3.12")
+        self.assertEqual(record["sha256"], runtime.digest(executable))
+        self.assertFalse(executable.stat().st_mode & 0o200)
+        self.assertIn("--entitlements", runtime.signing_options(executable, output))
+
+    def test_preserves_unmanaged_bundle_path(self):
+        output = self.root / "Sailry.app/Contents/MacOS"
+        link = output / "python"
+        link.mkdir(parents=True)
+        note = link / "notes.txt"
+        note.write_text("keep")
+        with self.assertRaisesRegex(ValueError, "not a managed package"):
+            runtime.prepare(TARGET, output, self.cache)
+        self.assertEqual(note.read_text(), "keep")
+        self.assertFalse((output.parent / "Resources/python").exists())
+
     def test_restores_permissions_after_signing(self):
         output = self.root / "output"
         runtime.prepare(TARGET, output, self.cache)

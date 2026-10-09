@@ -183,7 +183,10 @@ path.write_bytes(path.read_bytes() + b"signature fixture")
         self.assertEqual(json.loads(self.build.read_text()), {
             "args": ["build", "--locked", "-p", "sailry-desktop"], "native": str(native)})
         signatures = [json.loads(line) for line in self.signatures.read_text().splitlines()]
-        python = app / "Contents/MacOS/python"
+        python = app / "Contents/Resources/python"
+        link = app / "Contents/MacOS/python"
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(link.resolve(), python.resolve())
         self.assertEqual([arguments[-1] for arguments in signatures], [
             str(python / "lib/python3.12/fixture.so"), str(python / "bin/python3.12"),
         ] + [
