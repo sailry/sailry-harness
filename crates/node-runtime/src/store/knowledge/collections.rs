@@ -22,7 +22,7 @@ pub(super) fn load(db: &Connection) -> Result<Vec<Stored>, Fault> {
         }
         entries.push(stored);
     }
-    if entries.len() > knowledge::MAX_COLLECTIONS {
+    if entries.iter().filter(|stored| !stored.automatic).count() > knowledge::MAX_COLLECTIONS {
         return Err(storage_error("knowledge collection capacity exceeded"));
     }
     Ok(entries)
@@ -87,7 +87,7 @@ pub(super) fn create(
     if request.plugin.is_some() && !definition.shared_with.is_empty() {
         return Err(denied("collection sharing requires a controller"));
     }
-    if load(db)?.len() >= knowledge::MAX_COLLECTIONS {
+    if load(db)?.iter().filter(|stored| !stored.automatic).count() >= knowledge::MAX_COLLECTIONS {
         return Err(Fault::new(
             ErrorCode::Busy,
             "knowledge collection capacity exhausted",

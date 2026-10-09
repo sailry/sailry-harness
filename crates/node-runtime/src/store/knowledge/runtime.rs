@@ -75,7 +75,16 @@ pub(in crate::store) fn prepare(request: &Request) -> Result<(), Fault> {
 }
 
 pub(in crate::store) fn changes(command: &Command) -> bool {
-    storage::changes(command) || invalidates(command)
+    storage::changes(command)
+        || invalidates(command)
+        || matches!(
+            command,
+            Command::InstallPlugin { .. }
+                | Command::InstallPluginSource { .. }
+                | Command::InstallPluginUpload { .. }
+                | Command::SetPluginEnabled { .. }
+                | Command::SavePluginSettings { .. }
+        )
 }
 
 pub(in crate::store) fn invalidates(command: &Command) -> bool {

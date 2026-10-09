@@ -30,7 +30,6 @@ fn plan() -> Plan {
         ],
         eligible: BTreeSet::from(["shared".into(), "lexical".into(), "semantic".into()]),
         settings_revision: 0,
-        changed: false,
     }
 }
 

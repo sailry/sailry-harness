@@ -17,9 +17,6 @@ impl Service {
         };
         let ingress = self.ingress.upgrade().ok_or_else(unavailable)?;
         let plan = ingress.semantic_plan(request, cancel).await?;
-        if plan.changed {
-            self.refresh();
-        }
         let original = query
             .query
             .as_deref()

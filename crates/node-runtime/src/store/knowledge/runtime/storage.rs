@@ -30,17 +30,9 @@ pub(in crate::store) fn prepare(
     database: &mut Database,
     request: &Request,
     stop: &CancellationToken,
-    events: &broadcast::Sender<EventEnvelope>,
+    _events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<super::super::semantic::Plan, Fault> {
-    let transaction = database.connection.transaction().map_err(storage_error)?;
-    let plan = super::super::semantic::prepare(&transaction, request, stop)?;
-    let changes = plan.changed.then_some(Event::KnowledgeCollectionsChanged);
-    let envelopes = record(&transaction, database.node, changes.into_iter().collect())?;
-    transaction.commit().map_err(storage_error)?;
-    for envelope in envelopes {
-        let _ = events.send(envelope);
-    }
-    Ok(plan)
+    super::super::semantic::prepare(&database.connection, request, stop)
 }
 
 pub(in crate::store) fn register(

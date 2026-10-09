@@ -692,6 +692,17 @@ impl Database {
         };
         let outcome = outcome.and_then(|(output, mut changes)| {
             if self.profile.is_some()
+                && changes
+                    .iter()
+                    .any(|event| matches!(event, Event::PluginChanged(_)))
+                && super::knowledge::semantic::startup(
+                    &transaction,
+                    &sailry_link::CancellationToken::new(),
+                )?
+            {
+                changes.push(Event::KnowledgeCollectionsChanged);
+            }
+            if self.profile.is_some()
                 && super::knowledge::runtime::storage::changes(&request.command)
                 && super::knowledge::semantic::changed(
                     &transaction,
@@ -780,7 +791,7 @@ impl Database {
         }
         self.end_removal(caller, request);
         self.relocations.remove(&(caller, request.id));
-        let recorded = (|| -> Result<Option<EventEnvelope>, Fault> {
+        let recorded = (|| -> Result<Vec<EventEnvelope>, Fault> {
             let transaction = self.connection.transaction().map_err(storage_error)?;
             let event = finish(&transaction, &mut result)?;
             let event = match event {
@@ -804,18 +815,19 @@ impl Database {
                 None => super::projects::finish(&transaction, &request.command, &mut result)?,
             };
             super::attachments::finish(&transaction, caller, &request.command, &result)?;
-            let envelope = if let Some(event) = event {
-                transaction
-                    .execute("INSERT INTO events(body) VALUES(?1)", [encode(&event)?])
-                    .map_err(storage_error)?;
-                Some(EventEnvelope {
-                    node: self.node,
-                    cursor: transaction.last_insert_rowid() as u64,
-                    event,
-                })
-            } else {
-                None
-            };
+            let mut changes: Vec<_> = event.into_iter().collect();
+            if self.profile.is_some()
+                && changes
+                    .iter()
+                    .any(|event| matches!(event, Event::PluginChanged(_)))
+                && super::knowledge::semantic::startup(
+                    &transaction,
+                    &sailry_link::CancellationToken::new(),
+                )?
+            {
+                changes.push(Event::KnowledgeCollectionsChanged);
+            }
+            let envelopes = record(&transaction, self.node, changes)?;
             let changed = transaction.execute(
                 "UPDATE requests SET status='completed',result=?3 WHERE caller=?1 AND id=?2 AND status='admitted'",
                 params![&caller.0[..], request.id.to_string(), serde_json::to_string(&result).map_err(storage_error)?],
@@ -824,15 +836,15 @@ impl Database {
                 return Err(storage_error("durable admission missing"));
             }
             transaction.commit().map_err(storage_error)?;
-            Ok(envelope)
+            Ok(envelopes)
         })();
         match recorded {
             Err(_) => Err(Fault::new(
                 ErrorCode::OutcomeUnknown,
                 "operation result could not be recorded; inspect the target before retrying",
             )),
-            Ok(envelope) => {
-                if let Some(event) = envelope {
+            Ok(envelopes) => {
+                for event in envelopes {
                     match &event.event {
                         Event::PluginChanged(package) => {
                             super::agent::invalidate_package(self, &package.name)

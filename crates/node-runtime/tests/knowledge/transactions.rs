@@ -84,6 +84,9 @@ async fn preserves_replay_and_atomic_index_rollback() {
     for (index, client) in fixture.clients().into_iter().enumerate() {
         let name = format!("semantic-{index}");
         let context = declared(&client, &fixture, &name).await;
+        let before = list(&client).await;
+        run(&client, &context, Command::SearchPluginValues(recall())).await;
+        assert_eq!(list(&client).await, before);
         run(
             &client,
             &context,
@@ -160,6 +163,16 @@ async fn preserves_replay_and_atomic_index_rollback() {
         assert_eq!(paused.progress.sources, 1);
         assert_eq!(paused.progress.chunks, 1);
         assert_eq!(count(&database), before);
+        run(&client, &context, Command::SearchPluginValues(recall())).await;
+        assert_eq!(count(&database), before);
+        assert_eq!(
+            list(&client)
+                .await
+                .into_iter()
+                .find(|entry| entry.id == first.id)
+                .unwrap(),
+            paused
+        );
         let mutation = client
             .prepare(Command::WritePluginValue {
                 key: "body/raw".into(),
@@ -273,6 +286,107 @@ async fn preserves_replay_and_atomic_index_rollback() {
         assert_eq!(after.progress.generation, changed.progress.generation);
         assert_eq!(after, baseline);
         assert_eq!(count(&database), before);
+    }
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn updates_registration_at_package_completion() {
+    let fixture = Fixture::start().await;
+    for (index, client) in fixture.clients().into_iter().enumerate() {
+        let name = format!("updated-semantic-{index}");
+        let original = declared(&client, &fixture, &name).await;
+        let Output::Plugin(info) =
+            execute(&client, Command::ReadPlugin { name: name.clone() }).await
+        else {
+            panic!("plugin expected")
+        };
+        run(
+            &client,
+            &original,
+            Command::WritePluginValue {
+                key: "body/raw".into(),
+                value: json!({"text":"Raw original text"}),
+                expected_revision: 0,
+            },
+        )
+        .await;
+        run(
+            &client,
+            &original,
+            Command::WriteIndexedPluginValue {
+                key: "notes/one".into(),
+                value: json!({"title":"Original metadata"}),
+                index: metadata(),
+                expected_revision: 0,
+            },
+        )
+        .await;
+        let collection = list(&client)
+            .await
+            .into_iter()
+            .find(|entry| matches!(&entry.owner, Owner::Plugin { name: owner } if owner == &name))
+            .unwrap();
+        let manifest = fixture.root.join(&name).join("plugin.json");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        value["version"] = json!("1.0.1");
+        fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+        let Output::Plugin(updated) = execute(
+            &client,
+            Command::InstallPlugin {
+                worktree: fixture.worktree,
+                path: name.clone(),
+                name: name.clone(),
+                expected_revision: info.summary.revision,
+            },
+        )
+        .await
+        else {
+            panic!("updated plugin expected")
+        };
+        assert_ne!(updated.summary.digest, original.package.digest);
+        let current = list(&client)
+            .await
+            .into_iter()
+            .find(|entry| entry.id == collection.id)
+            .unwrap();
+        assert_eq!(current.revision, collection.revision + 1);
+        assert_eq!(
+            current.progress.generation,
+            collection.progress.generation + 1
+        );
+        assert!(current.definition.shared_with.is_empty());
+        let database =
+            rusqlite::Connection::open(fixture.temp.path().join("node/storage/node.sqlite3"))
+                .unwrap();
+        let body: Vec<u8> = database
+            .query_row(
+                "SELECT body FROM knowledge_collections WHERE id=?1",
+                [collection.id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let stored: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            stored["capture"]["package"],
+            serde_json::to_value(updated.summary.reference()).unwrap()
+        );
+        let context = Context {
+            package: updated.summary.reference(),
+            ..original
+        };
+        let baseline = current.revision;
+        run(&client, &context, Command::SearchPluginValues(recall())).await;
+        assert_eq!(
+            list(&client)
+                .await
+                .into_iter()
+                .find(|entry| entry.id == collection.id)
+                .unwrap()
+                .revision,
+            baseline
+        );
     }
     fixture.close().await;
 }

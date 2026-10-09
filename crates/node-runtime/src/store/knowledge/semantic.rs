@@ -14,7 +14,6 @@ pub(crate) struct Plan {
     pub(crate) keyword: Vec<(String, u64)>,
     pub(crate) eligible: BTreeSet<String>,
     pub(crate) settings_revision: u64,
-    pub(crate) changed: bool,
 }
 
 pub(crate) struct Stamp {
@@ -49,15 +48,15 @@ pub(in crate::store) fn prepare(
     let Command::SearchPluginValues(query) = &request.command else {
         return Err(Fault::invalid("plugin storage search expected"));
     };
-    let (collections, changed) = if query.mode != knowledge::Mode::Keyword
+    let collections = if query.mode != knowledge::Mode::Keyword
         && query
             .query
             .as_ref()
             .is_some_and(|text| !text.trim().is_empty())
     {
-        ensure(db, &context.package, stop)?
+        selected(db, &context.package, stop)?
     } else {
-        (vec![], false)
+        vec![]
     };
     let lexical = lexical(request);
     let Command::SearchPluginValues(keyword_query) = &lexical.command else {
@@ -71,8 +70,33 @@ pub(in crate::store) fn prepare(
         keyword,
         eligible,
         settings_revision: settings::read(db)?.revision,
-        changed,
     })
+}
+
+fn selected(
+    db: &Connection,
+    reference: &plugin::Reference,
+    stop: &CancellationToken,
+) -> Result<Vec<Stored>, Fault> {
+    let declarations = declarations(db, reference)?;
+    let stored = collections::load(db)?;
+    let mut selected = Vec::new();
+    for declaration in declarations {
+        check(stop)?;
+        if let Some(entry) = stored
+            .iter()
+            .find(|stored| stored.collection.id == identifier(&reference.name, &declaration))
+        {
+            if !automatic(entry) {
+                return Err(Fault::new(
+                    ErrorCode::Conflict,
+                    "semantic registration identifier is already owned",
+                ));
+            }
+            selected.push(entry.clone());
+        }
+    }
+    Ok(selected)
 }
 
 pub(in crate::store) fn startup(db: &Connection, stop: &CancellationToken) -> Result<bool, Fault> {
@@ -155,12 +179,6 @@ fn ensure(
             }
             selected.push(previous.clone());
         } else {
-            if stored.len() >= knowledge::MAX_COLLECTIONS {
-                return Err(Fault::new(
-                    ErrorCode::Busy,
-                    "knowledge collection capacity exhausted",
-                ));
-            }
             let entry = Stored {
                 collection: knowledge::Collection {
                     id,

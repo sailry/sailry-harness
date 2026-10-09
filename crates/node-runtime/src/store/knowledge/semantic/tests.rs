@@ -35,6 +35,7 @@ fn package(db: &Connection, digest: char, semantic: bool) -> plugin::Reference {
     )
     .unwrap();
     db.execute("INSERT INTO plugins(name,revision,installed,body) VALUES(?1,1,1,?2) ON CONFLICT(name) DO UPDATE SET body=excluded.body",params![reference.name,encode(&info).unwrap()]).unwrap();
+    startup(db, &CancellationToken::new()).unwrap();
     reference
 }
 
@@ -86,6 +87,11 @@ fn metadata(key: &str, pointer: &str) -> plugin::storage::Index {
 }
 
 fn seed(db: &Connection) {
+    seed_values(db);
+    startup(db, &CancellationToken::new()).unwrap();
+}
+
+fn seed_values(db: &Connection) {
     value(
         db,
         "private-memory",
@@ -141,8 +147,9 @@ fn registers_only_manifest_sources() {
     let db = database();
     let reference = package(&db, 'a', true);
     seed(&db);
+    let writes = db.total_changes();
     let plan = prepare(&db, &request(&reference), &CancellationToken::new()).unwrap();
-    assert!(plan.changed);
+    assert_eq!(db.total_changes(), writes);
     assert_eq!(plan.collections.len(), 1);
     assert_eq!(plan.eligible, BTreeSet::from(["meta/one".into()]));
     let stored = &plan.collections[0];
@@ -175,11 +182,8 @@ fn registers_only_manifest_sources() {
     );
     assert_eq!(result.page.entries[0].revision, 2);
     assert_eq!(result.page.entries[0].key, "meta/one");
-    assert!(
-        !prepare(&db, &request(&reference), &CancellationToken::new())
-            .unwrap()
-            .changed
-    );
+    prepare(&db, &request(&reference), &CancellationToken::new()).unwrap();
+    assert_eq!(db.total_changes(), writes);
     let off = database();
     let reference = package(&off, 'b', false);
     seed(&off);
@@ -204,7 +208,66 @@ fn registers_only_manifest_sources() {
     search::rebuild(&empty).unwrap();
     let plan = prepare(&empty, &request(&reference), &CancellationToken::new()).unwrap();
     assert!(plan.collections.is_empty());
-    assert!(!plan.changed);
+}
+
+#[test]
+fn queries_do_not_register_missing_collections() {
+    let db = database();
+    let reference = package(&db, 'a', true);
+    seed_values(&db);
+    let writes = db.total_changes();
+    let plan = prepare(&db, &request(&reference), &CancellationToken::new()).unwrap();
+    assert!(plan.collections.is_empty());
+    assert_eq!(plan.keyword.len(), 2);
+    assert_eq!(db.total_changes(), writes);
+    assert!(collections::load(&db).unwrap().is_empty());
+    assert!(startup(&db, &CancellationToken::new()).unwrap());
+    assert_eq!(
+        prepare(&db, &request(&reference), &CancellationToken::new())
+            .unwrap()
+            .collections
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn registrations_do_not_consume_user_capacity() {
+    let db = database();
+    let reference = package(&db, 'a', true);
+    seed(&db);
+    let automatic = collections::load(&db).unwrap().remove(0);
+    let definition = automatic.collection.definition.clone();
+    let creation = Request::new(
+        NodeId([19; 32]),
+        Command::CreateKnowledgeCollection {
+            definition: definition.clone(),
+            plugin: Some(reference.name.clone()),
+        },
+    );
+    for _ in 0..knowledge::MAX_COLLECTIONS {
+        collections::create(&db, &creation, &definition, Some(&reference.name)).unwrap();
+    }
+    assert_eq!(
+        collections::load(&db).unwrap().len(),
+        knowledge::MAX_COLLECTIONS + 1
+    );
+    assert_eq!(
+        collections::create(&db, &creation, &definition, Some(&reference.name))
+            .unwrap_err()
+            .code,
+        ErrorCode::Busy
+    );
+    let latest = package(&db, 'b', true);
+    let retained = prepare(&db, &request(&latest), &CancellationToken::new()).unwrap();
+    assert_eq!(
+        retained.collections[0].collection.id,
+        automatic.collection.id
+    );
+    assert_eq!(
+        retained.collections[0].capture.package.as_ref(),
+        Some(&latest)
+    );
 }
 
 #[test]
@@ -331,7 +394,6 @@ fn preserves_capture_across_package_updates() {
         admitted.collections[0].capture.package.as_ref(),
         Some(&latest)
     );
-    assert!(!admitted.changed);
 }
 
 #[test]
