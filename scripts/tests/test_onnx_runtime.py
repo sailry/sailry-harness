@@ -77,6 +77,35 @@ class Assets(unittest.TestCase):
             self.assertEqual({file["name"] for file in metadata["files"]},
                              {"libonnxruntime.dylib", "libsherpa-onnx-c-api.dylib"})
 
+    def test_bundle_keeps_metadata_outside_code(self):
+        output = self.root / "Sailry.app/Contents/MacOS"
+        output.mkdir(parents=True)
+        (output / runtime.MANIFEST).write_text("generated metadata from the earlier package")
+        runtime.prepare(TARGET, output, self.cache, speech=True)
+        self.assertEqual({path.name for path in output.iterdir()},
+                         {"libonnxruntime.dylib", "libsherpa-onnx-c-api.dylib"})
+        metadata = json.loads((output.parent / "Resources" / runtime.MANIFEST).read_text())
+        self.assertEqual(metadata["target"], TARGET)
+        self.assertEqual(metadata["sherpa_version"], "1.13.8")
+        self.assertEqual({file["name"] for file in metadata["files"]},
+                         {"libonnxruntime.dylib", "libsherpa-onnx-c-api.dylib"})
+
+    def test_bundle_cleans_old_metadata_after_signing(self):
+        output = self.root / "Sailry.app/Contents/MacOS"
+        runtime.prepare(TARGET, output, self.cache, speech=True)
+        old = output / runtime.MANIFEST
+        old.write_text("generated metadata from the earlier package")
+        library = output / self.files[0]["name"]
+        library.write_bytes(library.read_bytes() + b"signature fixture")
+        runtime.finalize(TARGET, output, speech=True)
+        self.assertFalse(old.exists())
+        metadata = json.loads((output.parent / "Resources" / runtime.MANIFEST).read_text())
+        recorded = metadata["files"][0]
+        self.assertEqual(recorded["sha256"], runtime.digest(library))
+        self.assertEqual(recorded["size"], library.stat().st_size)
+        self.assertEqual(recorded["source_sha256"], self.files[0]["sha256"])
+        self.assertNotEqual(recorded["sha256"], recorded["source_sha256"])
+
     def test_reuses_only_verified_source_files(self):
         source = self.root / "source"
         source.mkdir()

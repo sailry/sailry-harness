@@ -52,7 +52,7 @@ class CodeSigning(unittest.TestCase):
                 if path.is_file() and path.suffix == ".dylib":
                     path.write_bytes(path.read_bytes() + b"signed fixture")
                 if path == app:
-                    recorded = json.loads((native.parent / "onnx-runtime.json").read_text())
+                    recorded = json.loads((resources / "onnx-runtime.json").read_text())
                     self.assertEqual(recorded["files"][0]["sha256"], signing.runtime.digest(native))
                 return ""
             with patch.object(signing, "run", side_effect=command) as run, \

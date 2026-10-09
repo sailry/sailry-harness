@@ -112,7 +112,12 @@ def manifest(target, output, speech):
 def finalize(target, output, speech):
     # Signing changes Mach-O bytes. The app seal or release archive protects this final manifest.
     content = manifest(target, output, speech)
-    atomic(output / MANIFEST, (json.dumps(content, indent=2) + "\n").encode())
+    directory = output
+    if target.endswith("-apple-darwin") and output.name == "MacOS" and output.parent.name == "Contents":
+        directory = output.parent / "Resources"
+    atomic(directory / MANIFEST, (json.dumps(content, indent=2) + "\n").encode())
+    if directory != output:
+        (output / MANIFEST).unlink(missing_ok=True)
 
 
 def prepare(target, output, cache, speech=False, source=None, cargo=False, link=False):
