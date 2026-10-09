@@ -37,6 +37,9 @@ pub(super) fn capture(
         None => None,
     };
     let mut config = super::super::permissions::config(db, run.turn)?;
+    if role.as_ref().is_some_and(|role| role.read_only) {
+        config.mode = WorkMode::Plan;
+    }
     let references = super::super::plugins::read(db, run.turn)?;
     let plugins = super::super::plugins::packages(db, &references)?;
     if let Some(role) = &role {

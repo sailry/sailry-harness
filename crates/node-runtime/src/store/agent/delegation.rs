@@ -72,6 +72,16 @@ pub(in crate::store) fn read(
         .transpose()
 }
 
+pub(in crate::store) fn read_only(db: &Connection, session: SessionId) -> Result<bool, Fault> {
+    let turn: String = db.query_row(
+        "SELECT t.id FROM turns t JOIN agent_delegations d ON d.turn=t.id WHERE t.session=?1 ORDER BY t.rowid LIMIT 1",
+        [session.to_string()],
+        |row| row.get(0),
+    ).map_err(storage_error)?;
+    let turn = turn.parse().map_err(storage_error)?;
+    Ok(super::permissions::config(db, turn)?.mode == WorkMode::Plan)
+}
+
 pub(super) fn origin(db: &Connection, turn: TurnId) -> Result<Option<Delegation>, Fault> {
     let body: Option<Vec<u8>> = db
         .query_row(

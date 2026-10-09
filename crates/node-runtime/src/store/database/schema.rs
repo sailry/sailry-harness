@@ -20,6 +20,7 @@ impl Schema {
     pub(super) fn initialize(&self, connection: &Connection) -> Result<(), Error> {
         if matches!(self, Self::Fresh) {
             connection.execute_batch(DDL)?;
+            crate::store::roles::initialize(connection)?;
         }
         Ok(())
     }

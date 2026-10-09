@@ -50,6 +50,7 @@ fn recovers_and_stops_children() {
             .await
             .unwrap();
         let role = role::Profile {
+            read_only: false,
             appearance: None,
             id: RoleId::new(),
             revision: 0,

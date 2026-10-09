@@ -34,6 +34,7 @@ async fn roles(fixture: &mut Fixture, servers: &[(&str, &Server)]) -> Vec<role::
             name: (*key).into(),
             appearance: None,
             description: "Review the assigned complete group".into(),
+            read_only: false,
             model: Some(role::Model {
                 provider: provider.id,
                 model: "fixture-a".into(),

@@ -338,6 +338,7 @@ async fn imports_private_providers() {
             .await
             .unwrap();
         let origin = Client::new(source.local());
+        clear(&origin).await;
         let parent = provider(&origin, None).await;
         let fixed_provider = provider(&origin, Some("isolated-role-secret")).await;
         let first = fixed(&origin, &fixed_provider, "review").await;

@@ -305,6 +305,7 @@ async fn injects_frozen_roles() {
         .await;
         let (directory, node, controller, client, session) = fixture(remote, &server).await;
         let role = role::Profile {
+            read_only: false,
             appearance: None,
             id: RoleId::new(),
             revision: 0,

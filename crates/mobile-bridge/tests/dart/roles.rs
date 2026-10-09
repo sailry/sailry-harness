@@ -10,11 +10,24 @@ fn persists_catalog_without_controller() {
     let profile = directory.path().join("node");
     let node = runtime.block_on(Node::start(&profile)).unwrap();
     let client = Client::new(node.local());
-    let provider = runtime.block_on(super::configuration::provider(
+    let mut provider = runtime.block_on(super::configuration::provider(
         &client,
         "http://127.0.0.1:9/v1",
         "ffi-role",
     ));
+    provider.models[0]
+        .capabilities
+        .get_or_insert_with(Default::default)
+        .reasoning = Some(false);
+    let Output::Provider(provider) = runtime
+        .block_on(client.execute(client.prepare(Command::PutProvider {
+            expected_revision: provider.revision,
+            provider,
+        })))
+        .unwrap()
+    else {
+        panic!("provider expected")
+    };
     let original = RoleId::new();
     let replacement = RoleId::new();
     let invitation = node.link().invite().unwrap();
@@ -56,13 +69,16 @@ fn persists_catalog_without_controller() {
         node.shutdown().await.unwrap();
         let other = Node::start(directory.path().join("other")).await.unwrap();
         let client = Client::new(other.local());
-        assert_eq!(
-            client
-                .execute(client.prepare(Command::ListRoles))
-                .await
-                .unwrap(),
-            Output::Roles(Vec::new())
-        );
+        let Output::Roles(roles) = client
+            .execute(client.prepare(Command::ListRoles))
+            .await
+            .unwrap()
+        else {
+            panic!("role catalog expected")
+        };
+        assert_eq!(roles.len(), 1);
+        assert_eq!(roles[0].key, "explore");
+        assert!(roles[0].read_only);
         other.shutdown().await.unwrap();
     });
 }

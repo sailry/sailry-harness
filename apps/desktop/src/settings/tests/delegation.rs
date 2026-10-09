@@ -247,6 +247,7 @@ fn preserves_missing_model_selection(cx: &mut TestAppContext) {
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
         let role = sailry_protocol::role::Profile {
+            read_only: false,
             id: sailry_protocol::RoleId::new(),
             revision: 0,
             key: "review".into(),
@@ -337,6 +338,45 @@ fn presets(cx: &mut TestAppContext) {
         wait(visual, |_| fixture.roles()[0].revision == 2);
         assert_eq!(fixture.roles()[0].instructions, fixture::preset("research"));
         assert_eq!(fixture.roles()[0].appearance, saved.appearance);
+        fixture.close(visual);
+    }
+}
+
+#[gpui::test]
+fn preserves_read_only_drafts(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let (owner, visual) = fixture.mount(cx);
+        tap(visual, "role-add");
+        fill(visual, "exploration");
+        tap(visual, "role-read-only");
+        fixture.transport.mode.store(1, Ordering::SeqCst);
+        tap(visual, "role-save");
+        toast(visual, "Result unconfirmed; retry the original request", 1);
+        assert!(fixture.roles()[0].read_only);
+        tap(visual, "role-read-only");
+        tap(visual, "role-save");
+        shown(&owner, visual, "role-editor", false);
+        assert!(fixture.roles()[0].read_only);
+        {
+            let requests = fixture.transport.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert_eq!(requests[0], requests[1]);
+        }
+        let original = fixture.roles().remove(0);
+        tap(visual, &format!("role-edit-{}", original.id));
+        input(visual, "role-field-settings_name", "Renamed exploration");
+        tap(visual, "role-save");
+        shown(&owner, visual, "role-editor", false);
+        assert!(fixture.roles()[0].read_only);
+        assert_eq!(fixture.roles()[0].revision, 2);
+        tap(visual, &format!("role-edit-{}", original.id));
+        tap(visual, "role-read-only");
+        tap(visual, "role-save");
+        shown(&owner, visual, "role-editor", false);
+        assert!(!fixture.roles()[0].read_only);
+        assert_eq!(fixture.roles()[0].revision, 3);
         fixture.close(visual);
     }
 }

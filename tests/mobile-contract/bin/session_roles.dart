@@ -36,6 +36,7 @@ void checkSourceRoles(
   final role = (roles['profiles'] as List).single;
   final provider = (roles['providers'] as List).single;
   check(role['key'] == 'source-review', 'import retains source role');
+  check(role['read_only'] == true, 'import retains the execution constraint');
   check(
     role['max_turns'] == 12 && role['skills'].single == 'fixture/review',
     'role execution settings survive import',
@@ -77,6 +78,7 @@ Future<void> verifyRoles(
     selected['key'] == 'target-review',
     'Mobile create captures target roles',
   );
+  check(selected['read_only'] == true, 'new sessions capture the execution constraint');
   final queued = (await execute(connection, 'queue_turn', {
     'session': session['id'],
     'expected_revision': 1,

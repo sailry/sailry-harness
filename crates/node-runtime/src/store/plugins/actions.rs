@@ -519,10 +519,13 @@ impl Database {
                 name,
             )?;
         }
-        if action == Some(Action::WriteStorage)
-            && let Some(turn) = context.turn
-        {
-            crate::store::agent::plugins::check_storage_write(&self.connection, turn)?;
+        if let Some(turn) = context.turn {
+            crate::store::agent::plugins::check_action(
+                &self.connection,
+                turn,
+                &request.command,
+                action.as_ref(),
+            )?;
         }
         let settings_surface =
             context.surface == sailry_protocol::plugin::desktop::Surface::Settings;

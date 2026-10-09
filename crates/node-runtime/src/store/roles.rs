@@ -3,6 +3,27 @@ use super::database::{encode, storage_error};
 use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{ErrorCode, Fault, RoleId, role};
 
+pub(super) fn initialize(db: &Connection) -> Result<(), Fault> {
+    put(
+        db,
+        &role::Profile {
+            id: RoleId::new(),
+            revision: 0,
+            key: "explore".into(),
+            name: "Explore".into(),
+            appearance: None,
+            description: "Read existing code and report findings with exact paths".into(),
+            read_only: true,
+            model: None,
+            max_turns: None,
+            skills: Vec::new(),
+            instructions: "Explore the assigned scope using read-only tools. Read existing code and relevant project instructions, distinguish confirmed facts from inferences, and return concise findings with exact paths and unresolved questions. Do not modify resources or request user input.".into(),
+        },
+        0,
+    )?;
+    Ok(())
+}
+
 pub(super) fn get(db: &Connection, id: RoleId) -> Result<Option<role::Profile>, Fault> {
     let body: Option<Vec<u8>> = db
         .query_row(

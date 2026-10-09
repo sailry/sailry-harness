@@ -53,6 +53,7 @@ async fn inherits_parent_model() {
                 .unwrap();
             if roster {
                 let role = role::Profile {
+                    read_only: false,
                     appearance: None,
                     id: RoleId::new(),
                     revision: 0,
@@ -82,6 +83,20 @@ async fn inherits_parent_model() {
                         session: session.id,
                         expected_revision: 1,
                         roles: vec![role.reference()],
+                    }))
+                    .await
+                    .unwrap()
+                else {
+                    panic!("session expected")
+                };
+                session = updated;
+            } else {
+                // Empty-roster behavior remains explicit after adding a shipped preset.
+                let Output::Session(updated) = client
+                    .execute(client.prepare(Command::SetSessionRoles {
+                        session: session.id,
+                        expected_revision: session.revision,
+                        roles: vec![],
                     }))
                     .await
                     .unwrap()

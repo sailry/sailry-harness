@@ -3,11 +3,14 @@ use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
 use sailry_protocol::{conversation::*, *};
 use std::time::Duration;
+#[path = "roles/defaults.rs"]
+mod defaults;
 #[path = "roles/sessions.rs"]
 mod sessions;
 
 fn profile(key: &str) -> role::Profile {
     role::Profile {
+        read_only: false,
         appearance: None,
         id: RoleId::new(),
         revision: 0,
@@ -50,6 +53,24 @@ async fn put(
 }
 
 async fn fixture(remote: bool) -> (tempfile::TempDir, Node, Link, Client) {
+    let fixture = fresh(remote).await;
+    clear(&fixture.3).await;
+    fixture
+}
+
+async fn clear(client: &Client) {
+    for role in list(client).await {
+        client
+            .execute(client.prepare(Command::RemoveRole {
+                role: role.id,
+                expected_revision: role.revision,
+            }))
+            .await
+            .unwrap();
+    }
+}
+
+async fn fresh(remote: bool) -> (tempfile::TempDir, Node, Link, Client) {
     let directory = tempfile::tempdir().unwrap();
     let node = Node::start(directory.path().join("node")).await.unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
@@ -170,7 +191,10 @@ async fn recovers_versioned_receipts() {
         assert_eq!(client.execute(remove).await.unwrap(), Output::Roles(vec![]));
         assert_eq!(list(&client).await, [replacement]);
         let other = Node::start(directory.path().join("other")).await.unwrap();
-        assert!(list(&Client::new(other.local())).await.is_empty());
+        let shipped = list(&Client::new(other.local())).await;
+        assert_eq!(shipped.len(), 1);
+        assert_eq!(shipped[0].key, "explore");
+        assert!(shipped[0].read_only);
         other.shutdown().await.unwrap();
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();

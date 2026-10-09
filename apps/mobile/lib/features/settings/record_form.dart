@@ -196,6 +196,7 @@ class _RecordFormState extends State<RecordForm> {
             'name': field('name').text.trim(),
             'key': field('key').text.trim(),
             'description': field('description').text.trim(),
+            'read_only': _original['read_only'] == true,
             'instructions': field('content').text,
             'model': _original['model'],
             'max_turns': _original['max_turns'],

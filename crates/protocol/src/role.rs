@@ -74,6 +74,8 @@ pub struct Profile {
     /// Optional visual identity; absent uses the controller's standard agent icon.
     pub appearance: Option<crate::projects::Appearance>,
     pub description: String,
+    /// Delegated execution stays in Plan mode even when the parent can modify resources.
+    pub read_only: bool,
     /// None inherits the parent turn's model and reasoning configuration.
     pub model: Option<Model>,
     pub max_turns: Option<u32>,

@@ -14,30 +14,7 @@ pub(super) fn read_only(handler: &tool::Handler, actions: &[Action]) -> bool {
     if handler.read_only {
         return true;
     }
-    actions.iter().all(|action| {
-        matches!(
-            action,
-            Action::ReadActivity
-                | Action::ReadUsage
-                | Action::ReadDatabases
-                | Action::ReadSsh
-                | Action::ReadRoles
-                | Action::ReadModels
-                | Action::InspectMedia
-                | Action::ReadMediaSettings
-                | Action::ReadComputer
-                | Action::ReadBrowser
-                | Action::ReadExternalBrowser
-                | Action::ReadFiles
-                | Action::ReadGit
-                | Action::ReadWorktrees
-                | Action::ReadCommands
-                | Action::ReadTerminals
-                | Action::ReadConversation
-                | Action::ReadProjects
-                | Action::ReadStorage
-        )
-    })
+    actions.iter().all(Action::read_only)
 }
 
 #[cfg(test)]

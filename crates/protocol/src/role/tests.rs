@@ -2,6 +2,7 @@ use super::*;
 
 fn profile() -> Profile {
     Profile {
+        read_only: false,
         id: RoleId::new(),
         revision: 0,
         key: "review".into(),
@@ -30,6 +31,21 @@ fn distinguishes_identity_from_key() {
         value.key = key.into();
         assert!(value.validate().is_err(), "invalid key: {key}");
     }
+}
+
+#[test]
+fn preserves_execution_constraint() {
+    let mut value = profile();
+    value.read_only = true;
+    value.validate().unwrap();
+    let mut encoded = serde_json::to_value(&value).unwrap();
+    assert_eq!(encoded["read_only"], true);
+    assert_eq!(
+        serde_json::from_value::<Profile>(encoded.clone()).unwrap(),
+        value
+    );
+    encoded.as_object_mut().unwrap().remove("read_only");
+    assert!(serde_json::from_value::<Profile>(encoded).is_err());
 }
 
 #[test]

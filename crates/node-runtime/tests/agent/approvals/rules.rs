@@ -560,6 +560,7 @@ async fn isolates_delegated_children() {
             panic!("provider expected")
         };
         let role = role::Profile {
+            read_only: false,
             id: RoleId::new(),
             revision: 0,
             key: "review".into(),

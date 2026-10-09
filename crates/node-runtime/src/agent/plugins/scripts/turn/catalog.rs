@@ -81,7 +81,7 @@ fn role_summary(profile: &sailry_protocol::role::Profile) -> Value {
         description
     };
     let description: String = purpose.chars().take(ROLE_SUMMARY_CHARS).collect();
-    json!({"key":profile.key,"name":profile.name,"description":description})
+    json!({"key":profile.key,"name":profile.name,"description":description,"read_only":profile.read_only})
 }
 
 fn database(profile: &sailry_protocol::database::Profile) -> Value {
@@ -108,6 +108,7 @@ mod tests {
     #[test]
     fn previews_roles_without_changing_instructions() {
         let mut profile = sailry_protocol::role::Profile {
+            read_only: true,
             id: sailry_protocol::RoleId::new(),
             revision: 1,
             key: "review".into(),
@@ -123,6 +124,7 @@ mod tests {
         let summary = role_summary(&profile);
         assert_eq!(summary["key"], profile.key);
         assert_eq!(summary["name"], profile.name);
+        assert_eq!(summary["read_only"], true);
         assert_eq!(summary["description"], "🙂".repeat(ROLE_SUMMARY_CHARS));
         assert_eq!(profile.instructions, instructions);
         profile.description = "Inspect the task".into();

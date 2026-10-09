@@ -20,8 +20,15 @@ fn fork(fixture: &mut Fixture, through: TurnId, revision: u64) -> Session {
 #[test]
 fn preserves_frozen_roles() {
     let mut fixture = Fixture::new();
+    let original_roles =
+        crate::store::sessions::roles::read(&fixture.database.connection, fixture.session, 1)
+            .unwrap();
+    assert_eq!(original_roles.profiles.len(), 1);
+    assert_eq!(original_roles.profiles[0].key, "explore");
+    assert!(original_roles.profiles[0].read_only);
     let through = fixture.completed(&["Completed before configuring roles"]);
     let profile = role::Profile {
+        read_only: false,
         appearance: None,
         id: RoleId::new(),
         revision: 0,
@@ -71,7 +78,7 @@ fn preserves_frozen_roles() {
     );
     assert_eq!(
         crate::store::sessions::roles::read(&fixture.database.connection, session.id, 1).unwrap(),
-        role::Snapshot::default()
+        original_roles
     );
     assert_eq!(
         crate::store::sessions::roles::read(&fixture.database.connection, fork.id, 1).unwrap(),

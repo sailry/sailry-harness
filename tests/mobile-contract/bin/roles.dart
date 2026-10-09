@@ -34,6 +34,15 @@ Future<void> main() async {
   final address = await controller.pair(ticket: env['SAILRY_INVITATION']!);
   var connection = await controller.connect(address: address);
   var updates = await connection.watch();
+  final shipped = await catalog(
+    updates,
+    (roles) => roles.length == 1 && roles.single['key'] == 'explore',
+  );
+  check(shipped.single['read_only'] == true, 'Explore is read only');
+  await execute(connection, 'remove_role', {
+    'role': shipped.single['id'],
+    'expected_revision': shipped.single['revision'],
+  });
   await catalog(updates, (roles) => roles.isEmpty);
 
   Future<String> prepare(String kind, Map<String, dynamic> data) =>
@@ -54,6 +63,7 @@ Future<void> main() async {
     'key': 'review',
     'name': 'Review 中文',
     'description': 'Inspect changes',
+    'read_only': false,
     'model': null,
     'max_turns': 12,
     'skills': ['local-review'],
@@ -68,7 +78,7 @@ Future<void> main() async {
   final created = await connection.execute(request: create);
   final saved = jsonDecode(created)['Ok']['data'];
   check(
-    saved['revision'] == 1 && saved['model'] == null,
+    saved['revision'] == 1 && saved['model'] == null && saved['read_only'] == false,
     'inheritance persists',
   );
   var roles = await catalog(updates, (roles) => roles.length == 1);

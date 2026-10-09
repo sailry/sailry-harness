@@ -80,6 +80,7 @@ pub(super) fn profile(fixture: &mut Fixture) -> role::Profile {
         &fixture.events,
         Command::PutRole {
             role: role::Profile {
+                read_only: false,
                 id: RoleId::new(),
                 revision: 0,
                 key: "review".into(),

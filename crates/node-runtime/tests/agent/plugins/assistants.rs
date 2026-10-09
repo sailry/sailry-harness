@@ -160,6 +160,7 @@ async fn reject_role(fixture: &process::Fixture, session: &Session) -> Session {
         &fixture.client,
         Command::PutRole {
             role: role::Profile {
+                read_only: false,
                 appearance: None,
                 id: RoleId::new(),
                 revision: 0,

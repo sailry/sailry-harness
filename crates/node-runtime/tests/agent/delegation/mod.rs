@@ -1,6 +1,8 @@
 use super::*;
 use serde_json::{Value, json};
 
+mod explore;
+
 pub(super) fn model(id: &str) -> Model {
     Model {
         id: id.into(),
@@ -51,6 +53,7 @@ pub(super) async fn setup(
         panic!("provider expected")
     };
     let role = role::Profile {
+        read_only: false,
         appearance: None,
         id: RoleId::new(),
         revision: 0,

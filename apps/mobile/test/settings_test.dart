@@ -265,6 +265,7 @@ void main() {
     first.conflict = false;
     await tap(tester, find.widgetWithText(FilledButton, tr('save')));
     expect(first.roles.single['name'], 'Designer');
+    expect(first.roles.single['read_only'], isFalse);
     expect(second.roles, isEmpty);
     expect(first.calls.last.$1, 'list_roles');
     expect(tester.takeException(), isNull);

@@ -6,6 +6,7 @@ fn updates_identity_and_order() {
     let mut projection = Projection::new(NodeId([1; 32]), 1);
     projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
     let mut role = role::Profile {
+        read_only: false,
         appearance: None,
         id: RoleId::new(),
         revision: 1,

@@ -91,6 +91,7 @@ fn dispatches_frozen_roles(cx: &mut TestAppContext) {
             std::fs::write(root.join(format!("file{index:03}")), "file contents").unwrap();
         }
         let role = sailry_protocol::role::Profile {
+            read_only: false,
             appearance: None,
             id: sailry_protocol::RoleId::new(),
             revision: 0,
@@ -372,6 +373,7 @@ fn rejects_stale_roles(cx: &mut TestAppContext) {
     visual.update(|window, cx| {
         view.update(cx, |view, cx| {
             let role = sailry_protocol::role::Profile {
+                read_only: false,
                 appearance: None,
                 id: sailry_protocol::RoleId::new(),
                 revision: 1,

@@ -111,6 +111,24 @@ impl Fixture {
             node.local()
         };
         let client = sailry_client::Client::new(inner.clone());
+        let other_client = sailry_client::Client::new(other.local());
+        // These editor fixtures start with an explicitly empty user catalog.
+        for target in [&client, &other_client] {
+            let Output::Roles(roles) = runtime
+                .block_on(target.execute(target.prepare(Command::ListRoles)))
+                .unwrap()
+            else {
+                panic!("roles expected");
+            };
+            for role in roles {
+                runtime
+                    .block_on(target.execute(target.prepare(Command::RemoveRole {
+                        role: role.id,
+                        expected_revision: role.revision,
+                    })))
+                    .unwrap();
+            }
+        }
         let Output::Provider(provider) = runtime
             .block_on(client.execute(client.prepare(Command::PutProvider {
                 provider: Provider {
@@ -223,6 +241,7 @@ impl Fixture {
             "role-field-role_id",
             "role-field-settings_name",
             "role-max-turns",
+            "role-read-only",
             "role-instructions",
         ]
         .iter()

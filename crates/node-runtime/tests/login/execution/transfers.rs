@@ -58,6 +58,7 @@ async fn rejects_rotating_grant_copies() {
         if role {
             bundle.roles = role::Snapshot {
                 profiles: vec![role::Profile {
+                    read_only: false,
                     appearance: None,
                     id: RoleId::new(),
                     revision: 1,

@@ -105,6 +105,7 @@ impl Fixture {
             runtime
                 .block_on(client.execute(client.prepare(Command::PutRole {
                     role: role::Profile {
+                        read_only: false,
                         appearance: None,
                         id: RoleId::new(),
                         revision: 0,

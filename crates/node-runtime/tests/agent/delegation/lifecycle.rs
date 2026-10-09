@@ -33,7 +33,8 @@ async fn drains_with_full_root_pool() {
         ])
         .await;
         let child = Server::start(true).await;
-        let (session, _, _) = setup(&client, &root, &parent, &child).await;
+        let (session, provider, role) = setup(&client, &root, &parent, &child).await;
+        let config = session.config.clone();
         let mut parents = Vec::new();
         for _ in 0..8 {
             let Output::Session(session) = client
@@ -47,6 +48,9 @@ async fn drains_with_full_root_pool() {
             else {
                 panic!("session expected")
             };
+            assert_eq!(session.config, config);
+            assert!(session.roles.profiles.contains(&role));
+            assert_eq!(session.roles.providers, vec![provider.clone()]);
             let Output::QueuedTurn(turn) = client
                 .execute(client.prepare(Command::SubmitTurn {
                     session: session.id,
@@ -58,10 +62,33 @@ async fn drains_with_full_root_pool() {
             else {
                 panic!("turn expected")
             };
+            assert_eq!(turn.config, session.config);
+            assert_eq!(turn.roles, session.roles);
             parents.push(turn);
         }
         // All eight root workers are occupied; children still start outside that queue.
-        child.wait_count(16).await;
+        let ready = tokio::time::timeout(Duration::from_secs(10), async {
+            while child.requests.lock().unwrap().len() < 16 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        if ready.is_err() {
+            let pages = tokio::time::timeout(Duration::from_secs(2), async {
+                let mut pages = Vec::new();
+                for turn in &parents {
+                    let page = history(&client, turn.session).await;
+                    pages.push((turn.id, page.runs, page.entries, page.children));
+                }
+                pages
+            })
+            .await;
+            panic!(
+                "model request deadline: remote={remote}, parent={}, child={}, histories={pages:#?}",
+                parent.requests.lock().unwrap().len(),
+                child.requests.lock().unwrap().len(),
+            );
+        }
         for turn in parents.iter().take(4) {
             client
                 .execute(client.prepare(Command::StopTurn { turn: turn.id }))

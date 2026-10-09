@@ -1,6 +1,8 @@
 //! Host operation tools use the same package revisions captured by ADK admission.
 use super::*;
+mod readonly;
 mod references;
+pub(in crate::store) use readonly::check_action;
 pub(in crate::store) use references::{assistant, capture, packages, read};
 
 pub(in crate::store) fn package(
@@ -29,16 +31,6 @@ pub(in crate::store) fn package(
     packages(db, std::slice::from_ref(&context.package))?
         .pop()
         .ok_or_else(|| sailry_protocol::Fault::invalid("plugin package is unavailable"))
-}
-
-pub(in crate::store) fn check_storage_write(db: &Connection, turn: TurnId) -> Result<(), Fault> {
-    if permissions::config(db, turn)?.mode == WorkMode::Plan {
-        return Err(Fault::new(
-            ErrorCode::PermissionDenied,
-            "planning turns cannot write plugin storage",
-        ));
-    }
-    Ok(())
 }
 
 pub(super) fn operation(

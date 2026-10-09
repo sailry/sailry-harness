@@ -92,6 +92,33 @@ pub enum Action {
     WriteStorage,
 }
 
+impl Action {
+    pub fn read_only(&self) -> bool {
+        matches!(
+            self,
+            Self::ReadActivity
+                | Self::ReadUsage
+                | Self::ReadDatabases
+                | Self::ReadSsh
+                | Self::ReadRoles
+                | Self::ReadModels
+                | Self::InspectMedia
+                | Self::ReadMediaSettings
+                | Self::ReadComputer
+                | Self::ReadBrowser
+                | Self::ReadExternalBrowser
+                | Self::ReadFiles
+                | Self::ReadGit
+                | Self::ReadWorktrees
+                | Self::ReadCommands
+                | Self::ReadTerminals
+                | Self::ReadConversation
+                | Self::ReadProjects
+                | Self::ReadStorage
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

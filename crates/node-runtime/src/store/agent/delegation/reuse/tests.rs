@@ -229,6 +229,36 @@ fn preserves_snapshots() {
 }
 
 #[test]
+fn retains_read_only_mode_after_role_changes() {
+    let mut fixture = setup();
+    let first = start(&mut fixture);
+    let child = invoke(
+        &mut fixture,
+        first,
+        json!({"role":"explore","task":"Inspect sources"}),
+    )
+    .unwrap();
+    let frozen = child.child.as_ref().unwrap().role.clone().unwrap();
+    finish(&mut fixture, child.turn.id);
+    finish(&mut fixture, first);
+    let mut changed = frozen.clone();
+    changed.read_only = false;
+    changed.key = "writable".into();
+    crate::store::roles::put(&fixture.database.connection, &changed, frozen.revision).unwrap();
+    let second = start(&mut fixture);
+    let resumed = invoke(
+        &mut fixture,
+        second,
+        json!({"session":child.turn.session,"task":"Continue inspecting"}),
+    )
+    .unwrap();
+    assert_eq!(resumed.turn.session, child.turn.session);
+    assert_eq!(resumed.turn.config.mode, WorkMode::Plan);
+    assert_eq!(resumed.turn.config, child.turn.config);
+    assert_eq!(resumed.child.unwrap().role, Some(frozen));
+}
+
+#[test]
 fn captures_current_resources() {
     let mut fixture = setup();
     let package = settings_package(&fixture);

@@ -22,6 +22,7 @@ fn delegates_and_restores_context() {
             .execute(client.prepare(Command::PutRole {
                 expected_revision: 0,
                 role: role::Profile {
+                    read_only: false,
                     appearance: None,
                     id: RoleId::new(),
                     revision: 0,

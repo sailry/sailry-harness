@@ -725,6 +725,15 @@ pub(super) fn execute(
             validate_config(db, node, config)?;
             let mut session = session(db, *id)?;
             check_revision(session.revision, *expected_revision)?;
+            if session.delegation.is_some()
+                && config.mode != sailry_protocol::WorkMode::Plan
+                && super::agent::delegation::read_only(db, session.id)?
+            {
+                return Err(Fault::new(
+                    ErrorCode::PermissionDenied,
+                    "read-only child mode is immutable",
+                ));
+            }
             if session.config.resource != config.resource
                 || session.config.assistant != config.assistant
             {
