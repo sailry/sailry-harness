@@ -23,3 +23,9 @@ Vendored gpui-base sources originate from https://github.com/longbridge/gpui-kit
 at 0c830f4d257e69fdd17200650533ab4ca9a40cc0 (Apache-2.0). Sailry consumes handled
 completion and code-action menu keys before later bindings can edit the document.
 The upstream license remains in vendor/gpui-base/LICENSE-APACHE.
+
+reqwest pinned proxy transport
+Vendored reqwest 0.13.4 originates from https://github.com/seanmonstar/reqwest
+at 11489b34eda6d32b15ad4033e62beba2ee401350 (MIT OR Apache-2.0).
+Sailry adds optional public-IP-pinned HTTP forwarding and HTTPS CONNECT routing.
+Original licenses and the focused patch description remain in vendor/reqwest/.

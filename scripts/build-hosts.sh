@@ -35,7 +35,7 @@ export AR_aarch64_unknown_linux_gnu="$task_llvm_ar"
 export AR_x86_64_unknown_linux_gnu="$task_llvm_ar"
 for task_target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
   task_sysroot="$task_root/target/host-sysroots/$task_target"
-  python3 "$task_root/scripts/package/linux-sysroot.py" --target "$task_target" \
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/linux-sysroot.py" --target "$task_target" \
     --output "$task_sysroot" --ar "$task_llvm_ar"
   task_triplet="${task_target/-unknown/}"
   task_env="${task_target//-/_}"

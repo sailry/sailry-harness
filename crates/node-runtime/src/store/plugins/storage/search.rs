@@ -269,7 +269,7 @@ fn parameters(
     let terms = query
         .terms
         .iter()
-        .map(|term| crate::knowledge::text::query(term))
+        .map(|term| crate::knowledge::text::phrase(term))
         .collect::<Vec<_>>()
         .join(" OR ");
     Ok([

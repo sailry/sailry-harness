@@ -9,6 +9,7 @@ pub(super) fn complete(
     args: &mut Vec<OsString>,
     program: &OsStr,
     aliases: &BTreeMap<PathBuf, PathBuf>,
+    protected: &[PathBuf],
 ) -> Result<(), Fault> {
     let mut mounts = vec![
         "--proc".into(),
@@ -29,6 +30,19 @@ pub(super) fn complete(
         mounts.extend([
             "--symlink".into(),
             target.into_os_string(),
+            path.into_os_string(),
+        ]);
+    }
+    // These mounts must follow every writable workspace mount from ADK.
+    // Missing future .git entries cannot be mounted without changing the host.
+    let paths: BTreeSet<_> = protected
+        .iter()
+        .filter_map(|path| path.canonicalize().ok())
+        .collect();
+    for path in paths {
+        mounts.extend([
+            "--ro-bind".into(),
+            path.as_os_str().to_owned(),
             path.into_os_string(),
         ]);
     }
@@ -78,5 +92,44 @@ pub(super) fn links(path: &Path, aliases: &mut BTreeMap<PathBuf, PathBuf>) {
             break;
         };
         path = next;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mounts_metadata_after_workspace() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let metadata = root.join(".git");
+        std::fs::create_dir(&metadata).unwrap();
+        let mut args = vec![
+            "--bind".into(),
+            root.as_os_str().to_owned(),
+            root.as_os_str().to_owned(),
+            "--".into(),
+            "/bin/sh".into(),
+        ];
+        complete(
+            &mut args,
+            OsStr::new("/bin/sh"),
+            &BTreeMap::new(),
+            std::slice::from_ref(&metadata),
+        )
+        .unwrap();
+        let separator = args.iter().position(|argument| argument == "--").unwrap();
+        assert_eq!(args[0], "--bind");
+        assert_eq!(
+            &args[separator - 3..separator],
+            &[
+                OsString::from("--ro-bind"),
+                metadata.as_os_str().to_owned(),
+                metadata.as_os_str().to_owned()
+            ]
+        );
+        assert_eq!(args[separator + 1], "/bin/sh");
+        assert!(!args.iter().any(|argument| argument == "--tmpfs"));
     }
 }

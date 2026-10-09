@@ -18,6 +18,8 @@ fn selects_registered_defaults_and_collection_overrides(cx: &mut TestAppContext)
             source: source.clone(),
             name: "Registered encoder".into(),
             license: "MIT".into(),
+            query_prefix: None,
+            document_prefix: None,
             format: sailry_protocol::models::Format::Static { dimension: 256 },
             assets: ["config.json", "model.safetensors", "tokenizer.json"]
                 .into_iter()

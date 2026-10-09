@@ -214,6 +214,10 @@ impl Server {
         Http::fixture(self.url.clone())
     }
 
+    pub fn http_at(&self, path: &str) -> Http {
+        Http::fixture(self.url.join(path).unwrap())
+    }
+
     pub fn requests(&self) -> Vec<Request> {
         self.requests.lock().unwrap().clone()
     }

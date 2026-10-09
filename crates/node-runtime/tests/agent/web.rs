@@ -359,3 +359,139 @@ async fn reads_public_sources_without_credentials() {
         controller.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn decodes_declared_and_fallback_charsets() {
+    for remote in [false, true] {
+        let http = server::Server::start().await;
+        let directory = tempfile::tempdir().unwrap();
+        let node = Node::start_isolated(directory.path().join("node"))
+            .await
+            .unwrap();
+        node.set_web_fixture(server::HOST, http.address);
+        let (client, controller) = client(&node, directory.path(), remote).await;
+        for (path, expected) in [
+            ("/gbk", "中文 text"),
+            ("/gbk-fallback", "中文 text"),
+            ("/gbk-meta", "中文 text"),
+            ("/gbk-json", server::ENCODED_JSON),
+        ] {
+            let Output::WebPage(page) = client
+                .execute(
+                    client.prepare(Command::FetchWeb(sailry_protocol::web::Request {
+                        url: format!("{}{path}", http.origin),
+                        offset: 0,
+                    })),
+                )
+                .await
+                .unwrap()
+            else {
+                panic!("web page expected");
+            };
+            assert_eq!(page.content, expected);
+            assert!(page.untrusted);
+            if path == "/gbk-meta" {
+                assert_eq!(page.title.as_deref(), Some("中文"));
+            }
+        }
+        assert_eq!(
+            client
+                .execute(
+                    client.prepare(Command::FetchWeb(sailry_protocol::web::Request {
+                        url: format!("{}/invalid-charset", http.origin),
+                        offset: 0
+                    }))
+                )
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::Unavailable
+        );
+        assert_eq!(http.requests.lock().unwrap().len(), 5);
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
+#[path = "../support/web_proxy.rs"]
+mod proxy;
+
+#[tokio::test]
+async fn proxies_public_reads_and_blocks_private_redirects() {
+    for remote in [false, true] {
+        let http = server::Server::start().await;
+        let proxy = proxy::Proxy::start(vec![http.address]).await;
+        let directory = tempfile::tempdir().unwrap();
+        let node = Node::start_isolated(directory.path().join("node"))
+            .await
+            .unwrap();
+        node.set_web_fixture(server::HOST, http.address);
+        node.set_web_proxy_fixture(
+            server::HOST,
+            reqwest::Proxy::all(&proxy.url)
+                .unwrap()
+                .basic_auth("fixture", "private"),
+        );
+        let (client, controller) = client(&node, directory.path(), remote).await;
+        let Output::WebPage(page) = client
+            .execute(
+                client.prepare(Command::FetchWeb(sailry_protocol::web::Request {
+                    url: format!("{}/redirect/1", http.origin),
+                    offset: 0,
+                })),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("web page expected");
+        };
+        assert_eq!(page.content, server::TEXT);
+        assert!(page.untrusted);
+        assert_eq!(proxy.requests.lock().unwrap().len(), 2);
+        assert_eq!(
+            client
+                .execute(
+                    client.prepare(Command::FetchWeb(sailry_protocol::web::Request {
+                        url: format!("{}/private", http.origin),
+                        offset: 0
+                    }))
+                )
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+        {
+            let forwarded = proxy.requests.lock().unwrap();
+            assert_eq!(forwarded.len(), 3);
+            assert!(
+                forwarded
+                    .iter()
+                    .all(|request| request.starts_with(&format!("GET http://{}/", http.address)))
+            );
+            assert!(forwarded.iter().all(|request| {
+                request
+                    .to_ascii_lowercase()
+                    .contains("proxy-authorization: basic zml4dhvyztpwcml2yxrl")
+            }));
+        }
+        {
+            let requests = http.requests.lock().unwrap();
+            assert_eq!(requests.len(), 3);
+            assert!(requests.iter().all(|headers| {
+                headers.to_ascii_lowercase().contains(&format!(
+                    "host: {}:{}",
+                    server::HOST,
+                    http.address.port()
+                ))
+            }));
+            assert!(
+                requests
+                    .iter()
+                    .all(|headers| !headers.to_ascii_lowercase().contains("authorization:"))
+            );
+        }
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}

@@ -82,13 +82,17 @@ impl Service {
     }
 
     pub(crate) fn refresh(&self) {
+        let _ = self.wake.try_send(());
+    }
+
+    pub(crate) fn invalidate(&self) {
         let mut token = self
             .cancel
             .lock()
             .expect("knowledge cancellation lock is healthy");
         token.cancel();
         *token = self.stop.child_token();
-        let _ = self.wake.try_send(());
+        self.refresh();
     }
 
     pub(crate) async fn query(
@@ -161,6 +165,7 @@ impl Service {
                         model,
                         catalog.settings.revision,
                         vec![query.query.clone()],
+                        sailry_embedding::Input::Query,
                         models::Lane::Query,
                         cancel,
                     )

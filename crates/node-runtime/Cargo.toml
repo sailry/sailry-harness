@@ -96,6 +96,7 @@ cap-fs-ext.workspace = true
 cap-tempfile.workspace = true
 git2.workspace = true
 regex.workspace = true
+encoding_rs.workspace = true
 ignore.workspace = true
 grep-searcher.workspace = true
 grep-regex.workspace = true
@@ -151,6 +152,8 @@ windows.workspace = true
 objc2-foundation = { workspace = true, features = ["NSFileManager", "NSPathUtilities", "NSURL"] }
 
 [dev-dependencies]
+tokio-rustls.workspace = true
+rcgen.workspace = true
 sailry-node-runtime = { workspace = true, features = ["test-support"] }
 hyper.workspace = true
 hyper-util.workspace = true

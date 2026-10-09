@@ -5,6 +5,8 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 mod discovery;
+mod mirrors;
+mod prefixes;
 mod resolution;
 mod server;
 mod versions;

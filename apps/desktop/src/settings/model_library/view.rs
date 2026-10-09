@@ -119,7 +119,39 @@ impl Render for Library {
                 )
             })
             .when_some(self.definition.as_ref(), |view, definition| {
-                view.child(
+                view.when(definition.format.kind() == Kind::Embedding, |view| {
+                    view.child(
+                        Row::new(
+                            "model_library_query_prefix",
+                            div()
+                                .w_full()
+                                .debug_selector(|| "model-library-query-prefix".into())
+                                .child(
+                                    Input::new(&self.query_prefix)
+                                        .id("model-library-query-prefix")
+                                        .w_full()
+                                        .disabled(downloading),
+                                ),
+                        )
+                        .wide(),
+                    )
+                    .child(
+                        Row::new(
+                            "model_library_document_prefix",
+                            div()
+                                .w_full()
+                                .debug_selector(|| "model-library-document-prefix".into())
+                                .child(
+                                    Input::new(&self.document_prefix)
+                                        .id("model-library-document-prefix")
+                                        .w_full()
+                                        .disabled(downloading),
+                                ),
+                        )
+                        .wide(),
+                    )
+                })
+                .child(
                     Entry::new(
                         "model-library-definition",
                         v_flex()

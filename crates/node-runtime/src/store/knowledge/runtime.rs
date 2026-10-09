@@ -53,7 +53,7 @@ pub(in crate::store) async fn start(ingress: &Arc<Ingress>) -> Result<(), Fault>
             let latest = membership(&models);
             if latest != installed {
                 if let Some(service) = ingress.knowledge.get() {
-                    service.refresh();
+                    service.invalidate();
                 }
                 installed = latest;
             }
@@ -75,22 +75,29 @@ pub(in crate::store) fn prepare(request: &Request) -> Result<(), Fault> {
 }
 
 pub(in crate::store) fn changes(command: &Command) -> bool {
-    storage::changes(command)
-        || matches!(
-            command,
-            Command::SaveKnowledgeSettings(_)
-                | Command::RegisterKnowledgeModel { .. }
-                | Command::CreateKnowledgeCollection { .. }
-                | Command::UpdateKnowledgeCollection { .. }
-                | Command::DeleteKnowledgeCollection { .. }
-                | Command::RebuildKnowledgeCollection { .. }
-                | Command::PauseKnowledgeCollection { .. }
-                | Command::InstallKnowledgeModel { .. }
-                | Command::DeleteKnowledgeModel { .. }
-        )
+    storage::changes(command) || invalidates(command)
 }
 
-pub(in crate::store) fn observe(ingress: &Ingress, mut admission: Admission) -> Admission {
+pub(in crate::store) fn invalidates(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::SaveKnowledgeSettings(_)
+            | Command::RegisterKnowledgeModel { .. }
+            | Command::CreateKnowledgeCollection { .. }
+            | Command::UpdateKnowledgeCollection { .. }
+            | Command::DeleteKnowledgeCollection { .. }
+            | Command::RebuildKnowledgeCollection { .. }
+            | Command::PauseKnowledgeCollection { .. }
+            | Command::InstallKnowledgeModel { .. }
+            | Command::DeleteKnowledgeModel { .. }
+    )
+}
+
+pub(in crate::store) fn observe(
+    ingress: &Ingress,
+    mut admission: Admission,
+    invalidates: bool,
+) -> Admission {
     let service = ingress.knowledge.clone();
     let (reply, completion) = oneshot::channel();
     let original = std::mem::replace(&mut admission.completion, completion);
@@ -99,7 +106,11 @@ pub(in crate::store) fn observe(ingress: &Ingress, mut admission: Admission) -> 
             if result.is_ok()
                 && let Some(service) = service.get()
             {
-                service.refresh();
+                if invalidates {
+                    service.invalidate();
+                } else {
+                    service.refresh();
+                }
             }
             let _ = reply.send(result);
         }

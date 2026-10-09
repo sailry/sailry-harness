@@ -10,6 +10,7 @@ pub(super) fn description(operation: Operation) -> &'static str {
     }
     match operation {
         Operation::KnowledgeQuery
+        | Operation::KnowledgeRead
         | Operation::KnowledgeCollections
         | Operation::KnowledgeCreate
         | Operation::KnowledgeRebuild
@@ -121,6 +122,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
     let revision = json!({"type":"integer", "minimum":0});
     let (properties, required) = match operation {
         Operation::KnowledgeQuery
+        | Operation::KnowledgeRead
         | Operation::KnowledgeCollections
         | Operation::KnowledgeCreate
         | Operation::KnowledgeRebuild
@@ -453,6 +455,7 @@ pub(super) fn command(
     }
     let kind = match operation {
         Operation::KnowledgeQuery
+        | Operation::KnowledgeRead
         | Operation::KnowledgeCollections
         | Operation::KnowledgeCreate
         | Operation::KnowledgeRebuild

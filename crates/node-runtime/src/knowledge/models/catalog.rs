@@ -55,6 +55,8 @@ pub(crate) fn builtin(model: Model) -> Option<Definition> {
         }
         .into(),
         license: descriptor.license.into(),
+        query_prefix: None,
+        document_prefix: None,
         format: match model {
             Model::GraniteMulti | Model::BgeSmallZh => Format::Transformer {
                 dimension: descriptor.dimension as u16,

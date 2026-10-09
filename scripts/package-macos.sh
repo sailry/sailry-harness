@@ -10,7 +10,7 @@ task_root="$(cd "$(dirname "$0")/.." && pwd)"
 task_build="$task_root/target/$task_profile"
 task_target="$(rustc -vV | awk '/^host: / {print $2}')"
 task_version="$(awk -F '"' '/^version = "/ {print $2; exit}' "$task_root/apps/desktop/Cargo.toml")"
-task_apple_version="$(python3 "$task_root/scripts/package/versions.py" --apple "$task_version")"
+task_apple_version="$(bash "$task_root/scripts/python.sh" "$task_root/scripts/package/versions.py" --apple "$task_version")"
 task_signing="${SAILRY_SIGNING:-ad-hoc}"
 case "$task_signing" in
   ad-hoc) test "${SAILRY_NOTARIZE:-0}" != 1 ;;
@@ -26,9 +26,9 @@ task_app="$task_output/Sailry.app"
 mkdir -p "$task_app/Contents/MacOS" "$task_app/Contents/Resources" "$task_output/host"
 cp "$task_build/sailry-desktop" "$task_app/Contents/MacOS/sailry-desktop"
 cp "$task_build/sailry-host" "$task_output/host/sailry-host"
-python3 "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
   --output "$task_app/Contents/MacOS" --source "$task_build" --cache "$task_root/target/sherpa-onnx-prebuilt" --speech
-python3 "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
   --output "$task_output/host" --source "$task_build" --cache "$task_root/target/sherpa-onnx-prebuilt"
 cp "$task_root/scripts/host-launchd.sh" "$task_output/host/host-launchd.sh"
 cp "$task_root/scripts/host-command.sh" "$task_output/host/sailry"
@@ -58,7 +58,7 @@ cp "$task_root/Cargo.lock" "$task_output/host/Cargo.lock"
 
 # Sign inside out for distribution; ad hoc bundles remain available for development.
 if test "$task_signing" = developer-id; then
-  python3 "$task_root/scripts/package/sign-macos.py" --app "$task_app" \
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/sign-macos.py" --app "$task_app" \
     --host "$task_output/host" --target "$task_target"
 else
   for task_library in libonnxruntime.dylib libsherpa-onnx-c-api.dylib; do
@@ -66,9 +66,9 @@ else
   done
   codesign --force --sign - "$task_output/host/libonnxruntime.dylib"
   codesign --force --sign - "$task_output/host/sailry-host"
-  python3 "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
     --output "$task_app/Contents/MacOS" --speech --finalize
-  python3 "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
     --output "$task_output/host" --finalize
   codesign --force --sign - "$task_app"
 fi
@@ -77,12 +77,12 @@ codesign --verify --strict "$task_output/host/sailry-host"
 "$task_app/Contents/MacOS/sailry-desktop" --help
 "$task_output/host/sailry-host" --help
 if test "${SAILRY_NOTARIZE:-0}" = 1; then
-  python3 "$task_root/scripts/package/notarize-macos.py" --app "$task_app" --host "$task_output/host"
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/notarize-macos.py" --app "$task_app" --host "$task_output/host"
 fi
 task_dmg="$task_output/Sailry-$task_version-$task_target.dmg"
-python3 "$task_root/scripts/package/dmg.py" --app "$task_app" --output "$task_dmg" --signing "$task_signing"
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/dmg.py" --app "$task_app" --output "$task_dmg" --signing "$task_signing"
 if test "${SAILRY_NOTARIZE:-0}" = 1; then
-  python3 "$task_root/scripts/package/notarize-macos.py" --dmg "$task_dmg"
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/notarize-macos.py" --dmg "$task_dmg"
 fi
 # The existing signed automatic updater consumes ZIP; DMG is the manual installer.
 ditto -c -k --norsrc --keepParent "$task_app" "$task_output/Sailry-$task_version-$task_target.zip"

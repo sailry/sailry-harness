@@ -268,6 +268,11 @@ impl Node {
         self.ingress.web.fixture(host, address);
     }
 
+    #[cfg(feature = "test-support")]
+    pub fn set_web_proxy_fixture(&self, host: &str, proxy: reqwest::Proxy) {
+        self.ingress.web.fixture_proxy(host, proxy);
+    }
+
     /// Replaces a search driver's endpoint with an isolated loopback service.
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_search_fixture(&self, driver: sailry_protocol::search::Driver, endpoint: &str) {

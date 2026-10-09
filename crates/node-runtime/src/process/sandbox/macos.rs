@@ -1,7 +1,40 @@
 //! A native PTY grants access to its own device without broadening process policies.
 use adk_sandbox::sandbox::WrappedCommand;
 use sailry_protocol::{ErrorCode, Fault};
-use std::{fmt::Write as _, os::unix::fs::FileTypeExt, path::Path};
+use std::{
+    fmt::Write as _,
+    os::unix::fs::FileTypeExt,
+    path::{Path, PathBuf},
+};
+
+pub(super) fn protect(command: &mut WrappedCommand, paths: &[PathBuf]) -> Result<(), Fault> {
+    let [flag, profile, _, ..] = command.args.as_mut_slice() else {
+        return Err(unavailable("sandbox wrapper arguments are invalid"));
+    };
+    if flag.as_os_str() != std::ffi::OsStr::new("-p") {
+        return Err(unavailable("sandbox wrapper arguments are invalid"));
+    }
+    let mut policy = profile
+        .to_str()
+        .ok_or_else(|| unavailable("sandbox profile is not valid UTF-8"))?
+        .to_owned();
+    // ReadOnly grants do not subtract ADK's parent ReadWrite grant. These
+    // denials also cover metadata created after command admission.
+    writeln!(
+        policy,
+        r#"(deny file-write* (regex #"(^|/)\.[gG][iI][tT](/|$)"))"#
+    )
+    .expect("writing to a String cannot fail");
+    for path in paths {
+        let path = path
+            .to_str()
+            .ok_or_else(|| unavailable("Git metadata path is not valid UTF-8"))?;
+        writeln!(policy, "(deny file-write* (subpath {}))", literal(path))
+            .expect("writing to a String cannot fail");
+    }
+    *profile = policy.into();
+    Ok(())
+}
 
 pub(super) fn terminal(command: &mut WrappedCommand, device: Option<&Path>) -> Result<(), Fault> {
     let device = device
@@ -135,5 +168,22 @@ mod tests {
             literal("/dev/tty\"\\\n\t\u{7f}"),
             "\"/dev/tty\\\"\\\\\\x0a\\x09\\x7f\""
         );
+    }
+
+    #[test]
+    fn appends_metadata_denials_after_grants() {
+        let mut wrapped = command();
+        let original = wrapped.args[1].to_str().unwrap().to_owned();
+        protect(&mut wrapped, &[PathBuf::from("/work/metadata\"\\name")]).unwrap();
+        let profile = wrapped.args[1].to_str().unwrap();
+        assert_eq!(
+            profile.strip_prefix(&original).unwrap(),
+            concat!(
+                "(deny file-write* (regex #\"(^|/)\\.[gG][iI][tT](/|$)\"))\n",
+                "(deny file-write* (subpath \"/work/metadata\\\"\\\\name\"))\n"
+            )
+        );
+        assert_eq!(wrapped.args[2], "/bin/zsh");
+        assert_eq!(wrapped.args[3], "-l");
     }
 }

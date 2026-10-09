@@ -184,6 +184,8 @@ pub(super) struct Library {
     items: Vec<Item>,
     repository: Option<String>,
     definition: Option<Definition>,
+    query_prefix: Entity<InputState>,
+    document_prefix: Entity<InputState>,
     cursor: Option<String>,
     searched: Option<(Hub, String)>,
     partial: bool,
@@ -208,6 +210,8 @@ pub(super) fn open(
             )
         });
         let version = cx.new(|cx| SelectState::new(Vec::<VersionChoice>::new(), None, window, cx));
+        let query_prefix = cx.new(|cx| InputState::new(window, cx));
+        let document_prefix = cx.new(|cx| InputState::new(window, cx));
         cx.subscribe_in(
             &query,
             window,
@@ -265,6 +269,8 @@ pub(super) fn open(
             items: Vec::new(),
             repository: None,
             definition: None,
+            query_prefix,
+            document_prefix,
             cursor: None,
             searched: None,
             partial: false,
@@ -312,7 +318,17 @@ impl Library {
             return;
         }
         if let Some(definition) = &self.definition {
-            self.target.download(definition.clone(), window, cx);
+            let mut definition = definition.clone();
+            if definition.format.kind() == Kind::Embedding {
+                let prefix = |value: SharedString| (!value.is_empty()).then(|| value.to_string());
+                definition.query_prefix = prefix(self.query_prefix.read(cx).value());
+                definition.document_prefix = prefix(self.document_prefix.read(cx).value());
+            }
+            if definition.validate().is_err() {
+                self.failure(window, cx);
+                return;
+            }
+            self.target.download(definition, window, cx);
         }
     }
     fn failure(&self, window: &mut Window, cx: &mut Context<Self>) {

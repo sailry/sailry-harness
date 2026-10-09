@@ -50,6 +50,8 @@ impl Assets {
             source: source.clone(),
             name: format!("Static {dimension}"),
             license: "MIT".into(),
+            query_prefix: None,
+            document_prefix: None,
             format: Format::Static { dimension },
             assets: contents
                 .iter()

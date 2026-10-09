@@ -1,4 +1,5 @@
 use super::*;
+use sailry_protocol::models::Format;
 
 mod registry;
 
@@ -47,12 +48,12 @@ impl Fixture {
         let (reply, _) = oneshot::channel();
         Work {
             model: Model::BgeSmallZh,
-            format: catalog::builtin(Model::BgeSmallZh).unwrap().format,
+            definition: Arc::new(catalog::builtin(Model::BgeSmallZh).unwrap()),
             revision: 0,
             generation: 0,
             epoch: 0,
             stamp: self.stamp.clone(),
-            input: Input::Encode(vec![text.into()]),
+            input: Input::Encode(sailry_embedding::Input::Query, vec![text.into()]),
             cancel: CancellationToken::new(),
             reply,
         }
@@ -271,7 +272,7 @@ async fn queries_precede_index_batches() {
     let worker::Next::Work(work) = event else {
         panic!("query work expected");
     };
-    let Input::Encode(texts) = work.input else {
+    let Input::Encode(_, texts) = work.input else {
         panic!("encoding input expected");
     };
     assert_eq!(texts, ["query"]);

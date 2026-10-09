@@ -78,8 +78,15 @@ impl Service {
                 let citation = indexed.citation.clone();
                 let captured_root = root.clone();
                 let stop = cancel.clone();
+                let complete = input.context;
                 let text = tokio::task::spawn_blocking(move || {
-                    context(&definition, captured_root.as_deref(), &citation, stop)
+                    context(
+                        &definition,
+                        captured_root.as_deref(),
+                        &citation,
+                        stop,
+                        complete,
+                    )
                 })
                 .await
                 .map_err(|_| unavailable())?;
@@ -165,6 +172,7 @@ fn context(
     root: Option<&Path>,
     citation: &Citation,
     cancel: CancellationToken,
+    complete: bool,
 ) -> Result<String, Fault> {
     let locator = Path::new(&citation.path);
     let (mut scan, relative) = match &definition.source {
@@ -227,9 +235,18 @@ fn context(
                 if document.path != citation.path || document.revision != citation.revision {
                     return Err(changed());
                 }
-                return position(&document.parts, &citation.position);
+                return if complete {
+                    Ok(document
+                        .parts
+                        .iter()
+                        .map(|part| part.text.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n\n"))
+                } else {
+                    position(&document.parts, &citation.position)
+                };
             }
-            source::Entry::Skipped { .. } => return Err(changed()),
+            source::Entry::Cached { .. } | source::Entry::Skipped { .. } => return Err(changed()),
         }
     }
     Err(changed())
@@ -297,5 +314,7 @@ fn page(
         offset: input.offset,
         next_offset: (end < text.len()).then_some(end as u32),
         worktree,
+        context: input.context,
+        untrusted: true,
     })
 }

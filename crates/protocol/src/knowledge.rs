@@ -367,6 +367,9 @@ pub struct CitationRequest {
     pub collection: KnowledgeId,
     pub chunk: String,
     pub revision: String,
+    /// Return the complete source as paged context instead of only its cited position.
+    #[serde(default)]
+    pub context: bool,
     #[serde(default)]
     pub offset: u32,
     #[serde(default = "citation_limit")]
@@ -381,11 +384,7 @@ impl CitationRequest {
                     .bytes()
                     .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         };
-        if !hash(&self.chunk)
-            || !hash(&self.revision)
-            || !(1..=64 * 1024).contains(&self.limit)
-            || self.offset > 32 * 1024 * 1024
-        {
+        if !hash(&self.chunk) || !hash(&self.revision) || !(1..=64 * 1024).contains(&self.limit) {
             return Err(Fault::invalid("invalid knowledge citation request"));
         }
         Ok(())
@@ -400,6 +399,8 @@ pub struct CitationPage {
     pub offset: u32,
     pub next_offset: Option<u32>,
     pub worktree: Option<WorktreeId>,
+    pub context: bool,
+    pub untrusted: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -506,6 +507,7 @@ mod tests {
     #[test]
     fn validates_citation_identity_and_page_bounds() {
         let valid = CitationRequest {
+            context: false,
             collection: KnowledgeId::new(),
             chunk: "1".repeat(64),
             revision: "2".repeat(64),

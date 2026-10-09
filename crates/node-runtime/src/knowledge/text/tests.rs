@@ -24,12 +24,32 @@ fn separates_all_supported_scripts() {
 
 #[test]
 fn preserves_mixed_phrases_and_literals() {
-    let expression = query("AI向量");
+    let expression = phrase("AI向量");
     assert_eq!(expression, "\"AI 向  量 \"");
     assert_eq!(
-        query("title:literal OR secret*"),
+        phrase("title:literal OR secret*"),
         "\"title:literal OR secret*\""
     );
-    assert_eq!(query("\"quoted\""), "\"\"\"quoted\"\"\"");
-    assert!(query("向\" OR secret").contains("\"\" OR secret"));
+    assert_eq!(phrase("\"quoted\""), "\"\"\"quoted\"\"\"");
+    assert!(phrase("向\" OR secret").contains("\"\" OR secret"));
+}
+
+#[test]
+fn separates_literal_words_and_cjk_bigrams() {
+    assert_eq!(
+        query("rust async cancellation"),
+        "\"async\" OR \"cancellation\" OR \"rust\""
+    );
+    assert_eq!(
+        query("AI向量数据库"),
+        "\"AI\" OR \"向量\" OR \"据库\" OR \"数据\" OR \"量数\""
+    );
+    assert_eq!(query("向"), "\"向\"");
+    assert_eq!(query("rust rust"), "\"rust\"");
+    assert_eq!(query("C++ C#"), "\"C#\" OR \"C++\"");
+    assert_eq!(query("\" ( ) * :"), "\"\"");
+    assert_eq!(
+        query("title:literal OR secret*"),
+        "\"OR\" OR \"literal\" OR \"secret\" OR \"title\""
+    );
 }

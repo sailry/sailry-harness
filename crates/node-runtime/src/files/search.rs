@@ -1,6 +1,6 @@
 //! Search traversal adapted from sailry-code 67ae9fa0,
 //! sailry-code-secure-file/src/secure/search.rs (Apache-2.0).
-use super::{Control, open_regular, path, read_bytes, walk};
+use super::{Control, open_regular, path, read_bytes, text, walk};
 use grep_regex::{RegexMatcher, RegexMatcherBuilder};
 use grep_searcher::{Searcher, SearcherBuilder, Sink, SinkContext, SinkMatch};
 use ignore::types::TypesBuilder;
@@ -78,8 +78,12 @@ pub(super) fn search(
         .entries
         .sort_by(|left, right| left.path.cmp(&right.path));
     let next = AtomicUsize::new(0);
+    let workers = std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1)
+        .min(WORKERS);
     let outcomes = std::thread::scope(|scope| {
-        let handles: Vec<_> = (0..WORKERS.min(listing.entries.len()))
+        let handles: Vec<_> = (0..workers.min(listing.entries.len()))
             .map(|_| {
                 scope.spawn(|| {
                     let mut outcomes = Vec::new();
@@ -102,7 +106,7 @@ pub(super) fn search(
                             &mut searcher,
                             control,
                         );
-                        if let Ok(Some(scan)) = &outcome {
+                        if let Ok(scan) = &outcome {
                             retained = retained.saturating_sub(scan.rows.len());
                         }
                         outcomes.push((index, outcome));
@@ -131,13 +135,17 @@ pub(super) fn search(
         for (index, outcome) in outcomes {
             result.scanned_files += 1;
             match outcome {
-                Ok(Some(scan)) => scans.push((index, scan)),
-                Ok(None) => result.skipped += 1,
-                Err(error) => diagnose(&mut result, &listing.entries[index].path, &error.message),
+                Ok(scan) => scans.push((index, scan)),
+                Err(error) => {
+                    result.skipped += 1;
+                    result.partial |= matches!(error.code, ErrorCode::Cancelled | ErrorCode::Busy);
+                    diagnose(&mut result, &listing.entries[index].path, &error.message);
+                }
             }
         }
     }
     if control.check().is_err() {
+        result.partial = true;
         diagnose(
             &mut result,
             &options.path,
@@ -190,7 +198,11 @@ pub(super) fn search(
                             .min(count);
                     match read_page(root, &scan, range, &matcher, &mut searcher, control) {
                         Ok(rows) => result.matches.extend(rows),
-                        Err(error) => diagnose(&mut result, &scan.path, &error.message),
+                        Err(error) => {
+                            result.skipped += 1;
+                            result.partial = true;
+                            diagnose(&mut result, &scan.path, &error.message);
+                        }
                     }
                 }
             }
@@ -249,11 +261,9 @@ fn inspect(
     matcher: &RegexMatcher,
     searcher: &mut Searcher,
     control: &Control,
-) -> Result<Option<FileScan>, Fault> {
+) -> Result<FileScan, Fault> {
     let bytes = bytes(root, relative, control)?;
-    if bytes.contains(&0) || std::str::from_utf8(&bytes).is_err() {
-        return Ok(None);
-    }
+    let decoded = text::decode(&bytes).map_err(|error| Fault::invalid(error.to_string()))?;
     let mut sink = RowSink {
         path: relative,
         control,
@@ -267,15 +277,15 @@ fn inspect(
         rows: Vec::new(),
     };
     searcher
-        .search_slice(matcher, &bytes, &mut sink)
+        .search_slice(matcher, decoded.as_bytes(), &mut sink)
         .map_err(|error| failure(error, control))?;
     control.check()?;
-    Ok(Some(FileScan {
+    Ok(FileScan {
         path: relative.into(),
         count: sink.count,
         revision: blake3::hash(&bytes),
         rows: sink.rows,
-    }))
+    })
 }
 
 fn read_page(
@@ -293,6 +303,7 @@ fn read_page(
             "file changed during search; retry the request",
         ));
     }
+    let decoded = text::decode(&bytes).map_err(|error| Fault::invalid(error.to_string()))?;
     let mut sink = RowSink {
         path: &scan.path,
         control,
@@ -302,7 +313,7 @@ fn read_page(
         rows: Vec::new(),
     };
     searcher
-        .search_slice(matcher, &bytes, &mut sink)
+        .search_slice(matcher, decoded.as_bytes(), &mut sink)
         .map_err(|error| failure(error, control))?;
     Ok(sink.rows)
 }
@@ -370,8 +381,6 @@ fn failure(error: io::Error, control: &Control) -> Fault {
 }
 
 fn diagnose(result: &mut SearchResults, path: &str, message: &str) {
-    result.skipped += 1;
-    result.partial = true;
     if result.diagnostics.len() < 100 {
         result.diagnostics.push(SearchDiagnostic {
             path: path.into(),

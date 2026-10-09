@@ -9,6 +9,29 @@ struct Frame {
     ignore: Option<Gitignore>,
 }
 
+#[derive(Clone)]
+pub(in crate::knowledge) struct Watch {
+    pub relative: String,
+    layers: Vec<Gitignore>,
+    file: Option<String>,
+    ignore_file: bool,
+}
+
+impl Watch {
+    pub(in crate::knowledge) fn accepts(&self, name: &str, directory: bool) -> bool {
+        if ignores::excluded(name) {
+            return false;
+        }
+        if name == ".gitignore" && self.ignore_file {
+            return true;
+        }
+        if self.file.as_deref().is_some_and(|file| file != name) {
+            return false;
+        }
+        !ignores::excludes(self.layers.iter(), &join(&self.relative, name), directory)
+    }
+}
+
 impl Frame {
     fn new(directory: Dir, relative: String, cancel: &CancellationToken) -> Result<Self, Fault> {
         let ignore = ignores::load(&directory, &relative, cancel)?;
@@ -30,6 +53,8 @@ pub(in crate::knowledge) struct Scan {
     base: Option<PathBuf>,
     cancel: CancellationToken,
     finished: bool,
+    incomplete: bool,
+    watches: Vec<Watch>,
 }
 
 impl Scan {
@@ -47,6 +72,8 @@ impl Scan {
             base,
             cancel,
             finished: false,
+            incomplete: false,
+            watches: Vec::new(),
         };
         let mut relative = String::new();
         for (index, name) in components.iter().enumerate() {
@@ -54,6 +81,12 @@ impl Scan {
             if let Some(layer) = ignores::load(&directory, &relative, &scan.cancel)? {
                 scan.inherited.push(layer);
             }
+            scan.watches.push(Watch {
+                relative: relative.clone(),
+                layers: scan.inherited.iter().rev().cloned().collect(),
+                file: Some((*name).into()),
+                ignore_file: true,
+            });
             relative = join(&relative, name);
             if ignores::excluded(name) {
                 return Err(Fault::new(
@@ -68,7 +101,7 @@ impl Scan {
                 ));
             }
             if ignores::excludes(scan.inherited.iter().rev(), &relative, metadata.is_dir()) {
-                scan.omitted = Some(skipped(
+                scan.omitted = Some(excluded(
                     scan.locator(&relative),
                     "source is excluded by .gitignore",
                 ));
@@ -89,6 +122,7 @@ impl Scan {
         }
         scan.frames
             .push(Frame::new(directory, relative, &scan.cancel)?);
+        scan.watch_frame();
         Ok(scan)
     }
 
@@ -115,6 +149,13 @@ impl Scan {
             base,
             cancel,
             finished: false,
+            incomplete: false,
+            watches: vec![Watch {
+                relative: String::new(),
+                layers: Vec::new(),
+                file: Some(name.into()),
+                ignore_file: false,
+            }],
         })
     }
 
@@ -125,23 +166,67 @@ impl Scan {
         }
     }
 
-    fn extract(&mut self, target: Target) -> Result<Entry, Fault> {
+    fn watch_frame(&mut self) {
+        let frame = self.frames.last().expect("scanned directory has a frame");
+        self.watches.push(Watch {
+            relative: frame.relative.clone(),
+            layers: self
+                .frames
+                .iter()
+                .rev()
+                .filter_map(|frame| frame.ignore.clone())
+                .chain(self.inherited.iter().rev().cloned())
+                .collect(),
+            file: None,
+            ignore_file: true,
+        });
+    }
+
+    fn watch_ignore(&mut self, relative: String) {
+        self.watches.push(Watch {
+            relative,
+            layers: self
+                .frames
+                .iter()
+                .rev()
+                .filter_map(|frame| frame.ignore.clone())
+                .chain(self.inherited.iter().rev().cloned())
+                .collect(),
+            file: Some(".gitignore".into()),
+            ignore_file: true,
+        });
+    }
+
+    pub(in crate::knowledge) fn take_watches(&mut self) -> Vec<Watch> {
+        std::mem::take(&mut self.watches)
+    }
+
+    fn extract(
+        &mut self,
+        target: Target,
+        reuse: &mut impl FnMut(&str, Stat) -> Result<bool, Fault>,
+    ) -> Result<Entry, Fault> {
         let path = self.locator(&target.relative);
-        match read::document(target, path.clone(), &self.cancel) {
-            Ok(document) => Ok(Entry::Document(document)),
-            Err(error) if error.code == ErrorCode::Cancelled => Err(error),
+        match read::document(target, path.clone(), &self.cancel, reuse) {
+            Ok(entry) => Ok(entry),
+            Err(error) if error.code != ErrorCode::InvalidRequest => Err(error),
             Err(error) => Ok(skipped(path, error.message)),
         }
     }
 
-    fn advance(&mut self) -> Result<Option<Entry>, Fault> {
+    fn advance(
+        &mut self,
+        reuse: &mut impl FnMut(&str, Stat) -> Result<bool, Fault>,
+        watch: &mut impl FnMut(Vec<Watch>),
+    ) -> Result<Option<Entry>, Fault> {
         loop {
             cancelled(&self.cancel)?;
+            watch(self.take_watches());
             if let Some(entry) = self.omitted.take() {
                 return Ok(Some(entry));
             }
             if let Some(target) = self.pending.take() {
-                return self.extract(target).map(Some);
+                return self.extract(target, reuse).map(Some);
             }
             let Some(frame) = self.frames.last_mut() else {
                 return Ok(None);
@@ -162,19 +247,19 @@ impl Scan {
                         )));
                     }
                 },
-                Err(error) => return Ok(Some(skipped(self.locator(&parent), error))),
+                Err(error) => return Err(files::io_error(error)),
             };
             let relative = join(&parent, &name);
             let path = self.locator(&relative);
             if ignores::excluded(&name) {
-                return Ok(Some(skipped(path, "protected source path")));
+                return Ok(Some(excluded(path, "protected source path")));
             }
             if files::path::components(&name, false).is_err() {
                 return Ok(Some(skipped(path, "unsupported source entry name")));
             }
             let metadata = match directory.symlink_metadata(&name) {
                 Ok(metadata) => metadata,
-                Err(error) => return Ok(Some(skipped(path, error))),
+                Err(error) => return Err(files::io_error(error)),
             };
             if metadata.is_symlink() || (!metadata.is_file() && !metadata.is_dir()) {
                 return Ok(Some(skipped(
@@ -189,40 +274,64 @@ impl Scan {
                 .filter_map(|frame| frame.ignore.as_ref())
                 .chain(self.inherited.iter().rev());
             if ignores::excludes(layers, &relative, metadata.is_dir()) {
-                return Ok(Some(skipped(path, "source is excluded by .gitignore")));
+                return Ok(Some(excluded(path, "source is excluded by .gitignore")));
             }
             if metadata.is_dir() {
                 if self.frames.len() >= 64 {
-                    return Ok(Some(skipped(path, "directory nesting exceeds 64 levels")));
+                    return Err(Fault::invalid("directory nesting exceeds 64 levels"));
                 }
                 let child = files::path::descend(directory, &[&name])
-                    .and_then(|directory| Frame::new(directory, relative, &self.cancel));
+                    .and_then(|directory| Frame::new(directory, relative.clone(), &self.cancel));
                 match child {
-                    Ok(frame) => self.frames.push(frame),
-                    Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
-                    Err(error) => return Ok(Some(skipped(path, error.message))),
+                    Ok(frame) => {
+                        self.frames.push(frame);
+                        self.watch_frame();
+                    }
+                    Err(error) if error.code == ErrorCode::InvalidRequest => {
+                        self.incomplete = true;
+                        self.watch_ignore(relative);
+                        watch(self.take_watches());
+                        return Ok(Some(skipped(path, error.message)));
+                    }
+                    Err(error) => return Err(error),
                 }
                 continue;
             }
             return self
-                .extract(Target {
-                    directory,
-                    name,
-                    relative,
-                })
+                .extract(
+                    Target {
+                        directory,
+                        name,
+                        relative,
+                    },
+                    reuse,
+                )
                 .map(Some);
         }
     }
 }
 
-impl Iterator for Scan {
-    type Item = Result<Entry, Fault>;
+impl Scan {
+    pub(in crate::knowledge) fn complete(&self) -> bool {
+        self.finished && !self.incomplete
+    }
 
-    fn next(&mut self) -> Option<Self::Item> {
+    pub(in crate::knowledge) fn next_cached(
+        &mut self,
+        reuse: &mut impl FnMut(&str, Stat) -> Result<bool, Fault>,
+    ) -> Option<Result<Entry, Fault>> {
+        self.next_watched(reuse, &mut |_| {})
+    }
+
+    pub(in crate::knowledge) fn next_watched(
+        &mut self,
+        reuse: &mut impl FnMut(&str, Stat) -> Result<bool, Fault>,
+        watch: &mut impl FnMut(Vec<Watch>),
+    ) -> Option<Result<Entry, Fault>> {
         if self.finished {
             return None;
         }
-        match self.advance() {
+        match self.advance(reuse, watch) {
             Ok(Some(entry)) => Some(Ok(entry)),
             Ok(None) => {
                 self.finished = true;
@@ -233,6 +342,14 @@ impl Iterator for Scan {
                 Some(Err(error))
             }
         }
+    }
+}
+
+impl Iterator for Scan {
+    type Item = Result<Entry, Fault>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_cached(&mut |_, _| Ok(false))
     }
 }
 

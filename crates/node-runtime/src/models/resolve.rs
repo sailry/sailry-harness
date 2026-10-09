@@ -7,6 +7,8 @@ use sailry_protocol::{
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+mod prefixes;
+
 pub(super) async fn definition(
     http: &Http,
     kind: Kind,
@@ -18,8 +20,16 @@ pub(super) async fn definition(
         Hub::HuggingFace => huggingface::repository(http, source, cancel).await?,
         Hub::ModelScope => modelscope::repository(http, source, cancel).await?,
     };
+    let (query_prefix, document_prefix) = match kind {
+        Kind::Embedding => prefixes::read(http, &repository, cancel).await?,
+        Kind::Speech => (None, None),
+    };
+    let has_prefix = [&query_prefix, &document_prefix]
+        .into_iter()
+        .flatten()
+        .any(|value| !value.is_empty());
     let (format, assets) = match kind {
-        Kind::Embedding => embedding(http, &repository, cancel).await?,
+        Kind::Embedding => embedding(http, &repository, has_prefix, cancel).await?,
         Kind::Speech => speech(http, &repository, cancel).await?,
     };
     let definition = Definition {
@@ -27,6 +37,8 @@ pub(super) async fn definition(
         name: repository.name,
         license: repository.license,
         format,
+        query_prefix,
+        document_prefix,
         assets,
     };
     definition.validate()?;
@@ -36,6 +48,7 @@ pub(super) async fn definition(
 async fn embedding(
     http: &Http,
     repository: &Repository,
+    has_prefix: bool,
     cancel: &CancellationToken,
 ) -> Result<(Format, Vec<Asset>), Fault> {
     let config = required(repository, "config.json")?;
@@ -62,7 +75,7 @@ async fn embedding(
         ));
     }
     let dimension = dimension(&value, "hidden_size")?;
-    let pooling = pooling(http, repository, &value, dimension, cancel).await?;
+    let pooling = pooling(http, repository, &value, dimension, has_prefix, cancel).await?;
     let token_types = match value.get("type_vocab_size") {
         None => false,
         Some(value) => {
@@ -128,6 +141,7 @@ async fn pooling(
     repository: &Repository,
     config: &Value,
     dimension: u16,
+    has_prefix: bool,
     cancel: &CancellationToken,
 ) -> Result<Pooling, Fault> {
     let mut path = repository
@@ -179,6 +193,19 @@ async fn pooling(
     if let Some(path) = path {
         let file = required(repository, &path)?;
         let (value, _) = json(http, file, "metadata.json", cancel).await?;
+        if has_prefix
+            && value
+                .get("pooling_mode_mean_tokens")
+                .and_then(Value::as_bool)
+                == Some(true)
+            && value
+                .get("include_prompt")
+                .is_some_and(|value| value.as_bool() != Some(true))
+        {
+            return Err(Fault::invalid(
+                "model requires excluding prompt tokens from pooling",
+            ));
+        }
         if value
             .get("word_embedding_dimension")
             .and_then(Value::as_u64)

@@ -1,7 +1,7 @@
 use super::*;
 use index::{Document, Index};
 use source::Entry;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod documents;
 mod watches;
@@ -14,9 +14,7 @@ pub(super) fn run(
 ) {
     sailry_embedding::background();
     let mut watches = watches::Watches::new(owner.clone());
-    while let Ok(()) | Err(mpsc::RecvTimeoutError::Timeout) =
-        receiver.recv_timeout(Duration::from_secs(30))
-    {
+    while wake(&receiver, watches.needs_poll()) {
         let Some(service) = owner.upgrade() else {
             break;
         };
@@ -29,10 +27,42 @@ pub(super) fn run(
             .expect("knowledge cancellation lock is healthy")
             .clone();
         let result = pass(&service, &mut index, &runtime, &mut watches, &cancel);
+        if result.is_err() {
+            watches.finish(false);
+        }
         if let Err(error) = result
             && !service.stop.is_cancelled()
+            && error.code != ErrorCode::Cancelled
         {
             eprintln!("knowledge catalog is unavailable: {}", error.message);
+        }
+    }
+}
+
+fn wake(receiver: &mpsc::Receiver<()>, poll: bool) -> bool {
+    let received = if poll {
+        match receiver.recv_timeout(Duration::from_secs(5 * 60)) {
+            Ok(()) => true,
+            Err(mpsc::RecvTimeoutError::Timeout) => return true,
+            Err(mpsc::RecvTimeoutError::Disconnected) => return false,
+        }
+    } else {
+        receiver.recv().is_ok()
+    };
+    if !received {
+        return false;
+    }
+    let started = Instant::now();
+    loop {
+        // Finish a burst after a quiet interval, with a bound for continuous edits.
+        let remaining = Duration::from_secs(1).saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return true;
+        }
+        match receiver.recv_timeout(remaining.min(Duration::from_millis(250))) {
+            Ok(()) => {}
+            Err(mpsc::RecvTimeoutError::Timeout) => return true,
+            Err(mpsc::RecvTimeoutError::Disconnected) => return false,
         }
     }
 }
@@ -44,6 +74,7 @@ fn pass(
     watches: &mut watches::Watches,
     cancel: &CancellationToken,
 ) -> Result<(), Fault> {
+    watches.begin();
     let ingress = service.ingress.upgrade().ok_or_else(unavailable)?;
     let catalog = runtime.block_on(ingress.knowledge_catalog())?;
     service
@@ -61,7 +92,7 @@ fn pass(
         .map(|stored| stored.collection.id)
         .collect::<Vec<_>>();
     index.retain(&current)?;
-    let mut roots = BTreeSet::new();
+    let mut complete = true;
     let batch = Batch {
         service,
         ingress: &ingress,
@@ -73,8 +104,9 @@ fn pass(
     };
     for stored in &catalog.collections {
         cancelled(cancel)?;
-        if let Err(error) = collection(&batch, index, stored, &mut roots) {
+        if let Err(error) = collection(&batch, index, stored, watches) {
             cancelled(cancel)?;
+            complete = false;
             eprintln!(
                 "knowledge indexing paused for {}: {}",
                 stored.collection.id, error.message
@@ -97,7 +129,7 @@ fn pass(
         }
     }
     cancelled(cancel)?;
-    watches.replace(roots);
+    watches.finish(complete);
     Ok(())
 }
 
@@ -115,7 +147,7 @@ fn collection(
     batch: &Batch<'_>,
     index: &mut Index,
     stored: &Stored,
-    roots: &mut BTreeSet<PathBuf>,
+    watches: &mut watches::Watches,
 ) -> Result<(), Fault> {
     let Batch {
         service,
@@ -162,7 +194,7 @@ fn collection(
         model: available,
         generation: binding.generation,
     };
-    runtime.block_on(ingress.knowledge_progress(binding.id, binding.generation, &progress))?;
+    let mut active = false;
     let filters = stored
         .collection
         .definition
@@ -205,6 +237,7 @@ fn collection(
                     progress.sources += 1;
                     locators.push(document.locator.clone());
                     if !index.unchanged(binding, &document)? {
+                        starting(batch, binding, &progress, &mut active)?;
                         let parts = encoding.parts(
                             &record.title,
                             &record.body,
@@ -240,19 +273,55 @@ fn collection(
             };
             let watch = match source {
                 Source::Worktree { .. } => root.clone(),
-                Source::Directory { path } => Some(PathBuf::from(path)),
-                Source::File { path } => Path::new(path).parent().map(Path::to_owned),
+                Source::Directory { path } => Some(source::native(path)?),
+                Source::File { path } => source::native(path)?.parent().map(Path::to_owned),
                 Source::Storage { .. } => None,
-            };
-            if let Some(watch) = watch {
-                roots.insert(watch);
             }
-            let scan = documents::scan(source, root.as_deref(), cancel.clone())?;
-            let mut last_progress = std::time::Instant::now();
-            for entry in scan {
+            .ok_or_else(unavailable)?;
+            let mut scan = documents::scan(source, root.as_deref(), cancel.clone())?;
+            watches.add(&watch, scan.take_watches());
+            let matches = |path: &str| {
+                filters.is_empty()
+                    || filters
+                        .iter()
+                        .any(|filter| filter.is_match(documents::relative(source, path)))
+            };
+            let mut last_progress = Instant::now();
+            loop {
+                let entry = scan.next_watched(
+                    &mut |path, stat| {
+                        if !matches(path) {
+                            return Ok(true);
+                        }
+                        let cached = index.cached(
+                            binding,
+                            path,
+                            stat,
+                            &stored.collection.definition.tags,
+                            available.is_some(),
+                        )?;
+                        if !cached {
+                            starting(batch, binding, &progress, &mut active)?;
+                        }
+                        Ok(cached)
+                    },
+                    &mut |found| watches.add(&watch, found),
+                );
+                let Some(entry) = entry else {
+                    break;
+                };
                 cancelled(cancel)?;
                 match entry? {
-                    Entry::Skipped { path, reason } => {
+                    Entry::Cached { path } => {
+                        if !matches(&path) {
+                            continue;
+                        }
+                        progress.sources += 1;
+                        progress.completed += 1;
+                        locators.push(path);
+                    }
+                    Entry::Skipped { excluded: true, .. } => {}
+                    Entry::Skipped { path, reason, .. } => {
                         progress.skipped += 1;
                         eprintln!(
                             "knowledge source skipped for {} ({path}): {reason}",
@@ -260,10 +329,7 @@ fn collection(
                         );
                     }
                     Entry::Document(document) => {
-                        let relative = documents::relative(source, &document.path);
-                        if !filters.is_empty()
-                            && !filters.iter().any(|filter| filter.is_match(relative))
-                        {
+                        if !matches(&document.path) {
                             continue;
                         }
                         progress.sources += 1;
@@ -276,6 +342,7 @@ fn collection(
                             tags: stored.collection.definition.tags.clone(),
                         };
                         if !index.unchanged(binding, &indexed)? {
+                            starting(batch, binding, &progress, &mut active)?;
                             let mut parts = Vec::new();
                             for part in &document.parts {
                                 parts.extend(encoding.parts(
@@ -306,18 +373,25 @@ fn collection(
                             }
                             index.replace(binding, &indexed, &parts)?;
                         }
+                        index.remember(binding, &document.path, document.stat)?;
                         progress.completed += 1;
                     }
                 }
-                if last_progress.elapsed() >= Duration::from_millis(500) {
+                if active && last_progress.elapsed() >= Duration::from_millis(500) {
                     progress.chunks = index.counts(binding)?.1;
                     runtime.block_on(ingress.knowledge_progress(
                         binding.id,
                         binding.generation,
                         &progress,
                     ))?;
-                    last_progress = std::time::Instant::now();
+                    last_progress = Instant::now();
                 }
+            }
+            if !scan.complete() {
+                return Err(Fault::new(
+                    ErrorCode::Unavailable,
+                    "knowledge source scan was incomplete",
+                ));
             }
         }
     }
@@ -329,6 +403,26 @@ fn collection(
     runtime.block_on(ingress.knowledge_progress(binding.id, binding.generation, &progress))?;
     Ok(())
 }
+
+fn starting(
+    batch: &Batch<'_>,
+    binding: index::Binding,
+    progress: &Progress,
+    active: &mut bool,
+) -> Result<(), Fault> {
+    if !*active {
+        batch.runtime.block_on(batch.ingress.knowledge_progress(
+            binding.id,
+            binding.generation,
+            progress,
+        ))?;
+        *active = true;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;
 
 fn cancelled(cancel: &CancellationToken) -> Result<(), Fault> {
     if cancel.is_cancelled() {

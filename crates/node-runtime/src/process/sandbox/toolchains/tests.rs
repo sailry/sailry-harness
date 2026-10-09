@@ -538,22 +538,65 @@ async fn runs_developer_tools_with_private_cache() {
     );
     let url = url::Url::from_directory_path(&source).unwrap();
     let target = fixture.root.join("checkout");
-    fixture
-        .git(
-            &environment,
-            &sandbox,
-            &[
-                "-c".as_ref(),
-                "protocol.file.allow=always".as_ref(),
-                "clone".as_ref(),
-                "--quiet".as_ref(),
-                "--no-hardlinks".as_ref(),
-                "--".as_ref(),
-                url.as_str().as_ref(),
-                target.as_os_str(),
-            ],
-        )
-        .await;
+    let arguments = [
+        "-c".as_ref(),
+        "protocol.file.allow=always".as_ref(),
+        "clone".as_ref(),
+        "--quiet".as_ref(),
+        "--no-hardlinks".as_ref(),
+        "--".as_ref(),
+        url.as_str().as_ref(),
+        target.as_os_str(),
+    ];
+    let command = || {
+        let mut command = tokio::process::Command::new("/usr/bin/git");
+        environment.apply(&mut command);
+        command
+            .current_dir(&fixture.root)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .args(["--no-pager", "-c", "core.hooksPath=/dev/null"])
+            .args(arguments);
+        command.kill_on_drop(true);
+        command
+    };
+    let denied = tokio::time::timeout(
+        Duration::from_secs(5),
+        sandbox.command(command()).unwrap().output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(!denied.status.success(), "{denied:?}");
+    let diagnostics = String::from_utf8_lossy(&denied.stderr);
+    let denial = format!("{}: Operation not permitted", target.join(".git").display());
+    assert!(
+        diagnostics.lines().any(|line| line == denial),
+        "{diagnostics}"
+    );
+    let developer = diagnostics
+        .lines()
+        .filter(|line| *line != denial)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(developer_diagnostics(&developer), "{diagnostics}");
+    assert!(!target.join(".git").exists());
+    let mut request = fixture.launch();
+    request.access = Access::Unrestricted;
+    assert!(
+        Sandbox::prepare(&request, &environment, Some(&source))
+            .unwrap()
+            .is_none()
+    );
+    let cloned = tokio::time::timeout(Duration::from_secs(5), command().output())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(cloned.status.success(), "{cloned:?}");
+    let sandbox = Sandbox::prepare(&fixture.launch(), &environment, Some(&source))
+        .unwrap()
+        .unwrap();
     assert_eq!(
         std::fs::read_to_string(target.join("readme.txt")).unwrap(),
         "source content\n"

@@ -108,7 +108,7 @@ async fn execute(
     let previous = loaded.take();
     let directory = files::directory(&owner.root, work.model);
     let model = work.model;
-    let format = work.format;
+    let definition = work.definition.clone();
     let epoch = work.epoch;
     let stamp = work.stamp.clone();
     let input = work.input.clone();
@@ -121,8 +121,8 @@ async fn execute(
             }
             previous => {
                 drop(previous);
-                let engine =
-                    sailry_embedding::Engine::load_format(format, &directory).map_err(failure)?;
+                let engine = sailry_embedding::Engine::load_definition(&definition, &directory)
+                    .map_err(failure)?;
                 Loaded {
                     model,
                     epoch,
@@ -133,11 +133,11 @@ async fn execute(
             }
         };
         let result = match input {
-            Input::Encode(texts) => {
+            Input::Encode(purpose, texts) => {
                 let inputs = texts.iter().map(String::as_str).collect::<Vec<_>>();
                 loaded
                     .engine
-                    .encode(&inputs)
+                    .encode_for(purpose, &inputs)
                     .map(Output::Vectors)
                     .map_err(failure)
             }

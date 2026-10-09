@@ -288,3 +288,60 @@ async fn shares_installation_restore_and_isolated_removal() {
         node.shutdown().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn preserves_prefixes_through_registration_and_retrieval() {
+    for remote in [false, true] {
+        let fixture = Fixture::start().await;
+        let client = fixture
+            .clients()
+            .into_iter()
+            .nth(usize::from(remote))
+            .unwrap();
+        let mut assets = fixture::Assets::new(2, &[100., 0., 1., 0., 0., 1.]);
+        assets.definition.query_prefix = Some("beta ".into());
+        assets.definition.document_prefix = Some("alpha ".into());
+        let model = register(&client, &assets.definition).await;
+        let mut other = assets.definition.clone();
+        other.query_prefix = None;
+        assert_ne!(register(&client, &other).await, model);
+        let profile = fixture.temp.path().join("node");
+        assets.seed(&profile, model);
+        assert_eq!(
+            execute(&client, Command::InstallKnowledgeModel { model }).await,
+            Output::KnowledgeModel { model }
+        );
+        let corpus = fixture.root.join("prefixes");
+        fs::create_dir(&corpus).unwrap();
+        fs::write(corpus.join("alpha.txt"), "alpha").unwrap();
+        fs::write(corpus.join("beta.txt"), "beta").unwrap();
+        let mut definition = definition(Source::Worktree {
+            worktree: fixture.worktree,
+            path: "prefixes".into(),
+        });
+        definition.model = Some(model);
+        let collection = saved(
+            execute(
+                &client,
+                Command::CreateKnowledgeCollection {
+                    definition,
+                    plugin: None,
+                },
+            )
+            .await,
+        );
+        ready(&client, collection.id, Some(model)).await;
+        let mut input = query("alpha", collection.id);
+        input.mode = Mode::Semantic;
+        let page = search(&client, None, input).await;
+        assert_eq!(page.mode, Mode::Semantic);
+        assert_eq!(page.model, Some(model));
+        assert_eq!(page.hits.len(), 2);
+        assert_eq!(page.hits[0].text, "beta");
+        assert_eq!(page.hits[0].score, 1_000_000);
+        assert_eq!(page.hits[1].text, "alpha");
+        assert!(page.hits[1].score.abs_diff(707_107) < 10_000);
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}

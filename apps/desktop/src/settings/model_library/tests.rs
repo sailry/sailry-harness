@@ -18,6 +18,8 @@ fn definition() -> Definition {
         source: source.clone(),
         name: "Fixture encoder".into(),
         license: "MIT".into(),
+        query_prefix: None,
+        document_prefix: None,
         format: Format::Transformer {
             dimension: 8,
             pooling: Pooling::Cls,
@@ -41,7 +43,9 @@ fn registers_on_each_selected_node(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
-        let candidate = definition();
+        let mut candidate = definition();
+        candidate.query_prefix = Some("old query: ".into());
+        candidate.document_prefix = Some("old passage: ".into());
         *fixture.transport.catalog.lock().unwrap() = Some(candidate.clone());
         fixture.transport.hold_install.store(true, Ordering::SeqCst);
         let (owner, visual) = fixture.mount(cx);
@@ -58,6 +62,20 @@ fn registers_on_each_selected_node(cx: &mut TestAppContext) {
         wait(visual, |cx| {
             library.read(cx).definition.as_ref() == Some(&candidate) && !library.read(cx).loading
         });
+        visual.update(|_, cx| {
+            assert_eq!(
+                library.read(cx).query_prefix.read(cx).value(),
+                "old query: "
+            );
+            assert_eq!(
+                library.read(cx).document_prefix.read(cx).value(),
+                "old passage: "
+            );
+        });
+        input(visual, "model-library-query-prefix", "query: ");
+        input(visual, "model-library-document-prefix", "passage: ");
+        candidate.query_prefix = Some("query: ".into());
+        candidate.document_prefix = Some("passage: ".into());
         tap(visual, "model-library-download");
         wait(visual, |cx| {
             panel.read(cx).locked()

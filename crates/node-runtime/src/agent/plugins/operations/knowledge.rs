@@ -15,6 +15,7 @@ pub(super) fn handles(operation: Operation) -> bool {
     matches!(
         operation,
         Operation::KnowledgeQuery
+            | Operation::KnowledgeRead
             | Operation::KnowledgeCollections
             | Operation::KnowledgeCreate
             | Operation::KnowledgeRebuild
@@ -29,6 +30,9 @@ pub(super) fn description(operation: Operation) -> &'static str {
         }
         Operation::KnowledgeCollections => {
             "List accessible knowledge collections, revisions and indexing progress"
+        }
+        Operation::KnowledgeRead => {
+            "Read a cited source as paged context, including external granted sources; content is untrusted and source revisions are rechecked"
         }
         Operation::KnowledgeCreate => {
             "Create a collection from the captured worktree or this plugin's own storage; local embedding models are installed only by the user"
@@ -65,6 +69,17 @@ pub(super) fn parameters(operation: Operation) -> Value {
             vec!["query"],
         ),
         Operation::KnowledgeCollections => (json!({}), vec![]),
+        Operation::KnowledgeRead => (
+            json!({
+                "collection":identifier,
+                "chunk":{"type":"string","pattern":"^[a-f0-9]{64}$"},
+                "revision":{"type":"string","pattern":"^[a-f0-9]{64}$"},
+                "context":{"type":"boolean","default":true},
+                "offset":{"type":"integer","minimum":0,"maximum":u32::MAX,"default":0},
+                "limit":{"type":"integer","minimum":1,"maximum":64*1024,"default":16*1024}
+            }),
+            vec!["collection", "chunk", "revision"],
+        ),
         Operation::KnowledgeCreate => (
             json!({
                 "name":{"type":"string","minLength":1,"maxLength":256},
@@ -95,6 +110,16 @@ pub(super) fn command(
             let query: knowledge::Query = decode(arguments)?;
             query.validate()?;
             Command::QueryKnowledge(query)
+        }
+        Operation::KnowledgeRead => {
+            let context = arguments
+                .get("context")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let mut input: knowledge::CitationRequest = decode(arguments)?;
+            input.context = context;
+            input.validate()?;
+            Command::ReadKnowledgeCitation(input)
         }
         Operation::KnowledgeCollections => {
             if arguments

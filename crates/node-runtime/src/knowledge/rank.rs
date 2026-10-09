@@ -1,7 +1,10 @@
 //! Fuse already-filtered candidate ranks without mixing incomparable raw scores.
 use std::collections::BTreeMap;
 
-const OFFSET: f32 = 60.;
+// Broad keyword queries can match most candidates through incidental terms.
+// A top rank must outweigh agreement near the tail of those candidate lists,
+// while agreement at rank two still outweighs one rank-one result.
+const OFFSET: f32 = 1.;
 
 pub(super) fn fuse(keyword: &[String], semantic: &[String]) -> Vec<(String, f32)> {
     let mut scores = BTreeMap::<String, f32>::new();
@@ -40,12 +43,31 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["shared", "a", "b"]
         );
-        assert!((ranked[0].1 - 2. / 62.).abs() < f32::EPSILON);
+        assert!((ranked[0].1 - 2. / 3.).abs() < f32::EPSILON);
     }
 
     #[test]
     fn counts_each_candidate_once_per_source() {
         let ranked = fuse(&["a".into(), "a".into()], &[]);
-        assert_eq!(ranked, [("a".into(), 1. / 61.)]);
+        assert_eq!(ranked, [("a".into(), 1. / 2.)]);
+    }
+
+    #[test]
+    fn preserves_top_rank_amid_noisy_overlap() {
+        let keyword = (0..30)
+            .map(|rank| format!("noise-{rank:02}"))
+            .collect::<Vec<_>>();
+        let semantic = std::iter::once(String::from("relevant"))
+            .chain(keyword.iter().rev().cloned())
+            .collect::<Vec<_>>();
+        let ranked = fuse(&keyword, &semantic);
+        assert_eq!(ranked.len(), 31);
+        assert!(ranked.iter().take(2).any(|(key, _)| key == "relevant"));
+        assert!(ranked.iter().take(2).any(|(key, _)| key == "noise-00"));
+        assert!(
+            ranked
+                .iter()
+                .all(|(_, score)| score.is_finite() && *score > 0.)
+        );
     }
 }

@@ -123,6 +123,7 @@ async fn reads_raw_values_and_explicitly_shared_citations() {
             &client,
             &owner,
             Command::ReadKnowledgeCitation(CitationRequest {
+                context: false,
                 collection: citation.collection,
                 chunk: citation.chunk.clone(),
                 revision: citation.revision.clone(),
@@ -225,6 +226,7 @@ async fn reads_raw_values_and_explicitly_shared_citations() {
             .execute(
                 client
                     .prepare(Command::ReadKnowledgeCitation(CitationRequest {
+                        context: false,
                         collection: citation.collection,
                         chunk: citation.chunk.clone(),
                         revision: citation.revision.clone(),

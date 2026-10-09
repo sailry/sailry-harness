@@ -42,12 +42,13 @@ pub(super) fn unchanged(
             path: document.path.clone(),
         },
     };
-    for entry in scan(&selected, root, cancel)? {
-        if let Entry::Document(current) = entry? {
-            return Ok(current.path == document.path
-                && current.revision == document.revision
-                && current.modified_ms == document.modified_ms);
-        }
+    let mut scan = scan(&selected, root, cancel)?;
+    // Recheck the retained metadata witness after encoding. Citations always reread
+    // the bytes; uncooperative writers preserving size and time evade this witness.
+    if let Some(entry) =
+        scan.next_cached(&mut |path, stat| Ok(path == document.path && stat == document.stat))
+    {
+        return Ok(matches!(entry?, Entry::Cached { path } if path == document.path));
     }
     Ok(false)
 }
@@ -110,6 +111,7 @@ impl Encoding<'_> {
                     model,
                     self.revision,
                     batch.iter().map(|part| part.text.clone()).collect(),
+                    sailry_embedding::Input::Document,
                     models::Lane::Index,
                     self.cancel,
                 ))?;

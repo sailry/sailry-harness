@@ -1,6 +1,6 @@
 use super::*;
 #[path = "../../../tests/support/web.rs"]
-mod server;
+pub(super) mod server;
 
 fn owner(server: &server::Server) -> Arc<Fetcher> {
     let owner = Arc::new(Fetcher::default());

@@ -5,6 +5,7 @@ use sailry_protocol::{ErrorCode, Fault, KnowledgeId, knowledge::*};
 use std::{cmp::Ordering, collections::BinaryHeap, path::Path};
 
 mod citations;
+mod files;
 mod query;
 pub(super) use citations::Record;
 #[cfg(test)]
@@ -200,6 +201,8 @@ impl Index {
                 params![binding.id.to_string(), document.locator],
                 |row| row.get(0),
             )
+            .map_err(error)?;
+        tx.execute("DELETE FROM file_stamps WHERE source=?1", [source])
             .map_err(error)?;
         tx.execute("DELETE FROM chunks WHERE source=?1", [source])
             .map_err(error)?;

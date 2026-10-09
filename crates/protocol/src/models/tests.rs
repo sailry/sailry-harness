@@ -16,6 +16,8 @@ fn definition(format: Format) -> Definition {
         source: source.clone(),
         name: "Example model".into(),
         license: "Apache-2.0".into(),
+        query_prefix: None,
+        document_prefix: None,
         format,
         assets: names
             .iter()
@@ -165,4 +167,31 @@ fn roundtrips_hubs_and_formats() {
             assert!(serde_json::from_value::<Definition>(invalid).is_err());
         }
     }
+}
+
+#[test]
+fn preserves_optional_input_prefixes() {
+    let mut model = definition(transformer());
+    let plain = serde_json::to_value(&model).unwrap();
+    assert!(plain.get("query_prefix").is_none());
+    assert!(plain.get("document_prefix").is_none());
+    assert_eq!(serde_json::from_value::<Definition>(plain).unwrap(), model);
+    model.query_prefix = Some("query: ".into());
+    model.document_prefix = Some("passage: ".into());
+    model.validate().unwrap();
+    let value = serde_json::to_value(&model).unwrap();
+    assert_eq!(value["query_prefix"], "query: ");
+    assert_eq!(value["document_prefix"], "passage: ");
+    assert_eq!(serde_json::from_value::<Definition>(value).unwrap(), model);
+    for prefix in ["a".repeat(MAX_PREFIX_BYTES + 1), "prefix\0text".into()] {
+        model.query_prefix = Some(prefix.clone());
+        assert!(model.validate().is_err());
+        model.query_prefix = None;
+        model.document_prefix = Some(prefix);
+        assert!(model.validate().is_err());
+        model.document_prefix = None;
+    }
+    let mut speech = definition(Format::SenseVoice {});
+    speech.query_prefix = Some("query: ".into());
+    assert!(speech.validate().is_err());
 }

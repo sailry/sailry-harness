@@ -72,7 +72,7 @@ fn reports_large_files_and_long_lines() {
     )
     .unwrap();
     let result = search(root.path(), &options(), &control()).unwrap();
-    assert!(result.partial);
+    assert!(!result.partial);
     assert!(result.next_offset.is_none());
     assert_eq!(result.matches.len(), 1);
     assert!(result.matches[0].truncated);
@@ -83,6 +83,94 @@ fn reports_large_files_and_long_lines() {
             .iter()
             .any(|item| item.path == "large.txt" && item.message.contains("64 MiB"))
     );
+    assert_eq!(result.skipped, 1);
+}
+
+#[test]
+fn pages_past_skipped_files() {
+    let root = directory();
+    std::fs::File::create(root.path().join("a-large.txt"))
+        .unwrap()
+        .set_len((MAX_BYTES + 1) as u64)
+        .unwrap();
+    std::fs::write(root.path().join("b-binary.txt"), b"hit\0binary").unwrap();
+    std::fs::write(root.path().join("c-invalid.txt"), b"hit\xff").unwrap();
+    std::fs::write(
+        root.path().join("d-text.txt"),
+        "hit first\nhit second\nhit third\n",
+    )
+    .unwrap();
+    for offset in 0..3 {
+        let result = search(
+            root.path(),
+            &FileSearch {
+                offset,
+                limit: 1,
+                ..options()
+            },
+            &control(),
+        )
+        .unwrap();
+        assert!(!result.partial, "{result:?}");
+        assert_eq!(result.scanned_files, 4);
+        assert_eq!(result.skipped, 3);
+        assert_eq!(result.diagnostics.len(), 3);
+        assert_eq!(result.matches.len(), 1);
+        assert_eq!(result.matches[0].path, "d-text.txt");
+        assert_eq!(result.matches[0].line_number, offset + 1);
+        assert_eq!(result.next_offset, (offset < 2).then_some(offset + 1));
+        assert_eq!(result.truncated, offset < 2);
+    }
+}
+
+#[test]
+fn decodes_text_before_matching_and_paging() {
+    let root = directory();
+    std::fs::write(
+        root.path().join("a-gbk.txt"),
+        b"\xd6\xd0\xce\xc4 first\r\n\xd6\xd0\xce\xc4 second\r\n",
+    )
+    .unwrap();
+    let original = "中文𠀀🙂\n";
+    let (encoded, _, failed) = encoding_rs::GB18030.encode(original);
+    assert!(!failed);
+    std::fs::write(root.path().join("b-gb18030.txt"), &encoded).unwrap();
+    for (offset, expected, line) in [
+        (0, "中文 first", 1),
+        (1, "中文 second", 2),
+        (2, "中文𠀀🙂", 1),
+    ] {
+        let result = search(
+            root.path(),
+            &FileSearch {
+                query: "中文".into(),
+                offset,
+                limit: 1,
+                ..options()
+            },
+            &control(),
+        )
+        .unwrap();
+        assert!(!result.partial);
+        assert_eq!(result.skipped, 0);
+        assert_eq!(result.matches.len(), 1);
+        assert_eq!(result.matches[0].line, expected);
+        assert_eq!(result.matches[0].line_number, line);
+        assert_eq!(result.next_offset, (offset < 2).then_some(offset + 1));
+    }
+    let anchored = search(
+        root.path(),
+        &FileSearch {
+            query: "^中文.*second$".into(),
+            regex: true,
+            ..options()
+        },
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(anchored.matches.len(), 1);
+    assert_eq!(anchored.matches[0].line, "中文 second");
+    assert_eq!(anchored.matches[0].line_number, 2);
 }
 
 #[test]
@@ -240,7 +328,6 @@ fn detects_changes_between_scan_and_page() {
         &mut engine(&options),
         &control(),
     )
-    .unwrap()
     .unwrap();
     std::fs::write(root.path().join("a.txt"), "changed\n").unwrap();
     assert_eq!(
@@ -251,6 +338,38 @@ fn detects_changes_between_scan_and_page() {
             &matcher,
             &mut engine(&options),
             &control()
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::RevisionConflict
+    );
+}
+
+#[test]
+fn detects_encoding_changes_before_paging() {
+    let root = directory();
+    std::fs::write(root.path().join("a.txt"), b"hit \xd6\xd0\xce\xc4\n").unwrap();
+    let options = options();
+    let matcher = RegexMatcherBuilder::new().build("hit").unwrap();
+    let scan = inspect(
+        root.path(),
+        "a.txt",
+        SearchMode::Content,
+        1,
+        &matcher,
+        &mut engine(&options),
+        &control(),
+    )
+    .unwrap();
+    std::fs::write(root.path().join("a.txt"), "hit 中文\n").unwrap();
+    assert_eq!(
+        read_page(
+            root.path(),
+            &scan,
+            0..1,
+            &matcher,
+            &mut engine(&options),
+            &control(),
         )
         .unwrap_err()
         .code,

@@ -3,7 +3,7 @@ use sailry_link::CancellationToken;
 use sailry_protocol::{
     ErrorCode, Fault,
     knowledge::{Model, ModelInfo, ModelState, Registration, Settings},
-    models::{Definition, Format},
+    models::Definition,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -62,7 +62,7 @@ struct Transfer {
 
 struct Work {
     model: Model,
-    format: Format,
+    definition: Arc<Definition>,
     revision: u64,
     generation: u64,
     epoch: u64,
@@ -74,7 +74,7 @@ struct Work {
 
 #[derive(Clone)]
 enum Input {
-    Encode(Vec<String>),
+    Encode(sailry_embedding::Input, Vec<String>),
     Offsets(String),
 }
 enum Output {
@@ -328,14 +328,18 @@ impl Models {
             let receipt = tokio::task::spawn_blocking(move || {
                 sailry_embedding::background();
                 let directory = files::directory(&root, model);
-                let mut engine =
-                    sailry_embedding::Engine::load_format(definition.format, &directory)
-                        .map_err(worker::failure)?;
-                let vectors = engine
-                    .encode(&["Model compatibility check"])
+                let mut engine = sailry_embedding::Engine::load_definition(&definition, &directory)
                     .map_err(worker::failure)?;
-                if vectors.len() != 1 || stopping.is_cancelled() {
-                    return Err(cancelled());
+                for purpose in [
+                    sailry_embedding::Input::Query,
+                    sailry_embedding::Input::Document,
+                ] {
+                    let vectors = engine
+                        .encode_for(purpose, &["Model compatibility check"])
+                        .map_err(worker::failure)?;
+                    if vectors.len() != 1 || stopping.is_cancelled() {
+                        return Err(cancelled());
+                    }
                 }
                 files::mark(&native, model, &definition)?;
                 files::verified(&root, model, &definition).ok_or_else(unavailable)
@@ -440,6 +444,7 @@ impl Models {
         model: Model,
         revision: u64,
         texts: Vec<String>,
+        purpose: sailry_embedding::Input,
         lane: Lane,
         cancel: &CancellationToken,
     ) -> Result<Vec<Vec<f32>>, Fault> {
@@ -447,7 +452,7 @@ impl Models {
             return Err(Fault::invalid("embedding batch exceeds four inputs"));
         }
         match self
-            .request(model, revision, Input::Encode(texts), lane, cancel)
+            .request(model, revision, Input::Encode(purpose, texts), lane, cancel)
             .await?
         {
             Output::Vectors(vectors) => {
@@ -512,11 +517,11 @@ impl Models {
             })?;
             Work {
                 model,
-                format: state
+                definition: state
                     .definitions
                     .get(&model)
                     .ok_or_else(|| Fault::invalid("embedding model is not registered"))?
-                    .format,
+                    .clone(),
                 revision,
                 generation: state.generation,
                 epoch: *state.epochs.get(&model).unwrap_or(&0),

@@ -9,11 +9,18 @@ mod tests;
 
 pub use catalog::ModelId;
 pub use pool::background;
-use sailry_protocol::models::{Format, Pooling};
+use sailry_protocol::models::{Definition, Format, Pooling};
+use std::borrow::Cow;
 use std::{fs, path::Path};
 use tokenizers::Tokenizer;
 
 pub const MAX_INPUT_TOKENS: usize = 512;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Input {
+    Query,
+    Document,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -40,6 +47,8 @@ pub struct Engine {
     tokenizer: Tokenizer,
     kernel: Kernel,
     pool: rayon::ThreadPool,
+    query_prefix: Option<String>,
+    document_prefix: Option<String>,
 }
 
 enum Kernel {
@@ -74,6 +83,30 @@ impl Engine {
         Self::prepare(format, usize::from(dimension), tokenizer, directory, pool)
     }
 
+    /// Loads the immutable algorithm and input prefixes selected by the owner.
+    pub fn load_definition(definition: &Definition, directory: &Path) -> Result<Self, Error> {
+        definition
+            .validate()
+            .map_err(|fault| Error::Invalid(fault.message))?;
+        let mut engine = Self::load_format(definition.format, directory)?;
+        if let Some(prefix) = definition.document_prefix.as_deref() {
+            let special = !matches!(engine.kernel, Kernel::Static(_));
+            let tokens = engine
+                .pool
+                .install(|| engine.tokenizer.encode(prefix, special))
+                .map_err(|error| Error::Tokenizer(error.to_string()))?
+                .len();
+            if tokens > MAX_INPUT_TOKENS / 2 {
+                return Err(Error::Invalid(
+                    "document prefix leaves fewer than 256 content tokens".into(),
+                ));
+            }
+        }
+        engine.query_prefix = definition.query_prefix.clone();
+        engine.document_prefix = definition.document_prefix.clone();
+        Ok(engine)
+    }
+
     fn prepare(
         format: Format,
         dimension: usize,
@@ -91,6 +124,8 @@ impl Engine {
             tokenizer,
             kernel,
             pool,
+            query_prefix: None,
+            document_prefix: None,
         })
     }
 
@@ -110,16 +145,28 @@ impl Engine {
     }
 
     pub fn encode(&mut self, inputs: &[&str]) -> Result<Vec<Vec<f32>>, Error> {
+        self.encode_for(Input::Document, inputs)
+    }
+
+    pub fn encode_for(&mut self, input: Input, inputs: &[&str]) -> Result<Vec<Vec<f32>>, Error> {
         let dimension = self.dimension();
         let tokenizer = &self.tokenizer;
         let kernel = &mut self.kernel;
         let special = !matches!(kernel, Kernel::Static(_));
+        let prefix = match input {
+            Input::Query => self.query_prefix.as_deref(),
+            Input::Document => self.document_prefix.as_deref(),
+        };
         self.pool.install(|| {
             inputs
                 .iter()
                 .map(|text| {
+                    let text = match prefix {
+                        Some(prefix) => Cow::Owned(format!("{prefix}{text}")),
+                        None => Cow::Borrowed(*text),
+                    };
                     let encoded = tokenizer
-                        .encode(*text, special)
+                        .encode(text.as_ref(), special)
                         .map_err(|error| Error::Tokenizer(error.to_string()))?;
                     if encoded.len() > MAX_INPUT_TOKENS {
                         return Err(Error::TooLong);

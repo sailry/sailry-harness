@@ -49,7 +49,8 @@ fn rereads_exact_worktree_lines_and_revision() {
             &definition,
             Some(root.path()),
             &citation,
-            CancellationToken::new()
+            CancellationToken::new(),
+            false
         )
         .unwrap(),
         "second line\nlast"
@@ -64,7 +65,8 @@ fn rereads_exact_worktree_lines_and_revision() {
             &definition,
             Some(root.path()),
             &citation,
-            CancellationToken::new()
+            CancellationToken::new(),
+            false
         )
         .unwrap_err()
         .code,
@@ -76,7 +78,8 @@ fn rereads_exact_worktree_lines_and_revision() {
             &definition,
             Some(root.path()),
             &citation,
-            CancellationToken::new()
+            CancellationToken::new(),
+            false
         )
         .unwrap_err()
         .code,
@@ -104,40 +107,71 @@ fn scopes_sources_and_current_globs() {
         path: root.path().join("notes").to_str().unwrap().into(),
     });
     assert_eq!(
-        context(&definition, None, &citation, CancellationToken::new()).unwrap(),
+        context(
+            &definition,
+            None,
+            &citation,
+            CancellationToken::new(),
+            false
+        )
+        .unwrap(),
         "private source"
     );
     definition.globs = vec!["**/*.md".into()];
     assert_eq!(
-        context(&definition, None, &citation, CancellationToken::new())
-            .unwrap_err()
-            .code,
+        context(
+            &definition,
+            None,
+            &citation,
+            CancellationToken::new(),
+            false
+        )
+        .unwrap_err()
+        .code,
         ErrorCode::RevisionConflict
     );
     definition.globs.clear();
     std::fs::write(root.path().join("notes/.gitignore"), "source.txt\n").unwrap();
     assert_eq!(
-        context(&definition, None, &citation, CancellationToken::new())
-            .unwrap_err()
-            .code,
+        context(
+            &definition,
+            None,
+            &citation,
+            CancellationToken::new(),
+            false
+        )
+        .unwrap_err()
+        .code,
         ErrorCode::RevisionConflict
     );
     definition.source = Source::Directory {
         path: root.path().join("other").to_str().unwrap().into(),
     };
     assert_eq!(
-        context(&definition, None, &citation, CancellationToken::new())
-            .unwrap_err()
-            .code,
+        context(
+            &definition,
+            None,
+            &citation,
+            CancellationToken::new(),
+            false
+        )
+        .unwrap_err()
+        .code,
         ErrorCode::RevisionConflict
     );
     definition.source = Source::File {
         path: format!("{path}-different"),
     };
     assert_eq!(
-        context(&definition, None, &citation, CancellationToken::new())
-            .unwrap_err()
-            .code,
+        context(
+            &definition,
+            None,
+            &citation,
+            CancellationToken::new(),
+            false
+        )
+        .unwrap_err()
+        .code,
         ErrorCode::RevisionConflict
     );
 }
@@ -182,16 +216,40 @@ fn resolves_office_positions_from_actual_sources() {
         std::fs::write(&path, bytes).unwrap();
         let definition = definition(Source::File { path: path.clone() });
         let mut citation = citation(&path, bytes, position.clone());
-        assert!(
-            context(&definition, None, &citation, CancellationToken::new())
-                .unwrap()
-                .contains(expected)
-        );
+        let selected = context(
+            &definition,
+            None,
+            &citation,
+            CancellationToken::new(),
+            false,
+        )
+        .unwrap();
+        assert!(selected.contains(expected));
+        if *name == "report.pdf" {
+            let parsed = crate::office::parts(name, bytes).unwrap();
+            assert_eq!(parsed.len(), 2);
+            assert_eq!(parsed[0].position, Position::Page { page: 1 });
+            assert_eq!(parsed[1].position, Position::Page { page: 2 });
+            assert_eq!(selected, parsed[1].text);
+            let complete =
+                context(&definition, None, &citation, CancellationToken::new(), true).unwrap();
+            assert!(complete.contains("PDF acceptance"));
+            assert!(complete.contains("Second page"));
+            assert!(complete.find("PDF acceptance") < complete.find("Second page"));
+            assert!(complete.starts_with(&parsed[0].text));
+            assert!(complete.ends_with(&parsed[1].text));
+        }
         citation.position = Position::Page { page: 900 };
         assert_eq!(
-            context(&definition, None, &citation, CancellationToken::new())
-                .unwrap_err()
-                .code,
+            context(
+                &definition,
+                None,
+                &citation,
+                CancellationToken::new(),
+                false
+            )
+            .unwrap_err()
+            .code,
             ErrorCode::RevisionConflict
         );
     }
@@ -209,7 +267,16 @@ fn rejects_replaced_symlink_sources() {
     let citation = citation(&path, b"original", Position::Lines { start: 1, end: 1 });
     std::fs::remove_file(&path).unwrap();
     std::os::unix::fs::symlink(outside.path().join("source.txt"), &path).unwrap();
-    assert!(context(&definition, None, &citation, CancellationToken::new()).is_err());
+    assert!(
+        context(
+            &definition,
+            None,
+            &citation,
+            CancellationToken::new(),
+            false
+        )
+        .is_err()
+    );
     assert_eq!(
         std::fs::read_to_string(outside.path().join("source.txt")).unwrap(),
         "private sibling"
@@ -225,6 +292,7 @@ fn pages_verified_context_without_losing_utf8() {
         Position::Lines { start: 1, end: 1 },
     );
     let mut request = CitationRequest {
+        context: false,
         collection: citation.collection,
         chunk: citation.chunk.clone(),
         revision: citation.revision.clone(),
@@ -267,6 +335,62 @@ fn pages_verified_context_without_losing_utf8() {
         .code,
         ErrorCode::InvalidRequest
     );
+}
+
+#[test]
+fn continues_beyond_raw_limit_after_gbk_decode() {
+    const BOUNDARY: usize = 32 * 1024 * 1024;
+    let raw = [0xd7, 0xca].repeat((BOUNDARY + 2048).div_ceil(3));
+    assert!(raw.len() < crate::office::LIMIT);
+    let text = crate::files::text::decode(&raw).unwrap();
+    assert!(text.len() > BOUNDARY);
+    assert!(text.starts_with("资资"));
+    let citation = citation("source.txt", &raw, Position::Lines { start: 1, end: 1 });
+    let start = BOUNDARY / 3 * 3;
+    assert!(text.is_char_boundary(start));
+    let mut request = CitationRequest {
+        collection: citation.collection,
+        chunk: citation.chunk.clone(),
+        revision: citation.revision.clone(),
+        context: true,
+        offset: start as u32,
+        limit: 6,
+    };
+    request.validate().unwrap();
+    let first = page(
+        index::Record {
+            citation: citation.clone(),
+            title: "Source".into(),
+        },
+        &text,
+        &request,
+        None,
+    )
+    .unwrap();
+    assert!(first.context && first.untrusted);
+    assert_eq!(first.text.len(), 6);
+    let next = first
+        .next_offset
+        .expect("decoded source has a remaining tail");
+    assert!(next as usize > BOUNDARY);
+    request.offset = next;
+    request.limit = 64 * 1024;
+    request.validate().unwrap();
+    let last = page(
+        index::Record {
+            citation: citation.clone(),
+            title: "Source".into(),
+        },
+        &text,
+        &request,
+        None,
+    )
+    .unwrap();
+    assert_eq!(last.offset, next);
+    assert_eq!(last.citation.revision, blake3::hash(&raw).to_hex().as_str());
+    assert!(last.context && last.untrusted);
+    assert!(last.next_offset.is_none());
+    assert_eq!(format!("{}{}", first.text, last.text), text[start..]);
 }
 
 #[test]

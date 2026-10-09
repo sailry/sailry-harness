@@ -181,6 +181,20 @@ impl Library {
                             && definition.source.repository == expected.repository
                             && definition.validate().is_ok() =>
                     {
+                        library.query_prefix.update(cx, |state, cx| {
+                            state.set_value(
+                                definition.query_prefix.clone().unwrap_or_default(),
+                                window,
+                                cx,
+                            )
+                        });
+                        library.document_prefix.update(cx, |state, cx| {
+                            state.set_value(
+                                definition.document_prefix.clone().unwrap_or_default(),
+                                window,
+                                cx,
+                            )
+                        });
                         library.definition = Some(definition)
                     }
                     _ => library.failure(window, cx),

@@ -12,14 +12,18 @@ use std::{
     time::Duration,
 };
 
+mod catalog;
 mod citations;
 mod configuration;
+mod context;
+mod keywords;
 #[cfg(feature = "test-support")]
 mod performance;
 mod registered;
 mod sources;
 mod storage;
 mod transactions;
+mod worker;
 
 struct Fixture {
     temp: tempfile::TempDir,

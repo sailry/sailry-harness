@@ -9,7 +9,8 @@ fn directory() -> tempfile::TempDir {
 fn documents(scan: Scan) -> BTreeMap<String, SourceDoc> {
     scan.map(|entry| match entry.unwrap() {
         Entry::Document(document) => (document.path.clone(), document),
-        Entry::Skipped { path, reason } => panic!("unexpected skipped source {path}: {reason}"),
+        Entry::Cached { .. } => panic!("full extraction unexpectedly reused a cache"),
+        Entry::Skipped { path, reason, .. } => panic!("unexpected skipped source {path}: {reason}"),
     })
     .collect()
 }
@@ -122,7 +123,7 @@ fn honors_nested_ignores_and_protects_credentials() {
     ] {
         assert!(!paths.contains(&omitted), "indexed {omitted}");
     }
-    assert!(entries.iter().any(|entry| matches!(entry, Entry::Skipped { path, reason } if path == "omit.log" && reason.contains(".gitignore"))));
+    assert!(entries.iter().any(|entry| matches!(entry, Entry::Skipped { path, reason, excluded: true } if path == "omit.log" && reason.contains(".gitignore"))));
     for path in [".env", ".npmrc", ".git/config", ".ssh/id_ed25519"] {
         let source = Source::File {
             path: root.path().join(path).to_str().unwrap().into(),
@@ -186,7 +187,8 @@ fn reports_binary_oversized_and_malformed_documents() {
     for entry in worktree(root.path(), "", CancellationToken::new()).unwrap() {
         match entry.unwrap() {
             Entry::Document(document) => completed.push(document.path),
-            Entry::Skipped { path, reason } => {
+            Entry::Cached { .. } => panic!("full extraction unexpectedly reused a cache"),
+            Entry::Skipped { path, reason, .. } => {
                 omitted.insert(path, reason);
             }
         }
@@ -265,7 +267,7 @@ fn refuses_symlinked_roots_parents_files_and_ignores() {
         .unwrap()
         .map(Result::unwrap)
         .collect();
-    assert!(entries.iter().any(|entry| matches!(entry, Entry::Skipped { path, reason } if path == "child" && reason.contains(".gitignore"))));
+    assert!(entries.iter().any(|entry| matches!(entry, Entry::Skipped { path, reason, .. } if path == "child" && reason.contains(".gitignore"))));
     assert!(
         !entries
             .iter()
@@ -347,6 +349,105 @@ fn captures_four_document_formats_with_positions() {
     assert_eq!(slides[3].position, Position::Slide { slide: 2 });
     assert!(slides[0].text.contains("中文幻灯片"));
     assert!(slides[2].text.contains("Second slide"));
+}
+
+#[test]
+fn reuses_metadata_before_office_extraction() {
+    let root = directory();
+    let bytes = include_bytes!("../../office/fixtures/report.pdf");
+    std::fs::write(root.path().join("report.pdf"), bytes).unwrap();
+    let snapshot =
+        documents(worktree(root.path(), "report.pdf", CancellationToken::new()).unwrap());
+    let expected = snapshot["report.pdf"].stat;
+    let mut scan = worktree(root.path(), "report.pdf", CancellationToken::new()).unwrap();
+    let mut checked = 0;
+    let entry = scan
+        .next_cached(&mut |path, stat| {
+            checked += 1;
+            assert_eq!(path, "report.pdf");
+            assert_eq!(stat, expected);
+            Ok(true)
+        })
+        .unwrap()
+        .unwrap();
+    assert!(matches!(entry, Entry::Cached {path} if path == "report.pdf"));
+    assert_eq!(checked, 1);
+    assert!(scan.next().is_none());
+    assert!(scan.complete());
+    // Ordinary extraction still rereads and verifies the exact original content.
+    let current = documents(worktree(root.path(), "report.pdf", CancellationToken::new()).unwrap());
+    assert_eq!(
+        current["report.pdf"].revision,
+        snapshot["report.pdf"].revision
+    );
+    assert_eq!(
+        current["report.pdf"].parts[0].position,
+        Position::Page { page: 1 }
+    );
+    assert_eq!(
+        current["report.pdf"].parts[0].text,
+        snapshot["report.pdf"].parts[0].text
+    );
+}
+
+#[test]
+fn rejects_changes_and_cache_failures_during_inspection() {
+    let root = directory();
+    let path = root.path().join("source.txt");
+    std::fs::write(&path, "original").unwrap();
+    let mut scan = worktree(root.path(), "source.txt", CancellationToken::new()).unwrap();
+    let error = scan
+        .next_cached(&mut |_, _| {
+            std::fs::write(&path, "a changed and longer source").unwrap();
+            Ok(true)
+        })
+        .unwrap()
+        .err()
+        .unwrap();
+    assert_eq!(error.code, ErrorCode::RevisionConflict);
+    let mut scan = worktree(root.path(), "source.txt", CancellationToken::new()).unwrap();
+    let error = scan
+        .next_cached(&mut |_, _| Err(Fault::new(ErrorCode::Internal, "fixture cache failure")))
+        .unwrap()
+        .err()
+        .unwrap();
+    assert_eq!(error.code, ErrorCode::Internal);
+    assert!(scan.next().is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn records_incomplete_ignored_subtree_without_following_links() {
+    let root = directory();
+    let outside = directory();
+    std::fs::create_dir(root.path().join("child")).unwrap();
+    std::fs::write(root.path().join("child/source.txt"), "retained source").unwrap();
+    std::fs::write(outside.path().join("rules"), "external rules").unwrap();
+    std::os::unix::fs::symlink(
+        outside.path().join("rules"),
+        root.path().join("child/.gitignore"),
+    )
+    .unwrap();
+    let mut scan = worktree(root.path(), "", CancellationToken::new()).unwrap();
+    let mut entries = Vec::new();
+    let mut watched = Vec::new();
+    while let Some(entry) =
+        scan.next_watched(&mut |_, _| Ok(false), &mut |paths| watched.extend(paths))
+    {
+        entries.push(entry.unwrap());
+    }
+    assert!(entries.iter().any(|entry| matches!(entry, Entry::Skipped {path,reason,excluded:false} if path=="child" && reason.contains(".gitignore"))));
+    assert!(!scan.complete());
+    let repair = watched
+        .iter()
+        .find(|watch| watch.relative == "child")
+        .unwrap();
+    assert!(repair.accepts(".gitignore", false));
+    assert!(!repair.accepts("source.txt", false));
+    assert_eq!(
+        std::fs::read_to_string(outside.path().join("rules")).unwrap(),
+        "external rules"
+    );
 }
 
 #[test]

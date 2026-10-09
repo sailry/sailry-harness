@@ -2,7 +2,9 @@ use super::*;
 use sailry_link::CancellationToken;
 
 mod evaluation;
+mod files;
 mod integers;
+mod keywords;
 mod performance;
 
 fn open() -> (tempfile::TempDir, Index) {
@@ -63,6 +65,7 @@ fn retains_cached_text_when_paused() {
     assert!(!index.current(paused).unwrap());
     let citation = &page.hits[0].citation;
     let request = CitationRequest {
+        context: false,
         collection: citation.collection,
         chunk: citation.chunk.clone(),
         revision: citation.revision.clone(),
@@ -240,6 +243,7 @@ fn invalidates_links_when_chunk_boundaries_change() {
     assert_ne!(citation.chunk, current.chunk);
     assert_ne!(citation.link, current.link);
     let request = CitationRequest {
+        context: false,
         collection: citation.collection,
         chunk: citation.chunk,
         revision: citation.revision,

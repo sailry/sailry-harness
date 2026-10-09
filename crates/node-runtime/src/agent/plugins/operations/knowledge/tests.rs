@@ -121,3 +121,41 @@ fn accepts_registered_model_bindings() {
         assert!(!validator.is_valid(&input));
     }
 }
+
+#[test]
+fn reads_verified_citation_context() {
+    let operation = Operation::KnowledgeRead;
+    let arguments =
+        json!({"collection":KnowledgeId::new(),"chunk":"a".repeat(64),"revision":"b".repeat(64)});
+    let schema = parameters(operation);
+    let validator = jsonschema::draft202012::options().build(&schema).unwrap();
+    assert!(validator.is_valid(&arguments));
+    let Command::ReadKnowledgeCitation(input) =
+        command(operation, arguments.clone(), &context()).unwrap()
+    else {
+        panic!("citation command expected")
+    };
+    assert!(input.context);
+    assert_eq!(input.offset, 0);
+    assert_eq!(input.limit, 16 * 1024);
+    assert!(!Command::ReadKnowledgeCitation(input).durable());
+    let mut limited = arguments.clone();
+    limited["context"] = json!(false);
+    let Command::ReadKnowledgeCitation(input) = command(operation, limited, &context()).unwrap()
+    else {
+        panic!("citation command expected")
+    };
+    assert!(!input.context);
+    for (key, value) in [
+        ("chunk", json!("invalid")),
+        ("limit", json!(65537)),
+        ("offset", json!(4294967296_u64)),
+        ("path", json!("/private/file")),
+        ("context", json!("yes")),
+    ] {
+        let mut invalid = arguments.clone();
+        invalid[key] = value;
+        assert!(!validator.is_valid(&invalid));
+        assert!(command(operation, invalid, &context()).is_err());
+    }
+}

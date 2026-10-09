@@ -133,6 +133,7 @@ pub(super) fn collect(root: &Path, scope: &str, control: &Control) -> Result<Lis
             });
             Ok(true)
         },
+        &mut |_, _| Ok(()),
     )?;
     Ok(Listing { entries, report })
 }
@@ -143,9 +144,22 @@ pub(crate) fn visit(
     visitor: &mut impl FnMut(&Dir, &str, &str) -> Result<bool, Fault>,
 ) -> Result<Report, Fault> {
     // Existing workspace language detection keeps its own filtering policy.
-    traverse(root, "", false, control, &mut |dir, name, relative, _| {
-        visitor(dir, name, relative)
-    })
+    traverse(
+        root,
+        "",
+        false,
+        control,
+        &mut |dir, name, relative, _| visitor(dir, name, relative),
+        &mut |_, _| Ok(()),
+    )
+}
+
+pub(crate) fn directories(
+    root: &Path,
+    control: &Control,
+    visitor: &mut impl FnMut(&Dir, &str) -> Result<(), Fault>,
+) -> Result<Report, Fault> {
+    traverse(root, "", true, control, &mut |_, _, _, _| Ok(true), visitor)
 }
 
 fn traverse(
@@ -154,6 +168,7 @@ fn traverse(
     respect_ignores: bool,
     control: &Control,
     visitor: &mut impl FnMut(&Dir, &str, &str, &Metadata) -> Result<bool, Fault>,
+    enter: &mut impl FnMut(&Dir, &str) -> Result<(), Fault>,
 ) -> Result<Report, Fault> {
     control.check()?;
     let scope = if scope == "." { "" } else { scope };
@@ -205,6 +220,7 @@ fn traverse(
         control,
         report: &mut report,
         visitor,
+        enter,
     }
     .descend(&directory, &prefix, parts.len());
     match result {
@@ -222,19 +238,25 @@ fn traverse(
     Ok(report)
 }
 
-struct Walker<'a, F> {
+struct Walker<'a, F, D> {
     respect_ignores: bool,
     layers: Vec<Gitignore>,
     control: &'a Control,
     report: &'a mut Report,
     visitor: &'a mut F,
+    enter: &'a mut D,
 }
 
-impl<F: FnMut(&Dir, &str, &str, &Metadata) -> Result<bool, Fault>> Walker<'_, F> {
+impl<F, D> Walker<'_, F, D>
+where
+    F: FnMut(&Dir, &str, &str, &Metadata) -> Result<bool, Fault>,
+    D: FnMut(&Dir, &str) -> Result<(), Fault>,
+{
     fn descend(&mut self, directory: &Dir, prefix: &str, depth: usize) -> Result<bool, Fault> {
         let control = self.control;
         let respect_ignores = self.respect_ignores;
         control.check()?;
+        (self.enter)(directory, prefix)?;
         let inherited = self.layers.len();
         if respect_ignores
             && let Some(layer) = ignores::load(directory, prefix, control, self.report)

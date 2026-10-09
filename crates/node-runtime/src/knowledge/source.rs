@@ -12,12 +12,21 @@ mod scan;
 mod tests;
 
 pub(super) use scan::Scan;
+pub(super) use scan::Watch;
 
 pub(super) struct SourceDoc {
     pub path: String,
     pub revision: String,
     pub modified_ms: u64,
+    pub stat: Stat,
     pub parts: Vec<Part>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Stat {
+    pub size: u64,
+    pub modified_seconds: u64,
+    pub modified_nanos: u32,
 }
 
 pub(super) struct Part {
@@ -28,7 +37,14 @@ pub(super) struct Part {
 
 pub(super) enum Entry {
     Document(SourceDoc),
-    Skipped { path: String, reason: String },
+    Cached {
+        path: String,
+    },
+    Skipped {
+        path: String,
+        reason: String,
+        excluded: bool,
+    },
 }
 
 struct Target {
@@ -52,6 +68,15 @@ fn skipped(path: String, error: impl std::fmt::Display) -> Entry {
     Entry::Skipped {
         path,
         reason: error.to_string(),
+        excluded: false,
+    }
+}
+
+fn excluded(path: String, reason: impl std::fmt::Display) -> Entry {
+    Entry::Skipped {
+        path,
+        reason: reason.to_string(),
+        excluded: true,
     }
 }
 

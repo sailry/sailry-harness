@@ -47,6 +47,7 @@ fn parse(link: &str) -> Result<CitationRequest, Fault> {
         return Err(Fault::invalid("invalid knowledge citation query"));
     }
     let input = CitationRequest {
+        context: false,
         collection,
         chunk,
         revision: revision.to_string(),
@@ -63,6 +64,8 @@ fn matches(page: &CitationPage, input: &CitationRequest) -> bool {
         && page.citation.revision == input.revision
         && page.citation.link == page.citation.url()
         && page.offset == input.offset
+        && page.context == input.context
+        && page.untrusted
         && page.text.len() <= input.limit as usize
         && page.next_offset.is_none_or(|next| {
             next == input.offset.saturating_add(page.text.len() as u32) && next > input.offset

@@ -202,6 +202,7 @@ fn hybrid_improves_bilingual_recall_at_five() {
         started.elapsed().as_secs_f64() * 1000.
     );
     let mut keyword = 0;
+    let mut semantic = 0;
     let mut hybrid = 0;
     let total = corpus
         .queries
@@ -215,6 +216,18 @@ fn hybrid_improves_bilingual_recall_at_five() {
         let lexical = index
             .search(&query, &[binding], &[], false, &CancellationToken::new())
             .unwrap();
+        query.mode = Mode::Semantic;
+        let encoded = index
+            .search(
+                &query,
+                &[binding],
+                &[(Model::GraniteMulti, vector.clone())],
+                false,
+                &CancellationToken::new(),
+            )
+            .unwrap();
+        assert_eq!(encoded.mode, Mode::Semantic);
+        assert_eq!(encoded.model, Some(Model::GraniteMulti));
         query.mode = Mode::Hybrid;
         let combined = index
             .search(
@@ -229,22 +242,27 @@ fn hybrid_improves_bilingual_recall_at_five() {
         assert_eq!(combined.model, Some(Model::GraniteMulti));
         assert!(combined.hits.len() <= 5);
         keyword += recall(question, &lexical);
+        semantic += recall(question, &encoded);
         hybrid += recall(question, &combined);
         println!(
-            "case={} query={:?} expected={:?} bm25={:?} hybrid={:?}",
+            "case={} query={:?} expected={:?} bm25={:?} semantic={:?} hybrid={:?}",
             number + 1,
             question.text,
             question.expected,
             ids(&lexical),
+            ids(&encoded),
             ids(&combined)
         );
     }
     println!(
-        "corpus=30-original-bilingual-sources queries={} bm25_recall_at_5={}/{} ({:.3}) hybrid_recall_at_5={}/{} ({:.3})",
+        "corpus=30-original-bilingual-sources queries={} bm25_recall_at_5={}/{} ({:.3}) semantic_recall_at_5={}/{} ({:.3}) hybrid_recall_at_5={}/{} ({:.3})",
         corpus.queries.len(),
         keyword,
         total,
         keyword as f64 / total as f64,
+        semantic,
+        total,
+        semantic as f64 / total as f64,
         hybrid,
         total,
         hybrid as f64 / total as f64

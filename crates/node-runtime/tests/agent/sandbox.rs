@@ -7,6 +7,8 @@ use sailry_protocol::{
 };
 use serde_json::json;
 use std::time::Duration;
+#[path = "sandbox/repositories.rs"]
+mod repositories;
 #[path = "sandbox/settings.rs"]
 mod settings;
 

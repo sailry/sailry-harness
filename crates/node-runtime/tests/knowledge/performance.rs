@@ -274,6 +274,7 @@ async fn indexes_mixed_corpus_and_reuses_unchanged_sources() {
                     seen.insert(hit.citation.path.clone());
                     if !opened {
                         let input = CitationRequest {
+                            context: false,
                             collection: collection.id,
                             chunk: hit.citation.chunk.clone(),
                             revision: hit.citation.revision.clone(),

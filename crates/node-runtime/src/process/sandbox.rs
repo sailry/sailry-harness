@@ -5,6 +5,8 @@ mod macos;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod policy;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
+mod repositories;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 mod runtime;
 #[cfg(test)]
 mod tests;
@@ -26,6 +28,8 @@ pub(crate) struct Sandbox {
     variables: std::collections::BTreeMap<std::ffi::OsString, std::ffi::OsString>,
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     links: toolchains::Links,
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    protected: Vec<std::path::PathBuf>,
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     path: Option<std::ffi::OsString>,
     #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -61,7 +65,7 @@ impl Sandbox {
                 .prefix("environment-")
                 .tempdir_in(scratch.path())
                 .map_err(runtime::failure)?;
-            let (policy, variables, links) = policy::create(
+            let (mut policy, variables, links) = policy::create(
                 &launch.root,
                 launch.profile.as_deref(),
                 &scratch,
@@ -69,18 +73,27 @@ impl Sandbox {
                 environment,
                 inputs,
             )?;
+            let home = environment.home().and_then(|path| path.canonicalize().ok());
+            let profile = launch
+                .profile
+                .as_deref()
+                .map(Path::canonicalize)
+                .transpose()
+                .map_err(runtime::failure)?;
+            let protected = repositories::capture(
+                &launch.root,
+                &mut policy,
+                home.as_deref(),
+                profile.as_deref(),
+            )?;
             Ok(Some(Self {
                 policy,
                 variables,
                 links,
+                protected,
                 path: environment.path().map(std::ffi::OsStr::to_owned),
-                home: environment.home().and_then(|path| path.canonicalize().ok()),
-                profile: launch
-                    .profile
-                    .as_deref()
-                    .map(Path::canonicalize)
-                    .transpose()
-                    .map_err(runtime::failure)?,
+                home,
+                profile,
                 wrapper: runtime::wrapper()?,
                 _scratch: scratch,
                 _state: state,
@@ -212,9 +225,12 @@ impl Sandbox {
             .map_err(runtime::failure)?;
         wrapped.program = self.wrapper.clone().into_os_string();
         #[cfg(target_os = "linux")]
-        linux::complete(&mut wrapped.args, program, links)?;
+        linux::complete(&mut wrapped.args, program, links, &self.protected)?;
         #[cfg(target_os = "macos")]
-        let _ = links;
+        {
+            let _ = links;
+            macos::protect(&mut wrapped, &self.protected)?;
+        }
         Ok(wrapped)
     }
 

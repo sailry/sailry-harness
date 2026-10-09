@@ -170,6 +170,124 @@ async fn shares_modes_context_types_and_pagination() {
 }
 
 #[tokio::test]
+async fn pages_encoded_text_despite_skipped_files() {
+    let fixture = Fixture::start().await;
+    std::fs::create_dir(fixture.root.join("encoded")).unwrap();
+    let directory = fixture.root.join("encoded");
+    std::fs::File::create(directory.join("a-large.txt"))
+        .unwrap()
+        .set_len(64 * 1024 * 1024 + 1)
+        .unwrap();
+    std::fs::write(directory.join("b-binary.txt"), b"\xd6\xd0\xce\xc4\0binary").unwrap();
+    std::fs::write(directory.join("c-invalid.txt"), b"\xd6\xd0\xce\xc4\xff").unwrap();
+    let denied = directory.join("d-denied.txt");
+    std::fs::write(&denied, "not a query match").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&denied, std::fs::Permissions::from_mode(0o0)).unwrap();
+    }
+    let inaccessible = std::fs::File::open(&denied).is_err();
+    std::fs::write(
+        directory.join("e-gbk.txt"),
+        b"\xd6\xd0\xce\xc4 first\r\n\xd6\xd0\xce\xc4 second\r\n",
+    )
+    .unwrap();
+    let (encoded, _, failed) = encoding_rs::GB18030.encode("中文𠀀🙂\n");
+    assert!(!failed);
+    std::fs::write(directory.join("f-gb18030.txt"), encoded).unwrap();
+    std::fs::write(directory.join("g-bom.txt"), "\u{feff}中文 UTF-8\n").unwrap();
+    for client in fixture.clients() {
+        let options = FileSearch {
+            query: "中文".into(),
+            path: "encoded".into(),
+            limit: 2,
+            ..Default::default()
+        };
+        for (offset, expected, next) in [
+            (
+                0,
+                [
+                    ("encoded/e-gbk.txt", 1, "中文 first"),
+                    ("encoded/e-gbk.txt", 2, "中文 second"),
+                ],
+                Some(2),
+            ),
+            (
+                2,
+                [
+                    ("encoded/f-gb18030.txt", 1, "中文𠀀🙂"),
+                    ("encoded/g-bom.txt", 1, "中文 UTF-8"),
+                ],
+                None,
+            ),
+        ] {
+            let page = query(
+                &fixture,
+                &client,
+                FileSearch {
+                    offset,
+                    ..options.clone()
+                },
+            )
+            .await;
+            assert!(!page.partial, "{page:?}");
+            assert_eq!(page.offset, offset);
+            assert_eq!(page.next_offset, next);
+            assert_eq!(page.truncated, next.is_some());
+            assert_eq!(page.scanned_files, 7);
+            assert_eq!(page.skipped, 3 + usize::from(inaccessible));
+            assert_eq!(page.diagnostics.len(), page.skipped);
+            assert_eq!(
+                page.matches
+                    .iter()
+                    .map(|row| (row.path.as_str(), row.line_number, row.line.as_str()))
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            for (path, message) in [
+                ("encoded/a-large.txt", "64 MiB"),
+                ("encoded/b-binary.txt", "binary content"),
+                ("encoded/c-invalid.txt", "UTF-8 nor GB18030"),
+            ] {
+                assert!(
+                    page.diagnostics
+                        .iter()
+                        .any(|entry| { entry.path == path && entry.message.contains(message) })
+                );
+            }
+            if inaccessible {
+                assert!(page.diagnostics.iter().any(|entry| {
+                    entry.path == "encoded/d-denied.txt"
+                        && entry.message.contains("filesystem operation failed")
+                }));
+            }
+        }
+        let anchored = query(
+            &fixture,
+            &client,
+            FileSearch {
+                query: "^中文.*second$".into(),
+                regex: true,
+                ..options
+            },
+        )
+        .await;
+        assert!(!anchored.partial);
+        assert_eq!(anchored.matches.len(), 1);
+        assert_eq!(anchored.matches[0].path, "encoded/e-gbk.txt");
+        assert_eq!(anchored.matches[0].line_number, 2);
+        assert_eq!(anchored.matches[0].line, "中文 second");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&denied, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    fixture.close().await;
+}
+
+#[tokio::test]
 async fn shares_newest_first_discovery_pages() {
     let fixture = Fixture::start().await;
     std::fs::create_dir(fixture.root.join("src")).unwrap();

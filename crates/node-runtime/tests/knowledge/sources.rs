@@ -202,6 +202,7 @@ async fn pauses_indexing_and_rechecks_citation_originals() {
         let page = found(&client, None, "检索", first.id).await;
         let citation = page.hits[0].citation.clone();
         let request = CitationRequest {
+            context: false,
             collection: citation.collection,
             chunk: citation.chunk.clone(),
             revision: citation.revision.clone(),

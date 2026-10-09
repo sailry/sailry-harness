@@ -11,6 +11,8 @@ use tokio::{
 pub const HOST: &str = "public.sailry.test";
 pub const HTML: &str = "<!doctype html><head><title>Public page</title></head><body><nav>menu</nav><h1>Public &amp; readable</h1><script>secret()</script><style>hidden</style><template>hidden</template><p>Content 中文 🙂</p><pre><code>  code()</code></pre><footer>links</footer></body>";
 pub const TEXT: &str = "# Public & readable\n\nContent 中文 🙂\n\n```\n  code()\n```";
+pub const ENCODED_JSON: &str = "{\r\n  \"message\": \"中文\", \"count\": 1.00\r\n}\n";
+
 pub const MARKDOWN: &str = "# Original\n\n**Keep** [links](https://example.com/)\n";
 
 pub fn paged() -> String {
@@ -101,6 +103,11 @@ impl Server {
                             let body = "x".repeat(sailry_protocol::web::MAX_BODY_BYTES + 1);
                             format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n{body}\r\n0\r\n\r\n", body.len()).into_bytes()
                         }
+                        "/gbk" => response("text/plain; charset=gbk", &encoding_rs::GBK.encode("中文 text").0),
+                        "/gbk-fallback" => response("text/plain", &encoding_rs::GBK.encode("中文 text").0),
+                        "/gbk-meta" => response("text/html", &encoding_rs::GBK.encode("<head><meta charset=gbk><title>中文</title></head><body><p>中文 text</p></body>").0),
+                        "/gbk-json" => response("application/json; charset=gbk", &encoding_rs::GBK.encode(ENCODED_JSON).0),
+                        "/invalid-charset" => response("text/plain; charset=utf-8", b"\xd6\xd0"),
                         "/json" => response("application/json", JSON.as_bytes()),
                         "/paged" => response("text/plain", paged().as_bytes()),
                         "/markdown" => response("text/markdown", MARKDOWN.as_bytes()),

@@ -13,6 +13,9 @@ const INJECTIONS: [&str; 7] = [
     "DYLD_FRAMEWORK_PATH",
 ];
 
+#[path = "tests/repositories.rs"]
+mod repositories;
+
 async fn environment(home: &Path) -> Environment {
     Environment::capture(super::super::environment::Source::Fixture(
         super::super::environment::EnvironmentFixture {

@@ -17,14 +17,26 @@ pub(super) struct Response {
 }
 
 impl Http {
-    pub fn new(hub: Hub) -> Result<Self, Fault> {
+    pub fn new(hub: Hub, mirror: Option<&str>) -> Result<Self, Fault> {
         let base = match hub {
-            Hub::HuggingFace => "https://huggingface.co/",
+            Hub::HuggingFace => mirror.unwrap_or("https://huggingface.co/"),
             Hub::ModelScope => "https://modelscope.cn/",
         };
+        let base = Url::parse(base).map_err(|_| Fault::invalid("invalid model Hub URL"))?;
+        if base.scheme() != "https"
+            || base.host_str().is_none()
+            || !base.username().is_empty()
+            || base.password().is_some()
+            || base.query().is_some()
+            || base.fragment().is_some()
+        {
+            return Err(Fault::invalid(
+                "model Hub requires HTTPS without credentials",
+            ));
+        }
         Ok(Self {
             client: client(true)?,
-            base: base.parse().expect("built-in Hub URL is valid"),
+            base,
             #[cfg(test)]
             fixture: false,
         })
@@ -43,7 +55,7 @@ impl Http {
         let mut url = self.base.clone();
         url.path_segments_mut()
             .expect("Hub URL can contain path segments")
-            .clear()
+            .pop_if_empty()
             .extend(segments.iter().copied());
         url
     }
@@ -63,7 +75,17 @@ impl Http {
             bytes: file.bytes,
             sha256: file.sha256.clone().unwrap_or_default(),
         };
-        let url = sailry_model_assets::url(&asset, None)
+        let base = self.base.clone();
+        #[cfg(test)]
+        let base = if self.fixture {
+            let mut base = base;
+            base.set_scheme("https")
+                .expect("fixture URL supports HTTPS");
+            base
+        } else {
+            base
+        };
+        let url = sailry_model_assets::url(&asset, Some(base.as_str()))
             .map_err(|_| Fault::invalid("invalid pinned model asset URL"))?;
         #[cfg(test)]
         if self.fixture {
@@ -80,7 +102,12 @@ impl Http {
         url: Url,
         cancel: &CancellationToken,
     ) -> Result<(serde_json::Value, HeaderMap), Fault> {
-        let response = self.get(url, METADATA_BYTES, cancel).await?;
+        let response = tokio::time::timeout(
+            Duration::from_secs(60),
+            self.get(url, METADATA_BYTES, cancel),
+        )
+        .await
+        .map_err(|_| unavailable())??;
         let value = serde_json::from_slice(&response.body)
             .map_err(|_| Fault::invalid("model catalog returned invalid JSON"))?;
         Ok((value, response.headers))
@@ -144,7 +171,6 @@ fn client(https: bool) -> Result<Client, Fault> {
         .https_only(https)
         .connect_timeout(Duration::from_secs(10))
         .read_timeout(Duration::from_secs(30))
-        .timeout(Duration::from_secs(60))
         .redirect(reqwest::redirect::Policy::limited(5))
         .user_agent("Sailry model catalog")
         .build()

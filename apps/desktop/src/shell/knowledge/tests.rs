@@ -236,8 +236,13 @@ fn rejects_mismatched_page_identity() {
         offset: 0,
         next_offset: None,
         worktree: None,
+        context: false,
+        untrusted: true,
     };
     assert!(matches(&page, &input));
+    page.context = true;
+    assert!(!matches(&page, &input));
+    page.context = false;
     page.citation.collection = KnowledgeId::new();
     assert!(!matches(&page, &input));
     page.citation.collection = input.collection;

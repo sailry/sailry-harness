@@ -40,6 +40,7 @@ async fn opens_office_positions_on_execution_node() {
             assert_eq!(hit.citation.position, expected);
             assert!(Path::new(&hit.citation.path).starts_with(&external));
             let input = CitationRequest {
+                context: false,
                 collection: collection.id,
                 chunk: hit.citation.chunk.clone(),
                 revision: hit.citation.revision.clone(),

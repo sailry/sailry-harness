@@ -391,6 +391,7 @@ impl Ingress {
             }
             let (reply, response) = oneshot::channel();
             let knowledge_change = super::knowledge::runtime::changes(&request.command);
+            let knowledge_invalidation = super::knowledge::runtime::invalidates(&request.command);
             let job = Job::Request {
                 caller,
                 request: Box::new(request),
@@ -410,7 +411,7 @@ impl Ingress {
             self.dispatch.wake.notify_one();
             result.map(|admission| {
                 if knowledge_change {
-                    super::knowledge::runtime::observe(self, admission)
+                    super::knowledge::runtime::observe(self, admission, knowledge_invalidation)
                 } else {
                     admission
                 }

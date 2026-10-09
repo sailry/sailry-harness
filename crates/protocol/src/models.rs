@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_ASSETS: usize = 8;
 pub const MAX_ASSET_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+pub const MAX_PREFIX_BYTES: usize = 1024;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -106,6 +107,10 @@ pub struct Definition {
     pub name: String,
     pub license: String,
     pub format: Format,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query_prefix: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_prefix: Option<String>,
     pub assets: Vec<Asset>,
 }
 
@@ -117,6 +122,12 @@ impl Definition {
             || self.name.contains('\0')
             || self.license.len() > 256
             || self.license.contains('\0')
+            || [&self.query_prefix, &self.document_prefix]
+                .into_iter()
+                .flatten()
+                .any(|prefix| prefix.len() > MAX_PREFIX_BYTES || prefix.contains('\0'))
+            || self.format.kind() == Kind::Speech
+                && (self.query_prefix.is_some() || self.document_prefix.is_some())
             || self
                 .format
                 .dimension()

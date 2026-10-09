@@ -70,6 +70,24 @@ fn deduplicates_normalized_assets_without_replacing_metadata() {
 }
 
 #[test]
+fn separates_prefixes_in_immutable_model_identity() {
+    let db = database();
+    let definition = metadata();
+    let plain = register(&db, &definition);
+    let mut query = definition.clone();
+    query.query_prefix = Some("query: ".into());
+    let prefixed = register(&db, &query);
+    assert_ne!(plain, prefixed);
+    assert_eq!(register(&db, &query), prefixed);
+    let mut document = query.clone();
+    document.document_prefix = Some("passage: ".into());
+    let documents = register(&db, &document);
+    assert_ne!(prefixed, documents);
+    assert_ne!(plain, documents);
+    assert_eq!(models::load(&db).unwrap().len(), 3);
+}
+
+#[test]
 fn rejects_invalid_definitions_without_writes() {
     let db = database();
     register(&db, &metadata());

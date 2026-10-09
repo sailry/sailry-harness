@@ -246,11 +246,18 @@ fn interrupted_walk_has_no_safe_continuation() {
     }
     let control = control();
     let mut paths = Vec::new();
-    let report = traverse(root.path(), "", true, &control, &mut |_, _, relative, _| {
-        paths.push(relative.to_owned());
-        control.cancelled.cancel();
-        Ok(true)
-    })
+    let report = traverse(
+        root.path(),
+        "",
+        true,
+        &control,
+        &mut |_, _, relative, _| {
+            paths.push(relative.to_owned());
+            control.cancelled.cancel();
+            Ok(true)
+        },
+        &mut |_, _| Ok(()),
+    )
     .unwrap();
     assert_eq!(paths, ["a.rs"]);
     assert!(report.partial);
@@ -260,6 +267,24 @@ fn interrupted_walk_has_no_safe_continuation() {
             .iter()
             .any(|item| item.message.contains("narrow path"))
     );
+}
+
+#[test]
+fn interrupted_directory_scan_is_partial() {
+    let root = directory();
+    std::fs::create_dir(root.path().join("nested")).unwrap();
+    let control = control();
+    let mut entered = Vec::new();
+    let report = super::directories(root.path(), &control, &mut |_, relative| {
+        entered.push(relative.to_owned());
+        control.cancelled.cancel();
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(entered, [""]);
+    assert!(report.partial);
+    assert!(report.truncated);
+    assert_eq!(report.visited, 0);
 }
 
 #[cfg(unix)]

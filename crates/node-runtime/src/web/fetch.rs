@@ -102,6 +102,36 @@ impl Fetcher {
     }
 
     #[cfg(any(test, feature = "test-support"))]
+    pub fn fixture_proxy(&self, host: &str, proxy: reqwest::Proxy) {
+        self.fixtures
+            .lock()
+            .expect("web fixture lock is healthy")
+            .get_mut(host)
+            .expect("web proxy requires an existing fixture")
+            .proxy = Some(proxy);
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    fn configure_fixture(
+        &self,
+        url: &reqwest::Url,
+        builder: reqwest::ClientBuilder,
+    ) -> reqwest::ClientBuilder {
+        let fixtures = self.fixtures.lock().expect("web fixture lock is healthy");
+        let Some(fixture) = url.host_str().and_then(|host| fixtures.get(host)) else {
+            return builder;
+        };
+        let mut builder = builder.no_proxy();
+        if let Some(proxy) = &fixture.proxy {
+            builder = builder.proxy(proxy.clone());
+        }
+        if !fixture.roots.is_empty() {
+            builder = builder.tls_certs_only(fixture.roots.clone());
+        }
+        builder
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
     pub fn fixture(&self, host: &str, address: std::net::SocketAddr) {
         assert!(address.ip().is_loopback(), "web fixture must use loopback");
         assert!(
@@ -116,6 +146,8 @@ impl Fetcher {
                 Fixture {
                     address,
                     resolved: vec![std::net::Ipv4Addr::new(8, 8, 8, 8).into()],
+                    proxy: None,
+                    roots: Vec::new(),
                 },
             );
     }
@@ -126,6 +158,8 @@ impl Fetcher {
 struct Fixture {
     address: std::net::SocketAddr,
     resolved: Vec<std::net::IpAddr>,
+    proxy: Option<reqwest::Proxy>,
+    roots: Vec<reqwest::Certificate>,
 }
 
 struct Query {

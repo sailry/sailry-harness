@@ -172,6 +172,12 @@ changing captured access for pending or running commands. User-created
 terminals start with the complete login-shell environment. Language services
 and configured hooks retain their own execution policies.
 
+Workspace commands cannot write captured Git metadata, including linked repository
+metadata and common directories. Git writes use complete access. macOS also denies
+creating new `.git` paths. Linux protects existing metadata through read-only mounts;
+new metadata paths and replacement of symbolic Git pointers remain outside that
+mount-based protection.
+
 File discovery and content searches run inside Node with confined paths,
 ignore rules and bounded result pages, without requiring a system ripgrep.
 Multi-edit operations check the original file revision and publish one complete

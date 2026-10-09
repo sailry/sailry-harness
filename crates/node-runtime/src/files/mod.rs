@@ -13,6 +13,7 @@ pub(crate) mod rename;
 mod save;
 mod search;
 pub(crate) mod ssh;
+pub(crate) mod text;
 pub(crate) mod transfers;
 mod trash;
 mod version;

@@ -6553,9 +6553,11 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "socket2 0.6.5",
+ "system-configuration 0.7.0",
  "tokio",
  "tower-service",
  "tracing",
+ "windows-registry 0.4.0",
 ]
 
 [[package]]
@@ -12298,8 +12300,6 @@ dependencies = [
 [[package]]
 name = "reqwest"
 version = "0.13.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -13248,6 +13248,7 @@ dependencies = [
  "cua-driver-contract",
  "cua-driver-sdk",
  "dirs 6.0.0",
+ "encoding_rs",
  "eventsource-stream",
  "file-format",
  "flate2",
@@ -13281,6 +13282,7 @@ dependencies = [
  "portable-pty",
  "process-wrap 10.0.0",
  "pulldown-cmark",
+ "rcgen",
  "regex",
  "reqwest 0.13.4",
  "rmcp",
@@ -13311,6 +13313,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tokio-postgres-rustls",
+ "tokio-rustls",
  "tokio-util",
  "toml 1.1.5+spec-1.1.0",
  "trash",
@@ -14821,6 +14824,17 @@ name = "system-configuration"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c879d448e9d986b661742763247d3693ed13609438cf3d006f51f5368a5ba6b"
+dependencies = [
+ "bitflags 2.13.1",
+ "core-foundation 0.9.4",
+ "system-configuration-sys",
+]
+
+[[package]]
+name = "system-configuration"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a13f3d0daba03132c0aa9767f98351b3488edc2c100cda2d2ec2b04f3d8d3c8b"
 dependencies = [
  "bitflags 2.13.1",
  "core-foundation 0.9.4",

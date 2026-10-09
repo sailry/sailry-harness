@@ -70,6 +70,48 @@ fn selected(model: Model, revision: u64) -> Settings {
 }
 
 #[tokio::test]
+async fn uses_captured_prefixes_independent_of_priority() {
+    let profile = tempfile::tempdir().unwrap();
+    let (mut record, contents) = record(2, &[100., 0., 1., 0., 0., 1.]);
+    record.definition.query_prefix = Some("alpha ".into());
+    record.definition.document_prefix = Some("beta ".into());
+    let (root, _) = files::open(profile.path()).unwrap();
+    write(&root, &record, &contents);
+    let owner = Models::open(
+        profile.path(),
+        selected(record.model, 0),
+        vec![record.clone()],
+    )
+    .await
+    .unwrap();
+    owner
+        .install(record.model, &CancellationToken::new())
+        .await
+        .unwrap();
+    let cancel = CancellationToken::new();
+    for (purpose, lane, expected) in [
+        (sailry_embedding::Input::Query, Lane::Index, vec![1., 0.]),
+        (sailry_embedding::Input::Document, Lane::Query, vec![0., 1.]),
+    ] {
+        assert_eq!(
+            owner
+                .encode(record.model, 0, vec!["".into()], purpose, lane, &cancel)
+                .await
+                .unwrap(),
+            [expected]
+        );
+    }
+    assert_eq!(
+        owner
+            .offsets(record.model, 0, "alpha beta".into(), &cancel)
+            .await
+            .unwrap(),
+        [(0, 5), (6, 10)]
+    );
+    owner.shutdown().await;
+}
+
+#[tokio::test]
 async fn exposes_metadata_without_installing() {
     let profile = tempfile::tempdir().unwrap();
     let (record, _) = record(3, &[100., 0., 0., 1., 0., 0., 0., 1., 0.]);
@@ -108,6 +150,7 @@ async fn exposes_metadata_without_installing() {
                 record.model,
                 0,
                 vec!["alpha".into()],
+                sailry_embedding::Input::Query,
                 Lane::Query,
                 &CancellationToken::new()
             )
@@ -287,7 +330,14 @@ async fn isolates_registered_inference_and_removal() {
     ] {
         assert_eq!(
             owner
-                .encode(model, 0, vec!["alpha".into()], Lane::Query, &cancel)
+                .encode(
+                    model,
+                    0,
+                    vec!["alpha".into()],
+                    sailry_embedding::Input::Query,
+                    Lane::Query,
+                    &cancel
+                )
                 .await
                 .unwrap(),
             [expected]
@@ -305,7 +355,14 @@ async fn isolates_registered_inference_and_removal() {
     assert!(files::verified(&root, second.model, &second.definition).is_some());
     assert_eq!(
         owner
-            .encode(first.model, 0, vec!["alpha".into()], Lane::Query, &cancel)
+            .encode(
+                first.model,
+                0,
+                vec!["alpha".into()],
+                sailry_embedding::Input::Query,
+                Lane::Query,
+                &cancel
+            )
             .await
             .unwrap_err()
             .code,
@@ -313,7 +370,14 @@ async fn isolates_registered_inference_and_removal() {
     );
     assert_eq!(
         owner
-            .encode(second.model, 0, vec!["alpha".into()], Lane::Query, &cancel)
+            .encode(
+                second.model,
+                0,
+                vec!["alpha".into()],
+                sailry_embedding::Input::Query,
+                Lane::Query,
+                &cancel
+            )
             .await
             .unwrap(),
         [vec![0., 1.]]

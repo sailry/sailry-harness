@@ -193,6 +193,8 @@ pub enum Operation {
     StorageTransaction,
     #[serde(rename = "knowledge.query")]
     KnowledgeQuery,
+    #[serde(rename = "knowledge.read")]
+    KnowledgeRead,
     #[serde(rename = "knowledge.collections")]
     KnowledgeCollections,
     #[serde(rename = "knowledge.create")]
@@ -265,7 +267,9 @@ impl Operation {
             Self::SetValue | Self::DeleteValue | Self::StorageTransaction => {
                 Some(Action::WriteStorage)
             }
-            Self::KnowledgeQuery | Self::KnowledgeCollections => Some(Action::ReadKnowledge),
+            Self::KnowledgeQuery | Self::KnowledgeRead | Self::KnowledgeCollections => {
+                Some(Action::ReadKnowledge)
+            }
             Self::KnowledgeCreate | Self::KnowledgeRebuild | Self::KnowledgeRemove => {
                 Some(Action::WriteKnowledge)
             }
@@ -457,6 +461,12 @@ mod flow_tests {
             (
                 "knowledge.query",
                 Operation::KnowledgeQuery,
+                Action::ReadKnowledge,
+                true,
+            ),
+            (
+                "knowledge.read",
+                Operation::KnowledgeRead,
                 Action::ReadKnowledge,
                 true,
             ),

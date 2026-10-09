@@ -121,6 +121,66 @@ fn loads_non_catalog_static_dimension() {
 }
 
 #[test]
+fn prepends_inputs_by_purpose_without_changing_offsets() {
+    use sailry_protocol::models::{Asset, Hub, Source};
+    let (directory, _) = fixture();
+    let source = Source {
+        hub: Hub::HuggingFace,
+        repository: "fixture/prefix-encoder".into(),
+        revision: "a".repeat(40),
+    };
+    let definition = Definition {
+        source: source.clone(),
+        name: "Prefix encoder".into(),
+        license: "MIT".into(),
+        format: Format::Static {
+            dimension: ModelId::PotionMulti.descriptor().dimension as u16,
+        },
+        query_prefix: Some("alpha ".into()),
+        document_prefix: Some("beta ".into()),
+        assets: ["config.json", "tokenizer.json", "model.safetensors"]
+            .into_iter()
+            .map(|name| Asset {
+                source: source.clone(),
+                path: name.into(),
+                name: name.into(),
+                bytes: 1,
+                sha256: "b".repeat(64),
+            })
+            .collect(),
+    };
+    let mut engine = Engine::load_definition(&definition, directory.path()).unwrap();
+    assert_eq!(engine.offsets("東京").unwrap(), [(0, 6)]);
+    let query = engine
+        .encode_for(Input::Query, &["東京"])
+        .unwrap()
+        .remove(0);
+    let document = engine
+        .encode_for(Input::Document, &["東京"])
+        .unwrap()
+        .remove(0);
+    let expected = 0.5f32.sqrt();
+    assert!((query[0] - expected).abs() < 1e-6);
+    assert_eq!(query[1], 0.);
+    assert!((query[2] - expected).abs() < 1e-6);
+    assert_eq!(document[0], 0.);
+    assert!((document[1] - expected).abs() < 1e-6);
+    assert!((document[2] - expected).abs() < 1e-6);
+    assert_eq!(engine.encode(&["東京"]).unwrap()[0], document);
+    let at_limit = vec!["alpha"; MAX_INPUT_TOKENS].join(" ");
+    assert_eq!(engine.offsets(&at_limit).unwrap().len(), MAX_INPUT_TOKENS);
+    assert!(matches!(
+        engine.encode_for(Input::Query, &[&at_limit]),
+        Err(Error::TooLong)
+    ));
+    let mut oversized = definition;
+    oversized.document_prefix = Some("x ".repeat(257));
+    assert!(
+        matches!(Engine::load_definition(&oversized, directory.path()), Err(Error::Invalid(message)) if message.contains("256 content tokens"))
+    );
+}
+
+#[test]
 fn rejects_unsupported_embedding_formats() {
     let directory = tempfile::tempdir().unwrap();
     for format in [

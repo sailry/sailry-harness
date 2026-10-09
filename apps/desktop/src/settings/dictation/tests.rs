@@ -210,6 +210,8 @@ fn switches_persisted_controller_models(cx: &mut TestAppContext) {
         source: source.clone(),
         name: "Controller speech".into(),
         license: "Apache-2.0".into(),
+        query_prefix: None,
+        document_prefix: None,
         format: sailry_protocol::models::Format::SenseVoice {},
         assets: ["model.onnx", "tokens.txt"]
             .into_iter()

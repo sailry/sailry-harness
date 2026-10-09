@@ -1,4 +1,4 @@
-//! Public hub discovery uses the same authenticated Node boundary without Store I/O.
+//! Public Hub discovery captures the execution Node's current mirror settings.
 use super::Ingress;
 use sailry_link::Admission;
 use sailry_protocol::{Command, ErrorCode, Fault, Output, Request};
@@ -20,16 +20,17 @@ impl Ingress {
         }
         let stop = self.closed.child_token();
         let _guard = stop.clone().drop_guard();
+        let mirror = self.knowledge_catalog().await?.settings.mirror;
         let output = match &request.command {
             Command::SearchModels(search) => {
-                Output::ModelSearch(crate::models::search(search, &stop).await?)
+                Output::ModelSearch(crate::models::search(search, mirror.as_deref(), &stop).await?)
             }
-            Command::ReadModelVersions { hub, repository } => {
-                Output::ModelVersions(crate::models::versions(*hub, repository, &stop).await?)
-            }
-            Command::ResolveModel { kind, source } => {
-                Output::ModelDefinition(crate::models::resolve(*kind, source, &stop).await?)
-            }
+            Command::ReadModelVersions { hub, repository } => Output::ModelVersions(
+                crate::models::versions(*hub, repository, mirror.as_deref(), &stop).await?,
+            ),
+            Command::ResolveModel { kind, source } => Output::ModelDefinition(
+                crate::models::resolve(*kind, source, mirror.as_deref(), &stop).await?,
+            ),
             _ => return Err(Fault::invalid("model discovery expected")),
         };
         let (reply, completion) = oneshot::channel();

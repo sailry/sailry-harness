@@ -3,6 +3,10 @@ use reqwest::{Url, header};
 use sailry_protocol::{ErrorCode, Fault, web};
 use std::{net::SocketAddr, time::Duration};
 
+mod encoding;
+#[cfg(test)]
+mod tests;
+
 fn unavailable(message: &str) -> Fault {
     Fault::new(ErrorCode::Unavailable, message)
 }
@@ -51,10 +55,10 @@ async fn resolve(_owner: &Fetcher, url: &Url) -> Result<Vec<SocketAddr>, Fault> 
 pub(super) async fn fetch(owner: &Fetcher, mut url: Url) -> Result<Document, Fault> {
     for redirects in 0..=web::MAX_REDIRECTS {
         let addresses = resolve(owner, &url).await?;
-        let client = reqwest::Client::builder()
+        let builder = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .retry(reqwest::retry::never())
-            .no_proxy()
+            .proxy_pinned_targets(true)
             .referer(false)
             .no_gzip()
             .no_brotli()
@@ -62,7 +66,10 @@ pub(super) async fn fetch(owner: &Fetcher, mut url: Url) -> Result<Document, Fau
             .no_zstd()
             .connect_timeout(Duration::from_secs(10))
             .read_timeout(Duration::from_secs(10))
-            .resolve_to_addrs(url.host_str().expect("validated URL host"), &addresses)
+            .resolve_to_addrs(url.host_str().expect("validated URL host"), &addresses);
+        #[cfg(any(test, feature = "test-support"))]
+        let builder = owner.configure_fixture(&url, builder);
+        let client = builder
             .build()
             .map_err(|_| unavailable("web HTTP client is unavailable"))?;
         let mut response = client
@@ -109,11 +116,13 @@ pub(super) async fn fetch(owner: &Fetcher, mut url: Url) -> Result<Document, Fau
                 "web response uses an unsupported content encoding",
             ));
         }
-        let content_type = response
+        let declared_type = response
             .headers()
             .get(header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
             .unwrap_or("text/plain")
+            .to_owned();
+        let content_type = declared_type
             .split(';')
             .next()
             .unwrap_or("text/plain")
@@ -156,12 +165,11 @@ pub(super) async fn fetch(owner: &Fetcher, mut url: Url) -> Result<Document, Fau
                     .join("\n\n");
                 Ok((None, content))
             } else {
-                let body = String::from_utf8(body)
-                    .map_err(|_| unavailable("web response is not UTF-8 text"))?;
+                let body = encoding::decode(&body, &declared_type, html)?;
                 if html {
                     html::convert(&body)
                 } else {
-                    Ok((None, body))
+                    Ok((None, body.into_owned()))
                 }
             }
         })

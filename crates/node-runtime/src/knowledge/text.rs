@@ -52,10 +52,55 @@ fn quoted(text: &str) -> String {
     format!("\"{}\"", text.replace('"', "\"\""))
 }
 
-/// Literal phrases retain Latin words and match CJK through their unigram stream.
-pub(crate) fn query(text: &str) -> String {
+/// One explicit plugin term remains a literal phrase.
+pub(crate) fn phrase(text: &str) -> String {
     if !text.chars().any(cjk) {
         return quoted(text);
     }
     quoted(&separated(text))
+}
+
+/// Natural-language queries match independent words and adjacent CJK bigrams.
+pub(crate) fn query(text: &str) -> String {
+    let mut terms = std::collections::BTreeSet::new();
+    let mut word = String::new();
+    let mut ideographs = Vec::new();
+    for character in text.chars() {
+        if cjk(character) {
+            take_word(&mut terms, &mut word);
+            ideographs.push(character);
+        } else {
+            take_bigrams(&mut terms, &mut ideographs);
+            if character.is_alphanumeric() || matches!(character, '+' | '#') {
+                word.push(character);
+            } else {
+                take_word(&mut terms, &mut word);
+            }
+        }
+    }
+    take_word(&mut terms, &mut word);
+    take_bigrams(&mut terms, &mut ideographs);
+    if terms.is_empty() {
+        return quoted("");
+    }
+    terms
+        .into_iter()
+        .map(|term| quoted(&term))
+        .collect::<Vec<_>>()
+        .join(" OR ")
+}
+
+fn take_word(terms: &mut std::collections::BTreeSet<String>, word: &mut String) {
+    if !word.is_empty() {
+        terms.insert(std::mem::take(word));
+    }
+}
+
+fn take_bigrams(terms: &mut std::collections::BTreeSet<String>, characters: &mut Vec<char>) {
+    if characters.len() == 1 {
+        terms.insert(characters[0].to_string());
+    } else {
+        terms.extend(characters.windows(2).map(|pair| pair.iter().collect()));
+    }
+    characters.clear();
 }
