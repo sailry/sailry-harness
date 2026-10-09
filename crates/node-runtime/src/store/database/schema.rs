@@ -1,26 +1,44 @@
-//! Initialize fresh databases and validate the single current schema without repairs.
+//! Upgrade owned databases to the current schema without discarding stored data.
+mod backup;
 mod definition;
+mod plan;
 #[cfg(test)]
 mod tests;
+mod upgrades;
 
 use crate::Error;
 use definition::{Table, normalize};
 use rusqlite::{Connection, OptionalExtension};
 use sailry_protocol::NodeId;
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 const DDL: &str = include_str!("../schema.sql");
 
-pub(super) enum Schema {
+pub(super) struct Schema(State);
+
+enum State {
     Fresh,
     Current,
+    Upgrade { plan: plan::Plan, path: PathBuf },
 }
 
 impl Schema {
     pub(super) fn initialize(&self, connection: &Connection) -> Result<(), Error> {
-        if matches!(self, Self::Fresh) {
-            connection.execute_batch(DDL)?;
-            crate::store::roles::initialize(connection)?;
+        match &self.0 {
+            State::Fresh => {
+                connection.execute_batch(DDL)?;
+                crate::store::roles::initialize(connection)?;
+            }
+            State::Current => {}
+            State::Upgrade { plan, path } => {
+                plan.apply(connection)?;
+                upgrades::reconcile(connection)?;
+                verify(connection, path, DDL)?;
+                super::validation::stored(connection)?;
+            }
         }
         Ok(())
     }
@@ -28,10 +46,28 @@ impl Schema {
 
 pub(super) fn prepare(connection: &Connection, path: &Path, node: NodeId) -> Result<Schema, Error> {
     if ownership(connection, path)? {
-        return Ok(Schema::Fresh);
+        return Ok(Schema(State::Fresh));
     }
-    verify(connection, path, DDL)?;
-    super::validation::stored(connection)?;
+    identity(connection, path, node)?;
+    if verify(connection, path, DDL).is_ok() && super::validation::stored(connection).is_ok() {
+        return Ok(Schema(State::Current));
+    }
+    let mut preview = Connection::open_in_memory()?;
+    backup::copy(connection, &mut preview)?;
+    let plan = plan::Plan::prepare(&preview, path)?;
+    plan.apply(&preview)?;
+    verify(&preview, path, DDL)?;
+    upgrades::reconcile(&preview)?;
+    super::validation::stored(&preview)?;
+    identity(&preview, path, node)?;
+    backup::save(connection, path)?;
+    Ok(Schema(State::Upgrade {
+        plan,
+        path: path.to_owned(),
+    }))
+}
+
+fn identity(connection: &Connection, path: &Path, node: NodeId) -> Result<(), Error> {
     let identity: Option<Vec<u8>> = connection
         .query_row("SELECT identity FROM node WHERE singleton=1", [], |row| {
             row.get(0)
@@ -43,7 +79,7 @@ pub(super) fn prepare(connection: &Connection, path: &Path, node: NodeId) -> Res
             "Node identity is missing or does not match its database",
         ));
     }
-    Ok(Schema::Current)
+    Ok(())
 }
 
 fn ownership(connection: &Connection, path: &Path) -> Result<bool, Error> {
@@ -95,10 +131,9 @@ fn verify(connection: &Connection, path: &Path, ddl: &str) -> Result<(), Error> 
         compare(&indexes, &actual, path)?;
         expected.extend(indexes);
     }
-    if let Some((kind, name)) = actual
-        .keys()
-        .find(|identity| !expected.contains_key(*identity))
-    {
+    if let Some((kind, name)) = actual.keys().find(|identity| {
+        !expected.contains_key(*identity) && !upgrades::retained(&identity.0, &identity.1)
+    }) {
         return Err(incompatible(
             path,
             format!("schema object {name:?} ({kind}) is not part of the current schema"),
@@ -133,7 +168,7 @@ fn compare(
                         format!("column {name}.{column} is missing"),
                     ));
                 };
-                if normalize(existing) != normalize(declaration) {
+                if self::column(name, column, existing) != self::column(name, column, declaration) {
                     return Err(incompatible(
                         path,
                         format!("column {name}.{column} does not match the current definition"),
@@ -150,12 +185,16 @@ fn compare(
                     format!("column {name}.{column} is not part of the current schema"),
                 ));
             }
-            if wanted.constraints != stored.constraints {
+            if wanted.header != stored.header
+                || wanted.constraints != stored.constraints
+                || wanted.options != stored.options
+            {
                 return Err(incompatible(
                     path,
                     format!("table {name:?} does not match the current constraints"),
                 ));
             }
+            continue;
         }
         return Err(incompatible(
             path,
@@ -163,6 +202,25 @@ fn compare(
         ));
     }
     Ok(())
+}
+
+fn column(table: &str, name: &str, declaration: &str) -> String {
+    let normalized = normalize(declaration);
+    let Some(value) = upgrades::column(table, name) else {
+        return normalized;
+    };
+    let suffix = normalize(&format!(
+        "DEFAULT X'{}'",
+        value
+            .iter()
+            .map(|byte| format!("{byte:02X}"))
+            .collect::<String>()
+    ));
+    normalized
+        .strip_suffix(&suffix)
+        .unwrap_or(&normalized)
+        .trim_end()
+        .to_owned()
 }
 
 fn objects(connection: &Connection) -> Result<BTreeMap<(String, String), String>, Error> {

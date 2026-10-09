@@ -7,6 +7,7 @@ use sailry_protocol::{
 use serde::de::DeserializeOwned;
 
 pub(super) fn stored(db: &Connection) -> Result<(), Error> {
+    records::<role::Profile>(db, "roles.body", "SELECT body FROM roles")?;
     records::<sailry_protocol::hooks::Settings>(
         db,
         "hook_settings.body",
@@ -263,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_checkpoint_content_preserves_profile() {
+    fn adds_checkpoint_content_to_empty_tables() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory
             .path()
@@ -277,15 +278,46 @@ mod tests {
             .execute_batch("ALTER TABLE file_checkpoints DROP COLUMN after_text")
             .unwrap();
         database.close().unwrap();
-        let before = std::fs::read(&path).unwrap();
-        let error = Database::open(&path, node, None).err().unwrap();
+        let database = Database::open(&path, node, None).unwrap();
         assert!(
-            error
-                .to_string()
-                .contains("incompatible development database")
+            database
+                .connection
+                .prepare("SELECT after_text FROM file_checkpoints")
+                .is_ok()
         );
-        assert!(error.to_string().contains("after_text"));
-        assert_eq!(std::fs::read(&path).unwrap(), before);
+        database.close().unwrap();
+        let backups = path.parent().unwrap().join("backups");
+        let files = std::fs::read_dir(&backups)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        assert_eq!(files.len(), 1);
+        let previous =
+            Connection::open_with_flags(&files[0], rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .unwrap();
+        assert!(
+            previous
+                .prepare("SELECT after_text FROM file_checkpoints")
+                .is_err()
+        );
+        assert_eq!(
+            previous
+                .query_row("SELECT count(*) FROM file_checkpoints", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        drop(previous);
+        Database::open(&path, node, None).unwrap().close().unwrap();
+        let snapshots = std::fs::read_dir(backups)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "sqlite3")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(snapshots, files);
     }
 
     #[test]

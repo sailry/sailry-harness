@@ -259,10 +259,14 @@ facts; it does not silently rerun interrupted side effects. Protected profiles,
 credentials and local logs are not distributable source.
 
 Before the first product release, Sailry protocol, wire, storage and extension
-contracts remain v1 and change in place. Incompatible profiles are reported
-without conversion, reset or deletion. Third-party dependency versions, ordinary
-data revisions and event sequences are independent. A release compatibility policy
-must be decided before introducing migrations.
+contracts remain v1 and change in place. Startup adds missing schema objects and
+fills missing storage fields with their defaults. Updates remain centralized and
+simple, with no historical state inference or versioned migration framework. Each
+update is validated on an isolated snapshot, backed up privately and applied with
+current-format validation in one transaction. The backup retains original records;
+startup does not reset or delete user data. Third-party dependency versions, ordinary
+data revisions and event sequences are independent. Release compatibility remains
+a separate decision.
 
 ## Security and quality constraints
 

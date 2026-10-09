@@ -101,7 +101,7 @@ pub(crate) fn temporary(profile: &Path) -> Result<PathBuf, sailry_protocol::Faul
     Ok(directory)
 }
 
-fn private_directory(path: &Path) -> Result<(), Error> {
+pub(crate) fn private_directory(path: &Path) -> Result<(), Error> {
     #[cfg(windows)]
     return windows::directory(path);
 

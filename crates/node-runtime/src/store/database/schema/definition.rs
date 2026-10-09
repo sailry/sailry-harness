@@ -3,8 +3,10 @@ use crate::Error;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) struct Table {
+    pub(super) header: String,
     pub(super) columns: BTreeMap<String, String>,
     pub(super) constraints: BTreeSet<String>,
+    pub(super) options: String,
 }
 
 impl Table {
@@ -30,8 +32,10 @@ impl Table {
             }
         }
         Ok(Self {
+            header: normalize(&sql[..start]),
             columns,
             constraints,
+            options: normalize(&sql[end + 1..]),
         })
     }
 }

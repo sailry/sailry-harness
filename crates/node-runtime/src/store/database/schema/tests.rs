@@ -56,6 +56,17 @@ mod comparison {
     }
 
     #[test]
+    fn rejects_table_options() {
+        for options in ["STRICT", "WITHOUT ROWID"] {
+            let connection = Connection::open_in_memory().unwrap();
+            connection.execute_batch(&format!("CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT DEFAULT 'Kept') {options}; CREATE INDEX records_value ON records(value);")).unwrap();
+            let before = objects(&connection).unwrap();
+            assert!(verify(&connection, Path::new("fixture"), CURRENT).is_err());
+            assert_eq!(objects(&connection).unwrap(), before);
+        }
+    }
+
+    #[test]
     fn rejects_index_changes() {
         let connection = Connection::open_in_memory().unwrap();
         connection.execute_batch("CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT DEFAULT 'Kept'); CREATE INDEX records_value ON records(id);").unwrap();
@@ -210,7 +221,7 @@ mod startup {
     use std::{ffi::OsString, path::PathBuf};
 
     #[test]
-    fn missing_tables_preserve_profile() {
+    fn adds_missing_tables() {
         for table in [
             "agent_continuations",
             "plugin_conversation_records",
@@ -221,17 +232,17 @@ mod startup {
             "model_catalog_status",
         ] {
             let (directory, path, node) = fixture(&format!("DROP TABLE {table}"));
-            let connection = rejected(directory.path(), &path, node, table);
+            let connection = upgraded(directory.path(), &path, node);
             assert!(
                 connection
                     .prepare(&format!("SELECT * FROM {table}"))
-                    .is_err()
+                    .is_ok()
             );
         }
     }
 
     #[test]
-    fn missing_columns_preserve_profile() {
+    fn adds_missing_columns() {
         for (table, column) in [
             ("agent_runs", "provider"),
             ("agent_runs", "hooks"),
@@ -240,23 +251,73 @@ mod startup {
         ] {
             let (directory, path, node) =
                 fixture(&format!("ALTER TABLE {table} DROP COLUMN {column}"));
-            let connection = rejected(directory.path(), &path, node, &format!("{table}.{column}"));
+            let connection = upgraded(directory.path(), &path, node);
             assert!(
                 connection
                     .prepare(&format!("SELECT {column} FROM {table}"))
-                    .is_err()
+                    .is_ok()
             );
         }
     }
 
     #[test]
     fn index_changes_preserve_profile() {
-        for sql in [
-            "DROP INDEX dispatch_handlers_source",
+        let (directory, path, node) = fixture(
             "DROP INDEX dispatch_handlers_source; CREATE INDEX dispatch_handlers_source ON dispatch_handlers(topic,source)",
-        ] {
-            let (directory, path, node) = fixture(sql);
-            rejected(directory.path(), &path, node, "dispatch_handlers_source");
+        );
+        rejected(directory.path(), &path, node, "dispatch_handlers_source");
+    }
+
+    #[test]
+    fn adds_missing_indexes() {
+        let (directory, path, node) = fixture("DROP INDEX dispatch_handlers_source");
+        let connection = upgraded(directory.path(), &path, node);
+        assert!(
+            objects(&connection)
+                .unwrap()
+                .contains_key(&("index".into(), "dispatch_handlers_source".into()))
+        );
+    }
+
+    #[test]
+    fn malformed_json_preserves_diagnostics_and_profile() {
+        for source in ["plugins.body", "requests.result"] {
+            let (directory, path, node) = fixture("");
+            let connection = Connection::open(&path).unwrap();
+            let malformed = br#"{"token":"diagnostic-secret-marker""#;
+            if source == "plugins.body" {
+                connection.execute("INSERT INTO plugins(name,revision,installed,body) VALUES('fixture',1,1,?1)", [malformed.as_slice()]).unwrap();
+            } else {
+                connection
+                    .execute(
+                        "UPDATE requests SET result=?1",
+                        [std::str::from_utf8(malformed).unwrap()],
+                    )
+                    .unwrap();
+            }
+            connection.close().unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let files = entries(directory.path());
+            let error = Database::open(&path, node, None).err().unwrap().to_string();
+            assert!(
+                error.contains(&format!("invalid stored JSON in {source}, record 1")),
+                "{error}"
+            );
+            assert!(error.contains("line 1"), "{error}");
+            assert!(error.contains("existing data was not changed"), "{error}");
+            assert!(!error.contains("diagnostic-secret-marker"), "{error}");
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+            assert_eq!(entries(directory.path()), files);
+            let connection =
+                Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                    .unwrap();
+            assert_eq!(
+                connection
+                    .query_row("SELECT status FROM requests", [], |row| row
+                        .get::<_, String>(0))
+                    .unwrap(),
+                "admitted"
+            );
         }
     }
 
@@ -394,5 +455,60 @@ mod startup {
             .collect::<Vec<_>>();
         entries.sort();
         entries
+    }
+
+    fn upgraded(directory: &Path, path: &Path, node: NodeId) -> Connection {
+        let database = Database::open(path, node, None).unwrap();
+        database.close().unwrap();
+        let backups = directory.join("backups");
+        let files = entries(&backups);
+        assert_eq!(files.len(), 1);
+        let previous = Connection::open_with_flags(
+            backups.join(&files[0]),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        assert_eq!(
+            previous
+                .query_row("SELECT status FROM requests", [], |row| row
+                    .get::<_, String>(0))
+                .unwrap(),
+            "admitted"
+        );
+        assert_eq!(
+            previous
+                .query_row("SELECT body FROM requests", [], |row| row
+                    .get::<_, Vec<u8>>(0))
+                .unwrap(),
+            b"kept"
+        );
+        drop(previous);
+        let database = Database::open(path, node, None).unwrap();
+        database.close().unwrap();
+        assert_eq!(entries(&backups), files);
+        let connection =
+            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        assert_eq!(
+            connection
+                .query_row("SELECT identity FROM node", [], |row| row
+                    .get::<_, Vec<u8>>(0))
+                .unwrap(),
+            node.0
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT status FROM requests", [], |row| row
+                    .get::<_, String>(0))
+                .unwrap(),
+            "unknown"
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT body FROM requests", [], |row| row
+                    .get::<_, Vec<u8>>(0))
+                .unwrap(),
+            b"kept"
+        );
+        connection
     }
 }
