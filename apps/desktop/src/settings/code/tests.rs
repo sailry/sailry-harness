@@ -8,6 +8,7 @@ use std::sync::atomic::Ordering;
 
 mod fixture;
 mod installation;
+mod layout;
 use fixture::{init, *};
 
 #[gpui::test]

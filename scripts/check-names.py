@@ -216,10 +216,15 @@ def violations(source, suffix, path=None):
 
 
 def main():
-    tracked = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT).decode().split("\0")
+    candidates = subprocess.check_output(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=ROOT
+    ).decode().split("\0")
+    deleted = set(subprocess.check_output(
+        ["git", "ls-files", "--deleted", "-z"], cwd=ROOT
+    ).decode().split("\0"))
     checked = 0
     failed = False
-    for value in tracked:
+    for value in sorted(set(candidates) - deleted):
         if not value:
             continue
         path = Path(value)

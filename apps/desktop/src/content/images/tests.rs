@@ -1,8 +1,7 @@
 use super::*;
 use crate::conversation::live::tests::{
-    AttachmentControl, attachment_control,
     fixture::{self, Fixture, ImageView, init, tap},
-    wait,
+    remove_attachment, wait,
 };
 use crate::conversation::live::{Binding as ConversationBinding, View};
 use core::prelude::v1::test;
@@ -227,7 +226,7 @@ fn preview_and_download(cx: &mut TestAppContext) {
         finish_close(visual);
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
         assert_eq!(view.read_with(visual, |view, _| view.image_count()), 1);
-        attachment_control(visual, 0, AttachmentControl::Remove);
+        remove_attachment(visual, 0);
         wait(visual, |cx| view.read(cx).image_count() == 0);
         assert!(fixture.server.requests.lock().unwrap().is_empty());
         visual.update(|window, _| window.remove_window());

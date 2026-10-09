@@ -12,29 +12,16 @@ mod layout;
 mod lifecycle;
 mod media;
 
-pub(crate) enum Control {
-    Remove,
-    Retry,
-}
-
 fn send(cx: &mut VisualTestContext) {
     tap(cx, "live-chat-send");
 }
 
-pub(crate) fn control(cx: &mut VisualTestContext, key: usize, control: Control) {
+pub(crate) fn remove(cx: &mut VisualTestContext, key: usize) {
     let position = |cx: &mut VisualTestContext| {
         cx.update(|window, cx| window.draw(cx).clear(cx));
         let selector = Box::leak(format!("attachment-card-{key}").into_boxed_str());
         let bounds = cx.debug_bounds(selector).expect("attachment card");
-        match &control {
-            Control::Remove => point(bounds.right() - px(10.), bounds.top() + px(10.)),
-            Control::Retry => cx
-                .debug_bounds(Box::leak(
-                    format!("attachment-media-{key}").into_boxed_str(),
-                ))
-                .expect("native attachment media")
-                .center(),
-        }
+        point(bounds.right() - px(10.), bounds.top() + px(10.))
     };
     cx.run_until_parked();
     let before = position(cx);

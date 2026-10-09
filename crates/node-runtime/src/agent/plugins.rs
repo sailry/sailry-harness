@@ -39,7 +39,7 @@ pub(super) async fn bind(
         .is_none_or(|model| model.tools);
     let mut bound = Contribution::default();
     if !restricted || invocation.turn.config.assistant.is_some() {
-        bound.tools.extend(model_tools::bind(invocation)?);
+        bound.tools.extend(model_tools::bind(ingress, invocation)?);
     }
     if supports_tools && (!restricted || invocation.turn.config.assistant.is_some()) {
         bound

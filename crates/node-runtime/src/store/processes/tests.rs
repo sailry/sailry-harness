@@ -90,6 +90,7 @@ fn resolves_the_admitted_worktree() {
                 description: None,
                 cwd: String::new(),
                 timeout_ms: 1000,
+                pty: false,
                 background: false,
                 attachments: vec![],
             },

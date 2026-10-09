@@ -18,11 +18,44 @@ async fn executes_configured_bundled_tools() {
                 Server::turn_tools(vec![(peer::package_alias(name, name, "read"), json!({}))])
                     .await;
             let fixture = process::Fixture::new(remote, &model).await;
-            let Output::Plugin(installed) =
+            let Output::Plugin(mut installed) =
                 execute(&fixture.client, Command::ReadPlugin { name: name.into() }).await
             else {
                 panic!("plugin expected")
             };
+            if name == "github" {
+                let package = fixture.root.join("github");
+                fs::create_dir_all(&package).unwrap();
+                fs::write(
+                    package.join("plugin.json"),
+                    json!({
+                        "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+                        "name": "github",
+                        "version": "0.1.0"
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+                fs::write(
+                    package.join("mcp.json"),
+                    include_str!("../../../../../../plugins/github/mcp.json"),
+                )
+                .unwrap();
+                let Output::Plugin(replacement) = execute(
+                    &fixture.client,
+                    Command::InstallPlugin {
+                        worktree: fixture.session.worktree,
+                        path: "github".into(),
+                        name: "github".into(),
+                        expected_revision: installed.summary.revision,
+                    },
+                )
+                .await
+                else {
+                    panic!("plugin expected")
+                };
+                installed = replacement;
+            }
             let Output::Plugin(installed) = execute(
                 &fixture.client,
                 Command::SetPluginEnabled {

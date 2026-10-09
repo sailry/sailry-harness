@@ -195,10 +195,24 @@ async fn freezes_queued_settings() {
 }
 
 #[tokio::test]
-async fn rejects_unavailable_search() {
+async fn omits_unavailable_search() {
     for remote in [false, true] {
         let server = SearchServer::web_search().await;
         let mut fixture = Fixture::new(remote, ModelApi::ChatCompletions, &server.endpoint).await;
+        let Output::SearchSettings(mut settings) =
+            execute(&fixture.client, Command::ReadSearchSettings).await
+        else {
+            panic!("search settings expected")
+        };
+        settings.driver = None;
+        execute(
+            &fixture.client,
+            Command::SaveSearchSettings(sailry_protocol::search::Update {
+                settings,
+                credentials: Default::default(),
+            }),
+        )
+        .await;
         fixture.provider.models[0].web_search = true;
         execute(
             &fixture.client,
@@ -211,9 +225,17 @@ async fn rejects_unavailable_search() {
         let turn = fixture.submit("Search is required").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         let run = page.runs.last().unwrap();
-        assert_eq!(run.status, Status::Failed);
-        assert_eq!(run.error.as_ref().unwrap().code, ErrorCode::NotConfigured);
-        assert!(server.requests.lock().unwrap().is_empty());
+        assert_eq!(run.status, Status::Completed);
+        assert!(run.error.is_none());
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 1);
+        assert!(
+            !requests[0]["tools"].as_array().unwrap().iter().any(|tool| {
+                tool["type"] == "web_search"
+                    || tool["function"]["name"] == plugin_tool("web-search", "web_search")
+            })
+        );
+        assert!(page.entries.iter().all(|entry| entry.citations.is_empty()));
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
     }

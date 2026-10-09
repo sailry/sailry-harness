@@ -27,6 +27,7 @@ async fn environment(home: &Path) -> Environment {
 
 fn launch(root: &Path, profile: &Path) -> Launch {
     Launch {
+        pty: false,
         root: root.to_owned(),
         profile: Some(profile.to_owned()),
         command: "true".into(),

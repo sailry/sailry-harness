@@ -1,6 +1,6 @@
 [workspace]
 members = ["apps/desktop", "apps/host", "crates/node-runtime", "crates/protocol", "crates/link", "crates/client", "crates/mobile-bridge", "crates/speech", "crates/content"]
-exclude = ["vendor/rmcp", "vendor/gpui-base", "vendor/gpui-component", "vendor/gpui-renderer/gpui", "vendor/gpui-renderer/apple", "vendor/gpui-renderer/wgpu", "vendor/gpui-renderer/windows", "vendor/rquickjs-compat", "vendor/block", "vendor/libghostty-vt-sys", "vendor/adk-model", "vendor/adk-gemini"]
+exclude = ["vendor/rmcp", "vendor/portable-pty", "vendor/gpui-base", "vendor/gpui-component", "vendor/gpui-renderer/gpui", "vendor/gpui-renderer/apple", "vendor/gpui-renderer/wgpu", "vendor/gpui-renderer/windows", "vendor/rquickjs-compat", "vendor/block", "vendor/libghostty-vt-sys", "vendor/adk-model", "vendor/adk-gemini"]
 resolver = "2"
 
 [workspace.package]
@@ -53,6 +53,7 @@ serde_json = "=1.0.151"
 # Keep the Node VM on its exact published source, separate from Kit's JIT facade.
 rquickjs = { version = "=0.12.2", git = "https://github.com/DelSkayn/rquickjs.git", rev = "635f9322ccc875e3f9851e7f75ec538cf3274fd5", features = ["loader"] }
 roxmltree = "=0.21.1"
+htmd = "=0.5.5"
 schemars = "=1.2.2"
 umya-spreadsheet = "=3.1.0"
 lopdf = { version = "=0.45.0", default-features = false }
@@ -104,6 +105,9 @@ cap-fs-ext = "=4.0.3"
 cap-tempfile = "=4.0.3"
 trash = "=5.2.6"
 regex = "=1.13.1"
+ignore = "=0.4.33"
+grep-searcher = "=0.1.17"
+grep-regex = "=0.1.14"
 pulldown-cmark = { version = "=0.13.4", default-features = false }
 unicode-segmentation = "=1.13.3"
 russh-sftp = "=3.0.0"
@@ -153,6 +157,7 @@ gpui-pre-wgpu = { path = "vendor/gpui-renderer/wgpu" }
 gpui-pre-windows = { path = "vendor/gpui-renderer/windows" }
 block = { path = "vendor/block" }
 rmcp = { path = "vendor/rmcp" }
+portable-pty = { path = "vendor/portable-pty" }
 
 [patch."https://github.com/longbridge/gpui-kit"]
 gpui-base = { path = "vendor/gpui-base" }

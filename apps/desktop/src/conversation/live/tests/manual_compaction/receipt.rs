@@ -48,7 +48,7 @@ fn retries_original_admission(cx: &mut TestAppContext) {
         });
         std::fs::write(
             fixture.directory.path().join("project/source.txt"),
-            "Retained evidence",
+            "Retained evidence\n".repeat(400),
         )
         .unwrap();
         let observed = Arc::new(Lost {
@@ -81,6 +81,20 @@ fn retries_original_admission(cx: &mut TestAppContext) {
                 "Keep draft after missing response 中文 🙂"
             );
             assert_eq!(view.history.snapshot.as_ref().unwrap().page.runs.len(), 2);
+            assert_eq!(
+                super::super::super::compaction::status(
+                    view.history
+                        .snapshot
+                        .as_ref()
+                        .unwrap()
+                        .page
+                        .runs
+                        .last()
+                        .unwrap(),
+                    &view.history.snapshot.as_ref().unwrap().page,
+                ),
+                "chat_compacted"
+            );
         });
         let requests = observed.requests.lock().unwrap();
         assert_eq!(requests.len(), 2);

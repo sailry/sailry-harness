@@ -17,6 +17,23 @@ pub(in crate::store) type Waiting =
     BTreeMap<ApprovalId, (TurnId, oneshot::Sender<Result<Decision, Fault>>)>;
 
 impl Ingress {
+    pub(crate) async fn approved_command_access(
+        &self,
+        turn: TurnId,
+        request: ToolConfirmationRequest,
+    ) -> Result<sailry_protocol::process::Access, Fault> {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .send(Job::Agent(Box::new(Operation::CommandAccess {
+                turn,
+                request,
+                reply,
+            })))
+            .await
+            .map_err(|_| super::super::unavailable())?;
+        response.await.map_err(|_| super::super::unavailable())?
+    }
+
     pub(crate) async fn confirm(
         &self,
         turn: TurnId,
@@ -89,6 +106,39 @@ impl Ingress {
     }
 }
 
+pub(super) fn command_access(
+    db: &Connection,
+    turn: TurnId,
+    request: &ToolConfirmationRequest,
+) -> Result<sailry_protocol::process::Access, Fault> {
+    active(db, turn)?;
+    super::calls::locate(db, turn, request)?;
+    let body: Option<Vec<u8>> = db
+        .query_row(
+            "SELECT body FROM agent_approvals WHERE turn=?1 AND call=?2",
+            params![turn.to_string(), call_id(request)?],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(storage_error)?;
+    let approval: Approval = body
+        .map(|body| serde_json::from_slice(&body).map_err(storage_error))
+        .transpose()?
+        .ok_or_else(|| Fault::new(ErrorCode::PermissionDenied, "command has no approval"))?;
+    if approval.state != ApprovalState::Approved {
+        return Err(Fault::new(
+            ErrorCode::PermissionDenied,
+            "command approval is unavailable",
+        ));
+    }
+    approval.access.ok_or_else(|| {
+        Fault::new(
+            ErrorCode::PermissionDenied,
+            "command approval has no captured access",
+        )
+    })
+}
+
 #[cfg(test)]
 pub(super) fn begin(
     database: &mut Database,
@@ -120,10 +170,10 @@ pub(super) fn begin_with(
     if let Some(binding) = binding {
         rules::validate(&transaction, turn, request, binding)?;
     }
-    let access = access::requested(request, binding)?;
+    let access = access::requested(&transaction, turn, request, binding)?;
     let escape = crate::process::sandbox::SUPPORTED
         && access == Some(sailry_protocol::process::Access::Unrestricted);
-    if escape {
+    if escape && source != ApprovalSource::Full {
         source = ApprovalSource::User;
     }
     let can_remember =

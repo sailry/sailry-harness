@@ -9,6 +9,8 @@ mod execution;
 mod lifecycle;
 #[path = "codex/media.rs"]
 mod media;
+#[path = "codex/search.rs"]
+mod search;
 #[path = "codex/server.rs"]
 mod server;
 

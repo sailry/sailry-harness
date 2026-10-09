@@ -4,6 +4,7 @@ use sailry_protocol::{
     plugin::{
         Info,
         conversation::{Binding, Declaration, Tool},
+        model_tools::Capability,
     },
 };
 
@@ -35,6 +36,21 @@ pub(crate) fn owns_resources(binding: Option<&Binding>, package: &Info) -> bool 
     binding.is_none_or(|binding| package.summary.reference() == binding.package)
 }
 
+pub(crate) fn fallback(provider: &Info, capability: Capability, name: &str) -> bool {
+    match capability {
+        Capability::WebSearch => provider.extension.as_ref().is_some_and(|extension| {
+            extension
+                .model_tools
+                .iter()
+                .any(|tool| tool.capability == capability)
+                && extension.tools.iter().any(|tool| {
+                    tool.name == name
+                        && tool.operation == Some(sailry_protocol::tool::Operation::SearchWeb)
+                })
+        }),
+    }
+}
+
 pub(crate) fn selects(
     binding: Option<&Binding>,
     packages: &[Info],
@@ -52,6 +68,9 @@ pub(crate) fn selects(
                     package,
                     name: selected,
                 } => package == &provider.summary.name && selected == name,
+                Tool::Model { capability } => {
+                    owns_resources(Some(binding), provider) && fallback(provider, *capability, name)
+                }
                 _ => false,
             })
         })

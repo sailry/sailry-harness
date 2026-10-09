@@ -23,9 +23,11 @@ fn preserves_frozen_roles() {
     let original_roles =
         crate::store::sessions::roles::read(&fixture.database.connection, fixture.session, 1)
             .unwrap();
-    assert_eq!(original_roles.profiles.len(), 1);
+    assert_eq!(original_roles.profiles.len(), 2);
     assert_eq!(original_roles.profiles[0].key, "explore");
     assert!(original_roles.profiles[0].read_only);
+    assert_eq!(original_roles.profiles[1].key, "research");
+    assert!(original_roles.profiles[1].read_only);
     let through = fixture.completed(&["Completed before configuring roles"]);
     let profile = role::Profile {
         read_only: false,

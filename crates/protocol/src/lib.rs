@@ -24,10 +24,13 @@ pub mod plugin;
 pub mod process;
 pub mod projects;
 pub mod role;
+pub mod sandbox;
+pub mod search;
 pub mod ssh;
 pub mod terminal;
 pub mod tool;
 pub mod usage;
+pub mod web;
 
 pub use config::*;
 pub use credential::*;

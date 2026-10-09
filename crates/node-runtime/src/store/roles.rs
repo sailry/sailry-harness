@@ -21,6 +21,23 @@ pub(super) fn initialize(db: &Connection) -> Result<(), Fault> {
         },
         0,
     )?;
+    put(
+        db,
+        &role::Profile {
+            id: RoleId::new(),
+            revision: 0,
+            key: "research".into(),
+            name: "Research".into(),
+            appearance: None,
+            description: "Investigate public sources and return supported conclusions".into(),
+            read_only: true,
+            model: None,
+            max_turns: Some(8),
+            skills: vec!["web-search:research".into()],
+            instructions: "Research the assigned question using the selected web-search:research skill and available read-only tools. Return supported conclusions with source links, uncertainty and conflicting evidence to the parent. Keep the inherited permissions and the task's budget; do not modify resources or ask the user for input.".into(),
+        },
+        0,
+    )?;
     Ok(())
 }
 

@@ -1,4 +1,4 @@
-//! Authorization reads the admitted revision, never the current controller or session defaults.
+//! Session authority uses the admitted revision; command access captures the Node's current policy.
 use super::*;
 use adk_core::ToolConfirmationRequest;
 
@@ -26,18 +26,37 @@ pub(super) fn source(
         ));
     }
     let operation = super::plugins::operation(db, turn, &request.tool_name)?;
-    if crate::process::sandbox::SUPPORTED
+    if operation == Some(sailry_protocol::tool::Operation::RunCommand) {
+        let access = super::super::sandbox::effective(db, &request.args)?;
+        return Ok(
+            if access == sailry_protocol::process::Access::Workspace
+                && crate::process::sandbox::SUPPORTED
+            {
+                ApprovalSource::Sandbox
+            } else if config.permission == Permission::Full {
+                ApprovalSource::Full
+            } else {
+                ApprovalSource::User
+            },
+        );
+    }
+    let command_flow =
+        operation.is_none() && super::plugins::command_flow(db, turn, &request.tool_name)?;
+    if command_flow && !super::super::sandbox::read(db)?.enabled {
+        return Ok(if config.permission == Permission::Full {
+            ApprovalSource::Full
+        } else {
+            ApprovalSource::User
+        });
+    }
+    if !command_flow
+        && crate::process::sandbox::SUPPORTED
         && request
             .args
             .get("access")
             .is_some_and(|value| value == "unrestricted")
     {
         return Ok(ApprovalSource::User);
-    }
-    if crate::process::sandbox::SUPPORTED
-        && operation == Some(sailry_protocol::tool::Operation::RunCommand)
-    {
-        return Ok(ApprovalSource::Sandbox);
     }
     if matches!(
         operation,
@@ -76,6 +95,9 @@ pub(super) fn source(
                 Some(
                     sailry_protocol::tool::Operation::WriteFile
                         | sailry_protocol::tool::Operation::EditFile
+                        | sailry_protocol::tool::Operation::DeleteFile
+                        | sailry_protocol::tool::Operation::MoveFile
+                        | sailry_protocol::tool::Operation::CreateDirectory
                 )
             ) =>
         {

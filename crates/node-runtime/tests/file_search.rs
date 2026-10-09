@@ -19,6 +19,7 @@ async fn search(
                 regex,
                 case_sensitive,
                 globs,
+                ..Default::default()
             },
         }))
         .await?;
@@ -155,6 +156,7 @@ async fn shares_read_only_search() {
                 regex: false,
                 case_sensitive: false,
                 globs: vec![],
+                ..Default::default()
             },
         }))
         .await
@@ -186,7 +188,11 @@ async fn reports_truncation() {
         "hit\n".repeat(MAX_SEARCH_MATCHES + 1),
     )
     .unwrap();
-    std::fs::write(root.join("long.txt"), format!("hit{}", "中文".repeat(2000))).unwrap();
+    std::fs::write(
+        root.join("long.txt"),
+        format!("hit{}", "中文".repeat(10000)),
+    )
+    .unwrap();
     let node = Node::start(temp.path().join("node")).await.unwrap();
     let client = Client::new(node.local());
     client
@@ -212,6 +218,14 @@ async fn reports_truncation() {
     let long = search(&client, id, "hit", false, true, vec!["long.txt".into()])
         .await
         .unwrap();
-    assert!(long.truncated && long.matches[0].line.len() <= 1024);
+    assert!(long.truncated && long.matches[0].truncated);
+    assert!(long.matches[0].line.len() <= 16 * 1024);
+    assert!(long.matches[0].line.starts_with("hit中文"));
     node.shutdown().await.unwrap();
 }
+
+#[path = "file_search/options.rs"]
+mod options;
+
+#[path = "file_search/performance.rs"]
+mod performance;

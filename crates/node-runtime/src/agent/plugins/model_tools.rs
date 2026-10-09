@@ -12,7 +12,10 @@ pub(super) fn names(capability: Capability) -> &'static [&'static str] {
     }
 }
 
-pub(super) fn bind(invocation: &Invocation) -> Result<Vec<ToolRegistration>, Fault> {
+pub(super) fn bind(
+    ingress: &Ingress,
+    invocation: &Invocation,
+) -> Result<Vec<ToolRegistration>, Fault> {
     let assistant = invocation
         .turn
         .config
@@ -47,7 +50,7 @@ pub(super) fn bind(invocation: &Invocation) -> Result<Vec<ToolRegistration>, Fau
                 continue;
             }
             let tool = match declaration.capability {
-                Capability::WebSearch => search(invocation)?,
+                Capability::WebSearch => search(ingress, invocation),
             };
             if let Some(tool) = tool {
                 let mut registration = ToolRegistration::managed(tool);
@@ -61,16 +64,45 @@ pub(super) fn bind(invocation: &Invocation) -> Result<Vec<ToolRegistration>, Fau
     Ok(registrations)
 }
 
-fn search(invocation: &Invocation) -> Result<Option<Arc<dyn adk_core::Tool>>, Fault> {
+pub(super) fn preferred(ingress: &Ingress, invocation: &Invocation) -> bool {
+    if !ingress.search.settings().prefer_native || !supported(invocation) {
+        return false;
+    }
+    let assistant = invocation.turn.config.assistant.as_ref();
+    let declaration = assistant.and_then(|binding| {
+        crate::plugins::conversation::declaration(binding, &invocation.plugins).ok()
+    });
+    invocation.plugins.iter().any(|package| {
+        assistant.is_none_or(|binding| package.summary.reference() == binding.package)
+            && package.extension.as_ref().is_some_and(|extension| {
+                extension
+                    .model_tools
+                    .iter()
+                    .any(|tool| tool.capability == Capability::WebSearch)
+            })
+            && declaration.is_none_or(|assistant| {
+                assistant.tools.iter().any(|tool| {
+                    matches!(
+                        tool,
+                        ToolSelection::Model {
+                            capability: Capability::WebSearch
+                        }
+                    )
+                })
+            })
+    })
+}
+
+fn supported(invocation: &Invocation) -> bool {
     let Some(provider) = &invocation.provider else {
-        return Ok(None);
+        return false;
     };
     let Some(model) = provider
         .models
         .iter()
         .find(|model| model.id == invocation.turn.config.model)
     else {
-        return Ok(None);
+        return false;
     };
     if !model.web_search
         || !crate::providers::search::combines(
@@ -80,21 +112,32 @@ fn search(invocation: &Invocation) -> Result<Option<Arc<dyn adk_core::Tool>>, Fa
             model.tools,
         )
     {
-        return Ok(None);
+        return false;
     }
+    matches!(
+        (provider.authentication, provider.api),
+        (
+            Authentication::ApiKey,
+            ModelApi::Responses | ModelApi::Anthropic | ModelApi::Gemini
+        ) | (Authentication::ChatGptOAuth, ModelApi::Responses)
+    )
+}
+
+fn search(ingress: &Ingress, invocation: &Invocation) -> Option<Arc<dyn adk_core::Tool>> {
+    if !preferred(ingress, invocation) {
+        return None;
+    }
+    let provider = invocation.provider.as_ref()?;
     match (provider.authentication, provider.api) {
-        (Authentication::ApiKey, ModelApi::Responses) => {
-            Ok(Some(Arc::new(adk_tool::OpenAIWebSearchTool::new())))
+        (Authentication::ApiKey | Authentication::ChatGptOAuth, ModelApi::Responses) => {
+            Some(Arc::new(adk_tool::OpenAIWebSearchTool::new()))
         }
         (Authentication::ApiKey, ModelApi::Anthropic) => {
-            Ok(Some(Arc::new(adk_tool::WebSearchTool::new())))
+            Some(Arc::new(adk_tool::WebSearchTool::new()))
         }
         (Authentication::ApiKey, ModelApi::Gemini) => {
-            Ok(Some(Arc::new(adk_tool::GoogleSearchTool::new())))
+            Some(Arc::new(adk_tool::GoogleSearchTool::new()))
         }
-        _ => Err(Fault::new(
-            ErrorCode::NotConfigured,
-            "native web search is unavailable for this provider API",
-        )),
+        _ => None,
     }
 }

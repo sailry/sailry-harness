@@ -145,6 +145,11 @@ pub(super) enum Operation {
         turn: TurnId,
         reply: oneshot::Sender<Result<Vec<Denial>, Fault>>,
     },
+    CommandAccess {
+        turn: TurnId,
+        request: adk_core::ToolConfirmationRequest,
+        reply: oneshot::Sender<Result<process::Access, Fault>>,
+    },
     Subscribe {
         session: SessionId,
         closed: sailry_link::CancellationToken,
@@ -561,6 +566,17 @@ pub(super) fn execute(
         }
         Operation::Denials { turn, reply } => {
             let _ = reply.send(approvals::results::read(&database.connection, turn));
+        }
+        Operation::CommandAccess {
+            turn,
+            request,
+            reply,
+        } => {
+            let _ = reply.send(approvals::command_access(
+                &database.connection,
+                turn,
+                &request,
+            ));
         }
         Operation::Subscribe {
             session,

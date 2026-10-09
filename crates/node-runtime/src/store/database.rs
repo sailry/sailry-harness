@@ -313,6 +313,7 @@ impl Database {
                 | Command::BeginMcpLogin { .. }
                 | Command::CompleteMcpLogin { .. }
                 | Command::CancelMcpLogin { .. }
+                | Command::ImportGithubLogin { .. }
         ) {
             return Some(Work::Login(super::login::Operation {
                 caller,
@@ -748,8 +749,19 @@ impl Database {
         &mut self,
         caller: NodeId,
         request: &Request,
+        result: Response,
+        events: &broadcast::Sender<EventEnvelope>,
+    ) -> Response {
+        self.finish_external_with(caller, request, result, events, |_, _| Ok(None))
+    }
+
+    pub(in crate::store) fn finish_external_with(
+        &mut self,
+        caller: NodeId,
+        request: &Request,
         mut result: Response,
         events: &broadcast::Sender<EventEnvelope>,
+        finish: impl FnOnce(&Connection, &mut Response) -> Result<Option<Event>, Fault>,
     ) -> Response {
         if !request.command.durable() {
             return result;
@@ -758,11 +770,15 @@ impl Database {
         self.relocations.remove(&(caller, request.id));
         let recorded = (|| -> Result<Option<EventEnvelope>, Fault> {
             let transaction = self.connection.transaction().map_err(storage_error)?;
-            let event = super::worktrees::finish(
-                &transaction,
-                &mut result,
-                matches!(request.command, Command::RegisterWorktree { .. }),
-            )?;
+            let event = finish(&transaction, &mut result)?;
+            let event = match event {
+                Some(event) => Some(event),
+                None => super::worktrees::finish(
+                    &transaction,
+                    &mut result,
+                    matches!(request.command, Command::RegisterWorktree { .. }),
+                )?,
+            };
             let event = match event {
                 Some(event) => Some(event),
                 None => super::terminals::finish(&transaction, &request.command, &mut result)?,

@@ -46,6 +46,20 @@ fn parse_json_rpc_error(body: &str) -> Option<ServerJsonRpcMessage> {
     }
 }
 
+fn http_failure(response: &reqwest::Response) -> Option<HttpStatusError> {
+    (response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS
+        || response.status().is_server_error())
+    .then(|| HttpStatusError {
+        status: response.status().as_u16(),
+        retry_after: response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| value.len() <= 128)
+            .map(str::to_owned),
+    })
+}
+
 /// Bound a single JSON or error response before retaining or decoding its body.
 /// Streamed reads also enforce the limit when Content-Length is absent.
 async fn bounded_body(
@@ -118,6 +132,9 @@ impl StreamableHttpClient for reqwest::Client {
         }
         request_builder = apply_custom_headers(request_builder, custom_headers)?;
         let response = request_builder.send().await?;
+        if let Some(error) = http_failure(&response) {
+            return Err(error.into());
+        }
         if response.status() == reqwest::StatusCode::METHOD_NOT_ALLOWED {
             return Err(StreamableHttpError::ServerDoesNotSupportSse);
         }
@@ -236,6 +253,9 @@ impl StreamableHttpClient for reqwest::Client {
             request = request.header(HEADER_SESSION_ID, session_id.as_ref());
         }
         let response = request.json(&message).send().await?;
+        if let Some(error) = http_failure(&response) {
+            return Err(error.into());
+        }
         if response.status() == reqwest::StatusCode::UNAUTHORIZED
             && let Some(header) = response.headers().get(WWW_AUTHENTICATE)
         {
@@ -422,6 +442,51 @@ mod tests {
         model::{ClientJsonRpcMessage, ClientRequest, JsonRpcMessage, PingRequest, RequestId},
         transport::streamable_http_client::{AuthRequiredError, InsufficientScopeError},
     };
+
+    #[tokio::test]
+    async fn retains_rate_limit_metadata_without_body() -> anyhow::Result<()> {
+        use crate::transport::streamable_http_client::{StreamableHttpClient, StreamableHttpError};
+        use axum::{Router, routing::post};
+        use std::{collections::HashMap, sync::Arc};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let server = tokio::spawn(async move {
+            let app = Router::new().route(
+                "/mcp",
+                post(|| async {
+                    (
+                        http::StatusCode::TOO_MANY_REQUESTS,
+                        [(http::header::RETRY_AFTER, "37")],
+                        "private-response",
+                    )
+                }),
+            );
+            axum::serve(listener, app).await
+        });
+        let message = ClientJsonRpcMessage::request(
+            ClientRequest::PingRequest(PingRequest::default()),
+            RequestId::Number(1),
+        );
+        let result = reqwest::Client::new()
+            .post_message_with_max_sse_event_size(
+                Arc::<str>::from(format!("http://{address}/mcp")),
+                message,
+                None,
+                Some("private-key".into()),
+                HashMap::new(),
+                1,
+            )
+            .await;
+        server.abort();
+        let Err(StreamableHttpError::HttpStatus(error)) = result else {
+            anyhow::bail!("typed rate limit expected")
+        };
+        assert_eq!(error.status, 429);
+        assert_eq!(error.retry_after.as_deref(), Some("37"));
+        assert_eq!(error.to_string(), "HTTP 429");
+        assert!(!format!("{error:?}").contains("private"));
+        Ok(())
+    }
 
     #[test]
     fn auth_required_error_new() {

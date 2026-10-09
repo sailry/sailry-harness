@@ -9,12 +9,15 @@ fn preserves_external_messages(cx: &mut TestAppContext) {
         let fixture = fixture::Fixture::with_tools(
             remote,
             vec![
-                (name.clone(), json!({"command":command, "cwd":"nested"})),
                 (
                     name.clone(),
-                    json!({"command":"printf before; sleep 30", "timeout_ms":100}),
+                    json!({"command":command, "cwd":"nested", "access":"unrestricted"}),
                 ),
-                (name, json!({"command":"exit 0"})),
+                (
+                    name.clone(),
+                    json!({"command":"printf before; sleep 30", "timeout_ms":100, "access":"unrestricted"}),
+                ),
+                (name, json!({"command":"exit 0", "access":"unrestricted"})),
             ],
         );
         std::fs::create_dir(fixture.directory.path().join("project/nested")).unwrap();
@@ -47,6 +50,10 @@ fn preserves_external_messages(cx: &mut TestAppContext) {
                     );
                 }
                 assert_eq!(details.prompt, details.description);
+                assert_eq!(
+                    call.approval.as_ref().unwrap().access,
+                    Some(sailry_protocol::process::Access::Unrestricted)
+                );
                 call.approval.as_ref().unwrap().id
             });
             fixture::tap(visual, &format!("live-approval-approve-{id}"));

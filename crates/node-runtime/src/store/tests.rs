@@ -271,6 +271,7 @@ async fn interrupted_command_preserves_uncertainty() {
         description: None,
         cwd: String::new(),
         timeout_ms: 1_000,
+        pty: false,
         background: false,
         attachments: Vec::new(),
     });

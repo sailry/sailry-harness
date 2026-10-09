@@ -159,14 +159,23 @@ fn result<'a>(page: &'a Page, tool: &str) -> &'a Value {
 #[tokio::test]
 async fn selects_tools_without_importing_resources() {
     for remote in [false, true] {
-        selected(remote, false).await;
+        selected(remote, false, Permission::Full).await;
     }
 }
 
 #[tokio::test]
 async fn requires_unrestricted_consent() {
     for remote in [false, true] {
-        selected(remote, true).await;
+        for permission in [Permission::Ask, Permission::Project] {
+            selected(remote, true, permission).await;
+        }
+    }
+}
+
+#[tokio::test]
+async fn executes_unrestricted_calls_in_full_mode() {
+    for remote in [false, true] {
+        selected(remote, true, Permission::Full).await;
     }
 }
 
@@ -189,8 +198,10 @@ async fn files(fixture: &process::Fixture, session: &Session, root: &Path) {
         Command::EditFile {
             worktree: session.worktree,
             path: written.path.clone(),
-            old_text: "Original".into(),
-            new_text: "Updated".into(),
+            old_text: Some("Original".into()),
+            new_text: Some("Updated".into()),
+            replace_all: false,
+            edits: None,
             expected_revision: written.revision.clone(),
         },
     )
@@ -212,8 +223,10 @@ async fn files(fixture: &process::Fixture, session: &Session, root: &Path) {
         .execute(fixture.client.prepare(Command::EditFile {
             worktree: session.worktree,
             path: written.path,
-            old_text: "Updated".into(),
-            new_text: "Stale".into(),
+            old_text: Some("Updated".into()),
+            new_text: Some("Stale".into()),
+            replace_all: false,
+            edits: None,
             expected_revision: written.revision,
         }))
         .await
@@ -234,11 +247,11 @@ async fn files(fixture: &process::Fixture, session: &Session, root: &Path) {
     assert_eq!(file.text, "Updated note");
 }
 
-async fn selected(remote: bool, unrestricted: bool) {
+async fn selected(remote: bool, unrestricted: bool, permission: Permission) {
     let command = if unrestricted {
-        json!({"command":"printf imported > imported.txt", "access":"unrestricted"})
+        json!({"command":"printf imported >> imported.txt", "access":"unrestricted"})
     } else {
-        json!({"command":"printf imported > imported.txt"})
+        json!({"command":"printf imported >> imported.txt"})
     };
     let inspect = plugin_tool(PROVIDER, "inspect");
     let read = plugin_tool(PROVIDER, "read_note");
@@ -273,7 +286,24 @@ async fn selected(remote: bool, unrestricted: bool) {
         ]),
     )
     .await;
-    let session = create(&fixture, &owner).await;
+    let mut session = create(&fixture, &owner).await;
+    if session.config.permission != permission {
+        let mut config = session.config.clone();
+        config.permission = permission;
+        let Output::Session(updated) = execute(
+            &fixture.client,
+            Command::SetSessionConfig {
+                session: session.id,
+                expected_revision: session.revision,
+                config,
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        session = updated;
+    }
     let scratch = scratch(&fixture, &session).await;
     if !unrestricted {
         files(&fixture, &session, &scratch).await;
@@ -283,16 +313,40 @@ async fn selected(remote: bool, unrestricted: bool) {
     let turn = submit(&fixture.client, &session, false).await;
     assert_eq!(turn.plugins.len(), 3);
     assert!(turn.plugins.contains(&provider.summary.reference()));
-    if unrestricted {
+    if unrestricted && permission != Permission::Full {
         let (_, approval) = approvals::pending(&fixture.client, session.id).await;
+        assert_eq!(approval.state, ApprovalState::Pending);
         assert_eq!(approval.source, ApprovalSource::User);
         assert_eq!(
             approval.access,
             Some(sailry_protocol::process::Access::Unrestricted)
         );
+        assert!(!approval.can_remember);
+        assert_eq!(approval.choice, None);
+        assert_eq!(approval.prefix, None);
+        assert!(!scratch.join("imported.txt").exists());
         process::decide(&fixture.client, &approval, Decision::Approve).await;
     }
     let page = finished(&fixture.client, session.id, turn.id).await;
+    if unrestricted {
+        assert_eq!(page.approvals.len(), 1);
+        let approval = &page.approvals[0];
+        assert_eq!(approval.state, ApprovalState::Approved);
+        assert_eq!(
+            approval.access,
+            Some(sailry_protocol::process::Access::Unrestricted)
+        );
+        assert!(!approval.can_remember);
+        assert_eq!(approval.prefix, None);
+        assert!(approvals::rules::claimed(&fixture.node, approval).1);
+        if permission == Permission::Full {
+            assert_eq!(approval.source, ApprovalSource::Full);
+            assert_eq!(approval.choice, None);
+        } else {
+            assert_eq!(approval.source, ApprovalSource::User);
+            assert_eq!(approval.choice, Some(ApprovalChoice::Once));
+        }
+    }
     if !unrestricted {
         assert!(
             page.approvals
@@ -313,6 +367,11 @@ async fn selected(remote: bool, unrestricted: bool) {
         })
     );
     assert_eq!(result(&page, &read)["value"], "Provider-owned note");
+    assert_eq!(result(&page, &run)["kind"], "command_result");
+    assert_eq!(
+        result(&page, &run)["data"]["outcome"],
+        json!({"kind":"exited","data":0})
+    );
     note(&page);
     assert!(result(&page, "load_skill")["error"].is_object());
     assert_eq!(

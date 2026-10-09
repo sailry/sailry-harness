@@ -1,7 +1,7 @@
 use super::*;
 
 fn shipped(profiles: &[role::Profile]) -> &role::Profile {
-    assert_eq!(profiles.len(), 1);
+    assert_eq!(profiles.len(), 2);
     let role = &profiles[0];
     assert_eq!(role.key, "explore");
     assert_eq!(role.name, "Explore");
@@ -11,6 +11,16 @@ fn shipped(profiles: &[role::Profile]) -> &role::Profile {
     assert!(role.skills.is_empty());
     assert!(role.instructions.contains("read-only tools"));
     role.validate().unwrap();
+    let research = &profiles[1];
+    assert_eq!(research.key, "research");
+    assert_eq!(research.name, "Research");
+    assert_eq!(research.revision, 1);
+    assert!(research.read_only);
+    assert!(research.model.is_none());
+    assert_eq!(research.max_turns, Some(8));
+    assert_eq!(research.skills, ["web-search:research"]);
+    assert!(research.instructions.contains("inherited permissions"));
+    research.validate().unwrap();
     role
 }
 
@@ -18,7 +28,9 @@ fn shipped(profiles: &[role::Profile]) -> &role::Profile {
 async fn preserves_edits_and_removal() {
     for remote in [false, true] {
         let (directory, node, controller, client) = fresh(remote).await;
-        let original = shipped(&list(&client).await).clone();
+        let defaults = list(&client).await;
+        let original = shipped(&defaults).clone();
+        let research = defaults[1].clone();
         let mut changed = original.clone();
         changed.key = "custom-explorer".into();
         changed.name = "Custom explorer".into();
@@ -32,14 +44,18 @@ async fn preserves_edits_and_removal() {
         } else {
             node.local()
         });
-        assert_eq!(
-            list(&client).await.as_slice(),
-            std::slice::from_ref(&changed)
-        );
+        assert_eq!(list(&client).await, [changed.clone(), research.clone()]);
         client
             .execute(client.prepare(Command::RemoveRole {
                 role: changed.id,
                 expected_revision: changed.revision,
+            }))
+            .await
+            .unwrap();
+        client
+            .execute(client.prepare(Command::RemoveRole {
+                role: research.id,
+                expected_revision: research.revision,
             }))
             .await
             .unwrap();

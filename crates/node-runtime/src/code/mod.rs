@@ -7,6 +7,7 @@ mod queries;
 pub(crate) use queries::Queries;
 mod diagnostics;
 mod documents;
+mod identity;
 mod install;
 mod network;
 mod operations;

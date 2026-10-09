@@ -338,7 +338,7 @@ pub(super) fn preset(kind: &str) -> &'static str {
             "Review code and changes within the assigned scope, focusing on correctness, edge cases, regression risks and existing conventions.\nRead relevant implementations and tests first, then report evidence-backed findings with locations, impact and recommendations. Do not modify files unless asked; state plainly when no issues are found."
         }
         "research" => {
-            "Investigate the assigned objective, prioritizing existing materials, code and reliable primary sources.\nDistinguish confirmed facts, inferences and open questions, and provide concise conclusions with supporting evidence. Identify missing information when needed; do not invent results."
+            "Research the assigned question using the selected web-search:research skill and available read-only tools. Return supported conclusions with source links, uncertainty and conflicting evidence to the parent. Keep the inherited permissions and the task's budget; do not modify resources or ask the user for input."
         }
         _ => unreachable!(),
     }

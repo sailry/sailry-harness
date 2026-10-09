@@ -6,6 +6,7 @@ pub(super) mod collection;
 pub(in crate::store) mod command;
 pub(in crate::store) mod connections;
 pub(super) mod distribution;
+pub(in crate::store) mod github;
 pub(in crate::store) mod grants;
 mod http;
 pub(super) mod invocations;

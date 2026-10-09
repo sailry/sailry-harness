@@ -1,4 +1,4 @@
-use super::{Message, failure};
+use super::{Event, Output, failure};
 use portable_pty::MasterPty;
 use sailry_protocol::{ErrorCode, Fault};
 use std::{
@@ -14,7 +14,7 @@ use std::{
 };
 use windows_sys::Win32::System::IO::CancelSynchronousIo;
 
-pub(super) struct Io {
+pub(crate) struct Io {
     input: Option<SyncSender<Vec<u8>>>,
     stopped: Arc<AtomicBool>,
     reader: Option<JoinHandle<()>>,
@@ -22,7 +22,7 @@ pub(super) struct Io {
 }
 
 impl Io {
-    pub fn start(master: &dyn MasterPty, messages: SyncSender<Message>) -> Result<Self, Fault> {
+    pub fn start(master: &dyn MasterPty, messages: Output) -> Result<Self, Fault> {
         let mut reader = master.try_clone_reader().map_err(failure)?;
         let mut writer = master.take_writer().map_err(failure)?;
         let (input, chunks) = mpsc::sync_channel::<Vec<u8>>(32);
@@ -40,10 +40,7 @@ impl Io {
                     match reader.read(&mut buffer) {
                         Ok(0) => break Ok(()),
                         Ok(count) => {
-                            if output
-                                .send(Message::Bytes(buffer[..count].to_vec()))
-                                .is_err()
-                            {
+                            if !output(Event::Bytes(buffer[..count].to_vec())) {
                                 return;
                             }
                         }
@@ -54,7 +51,7 @@ impl Io {
                         Err(error) => break Err(error.to_string()),
                     }
                 };
-                let _ = output.send(Message::Eof(result));
+                output(Event::Eof(result));
             })
             .map_err(failure)?;
         let stop = stopped.clone();
@@ -66,7 +63,7 @@ impl Io {
                         return;
                     }
                     if let Err(error) = writer.write_all(&bytes) {
-                        let _ = messages.send(Message::Eof(Err(error.to_string())));
+                        messages(Event::InputError(error.to_string()));
                         return;
                     }
                 }

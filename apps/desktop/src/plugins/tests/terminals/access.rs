@@ -3,24 +3,28 @@ use sailry_protocol::{process::Access, terminal::Tool};
 use std::os::unix::fs::PermissionsExt;
 
 #[gpui::test]
-fn requires_explicit_full_terminal_choice(cx: &mut TestAppContext) {
+fn defaults_to_full_with_explicit_workspace_choice(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
-        let fixture = fixture(remote);
+        let mut fixture = Fixture::with_environment(remote, |directory| {
+            let home = directory.canonicalize().unwrap().join("terminal-home");
+            std::fs::create_dir(&home).unwrap();
+            sailry_node_runtime::EnvironmentFixture {
+                home,
+                shell: "/bin/sh".into(),
+                environment: [("PATH".into(), "/usr/bin:/bin".into())].into(),
+                timeout: Duration::from_secs(5),
+            }
+        });
+        if remote {
+            fixture.binding.defaults =
+                std::sync::Arc::new(sailry_client::Client::new(fixture.controller.local()));
+        }
         let (panel, visual) = open(&fixture, cx);
         assert!(terminals(&fixture).is_empty());
         click(visual, "terminal-new");
         wait(visual, |_| terminals(&fixture).len() == 1);
-        let workspace = terminals(&fixture).remove(0);
-        assert_eq!(workspace.access, Some(Access::Workspace));
-        click(visual, "terminal-access");
-        choose(visual, "New terminal · Full filesystem and network access");
-        assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
-        wait(visual, |_| terminals(&fixture).len() == 2);
-        let full = terminals(&fixture)
-            .into_iter()
-            .find(|info| info.id != workspace.id)
-            .unwrap();
+        let full = terminals(&fixture).remove(0);
         assert_eq!(full.access, Some(Access::Unrestricted));
         wait(visual, |cx| {
             panel
@@ -49,6 +53,34 @@ fn requires_explicit_full_terminal_choice(cx: &mut TestAppContext) {
         wait(visual, |_| {
             content(&fixture, full.id).contains("native-full-input")
         });
+        visual.simulate_input(
+            "printf '%s' \"$HOME\" > terminal-home.txt; printf 'home-%s\\n' recorded",
+        );
+        visual.simulate_keystrokes("enter");
+        wait(visual, |_| {
+            content(&fixture, full.id).contains("home-recorded")
+        });
+        assert_eq!(
+            std::fs::read_to_string(fixture.directory.path().join("project/terminal-home.txt"))
+                .unwrap(),
+            fixture
+                .directory
+                .path()
+                .canonicalize()
+                .unwrap()
+                .join("terminal-home")
+                .to_str()
+                .unwrap()
+        );
+        click(visual, "terminal-access");
+        choose(visual, "New terminal · Workspace");
+        assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+        wait(visual, |_| terminals(&fixture).len() == 2);
+        let workspace = terminals(&fixture)
+            .into_iter()
+            .find(|info| info.id != full.id)
+            .unwrap();
+        assert_eq!(workspace.access, Some(Access::Workspace));
         let requests = fixture.transport.requests.lock().unwrap();
         let launches: Vec<_> = requests
             .iter()
@@ -58,8 +90,8 @@ fn requires_explicit_full_terminal_choice(cx: &mut TestAppContext) {
             })
             .collect();
         assert_eq!(launches.len(), 2);
-        assert_eq!(launches[0].1.access, Access::Workspace);
-        assert_eq!(launches[1].1.access, Access::Unrestricted);
+        assert_eq!(launches[0].1.access, Access::Unrestricted);
+        assert_eq!(launches[1].1.access, Access::Workspace);
         for (request, launch) in launches {
             assert_eq!(request.target, fixture.node.id());
             assert_eq!(launch.worktree, fixture.session.worktree);
@@ -121,7 +153,7 @@ fn requires_explicit_full_terminal_choice(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn retries_original_full_cli_consent(cx: &mut TestAppContext) {
+fn retries_original_full_cli_launch(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = fixture(remote);
@@ -139,11 +171,11 @@ fn retries_original_full_cli_consent(cx: &mut TestAppContext) {
         ));
         let (panel, visual) = open(&fixture, cx);
         wait(visual, |cx| {
-            snapshot(&panel, cx).contains("claude:unrestricted")
+            snapshot(&panel, cx).contains("claude:workspace")
         });
         fixture.transport.mode.store(12, Ordering::SeqCst);
         click(visual, "terminal-tools");
-        choose(visual, "Claude · Full filesystem and network access");
+        choose(visual, "Claude");
         toast(visual, "Terminal result is unconfirmed");
         wait(visual, |_| terminals(&fixture).len() == 1);
         let info = terminals(&fixture).remove(0);

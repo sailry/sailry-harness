@@ -4,6 +4,8 @@ use sailry_protocol::{browser::Action, plugin};
 use serde_json::{Value, json};
 
 const PACKAGE: &str = "flow-fixture";
+#[path = "flows/sandbox.rs"]
+mod sandbox;
 
 async fn install(
     fixture: &process::Fixture,
@@ -25,12 +27,19 @@ async fn install(
             })
         })
         .collect();
+    let mut actions = vec!["storage.read", "storage.write", "browser.read"];
+    if tools
+        .iter()
+        .any(|(_, operations)| operations.contains(&"process.run"))
+    {
+        actions.push("process.control");
+    }
     std::fs::write(
         root.join("plugin.json"),
         json!({
             "$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
             "name":PACKAGE,"version":"1.0.0","extensions":{"dev.sailry.platform":{
-                "api_version":"v1","actions":["storage.read","storage.write","browser.read"],
+                "api_version":"v1","actions":actions,
                 "host":{"entry":"dev.sailry.platform/host/main.js","resources":["dev.sailry.platform/host/main.js"],
                     "handlers":tools.iter().map(|(name, _)| *name).collect::<Vec<_>>()},
                 "tools":declarations

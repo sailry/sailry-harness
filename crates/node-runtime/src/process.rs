@@ -1,7 +1,9 @@
-//! Approved commands use a managed process group/Job, not the interactive PTY.
+//! Approved commands retain group/Job cleanup with optional native PTY I/O.
 //! Behavioral reference: sailry-code 67ae9fa0, terminal-host/src/headless.
 pub(crate) mod background;
 pub(crate) mod environment;
+mod interactive;
+pub(crate) mod pty;
 pub(crate) use environment::Environment;
 #[path = "process/output.rs"]
 pub(crate) mod output;
@@ -27,6 +29,7 @@ pub(crate) struct Launch {
     pub profile: Option<PathBuf>,
     pub command: String,
     pub access: Access,
+    pub pty: bool,
     pub cwd: String,
     pub timeout_ms: u64,
     pub inputs: Option<crate::files::attachments::Inputs>,
@@ -114,7 +117,30 @@ pub(crate) async fn execute_observed(
     closed: &CancellationToken,
     progress: Option<&tokio::sync::watch::Sender<(Capture, Capture)>>,
 ) -> Result<Completion, Fault> {
-    execute_configured(launch, environment, stop, closed, progress, None).await
+    execute_configured(launch, environment, stop, closed, progress, None, None).await
+}
+
+pub(crate) async fn execute_background(
+    launch: Launch,
+    environment: &Environment,
+    stop: &CancellationToken,
+    closed: &CancellationToken,
+    progress: &tokio::sync::watch::Sender<(Capture, Capture)>,
+    input: tokio::sync::mpsc::Receiver<Vec<u8>>,
+) -> Result<Completion, Fault> {
+    if launch.pty {
+        return interactive::execute(launch, environment, stop, closed, progress, input).await;
+    }
+    execute_configured(
+        launch,
+        environment,
+        stop,
+        closed,
+        Some(progress),
+        None,
+        Some(input),
+    )
+    .await
 }
 
 pub(crate) async fn execute_hook(
@@ -124,7 +150,16 @@ pub(crate) async fn execute_hook(
     closed: &CancellationToken,
     metadata: &std::collections::BTreeMap<&'static str, String>,
 ) -> Result<Completion, Fault> {
-    execute_configured(launch, environment, stop, closed, None, Some(metadata)).await
+    execute_configured(
+        launch,
+        environment,
+        stop,
+        closed,
+        None,
+        Some(metadata),
+        None,
+    )
+    .await
 }
 
 async fn execute_configured(
@@ -134,6 +169,7 @@ async fn execute_configured(
     closed: &CancellationToken,
     progress: Option<&tokio::sync::watch::Sender<(Capture, Capture)>>,
     metadata: Option<&std::collections::BTreeMap<&'static str, String>>,
+    mut input: Option<tokio::sync::mpsc::Receiver<Vec<u8>>>,
 ) -> Result<Completion, Fault> {
     let started = Instant::now();
     if stop.is_cancelled() || closed.is_cancelled() {
@@ -158,6 +194,9 @@ async fn execute_configured(
         Some(sandbox) => sandbox.command(command)?,
         None => command,
     };
+    if input.is_some() {
+        command.stdin(std::process::Stdio::piped());
+    }
     if let Some(metadata) = metadata {
         command.envs(metadata);
     }
@@ -189,6 +228,7 @@ async fn execute_configured(
         .stderr()
         .take()
         .expect("command stderr was piped");
+    let mut stdin = child.inner.stdin().take();
     let mut capture = output::Drain::with_tail(stdout, stderr, progress.is_some());
     let mut tick = tokio::time::interval(Duration::from_millis(100));
     let mut outcome = {
@@ -206,6 +246,34 @@ async fn execute_configured(
                     Ok(status) => exited(status),
                     Err(error) => Outcome::Unknown(format!("command wait failed: {error}")),
                 },
+                bytes = async { input.as_mut().expect("input receiver is present").recv().await }, if input.is_some() => {
+                    let Some(bytes) = bytes else { input = None; stdin.take(); continue; };
+                    use tokio::io::AsyncWriteExt;
+                    let write = async {
+                        let stdin = stdin.as_mut().ok_or_else(|| std::io::Error::from(std::io::ErrorKind::BrokenPipe))?;
+                        stdin.write_all(&bytes).await?;
+                        stdin.flush().await
+                    };
+                    tokio::pin!(write);
+                    let written = loop {
+                        tokio::select! {
+                            biased;
+                            _ = closed.cancelled() => break Err(Outcome::Cancelled),
+                            _ = stop.cancelled() => break Err(Outcome::Cancelled),
+                            result = &mut wait => break Err(match result {
+                                Ok(status) => exited(status),
+                                Err(error) => Outcome::Unknown(format!("command wait failed: {error}")),
+                            }),
+                            result = &mut write => break result.map_err(|error| Outcome::Unknown(format!("command input failed: {error}"))),
+                            _ = tick.tick(), if progress.is_some() => {
+                                progress.unwrap().send_replace(capture.snapshot());
+                            },
+                        }
+                    };
+                    if let Err(outcome) = written {
+                        break outcome;
+                    }
+                }
                 _ = tick.tick(), if progress.is_some() => {
                     progress.unwrap().send_replace(capture.snapshot());
                 }

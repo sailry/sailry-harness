@@ -37,16 +37,15 @@ impl Pool {
             let environment = self.environment.clone();
             let captured_path = path.clone();
             let captured_settings = settings.clone();
-            let captured_rules = rules.clone();
+            let resolver = self.resolver(rules.clone());
             let resolved = tokio::task::spawn_blocking(move || {
-                resolve::using(
+                resolver.resolve(
                     worktree,
                     &captured_root,
                     profile.as_deref(),
                     &environment,
                     &captured_path,
                     &captured_settings,
-                    captured_rules,
                 )
             })
             .await

@@ -125,16 +125,23 @@ fn selects_discovered_models(cx: &mut TestAppContext) {
 
 #[track_caller]
 fn choose(visual: &mut VisualTestContext, view: &Entity<View>, node: NodeId, provider: ProviderId) {
-    let option = view.read_with(visual, |view, _| {
-        match view.provider_ids[&(node, provider)] {
-            0 => "composer-model-option-0-fixture",
-            1 => "composer-model-option-1-fixture",
-            _ => panic!("unexpected account channel"),
-        }
-    });
+    use gpui_kit::test::TestWindowExt;
+    let channel = view.read_with(visual, |view, _| view.provider_ids[&(node, provider)]);
+    let option = match channel {
+        0 => "composer-model-option-0-fixture",
+        1 => "composer-model-option-1-fixture",
+        _ => panic!("unexpected account channel"),
+    };
     open_models(visual);
     shown(visual, option, true);
-    click(visual, option);
+    visual.update(|window, cx| {
+        let id = (SharedString::from("model-fixture"), channel);
+        window.render_frame(cx);
+        assert!(window.find(id.clone()).visible());
+        assert_ne!(window.find(id.clone()).disabled(), Some(true));
+        window.click(id, cx);
+    });
+    wait(visual, |cx| view.read(cx).config_owner == node);
     assert_eq!(view.read_with(visual, |view, _| view.config_owner), node);
     assert!(visual.debug_bounds("model-controls").is_some());
     visual.simulate_keystrokes("escape");

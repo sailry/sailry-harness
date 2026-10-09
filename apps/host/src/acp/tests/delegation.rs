@@ -435,7 +435,7 @@ async fn permission_disconnect_keeps_node_request_pending() {
 }
 
 #[tokio::test]
-async fn requires_each_unrestricted_call_in_full_mode() {
+async fn executes_unrestricted_calls_in_full_mode() {
     for remote in [false, true] {
         let arguments = json!({"command":"printf '%s\\n' approved >> ../outside.txt","description":"Append the fixture marker",
             "cwd":".","access":"unrestricted","background":false,"timeout_ms":1000});
@@ -444,7 +444,10 @@ async fn requires_each_unrestricted_call_in_full_mode() {
                 models::plugin_tool("commands", "run_command"),
                 arguments.clone(),
             ),
-            (models::plugin_tool("commands", "run_command"), arguments),
+            (
+                models::plugin_tool("commands", "run_command"),
+                arguments.clone(),
+            ),
         ])
         .await;
         let mut fixture = Fixture::new(remote, model, false).await;
@@ -464,58 +467,114 @@ async fn requires_each_unrestricted_call_in_full_mode() {
         let mut editor = fixture.editor().await;
         editor.initialize().await;
         editor.load(&fixture).await;
-        let response = editor
-            .request(
-                3,
-                "session/prompt",
-                prompt(
-                    fixture.session.id,
-                    RequestId::new(),
-                    fixture.session.revision,
-                    "Run both explicitly approved fixture commands",
-                ),
-                Some("allow"),
-            )
-            .await;
-        assert!(response.get("result").is_some(), "{response}");
-        assert_eq!(editor.permissions.len(), 2);
-        assert_ne!(
-            editor.permissions[0]["_meta"]["sailry"]["approval"]["id"],
-            editor.permissions[1]["_meta"]["sailry"]["approval"]["id"]
+        let request = RequestId::new();
+        let input = prompt(
+            fixture.session.id,
+            request,
+            fixture.session.revision,
+            "Run both fixture commands in Full mode",
         );
-        for permission in &editor.permissions {
-            assert_eq!(
-                permission["_meta"]["sailry"]["approval"]["access"],
-                "unrestricted"
-            );
-            assert_eq!(permission["_meta"]["sailry"]["approval"]["source"], "user");
-            assert!(
-                permission["toolCall"]["title"]
-                    .as_str()
-                    .unwrap()
-                    .contains("outside the workspace and network access")
-            );
-            assert!(
-                permission["options"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .all(|option| matches!(
-                        option["kind"].as_str(),
-                        Some("allow_once" | "reject_once")
-                    ))
-            );
-        }
+        let response = editor
+            .request(3, "session/prompt", input.clone(), None)
+            .await;
+        assert_eq!(response["result"]["stopReason"], "end_turn", "{response}");
+        assert_eq!(
+            response["result"]["_meta"]["sailry"]["request_id"],
+            json!(request)
+        );
+        assert!(editor.permissions.is_empty());
         assert_eq!(
             std::fs::read_to_string(fixture.directory.path().join("outside.txt")).unwrap(),
             "approved\napproved\n"
         );
         let page = fixture.page().await;
+        assert_eq!(page.runs.len(), 1);
+        assert_eq!(page.runs[0].status, Status::Completed);
+        assert_eq!(
+            response["result"]["_meta"]["sailry"]["turn"],
+            json!(page.runs[0].turn)
+        );
         assert_eq!(page.approvals.len(), 2);
-        assert!(
-            page.approvals
+        assert_ne!(page.approvals[0].id, page.approvals[1].id);
+        let mut calls = std::collections::BTreeSet::new();
+        for approval in &page.approvals {
+            assert_eq!(approval.session, fixture.session.id);
+            assert_eq!(approval.turn, page.runs[0].turn);
+            assert_eq!(approval.state, ApprovalState::Approved);
+            assert_eq!(
+                approval.source,
+                sailry_protocol::conversation::ApprovalSource::Full
+            );
+            assert_eq!(
+                approval.access,
+                Some(sailry_protocol::process::Access::Unrestricted)
+            );
+            let entry = page
+                .entries
                 .iter()
-                .all(|approval| approval.state == ApprovalState::Approved)
+                .find(|entry| entry.id == approval.entry)
+                .unwrap();
+            let Part::ToolCall {
+                id,
+                name,
+                arguments: captured,
+                ..
+            } = &entry.parts[approval.index]
+            else {
+                panic!("approved command call expected")
+            };
+            assert_eq!(name, &models::plugin_tool("commands", "run_command"));
+            assert_eq!(captured, &arguments);
+            assert!(calls.insert(id.as_ref().unwrap()));
+            let results = page
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .filter_map(|part| match part {
+                    Part::ToolResult {
+                        id: result_id,
+                        name: result_name,
+                        result,
+                        ..
+                    } if result_id == id => {
+                        assert_eq!(result_name, name);
+                        Some(result)
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(results.len(), 1);
+            let Output::CommandResult(completion) =
+                serde_json::from_value(results[0].clone()).unwrap()
+            else {
+                panic!("command completion expected")
+            };
+            assert_eq!(
+                completion.outcome,
+                sailry_protocol::process::Outcome::Exited(0)
+            );
+            let native = format!("{}:{}-{}", approval.session, approval.entry, approval.index);
+            assert!(editor.updates.iter().any(|update| {
+                update["update"]["toolCallId"] == native
+                    && update["update"]["status"] == "completed"
+                    && update["update"]["rawOutput"] == *results[0]
+                    && update["_meta"]["sailry"]["session"] == json!(approval.session)
+                    && update["_meta"]["sailry"]["source"]
+                        == json!({"entry": approval.entry, "index": approval.index})
+            }));
+        }
+        let retried = editor.request(4, "session/prompt", input, None).await;
+        assert_eq!(retried["result"]["stopReason"], "end_turn", "{retried}");
+        assert_eq!(
+            retried["result"]["_meta"]["sailry"]["turn"],
+            response["result"]["_meta"]["sailry"]["turn"]
+        );
+        assert!(editor.permissions.is_empty());
+        assert_eq!(fixture.page().await.runs.len(), 1);
+        assert_eq!(fixture.page().await.approvals.len(), 2);
+        assert_eq!(
+            std::fs::read_to_string(fixture.directory.path().join("outside.txt")).unwrap(),
+            "approved\napproved\n"
         );
         editor.close().await;
         fixture.close().await;

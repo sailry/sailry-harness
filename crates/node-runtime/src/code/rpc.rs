@@ -71,6 +71,7 @@ impl Rpc {
         }
         let sandbox = crate::process::sandbox::Sandbox::prepare(
             &crate::process::Launch {
+                pty: false,
                 root: plan.root.clone(),
                 profile: plan.profile.clone(),
                 command: plan.startup.executable.clone(),

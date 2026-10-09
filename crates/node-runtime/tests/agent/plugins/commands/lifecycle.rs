@@ -143,7 +143,7 @@ async fn preserves_frozen_transforms_and_known_results() {
 #[tokio::test]
 async fn guards_prepared_escape_before_claiming() {
     use crate::approvals::rules;
-    use sailry_protocol::{conversation::ApprovalChoice, process::Access};
+    use sailry_protocol::process::Access;
     for remote in [false, true] {
         for requested in [Access::Workspace, Access::Unrestricted] {
             for prepared in [Access::Workspace, Access::Unrestricted] {
@@ -185,25 +185,20 @@ async fn guards_prepared_escape_before_claiming() {
                 fixture.session = session;
                 let turn = rules::submit(&fixture.client, &fixture.session).await;
                 assert!(turn.plugins.contains(&installed.summary.reference()));
-                if requested == Access::Unrestricted {
-                    let approval = rules::pending(&fixture.client, fixture.session.id).await;
-                    assert_eq!(approval.source, ApprovalSource::User);
-                    assert!(!approval.can_remember);
-                    assert_eq!(approval.prefix, None);
-                    assert!(!fixture.root.join("actual.txt").exists());
-                    process::decide(&fixture.client, &approval, Decision::Approve).await;
-                }
                 let page = rules::completed(&fixture.client, fixture.session.id, turn.id).await;
                 let result = results(&page);
                 assert_eq!(result.len(), 1);
                 assert_eq!(page.approvals.len(), 1);
                 let approval = &page.approvals[0];
                 assert_eq!(approval.access, Some(requested));
-                let allowed = prepared == Access::Workspace || requested == Access::Unrestricted;
+                let allowed = prepared == requested;
                 assert_eq!(rules::claimed(&fixture.node, approval).1, allowed);
                 assert_eq!(fixture.root.join("actual.txt").exists(), allowed);
                 if requested == Access::Unrestricted {
-                    assert_eq!(approval.choice, Some(ApprovalChoice::Once));
+                    assert_eq!(approval.source, ApprovalSource::Full);
+                    assert_eq!(approval.choice, None);
+                    assert!(!approval.can_remember);
+                    assert_eq!(approval.prefix, None);
                 } else {
                     assert_eq!(approval.source, ApprovalSource::Sandbox);
                 }
@@ -214,7 +209,7 @@ async fn guards_prepared_escape_before_claiming() {
                     assert_eq!(result[0]["error"]["code"], "permission_denied");
                     assert_eq!(
                         result[0]["error"]["message"],
-                        "prepared command requires fresh unrestricted approval"
+                        "prepared command access differs from approval"
                     );
                 }
                 fixture.node.shutdown().await.unwrap();

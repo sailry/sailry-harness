@@ -57,11 +57,17 @@ fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Request {
             path,
             old_text,
             new_text,
+            replace_all,
+            edits,
             expected_revision,
             ..
         } => (
             "edit_file",
-            json!({"path":path,"old_text":old_text,"new_text":new_text,"expected_revision":expected_revision}),
+            if let Some(edits) = edits {
+                json!({"path":path,"edits":edits,"expected_revision":expected_revision})
+            } else {
+                json!({"path":path,"old_text":old_text,"new_text":new_text,"replace_all":replace_all,"expected_revision":expected_revision})
+            },
         ),
         _ => panic!("file mutation expected"),
     };

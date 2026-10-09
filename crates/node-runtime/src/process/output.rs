@@ -11,7 +11,7 @@ use tokio::{
 const LIMIT: usize = 64 * 1024;
 
 #[derive(Default)]
-struct Buffer {
+pub(super) struct Buffer {
     bytes: Vec<u8>,
     truncated: bool,
     tail: bool,
@@ -19,7 +19,7 @@ struct Buffer {
 }
 
 impl Buffer {
-    fn append(&mut self, bytes: &[u8]) {
+    pub(super) fn append(&mut self, bytes: &[u8]) {
         if self.tail {
             self.bytes.extend_from_slice(bytes);
             if self.bytes.len() > LIMIT {
@@ -37,9 +37,9 @@ impl Buffer {
         self.truncated |= count < bytes.len();
     }
 
-    fn capture(&self) -> Capture {
+    pub(super) fn capture(&self) -> Capture {
         let mut bytes = self.bytes.as_slice();
-        if (!self.finished || self.truncated)
+        if (!self.finished || self.truncated && !self.tail)
             && let Err(error) = std::str::from_utf8(bytes)
             && error.error_len().is_none()
         {
@@ -50,6 +50,17 @@ impl Buffer {
             truncated: self.truncated,
             invalid_utf8: std::str::from_utf8(bytes).is_err(),
         }
+    }
+
+    pub(super) fn tail() -> Self {
+        Self {
+            tail: true,
+            ..Self::default()
+        }
+    }
+
+    pub(super) fn finish(&mut self) {
+        self.finished = true;
     }
 }
 
@@ -241,5 +252,13 @@ mod tests {
         let capture = buffer.capture();
         assert!(capture.invalid_utf8);
         assert_eq!(capture.text, "a�");
+        let mut tail = Buffer::tail();
+        tail.append(&vec![b'a'; LIMIT]);
+        tail.append(&[0xe4, 0xb8]);
+        assert!(!tail.capture().invalid_utf8);
+        tail.finish();
+        let capture = tail.capture();
+        assert!(capture.truncated && capture.invalid_utf8);
+        assert!(capture.text.ends_with('�'));
     }
 }

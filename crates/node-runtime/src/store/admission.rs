@@ -141,6 +141,21 @@ impl Ingress {
             }
             if matches!(
                 request.command,
+                sailry_protocol::Command::FetchWeb(_)
+                    | sailry_protocol::Command::CancelWebFetch { .. }
+            ) {
+                return self.fetch_web(caller, request).await;
+            }
+            if matches!(
+                request.command,
+                sailry_protocol::Command::SearchWeb(_)
+                    | sailry_protocol::Command::CancelWebSearch { .. }
+                    | sailry_protocol::Command::TestSearchDriver { .. }
+            ) {
+                return self.search_web(caller, request).await;
+            }
+            if matches!(
+                request.command,
                 sailry_protocol::Command::ReadCode { .. }
                     | sailry_protocol::Command::ListCodeServers { .. }
                     | sailry_protocol::Command::ListCodePackages { .. }
@@ -188,6 +203,12 @@ impl Ingress {
                 sailry_protocol::Command::ReadPluginMcp { .. }
             ) {
                 return self.read_plugin_mcp(request).await;
+            }
+            if matches!(
+                request.command,
+                sailry_protocol::Command::ReadGithubLogin { .. }
+            ) {
+                return self.read_github_login(request).await;
             }
             if matches!(
                 request.command,

@@ -30,8 +30,10 @@ fn changes(worktree: WorktreeId, path: &str, text: &str) -> [Command; 2] {
         Command::EditFile {
             worktree,
             path: path.into(),
-            old_text: text.into(),
-            new_text: "Replacement".into(),
+            old_text: Some(text.into()),
+            new_text: Some("Replacement".into()),
+            replace_all: false,
+            edits: None,
             expected_revision: revision,
         },
     ]
@@ -67,8 +69,10 @@ async fn pages_and_edits_large_files() {
         let request = client.prepare(Command::EditFile {
             worktree: fixture.worktree,
             path: path.clone(),
-            old_text: lines.lines[0].text.clone(),
-            new_text: "Edited line\r\n".into(),
+            old_text: Some(lines.lines[0].text.clone()),
+            new_text: Some("Edited line\r\n".into()),
+            replace_all: false,
+            edits: None,
             expected_revision: lines.revision.clone(),
         });
         let output = client.execute(request.clone()).await.unwrap();
@@ -82,8 +86,10 @@ async fn pages_and_edits_large_files() {
         let mut stale = client.prepare(Command::EditFile {
             worktree: fixture.worktree,
             path: path.clone(),
-            old_text: "Edited line\r\n".into(),
-            new_text: "Stale change\r\n".into(),
+            old_text: Some("Edited line\r\n".into()),
+            new_text: Some("Stale change\r\n".into()),
+            replace_all: false,
+            edits: None,
             expected_revision: lines.revision,
         });
         assert_eq!(
@@ -97,7 +103,7 @@ async fn pages_and_edits_large_files() {
             ..
         } = &mut stale.command
         {
-            *old_text = "unchanged Unicode".into();
+            *old_text = Some("unchanged Unicode".into());
             *expected_revision = blake3::hash(updated.as_bytes()).to_hex().to_string();
         }
         assert_eq!(
@@ -107,6 +113,98 @@ async fn pages_and_edits_large_files() {
         assert_eq!(
             std::fs::read_to_string(fixture.root.join(&path)).unwrap(),
             updated
+        );
+    }
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn batches_edits_with_durable_replay() {
+    let fixture = Fixture::start().await;
+    for (index, client) in fixture.clients().iter().enumerate() {
+        let path = format!("batch-{index}.txt");
+        let original = "First Repeat Repeat Last\r\n";
+        let expected = blake3::hash(original.as_bytes()).to_hex().to_string();
+        std::fs::write(fixture.root.join(&path), original).unwrap();
+        let request = client.prepare(Command::EditFile {
+            worktree: fixture.worktree,
+            path: path.clone(),
+            old_text: None,
+            new_text: None,
+            replace_all: false,
+            edits: Some(vec![
+                FileEdit {
+                    old_text: "Last".into(),
+                    new_text: "Repeat".into(),
+                    replace_all: false,
+                },
+                FileEdit {
+                    old_text: "Repeat".into(),
+                    new_text: "中文".into(),
+                    replace_all: true,
+                },
+            ]),
+            expected_revision: expected.clone(),
+        });
+        let admission = client.dispatch(request.clone()).await.unwrap();
+        assert!(admission.receipt.durable);
+        let result = admission.completion.await.unwrap().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join(&path)).unwrap(),
+            "First 中文 中文 Repeat\r\n"
+        );
+        assert_eq!(client.execute(request.clone()).await.unwrap(), result);
+        let mut stale = request;
+        stale.id = RequestId::new();
+        assert_eq!(
+            client.execute(stale).await.unwrap_err().code,
+            ErrorCode::RevisionConflict
+        );
+    }
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn shares_revision_checked_move_and_trash() {
+    let fixture = Fixture::start().await;
+    for (index, client) in fixture.clients().iter().enumerate() {
+        let from = format!("source-{index}.txt");
+        let to = format!("moved-{index}.txt");
+        let expected = blake3::hash(b"Original").to_hex().to_string();
+        std::fs::write(fixture.root.join(&from), "Original").unwrap();
+        let moved = client.prepare(Command::MoveFile {
+            worktree: fixture.worktree,
+            from: from.clone(),
+            to: to.clone(),
+            expected_revision: expected.clone(),
+        });
+        let admission = client.dispatch(moved.clone()).await.unwrap();
+        assert!(admission.receipt.durable);
+        let result = admission.completion.await.unwrap().unwrap();
+        assert_eq!(
+            result,
+            Output::EntryRenamed {
+                from: from.clone(),
+                to: to.clone()
+            }
+        );
+        assert_eq!(client.execute(moved).await.unwrap(), result);
+        assert!(!fixture.root.join(&from).exists());
+        let trashed = client.prepare(Command::DeleteFile {
+            worktree: fixture.worktree,
+            path: to.clone(),
+            expected_revision: expected,
+        });
+        let admission = client.dispatch(trashed.clone()).await.unwrap();
+        assert!(admission.receipt.durable);
+        let result = admission.completion.await.unwrap().unwrap();
+        assert_eq!(result, Output::EntryTrashed { path: to.clone() });
+        assert!(!fixture.root.join(&to).exists());
+        std::fs::write(fixture.root.join(&to), "Later manual content").unwrap();
+        assert_eq!(client.execute(trashed).await.unwrap(), result);
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join(&to)).unwrap(),
+            "Later manual content"
         );
     }
     fixture.close().await;
@@ -124,18 +222,32 @@ async fn finds_names_without_reading_contents() {
     )
     .unwrap();
     std::fs::write(fixture.root.join(".git/private.rs"), "private").unwrap();
+    for (path, seconds) in [("src/text.rs", 2000), ("src/binary.rs", 1000)] {
+        std::fs::File::options()
+            .write(true)
+            .open(fixture.root.join(path))
+            .unwrap()
+            .set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds)),
+            )
+            .unwrap();
+    }
     for client in fixture.clients() {
         let Output::FileNames(found) = client
             .execute(client.prepare(Command::FindFiles {
                 worktree: fixture.worktree,
                 globs: vec!["**/*.rs".into()],
+                path: String::new(),
+                limit: MAX_FIND_MATCHES,
+                offset: 0,
             }))
             .await
             .unwrap()
         else {
             panic!("file names expected")
         };
-        assert_eq!(found.paths, ["src/binary.rs", "src/text.rs"]);
+        assert_eq!(found.paths, ["src/text.rs", "src/binary.rs"]);
         assert!(!found.truncated);
         assert_eq!(
             std::fs::read(fixture.root.join("src/binary.rs")).unwrap(),
@@ -160,8 +272,10 @@ async fn rejects_paths_outside_worktree() {
                 Command::EditFile {
                     worktree: fixture.worktree,
                     path: path.into(),
-                    old_text: "old".into(),
-                    new_text: "new".into(),
+                    old_text: Some("old".into()),
+                    new_text: Some("new".into()),
+                    replace_all: false,
+                    edits: None,
                     expected_revision: "a".repeat(64),
                 },
             ] {

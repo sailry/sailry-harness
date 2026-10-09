@@ -3,6 +3,7 @@ use std::path::Path;
 
 fn launch(root: &Path, command: &str) -> Launch {
     Launch {
+        pty: false,
         root: root.canonicalize().unwrap(),
         profile: None,
         access: Access::Unrestricted,

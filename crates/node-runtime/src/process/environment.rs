@@ -39,6 +39,7 @@ const VARIABLES: &[&str] = &[
     "TMPDIR",
 ];
 
+#[derive(Clone)]
 pub(crate) struct Environment {
     values: BTreeMap<OsString, OsString>,
     terminal: BTreeMap<OsString, OsString>,
@@ -192,6 +193,13 @@ impl Environment {
     pub(crate) fn apply_terminal(&self, command: &mut portable_pty::CommandBuilder) {
         command.env_clear();
         for (key, value) in &self.terminal {
+            command.env(key, value);
+        }
+    }
+
+    pub(super) fn apply_pty(&self, command: &mut portable_pty::CommandBuilder) {
+        command.env_clear();
+        for (key, value) in &self.values {
             command.env(key, value);
         }
     }

@@ -4,6 +4,14 @@ use serde_json::json;
 #[path = "../support/environment.rs"]
 mod fixture;
 
+impl fixture::Login {
+    fn captures(&self) -> usize {
+        std::fs::read(self.home.join("captures"))
+            .unwrap_or_default()
+            .len()
+    }
+}
+
 async fn connect(node: &Node, controller: &Link, remote: bool) -> Client {
     let address = controller
         .handle()

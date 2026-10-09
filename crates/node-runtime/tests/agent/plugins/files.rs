@@ -5,6 +5,10 @@ use std::io::{Cursor, Write as _};
 
 #[path = "files/edits.rs"]
 mod edits;
+#[path = "files/mutations.rs"]
+mod mutations;
+#[path = "files/search.rs"]
+mod search;
 
 fn name(tool: &str) -> String {
     plugin_tool("files", tool)
@@ -68,6 +72,13 @@ async fn install(fixture: &process::Fixture) -> plugin::Info {
             ("read_file", "read", Some(Operation::ReadFile)),
             ("write_file", "write", Some(Operation::WriteFile)),
             ("edit_file", "edit", Some(Operation::EditFile)),
+            ("delete_file", "remove", Some(Operation::DeleteFile)),
+            ("move_file", "move", Some(Operation::MoveFile)),
+            (
+                "create_directory",
+                "mkdir",
+                Some(Operation::CreateDirectory)
+            ),
             ("find_files", "find", Some(Operation::FindFiles)),
             ("search_files", "search", Some(Operation::SearchFiles)),
             ("read_office", "office", Some(Operation::ReadOffice)),
@@ -389,8 +400,15 @@ async fn preserves_ask_and_plan_policy() {
         ] {
             assert!(names.contains(&name(read).as_str()));
         }
-        assert!(!names.contains(&name("write_file").as_str()));
-        assert!(!names.contains(&name("edit_file").as_str()));
+        for mutation in [
+            "write_file",
+            "edit_file",
+            "delete_file",
+            "move_file",
+            "create_directory",
+        ] {
+            assert!(!names.contains(&name(mutation).as_str()));
+        }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

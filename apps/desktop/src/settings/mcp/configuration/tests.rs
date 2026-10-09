@@ -1,7 +1,7 @@
 use super::*;
 use crate::settings::{
     Section,
-    plugins::test_support::{Fixture, draw, init, input, shown, tap, wait},
+    plugins::test_support::{Fixture, draw, init, input, shown, wait},
 };
 use core::prelude::v1::test;
 use sailry_protocol::plugin::mcp::{Configuration, SCHEMA, Server};
@@ -91,7 +91,7 @@ fn edit(cx: &mut VisualTestContext, configuration: &Configuration) {
 }
 
 #[gpui::test]
-fn bundled_cards_open_document(cx: &mut TestAppContext) {
+fn bundled_cards_open_bound_configuration(cx: &mut TestAppContext) {
     init(cx);
     let fixture = Fixture::new(false);
     let (owner, visual) = fixture.mount(cx);
@@ -103,8 +103,10 @@ fn bundled_cards_open_document(cx: &mut TestAppContext) {
     shown(visual, "mcp-editor", false);
     tap(visual, "mcp-configuration-cancel");
     tap(visual, "mcp-edit-github");
-    shown(visual, "mcp-configuration-document", true);
-    tap(visual, "mcp-configuration-cancel");
+    shown(visual, "plugin-settings-form", true);
+    shown(visual, "github-login-import", true);
+    shown(visual, "mcp-configuration-document", false);
+    tap(visual, "plugin-settings-cancel");
     fixture.close(visual);
 }
 
@@ -243,15 +245,13 @@ fn retries_uncertain_save_on_captured_node(cx: &mut TestAppContext) {
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
         let (owner, visual) = fixture.mount(cx);
-        let editor = mount(&owner, info(&fixture, "github"), visual);
-        let mut configuration = state(&fixture, "github");
-        let Server::Http { headers, .. } = configuration.servers.get_mut("github").unwrap() else {
+        let editor = mount(&owner, info(&fixture, "context7"), visual);
+        let mut configuration = state(&fixture, "context7");
+        let Server::Http { headers, .. } = configuration.servers.get_mut("context7").unwrap()
+        else {
             panic!("HTTP server expected")
         };
-        headers.insert(
-            "Authorization".into(),
-            "Bearer fixture-captured-token".into(),
-        );
+        headers.insert("X-Captured".into(), "fixture-captured-value".into());
         edit(visual, &configuration);
         let draft = source(&editor, visual);
         fixture.transport.mode.store(1, Ordering::SeqCst);
@@ -273,12 +273,12 @@ fn retries_uncertain_save_on_captured_node(cx: &mut TestAppContext) {
         tap(visual, "mcp-configuration-save");
         shown(visual, "mcp-configuration", false);
         assert_eq!(*fixture.transport.requests.lock().unwrap(), [id, id]);
-        assert_eq!(state(&fixture, "github"), configuration);
+        assert_eq!(state(&fixture, "context7"), configuration);
         let client = sailry_client::Client::new(fixture.other.local());
         let Output::Plugin(info) = fixture
             .runtime
             .block_on(client.execute(client.prepare(Command::ReadPlugin {
-                name: "github".into(),
+                name: "context7".into(),
             })))
             .unwrap()
         else {
@@ -296,4 +296,19 @@ fn retries_uncertain_save_on_captured_node(cx: &mut TestAppContext) {
         assert_ne!(state.configuration, configuration);
         fixture.close(visual);
     }
+}
+
+#[track_caller]
+fn tap(cx: &mut VisualTestContext, selector: &'static str) {
+    use gpui_kit::test::TestWindowExt;
+    std::thread::sleep(*gpui_kit::component::dialog::ANIMATION_DURATION);
+    draw(cx);
+    cx.update(|window, cx| {
+        let id = SharedString::from(selector);
+        window.render_frame(cx);
+        assert!(window.find(id.clone()).visible(), "missing {selector}");
+        assert_ne!(window.find(id.clone()).disabled(), Some(true));
+        window.click(id, cx);
+    });
+    draw(cx);
 }

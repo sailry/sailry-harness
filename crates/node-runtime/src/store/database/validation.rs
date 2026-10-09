@@ -7,6 +7,21 @@ use sailry_protocol::{
 use serde::de::DeserializeOwned;
 
 pub(super) fn stored(db: &Connection) -> Result<(), Error> {
+    records::<crate::store::search::Stored>(
+        db,
+        "search_settings.body",
+        "SELECT body FROM search_settings",
+    )?;
+    crate::store::search::validate_stored(db).map_err(|_| {
+        Error::Worker(
+            "incompatible stored search configuration; existing data was not changed".into(),
+        )
+    })?;
+    records::<sailry_protocol::sandbox::Settings>(
+        db,
+        "sandbox_settings.body",
+        "SELECT body FROM sandbox_settings",
+    )?;
     records::<role::Profile>(db, "roles.body", "SELECT body FROM roles")?;
     records::<sailry_protocol::hooks::Settings>(
         db,

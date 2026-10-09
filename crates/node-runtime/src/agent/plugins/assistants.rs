@@ -27,6 +27,26 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
                         .iter()
                         .map(|name| name.to_string()),
                 );
+                if let Some(owner) = invocation
+                    .plugins
+                    .iter()
+                    .find(|package| package.summary.reference() == binding.package)
+                    && let Some(extension) = &owner.extension
+                {
+                    allowed.extend(
+                        extension
+                            .tools
+                            .iter()
+                            .filter(|tool| {
+                                crate::plugins::conversation::fallback(
+                                    owner,
+                                    *capability,
+                                    &tool.name,
+                                )
+                            })
+                            .map(|tool| operations::alias(&owner.summary.name, &tool.name)),
+                    );
+                }
                 continue;
             }
             Tool::Builtin { name } if builtins.contains(name) => name.clone(),

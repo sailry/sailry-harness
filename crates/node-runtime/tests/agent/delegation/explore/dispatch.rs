@@ -212,6 +212,7 @@ async fn rejects_captured_mutating_requests() {
                 access: sailry_protocol::process::Access::Workspace,
                 cwd: String::new(),
                 timeout_ms: 1000,
+                pty: false,
                 background: false,
                 attachments: vec![],
             },

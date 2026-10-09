@@ -278,6 +278,9 @@ fn allowed(command: &Command) -> bool {
             | Command::FindFiles { .. }
             | Command::WriteFile { .. }
             | Command::EditFile { .. }
+            | Command::DeleteFile { .. }
+            | Command::MoveFile { .. }
+            | Command::CreateDirectory { .. }
             | Command::ListDirectory { .. }
             | Command::SearchFiles { .. }
             | Command::InspectGit { .. }

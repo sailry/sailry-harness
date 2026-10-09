@@ -192,9 +192,11 @@ async fn recovers_versioned_receipts() {
         assert_eq!(list(&client).await, [replacement]);
         let other = Node::start(directory.path().join("other")).await.unwrap();
         let shipped = list(&Client::new(other.local())).await;
-        assert_eq!(shipped.len(), 1);
+        assert_eq!(shipped.len(), 2);
         assert_eq!(shipped[0].key, "explore");
         assert!(shipped[0].read_only);
+        assert_eq!(shipped[1].key, "research");
+        assert!(shipped[1].read_only);
         other.shutdown().await.unwrap();
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();

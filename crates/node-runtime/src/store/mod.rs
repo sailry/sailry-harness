@@ -24,10 +24,13 @@ mod providers;
 mod reads;
 mod resources;
 mod roles;
+mod sandbox;
+mod search;
 mod sessions;
 mod ssh;
 mod terminals;
 mod transfers;
+mod web;
 mod worktrees;
 
 use std::{
@@ -122,6 +125,13 @@ enum Job {
     TerminalSettings {
         reply: oneshot::Sender<Result<sailry_protocol::terminal::Settings, Fault>>,
     },
+    SearchPlan {
+        reply: oneshot::Sender<Result<crate::web::search::Plan, Fault>>,
+    },
+    GithubTarget {
+        package: sailry_protocol::plugin::Reference,
+        reply: oneshot::Sender<Result<(), Fault>>,
+    },
     TerminalOpening {
         id: sailry_protocol::TerminalId,
         reply: oneshot::Sender<Result<terminals::Opening, Fault>>,
@@ -191,6 +201,8 @@ pub(crate) struct Ingress {
     pub(crate) git: crate::git::Git,
     pub(crate) code: Arc<crate::code::Pool>,
     code_queries: Arc<crate::code::Queries>,
+    pub(crate) web: Arc<crate::web::Fetcher>,
+    pub(crate) search: Arc<crate::web::Searcher>,
     terminals: Arc<crate::terminal::Terminals>,
     commands: Arc<crate::process::background::Commands>,
     pub(crate) environment: Arc<crate::process::Environment>,
@@ -306,6 +318,8 @@ impl Store {
             computer: Arc::new(crate::computer::Desktop::default()),
             git: crate::git::Git::new(),
             code_queries: Arc::new(crate::code::Queries::default()),
+            web: Arc::default(),
+            search: Arc::default(),
             code: crate::code::Pool::new(profile.clone(), environment.clone(), closed.clone()),
             terminals: terminals.clone(),
             commands: Arc::default(),
@@ -353,6 +367,7 @@ impl Store {
             authorization,
             ingress.discovery.clone(),
             plugins.clone(),
+            ingress.environment.clone(),
             ingress.sender.clone(),
             ingress.closed.clone(),
             events.clone(),
@@ -370,6 +385,7 @@ impl Store {
             ingress.closed.clone(),
         );
         let code_pool = ingress.code.clone();
+        let searcher = ingress.search.clone();
         let worker = std::thread::Builder::new()
             .name("sailry-store".into())
             .spawn(move || {
@@ -381,6 +397,7 @@ impl Store {
                     }
                 };
                 match code::settings(&database.connection) {Ok(settings)=>code_pool.configure(settings),Err(error)=>{let _=ready.send(Err(crate::Error::from(error)));return Ok(());}}
+                match search::read(&database.connection) { Ok(settings) => searcher.configure(settings), Err(error) => {let _=ready.send(Err(crate::Error::from(error)));return Ok(());} }
                 if database.profile.is_some()
                     && let Err(error) =
                         plugins::distribution::install(&mut database.connection, &collection)
@@ -550,6 +567,10 @@ impl Store {
                                 return commands
                                     .stop(*session, *id)
                                     .map(sailry_protocol::Output::CommandOutput);
+                            }
+                            sailry_protocol::Command::WriteCommand { session, id, input } => {
+                                return commands.write(*session, *id, input)
+                                    .map(|bytes| sailry_protocol::Output::CommandInputAccepted { id: *id, bytes });
                             }
                             sailry_protocol::Command::CloseTerminal { worktree, terminal } => {
                                 return terminals
@@ -828,6 +849,10 @@ impl Store {
                         Job::TerminalSettings { reply } => {
                             let _ = reply.send(terminals::settings::read(&database.connection));
                         }
+                        Job::SearchPlan { reply } => {
+                            let _ = reply.send(search::plan(&database.connection));
+                        }
+                        Job::GithubTarget {package,reply} => {let _=reply.send(plugins::github::prepare(&database.connection,&collection,&package));}
                         Job::TerminalOpening { id, reply } => {
                             let _ = reply.send(database.terminal_opening(id));
                         }
@@ -918,6 +943,7 @@ impl Store {
                                 reply
                             };
                             let code_settings=matches!(request.command,sailry_protocol::Command::SaveCodeSettings { .. });
+                            let search_settings=matches!(request.command,sailry_protocol::Command::SaveSearchSettings(_));
                             let launch = matches!(
                                 request.command,
                                 sailry_protocol::Command::SubmitTurn { .. }
@@ -1010,6 +1036,7 @@ impl Store {
                                 }
                             }
                             if code_settings && let Ok(settings)=code::settings(&database.connection) {code_pool.configure(settings);}
+                            if search_settings && let Ok(settings)=search::read(&database.connection) {searcher.configure(settings);}
                             if let Some(turn) = stopping
                                 && agent::stopping(&database.connection, turn)
                             {

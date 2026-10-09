@@ -10,17 +10,12 @@ mod integration;
 #[path = "login.rs"]
 mod login;
 
-#[cfg(unix)]
-#[path = "unix.rs"]
-mod io;
-#[cfg(windows)]
-#[path = "windows.rs"]
-mod io;
+use crate::process::pty;
 
 pub(in crate::terminal) struct Process {
     pub child: Box<dyn Child + Send + Sync>,
     master: Option<Box<dyn MasterPty + Send>>,
-    io: io::Io,
+    io: pty::Io,
     _integration: Option<tempfile::TempDir>,
     _sandbox: Option<crate::process::sandbox::Sandbox>,
 }
@@ -86,6 +81,7 @@ impl Process {
         };
         let sandbox = crate::process::sandbox::Sandbox::prepare(
             &crate::process::Launch {
+                pty: false,
                 root: root.to_owned(),
                 profile: profile.map(Path::to_owned),
                 command: "terminal".into(),
@@ -131,7 +127,19 @@ impl Process {
         }
         let mut child = pair.slave.spawn_command(command).map_err(failure)?;
         drop(pair.slave);
-        let io = match io::Io::start(&*pair.master, messages) {
+        let io = match pty::Io::start(
+            &*pair.master,
+            std::sync::Arc::new(move |event| {
+                messages
+                    .send(match event {
+                        pty::Event::Bytes(bytes) => Message::Bytes(bytes),
+                        pty::Event::Eof(result) => Message::Eof(result),
+                        #[cfg(windows)]
+                        pty::Event::InputError(error) => Message::Eof(Err(error)),
+                    })
+                    .is_ok()
+            }),
+        ) {
             Ok(io) => io,
             Err(error) => {
                 let _ = child.kill();

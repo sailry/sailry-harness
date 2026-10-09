@@ -95,6 +95,8 @@ mod tools;
 mod trash_fixture;
 #[path = "agent/usage.rs"]
 mod usage;
+#[path = "agent/web.rs"]
+mod web;
 #[path = "agent/worktrees.rs"]
 mod worktrees;
 

@@ -26,6 +26,18 @@ pub(super) struct Catalog {
 
 impl Catalog {
     pub async fn start() -> Self {
+        Self::with_reminders("0.1.0").await
+    }
+
+    pub async fn with_reminders(reminders: &str) -> Self {
+        Self::with_configuration(reminders, false).await
+    }
+
+    pub async fn with_mcp_reminders(reminders: &str) -> Self {
+        Self::with_configuration(reminders, true).await
+    }
+
+    async fn with_configuration(reminders: &str, mcp: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}/", listener.local_addr().unwrap());
         let updated = Arc::new(AtomicBool::new(false));
@@ -38,8 +50,8 @@ impl Catalog {
         let captured = requests.clone();
         let version = Arc::new(Mutex::new(None::<String>));
         let selected_version = version.clone();
-        let first = archive("1.0.0", "0.1.0");
-        let second = archive("2.0.0", "0.2.0");
+        let first = archive("1.0.0", reminders, mcp);
+        let second = archive("2.0.0", "0.2.0", mcp);
         let worker = tokio::spawn(async move {
             loop {
                 let (mut socket, _) = listener.accept().await.unwrap();
@@ -145,7 +157,7 @@ fn index(updated: bool, version: Option<&str>) -> Vec<u8> {
     serde_json::to_vec(&index).unwrap()
 }
 
-fn archive(version: &str, reminders: &str) -> Vec<u8> {
+fn archive(version: &str, reminders: &str, mcp: bool) -> Vec<u8> {
     let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default().unix_permissions(0o644);
     zip.start_file("repo-source/LICENSE", options).unwrap();
@@ -159,6 +171,19 @@ fn archive(version: &str, reminders: &str) -> Vec<u8> {
     zip.write_all(b"Fixture package license").unwrap();
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/reminders");
     files(&root, &root, &mut zip, reminders);
+    if mcp {
+        zip.start_file("repo-source/reminders/mcp.json", options)
+            .unwrap();
+        let configuration = serde_json::to_vec(&serde_json::json!({
+            "$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+            "mcpServers":{"service":{
+                "type":"streamable-http", "url":"http://127.0.0.1:9/mcp",
+                "headers":{"Authorization":""}
+            }}
+        }))
+        .unwrap();
+        zip.write_all(&configuration).unwrap();
+    }
     zip.start_file("repo-source/reminders/fixture-revision.txt", options)
         .unwrap();
     zip.write_all(version.as_bytes()).unwrap();

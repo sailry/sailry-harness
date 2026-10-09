@@ -21,7 +21,7 @@ fn dev_server_lifecycle(cx: &mut TestAppContext) {
             vec![
                 (
                     crate::agent_fixture::plugin_tool("commands", "run_command"),
-                    json!({"background": true, "command": "node -e '\nconsole.log(Array.from({length:12},(_,i)=>i).join(\"\\n\"));\nconst fs=require(\"fs\"); const server=require(\"http\").createServer((q,r)=>r.end(\"background-http-ready\")); server.listen(0,\"127.0.0.1\",()=>{fs.writeFileSync(\"service.port\",String(server.address().port)); console.log(\"http://localhost:\"+server.address().port+\"/app?q=1\");}); setInterval(()=>console.log(\"service heartbeat\"),200);'"}),
+                    json!({"background": true, "access": "unrestricted", "command": "node -e '\nconsole.log(Array.from({length:12},(_,i)=>i).join(\"\\n\"));\nconst fs=require(\"fs\"); const server=require(\"http\").createServer((q,r)=>r.end(\"background-http-ready\")); server.listen(0,\"127.0.0.1\",()=>{fs.writeFileSync(\"service.port\",String(server.address().port)); console.log(\"http://localhost:\"+server.address().port+\"/app?q=1\");}); setInterval(()=>console.log(\"service heartbeat\"),200);'"}),
                 ),
                 (
                     crate::agent_fixture::plugin_tool("commands", "run_command"),
@@ -114,6 +114,7 @@ fn dev_server_lifecycle(cx: &mut TestAppContext) {
                 .clone()
         });
         assert_eq!(info.session, session.id);
+        assert_eq!(info.access, sailry_protocol::process::Access::Unrestricted);
         assert_eq!(info.status, CommandStatus::Running);
         wait(visual, |cx| {
             view.read(cx)

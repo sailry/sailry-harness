@@ -50,7 +50,7 @@ fn restores_summary_and_keeps_draft(cx: &mut TestAppContext) {
         });
         std::fs::write(
             fixture.directory.path().join("project/source.txt"),
-            "Verified evidence 中文 🙂",
+            "Verified evidence 中文 🙂\n".repeat(200),
         )
         .unwrap();
         let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());

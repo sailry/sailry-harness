@@ -1,5 +1,6 @@
 use super::*;
 use crate::code::{
+    fixtures::CodeServerFixture,
     install::plan,
     rules::{Package, Rules},
     tests::Fixture,
@@ -10,7 +11,7 @@ use std::os::unix::fs::PermissionsExt;
 #[tokio::test]
 async fn relocates_all_supported_toolchain_launchers() {
     let fixture = Fixture::new().await;
-    let python = which::which("python3").unwrap();
+    let python = CodeServerFixture::python();
     let script = format!(
         "#!{}\n{}",
         python.display(),
@@ -74,7 +75,7 @@ async fn relocates_all_supported_toolchain_launchers() {
 #[tokio::test]
 async fn terminates_the_installer_process_group_on_cancel() {
     let fixture = Fixture::new().await;
-    let python = which::which("python3").unwrap();
+    let python = CodeServerFixture::python();
     let executable = fixture.bin.join("hang");
     std::fs::write(&executable,format!("#!{}\nimport subprocess,sys,pathlib,time\nchild=subprocess.Popen([sys.executable,'-c','import time;time.sleep(3600)'])\npathlib.Path('child.pid').write_text(str(child.pid))\ntime.sleep(3600)\n",python.display())).unwrap();
     std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();

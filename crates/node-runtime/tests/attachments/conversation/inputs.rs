@@ -189,6 +189,7 @@ async fn reads_copies_and_restores_receipts() {
                     description: None,
                     cwd: String::new(),
                     timeout_ms: 120000,
+                    pty: false,
                     background: false,
                     attachments: vec![input_file.id],
                 })

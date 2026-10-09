@@ -50,7 +50,7 @@ impl Fixture {
         std::fs::write(root.join("main.rs"), "🙂 broken symbol\n").unwrap();
         std::fs::write(root.join("target.rs"), "target function\n").unwrap();
         let executable = bin.join("rust-analyzer");
-        let python = which::which("python3").unwrap();
+        let python = sailry_node_runtime::CodeServerFixture::python();
         std::fs::write(
             &executable,
             format!(
@@ -362,6 +362,54 @@ async fn remembers_plan_startup_and_preserves_denial() {
                 .iter()
                 .any(|result| result.to_string().contains("Keep the current service"))
         );
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("pid")).unwrap(),
+            pid
+        );
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn renews_startup_approval_after_executable_changes() {
+    for remote in [false, true] {
+        let server = Server::turn_tools(vec![(
+            plugin_tool("code", "code_hover"),
+            json!({"path":"main.rs","line":1,"symbol":"symbol"}),
+        )])
+        .await;
+        let mut fixture = Fixture::new(remote, &server).await;
+        fixture.config(WorkMode::Code, Permission::Ask).await;
+        let turn = fixture.submit().await;
+        let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
+        let original = approval.startup.clone().unwrap();
+        process::decide(&fixture.client, &approval, Decision::Approve).await;
+        fixture.finish(turn).await;
+        let pid = std::fs::read_to_string(fixture.root.join("pid")).unwrap();
+        let warm = fixture.submit().await;
+        let page = fixture.finish(warm).await;
+        assert!(
+            !page.approvals.iter().any(|approval| {
+                approval.turn == warm && approval.state == ApprovalState::Pending
+            })
+        );
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("pid")).unwrap(),
+            pid
+        );
+        let executable = fixture.bin.join("rust-analyzer");
+        let mut bytes = std::fs::read(&executable).unwrap();
+        bytes.extend_from_slice(b"\n# replacement\n");
+        std::fs::write(executable, bytes).unwrap();
+        let changed = fixture.submit().await;
+        let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
+        let replacement = approval.startup.as_ref().unwrap();
+        assert_eq!(approval.source, ApprovalSource::User);
+        assert_eq!(replacement.executable, original.executable);
+        assert_ne!(replacement.revision, original.revision);
+        process::decide(&fixture.client, &approval, Decision::Deny).await;
+        fixture.finish(changed).await;
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("pid")).unwrap(),
             pid

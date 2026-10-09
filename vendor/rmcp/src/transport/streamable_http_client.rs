@@ -169,9 +169,19 @@ impl InsufficientScopeError {
     }
 }
 
+/// HTTP failure metadata without a response body or request authentication.
+#[derive(Error, Debug, Clone)]
+#[error("HTTP {status}")]
+pub struct HttpStatusError {
+    pub status: u16,
+    pub retry_after: Option<String>,
+}
+
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum StreamableHttpError<E: std::error::Error + Send + Sync + 'static> {
+    #[error(transparent)]
+    HttpStatus(#[from] HttpStatusError),
     #[error("SSE error: {0}")]
     Sse(#[from] SseError),
     #[error("Io error: {0}")]

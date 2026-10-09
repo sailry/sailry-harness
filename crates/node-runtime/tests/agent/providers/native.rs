@@ -22,8 +22,12 @@ mod phases;
 mod prompt;
 #[path = "native/reasoning.rs"]
 mod reasoning;
+#[path = "native/search_assistant.rs"]
+mod search_assistant;
 #[path = "native/search_packages.rs"]
 mod search_packages;
+#[path = "native/search_selection.rs"]
+mod search_selection;
 #[path = "native/server.rs"]
 mod server;
 #[path = "native/tool_images.rs"]

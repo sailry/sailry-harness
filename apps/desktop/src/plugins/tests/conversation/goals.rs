@@ -27,11 +27,11 @@ fn package(fixture: &fixture::Fixture) -> plugin::Reference {
         code = code
             .replace(
                 &format!("new Button('{id}')"),
-                &format!("Anchor.new('{id}').child(new Button('{id}')"),
+                &format!("Anchor.new('{id}',{{lastControl:view.lastControl ?? null}}).child(new Button('{id}')"),
             )
             .replace(
                 &format!(".on_click((_,cx) => view.perform('{action}',cx))]"),
-                &format!(".on_click((_,cx) => view.perform('{action}',cx)))]"),
+                &format!(".on_click((_,cx) => {{view.lastControl={{kind:'{action}',revision:view.goal?.revision ?? null,busy:view.busy,loading:view.loading,pending:view.pending?.kind ?? null}};view.perform('{action}',cx);cx.notify();}}))]"),
             );
     }
     std::fs::write(
@@ -68,14 +68,11 @@ fn package(fixture: &fixture::Fixture) -> plugin::Reference {
     info.summary.reference()
 }
 
-fn read(fixture: &fixture::Fixture, package: &plugin::Reference) -> Value {
+fn execute(fixture: &fixture::Fixture, package: &plugin::Reference, command: Command) -> Output {
     let request = fixture
         .binding
         .client
-        .prepare(Command::CallPlugin {
-            handler: "read".into(),
-            input: json!({}),
-        })
+        .prepare(command)
         .with_plugin(plugin::Context {
             package: package.clone(),
             worktree: Some(fixture.session.worktree),
@@ -84,14 +81,121 @@ fn read(fixture: &fixture::Fixture, package: &plugin::Reference) -> Value {
             invocation: None,
             surface: Default::default(),
         });
-    let Output::PluginResult(value) = fixture
+    fixture
         .runtime
         .block_on(fixture.binding.client.execute(request))
         .unwrap()
-    else {
+}
+
+fn read(fixture: &fixture::Fixture, package: &plugin::Reference) -> Value {
+    let Output::PluginResult(value) = execute(
+        fixture,
+        package,
+        Command::CallPlugin {
+            handler: "read".into(),
+            input: json!({}),
+        },
+    ) else {
         panic!("result expected")
     };
     value["goal"].clone()
+}
+
+fn stored(
+    fixture: &fixture::Fixture,
+    package: &plugin::Reference,
+) -> plugin::storage::ConversationEntry {
+    let Output::PluginConversationValue(value) = execute(
+        fixture,
+        package,
+        Command::ReadPluginConversationValue { key: "goal".into() },
+    ) else {
+        panic!("conversation value expected")
+    };
+    value
+}
+
+fn cancelled(fixture: &fixture::Fixture, visual: &mut VisualTestContext, count: usize) {
+    wait(visual, |_| {
+        let Output::Conversation(history) = fixture.execute(Command::ReadConversation {
+            session: fixture.session.id,
+            before: None,
+            limit: 100,
+        }) else {
+            return false;
+        };
+        history.page.runs.len() == count
+            && history
+                .page
+                .runs
+                .iter()
+                .all(|run| run.status == Status::Cancelled)
+    });
+    assert_eq!(fixture.task_requests(), count);
+}
+
+fn control(view: &Entity<View>, visual: &mut VisualTestContext, selector: &'static str) {
+    use gpui_kit::test::TestWindowExt;
+
+    ready(view, visual, selector);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        visual.executor().advance_clock(Duration::from_millis(10));
+        visual.run_until_parked();
+        let clicked = visual.update(|window, cx| {
+            window.render_frame(cx);
+            let Some(button) = window.try_find(selector) else {
+                return false;
+            };
+            if !button.visible() || button.disabled() == Some(true) {
+                return false;
+            }
+            assert_eq!(button.role(), Some(gpui::Role::Button));
+            window.click(selector, cx);
+            true
+        });
+        if clicked {
+            return;
+        }
+        assert!(Instant::now() < deadline, "disabled {selector}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn absence(
+    fixture: &fixture::Fixture,
+    package: &plugin::Reference,
+    view: &Entity<View>,
+    visual: &mut VisualTestContext,
+    remote: bool,
+) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        visual.executor().advance_clock(Duration::from_millis(10));
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+        });
+        let actual = read(fixture, package);
+        if actual.is_null() {
+            return;
+        }
+        if Instant::now() >= deadline {
+            let entry = stored(fixture, package);
+            let diagnostics = visual.read(|cx| {
+                contributions(view.read(cx))
+                    .read(cx)
+                    .test_panel("goals")
+                    .map(|panel| crate::plugins::diagnostics(&panel, cx))
+                    .unwrap_or_default()
+            });
+            panic!(
+                "goal clear deadline: remote={remote}, stored={entry:?}, read={actual}, panel={diagnostics}"
+            );
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 fn ready(view: &Entity<View>, visual: &mut VisualTestContext, selector: &'static str) {
@@ -186,7 +290,7 @@ fn local_and_remote_commands_share_status(cx: &mut TestAppContext) {
         assert!((clear.right() - footer.right()).abs() < gpui_kit::px(1.));
         click(visual, "goal-item-0");
         ready(&view, visual, "goal-item-0-details");
-        click(visual, "goal-stop");
+        control(&view, visual, "goal-stop");
         wait(visual, |_| read(&fixture, &package)["state"] == "paused");
         wait(visual, |cx| {
             contributions(view.read(cx))
@@ -200,28 +304,14 @@ fn local_and_remote_commands_share_status(cx: &mut TestAppContext) {
                 })
         });
         crate::feedback::tests::settle(visual);
-        wait(visual, |_| {
-            let Output::Conversation(history) = fixture.execute(Command::ReadConversation {
-                session: fixture.session.id,
-                before: None,
-                limit: 100,
-            }) else {
-                return false;
-            };
-            history
-                .page
-                .runs
-                .iter()
-                .all(|run| run.status == Status::Cancelled)
-        });
-        assert_eq!(fixture.task_requests(), 1);
+        cancelled(&fixture, visual, 1);
         ready(&view, visual, "goal-resume");
-        click(visual, "goal-resume");
+        control(&view, visual, "goal-resume");
         wait(visual, |_| {
             fixture.task_requests() == 2 && read(&fixture, &package)["state"] == "active"
         });
         crate::feedback::tests::settle(visual);
-        click(visual, "goal-stop");
+        control(&view, visual, "goal-stop");
         wait(visual, |_| read(&fixture, &package)["state"] == "paused");
         wait(visual, |cx| {
             contributions(view.read(cx))
@@ -235,8 +325,17 @@ fn local_and_remote_commands_share_status(cx: &mut TestAppContext) {
                 })
         });
         crate::feedback::tests::settle(visual);
-        click(visual, "goal-clear");
-        wait(visual, |_| read(&fixture, &package).is_null());
+        cancelled(&fixture, visual, 2);
+        let paused = stored(&fixture, &package);
+        assert!(paused.present);
+        assert_eq!(paused.value["state"], "paused");
+        control(&view, visual, "goal-clear");
+        absence(&fixture, &package, &view, visual, remote);
+        let cleared = stored(&fixture, &package);
+        assert_eq!(cleared.revision, paused.revision + 1);
+        assert!(!cleared.present);
+        assert!(cleared.value.is_null());
+        assert_eq!(fixture.task_requests(), 2);
         crate::feedback::tests::settle(visual);
         click(visual, "live-chat-input");
         visual.simulate_input("/goal");
@@ -258,6 +357,7 @@ fn local_and_remote_commands_share_status(cx: &mut TestAppContext) {
                 .intent("goal", cx)
                 .is_some_and(|entry| entry.state.value == false)
         });
+        assert_eq!(stored(&fixture, &package), cleared);
         visual.update(|window, _| window.remove_window());
         fixture.close();
     }
@@ -413,7 +513,7 @@ fn restores_status_and_requires_manual_resume(cx: &mut TestAppContext) {
         click(visual, "plugin-control-goals-status");
         ready(&view, visual, "goal-resume");
         assert!(visual.debug_bounds("goal-stop").is_none());
-        click(visual, "goal-resume");
+        control(&view, visual, "goal-resume");
         wait(visual, |_| {
             fixture.task_requests() > requests && read(&fixture, &package)["state"] == "completed"
         });

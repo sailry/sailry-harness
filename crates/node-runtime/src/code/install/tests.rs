@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 async fn fixture(hold: bool, checksum: bool) -> (Fixture, Arc<Manager>, Sources, code::Install) {
     let fixture = Fixture::new().await;
     let description = CodeServerFixture::new();
-    let bytes = CodeServerFixture::archive(which::which("python3").unwrap());
+    let bytes = CodeServerFixture::archive(CodeServerFixture::python());
     let hash = format!("{:x}", Sha256::digest(&bytes));
     let filename = description.asset_url.rsplit('/').next().unwrap();
     let digest = if checksum { hash } else { "0".repeat(64) };

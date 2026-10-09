@@ -44,6 +44,47 @@ fn bounds(visual: &mut VisualTestContext, selector: String) -> Bounds<Pixels> {
         .unwrap()
 }
 
+fn toggle(view: &Entity<View>, visual: &mut VisualTestContext, turn: TurnId) {
+    use gpui_kit::test::TestWindowExt;
+
+    let state = view.read_with(visual, |view, _| view.prompts.borrow()[&turn].entity_id());
+    let id: ElementId = ("prompt-expand", state).into();
+    // A wrapped bubble can move its toggle beneath the composer after expanding.
+    // Scroll the real list before clicking the Kit control's current bounds.
+    for _ in 0..4 {
+        let button = visual.update(|window, cx| {
+            window.render_frame(cx);
+            window.find(id.clone())
+        });
+        let viewport = visual.debug_bounds("live-history-viewport").unwrap();
+        let center = button.bounds().center();
+        if button.visible()
+            && center.y >= viewport.top() + px(24.)
+            && center.y <= viewport.bottom() - px(48.)
+        {
+            break;
+        }
+        visual.simulate_event(ScrollWheelEvent {
+            position: viewport.center(),
+            delta: ScrollDelta::Pixels(point(px(0.), viewport.center().y - center.y)),
+            touch_phase: TouchPhase::Moved,
+            modifiers: Modifiers::default(),
+        });
+        wait(visual, |_| true);
+    }
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        let button = window.find(id.clone());
+        assert!(
+            button.visible(),
+            "prompt toggle must be inside the viewport"
+        );
+        assert_ne!(button.disabled(), Some(true));
+        window.click(id, cx);
+    });
+    wait(visual, |_| true);
+}
+
 #[gpui::test]
 fn folds_wrapped_prompts(cx: &mut TestAppContext) {
     init(cx);
@@ -75,10 +116,9 @@ fn folds_wrapped_prompts(cx: &mut TestAppContext) {
             );
             let collapsed = bounds(visual, format!("message-preview-{turn}"));
             assert!((collapsed.size.height - px(f32::from(size) * 1.6 * 5.)).abs() <= px(1.));
-            let toggle = bounds(visual, format!("message-expand-{turn}"));
-            assert!((toggle.center().x - collapsed.center().x).abs() <= px(1.));
-            tap(visual, &format!("message-expand-{turn}"));
-            wait(visual, |_| true);
+            let control = bounds(visual, format!("message-expand-{turn}"));
+            assert!((control.center().x - collapsed.center().x).abs() <= px(1.));
+            toggle(&view, visual, turn);
             let expanded = bounds(visual, format!("message-preview-{turn}"));
             assert!(expanded.size.height > collapsed.size.height);
             assert_eq!(
@@ -90,8 +130,7 @@ fn folds_wrapped_prompts(cx: &mut TestAppContext) {
                 visual.update(|_, cx| cx.read_from_clipboard().unwrap().text().unwrap()),
                 text
             );
-            tap(visual, &format!("message-expand-{turn}"));
-            wait(visual, |_| true);
+            toggle(&view, visual, turn);
             assert_eq!(
                 bounds(visual, format!("message-preview-{turn}"))
                     .size

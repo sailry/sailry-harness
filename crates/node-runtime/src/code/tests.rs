@@ -27,7 +27,7 @@ impl Fixture {
         std::fs::write(root.join("main.rs"), "🙂 broken symbol\n").unwrap();
         std::fs::write(root.join("target.rs"), "target function\n").unwrap();
         std::fs::write(directory.path().join("outside.rs"), "outside function\n").unwrap();
-        let python = which::which("python3").unwrap();
+        let python = fixtures::CodeServerFixture::python();
         let script = format!(
             "#!{}\n{}",
             python.display(),

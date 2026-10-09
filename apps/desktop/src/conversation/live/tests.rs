@@ -1,6 +1,4 @@
-pub(crate) use super::attachments::tests::{
-    Control as AttachmentControl, control as attachment_control,
-};
+pub(crate) use super::attachments::tests::remove as remove_attachment;
 use super::*;
 use core::prelude::v1::test;
 use sailry_link::{Link, NetworkScope, Transport};

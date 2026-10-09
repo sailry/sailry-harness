@@ -1,0 +1,7 @@
+github_login_title: "GitHub CLI"
+github_login_import: "Import login"
+github_login_imported: "Login imported"
+github_login_failed: "CLI login unavailable"
+github_login_unavailable: "Not installed"
+github_login_signed_out: "Not signed in"
+github_login_ready: "Signed in"

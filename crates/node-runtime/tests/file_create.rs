@@ -64,9 +64,8 @@ async fn shares_exclusive_creation() {
                     path: path.clone()
                 }))
                 .await
-                .unwrap_err()
-                .code,
-            ErrorCode::Conflict
+                .unwrap(),
+            Output::DirectoryCreated { path: path.clone() }
         );
         let file = format!("{path}/新文件.txt");
         client

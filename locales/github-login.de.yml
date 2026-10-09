@@ -1,0 +1,7 @@
+github_login_title: "GitHub CLI"
+github_login_import: "Anmeldung importieren"
+github_login_imported: "Anmeldung importiert"
+github_login_failed: "CLI-Anmeldung nicht verfügbar"
+github_login_unavailable: "Nicht installiert"
+github_login_signed_out: "Nicht angemeldet"
+github_login_ready: "Angemeldet"

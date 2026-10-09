@@ -40,6 +40,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared
         cwd,
         timeout_ms,
         background,
+        pty,
         attachments,
     } = &request.command
     else {
@@ -90,6 +91,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared
     let worktree = worktree.parse().map_err(storage_error)?;
     let profile = database.profile.clone().ok_or_else(super::unavailable)?;
     let launch = Launch {
+        pty: *pty,
         root: database.worktree_root(worktree)?,
         profile: Some(profile.clone()),
         command: command.clone(),
@@ -100,6 +102,9 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared
         scratch: None,
     };
     launch.validate()?;
+    if *pty && !background {
+        return Err(Fault::invalid("PTY commands must run in the background"));
+    }
     Ok(Prepared {
         launch,
         profile,

@@ -1,5 +1,6 @@
 //! Finite continuations share one captured invocation and ordinary durable requests.
 use super::*;
+use sailry_protocol::Command;
 use serde::Deserialize;
 use std::time::Instant;
 const MAX_STEPS: usize = 8;
@@ -123,6 +124,21 @@ impl Script {
                     // command gets its own durable identity and can never replace earlier work.
                     let result = async {
                         let mut request = operation.prepare(call.call.arguments).await?;
+                        if let Command::RunCommand { access, .. } = &mut request.command {
+                            *access = self
+                                .ingress
+                                .approved_command_access(
+                                    self.context.turn.ok_or_else(|| {
+                                        Fault::invalid("command flow requires a turn")
+                                    })?,
+                                    adk_core::ToolConfirmationRequest {
+                                        tool_name: self.name.clone(),
+                                        function_call_id: Some(context.function_call_id().into()),
+                                        args: arguments.clone(),
+                                    },
+                                )
+                                .await?;
+                        }
                         self.ingress
                             .check_plugin(self.caller, request.clone())
                             .await?;

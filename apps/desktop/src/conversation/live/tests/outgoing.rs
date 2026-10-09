@@ -136,7 +136,14 @@ fn shows_before_admission_and_reconciles_before_reply(cx: &mut TestAppContext) {
             });
             fixture::tap(visual, "live-chat-input");
             visual.simulate_input("Show this before the request returns");
-            fixture::tap(visual, "live-chat-send");
+            visual.update(|window, cx| {
+                use gpui_kit::test::TestWindowExt;
+                window.render_frame(cx);
+                let button = window.find("live-send");
+                assert!(button.visible());
+                assert_ne!(button.disabled(), Some(true));
+                window.click("live-send", cx);
+            });
             wait(visual, |cx| view.read(cx).outgoing.is_some());
             assert!(visual.debug_bounds("live-outgoing-message").is_some());
             let image_selector = view.read_with(visual, |view, _| {

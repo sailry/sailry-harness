@@ -27,6 +27,7 @@ mod ssh;
 mod store;
 mod tasks;
 mod terminal;
+mod web;
 mod workspaces;
 
 use std::path::{Path, PathBuf};
@@ -247,6 +248,18 @@ impl Node {
         let node = Self::start_with_environment(path, environment).await?;
         node.ingress.code.fixture(endpoint);
         Ok(node)
+    }
+
+    /// Pins a public test hostname to an isolated HTTP server after public-IP validation.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_web_fixture(&self, host: &str, address: std::net::SocketAddr) {
+        self.ingress.web.fixture(host, address);
+    }
+
+    /// Replaces a search driver's endpoint with an isolated loopback service.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_search_fixture(&self, driver: sailry_protocol::search::Driver, endpoint: &str) {
+        self.ingress.search.fixture(driver, endpoint);
     }
 
     async fn start_owned(

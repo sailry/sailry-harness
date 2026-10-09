@@ -152,6 +152,14 @@ CREATE TABLE IF NOT EXISTS terminal_settings (
     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
     body BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS sandbox_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS search_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);
 CREATE TABLE IF NOT EXISTS providers (
     id TEXT PRIMARY KEY,
     body BLOB NOT NULL

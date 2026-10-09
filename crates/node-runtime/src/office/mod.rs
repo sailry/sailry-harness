@@ -6,7 +6,7 @@ use std::{
 };
 
 mod package;
-mod pdf;
+pub(crate) mod pdf;
 #[cfg(test)]
 mod tests;
 mod workbook;

@@ -324,6 +324,7 @@ fn validates_prepared_prefix_before_claim() {
     fixture.approve(approval.id);
     let mut approved = get(&fixture.database.connection, approval.id).unwrap();
     approved.choice = Some(ApprovalChoice::Prefix("cargo test".into()));
+    approved.access = Some(sailry_protocol::process::Access::Workspace);
     put(&fixture.database.connection, &approved).unwrap();
     let mut prepared = Command::RunCommand {
         turn: fixture.turn,
@@ -332,6 +333,7 @@ fn validates_prepared_prefix_before_claim() {
         description: None,
         cwd: ".".into(),
         timeout_ms: 1000,
+        pty: false,
         background: false,
         attachments: vec![],
     };
@@ -367,6 +369,16 @@ fn validates_prepared_prefix_before_claim() {
         Some(&prepared),
     )
     .unwrap();
+    let claimed: bool = fixture
+        .database
+        .connection
+        .query_row(
+            "SELECT claimed FROM agent_approvals WHERE id=?1",
+            [approval.id.to_string()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(claimed);
 }
 
 #[test]

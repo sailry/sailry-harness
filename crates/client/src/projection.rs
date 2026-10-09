@@ -175,6 +175,12 @@ impl Projection {
                     Event::TerminalSettingsChanged { revision } => {
                         snapshot.terminal_settings_revision = revision;
                     }
+                    Event::SandboxSettingsChanged { revision } => {
+                        snapshot.sandbox_settings_revision = revision;
+                    }
+                    Event::SearchSettingsChanged { revision } => {
+                        snapshot.search_settings_revision = revision;
+                    }
                     Event::MediaSettingsChanged(settings) => {
                         snapshot.media_settings = settings;
                     }

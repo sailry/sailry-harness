@@ -143,6 +143,12 @@ pub enum Operation {
     WriteFile,
     #[serde(rename = "files.edit")]
     EditFile,
+    #[serde(rename = "files.delete")]
+    DeleteFile,
+    #[serde(rename = "files.move")]
+    MoveFile,
+    #[serde(rename = "files.mkdir")]
+    CreateDirectory,
     #[serde(rename = "files.find")]
     FindFiles,
     #[serde(rename = "files.search")]
@@ -169,6 +175,10 @@ pub enum Operation {
     ControlExternalBrowser,
     #[serde(rename = "http.request")]
     Http,
+    #[serde(rename = "web.fetch")]
+    FetchWeb,
+    #[serde(rename = "web.search")]
+    SearchWeb,
     #[serde(rename = "progress.update")]
     Progress,
     #[serde(rename = "storage.get")]
@@ -189,6 +199,8 @@ pub enum Operation {
     ReadCommand,
     #[serde(rename = "process.stop")]
     StopCommand,
+    #[serde(rename = "process.write")]
+    WriteCommand,
 }
 
 impl Operation {
@@ -222,13 +234,18 @@ impl Operation {
             | Self::FindFiles
             | Self::SearchFiles
             | Self::ReadOffice => Some(Action::ReadFiles),
-            Self::WriteFile | Self::EditFile => Some(Action::WriteFiles),
+            Self::WriteFile
+            | Self::EditFile
+            | Self::DeleteFile
+            | Self::MoveFile
+            | Self::CreateDirectory => Some(Action::WriteFiles),
             Self::InspectMedia => Some(Action::InspectMedia),
             Self::GenerateImage => Some(Action::GenerateImage),
             Self::GenerateVideo => Some(Action::GenerateVideo),
             Self::ReadComputer => Some(Action::ReadComputer),
             Self::ControlComputer => Some(Action::ControlComputer),
             Self::Http => Some(Action::Http),
+            Self::FetchWeb | Self::SearchWeb => Some(Action::ReadWeb),
             Self::ReadBrowser => Some(Action::ReadBrowser),
             Self::ControlBrowser => Some(Action::ControlBrowser),
             Self::ReadExternalBrowser => Some(Action::ReadExternalBrowser),
@@ -239,7 +256,9 @@ impl Operation {
                 Some(Action::WriteStorage)
             }
             Self::ReadCommand => Some(Action::ReadCommands),
-            Self::RunCommand | Self::StopCommand => Some(Action::ControlCommands),
+            Self::RunCommand | Self::StopCommand | Self::WriteCommand => {
+                Some(Action::ControlCommands)
+            }
         }
     }
 
@@ -256,6 +275,9 @@ impl Operation {
                 | Self::TransferSsh
                 | Self::WriteFile
                 | Self::EditFile
+                | Self::DeleteFile
+                | Self::MoveFile
+                | Self::CreateDirectory
                 | Self::GenerateImage
                 | Self::GenerateVideo
                 | Self::Http
@@ -265,6 +287,7 @@ impl Operation {
                 | Self::StorageTransaction
                 | Self::RunCommand
                 | Self::StopCommand
+                | Self::WriteCommand
                 | Self::ControlExternalBrowser
                 | Self::ControlBrowser
         )

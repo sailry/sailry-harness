@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-type Variables = BTreeMap<OsString, OsString>;
+pub(super) type Variables = BTreeMap<OsString, OsString>;
 
 pub(super) fn create(
     root: &Path,
@@ -17,7 +17,7 @@ pub(super) fn create(
     state: &Path,
     environment: &Environment,
     inputs: Option<&Path>,
-) -> Result<(SandboxPolicy, Variables), Fault> {
+) -> Result<(SandboxPolicy, Variables, super::toolchains::Links), Fault> {
     let root = root.canonicalize().map_err(runtime::failure)?;
     let scratch = scratch.path().canonicalize().map_err(runtime::failure)?;
     let home = environment.home().and_then(|path| path.canonicalize().ok());
@@ -69,6 +69,8 @@ pub(super) fn create(
     variables.insert("HISTFILE".into(), state.join("history").into_os_string());
     variables.insert("BASH_ENV".into(), "/dev/null".into());
     variables.insert("ENV".into(), "/dev/null".into());
+    #[cfg(target_os = "macos")]
+    variables.insert("xcrun_db".into(), state.join("xcrun_db").into_os_string());
     if let Some(home) = &home {
         for relative in [".cargo/bin", ".rustup/toolchains", ".rustup/settings.toml"] {
             read(
@@ -107,17 +109,23 @@ pub(super) fn create(
                 profile.as_deref(),
             )?;
         }
-        if let Some(path) = environment.path() {
-            for entry in std::env::split_paths(path) {
-                if let Some(root) = managed(&entry, home) {
-                    read(&mut policy, &root, Some(home), profile.as_deref());
-                }
-            }
-        }
     }
+    let links = super::toolchains::configure(
+        &mut policy,
+        &mut variables,
+        environment,
+        home.as_deref(),
+        profile.as_deref(),
+        &anchor,
+        inputs,
+    )?;
     #[cfg(target_os = "macos")]
     for path in [
         "/Applications/Xcode.app/Contents/Developer",
+        "/Applications/Xcode.app/Contents/SharedFrameworks",
+        "/Applications/Xcode.app/Contents/OtherFrameworks",
+        "/Applications/Xcode.app/Contents/Frameworks",
+        "/Applications/Xcode.app/Contents/SystemFrameworks",
         "/Library/Developer/CommandLineTools",
     ] {
         read(
@@ -146,7 +154,7 @@ pub(super) fn create(
             profile.as_deref(),
         );
     }
-    Ok((policy, variables))
+    Ok((policy, variables, links))
 }
 
 fn validate(root: &Path, home: Option<&Path>, profile: Option<&Path>) -> Result<(), Fault> {
@@ -165,7 +173,11 @@ fn validate(root: &Path, home: Option<&Path>, profile: Option<&Path>) -> Result<
     Ok(())
 }
 
-fn readable(path: &Path, home: Option<&Path>, profile: Option<&Path>) -> Option<PathBuf> {
+pub(super) fn readable(
+    path: &Path,
+    home: Option<&Path>,
+    profile: Option<&Path>,
+) -> Option<PathBuf> {
     let path = path.canonicalize().ok()?;
     if path.parent().is_none()
         || home.is_some_and(|home| home.starts_with(&path))
@@ -175,24 +187,42 @@ fn readable(path: &Path, home: Option<&Path>, profile: Option<&Path>) -> Option<
     }
     if let Some(home) = home
         && [
-            ".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".config",
+            ".ssh",
+            ".gnupg",
+            ".aws",
+            ".azure",
+            ".kube",
+            ".docker",
+            ".config",
+            ".gitconfig",
+            ".git-credentials",
+            ".npmrc",
+            ".netrc",
+            ".pypirc",
+            ".cargo/credentials",
+            ".cargo/credentials.toml",
         ]
         .iter()
         .any(|relative| path.starts_with(home.join(relative)))
+        && path != home.join(".config/mise/config.toml")
     {
         return None;
     }
     Some(path)
 }
 
-fn read(
+pub(super) fn read(
     policy: &mut SandboxPolicy,
     path: &Path,
     home: Option<&Path>,
     profile: Option<&Path>,
 ) -> Option<PathBuf> {
     let path = readable(path, home, profile)?;
-    if !policy.allowed_paths.iter().any(|entry| entry.path == path) {
+    if !policy
+        .allowed_paths
+        .iter()
+        .any(|entry| path.starts_with(&entry.path))
+    {
         policy.allowed_paths.push(AllowedPath {
             path: path.clone(),
             mode: AccessMode::ReadOnly,
@@ -219,7 +249,10 @@ fn cache(
     Ok(())
 }
 
-fn directories(anchor: &cap_std::fs::Dir, path: &Path) -> Result<cap_std::fs::Dir, Fault> {
+pub(super) fn directories(
+    anchor: &cap_std::fs::Dir,
+    path: &Path,
+) -> Result<cap_std::fs::Dir, Fault> {
     let mut directory = anchor.try_clone().map_err(runtime::failure)?;
     for component in path.components() {
         let name = component.as_os_str();
@@ -233,27 +266,4 @@ fn directories(anchor: &cap_std::fs::Dir, path: &Path) -> Result<cap_std::fs::Di
             .map_err(runtime::failure)?;
     }
     Ok(directory)
-}
-
-fn managed(path: &Path, home: &Path) -> Option<PathBuf> {
-    for manager in [
-        ".nvm/versions/node",
-        ".pyenv/versions",
-        ".local/share/uv/python",
-    ] {
-        let prefix = home.join(manager);
-        let relative = path.strip_prefix(&prefix).ok();
-        if let Some(relative) = relative {
-            let mut components = relative.components();
-            let version = components.next()?;
-            if components
-                .next()
-                .is_some_and(|part| part.as_os_str() == "bin")
-                && components.next().is_none()
-            {
-                return Some(prefix.join(version));
-            }
-        }
-    }
-    None
 }

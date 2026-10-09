@@ -7,6 +7,7 @@ mod directory;
 pub(crate) mod edit;
 mod lines;
 mod media;
+pub(crate) mod mutations;
 pub(crate) mod path;
 pub(crate) mod rename;
 mod save;
@@ -63,11 +64,16 @@ impl Files {
             .map_err(|_| Fault::new(ErrorCode::Busy, "file read capacity exhausted"))?;
         let cancelled = closed.child_token();
         let _guard = cancelled.clone().drop_guard();
+        let searching = matches!(
+            &command,
+            Command::FindFiles { .. } | Command::SearchFiles { .. }
+        );
+        let budget = Duration::from_secs(if searching { 20 } else { 5 });
         let worker = tokio::task::spawn_blocking(move || {
             let _permit = permit;
             let control = Control {
                 cancelled,
-                deadline: Instant::now() + Duration::from_secs(5),
+                deadline: Instant::now() + budget,
             };
             control.check()?;
             match command {
@@ -90,8 +96,14 @@ impl Files {
                     limit,
                     ..
                 } => lines::read(&root, path, offset, limit, &control).map(Output::FileLines),
-                Command::FindFiles { globs, .. } => {
-                    walk::find(&root, &globs, &control).map(Output::FileNames)
+                Command::FindFiles {
+                    globs,
+                    path,
+                    limit,
+                    offset,
+                    ..
+                } => {
+                    walk::find(&root, &globs, &path, limit, offset, &control).map(Output::FileNames)
                 }
                 Command::SearchFiles { options, .. } => {
                     search::search(&root, &options, &control).map(Output::SearchResults)
@@ -104,7 +116,9 @@ impl Files {
         });
         tokio::select! {
             _ = closed.cancelled() => Err(Fault::new(ErrorCode::Unavailable, "Node service is unavailable")),
-            result = tokio::time::timeout(Duration::from_secs(5), worker) => result
+            // Search workers return their actual partial results when the shared
+            // deadline expires; the outer guard only covers an unresponsive worker.
+            result = tokio::time::timeout(budget + Duration::from_secs(u64::from(searching)), worker) => result
                 .map_err(|_| Fault::new(ErrorCode::Busy, "file read deadline exceeded"))?
                 .map_err(|_| Fault::new(ErrorCode::Internal, "file worker failed"))?,
         }

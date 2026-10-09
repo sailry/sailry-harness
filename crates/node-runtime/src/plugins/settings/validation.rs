@@ -193,9 +193,9 @@ fn validate_binding(
         let (origin, header, _) = super::super::http::binding(binding)?;
         return Ok((origin.origin().ascii_serialization(), header.to_string()));
     }
-    if binding.prefix.is_some() {
+    if binding.prefix.is_some() && (binding.header.is_none() || binding.env.is_some()) {
         return Err(sailry_protocol::Fault::invalid(
-            "secret prefix requires an HTTP origin",
+            "secret prefix requires an HTTP header slot",
         ));
     }
     let name = binding
@@ -228,6 +228,13 @@ fn validate_binding(
             }
             let header = reqwest::header::HeaderName::from_bytes(name.as_bytes())
                 .map_err(|_| sailry_protocol::Fault::invalid("invalid secret header name"))?;
+            if binding.prefix.as_ref().is_some_and(|prefix| {
+                prefix.len() > 128 || reqwest::header::HeaderValue::from_str(prefix).is_err()
+            }) {
+                return Err(sailry_protocol::Fault::invalid(
+                    "invalid MCP credential prefix",
+                ));
+            }
             if !headers
                 .iter()
                 .any(|(key, value)| key.eq_ignore_ascii_case(name) && value.is_empty())

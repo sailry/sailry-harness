@@ -1,0 +1,7 @@
+github_login_title: "GitHub CLI"
+github_login_import: "로그인 가져오기"
+github_login_imported: "로그인을 가져왔습니다"
+github_login_failed: "CLI 로그인을 가져올 수 없습니다"
+github_login_unavailable: "설치되지 않음"
+github_login_signed_out: "로그인되지 않음"
+github_login_ready: "로그인됨"

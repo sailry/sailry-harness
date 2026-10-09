@@ -1,0 +1,7 @@
+github_login_title: "GitHub CLI"
+github_login_import: "匯入登入"
+github_login_imported: "已匯入登入"
+github_login_failed: "無法取得 CLI 登入"
+github_login_unavailable: "未安裝"
+github_login_signed_out: "未登入"
+github_login_ready: "已登入"

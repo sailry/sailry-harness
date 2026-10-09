@@ -7,6 +7,7 @@ pub mod authorization;
 pub mod catalog;
 pub mod conversation;
 pub mod desktop;
+pub mod github;
 pub mod host;
 pub mod http;
 pub mod mcp;

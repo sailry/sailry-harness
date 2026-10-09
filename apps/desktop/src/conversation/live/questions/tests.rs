@@ -8,6 +8,7 @@ use serde_json::json;
 use std::time::Duration;
 
 mod elicitation;
+mod layout;
 mod lifecycle;
 mod planning;
 

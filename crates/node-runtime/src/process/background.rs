@@ -2,7 +2,7 @@
 mod services;
 mod subscription;
 
-use super::{Environment, Launch, execute_observed};
+use super::{Environment, Launch, execute_background};
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     ErrorCode, Fault, RequestId, SessionId, TurnId,
@@ -21,6 +21,7 @@ struct Entry {
     stop: CancellationToken,
     task: Option<JoinHandle<()>>,
     watch: Option<(sailry_protocol::WorktreeId, Arc<crate::code::Pool>)>,
+    input: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
 }
 
 pub(crate) struct Commands {
@@ -104,6 +105,7 @@ impl Commands {
             turn,
             command: launch.command.clone(),
             access: launch.access,
+            pty: launch.pty,
             cwd: launch.cwd.clone(),
             started_ms: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -114,6 +116,7 @@ impl Commands {
         };
         let stop = CancellationToken::new();
         let (progress, output) = watch::channel((Capture::default(), Capture::default()));
+        let (input, received) = tokio::sync::mpsc::channel(32);
         entries.insert(
             id,
             Entry {
@@ -122,18 +125,20 @@ impl Commands {
                 stop: stop.clone(),
                 task: None,
                 watch: None,
+                input: Some(input),
             },
         );
         let owner = self.clone();
         let task = tokio::spawn(async move {
             use futures::FutureExt;
             let mut output = output;
-            let execution = std::panic::AssertUnwindSafe(execute_observed(
+            let execution = std::panic::AssertUnwindSafe(execute_background(
                 launch,
                 &environment,
                 &stop,
                 &closed,
-                Some(&progress),
+                &progress,
+                received,
             ))
             .catch_unwind();
             tokio::pin!(execution);
@@ -165,6 +170,7 @@ impl Commands {
                 let mut entries = owner.entries.lock().unwrap();
                 if let Some(entry) = entries.get_mut(&id) {
                     entry.info.status = status;
+                    entry.input.take();
                     entry.info.services.clear();
                     owner.changes.send_replace(());
                     entry.watch.take()
@@ -222,6 +228,38 @@ impl Commands {
         }
         self.changes.send_replace(());
         self.read(session, id)
+    }
+
+    pub fn write(&self, session: SessionId, id: RequestId, input: &str) -> Result<usize, Fault> {
+        if input.len() > 64 * 1024 {
+            return Err(Fault::invalid("command input exceeds the size limit"));
+        }
+        let entries = self.entries.lock().unwrap();
+        let entry = entries
+            .get(&id)
+            .filter(|entry| entry.info.session == session)
+            .ok_or_else(missing)?;
+        if entry.info.status != Status::Running {
+            return Err(Fault::new(ErrorCode::Conflict, "command input is closed"));
+        }
+        if input.is_empty() {
+            return Ok(0);
+        }
+        entry
+            .input
+            .as_ref()
+            .ok_or_else(|| Fault::new(ErrorCode::Unavailable, "command input is closed"))?
+            .try_send(input.as_bytes().to_vec())
+            .map_err(|error| match error {
+                tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                    Fault::new(ErrorCode::Busy, "command input queue is full")
+                }
+                tokio::sync::mpsc::error::TrySendError::Closed(_) => Fault::new(
+                    ErrorCode::OutcomeUnknown,
+                    "command input closed before delivery; inspect output before retrying",
+                ),
+            })?;
+        Ok(input.len())
     }
 
     pub async fn close_session(&self, session: SessionId) -> Vec<Info> {
@@ -322,6 +360,7 @@ mod tests {
                 session,
                 turn,
                 Launch {
+                    pty: false,
                     profile: None,
                     access: Access::Workspace,
                     root: root.path().canonicalize().unwrap(),
@@ -368,6 +407,7 @@ mod tests {
                     owner,
                     TurnId::new(),
                     Launch {
+                        pty: false,
                         profile: None,
                         access: Access::Workspace,
                         root: root.path().canonicalize().unwrap(),
@@ -420,6 +460,7 @@ mod tests {
                     session,
                     TurnId::new(),
                     Launch {
+                        pty: false,
                         profile: None,
                         access: Access::Workspace,
                         root: root.path().canonicalize().unwrap(),

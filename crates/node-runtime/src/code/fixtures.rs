@@ -18,6 +18,16 @@ impl CodeServerFixture {
     pub fn script() -> &'static str {
         include_str!("tests/server.py")
     }
+    #[cfg(unix)]
+    pub fn python() -> std::path::PathBuf {
+        ["/usr/bin/python3", "/bin/python3"]
+            .into_iter()
+            .map(Path::new)
+            .find(|path| path.is_file())
+            .expect("language fixtures require the system Python 3 interpreter")
+            .canonicalize()
+            .expect("system Python 3 interpreter is available")
+    }
     pub fn archive(python: impl AsRef<Path>) -> Vec<u8> {
         let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         write!(

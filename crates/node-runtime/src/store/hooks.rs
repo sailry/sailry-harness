@@ -237,6 +237,7 @@ impl Ingress {
             .transpose()?;
         let result = crate::process::execute_hook(
             crate::process::Launch {
+                pty: false,
                 root,
                 profile: self.profile.clone(),
                 command,

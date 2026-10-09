@@ -86,6 +86,8 @@ pub enum Action {
     ReadProjects,
     #[serde(rename = "http.request")]
     Http,
+    #[serde(rename = "web.read")]
+    ReadWeb,
     #[serde(rename = "models.generate")]
     GenerateText,
     #[serde(rename = "storage.read")]
@@ -117,6 +119,7 @@ impl Action {
                 | Self::ReadTerminals
                 | Self::ReadConversation
                 | Self::ReadProjects
+                | Self::ReadWeb
                 | Self::ReadStorage
         )
     }

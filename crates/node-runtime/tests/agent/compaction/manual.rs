@@ -256,6 +256,7 @@ async fn preserves_cancelled_configuration() {
                 command: "printf 'must not execute'".into(),
                 cwd: String::new(),
                 timeout_ms: 1000,
+                pty: false,
                 background: false,
                 attachments: vec![],
             }))

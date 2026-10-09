@@ -30,6 +30,8 @@ Local changes:
   toggling the popover closed.
 - Update selection during synthetic drag scrolling and stop that scrolling at
   the nested viewport boundary. Ordinary mouse-wheel chaining is preserved.
+- Consume completion and code-action menu keys in the Editor before later
+  bindings can insert text, indent or submit while an overlay handles the key.
 
 The text and editor APIs are reusable extensions for Kit's TextView and Editor.
 The list-spacing defaults are a product presentation change. These patches keep
@@ -38,7 +40,7 @@ diffs use separate application content components styled from the same Kit theme
 
 Regression coverage includes lookup parity, Unicode/grapheme wrapping,
 multi-click and drag selection, exact copied text, code insets, text alignment,
-Popover keyboard input, and nested selection scrolling.
+Popover keyboard input, nested selection scrolling, and handled editor overlay keys.
 
 The standalone lockfile pins upstream unit-test dependencies. Product builds use
 the root workspace lockfile. Build output and test temporary directories must

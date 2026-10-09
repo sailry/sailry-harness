@@ -83,6 +83,7 @@ libc.workspace = true
 windows-sys = { workspace = true, features = ["Win32_System_Threading", "Win32_System_SystemInformation", "Wdk_System_SystemServices", "Win32_Security", "Win32_Security_Authorization"] }
 
 [dev-dependencies]
+serde-saphyr.workspace = true
 zipsign-api = { workspace = true, features = ["sign-zip"] }
 russh.workspace = true
 portable-pty.workspace = true

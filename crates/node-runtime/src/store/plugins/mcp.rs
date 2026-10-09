@@ -137,7 +137,11 @@ mod tests {
     fn rolls_back_failed_save() {
         let directory = tempfile::tempdir().unwrap();
         let host = crate::plugins::Host::new(Some(directory.path().canonicalize().unwrap()));
-        let info = host.install_bundled("github").unwrap();
+        let mut info = host.install_bundled("github").unwrap();
+        info.settings = None;
+        if let Some(extension) = info.extension.as_mut() {
+            extension.settings_schema = None;
+        }
         let db = Connection::open_in_memory().unwrap();
         db.execute_batch(include_str!("../schema.sql")).unwrap();
         super::super::save(&db, &info, true).unwrap();
@@ -184,6 +188,10 @@ mod tests {
             let directory = tempfile::tempdir().unwrap();
             let host = crate::plugins::Host::new(Some(directory.path().canonicalize().unwrap()));
             let mut info = host.install_bundled("github").unwrap();
+            info.settings = None;
+            if let Some(extension) = info.extension.as_mut() {
+                extension.settings_schema = None;
+            }
             let db = Connection::open_in_memory().unwrap();
             db.execute_batch(include_str!("../schema.sql")).unwrap();
             super::super::save(&db, &info, true).unwrap();

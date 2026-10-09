@@ -79,8 +79,9 @@ async fn loads_only_relevant_guides() {
         )
         .await
         .unwrap();
+    assert!(instruction.contains("They apply only within their stated project-relative scope"));
     assert!(
-        instruction.contains("These guides apply only within their stated project-relative scope")
+        instruction.contains("These guides are already loaded; do not reread them with a shell")
     );
     assert!(instruction.contains(
         "Explicit user instructions and this turn's mode and permissions remain authoritative"

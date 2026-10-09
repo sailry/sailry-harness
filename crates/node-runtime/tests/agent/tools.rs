@@ -174,7 +174,16 @@ async fn reads_bound_worktree() {
             ("reminders", &["reminders"]),
             ("scheduled-tasks", &["scheduled_tasks"]),
             ("goals", &["create_goal", "get_goal", "update_goal"]),
-            ("commands", &["run_command", "read_command", "stop_command"]),
+            (
+                "commands",
+                &[
+                    "run_command",
+                    "read_command",
+                    "stop_command",
+                    "write_command",
+                ],
+            ),
+            ("web-search", &["web_search", "web_fetch"]),
             (
                 "memory",
                 &[
@@ -191,6 +200,9 @@ async fn reads_bound_worktree() {
                     "list_directory",
                     "read_file",
                     "write_file",
+                    "create_directory",
+                    "delete_file",
+                    "move_file",
                     "edit_file",
                     "find_files",
                     "search_files",

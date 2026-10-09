@@ -8,6 +8,8 @@ mod policy;
 mod runtime;
 #[cfg(test)]
 mod tests;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod toolchains;
 
 use super::{Environment, Launch};
 use sailry_protocol::{Fault, process::Access};
@@ -22,6 +24,14 @@ pub(crate) struct Sandbox {
     wrapper: std::path::PathBuf,
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     variables: std::collections::BTreeMap<std::ffi::OsString, std::ffi::OsString>,
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    links: toolchains::Links,
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    path: Option<std::ffi::OsString>,
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    home: Option<std::path::PathBuf>,
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    profile: Option<std::path::PathBuf>,
     _scratch: Arc<tempfile::TempDir>,
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     _state: tempfile::TempDir,
@@ -51,7 +61,7 @@ impl Sandbox {
                 .prefix("environment-")
                 .tempdir_in(scratch.path())
                 .map_err(runtime::failure)?;
-            let (policy, variables) = policy::create(
+            let (policy, variables, links) = policy::create(
                 &launch.root,
                 launch.profile.as_deref(),
                 &scratch,
@@ -62,6 +72,15 @@ impl Sandbox {
             Ok(Some(Self {
                 policy,
                 variables,
+                links,
+                path: environment.path().map(std::ffi::OsStr::to_owned),
+                home: environment.home().and_then(|path| path.canonicalize().ok()),
+                profile: launch
+                    .profile
+                    .as_deref()
+                    .map(Path::canonicalize)
+                    .transpose()
+                    .map_err(runtime::failure)?,
                 wrapper: runtime::wrapper()?,
                 _scratch: scratch,
                 _state: state,
@@ -85,7 +104,23 @@ impl Sandbox {
                 .get_args()
                 .map(std::ffi::OsString::from)
                 .collect::<Vec<_>>();
-            let wrapped = self.wrap(source.get_program(), &args)?;
+            let mut policy = self.policy.clone();
+            let mut variables = self.variables.clone();
+            let mut links = self.links.clone();
+            let path = source
+                .get_envs()
+                .find(|(key, _)| *key == std::ffi::OsStr::new("PATH"))
+                .and_then(|(_, value)| value);
+            if path != self.path.as_deref() {
+                links.extend(toolchains::paths(
+                    &mut policy,
+                    &mut variables,
+                    path,
+                    self.home.as_deref(),
+                    self.profile.as_deref(),
+                )?);
+            }
+            let wrapped = self.wrap(source.get_program(), &args, &policy, &links)?;
             let mut command = tokio::process::Command::new(wrapped.program);
             command.args(wrapped.args).env_clear();
             for (key, value) in source.get_envs() {
@@ -96,7 +131,7 @@ impl Sandbox {
                     command.env(key, value);
                 }
             }
-            command.envs(&self.variables);
+            command.envs(&variables);
             if let Some(directory) = source.get_current_dir() {
                 command.current_dir(directory);
             }
@@ -105,7 +140,7 @@ impl Sandbox {
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped());
             runtime::enforcer()
-                .configure_command(&mut command, &self.policy)
+                .configure_command(&mut command, &policy)
                 .map_err(runtime::failure)?;
             Ok(command)
         }
@@ -128,7 +163,7 @@ impl Sandbox {
             } else {
                 command.get_argv().to_vec()
             };
-            let wrapped = self.wrap(&args[0], &args[1..])?;
+            let wrapped = self.wrap(&args[0], &args[1..], &self.policy, &self.links)?;
             #[cfg(target_os = "macos")]
             let wrapped = {
                 let mut wrapped = wrapped;
@@ -169,13 +204,17 @@ impl Sandbox {
         &self,
         program: &std::ffi::OsStr,
         args: &[std::ffi::OsString],
+        policy: &adk_sandbox::sandbox::SandboxPolicy,
+        links: &toolchains::Links,
     ) -> Result<adk_sandbox::sandbox::WrappedCommand, Fault> {
         let mut wrapped = runtime::enforcer()
-            .wrap_command(program, args, &self.policy)
+            .wrap_command(program, args, policy)
             .map_err(runtime::failure)?;
         wrapped.program = self.wrapper.clone().into_os_string();
         #[cfg(target_os = "linux")]
-        linux::complete(&mut wrapped.args)?;
+        linux::complete(&mut wrapped.args, program, links)?;
+        #[cfg(target_os = "macos")]
+        let _ = links;
         Ok(wrapped)
     }
 

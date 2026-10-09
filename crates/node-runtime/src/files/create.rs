@@ -5,16 +5,24 @@ use sailry_protocol::{ErrorCode, Fault};
 use std::path::Path;
 
 pub(crate) fn directory(root: &Path, relative: &str) -> Result<(), Fault> {
-    let parts = path::components(relative, false)?;
+    let parts = path::entry_components(relative)?;
     let (name, parents) = parts.split_last().unwrap();
     let parent = path::descend(path::root(root)?, parents)?;
-    parent.create_dir(name).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::AlreadyExists {
-            Fault::new(ErrorCode::Conflict, "an entry already exists at this path")
-        } else {
-            io_error(error)
+    match parent.create_dir(name) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            let metadata = parent.symlink_metadata(name).map_err(io_error)?;
+            if metadata.is_dir() && !metadata.is_symlink() {
+                Ok(())
+            } else {
+                Err(Fault::new(
+                    ErrorCode::Conflict,
+                    "an entry already exists at this path",
+                ))
+            }
         }
-    })
+        Err(error) => Err(io_error(error)),
+    }
 }
 
 #[cfg(test)]
@@ -27,12 +35,11 @@ mod tests {
         let root = temp.path().canonicalize().unwrap();
         std::fs::write(root.join("file"), "keep").unwrap();
         directory(&root, "folder").unwrap();
-        for path in ["file", "folder"] {
-            assert_eq!(
-                directory(&root, path).unwrap_err().code,
-                ErrorCode::Conflict
-            );
-        }
+        directory(&root, "folder").unwrap();
+        assert_eq!(
+            directory(&root, "file").unwrap_err().code,
+            ErrorCode::Conflict
+        );
         assert_eq!(std::fs::read_to_string(root.join("file")).unwrap(), "keep");
     }
 

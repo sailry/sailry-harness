@@ -1,0 +1,7 @@
+github_login_title: "GitHub CLI"
+github_login_import: "Импортировать вход"
+github_login_imported: "Вход импортирован"
+github_login_failed: "Вход через CLI недоступен"
+github_login_unavailable: "Не установлен"
+github_login_signed_out: "Вход не выполнен"
+github_login_ready: "Вход выполнен"

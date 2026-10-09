@@ -22,7 +22,7 @@ fn removal_does_not_open_gallery(cx: &mut TestAppContext) {
             } else {
                 ready(visual, &view, 1);
             }
-            control(visual, 0, Control::Remove);
+            remove(visual, 0);
             wait(visual, |cx| view.read(cx).attachments.items.is_empty());
             visual.update(|window, cx| window.draw(cx).clear(cx));
             assert!(visual.debug_bounds("attachment-image-preview").is_none());

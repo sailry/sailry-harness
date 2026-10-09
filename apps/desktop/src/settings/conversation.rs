@@ -14,14 +14,17 @@ use gpui_kit::{
     *,
 };
 
+mod sandbox;
 mod text_size;
 
 pub(super) struct State {
     pub text_size: Entity<SliderState>,
+    preview: Entity<sandbox::Host>,
+    hosts: std::collections::BTreeMap<sailry_protocol::NodeId, Entity<sandbox::Host>>,
 }
 
 impl State {
-    pub fn new(cx: &mut Context<Workspace>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Workspace>) -> Self {
         let size = preferences::data(cx).message_text_size();
         let text_size = cx.new(|_| {
             SliderState::new()
@@ -40,39 +43,76 @@ impl State {
             cx.notify();
         })
         .detach();
-        Self { text_size }
+        Self {
+            text_size,
+            preview: cx.new(|cx| sandbox::Host::new(None, window, cx)),
+            hosts: Default::default(),
+        }
     }
 }
 
 impl Workspace {
-    pub(super) fn conversation(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn conversation(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let host = if let Some(live) = &self.provider_link {
+            let binding = live.binding.clone();
+            let host = self
+                .conversation
+                .hosts
+                .entry(binding.client.target())
+                .or_insert_with(|| cx.new(|cx| sandbox::Host::new(Some(binding), window, cx)))
+                .clone();
+            if live.connected {
+                host.update(cx, |host, cx| {
+                    host.accept(live.sandbox_revision, window, cx)
+                });
+            }
+            host
+        } else {
+            self.conversation.preview.clone()
+        };
         let display = preferences::data(cx).message_display.unwrap_or_default();
-        Group::new("settings_messages")
+        gpui_kit::component::v_flex()
+            .gap_6()
+            .child(host)
             .child(
-                Row::new(
-                    "settings_message_display",
-                    TabBar::new("message-display")
-                        .segmented()
-                        .selected_index(usize::from(display == MessageDisplay::Compact))
-                        .children(["message_display_detailed", "message_display_compact"].map(
-                            |key| Tab::new().debug_selector(move || key.into()).label(tr(key)),
-                        ))
-                        .on_click(|index, _, cx| {
-                            preferences::update(cx, |data| {
-                                data.message_display = Some(
-                                    [MessageDisplay::Detailed, MessageDisplay::Compact][*index],
-                                );
-                            });
-                        }),
-                )
-                .description("settings_message_display_description"),
-            )
-            .child(
-                Row::new(
-                    "settings_message_text_size",
-                    text_size::slider(&self.conversation.text_size, cx),
-                )
-                .wide(),
+                Group::new("settings_messages")
+                    .child(
+                        Row::new(
+                            "settings_message_display",
+                            TabBar::new("message-display")
+                                .segmented()
+                                .selected_index(usize::from(display == MessageDisplay::Compact))
+                                .children(
+                                    ["message_display_detailed", "message_display_compact"].map(
+                                        |key| {
+                                            Tab::new()
+                                                .debug_selector(move || key.into())
+                                                .label(tr(key))
+                                        },
+                                    ),
+                                )
+                                .on_click(|index, _, cx| {
+                                    preferences::update(cx, |data| {
+                                        data.message_display = Some(
+                                            [MessageDisplay::Detailed, MessageDisplay::Compact]
+                                                [*index],
+                                        );
+                                    });
+                                }),
+                        )
+                        .description("settings_message_display_description"),
+                    )
+                    .child(
+                        Row::new(
+                            "settings_message_text_size",
+                            text_size::slider(&self.conversation.text_size, cx),
+                        )
+                        .wide(),
+                    ),
             )
             .into_any_element()
     }

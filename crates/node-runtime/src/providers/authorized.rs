@@ -130,7 +130,7 @@ fn parse(
                 metadata::limits(entry, &["max_output_tokens"])?,
                 discovery::Capabilities {
                     vision,
-                    web_search: None,
+                    web_search: metadata::capabilities(entry)?.and_then(|value| value.web_search),
                     tools: None,
                     reasoning,
                     efforts,

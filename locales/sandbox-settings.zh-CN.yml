@@ -1,0 +1,8 @@
+settings_execution: "执行"
+settings_command_sandbox: "命令沙箱"
+settings_command_sandbox_description: "应用于所有会话的后续命令"
+sandbox_settings_reload: "重新加载"
+sandbox_settings_saved: "已保存"
+sandbox_settings_conflict: "命令沙箱设置已更改，请重新加载"
+sandbox_settings_failed: "无法读取或保存命令沙箱设置"
+sandbox_settings_unknown: "无法确认是否已保存命令沙箱设置，请重新加载查看"

@@ -251,3 +251,48 @@ async fn ordinary_packages_share_one_provider_capability() {
         fixture.controller.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn ordinary_packages_share_one_fallback_tool() {
+    for remote in [false, true] {
+        let server = SearchServer::start(false).await;
+        let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        execute(
+            &fixture.client,
+            Command::RemovePlugin {
+                name: "web-search".into(),
+                expected_revision: 1,
+            },
+        )
+        .await;
+        source(&fixture, "source-finder", "Find sources");
+        install(&fixture, "source-finder", 0).await;
+        source(&fixture, "source-helper", "Other sources");
+        install(&fixture, "source-helper", 0).await;
+        let turn = fixture.submit("Use the available search driver").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{:?}",
+            page.runs
+        );
+        {
+            let requests = server.requests.lock().unwrap();
+            let tools = requests[0]["tools"].as_array().unwrap();
+            assert_eq!(
+                tools
+                    .iter()
+                    .filter(|tool| {
+                        tool["name"] == plugin_tool("source-finder", "web_search")
+                            || tool["name"] == plugin_tool("source-helper", "web_search")
+                    })
+                    .count(),
+                1
+            );
+            assert!(!tools.iter().any(|tool| tool["type"] == "web_search"));
+        }
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}

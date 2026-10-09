@@ -87,11 +87,22 @@ pub(super) fn parse(api: ModelApi, value: &Value) -> Result<Page, Fault> {
     Ok(Page { models, next })
 }
 
-fn capabilities(entry: &Value) -> Result<Option<discovery::Capabilities>, Fault> {
+pub(super) fn capabilities(entry: &Value) -> Result<Option<discovery::Capabilities>, Fault> {
     let boolean = |name: &str| -> Result<Option<bool>, Fault> {
         entry
             .get(name)
-            .or_else(|| entry.get("capabilities").and_then(|value| value.get(name)))
+            .filter(|value| !value.is_null())
+            .or_else(|| {
+                entry
+                    .get("capabilities")
+                    .and_then(|value| value.get(name))
+                    .filter(|value| !value.is_null())
+            })
+            .or_else(|| {
+                (name == "web_search")
+                    .then(|| entry.pointer("/capabilities/server_tools/web_search/supported"))
+                    .flatten()
+            })
             .filter(|value| !value.is_null())
             .map(|value| {
                 value
@@ -222,6 +233,7 @@ mod capability_tests {
         for entry in [
             json!({"web_search":true}),
             json!({"capabilities":{"web_search":true}}),
+            json!({"capabilities":{"server_tools":{"web_search":{"supported":true}}}}),
         ] {
             assert_eq!(
                 capabilities(&entry).unwrap().unwrap().web_search,
@@ -236,5 +248,25 @@ mod capability_tests {
             Some(false)
         );
         assert!(capabilities(&json!({"web_search":"true"})).is_err());
+        assert!(
+            capabilities(
+                &json!({"capabilities":{"server_tools":{"web_search":{"supported":"true"}}}})
+            )
+            .is_err()
+        );
+        assert_eq!(
+            capabilities(
+                &json!({"capabilities":{"server_tools":{"web_search":{"supported":false}}}})
+            )
+            .unwrap()
+            .unwrap()
+            .web_search,
+            Some(false)
+        );
+        assert_eq!(
+            capabilities(&json!({"web_search":null,"capabilities":{"web_search":null,"server_tools":{"web_search":{"supported":false}}}}))
+                .unwrap().unwrap().web_search,
+            Some(false)
+        );
     }
 }

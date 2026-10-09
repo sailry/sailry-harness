@@ -29,3 +29,8 @@ fallback when no incoming request matches.
 ADK task polling uses the SDK's existing public service APIs to reach the
 connection's registered client handler. The SDK's internal input-batch helper
 retains its upstream private visibility.
+
+The reqwest transport preserves HTTP 429 and server-error status with bounded Retry-After metadata
+in a typed error before reading a response body. Sailry's search owner uses that
+metadata to cool down the affected driver. The error contains no response body
+or authentication value, and does not change transport retry behavior.

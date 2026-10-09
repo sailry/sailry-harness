@@ -2,6 +2,7 @@ use super::*;
 use serde_json::{Value, json};
 
 mod explore;
+mod research;
 
 pub(super) fn model(id: &str) -> Model {
     Model {

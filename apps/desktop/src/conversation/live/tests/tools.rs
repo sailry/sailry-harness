@@ -20,11 +20,8 @@ fn compact_file_queries(cx: &mut TestAppContext) {
     });
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
-        std::fs::write(
-            directory.path().join("source #1.txt"),
-            "中文 🙂\nreadable result\nreadable again",
-        )
-        .unwrap();
+        let source_text = "中文 🙂\nreadable result\nreadable again";
+        std::fs::write(directory.path().join("source #1.txt"), source_text).unwrap();
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
         let node = runtime
             .block_on(Node::start_isolated(directory.path().join("node")))
@@ -156,12 +153,36 @@ fn compact_file_queries(cx: &mut TestAppContext) {
                     .all(|call| call.state == State::Returned)
             );
             let first = &view.history.calls[0];
+            let result = first
+                .result(&view.history.snapshot.as_ref().unwrap().page)
+                .unwrap();
+            let Output::FileLines(lines) = serde_json::from_value(result.clone()).unwrap() else {
+                panic!("numbered file lines expected");
+            };
+            assert_eq!(lines.path, "source #1.txt");
             assert_eq!(
-                first
-                    .result(&view.history.snapshot.as_ref().unwrap().page)
-                    .unwrap()["data"]["text"],
-                "中文 🙂\nreadable result\nreadable again"
+                lines
+                    .lines
+                    .iter()
+                    .map(|line| line.number)
+                    .collect::<Vec<_>>(),
+                [1, 2, 3]
             );
+            assert_eq!(
+                lines
+                    .lines
+                    .iter()
+                    .map(|line| line.text.as_str())
+                    .collect::<String>(),
+                source_text
+            );
+            assert_eq!(lines.size, source_text.len() as u64);
+            assert_eq!(
+                lines.revision,
+                blake3::hash(source_text.as_bytes()).to_hex().as_str()
+            );
+            assert_eq!(lines.offset, 0);
+            assert_eq!(lines.next_offset, None);
             (
                 first.turn,
                 format!("tools-{}", first.source.key()),

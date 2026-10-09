@@ -120,6 +120,7 @@ fn permits_reads_and_rejects_resource_writes() {
                 access: sailry_protocol::process::Access::Workspace,
                 cwd: String::new(),
                 timeout_ms: 1000,
+                pty: false,
                 background: false,
                 attachments: vec![],
             },

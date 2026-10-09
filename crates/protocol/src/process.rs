@@ -51,6 +51,8 @@ pub struct Info {
     pub turn: crate::TurnId,
     pub command: String,
     pub access: Access,
+    #[serde(default)]
+    pub pty: bool,
     pub cwd: String,
     pub started_ms: u64,
     pub status: Status,

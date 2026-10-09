@@ -135,6 +135,31 @@ Delegated work uses the same ADK engine and history path with an explicit
 parent/child association. Closing a view stops observation, not admitted work;
 stopping a turn is an explicit command.
 
+On macOS and Linux, Agent commands use a workspace sandbox by default. It
+permits workspace writes and read-only access to installed toolchains, with
+private temporary files and no network access. Full permission authorizes
+commands requiring the complete environment automatically; Ask and Project
+retain explicit approval for that access. The Node's conversation setting can
+disable command sandboxing for subsequent calls in existing sessions without
+changing captured access for pending or running commands. User-created
+terminals start with the complete login-shell environment. Language services
+and configured hooks retain their own execution policies.
+
+File discovery and content searches run inside Node with confined paths,
+ignore rules and bounded result pages, without requiring a system ripgrep.
+Multi-edit operations check the original file revision and publish one complete
+result. Background commands may use a PTY and accept durably admitted input;
+completion, stop and replay retain the original command identity.
+
+Public web reads and search run on the execution Node. Web reads validate and
+pin public DNS addresses on every redirect, retain bounded paged snapshots,
+and supply untrusted content without browser authentication. Search settings
+and credentials belong to that Node. A turn uses provider-native search when
+available and preferred, otherwise one configured search tool; transient
+failures can try each configured driver once and respect rate-limit cooldowns.
+Private search keys and explicitly imported GitHub login tokens remain in
+protected storage. Public GitHub reads do not require a GitHub MCP credential.
+
 The delegation plugin manages role settings; Node owns and freezes the configured
 roster. Delegation selects a matching configured role. An omitted or null role
 uses the parent's effective model and assistant instructions; an unknown explicit

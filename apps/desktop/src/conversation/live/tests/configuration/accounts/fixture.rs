@@ -175,8 +175,21 @@ impl Fixture {
         assert_eq!(session.config.provider, self.provider.id);
         assert_eq!(session.config.credential, self.provider.credential);
         assert_ne!(session.config.credential, self.source_provider.credential);
-        assert_eq!(session.roles.profiles.len(), 1);
-        assert_eq!(session.roles.profiles[0].key, "target-role");
+        assert_eq!(
+            session
+                .roles
+                .profiles
+                .iter()
+                .map(|role| role.key.as_str())
+                .collect::<Vec<_>>(),
+            ["explore", "research", "target-role"]
+        );
+        assert!(
+            session.roles.profiles[..2]
+                .iter()
+                .all(|role| role.read_only)
+        );
+        assert!(!session.roles.profiles[2].read_only);
         let Output::Providers(providers) = self.execute(Command::ListProviders) else {
             panic!("providers expected")
         };
@@ -195,7 +208,27 @@ impl Fixture {
             .iter()
             .filter(|request| request.path == "/responses")
             .collect();
-        assert_eq!(generations.len(), count);
+        assert_eq!(
+            generations.len(),
+            count,
+            "unexpected generations: {:?}",
+            generations
+                .iter()
+                .map(|request| {
+                    let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+                    let input = body["input"].as_array().unwrap();
+                    (
+                        input.len(),
+                        input.last().unwrap()["role"].clone(),
+                        input.last().unwrap()["content"]
+                            .to_string()
+                            .chars()
+                            .take(160)
+                            .collect::<String>(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        );
         for request in generations {
             assert!(!request.headers.contains_key("chatgpt-account-id"));
             assert_eq!(

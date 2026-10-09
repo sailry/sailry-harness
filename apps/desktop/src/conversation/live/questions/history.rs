@@ -64,6 +64,7 @@ impl View {
         let detail = disclosure::Detail {
             state: (!plan && !matches!(label, "question_answered" | "interaction_cancelled"))
                 .then(|| tr(label)),
+            wrap: !plan,
             ..Default::default()
         };
         let title = if plan {

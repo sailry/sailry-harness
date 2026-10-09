@@ -39,13 +39,13 @@ pub(super) fn bindings(
 pub(super) fn instruction(permission: sailry_protocol::Permission) -> &'static str {
     match permission {
         sailry_protocol::Permission::Ask => {
-            "This turn uses Ask permission. Invoke tools directly for the user's task; the runtime pauses file writes, worktree changes and non-read-only MCP tools for approval before execution unless a matching user-approved rule applies in this session. Do not request those tool approvals through a question tool or prose. Prior task authorization does not bypass runtime approval. Prefer dedicated read-only tools for exploration; they run without approval. MCP annotations describe the configured server's behavior; they are not an OS sandbox. On macOS/Linux, workspace commands run without approval inside a worktree sandbox with no network; unrestricted commands require fresh user approval. Windows retains command approval by permission mode."
+            "This turn uses Ask permission. Invoke tools directly for the user's task; the runtime pauses file writes, worktree changes and non-read-only MCP tools for approval before execution unless a matching user-approved rule applies in this session. Do not request those tool approvals through a question tool or prose. Prior task authorization does not bypass runtime approval. Prefer dedicated read-only tools for exploration; they run without approval. MCP annotations describe the configured server's behavior; they are not an OS sandbox. On macOS/Linux, when the command sandbox is enabled, workspace commands run without approval inside a worktree sandbox with no network. When the Node command sandbox setting is disabled, subsequent commands in every session use unrestricted access and the machine's normal environment. Unrestricted commands require fresh user approval; a setting change never upgrades an already approved call. Windows retains command approval by permission mode."
         }
         sailry_protocol::Permission::Project => {
-            "This turn uses Project permission. Writes through project file tools run without individual approval. Invoke worktree changes and non-read-only MCP tools directly for the user's task; the runtime pauses them for approval before execution unless a matching user-approved rule applies in this session. Do not request those tool approvals through a question tool or prose. Prior task authorization does not bypass runtime approval. Prefer dedicated read-only tools for exploration; they run without approval. On macOS/Linux, workspace commands run without approval inside a worktree sandbox with no network; unrestricted commands require fresh user approval. Windows retains command approval by permission mode."
+            "This turn uses Project permission. Writes through project file tools run without individual approval. Invoke worktree changes and non-read-only MCP tools directly for the user's task; the runtime pauses them for approval before execution unless a matching user-approved rule applies in this session. Do not request those tool approvals through a question tool or prose. Prior task authorization does not bypass runtime approval. Prefer dedicated read-only tools for exploration; they run without approval. On macOS/Linux, when the command sandbox is enabled, workspace commands run without approval inside a worktree sandbox with no network. When the Node command sandbox setting is disabled, subsequent commands in every session use unrestricted access and the machine's normal environment. Unrestricted commands require fresh user approval; a setting change never upgrades an already approved call. Windows retains command approval by permission mode."
         }
         sailry_protocol::Permission::Full => {
-            "This turn has full permission for available tools under the OS access of the machine running this session. File writes and worktree changes do not require individual approval. On macOS/Linux, workspace commands use a worktree sandbox with no network. Unrestricted commands require fresh user approval, even with Full permission. Windows retains ordinary command execution under Full permission. Follow the user's intent and do not infer that unrelated destructive actions are authorized."
+            "This turn has full permission for available tools under the OS access of the machine running this session. File writes and worktree changes do not require individual approval. On macOS/Linux, when the command sandbox is enabled, workspace commands use a worktree sandbox with no network. Request unrestricted access when a command needs network or files outside the worktree; these commands run without individual approval under Full permission. When the Node command sandbox setting is disabled, subsequent commands in every session use unrestricted access and the machine's normal environment without individual approval. A setting change preserves the access of approved calls and running processes. Windows retains ordinary command execution under Full permission. Follow the user's intent and do not infer that unrelated destructive actions are authorized."
         }
     }
 }
@@ -93,7 +93,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn distinguishes_fresh_command_consent() {
+    fn distinguishes_command_access_by_permission() {
         for permission in [
             sailry_protocol::Permission::Ask,
             sailry_protocol::Permission::Project,
@@ -101,9 +101,17 @@ mod tests {
         ] {
             let text = instruction(permission);
             assert!(text.contains("worktree sandbox with no network"));
-            assert!(text.contains("fresh user approval"));
             assert!(text.contains("Windows retains"));
             assert!(!text.contains("there is no OS sandbox"));
+            assert!(text.contains("subsequent commands in every session use unrestricted access"));
+            assert!(text.contains("normal environment"));
+            if permission == sailry_protocol::Permission::Full {
+                assert!(text.contains("network or files outside the worktree"));
+                assert!(text.contains("commands run without individual approval"));
+                assert!(!text.contains("fresh user approval"));
+            } else {
+                assert!(text.contains("Unrestricted commands require fresh user approval"));
+            }
         }
     }
 

@@ -81,12 +81,6 @@ impl Login {
             .into(),
         }
     }
-
-    pub fn captures(&self) -> usize {
-        std::fs::read(self.home.join("captures"))
-            .unwrap_or_default()
-            .len()
-    }
 }
 
 pub fn executable(path: &Path, source: &str) {

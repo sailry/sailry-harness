@@ -262,6 +262,10 @@ impl Database {
                 }
                 Command::ResolvePluginModel { .. } => (Some(Action::ReadModels), None, None),
                 Command::RequestPluginHttp(_) => (Some(Action::Http), None, None),
+                Command::FetchWeb(_)
+                | Command::CancelWebFetch { .. }
+                | Command::SearchWeb(_)
+                | Command::CancelWebSearch { .. } => (Some(Action::ReadWeb), None, None),
                 Command::ReadCode { worktree, .. } | Command::ListCodeServers { worktree } => {
                     (Some(Action::ReadCode), Some(*worktree), None)
                 }
@@ -284,6 +288,8 @@ impl Database {
                 Command::UploadFile(spec) => (Some(Action::WriteFiles), Some(spec.worktree), None),
                 Command::WriteFile { worktree, .. }
                 | Command::EditFile { worktree, .. }
+                | Command::DeleteFile { worktree, .. }
+                | Command::MoveFile { worktree, .. }
                 | Command::FinishFileUpload { worktree, .. }
                 | Command::CreateDirectory { worktree, .. }
                 | Command::RenameEntry { worktree, .. }
@@ -333,7 +339,7 @@ impl Database {
                 Command::ListCommands { session } | Command::ReadCommand { session, .. } => {
                     (Some(Action::ReadCommands), None, Some(*session))
                 }
-                Command::StopCommand { session, .. } => {
+                Command::StopCommand { session, .. } | Command::WriteCommand { session, .. } => {
                     (Some(Action::ControlCommands), None, Some(*session))
                 }
                 Command::ListTerminals { worktree } | Command::ListTerminalTools { worktree } => {

@@ -1,4 +1,6 @@
 use super::*;
+use sailry_link::Transport;
+use std::sync::Arc;
 
 #[tokio::test]
 async fn catalog_preserves_localized_metadata() {
@@ -126,14 +128,14 @@ async fn catalog_details_do_not_install_packages() {
 }
 
 #[tokio::test]
-async fn incompatible_profile_is_not_initialized_or_converted() {
+async fn rejects_unexpected_profile_without_changes() {
     let directory = tempfile::tempdir().unwrap();
     let profile = directory.path().join("node");
     let node = Node::start(&profile).await.unwrap();
     node.shutdown().await.unwrap();
     let path = profile.join("storage/node.sqlite3");
     let db = rusqlite::Connection::open(&path).unwrap();
-    db.execute_batch("ALTER TABLE node DROP COLUMN plugin_defaults;")
+    db.execute_batch("ALTER TABLE node ADD COLUMN unexpected TEXT DEFAULT 'retained';")
         .unwrap();
     drop(db);
     let before = fs::read(&path).unwrap();
@@ -142,6 +144,114 @@ async fn incompatible_profile_is_not_initialized_or_converted() {
         fs::read(&path).unwrap() == before,
         "existing profile changed"
     );
+}
+
+#[tokio::test]
+async fn restores_defaults_without_resetting_plugins() {
+    for remote in [false, true] {
+        let (directory, node, controller, client, _) = fixture(remote).await;
+        let memory = info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: "memory".into(),
+                },
+            )
+            .await,
+        );
+        execute(
+            &client,
+            Command::SetPluginEnabled {
+                name: "memory".into(),
+                expected_revision: memory.summary.revision,
+                enabled: false,
+            },
+        )
+        .await;
+        let browser = info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: "browser".into(),
+                },
+            )
+            .await,
+        );
+        execute(
+            &client,
+            Command::RemovePlugin {
+                name: "browser".into(),
+                expected_revision: browser.summary.revision,
+            },
+        )
+        .await;
+        let before = execute(&client, Command::ListPlugins).await;
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+        let profile = directory.path().join("node");
+        let path = profile.join("storage/node.sqlite3");
+        let db = rusqlite::Connection::open(&path).unwrap();
+        db.execute_batch("ALTER TABLE node DROP COLUMN plugin_defaults;")
+            .unwrap();
+        drop(db);
+        let node = Node::start(&profile).await.unwrap();
+        let controller =
+            Link::controller(directory.path().join("controller"), NetworkScope::default())
+                .await
+                .unwrap();
+        let address = controller
+            .handle()
+            .pair(node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let transport: Arc<dyn Transport> = if remote {
+            controller.handle().remote(address)
+        } else {
+            node.local()
+        };
+        let client = Client::new(transport);
+        assert_eq!(execute(&client, Command::ListPlugins).await, before);
+        let db = rusqlite::Connection::open(&path).unwrap();
+        assert_eq!(
+            db.query_row("SELECT plugin_defaults FROM node", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        drop(db);
+        let backup = fs::read_dir(profile.join("storage/backups"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        assert_eq!(backup.len(), 1);
+        let previous = rusqlite::Connection::open_with_flags(
+            &backup[0],
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        assert!(
+            previous
+                .prepare("SELECT plugin_defaults FROM node")
+                .is_err()
+        );
+        assert_eq!(
+            previous
+                .query_row("SELECT count(*) FROM plugins", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            db_count(&path)
+        );
+        drop(previous);
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}
+
+fn db_count(path: &std::path::Path) -> i64 {
+    rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .unwrap()
+        .query_row("SELECT count(*) FROM plugins", [], |row| row.get(0))
+        .unwrap()
 }
 
 async fn removed_default(name: &str, enabled: bool) {
@@ -214,6 +324,29 @@ async fn removed_default(name: &str, enabled: bool) {
             };
             assert!(bundle.valid());
             assert_eq!(&bundle.entry, entry);
+        } else if name == "web-search" {
+            use sailry_protocol::tool::Operation;
+            let extension = installed.extension.as_ref().unwrap();
+            assert_eq!(extension.model_tools.len(), 1);
+            assert_eq!(
+                extension.model_tools[0].capability,
+                plugin::model_tools::Capability::WebSearch
+            );
+            assert_eq!(extension.actions, [plugin::Action::ReadWeb]);
+            assert_eq!(
+                extension
+                    .tools
+                    .iter()
+                    .map(|tool| tool.operation)
+                    .collect::<Vec<_>>(),
+                [Some(Operation::FetchWeb), Some(Operation::SearchWeb)]
+            );
+            assert!(
+                extension
+                    .tools
+                    .iter()
+                    .all(|tool| tool.handler.is_none() && tool.server.is_none())
+            );
         } else if let Some(host) = &installed.extension.as_ref().unwrap().host {
             assert!(host.valid());
             assert!(

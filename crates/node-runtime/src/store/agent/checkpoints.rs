@@ -137,6 +137,8 @@ pub(super) fn capture(
             path,
             old_text,
             new_text,
+            replace_all,
+            edits,
             expected_revision,
         } => {
             let original = before.ok_or_else(|| {
@@ -145,8 +147,13 @@ pub(super) fn capture(
                     "file edit checkpoint has no original content",
                 )
             })?;
-            let after =
-                crate::files::edit::prepare(original, old_text, new_text, expected_revision)?;
+            let changes = crate::files::edit::changes(
+                old_text.as_deref(),
+                new_text.as_deref(),
+                *replace_all,
+                edits.as_deref(),
+            )?;
+            let after = crate::files::edit::prepare(original, &changes, expected_revision)?;
             (
                 *worktree,
                 path.as_str(),

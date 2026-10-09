@@ -1,6 +1,6 @@
 // Adapted from sailry-code 67ae9fa0, terminal-host/src/session.rs.
 // See third_party_licenses/sailry-code-terminal.md.
-use super::{Message, failure};
+use super::{Event, Output, failure};
 use portable_pty::MasterPty;
 use sailry_protocol::{ErrorCode, Fault};
 use std::{
@@ -15,14 +15,14 @@ use std::{
     thread::JoinHandle,
 };
 
-pub(super) struct Io {
+pub(crate) struct Io {
     input: SyncSender<Vec<u8>>,
     wake: UnixStream,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Io {
-    pub fn start(master: &dyn MasterPty, messages: SyncSender<Message>) -> Result<Self, Fault> {
+    pub fn start(master: &dyn MasterPty, messages: Output) -> Result<Self, Fault> {
         let descriptor = master
             .as_raw_fd()
             .ok_or_else(|| failure("PTY descriptor is unavailable"))?;
@@ -96,7 +96,40 @@ impl Io {
                                 return Ok(());
                             }
                         }
-                        if poll[0].revents & libc::POLLOUT != 0
+                        let hung_up = poll[0].revents & libc::POLLHUP != 0;
+                        if poll[0].revents
+                            & (libc::POLLIN | libc::POLLHUP | libc::POLLERR | libc::POLLNVAL)
+                            != 0
+                        {
+                            match pty.read(&mut buffer) {
+                                Ok(0) => return Ok(()),
+                                Ok(count) => {
+                                    if !messages(Event::Bytes(buffer[..count].to_vec())) {
+                                        return Ok(());
+                                    }
+                                    if hung_up {
+                                        continue;
+                                    }
+                                }
+                                Err(error)
+                                    if matches!(
+                                        error.kind(),
+                                        std::io::ErrorKind::Interrupted
+                                            | std::io::ErrorKind::WouldBlock
+                                    ) =>
+                                {
+                                    if hung_up && error.kind() == std::io::ErrorKind::WouldBlock {
+                                        return Ok(());
+                                    }
+                                }
+                                Err(error) if error.raw_os_error() == Some(libc::EIO) => {
+                                    return Ok(());
+                                }
+                                Err(error) => return Err(error),
+                            }
+                        }
+                        if !hung_up
+                            && poll[0].revents & libc::POLLOUT != 0
                             && let Some(bytes) = &pending
                         {
                             match pty.write(&bytes[offset..]) {
@@ -117,35 +150,9 @@ impl Io {
                                 Err(error) => return Err(error),
                             }
                         }
-                        if poll[0].revents
-                            & (libc::POLLIN | libc::POLLHUP | libc::POLLERR | libc::POLLNVAL)
-                            != 0
-                        {
-                            match pty.read(&mut buffer) {
-                                Ok(0) => return Ok(()),
-                                Ok(count) => {
-                                    if messages
-                                        .send(Message::Bytes(buffer[..count].to_vec()))
-                                        .is_err()
-                                    {
-                                        return Ok(());
-                                    }
-                                }
-                                Err(error)
-                                    if matches!(
-                                        error.kind(),
-                                        std::io::ErrorKind::Interrupted
-                                            | std::io::ErrorKind::WouldBlock
-                                    ) => {}
-                                Err(error) if error.raw_os_error() == Some(libc::EIO) => {
-                                    return Ok(());
-                                }
-                                Err(error) => return Err(error),
-                            }
-                        }
                     }
                 })();
-                let _ = messages.send(Message::Eof(result.map_err(|error| error.to_string())));
+                messages(Event::Eof(result.map_err(|error| error.to_string())));
             })
             .map_err(failure)?;
         Ok(Self {

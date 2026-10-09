@@ -219,7 +219,7 @@ async fn confirms_project_commands() {
 }
 
 #[tokio::test]
-async fn permits_authorized_commands() {
+async fn preserves_queued_full_command_authority() {
     for remote in [false, true] {
         let server = Server::tools(vec![(
             plugin_tool("commands", "run_command"),
@@ -228,15 +228,33 @@ async fn permits_authorized_commands() {
         .await;
         let mut fixture = Fixture::new(remote, &server).await;
         configure(&mut fixture, Permission::Full).await;
-        let (request, turn) = submit(&fixture).await;
-        let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
-        assert_eq!(approval.source, ApprovalSource::User);
-        assert!(!approval.can_remember);
-        assert!(!fixture.directory.path().join("outside.txt").exists());
-        decide(&fixture.client, &approval, Decision::Approve).await;
+        let request = fixture.client.prepare(Command::QueueTurn {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            message: "Write the requested file".into(),
+        });
+        let Output::QueuedTurn(turn) = fixture.client.execute(request.clone()).await.unwrap()
+        else {
+            panic!("turn expected")
+        };
+        configure(&mut fixture, Permission::Ask).await;
+        assert_eq!(fixture.session.config.permission, Permission::Ask);
+        fixture
+            .client
+            .execute(
+                fixture
+                    .client
+                    .prepare(Command::StartQueuedTurn { turn: turn.id }),
+            )
+            .await
+            .unwrap();
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
-        assert_eq!(page.approvals[0].source, ApprovalSource::User);
+        assert_eq!(page.runs[0].revision, turn.revision);
+        assert_eq!(page.approvals[0].source, ApprovalSource::Full);
+        assert_eq!(page.approvals[0].state, ApprovalState::Approved);
+        assert!(!page.approvals[0].can_remember);
+        assert_eq!(page.approvals[0].choice, None);
         assert_eq!(results(&page)[0].outcome, Outcome::Exited(0));
         assert_eq!(
             fixture.client.execute(request).await.unwrap(),

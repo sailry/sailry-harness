@@ -72,7 +72,7 @@ fn identity(value: &str) -> Result<TerminalId, HostError> {
 
 fn access(value: Option<&HostValue>) -> Result<sailry_protocol::process::Access, HostError> {
     match value {
-        None => Ok(sailry_protocol::process::Access::Workspace),
+        None => Ok(sailry_protocol::process::Access::Unrestricted),
         Some(value) => serde_json::from_value(decode(value)?)
             .map_err(|_| HostError::new("invalid terminal access")),
     }
@@ -98,8 +98,8 @@ mod tests {
     use sailry_protocol::process::Access;
 
     #[test]
-    fn requires_explicit_unrestricted_access() {
-        assert_eq!(access(None).unwrap(), Access::Workspace);
+    fn defaults_manual_launches_to_full_access() {
+        assert_eq!(access(None).unwrap(), Access::Unrestricted);
         assert_eq!(
             access(Some(&HostValue::from("workspace"))).unwrap(),
             Access::Workspace

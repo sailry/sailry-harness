@@ -121,6 +121,7 @@ impl Transport for Observed {
                     | Command::CompleteMcpLogin { .. }
                     | Command::CancelMcpLogin { .. }
                     | Command::RevokeMcpAuthorization { .. }
+                    | Command::ImportGithubLogin { .. }
             ) {
                 return self.inner.dispatch(request).await;
             }
@@ -180,10 +181,33 @@ impl Fixture {
     }
 
     fn with_source(remote: bool, endpoint: Option<&str>) -> Self {
+        Self::with_inputs(remote, endpoint, None)
+    }
+
+    #[cfg(unix)]
+    pub(in crate::settings) fn with_environment(
+        remote: bool,
+        environment: sailry_node_runtime::EnvironmentFixture,
+    ) -> Self {
+        Self::with_inputs(remote, None, Some(environment))
+    }
+
+    fn with_inputs(
+        remote: bool,
+        endpoint: Option<&str>,
+        environment: Option<sailry_node_runtime::EnvironmentFixture>,
+    ) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
         let node = runtime
             .block_on(async {
+                if let Some(environment) = environment {
+                    return Node::start_with_environment(
+                        directory.path().join("node"),
+                        environment,
+                    )
+                    .await;
+                }
                 match endpoint {
                     Some(endpoint) => {
                         Node::start_with_skill_source(directory.path().join("node"), endpoint).await

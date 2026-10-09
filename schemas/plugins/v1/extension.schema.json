@@ -44,6 +44,7 @@
             "conversation.control",
             "projects.read",
             "http.request",
+            "web.read",
             "models.generate",
             "storage.read",
             "storage.write"
@@ -1007,6 +1008,9 @@
         "files.read",
         "files.write",
         "files.edit",
+        "files.delete",
+        "files.move",
+        "files.mkdir",
         "files.find",
         "files.search",
         "office.read",
@@ -1020,6 +1024,8 @@
         "external_browser.read",
         "external_browser.control",
         "http.request",
+        "web.fetch",
+        "web.search",
         "progress.update",
         "storage.get",
         "storage.list",
@@ -1029,7 +1035,8 @@
         "settings.read",
         "process.run",
         "process.read",
-        "process.stop"
+        "process.stop",
+        "process.write"
       ],
       "type": "string"
     },

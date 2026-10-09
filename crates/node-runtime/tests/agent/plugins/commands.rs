@@ -4,6 +4,8 @@ use process::Fixture;
 use sailry_protocol::{plugin, process::Outcome};
 use serde_json::{Value, json};
 
+#[path = "commands/interactive.rs"]
+mod interactive;
 #[path = "commands/lifecycle.rs"]
 mod lifecycle;
 
@@ -149,6 +151,7 @@ async fn reuses_approved_arguments() {
                     description: None,
                     cwd: String::new(),
                     timeout_ms: 120000,
+                    pty: false,
                     background: false,
                     attachments: vec![],
                 })
@@ -211,14 +214,19 @@ async fn retains_background_processes_and_scopes_public_actions() {
         else {
             panic!()
         };
-        let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(page.approvals.len(), 1);
+        let approval = &page.approvals[0];
+        assert_eq!(approval.state, ApprovalState::Approved);
+        assert_eq!(approval.source, ApprovalSource::Full);
+        assert_eq!(approval.choice, None);
+        assert_eq!(approval.prefix, None);
         assert_eq!(
             approval.access,
             Some(sailry_protocol::process::Access::Unrestricted)
         );
         assert!(!approval.can_remember);
-        process::decide(&fixture.client, &approval, Decision::Approve).await;
-        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert!(approvals::rules::claimed(&fixture.node, approval).1);
         let result = results(&page);
         assert_eq!(result[0]["kind"], "command_started", "{page:?}");
         let id: RequestId = serde_json::from_value(result[0]["data"]["id"].clone()).unwrap();
@@ -317,6 +325,9 @@ async fn retains_background_processes_and_scopes_public_actions() {
         assert_eq!(result[2]["data"]["info"]["id"], json!(id));
         assert_eq!(result[3]["kind"], "command_output");
         assert_eq!(page.approvals.len(), 2);
+        assert!(page.approvals.iter().all(|approval| {
+            approval.state == ApprovalState::Approved && approval.source == ApprovalSource::Full
+        }));
         let stop = fixture
             .client
             .prepare(Command::StopCommand {

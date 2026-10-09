@@ -261,7 +261,11 @@ fn prepare(
                         .find(|(name, _)| name.eq_ignore_ascii_case(header))
                         .map(|(_, value)| value)
                         .ok_or_else(unavailable)?;
-                    *value = secret.expose().into();
+                    *value = format!(
+                        "{}{}",
+                        binding.prefix.as_deref().unwrap_or(""),
+                        secret.expose()
+                    );
                 }
             }
             Ok(Launch::Http {

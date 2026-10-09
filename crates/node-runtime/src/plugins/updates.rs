@@ -64,19 +64,40 @@ impl Host {
         catalog: Option<&Result<Vec<Entry>, Fault>>,
     ) -> Result<Report, Fault> {
         if catalog::official::owns(&current) {
-            let entries = catalog
-                .ok_or_else(|| {
-                    sailry_protocol::Fault::invalid("official plugin catalog is unavailable")
-                })?
-                .as_ref()
-                .map_err(Clone::clone)?;
-            let entry = entries
-                .iter()
-                .find(|entry| entry.id == current.summary.name)
-                .ok_or_else(|| Fault::new(ErrorCode::NotFound, "official plugin is unavailable"))?;
-            let available = newer(entry.version.as_deref(), current.summary.version.as_deref())?;
+            let bundled = self.bundled_update(&current, stop).await?;
+            let entry = catalog
+                .ok_or_else(|| Fault::invalid("official plugin catalog is unavailable"))
+                .and_then(|entries| entries.as_ref().map_err(Clone::clone))
+                .and_then(|entries| {
+                    entries
+                        .iter()
+                        .find(|entry| entry.id == current.summary.name)
+                        .ok_or_else(|| {
+                            Fault::new(ErrorCode::NotFound, "official plugin is unavailable")
+                        })
+                });
+            let available = match (entry, bundled) {
+                (Err(error), _)
+                    if !matches!(error.code, ErrorCode::Unavailable | ErrorCode::NotFound) =>
+                {
+                    return Err(error);
+                }
+                (Ok(entry), Some(bundled)) => {
+                    if newer(entry.version.as_deref(), bundled.summary.version.as_deref())? {
+                        Some(Candidate::Official(Box::new(entry.clone())))
+                    } else {
+                        Some(Candidate::Package(Box::new(bundled)))
+                    }
+                }
+                (Err(_), Some(bundled)) => Some(Candidate::Package(Box::new(bundled))),
+                (Ok(entry), None) => {
+                    newer(entry.version.as_deref(), current.summary.version.as_deref())?
+                        .then(|| Candidate::Official(Box::new(entry.clone())))
+                }
+                (Err(error), None) => return Err(error),
+            };
             return Ok(Report {
-                available: available.then(|| Candidate::Official(Box::new(entry.clone()))),
+                available,
                 current: current.summary,
                 manual: false,
             });
@@ -152,6 +173,34 @@ impl Host {
             current: current.summary,
             manual: false,
         })
+    }
+
+    async fn bundled_update(
+        &self,
+        current: &Info,
+        stop: CancellationToken,
+    ) -> Result<Option<Info>, Fault> {
+        let host = self.clone();
+        let name = current.summary.name.clone();
+        let mut bundled =
+            match tokio::task::spawn_blocking(move || host.inspect_bundled(&name, stop))
+                .await
+                .map_err(|_| github::unavailable())?
+            {
+                Ok(bundled) => bundled,
+                Err(error) if error.code == ErrorCode::NotFound => return Ok(None),
+                Err(error) => return Err(error),
+            };
+        if bundled.summary.digest == current.summary.digest
+            || !newer(
+                bundled.summary.version.as_deref(),
+                current.summary.version.as_deref(),
+            )?
+        {
+            return Ok(None);
+        }
+        bundled.origin = Some(Origin::Bundled);
+        Ok(Some(bundled))
     }
 }
 

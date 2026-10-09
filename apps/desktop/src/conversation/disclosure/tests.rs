@@ -2,6 +2,21 @@ use super::*;
 use core::prelude::v1::test;
 use gpui_kit::component::collapsible::Collapsible;
 
+#[test]
+fn preserves_full_wrapped_accessible_labels() {
+    let label: SharedString =
+        "Complete prompt with Unicode 中文 🙂\nPreserve the final line".into();
+    let detail = Detail {
+        wrap: true,
+        state: Some("Awaiting answer".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        detail.accessible(&label),
+        "Complete prompt with Unicode 中文 🙂\nPreserve the final line Awaiting answer"
+    );
+}
+
 #[gpui::test]
 fn keeps_failure_text_subdued(cx: &mut TestAppContext) {
     cx.update(|cx| {

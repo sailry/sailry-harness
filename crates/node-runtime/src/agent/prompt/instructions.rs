@@ -67,7 +67,7 @@ async fn load_from(
             if !file.text.trim().is_empty() {
                 if instruction.is_empty() {
                     instruction.push_str(
-                        "Project instructions\nThese guides apply only within their stated project-relative scope. More specific guides override ancestor guidance within that scope. Explicit user instructions and this turn's mode and permissions remain authoritative.",
+                        "Project instructions\nThese guides are already loaded; do not reread them with a shell. They apply only within their stated project-relative scope. More specific guides override ancestor guidance within that scope. Explicit user instructions and this turn's mode and permissions remain authoritative.",
                     );
                 }
                 let scope = if directory.is_empty() {

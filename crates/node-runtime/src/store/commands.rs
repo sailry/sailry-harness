@@ -149,6 +149,18 @@ pub(super) fn execute(
             None,
         )),
         Command::SaveTerminalSettings(settings) => super::terminals::settings::save(db, settings),
+        Command::ReadSandboxSettings => {
+            Ok((Output::SandboxSettings(super::sandbox::read(db)?), None))
+        }
+        Command::SaveSandboxSettings(settings) => super::sandbox::save(db, settings),
+        Command::ReadSearchSettings => Ok((Output::SearchSettings(super::search::read(db)?), None)),
+        Command::SaveSearchSettings(update) => super::search::save(db, request, update),
+        Command::SearchWeb(_)
+        | Command::CancelWebSearch { .. }
+        | Command::TestSearchDriver { .. } => Err(Fault::new(
+            ErrorCode::Internal,
+            "web search must run outside the database",
+        )),
         Command::ListDatabases if request.plugin.is_some() => {
             let context = request.plugin.as_ref().expect("checked plugin context");
             let profiles = super::databases::list(db)?
@@ -550,6 +562,7 @@ pub(super) fn execute(
         | Command::ListCommands { .. }
         | Command::ReadCommand { .. }
         | Command::StopCommand { .. }
+        | Command::WriteCommand { .. }
         | Command::StopCommands { .. }
         | Command::InstallHost { .. }
         | Command::ReadHostInstall { .. }
@@ -580,10 +593,14 @@ pub(super) fn execute(
         Command::PluginTransaction { .. }
         | Command::GeneratePluginText { .. }
         | Command::RequestPluginHttp(_)
+        | Command::FetchWeb(_)
+        | Command::CancelWebFetch { .. }
         | Command::CallPlugin { .. }
         | Command::CancelPluginCall { .. }
         | Command::ReadPluginView { .. }
         | Command::ReadPluginMcp { .. }
+        | Command::ReadGithubLogin { .. }
+        | Command::ImportGithubLogin { .. }
         | Command::DiscoverModels(_)
         | Command::ValidateProvider { .. }
         | Command::RefreshModelCatalog
@@ -634,6 +651,8 @@ pub(super) fn execute(
         | Command::SearchFiles { .. }
         | Command::WriteFile { .. }
         | Command::EditFile { .. }
+        | Command::DeleteFile { .. }
+        | Command::MoveFile { .. }
         | Command::InstallPlugin { .. }
         | Command::DiscoverSkills { .. }
         | Command::SearchPluginCatalog { .. }
@@ -1061,6 +1080,8 @@ fn snapshot(db: &Connection, node: NodeId) -> Result<Snapshot, Fault> {
         worktrees: super::worktrees::list(db)?,
         terminals: super::terminals::list(db)?,
         terminal_settings_revision: super::terminals::settings::read(db)?.revision,
+        sandbox_settings_revision: super::sandbox::read(db)?.revision,
+        search_settings_revision: super::search::read(db)?.revision,
         media_settings: super::media::read(db)?,
         providers: super::agent::providers(db)?,
         provider_quotas: super::providers::quota::list(db, node)?,

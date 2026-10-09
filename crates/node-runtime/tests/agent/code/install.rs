@@ -22,7 +22,7 @@ impl Sources {
         let requests = Arc::new(AtomicUsize::new(0));
         let count = requests.clone();
         let fixture = CodeServerFixture::new();
-        let bytes = CodeServerFixture::archive(which::which("python3").unwrap());
+        let bytes = CodeServerFixture::archive(CodeServerFixture::python());
         let digest = format!("{:x}", Sha256::digest(&bytes));
         let asset = fixture.asset_path();
         let release = fixture.release_path();
@@ -265,18 +265,6 @@ async fn cancels_only_the_query_owners_authenticated_request() {
                 None,
             )
             .await;
-        fixture
-            .client
-            .execute(fixture.client.prepare(Command::StartCodeServer {
-                startup: cold.startup.unwrap(),
-            }))
-            .await
-            .unwrap();
-        std::fs::write(
-            fixture.root.join("control"),
-            serde_json::to_vec(&json!({"hang":true})).unwrap(),
-        )
-        .unwrap();
         let address = fixture
             .controller
             .handle()
@@ -288,29 +276,6 @@ async fn cancels_only_the_query_owners_authenticated_request() {
         } else {
             fixture.node.local()
         });
-        let request = reader.prepare(Command::ReadCode {
-            worktree: fixture.session.worktree,
-            query: Query::HoverAt {
-                path: "main.rs".into(),
-                position: code::Position { line: 1, column: 3 },
-            },
-            overlay: None,
-        });
-        let id = request.id;
-        let task = tokio::spawn(async move { reader.execute(request).await });
-        tokio::time::timeout(Duration::from_secs(3), async {
-            loop {
-                if std::fs::read_to_string(fixture.root.join("messages"))
-                    .unwrap()
-                    .contains("textDocument/hover")
-                {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
         let foreign = Link::controller(
             fixture.directory.path().join("foreign"),
             NetworkScope::default(),
@@ -323,11 +288,64 @@ async fn cancels_only_the_query_owners_authenticated_request() {
             .await
             .unwrap();
         let foreign_client = Client::new(foreign.handle().remote(address));
+        std::fs::write(
+            fixture.root.join("control"),
+            serde_json::to_vec(&json!({"hang":true})).unwrap(),
+        )
+        .unwrap();
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::StartCodeServer {
+                startup: cold.startup.unwrap(),
+            }))
+            .await
+            .unwrap();
+        let messages = fixture.root.join("messages");
+        let offset = std::fs::read(&messages)
+            .unwrap()
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map_or(0, |index| index + 1);
+        let request = reader.prepare(Command::ReadCode {
+            worktree: fixture.session.worktree,
+            query: Query::HoverAt {
+                path: "main.rs".into(),
+                position: code::Position { line: 1, column: 3 },
+            },
+            overlay: None,
+        });
+        let id = request.id;
+        let mut task = tokio::spawn(async move { reader.execute(request).await });
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if std::fs::read(&messages).is_ok_and(|bytes| {
+                    bytes.get(offset..).is_some_and(|bytes| {
+                        bytes.split_inclusive(|byte| *byte == b'\n').any(|line| {
+                            line.last() == Some(&b'\n')
+                                && serde_json::from_slice::<Value>(line).is_ok_and(|message| {
+                                    message.get("method").and_then(Value::as_str)
+                                        == Some("textDocument/hover")
+                                        && message.get("id").is_some()
+                                })
+                        })
+                    })
+                }) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
         foreign_client
             .execute(foreign_client.prepare(Command::CancelCodeQuery { request: id }))
             .await
             .unwrap();
-        assert!(!task.is_finished());
+        let unchanged = tokio::time::timeout(Duration::from_millis(50), &mut task).await;
+        assert!(
+            unchanged.is_err(),
+            "foreign cancellation completed the query: {unchanged:?}"
+        );
         fixture
             .client
             .execute(

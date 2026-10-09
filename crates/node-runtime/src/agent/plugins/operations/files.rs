@@ -1,7 +1,7 @@
 //! File and document capabilities use the invocation's captured worktree.
 use super::*;
 use crate::agent::tools::decode;
-use sailry_protocol::{DirectoryCursor, FileSearch, office};
+use sailry_protocol::{DirectoryCursor, FileEdit, FileSearch, office};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -37,24 +37,49 @@ struct Write {
 #[serde(deny_unknown_fields)]
 struct Edit {
     path: String,
-    old_text: String,
-    new_text: String,
+    old_text: Option<String>,
+    new_text: Option<String>,
+    #[serde(default)]
+    replace_all: bool,
+    edits: Option<Vec<FileEdit>>,
     expected_revision: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Delete {
+    path: String,
+    expected_revision: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Move {
+    path: String,
+    destination: String,
+    expected_revision: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Create {
+    path: String,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Find {
     globs: Vec<String>,
+    #[serde(default)]
+    path: String,
+    #[serde(default = "find_limit")]
+    limit: usize,
+    #[serde(default)]
+    offset: usize,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Search {
-    query: String,
-    regex: bool,
-    case_sensitive: bool,
-    globs: Vec<String>,
+fn find_limit() -> usize {
+    sailry_protocol::MAX_FIND_MATCHES
 }
 
 pub(super) fn description(operation: Operation) -> &'static str {
@@ -65,10 +90,21 @@ pub(super) fn description(operation: Operation) -> &'static str {
         }
         Operation::WriteFile => "Write UTF-8 text using the expected file revision",
         Operation::EditFile => {
-            "Replace old_text exactly once using the full current file revision; preserve all surrounding bytes"
+            "Apply one replacement or a batch atomically using the current file revision. Match each edit against the original file; require a unique match unless replace_all is true and reject overlaps"
         }
-        Operation::FindFiles => "Find regular file paths by glob without reading their contents",
-        Operation::SearchFiles => "Search text in the captured worktree",
+        Operation::DeleteFile => "Move a regular file to Trash using its current revision",
+        Operation::MoveFile => {
+            "Move a regular file within the worktree using its current revision; never replace an existing destination"
+        }
+        Operation::CreateDirectory => {
+            "Create a directory in an existing parent; an existing directory is unchanged"
+        }
+        Operation::FindFiles => {
+            "Find regular file paths by glob within path, respecting .gitignore and never following symlinks. Newest files come first. Use next_offset for another page; partial scans have no continuation"
+        }
+        Operation::SearchFiles => {
+            "Search UTF-8 files within path using embedded ripgrep matching, respecting .gitignore and never following symlinks. Choose content rows, matching paths, or matching line counts. type uses ripgrep language names; context adds up to five neighboring lines; multiline permits newline-spanning matches. Use next_offset for complete-scan pagination; narrow path if partial"
+        }
         Operation::ReadOffice => "Read document sections in the captured worktree",
         _ => unreachable!("not a file operation"),
     }
@@ -89,17 +125,23 @@ pub(super) fn parameters(operation: Operation) -> Value {
             json!({"path":path,"text":{"type":"string"},"expected_revision":{"type":["string","null"]}}),
             vec!["path", "text", "expected_revision"],
         ),
-        Operation::EditFile => (
-            json!({"path":path,"old_text":{"type":"string","minLength":1},"new_text":{"type":"string"},"expected_revision":{"type":"string","pattern":"^[a-fA-F0-9]{64}$"}}),
-            vec!["path", "old_text", "new_text", "expected_revision"],
+        Operation::EditFile => return edit_schema(),
+        Operation::DeleteFile => (
+            json!({"path":path,"expected_revision":{"type":"string","pattern":"^[a-fA-F0-9]{64}$"}}),
+            vec!["path", "expected_revision"],
         ),
+        Operation::MoveFile => (
+            json!({"path":path,"destination":{"type":"string"},"expected_revision":{"type":"string","pattern":"^[a-fA-F0-9]{64}$"}}),
+            vec!["path", "destination", "expected_revision"],
+        ),
+        Operation::CreateDirectory => (json!({"path":path}), vec!["path"]),
         Operation::FindFiles => (
-            json!({"globs":{"type":"array","items":{"type":"string","minLength":1,"maxLength":4096},"minItems":1,"maxItems":FileSearch::MAX_GLOBS}}),
+            json!({"globs":{"type":"array","items":{"type":"string","minLength":1,"maxLength":4096},"minItems":1,"maxItems":FileSearch::MAX_GLOBS},"path":{"type":"string","default":""},"limit":{"type":"integer","minimum":1,"maximum":500,"default":500},"offset":{"type":"integer","minimum":0,"default":0}}),
             vec!["globs"],
         ),
         Operation::SearchFiles => (
-            json!({"query":{"type":"string"},"regex":{"type":"boolean"},"case_sensitive":{"type":"boolean"},"globs":{"type":"array","items":{"type":"string"}}}),
-            vec!["query", "regex", "case_sensitive", "globs"],
+            json!({"query":{"type":"string","minLength":1},"regex":{"type":"boolean","default":false},"case_sensitive":{"type":"boolean","default":false},"globs":{"type":"array","items":{"type":"string"},"default":[]},"path":{"type":"string","default":""},"mode":{"type":"string","enum":["content","files","count"],"default":"content"},"context":{"type":"integer","minimum":0,"maximum":5,"default":0},"type":{"type":["string","null"]},"limit":{"type":"integer","minimum":1,"maximum":200,"default":200},"offset":{"type":"integer","minimum":0,"default":0},"multiline":{"type":"boolean","default":false}}),
+            vec!["query"],
         ),
         Operation::ReadOffice => {
             return serde_json::to_value(schemars::schema_for!(office::Read))
@@ -108,6 +150,24 @@ pub(super) fn parameters(operation: Operation) -> Value {
         _ => unreachable!("not a file operation"),
     };
     json!({"type":"object","properties":properties,"required":required,"additionalProperties":false})
+}
+
+fn edit_schema() -> Value {
+    let old = json!({"type":"string","minLength":1});
+    let new = json!({"type":"string"});
+    let all = json!({"type":"boolean","default":false});
+    json!({"type":"object", "properties":{
+    "path":{"type":"string"}, "old_text":old, "new_text":new, "replace_all":all,
+    "edits":{"type":"array","minItems":1,"maxItems":sailry_protocol::MAX_FILE_EDITS,
+        "items":{"type":"object","properties":{"old_text":old,"new_text":new,"replace_all":all},
+            "required":["old_text","new_text"],"additionalProperties":false}},
+    "expected_revision":{"type":"string","pattern":"^[a-fA-F0-9]{64}$"}},
+    "required":["path","expected_revision"], "additionalProperties":false,
+    "oneOf":[
+        {"required":["old_text","new_text"],"not":{"required":["edits"]}},
+        {"required":["edits"],"not":{"anyOf":[{"required":["old_text"]},{"required":["new_text"]}]},
+            "properties":{"replace_all":{"const":false}}}
+    ]})
 }
 
 pub(super) fn command(
@@ -147,12 +207,44 @@ pub(super) fn command(
         }
         Operation::EditFile => {
             let input: Edit = decode(arguments)?;
+            crate::files::edit::changes(
+                input.old_text.as_deref(),
+                input.new_text.as_deref(),
+                input.replace_all,
+                input.edits.as_deref(),
+            )?;
             Command::EditFile {
                 worktree,
                 path: input.path,
                 old_text: input.old_text,
                 new_text: input.new_text,
+                replace_all: input.replace_all,
+                edits: input.edits,
                 expected_revision: input.expected_revision,
+            }
+        }
+        Operation::DeleteFile => {
+            let input: Delete = decode(arguments)?;
+            Command::DeleteFile {
+                worktree,
+                path: input.path,
+                expected_revision: input.expected_revision,
+            }
+        }
+        Operation::MoveFile => {
+            let input: Move = decode(arguments)?;
+            Command::MoveFile {
+                worktree,
+                from: input.path,
+                to: input.destination,
+                expected_revision: input.expected_revision,
+            }
+        }
+        Operation::CreateDirectory => {
+            let input: Create = decode(arguments)?;
+            Command::CreateDirectory {
+                worktree,
+                path: input.path,
             }
         }
         Operation::FindFiles => {
@@ -160,20 +252,15 @@ pub(super) fn command(
             Command::FindFiles {
                 worktree,
                 globs: input.globs,
+                path: input.path,
+                limit: input.limit,
+                offset: input.offset,
             }
         }
-        Operation::SearchFiles => {
-            let input: Search = decode(arguments)?;
-            Command::SearchFiles {
-                worktree,
-                options: FileSearch {
-                    query: input.query,
-                    regex: input.regex,
-                    case_sensitive: input.case_sensitive,
-                    globs: input.globs,
-                },
-            }
-        }
+        Operation::SearchFiles => Command::SearchFiles {
+            worktree,
+            options: decode::<FileSearch>(arguments)?,
+        },
         Operation::ReadOffice => Command::ReadOffice {
             worktree,
             options: decode(arguments)?,

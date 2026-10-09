@@ -9,6 +9,8 @@ mod catalog;
 mod credentials;
 #[path = "../discovery.rs"]
 mod discovery;
+#[path = "../github.rs"]
+mod github;
 #[path = "../login.rs"]
 mod login;
 #[path = "../model_requests.rs"]
@@ -17,3 +19,5 @@ mod model_requests;
 mod roles;
 #[path = "../schema.rs"]
 mod schema;
+#[path = "../search.rs"]
+mod search;

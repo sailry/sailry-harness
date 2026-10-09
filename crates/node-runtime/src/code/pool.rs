@@ -48,6 +48,7 @@ impl State {
 pub(crate) struct Pool {
     pub(super) profile: Option<PathBuf>,
     pub(super) environment: Arc<crate::process::Environment>,
+    identities: Arc<super::identity::Cache>,
     closed: CancellationToken,
     state: Mutex<State>,
     pub(super) settings: std::sync::RwLock<code::Settings>,
@@ -75,6 +76,7 @@ impl Pool {
         let pool = Arc::new(Self {
             profile,
             environment,
+            identities: Arc::default(),
             closed,
             state: Mutex::new(State::default()),
             settings: Default::default(),
@@ -163,6 +165,13 @@ impl Pool {
             .after_edit
     }
 
+    pub(super) fn resolver(&self, rules: Arc<super::rules::Rules>) -> resolve::Resolver {
+        resolve::Resolver {
+            rules,
+            identities: self.identities.clone(),
+        }
+    }
+
     pub(crate) async fn prepare(
         &self,
         worktree: WorktreeId,
@@ -183,16 +192,15 @@ impl Pool {
             .clone();
         let environment = self.environment.clone();
         let path = path.to_owned();
-        let rules = self.rules.get()?;
+        let resolver = self.resolver(self.rules.get()?);
         let resolved = tokio::task::spawn_blocking(move || {
-            resolve::using(
+            resolver.resolve(
                 worktree,
                 &root,
                 profile.as_deref(),
                 &environment,
                 &path,
                 &settings,
-                rules,
             )
         })
         .await
@@ -239,7 +247,8 @@ impl Pool {
         documents::directory(root, &startup.root)?;
         let executable = plan.executable.clone();
         let expected = plan.executable_revision.clone();
-        let actual = tokio::task::spawn_blocking(move || resolve::identity(&executable))
+        let identities = self.identities.clone();
+        let actual = tokio::task::spawn_blocking(move || identities.revision(&executable))
             .await
             .map_err(|error| Fault::invalid(error.to_string()))??;
         if actual != expected {
@@ -342,17 +351,16 @@ impl Pool {
             let environment = self.environment.clone();
             let path = path.to_owned();
             let discovery_root = root.clone();
-            let rules = self.rules.get()?;
+            let resolver = self.resolver(self.rules.get()?);
             Some(
                 tokio::task::spawn_blocking(move || {
-                    resolve::using(
+                    resolver.resolve(
                         worktree,
                         &discovery_root,
                         profile.as_deref(),
                         &environment,
                         &path,
                         &settings,
-                        rules,
                     )
                 })
                 .await

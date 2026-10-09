@@ -144,14 +144,17 @@ fn retries_original_decision(cx: &mut TestAppContext) {
 
 #[cfg(unix)]
 #[gpui::test]
-fn full_access_keeps_fresh_consent(cx: &mut TestAppContext) {
+fn requires_fresh_unrestricted_consent(cx: &mut TestAppContext) {
     use sailry_protocol::{
         Permission,
         conversation::{ApprovalChoice, ApprovalSource},
         process::Access,
     };
     init(cx);
-    for remote in [false, true] {
+    for (permission, remote) in [Permission::Ask, Permission::Project]
+        .into_iter()
+        .flat_map(|permission| [false, true].map(|remote| (permission, remote)))
+    {
         let mut fixture = Fixture::with_tools(
             remote,
             vec![
@@ -166,7 +169,7 @@ fn full_access_keeps_fresh_consent(cx: &mut TestAppContext) {
             ],
         );
         let mut config = fixture.session.config.clone();
-        config.permission = Permission::Full;
+        config.permission = permission;
         let Output::Session(session) = fixture.execute(Command::SetSessionConfig {
             session: fixture.session.id,
             expected_revision: fixture.session.revision,
@@ -304,6 +307,83 @@ fn full_access_keeps_fresh_consent(cx: &mut TestAppContext) {
         assert_eq!(recovered.access, original.access);
         assert_eq!(recovered.can_remember, original.can_remember);
         assert_eq!(recovered.prefix, original.prefix);
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
+#[cfg(unix)]
+#[gpui::test]
+fn runs_unrestricted_automatically(cx: &mut TestAppContext) {
+    use sailry_protocol::{Permission, conversation::ApprovalSource, process::Access};
+    init(cx);
+    for remote in [false, true] {
+        let command =
+            json!({"command":"printf 'approved\\n' >> ../outside.txt","access":"unrestricted"});
+        let mut fixture = Fixture::with_tools(
+            remote,
+            vec![
+                (
+                    crate::agent_fixture::plugin_tool("commands", "run_command"),
+                    command.clone(),
+                ),
+                (
+                    crate::agent_fixture::plugin_tool("commands", "run_command"),
+                    command,
+                ),
+            ],
+        );
+        let mut config = fixture.session.config.clone();
+        config.permission = Permission::Full;
+        let Output::Session(session) = fixture.execute(Command::SetSessionConfig {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            config,
+        }) else {
+            panic!("session expected")
+        };
+        fixture.session = session;
+        let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
+        wait(visual, |cx| view.read(cx).connected());
+        fixture.execute(Command::SubmitTurn {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            message: "Run both commands in Full mode".into(),
+        });
+        wait(visual, |cx| {
+            view.read(cx)
+                .history
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot
+                        .page
+                        .runs
+                        .iter()
+                        .any(|run| run.status == Status::Completed)
+                })
+        });
+        assert!(view.read_with(visual, |_, cx| pending(&view, cx).is_none()));
+        let approvals = view.read_with(visual, |view, _| {
+            assert!(!view.approvals.pending);
+            let page = &view.history.snapshot.as_ref().unwrap().page;
+            assert_eq!(page.approvals.len(), 2);
+            assert!(
+                page.approvals
+                    .iter()
+                    .all(|approval| approval.state == ApprovalState::Approved
+                        && approval.source == ApprovalSource::Full
+                        && approval.access == Some(Access::Unrestricted))
+            );
+            page.approvals.clone()
+        });
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds("pending-approvals").is_none());
+        assert_eq!(
+            std::fs::read_to_string(fixture.directory.path().join("outside.txt")).unwrap(),
+            "approved\napproved\n"
+        );
+        assert_eq!(restored(&fixture).page.approvals, approvals);
         visual.update(|window, _| window.remove_window());
         fixture.close();
     }

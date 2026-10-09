@@ -204,6 +204,8 @@ fn sends_during_execution(cx: &mut TestAppContext) {
         }) else {
             panic!("turn expected")
         };
+        // Running admission precedes ADK's canonical user event and model request.
+        fixture.runtime.block_on(slow.wait_count(1));
         let mut entity = None;
         let (_, visual) = cx.add_window_view(|window, cx| {
             let view = cx.new(|cx| View::new(fixture.binding.clone(), Some(session), window, cx));
@@ -254,7 +256,9 @@ fn sends_during_execution(cx: &mut TestAppContext) {
             Some(active.id)
         );
         assert!(visual.debug_bounds("queue-resume").is_some());
-        let turn = panel.read_with(visual, |panel, _| panel.queue.items[1].turn);
+        let (first, turn) = panel.read_with(visual, |panel, _| {
+            (panel.queue.items[0].turn, panel.queue.items[1].turn)
+        });
         click(visual, selector("send", turn));
         wait(visual, |cx| {
             view.read(cx)
@@ -284,8 +288,9 @@ fn sends_during_execution(cx: &mut TestAppContext) {
                 .filter(|entry| entry.author == "user")
                 .map(|entry| entry.turn)
                 .collect();
-            assert_eq!(executed[1], turn);
+            assert_eq!(executed, [active.id, turn, first]);
         });
+        assert_eq!(slow.requests.lock().unwrap().len(), 1);
         assert_eq!(fixture.server.requests.lock().unwrap().len(), 2);
         visual.update(|window, _| window.remove_window());
         fixture.close();

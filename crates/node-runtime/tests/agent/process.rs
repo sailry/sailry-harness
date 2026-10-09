@@ -53,6 +53,7 @@ impl Fixture {
             description: None,
             cwd: String::new(),
             timeout_ms: 60_000,
+            pty: false,
             background: false,
             attachments: Vec::new(),
         })
@@ -244,6 +245,7 @@ async fn bounds_approved_results() {
                     description: None,
                     cwd: "项目".into(),
                     timeout_ms: 1000,
+                    pty: false,
                     background: false,
                     attachments: Vec::new(),
                 })

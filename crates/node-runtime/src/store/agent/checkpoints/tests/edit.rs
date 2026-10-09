@@ -10,8 +10,10 @@ fn request(fixture: &mut Fixture, turn: TurnId, before: &str) -> Request {
         Command::EditFile {
             worktree,
             path: "file.txt".into(),
-            old_text: "target".into(),
-            new_text: "replacement".into(),
+            old_text: Some("target".into()),
+            new_text: Some("replacement".into()),
+            replace_all: false,
+            edits: None,
             expected_revision: version(before).revision,
         },
     )
@@ -46,7 +48,7 @@ fn captures_full_content_and_receipt() {
     let Command::EditFile { new_text, .. } = &mut altered.command else {
         unreachable!()
     };
-    *new_text = "changed".into();
+    *new_text = Some("changed".into());
     assert_eq!(
         capture(&mut fixture.database, turn, &altered, Some(&before))
             .unwrap_err()
@@ -72,8 +74,10 @@ fn requires_the_claimed_operation() {
     request.command = Command::EditFile {
         worktree,
         path: "file.txt".into(),
-        old_text: "target".into(),
-        new_text: "replacement".into(),
+        old_text: Some("target".into()),
+        new_text: Some("replacement".into()),
+        replace_all: false,
+        edits: None,
         expected_revision: version("target").revision,
     };
     assert_eq!(

@@ -27,6 +27,7 @@ impl Roots {
     pub fn entries(&self, command: &Command) -> Vec<(PathBuf, String)> {
         match command {
             Command::RenameEntry { from, to, .. }
+            | Command::MoveFile { from, to, .. }
             | Command::CopyEntry { from, to, .. }
             | Command::CopyEntryTo { from, to, .. }
             | Command::MoveEntryTo { from, to, .. } => vec![
@@ -34,6 +35,7 @@ impl Roots {
                 (self.target.clone(), to.clone()),
             ],
             Command::TrashEntry { path, .. }
+            | Command::DeleteFile { path, .. }
             | Command::TrashFile { path, .. }
             | Command::WriteFile { path, .. }
             | Command::EditFile { path, .. }
@@ -142,6 +144,7 @@ pub(super) fn target(command: &Command) -> Option<Target> {
         | Command::StopHostProcess { .. }
         | Command::OpenTerminal { .. }
         | Command::StopCommand { .. }
+        | Command::WriteCommand { .. }
         | Command::StopCommands { .. } => Some(Target::Host),
         Command::CreateProject(_) => Some(Target::NewProject),
         Command::CreateManagedWorktree {
@@ -168,6 +171,8 @@ pub(super) fn target(command: &Command) -> Option<Target> {
         }
         Command::WriteFile { worktree, .. }
         | Command::EditFile { worktree, .. }
+        | Command::DeleteFile { worktree, .. }
+        | Command::MoveFile { worktree, .. }
         | Command::InstallPlugin { worktree, .. }
         | Command::RestoreFileCheckpoint { worktree, .. }
         | Command::FinishFileUpload { worktree, .. }
@@ -342,6 +347,23 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
         Command::TrashEntry { path, .. } => {
             crate::files::trash(root, path).map(|()| Output::EntryTrashed { path: path.clone() })
         }
+        Command::DeleteFile {
+            path,
+            expected_revision,
+            ..
+        } => crate::files::mutations::delete(root, path, expected_revision)
+            .map(|()| Output::EntryTrashed { path: path.clone() }),
+        Command::MoveFile {
+            from,
+            to,
+            expected_revision,
+            ..
+        } => crate::files::mutations::move_file(root, from, to, expected_revision).map(|()| {
+            Output::EntryRenamed {
+                from: from.clone(),
+                to: to.clone(),
+            }
+        }),
         Command::TrashFile {
             path,
             expected_revision,
@@ -374,10 +396,19 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
             path,
             old_text,
             new_text,
+            replace_all,
+            edits,
             expected_revision,
             ..
-        } => crate::files::edit(root, path, old_text, new_text, expected_revision)
-            .map(Output::FileWritten),
+        } => {
+            let changes = crate::files::edit::changes(
+                old_text.as_deref(),
+                new_text.as_deref(),
+                *replace_all,
+                edits.as_deref(),
+            )?;
+            crate::files::edit(root, path, &changes, expected_revision).map(Output::FileWritten)
+        }
         Command::UpdateGitIndex {
             paths,
             operation,

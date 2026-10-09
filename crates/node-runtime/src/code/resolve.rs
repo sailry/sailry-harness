@@ -1,12 +1,12 @@
-use super::{documents, rules};
+use super::{documents, identity, rules};
 use sailry_protocol::{Fault, WorktreeId, code::Startup};
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
-    io::Read,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
@@ -38,6 +38,11 @@ pub(super) struct Resolved {
     pub package: Option<String>,
 }
 
+pub(super) struct Resolver {
+    pub rules: Arc<rules::Rules>,
+    pub identities: Arc<identity::Cache>,
+}
+
 #[cfg(test)]
 pub(super) fn resolve(
     worktree: WorktreeId,
@@ -65,149 +70,148 @@ pub(super) fn configured(
     path: &str,
     settings: &sailry_protocol::code::Settings,
 ) -> Result<Resolved, Fault> {
-    using(
-        worktree,
-        root,
-        profile,
-        environment,
-        path,
-        settings,
-        rules::Rules::load()?,
-    )
+    Resolver {
+        rules: rules::Rules::load()?,
+        identities: Arc::default(),
+    }
+    .resolve(worktree, root, profile, environment, path, settings)
 }
 
-pub(super) fn using(
-    worktree: WorktreeId,
-    root: &Path,
-    profile: Option<&Path>,
-    environment: &crate::process::Environment,
-    path: &str,
-    settings: &sailry_protocol::code::Settings,
-    rules: std::sync::Arc<rules::Rules>,
-) -> Result<Resolved, Fault> {
-    let text = documents::read(root, path)?;
-    let Some(language) = rules.language(path, &text.text) else {
-        return Ok(Resolved {
-            plan: None,
-            package: None,
-        });
-    };
-    let directory = nearest(root, path, &language.roots)?;
-    let mut suggested = None;
-    for name in settings
-        .languages
-        .get(&language.name)
-        .unwrap_or(&language.servers)
-    {
-        let override_ = settings.servers.get(name);
-        if override_.is_some_and(|value| value.disabled) {
-            continue;
-        }
-        let base = rules.servers.get(name).cloned();
-        let mut server = if let Some(base) = base {
-            base
-        } else if let Some(command) = override_.and_then(|value| value.command.clone()) {
-            rules::Server {
-                command,
-                args: Vec::new(),
-                config: Value::Null,
-                environment: BTreeMap::new(),
-                timeout: 20,
-                roots: Vec::new(),
-            }
-        } else {
-            continue;
+impl Resolver {
+    pub fn resolve(
+        &self,
+        worktree: WorktreeId,
+        root: &Path,
+        profile: Option<&Path>,
+        environment: &crate::process::Environment,
+        path: &str,
+        settings: &sailry_protocol::code::Settings,
+    ) -> Result<Resolved, Fault> {
+        let rules = &self.rules;
+        let text = documents::read(root, path)?;
+        let Some(language) = rules.language(path, &text.text) else {
+            return Ok(Resolved {
+                plan: None,
+                package: None,
+            });
         };
-        if let Some(value) = override_ {
-            if let Some(command) = &value.command {
-                server.command = command.clone();
+        let directory = nearest(root, path, &language.roots)?;
+        let mut suggested = None;
+        for name in settings
+            .languages
+            .get(&language.name)
+            .unwrap_or(&language.servers)
+        {
+            let override_ = settings.servers.get(name);
+            if override_.is_some_and(|value| value.disabled) {
+                continue;
             }
-            if let Some(args) = &value.args {
-                server.args = args.clone();
-            }
-            if let Some(config) = &value.config {
-                server.config = config.clone();
-            }
-            if let Some(environment) = &value.environment {
-                server.environment.extend(environment.clone());
-            }
-        }
-        if !server.roots.is_empty() && !matches_root(&directory, &server.roots)? {
-            continue;
-        }
-        let package = rules.package(&server.command);
-        if suggested.is_none() {
-            suggested = package.map(|package| package.name.clone());
-        }
-        let Some(executable) = override_
-            .and_then(|value| value.command.as_ref())
-            .and_then(|command| which::which_in(command, environment.path(), &directory).ok())
-            .and_then(installed)
-            .and_then(|path| selected(path, None))
-            .or_else(|| executable(root, &directory, profile, environment, &server, package))
-        else {
-            continue;
-        };
-        let executable_revision = identity(&executable.path)?;
-        let relative = directory
-            .strip_prefix(root)
-            .map_err(|_| Fault::invalid("language root is outside the worktree"))?
-            .to_string_lossy()
-            .replace('\\', "/");
-        let mut plan = Plan {
-            startup: Startup {
-                worktree,
-                root: relative,
-                server: name.clone(),
-                executable: executable.path.to_string_lossy().into_owned(),
-                revision: String::new(),
-            },
-            root: root.to_owned(),
-            profile: profile.map(Path::to_owned),
-            dependency: executable.dependency,
-            directory,
-            executable: executable.path,
-            executable_revision: executable_revision.clone(),
-            args: server.args.clone(),
-            environment: server.environment.clone(),
-            config: server.config.clone(),
-            timeout: Duration::from_secs(server.timeout),
-            language: if language.id.is_empty() {
-                language.name.clone()
+            let base = rules.servers.get(name).cloned();
+            let mut server = if let Some(base) = base {
+                base
+            } else if let Some(command) = override_.and_then(|value| value.command.clone()) {
+                rules::Server {
+                    command,
+                    args: Vec::new(),
+                    config: Value::Null,
+                    environment: BTreeMap::new(),
+                    timeout: 20,
+                    roots: Vec::new(),
+                }
             } else {
-                language.id.clone()
-            },
-            rules: rules.clone(),
-        };
-        let mut hash = Sha256::new();
-        let identity = serde_json::json!({
-            "startup": plan.startup,
-            "root": plan.root,
-            "profile": plan.profile,
-            "sandbox": {"supported":crate::process::sandbox::SUPPORTED,"access":"workspace","network":false,"dependency":plan.dependency},
-            "directory": plan.directory,
-            "executable": plan.executable,
-            "args": plan.args,
-            "environment": plan.environment,
-            "config": plan.config,
-            "timeout_ms": plan.timeout.as_millis(),
-        });
-        hash.update(
-            serde_json::to_vec(&identity).map_err(|error| Fault::invalid(error.to_string()))?,
-        );
-        hash.update(executable_revision);
-        // PATH resolution and the allowlisted login environment are frozen by the Node.
-        hash.update(environment.identity());
-        plan.startup.revision = format!("{:x}", hash.finalize());
-        return Ok(Resolved {
-            plan: Some(plan),
+                continue;
+            };
+            if let Some(value) = override_ {
+                if let Some(command) = &value.command {
+                    server.command = command.clone();
+                }
+                if let Some(args) = &value.args {
+                    server.args = args.clone();
+                }
+                if let Some(config) = &value.config {
+                    server.config = config.clone();
+                }
+                if let Some(environment) = &value.environment {
+                    server.environment.extend(environment.clone());
+                }
+            }
+            if !server.roots.is_empty() && !matches_root(&directory, &server.roots)? {
+                continue;
+            }
+            let package = rules.package(&server.command);
+            if suggested.is_none() {
+                suggested = package.map(|package| package.name.clone());
+            }
+            let Some(executable) = override_
+                .and_then(|value| value.command.as_ref())
+                .and_then(|command| which::which_in(command, environment.path(), &directory).ok())
+                .and_then(installed)
+                .and_then(|path| selected(path, None))
+                .or_else(|| executable(root, &directory, profile, environment, &server, package))
+            else {
+                continue;
+            };
+            let executable_revision = self.identities.revision(&executable.path)?;
+            let relative = directory
+                .strip_prefix(root)
+                .map_err(|_| Fault::invalid("language root is outside the worktree"))?
+                .to_string_lossy()
+                .replace('\\', "/");
+            let mut plan = Plan {
+                startup: Startup {
+                    worktree,
+                    root: relative,
+                    server: name.clone(),
+                    executable: executable.path.to_string_lossy().into_owned(),
+                    revision: String::new(),
+                },
+                root: root.to_owned(),
+                profile: profile.map(Path::to_owned),
+                dependency: executable.dependency,
+                directory,
+                executable: executable.path,
+                executable_revision: executable_revision.clone(),
+                args: server.args.clone(),
+                environment: server.environment.clone(),
+                config: server.config.clone(),
+                timeout: Duration::from_secs(server.timeout),
+                language: if language.id.is_empty() {
+                    language.name.clone()
+                } else {
+                    language.id.clone()
+                },
+                rules: rules.clone(),
+            };
+            let mut hash = Sha256::new();
+            let identity = serde_json::json!({
+                "startup": plan.startup,
+                "root": plan.root,
+                "profile": plan.profile,
+                "sandbox": {"supported":crate::process::sandbox::SUPPORTED,"access":"workspace","network":false,"dependency":plan.dependency},
+                "directory": plan.directory,
+                "executable": plan.executable,
+                "args": plan.args,
+                "environment": plan.environment,
+                "config": plan.config,
+                "timeout_ms": plan.timeout.as_millis(),
+            });
+            hash.update(
+                serde_json::to_vec(&identity).map_err(|error| Fault::invalid(error.to_string()))?,
+            );
+            hash.update(executable_revision);
+            // PATH resolution and the allowlisted login environment are frozen by the Node.
+            hash.update(environment.identity());
+            plan.startup.revision = format!("{:x}", hash.finalize());
+            return Ok(Resolved {
+                plan: Some(plan),
+                package: suggested,
+            });
+        }
+        Ok(Resolved {
+            plan: None,
             package: suggested,
-        });
+        })
     }
-    Ok(Resolved {
-        plan: None,
-        package: suggested,
-    })
 }
 
 pub(super) fn executable(
@@ -348,28 +352,4 @@ fn matches_root(directory: &Path, markers: &[String]) -> Result<bool, Fault> {
             let matcher = glob.compile_matcher();
             names.iter().any(|name| matcher.is_match(Path::new(name)))
         }))
-}
-
-pub(super) fn identity(executable: &Path) -> Result<String, Fault> {
-    let mut file = std::fs::File::open(executable)
-        .map_err(|error| Fault::invalid(format!("language executable is unavailable: {error}")))?;
-    let mut digest = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
-    let mut total = 0;
-    loop {
-        let count = file.read(&mut buffer).map_err(|error| {
-            Fault::invalid(format!("language executable is unavailable: {error}"))
-        })?;
-        if count == 0 {
-            break;
-        }
-        total += count;
-        if total > 128 * 1024 * 1024 {
-            return Err(Fault::invalid(
-                "language executable exceeds the identity limit",
-            ));
-        }
-        digest.update(&buffer[..count]);
-    }
-    Ok(format!("{:x}", digest.finalize()))
 }

@@ -70,7 +70,15 @@ mod tests {
                 )
             );
             assert!(!prompt.contains("This is a planning turn"));
-            if permission != Permission::Full {
+            assert!(
+                prompt.contains("subsequent commands in every session use unrestricted access")
+            );
+            assert!(prompt.contains("normal environment"));
+            if permission == Permission::Full {
+                assert!(prompt.contains("network or files outside the worktree"));
+                assert!(prompt.contains("commands run without individual approval"));
+                assert!(!prompt.contains("Unrestricted commands require fresh user approval"));
+            } else {
                 assert!(
                     prompt.contains("Prior task authorization does not bypass runtime approval")
                 );
@@ -114,12 +122,20 @@ mod tests {
             "Run checks directly relevant to changed behavior",
             "broaden only for a concrete risk, failure or uncovered requirement",
             "do not add tests that merely mirror a low-impact implementation",
-            "Prefer rg for searches and git --no-pager",
+            "Prefer available find_files and search_files tools",
+            "code_symbols, code_definition and code_references",
+            "Use rg through a command tool only as a supplement",
+            "Use git --no-pager",
             "Avoid interactive prompts or editors",
             "do not print large files through scripts or add echo/printf separators",
             "backticks and $() in command text execute substitutions",
             "JSON encoding is not shell escaping",
             "Avoid a blocking wait longer than 60 seconds",
+            "Project guides shown in this turn are already loaded",
+            "Do not reread them with a shell",
+            "prefer available search tools and read-only URL retrieval",
+            "Use the browser for interaction, login, pages that require JavaScript",
+            "Permission, sandbox, dynamic-loader and network errors establish an environment failure",
             "three unsuccessful attempts",
         ] {
             assert!(prompt.contains(required), "{required}");

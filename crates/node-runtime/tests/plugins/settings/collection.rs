@@ -128,14 +128,14 @@ async fn prunes_unused() {
 }
 
 #[tokio::test]
-async fn rejects_old_schema() {
+async fn rejects_unexpected_schema() {
     let directory = tempfile::tempdir().unwrap();
     let profile = directory.path().join("node");
     let node = Node::start(&profile).await.unwrap();
     node.shutdown().await.unwrap();
     let path = profile.join("storage/node.sqlite3");
     let db = rusqlite::Connection::open(&path).unwrap();
-    db.execute_batch("ALTER TABLE plugins DROP COLUMN settings_revision;")
+    db.execute_batch("ALTER TABLE plugins ADD COLUMN unexpected TEXT DEFAULT 'retained';")
         .unwrap();
     drop(db);
     let before = fs::read(&path).unwrap();

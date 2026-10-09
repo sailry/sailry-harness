@@ -325,10 +325,14 @@ pub(super) fn observe(
     let change = match &request.command {
         Command::WriteFile { worktree, path, .. }
         | Command::EditFile { worktree, path, .. }
+        | Command::DeleteFile { worktree, path, .. }
         | Command::FinishFileUpload { worktree, path, .. }
         | Command::TrashFile { worktree, path, .. }
         | Command::TrashEntry { worktree, path } => Some((*worktree, vec![path.clone()])),
         Command::RenameEntry {
+            worktree, from, to, ..
+        }
+        | Command::MoveFile {
             worktree, from, to, ..
         }
         | Command::CopyEntry {

@@ -163,6 +163,17 @@ pub enum Command {
         config: Option<SessionConfig>,
     },
     RequestPluginHttp(crate::plugin::http::Request),
+    FetchWeb(crate::web::Request),
+    CancelWebFetch {
+        request: RequestId,
+    },
+    SearchWeb(crate::search::Request),
+    CancelWebSearch {
+        request: RequestId,
+    },
+    TestSearchDriver {
+        driver: crate::search::Driver,
+    },
     /// A plugin's explicit, durable, tool-free request to a configured Node model.
     GeneratePluginText {
         prompt: String,
@@ -366,6 +377,12 @@ pub enum Command {
         package: crate::plugin::Reference,
     },
     ReadPluginMcp {
+        package: crate::plugin::Reference,
+    },
+    ReadGithubLogin {
+        package: crate::plugin::Reference,
+    },
+    ImportGithubLogin {
         package: crate::plugin::Reference,
     },
     SavePluginMcp {
@@ -601,6 +618,8 @@ pub enum Command {
         cwd: String,
         timeout_ms: u64,
         background: bool,
+        #[serde(default)]
+        pty: bool,
         /// Files from this turn's visible history, staged only for this command.
         attachments: Vec<crate::AttachmentId>,
     },
@@ -617,6 +636,11 @@ pub enum Command {
     StopCommand {
         session: SessionId,
         id: RequestId,
+    },
+    WriteCommand {
+        session: SessionId,
+        id: RequestId,
+        input: String,
     },
     ResolveApproval {
         session: SessionId,
@@ -662,6 +686,10 @@ pub enum Command {
         paused: bool,
     },
     ReadTerminalSettings,
+    ReadSandboxSettings,
+    SaveSandboxSettings(crate::sandbox::Settings),
+    ReadSearchSettings,
+    SaveSearchSettings(crate::search::Update),
     ListShells,
     SaveTerminalSettings(crate::terminal::Settings),
     ListMediaModels,
@@ -961,6 +989,12 @@ pub enum Command {
     FindFiles {
         worktree: WorktreeId,
         globs: Vec<String>,
+        #[serde(default)]
+        path: String,
+        #[serde(default = "find_limit")]
+        limit: usize,
+        #[serde(default)]
+        offset: usize,
     },
     ReadOffice {
         worktree: WorktreeId,
@@ -1015,8 +1049,27 @@ pub enum Command {
     EditFile {
         worktree: WorktreeId,
         path: String,
-        old_text: String,
-        new_text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        old_text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        new_text: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        replace_all: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        edits: Option<Vec<crate::FileEdit>>,
+        expected_revision: String,
+    },
+    /// Moves a regular file to Trash only if its current content matches the revision.
+    DeleteFile {
+        worktree: WorktreeId,
+        path: String,
+        expected_revision: String,
+    },
+    /// Moves a regular file within its worktree without replacing a destination.
+    MoveFile {
+        worktree: WorktreeId,
+        from: String,
+        to: String,
         expected_revision: String,
     },
     /// Creates one directory in an existing parent, without replacing an entry.
@@ -1218,6 +1271,7 @@ impl Command {
                 | Self::ReadPluginVersion { .. }
                 | Self::ReadPluginSettings { .. }
                 | Self::ReadPluginMcp { .. }
+                | Self::ReadGithubLogin { .. }
                 | Self::ReadPluginValue { .. }
                 | Self::ReadPluginConversationValue { .. }
                 | Self::ListPluginKeys { .. }
@@ -1251,6 +1305,8 @@ impl Command {
                 | Self::ListCommands { .. }
                 | Self::ReadCommand { .. }
                 | Self::ReadTerminalSettings
+                | Self::ReadSandboxSettings
+                | Self::ReadSearchSettings
                 | Self::ListShells
                 | Self::ReadPluginSecret { .. }
                 | Self::ListMediaModels
@@ -1272,6 +1328,11 @@ impl Command {
                 | Self::BrowseFiles { .. }
                 | Self::ReadFile { .. }
                 | Self::ReadCode { .. }
+                | Self::FetchWeb(_)
+                | Self::CancelWebFetch { .. }
+                | Self::SearchWeb(_)
+                | Self::CancelWebSearch { .. }
+                | Self::TestSearchDriver { .. }
                 | Self::ListCodeServers { .. }
                 | Self::ListCodePackages { .. }
                 | Self::ListCodeInstallations
@@ -1347,6 +1408,8 @@ pub struct Snapshot {
     pub sessions: Vec<Session>,
     pub terminals: Vec<crate::terminal::Info>,
     pub terminal_settings_revision: u64,
+    pub sandbox_settings_revision: u64,
+    pub search_settings_revision: u64,
     pub media_settings: crate::media::Settings,
     pub providers: Vec<crate::conversation::Provider>,
     pub provider_quotas: Vec<crate::conversation::quota::Snapshot>,
@@ -1394,6 +1457,14 @@ pub enum Output {
     PluginValue(crate::plugin::storage::Entry),
     PluginConversationValue(crate::plugin::storage::ConversationEntry),
     PluginHttp(crate::plugin::http::Response),
+    WebPage(crate::web::Page),
+    SearchPage(crate::search::Page),
+    WebSearchCancelled {
+        request: RequestId,
+    },
+    WebFetchCancelled {
+        request: RequestId,
+    },
     PluginKeys(crate::plugin::storage::Page),
     PluginSearch(crate::plugin::storage::SearchPage),
     PluginText(crate::plugin::Text),
@@ -1431,6 +1502,7 @@ pub enum Output {
     PluginUpload(crate::plugin::Upload),
     PluginSettings(crate::plugin::settings::State),
     PluginMcp(crate::plugin::mcp::State),
+    GithubLogin(crate::plugin::github::Status),
     PluginSecret(Option<crate::Secret>),
     PluginView(crate::plugin::desktop::Bundle),
     Plugins(Vec<crate::plugin::Summary>),
@@ -1438,6 +1510,10 @@ pub enum Output {
     Roles(Vec<crate::role::Profile>),
     CommandResult(crate::process::Completion),
     CommandStarted(crate::process::Info),
+    CommandInputAccepted {
+        id: RequestId,
+        bytes: usize,
+    },
     Commands(Vec<crate::process::Info>),
     CommandOutput(crate::process::Snapshot),
     Provider(crate::conversation::Provider),
@@ -1473,6 +1549,8 @@ pub enum Output {
     QueuedMessage(crate::conversation::QueuedMessage),
     Terminal(crate::terminal::Info),
     TerminalSettings(crate::terminal::Settings),
+    SandboxSettings(crate::sandbox::Settings),
+    SearchSettings(crate::search::Settings),
     Shells(Vec<String>),
     TerminalTools(Vec<crate::terminal::ToolInfo>),
     MediaSettings(crate::media::Settings),
@@ -1609,6 +1687,12 @@ pub enum Event {
     TerminalSettingsChanged {
         revision: u64,
     },
+    SandboxSettingsChanged {
+        revision: u64,
+    },
+    SearchSettingsChanged {
+        revision: u64,
+    },
     PluginChanged(crate::plugin::Summary),
     /// Invalidates private package data without broadcasting its keys or values.
     PluginValuesChanged {
@@ -1725,4 +1809,8 @@ pub enum Topic {
 pub struct Receipt {
     pub id: RequestId,
     pub durable: bool,
+}
+
+fn find_limit() -> usize {
+    crate::MAX_FIND_MATCHES
 }

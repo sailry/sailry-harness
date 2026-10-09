@@ -2,7 +2,8 @@ use super::*;
 use crate::conversation::surface::literal;
 use core::prelude::v1::test;
 use sailry_protocol::tool::{Presentation, projection::Output as Projection};
-use sailry_protocol::{ErrorCode, FileContent, Output, SearchMatch, SearchResults};
+use sailry_protocol::{ErrorCode, Output, SearchMatch, SearchResults};
+use sailry_protocol::{FileLine, FileLines};
 use serde_json::json;
 
 fn file_projection(name: &str) -> Projection {
@@ -217,12 +218,21 @@ fn preserves_faults() {
 
 #[test]
 fn shows_content_and_limits() {
-    let result = serde_json::to_value(Output::FileContent(FileContent {
+    let source = "中文 🙂\n[content](file)\n```rust\nlet value = 1;\n```";
+    let result = serde_json::to_value(Output::FileLines(FileLines {
         path: "source.rs".into(),
-        text: "中文 🙂\n[content](file)\n```rust\nlet value = 1;\n```".into(),
+        lines: source
+            .split_inclusive('\n')
+            .enumerate()
+            .map(|(index, text)| FileLine {
+                number: index + 1,
+                text: text.into(),
+            })
+            .collect(),
         size: 200,
-        truncated: true,
-        revision: None,
+        revision: "full-content-revision".into(),
+        offset: 0,
+        next_offset: Some(5),
     }))
     .unwrap();
     let projection = file_projection("read_file");
@@ -232,34 +242,54 @@ fn shows_content_and_limits() {
         .as_ref()
         .unwrap()
         .render(&arguments, &result);
-    assert_eq!(text, result["data"]["text"]);
+    assert_eq!(
+        text,
+        "1: 中文 🙂\n2: [content](file)\n3: ```rust\n4: let value = 1;\n5: ```"
+    );
     assert_eq!(
         projection.notices(&arguments, &result, "en"),
         ["Partial results"]
     );
     let body = preview(&result);
     for field in [
-        "kind: file_content",
+        "kind: file_lines",
         "path: source.rs",
         "size: 200",
-        "truncated: true",
+        "revision: full-content-revision",
+        "number: 1",
+        "number: 5",
+        "offset: 0",
+        "next_offset: 5",
     ] {
         assert!(body.text.contains(field), "{}", body.text);
     }
-    assert!(body.text.contains(&format!("text: {text}")));
+    for line in source.split_inclusive('\n') {
+        assert!(body.text.contains(&format!("text: {line}")));
+    }
     assert_eq!(body.copy_text(), body.text);
     assert!(body.notices.is_empty());
     assert!(literal(&text).starts_with("````text\n"));
     assert!(literal(&text).ends_with("\n````"));
+    let mut final_page = result.clone();
+    final_page["data"]["next_offset"] = json!(null);
+    assert!(projection.notices(&arguments, &final_page, "en").is_empty());
+    final_page["data"]["offset"] = json!(1);
+    assert_eq!(
+        projection.notices(&arguments, &final_page, "en"),
+        ["Partial results"]
+    );
     let search = serde_json::to_value(Output::SearchResults(SearchResults {
         matches: vec![SearchMatch {
             path: "资料.txt".into(),
             line_number: 3,
             line: "matched text".into(),
+            matched: true,
+            truncated: false,
         }],
         scanned_files: 2,
         skipped: 1,
         truncated: false,
+        ..Default::default()
     }))
     .unwrap();
     let projection = file_projection("search_files");

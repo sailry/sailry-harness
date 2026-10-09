@@ -7,7 +7,7 @@ use crate::{
     tr,
 };
 use gpui_kit::{
-    component::{button::Button, switch::Switch},
+    component::{button::Button, separator::Separator, switch::Switch},
     prelude::FluentBuilder,
 };
 use sailry_protocol::Command;
@@ -36,11 +36,23 @@ impl Render for Panel {
             for (language_index, language) in workspace.languages.iter().enumerate() {
                 let mut rows = v_flex()
                     .w_full()
-                    .gap_2()
+                    .min_w_0()
+                    .gap_0()
                     .debug_selector(move || format!("code-language-{language_index}"))
-                    .child(div().font_semibold().child(language.name.clone()));
+                    .child(div().py_3().font_semibold().child(language.name.clone()));
                 for (index, candidate) in language.servers.iter().enumerate() {
+                    if index > 0 {
+                        rows = rows.child(
+                            div()
+                                .relative()
+                                .w_full()
+                                .h(px(1.))
+                                .flex_shrink_0()
+                                .child(Separator::horizontal().size_full()),
+                        );
+                    }
                     let server = candidate.server.clone();
+                    let toggle_server = server.clone();
                     let owner = cx.entity();
                     let edit_server = server.clone();
                     let disabled = self
@@ -59,10 +71,12 @@ impl Render for Panel {
                         v_flex()
                             .gap_1()
                             .min_w_0()
-                            .child(div().child(server.clone()))
+                            .overflow_hidden()
+                            .child(div().min_h_6().truncate().child(server.clone()))
                             .child(
                                 div()
                                     .text_sm()
+                                    .truncate()
                                     .text_color(cx.theme().muted_foreground)
                                     .child(tr(status_key)),
                             )
@@ -73,12 +87,47 @@ impl Render for Panel {
                                 },
                             ),
                     )
+                    .control_width(rems(3.))
+                    .actions_width(rems(7.5))
+                    .control(
+                        div()
+                            .debug_selector(move || {
+                                format!("code-enabled-{language_index}-{index}")
+                            })
+                            .child(
+                                Switch::new(SharedString::from(format!(
+                                    "code-enabled-{language_index}-{index}"
+                                )))
+                                .checked(!disabled)
+                                .accessibility_label(tr("code_enabled"))
+                                .disabled(locked)
+                                .on_click(cx.listener(
+                                    move |panel, value: &bool, window, cx| {
+                                        if let Some(draft) = panel.draft.as_mut() {
+                                            draft
+                                                .servers
+                                                .entry(toggle_server.clone())
+                                                .or_insert(code::Override {
+                                                    disabled: false,
+                                                    command: None,
+                                                    args: None,
+                                                    config: None,
+                                                    environment: None,
+                                                })
+                                                .disabled = !*value;
+                                        }
+                                        panel.save(window, cx);
+                                    },
+                                )),
+                            ),
+                    )
                     .action(
                         Button::new(SharedString::from(format!(
                             "code-edit-{language_index}-{index}"
                         )))
                         .debug_selector(move || format!("code-edit-{language_index}-{index}"))
                         .icon(IconName::Settings2)
+                        .tooltip(tr("code_custom_command"))
                         .accessibility_label(tr("code_custom_command"))
                         .disabled(locked)
                         .on_click(move |_, window, cx| {
@@ -94,7 +143,9 @@ impl Render for Panel {
                                 "code-start-{language_index}-{index}"
                             )))
                             .debug_selector(move || format!("code-start-{language_index}-{index}"))
-                            .label(tr("code_start"))
+                            .icon(IconName::Play)
+                            .tooltip(tr("code_start"))
+                            .accessibility_label(tr("code_start"))
                             .disabled(
                                 locked
                                     || disabled
@@ -130,7 +181,9 @@ impl Render for Panel {
                             .debug_selector(move || {
                                 format!("code-install-{language_index}-{index}")
                             })
-                            .label(tr("code_install"))
+                            .icon(IconName::ArrowDown)
+                            .tooltip(tr("code_install"))
+                            .accessibility_label(tr("code_install"))
                             .disabled(
                                 locked
                                     || self.installations.iter().any(|current| {
@@ -152,7 +205,9 @@ impl Render for Panel {
                             Button::new(SharedString::from(format!(
                                 "code-package-details-{language_index}-{index}"
                             )))
-                            .label(tr("code_details"))
+                            .icon(IconName::Info)
+                            .tooltip(tr("code_details"))
+                            .accessibility_label(tr("code_details"))
                             .on_click(move |_, window, cx| {
                                 window.push_notification(
                                     crate::feedback::diagnostic(reason.clone().into()),
@@ -161,40 +216,9 @@ impl Render for Panel {
                             }),
                         );
                     }
-                    rows = rows.child(entry).child(
-                        div()
-                            .debug_selector(move || {
-                                format!("code-enabled-{language_index}-{index}")
-                            })
-                            .child(
-                                Switch::new(SharedString::from(format!(
-                                    "code-enabled-{language_index}-{index}"
-                                )))
-                                .checked(!disabled)
-                                .label(tr("code_enabled"))
-                                .disabled(locked)
-                                .on_click(cx.listener(
-                                    move |panel, value: &bool, window, cx| {
-                                        if let Some(draft) = panel.draft.as_mut() {
-                                            draft
-                                                .servers
-                                                .entry(server.clone())
-                                                .or_insert(code::Override {
-                                                    disabled: false,
-                                                    command: None,
-                                                    args: None,
-                                                    config: None,
-                                                    environment: None,
-                                                })
-                                                .disabled = !*value;
-                                        }
-                                        panel.save(window, cx);
-                                    },
-                                )),
-                            ),
-                    );
+                    rows = rows.child(entry);
                 }
-                languages = languages.child(div().py_3().child(rows));
+                languages = languages.child(rows);
             }
         }
         let mut installations =

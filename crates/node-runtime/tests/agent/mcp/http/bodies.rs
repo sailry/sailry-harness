@@ -40,8 +40,9 @@ async fn response(
                 }
             }
         }
-        stream.write_all(head.as_bytes()).await.unwrap();
-        stream.write_all(&body).await.unwrap();
+        let mut response = head.into_bytes();
+        response.extend_from_slice(&body);
+        stream.write_all(&response).await.unwrap();
         if hold {
             // No EOF or terminal chunk: the client must reject and close first.
             assert_eq!(stream.read(&mut buffer).await.unwrap_or(0), 0);
@@ -84,24 +85,44 @@ async fn rejects_oversized_bodies() {
         (500, "text/plain"),
     ] {
         for chunked in [false, true] {
-            let framing = if chunked {
+            let mut framing = if chunked {
                 "Transfer-Encoding: chunked".into()
             } else {
                 format!("Content-Length: {}", LIMIT + 1)
             };
+            if status == 500 {
+                framing.push_str("\r\nRetry-After: 17");
+            }
             let body = if chunked {
-                format!("{:x}\r\n{}\r\n", LIMIT + 1, "x".repeat(LIMIT + 1)).into_bytes()
+                let mut payload = b"private-http-body".to_vec();
+                payload.resize(LIMIT + 1, b'x');
+                format!(
+                    "{:x}\r\n{}\r\n",
+                    LIMIT + 1,
+                    String::from_utf8(payload).unwrap()
+                )
+                .into_bytes()
             } else {
                 Vec::new()
             };
             let error = response(head(status, content_type, &framing), body, true)
                 .await
                 .unwrap_err();
-            assert!(matches!(
-                error,
-                StreamableHttpError::UnexpectedServerResponse(_)
-            ));
-            assert!(error.to_string().contains("maximum message size"));
+            if status == 500 {
+                let StreamableHttpError::HttpStatus(error) = error else {
+                    panic!("typed HTTP server failure expected");
+                };
+                assert_eq!(error.status, 500);
+                assert_eq!(error.retry_after.as_deref(), Some("17"));
+                assert_eq!(error.to_string(), "HTTP 500");
+                assert!(!format!("{error:?}").contains("private-http-body"));
+            } else {
+                assert!(matches!(
+                    error,
+                    StreamableHttpError::UnexpectedServerResponse(_)
+                ));
+                assert!(error.to_string().contains("maximum message size"));
+            }
         }
     }
 }
@@ -143,15 +164,25 @@ async fn accepts_limit_sized_messages() {
 
 #[tokio::test]
 async fn reports_truncated_bodies() {
-    for status in [200, 500] {
+    for status in [200, 400, 500] {
         let error = response(
             head(status, "application/json", "Content-Length: 100"),
-            b"{\"jsonrpc\":".to_vec(),
+            b"{\"private-http-body\":".to_vec(),
             false,
         )
         .await
         .unwrap_err();
-        assert!(matches!(error, StreamableHttpError::Client(_)));
+        if status == 500 {
+            let StreamableHttpError::HttpStatus(error) = error else {
+                panic!("typed HTTP server failure expected");
+            };
+            assert_eq!(error.status, 500);
+            assert_eq!(error.retry_after, None);
+            assert_eq!(error.to_string(), "HTTP 500");
+            assert!(!format!("{error:?}").contains("private-http-body"));
+        } else {
+            assert!(matches!(error, StreamableHttpError::Client(_)));
+        }
     }
 }
 

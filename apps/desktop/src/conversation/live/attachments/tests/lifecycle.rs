@@ -28,6 +28,29 @@ impl Observed {
     }
 }
 
+fn retry(cx: &mut VisualTestContext, view: &Entity<View>, key: usize) {
+    use gpui_kit::test::TestWindowExt;
+    wait(cx, |cx| {
+        let view = view.read(cx);
+        !view.attachments_blocked()
+            && view.attachments.items.iter().any(|item| {
+                item.key == key && !item.pending && matches!(item.status, Status::Uncertain(_))
+            })
+    });
+    let id: ElementId = format!("composer-attachment-{key}").into();
+    let control: ElementId = (id, "description-retry").into();
+    cx.update(|window, cx| {
+        window.render_frame(cx);
+        // File cards expose separate native controls for metadata and media.
+        window.hover(control.clone(), cx);
+        let observed = window.find(control.clone());
+        assert!(observed.visible());
+        assert_ne!(observed.disabled(), Some(true));
+        window.click(control, cx);
+    });
+    cx.run_until_parked();
+}
+
 impl Transport for Observed {
     fn target(&self) -> NodeId {
         self.inner.target()
@@ -94,7 +117,7 @@ fn receipt_recovery(cx: &mut TestAppContext) {
         });
         tap(visual, "live-chat-send");
         assert!(fixture.server.requests.lock().unwrap().is_empty());
-        control(visual, 0, Control::Retry);
+        retry(visual, &view, 0);
         view.read_with(visual, |view, _| {
             let item = &view.attachments.items[0];
             assert!(
@@ -138,7 +161,7 @@ fn receipt_recovery(cx: &mut TestAppContext) {
         wait(visual, |_| observed.completed.load(Ordering::SeqCst) == 2);
         tap(visual, "live-chat-input");
         visual.simulate_input(" plus new typing");
-        control(visual, 0, Control::Remove);
+        remove(visual, 0);
         assert_eq!(
             view.read_with(visual, |view, _| view.attachments.ids()),
             [attachment.id]
@@ -182,14 +205,14 @@ fn receipt_recovery(cx: &mut TestAppContext) {
         choose(visual, &[path]);
         ready(visual, &view, 1);
         observed.mode.store(4, Ordering::SeqCst);
-        control(visual, 1, Control::Remove);
+        remove(visual, 1);
         wait(visual, |cx| {
             matches!(
                 view.read(cx).attachments.items[0].status,
                 Status::Uncertain(_)
             )
         });
-        control(visual, 1, Control::Retry);
+        retry(visual, &view, 1);
         ready(visual, &view, 0);
         {
             let requests = observed.requests.lock().unwrap();
@@ -221,7 +244,7 @@ fn cancels_before_publication(cx: &mut TestAppContext) {
         wait(visual, |cx| view.read(cx).connected());
         choose(visual, &[path]);
         wait(visual, |_| observed.opened.load(Ordering::SeqCst) == 1);
-        control(visual, 0, Control::Remove);
+        remove(visual, 0);
         ready(visual, &view, 0);
         assert!(
             !observed

@@ -101,6 +101,39 @@ fn separates_catalog_request_identity() {
 }
 
 #[test]
+fn retains_search_metadata_for_arbitrary_names() {
+    let value = json!({"models":[
+        {"slug":"catalog-next", "display_name":"Next", "visibility":"list", "web_search":false,
+            "capabilities":{"web_search":true}},
+        {"slug":"vendor-future", "display_name":"Future", "visibility":"list", "web_search":null,
+            "capabilities":{"web_search":null,"server_tools":{"web_search":{"supported":false}}}},
+        {"slug":"unknown-revision", "display_name":"Revision", "visibility":"list",
+            "capabilities":{"server_tools":{"web_search":{"supported":true}}}},
+        {"slug":"tool-discovery-model", "display_name":"Discovery", "visibility":"list",
+            "supports_search_tool":false}
+    ]});
+    let models = parse(Authentication::ChatGptOAuth, ModelApi::Responses, &value).unwrap();
+    let metadata: Vec<_> = models
+        .iter()
+        .map(|model| {
+            (
+                model.id.as_str(),
+                model.capabilities.as_ref().unwrap().web_search,
+            )
+        })
+        .collect();
+    assert_eq!(
+        metadata,
+        [
+            ("catalog-next", Some(false)),
+            ("vendor-future", Some(false)),
+            ("unknown-revision", Some(true)),
+            ("tool-discovery-model", None)
+        ]
+    );
+}
+
+#[test]
 fn legacy_keeps_visible_native_metadata() {
     let value = json!({"models":[
         {"slug":"z-first","visibility":"list","display_name":"First","context_window":4096,"max_output_tokens":128,"input_modalities":["text","image"],"supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}],"default_reasoning_level":"high"},

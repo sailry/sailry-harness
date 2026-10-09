@@ -1,4 +1,5 @@
 //! Provider authorization shares durable admission and the Node's credential transaction owner.
+mod github;
 mod mcp;
 mod models;
 mod persistence;
@@ -26,6 +27,7 @@ pub(super) struct Operation {
 }
 
 pub(super) enum Progress {
+    Github(Box<github::Completed>),
     Mcp(mcp::Progress),
     Registered {
         caller: NodeId,
@@ -68,6 +70,7 @@ pub(super) struct Worker {
     entries: BTreeMap<(NodeId, RequestId), Entry>,
     mcp: BTreeMap<(NodeId, RequestId), mcp::Entry>,
     plugins: crate::plugins::Host,
+    environment: std::sync::Arc<crate::process::Environment>,
     renewals: renewals::Renewals,
     service: Service,
     discovery: crate::providers::Discovery,
@@ -82,6 +85,7 @@ impl Worker {
         service: Service,
         discovery: crate::providers::Discovery,
         plugins: crate::plugins::Host,
+        environment: std::sync::Arc<crate::process::Environment>,
         sender: mpsc::Sender<Job>,
         closed: CancellationToken,
         events: broadcast::Sender<EventEnvelope>,
@@ -91,6 +95,7 @@ impl Worker {
             entries: BTreeMap::new(),
             mcp: BTreeMap::new(),
             plugins,
+            environment,
             renewals: Default::default(),
             service,
             discovery,
@@ -112,6 +117,10 @@ impl Worker {
             request,
             reply,
         } = operation;
+        if matches!(request.command, Command::ImportGithubLogin { .. }) {
+            self.import_github(database, caller, request, reply, events);
+            return;
+        }
         let result = match request.command {
             Command::BeginMcpLogin { .. }
             | Command::CompleteMcpLogin { .. }
@@ -386,6 +395,7 @@ impl Worker {
         events: &broadcast::Sender<EventEnvelope>,
     ) {
         match progress {
+            Progress::Github(completed) => self.github_progress(database, *completed, events),
             Progress::Mcp(progress) => self.mcp_progress(database, progress, events),
             Progress::Registered {
                 caller,

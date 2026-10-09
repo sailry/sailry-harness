@@ -73,6 +73,7 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
                                         .label(tr("plugins_settings_reload"))
                                         .disabled(
                                             state.pending
+                                                || state.github_busy()
                                                 || state.loading
                                                 || state.request.is_some(),
                                         )
@@ -97,7 +98,10 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
                                     .debug_selector(|| "plugin-settings-save".into())
                                     .primary()
                                     .disabled(
-                                        state.pending || state.loading || state.info.is_none(),
+                                        state.pending
+                                            || state.github_busy()
+                                            || state.loading
+                                            || state.info.is_none(),
                                     )
                                     .label(tr(if state.request.is_some() {
                                         "plugins_retry"
@@ -131,6 +135,7 @@ impl Render for Editor {
                             .map(|field| Setting::field(field, cx)),
                     ),
             )
+            .children(self.github_row(cx))
             .when(self.embedded, |view| {
                 view.child(
                     h_flex()
@@ -139,7 +144,12 @@ impl Render for Editor {
                         .child(
                             Button::new("plugin-settings-reload")
                                 .label(tr("plugins_settings_reload"))
-                                .disabled(self.pending || self.loading || self.request.is_some())
+                                .disabled(
+                                    self.pending
+                                        || self.github_busy()
+                                        || self.loading
+                                        || self.request.is_some(),
+                                )
                                 .on_click(cx.listener(|editor, _, window, cx| {
                                     editor.load(true, window, cx)
                                 })),
@@ -153,7 +163,12 @@ impl Render for Editor {
                                     "settings_save"
                                 }))
                                 .debug_selector(|| "plugin-settings-save".into())
-                                .disabled(self.pending || self.loading || self.info.is_none())
+                                .disabled(
+                                    self.pending
+                                        || self.github_busy()
+                                        || self.loading
+                                        || self.info.is_none(),
+                                )
                                 .on_click(
                                     cx.listener(|editor, _, window, cx| editor.save(window, cx)),
                                 ),

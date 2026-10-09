@@ -1,0 +1,7 @@
+github_login_title: "GitHub CLI"
+github_login_import: "ログインを取り込む"
+github_login_imported: "ログインを取り込みました"
+github_login_failed: "CLI のログインを取得できません"
+github_login_unavailable: "未インストール"
+github_login_signed_out: "未ログイン"
+github_login_ready: "ログイン済み"

@@ -23,6 +23,8 @@ pub(in crate::settings) struct Binding {
 
 pub(in crate::settings) struct Live {
     pub terminal_revision: u64,
+    pub sandbox_revision: u64,
+    pub search_revision: u64,
     pub binding: Binding,
     pub providers: BTreeMap<usize, Provider>,
     ids: BTreeMap<ProviderId, usize>,
@@ -97,6 +99,8 @@ impl Workspace {
         });
         self.provider_link = Some(Live {
             terminal_revision: 0,
+            sandbox_revision: 0,
+            search_revision: 0,
             binding,
             providers: BTreeMap::new(),
             ids: BTreeMap::new(),
@@ -131,6 +135,8 @@ impl Workspace {
         live.connected = view.connected;
         if let Some(snapshot) = view.snapshot.as_ref() {
             live.terminal_revision = snapshot.terminal_settings_revision;
+            live.sandbox_revision = snapshot.sandbox_settings_revision;
+            live.search_revision = snapshot.search_settings_revision;
             if snapshot.model_catalog.revision > live.catalog.status.revision {
                 live.catalog.error = None;
             }

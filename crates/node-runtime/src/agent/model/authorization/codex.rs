@@ -122,6 +122,20 @@ mod tests {
     }
 
     #[test]
+    fn preserves_native_search_declarations() {
+        let tools = json!([
+            {"type":"web_search","search_context_size":"medium"},
+            {"type":"function","name":"read_file","parameters":{}}
+        ]);
+        let mut body = json!({"model":"catalog-next", "input":[], "tools":tools});
+        let mut headers = HeaderMap::new();
+        adapt(&mut body, &mut headers, SessionId::new()).unwrap();
+        assert_eq!(body["tools"], tools);
+        assert_eq!(body["model"], "catalog-next");
+        assert_eq!(headers["x-codex-routing-hint"], "model=catalog-next");
+    }
+
+    #[test]
     fn rejects_invalid_body_without_changing_contracts() {
         for mut body in [
             json!({"model":"captured", "input":"prompt"}),

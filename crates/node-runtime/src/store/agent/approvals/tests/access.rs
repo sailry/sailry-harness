@@ -1,7 +1,12 @@
 use super::*;
 use sailry_protocol::process::Access;
+mod settings;
 
 fn request(fixture: &mut Fixture, access: Access) -> Binding {
+    request_with_access(fixture, Some(access))
+}
+
+fn request_with_access(fixture: &mut Fixture, access: Option<Access>) -> Binding {
     super::super::super::tests::fixture::package(
         &fixture.database,
         fixture._directory.path(),
@@ -22,7 +27,10 @@ fn request(fixture: &mut Fixture, access: Access) -> Binding {
         )
         .unwrap();
     fixture.request.tool_name = crate::plugins::tools::alias("commands", "run_command");
-    fixture.request.args = json!({"command":"true","access":access});
+    fixture.request.args = json!({"command":"true"});
+    if let Some(access) = access {
+        fixture.request.args["access"] = json!(access);
+    }
     fixture.request.function_call_id = Some("command-access".into());
     let mut event = AdkEvent::new("command-access");
     event.author = "assistant".into();
@@ -58,13 +66,14 @@ fn prepared(turn: TurnId, access: Access) -> Command {
         description: None,
         cwd: String::new(),
         timeout_ms: 1000,
+        pty: false,
         background: false,
         attachments: vec![],
     }
 }
 
 #[test]
-fn confinement_is_automatic_and_escape_is_fresh() {
+fn distinguishes_confined_and_unrestricted_authority() {
     for permission in [Permission::Ask, Permission::Project, Permission::Full] {
         for access in [Access::Workspace, Access::Unrestricted] {
             let mut fixture = Fixture::with_permission(permission);
@@ -78,7 +87,13 @@ fn confinement_is_automatic_and_escape_is_fresh() {
             )
             .unwrap();
             assert_eq!(approval.access, Some(access));
-            if access == Access::Unrestricted && crate::process::sandbox::SUPPORTED {
+            if access == Access::Unrestricted && permission == Permission::Full {
+                assert_eq!(approval.source, ApprovalSource::Full);
+                assert_eq!(approval.state, ApprovalState::Approved);
+                assert!(!approval.can_remember);
+                assert_eq!(approval.prefix, None);
+                assert_eq!(approval.choice, None);
+            } else if access == Access::Unrestricted && crate::process::sandbox::SUPPORTED {
                 assert_eq!(approval.source, ApprovalSource::User);
                 assert_eq!(approval.state, ApprovalState::Pending);
                 assert!(!approval.can_remember);
@@ -133,7 +148,8 @@ fn stale_rules_cannot_authorize_native_escape() {
             Some(ApprovalChoice::Prefix("true".into())),
             Some(Access::Unrestricted),
         ),
-        (ApprovalSource::Full, None, Some(Access::Unrestricted)),
+        (ApprovalSource::Full, None, Some(Access::Workspace)),
+        (ApprovalSource::Full, None, None),
         (
             ApprovalSource::User,
             Some(ApprovalChoice::Once),
@@ -170,6 +186,84 @@ fn stale_rules_cannot_authorize_native_escape() {
             )
             .unwrap();
         assert!(!claimed);
+    }
+}
+
+#[test]
+fn unrestricted_access_uses_admitted_permission() {
+    for (admitted, current, source, state) in [
+        (
+            Permission::Full,
+            Permission::Ask,
+            ApprovalSource::Full,
+            ApprovalState::Approved,
+        ),
+        (
+            Permission::Ask,
+            Permission::Full,
+            ApprovalSource::User,
+            ApprovalState::Pending,
+        ),
+        (
+            Permission::Project,
+            Permission::Full,
+            ApprovalSource::User,
+            ApprovalState::Pending,
+        ),
+    ] {
+        let mut fixture = Fixture::with_permission(admitted);
+        let binding = request(&mut fixture, Access::Unrestricted);
+        let body: Vec<u8> = fixture
+            .database
+            .connection
+            .query_row(
+                "SELECT config FROM session_revisions WHERE session=?1 AND revision=1",
+                [fixture.session.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut config: SessionConfig = serde_json::from_slice(&body).unwrap();
+        config.permission = current;
+        command(
+            &mut fixture.database,
+            &fixture.events,
+            Command::SetSessionConfig {
+                session: fixture.session,
+                expected_revision: 1,
+                config,
+            },
+        );
+        let approval = begin(
+            &mut fixture.database,
+            fixture.turn,
+            &fixture.request,
+            Some(&binding),
+            &fixture.events,
+        )
+        .unwrap();
+        assert_eq!(approval.source, source);
+        assert_eq!(approval.state, state);
+        assert_eq!(approval.access, Some(Access::Unrestricted));
+        assert!(!approval.can_remember || !crate::process::sandbox::SUPPORTED);
+        if state == ApprovalState::Pending {
+            fixture.approve(approval.id);
+        }
+        authorize(
+            &mut fixture.database.connection,
+            fixture.turn,
+            &fixture.request,
+            Some(&prepared(fixture.turn, Access::Unrestricted)),
+        )
+        .unwrap();
+        assert!(
+            authorize(
+                &mut fixture.database.connection,
+                fixture.turn,
+                &fixture.request,
+                Some(&prepared(fixture.turn, Access::Unrestricted)),
+            )
+            .is_err()
+        );
     }
 }
 

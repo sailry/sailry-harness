@@ -78,7 +78,15 @@ pub(super) async fn install(
             )
             .await?;
             let metadata = stage.join("console-scripts.json");
-            let script = "import importlib.metadata,json,pathlib,sys; pathlib.Path(sys.argv[1]).write_text(json.dumps({e.name:e.value for e in importlib.metadata.entry_points(group='console_scripts')}))";
+            let script = r#"import importlib.metadata, json, pathlib, sys
+entries = {
+    entry.name: entry.value
+    for distribution in importlib.metadata.distributions()
+    for entry in distribution.entry_points
+    if entry.group == 'console_scripts'
+}
+pathlib.Path(sys.argv[1]).write_text(json.dumps(entries))
+"#;
             run(
                 &python,
                 &[
@@ -182,7 +190,11 @@ pub(super) async fn install(
             });
             let entry = format!("'{binary}'");
             let script = format!(
-                "import importlib.metadata,sys; entry=next((e for e in importlib.metadata.entry_points(group='console_scripts') if e.name=={entry}),None); sys.exit(entry.load()() if entry else 127)"
+                "import importlib.metadata, sys\n\
+                 entry = next((entry for distribution in importlib.metadata.distributions() \
+                 for entry in distribution.entry_points \
+                 if entry.group == 'console_scripts' and entry.name == {entry}), None)\n\
+                 sys.exit(entry.load()() if entry else 127)\n"
             );
             launcher(&destination, &python, &["-c".into(), script])?;
         } else if matches!(manager.as_str(), "npm" | "pypi") {

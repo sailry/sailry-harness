@@ -21,6 +21,8 @@ pub(crate) struct Detail {
     pub rotate_icon: bool,
     pub pending: bool,
     pub hide_caret: bool,
+    /// Prose labels wrap and determine the row's height.
+    pub wrap: bool,
 }
 
 impl Detail {
@@ -102,6 +104,7 @@ pub(crate) fn trigger_with_icons(
         .self_start()
         .min_w_0()
         .max_w_full()
+        .when(detail.wrap, |button| button.w_full().h_auto().min_h_6())
         .accessibility_label(detail.accessible(&label))
         .child(row(
             summary,
@@ -134,7 +137,8 @@ pub(crate) fn summary(
         .debug_selector(move || id.clone())
         .flex()
         .items_center()
-        .h_6()
+        .when(detail.wrap, |summary| summary.w_full().min_h_6())
+        .when(!detail.wrap, |summary| summary.h_6())
         .min_w_0()
         .max_w_full()
         .self_start()
@@ -171,6 +175,7 @@ fn row(
         .id(id.clone())
         .debug_selector(move || selector.clone())
         .min_w_0()
+        .when(detail.wrap, |row| row.w_full().items_start())
         .gap_2()
         .text_sm()
         .text_color(state_color)
@@ -181,11 +186,30 @@ fn row(
                 cx.theme().foreground
             })
         })
-        .child(icons)
+        .child(if detail.wrap {
+            div()
+                .flex_shrink_0()
+                .pt_0p5()
+                .child(icons)
+                .into_any_element()
+        } else {
+            icons
+        })
         .child(
             div()
-                .when(detail.secondary, |label| label.min_w_0().truncate())
-                .when(!detail.secondary, |label| label.flex_shrink_0())
+                .debug_selector({
+                    let selector = format!("{id}-label");
+                    move || selector.clone()
+                })
+                .when(detail.wrap, |label| {
+                    label.flex_1().min_w_0().whitespace_normal()
+                })
+                .when(!detail.wrap && detail.secondary, |label| {
+                    label.min_w_0().truncate()
+                })
+                .when(!detail.wrap && !detail.secondary, |label| {
+                    label.flex_shrink_0()
+                })
                 .child(if detail.running && !detail.pending {
                     let selector = format!("{id}-shimmer");
                     div()
@@ -224,7 +248,9 @@ fn row(
                 .filter(|_| !detail.pending && !detail.failed),
             |row, state| row.child(div().flex_shrink_0().text_color(status_color).child(state)),
         )
-        .when(!detail.hide_caret, |row| row.child(caret(open, group)))
+        .when(!detail.hide_caret, |row| {
+            row.child(caret(open, group).when(detail.wrap, |caret| caret.pt_0p5()))
+        })
 }
 
 fn glyph(icon: Icon, detail: &Detail, cx: &App) -> AnyElement {

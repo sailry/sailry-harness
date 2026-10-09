@@ -24,6 +24,7 @@ async fn requires_prepared_descriptors_and_reuses_live_servers() {
         .await
         .unwrap()
         .unwrap();
+    assert_eq!(pool.identities.reads(), 1);
     let mut forged = startup.clone();
     forged.executable = "/bin/sh".into();
     assert_eq!(
@@ -47,6 +48,24 @@ async fn requires_prepared_descriptors_and_reuses_live_servers() {
         std::fs::read_to_string(fixture.root.join("pid")).unwrap(),
         pid
     );
+    for _ in 0..3 {
+        let result = pool
+            .query(
+                fixture.worktree,
+                fixture.root.clone(),
+                &Query::Hover {
+                    path: "main.rs".into(),
+                    line: 1,
+                    symbol: "symbol".into(),
+                },
+                None,
+                &stop,
+            )
+            .await
+            .unwrap();
+        assert!(result.startup.is_none());
+    }
+    assert_eq!(pool.identities.reads(), 1);
     pool.remove(fixture.worktree).await;
     assert!(pool.list(fixture.worktree).await.unwrap().is_empty());
     closed.cancel();
@@ -77,6 +96,7 @@ async fn checks_executable_changes_before_spawning() {
         ErrorCode::RevisionConflict
     );
     assert!(!fixture.root.join("pid").exists());
+    assert_eq!(pool.identities.reads(), 2);
     pool.shutdown().await;
 }
 #[tokio::test]

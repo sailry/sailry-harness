@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_FILE_BYTES: usize = 128 * 1024;
 pub const MAX_EDIT_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_FILE_EDITS: usize = 128;
 pub const MAX_FILE_LINES: usize = 2000;
 pub const MAX_FIND_MATCHES: usize = 500;
 pub const MAX_DIRECTORY_ENTRIES: usize = 500;
@@ -42,11 +43,47 @@ pub struct FileDownload {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct FileSearch {
     pub query: String,
     pub regex: bool,
     pub case_sensitive: bool,
     pub globs: Vec<String>,
+    pub path: String,
+    pub mode: SearchMode,
+    pub context: usize,
+    #[serde(rename = "type")]
+    pub file_type: Option<String>,
+    pub limit: usize,
+    pub offset: usize,
+    pub multiline: bool,
+}
+
+impl Default for FileSearch {
+    fn default() -> Self {
+        Self {
+            query: String::new(),
+            regex: false,
+            case_sensitive: false,
+            globs: Vec::new(),
+            path: String::new(),
+            mode: SearchMode::Content,
+            context: 0,
+            file_type: None,
+            limit: MAX_SEARCH_MATCHES,
+            offset: 0,
+            multiline: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchMode {
+    #[default]
+    Content,
+    Files,
+    Count,
 }
 
 impl FileSearch {
@@ -58,14 +95,60 @@ pub struct SearchMatch {
     pub path: String,
     pub line_number: usize,
     pub line: String,
+    /// False marks a neighboring context line.
+    pub matched: bool,
+    /// The original line exceeds the bounded response preview.
+    pub truncated: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchCount {
+    pub path: String,
+    pub count: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchDiagnostic {
+    pub path: String,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
 pub struct SearchResults {
+    pub mode: SearchMode,
     pub matches: Vec<SearchMatch>,
+    pub paths: Vec<String>,
+    pub counts: Vec<SearchCount>,
     pub scanned_files: usize,
     pub skipped: usize,
     pub truncated: bool,
+    /// Incomplete scans have no reliable continuation offset.
+    pub partial: bool,
+    pub offset: usize,
+    pub next_offset: Option<usize>,
+    pub diagnostics: Vec<SearchDiagnostic>,
+}
+
+impl Serialize for SearchResults {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut value = serializer.serialize_struct("SearchResults", 9)?;
+        value.serialize_field("mode", &self.mode)?;
+        match self.mode {
+            SearchMode::Content => value.serialize_field("matches", &self.matches)?,
+            SearchMode::Files => value.serialize_field("paths", &self.paths)?,
+            SearchMode::Count => value.serialize_field("counts", &self.counts)?,
+        }
+        value.serialize_field("scanned_files", &self.scanned_files)?;
+        value.serialize_field("skipped", &self.skipped)?;
+        value.serialize_field("truncated", &self.truncated)?;
+        value.serialize_field("partial", &self.partial)?;
+        value.serialize_field("offset", &self.offset)?;
+        value.serialize_field("next_offset", &self.next_offset)?;
+        value.serialize_field("diagnostics", &self.diagnostics)?;
+        value.end()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -148,12 +231,17 @@ pub struct FileLines {
     pub next_offset: Option<usize>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct FileNames {
     pub paths: Vec<String>,
     pub visited: usize,
     pub skipped: usize,
     pub truncated: bool,
+    pub partial: bool,
+    pub offset: usize,
+    pub next_offset: Option<usize>,
+    pub diagnostics: Vec<SearchDiagnostic>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,6 +249,16 @@ pub struct FileWritten {
     pub path: String,
     pub revision: String,
     pub size: u64,
+}
+
+/// Replacements match the original file, before any edit in the batch is applied.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileEdit {
+    pub old_text: String,
+    pub new_text: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub replace_all: bool,
 }
 
 #[cfg(test)]
@@ -174,13 +272,60 @@ mod tests {
         });
         assert!(serde_json::from_value::<crate::Command>(value.clone()).is_err());
         value["data"]["expected_revision"] = "0".repeat(64).into();
-        let command: crate::Command = serde_json::from_value(value).unwrap();
+        let command: crate::Command = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&command).unwrap(), value);
         assert!(command.durable());
         assert_eq!(
             serde_json::from_value::<crate::Command>(serde_json::to_value(&command).unwrap())
                 .unwrap(),
             command
         );
+    }
+
+    #[test]
+    fn roundtrips_batch_edits_and_mutations() {
+        let worktree = crate::WorktreeId::new();
+        for command in [
+            crate::Command::EditFile {
+                worktree,
+                path: "file".into(),
+                old_text: None,
+                new_text: None,
+                replace_all: false,
+                edits: Some(vec![FileEdit {
+                    old_text: "old".into(),
+                    new_text: "new".into(),
+                    replace_all: true,
+                }]),
+                expected_revision: "a".repeat(64),
+            },
+            crate::Command::DeleteFile {
+                worktree,
+                path: "file".into(),
+                expected_revision: "a".repeat(64),
+            },
+            crate::Command::MoveFile {
+                worktree,
+                from: "file".into(),
+                to: "new".into(),
+                expected_revision: "a".repeat(64),
+            },
+        ] {
+            assert!(command.durable());
+            assert_eq!(
+                serde_json::from_value::<crate::Command>(serde_json::to_value(&command).unwrap())
+                    .unwrap(),
+                command
+            );
+        }
+        for operation in [
+            crate::tool::Operation::DeleteFile,
+            crate::tool::Operation::MoveFile,
+            crate::tool::Operation::CreateDirectory,
+        ] {
+            assert!(!operation.read_only());
+            assert_eq!(operation.action(), Some(crate::plugin::Action::WriteFiles));
+        }
     }
 
     #[test]
@@ -195,6 +340,9 @@ mod tests {
             crate::Command::FindFiles {
                 worktree: crate::WorktreeId::new(),
                 globs: vec!["**/*.rs".into()],
+                path: String::new(),
+                limit: MAX_FIND_MATCHES,
+                offset: 0,
             },
         ] {
             assert!(!command.durable());
@@ -202,6 +350,44 @@ mod tests {
                 serde_json::from_value::<crate::Command>(serde_json::to_value(&command).unwrap())
                     .unwrap(),
                 command
+            );
+        }
+    }
+
+    #[test]
+    fn search_defaults_and_mode_payloads() {
+        let options: FileSearch =
+            serde_json::from_value(serde_json::json!({"query":"needle"})).unwrap();
+        assert_eq!(options.limit, MAX_SEARCH_MATCHES);
+        assert_eq!(options.mode, SearchMode::Content);
+        assert_eq!(options.context, 0);
+        assert!(options.path.is_empty());
+        assert!(
+            serde_json::from_value::<FileSearch>(
+                serde_json::json!({"query":"needle","mode":"unknown"})
+            )
+            .is_err()
+        );
+        for (mode, field) in [
+            (SearchMode::Content, "matches"),
+            (SearchMode::Files, "paths"),
+            (SearchMode::Count, "counts"),
+        ] {
+            let result = SearchResults {
+                mode,
+                ..Default::default()
+            };
+            let value = serde_json::to_value(&result).unwrap();
+            assert_eq!(value[field], serde_json::json!([]));
+            for other in ["matches", "paths", "counts"]
+                .into_iter()
+                .filter(|other| *other != field)
+            {
+                assert!(value.get(other).is_none());
+            }
+            assert_eq!(
+                serde_json::from_value::<SearchResults>(value).unwrap(),
+                result
             );
         }
     }

@@ -5,6 +5,9 @@ use sha2::{Digest, Sha256};
 use std::{fs::File, time::Duration};
 use tokio::io::AsyncWriteExt;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Default)]
 pub(super) struct Network {
     #[cfg(any(test, feature = "test-support"))]
@@ -55,11 +58,23 @@ impl Network {
         limit: u64,
         stop: &CancellationToken,
     ) -> Result<(File, String), Fault> {
+        self.download(address, limit, stop, Duration::from_secs(60))
+            .await
+    }
+
+    async fn download(
+        &self,
+        address: &str,
+        limit: u64,
+        stop: &CancellationToken,
+        timeout: Duration,
+    ) -> Result<(File, String), Fault> {
         let address = self.address(address)?;
         let initial_scheme = address.scheme().to_owned();
         let client = reqwest::Client::builder()
             .user_agent("Sailry-code/1")
-            .timeout(Duration::from_secs(60))
+            .connect_timeout(Duration::from_secs(20))
+            .read_timeout(timeout)
             .redirect(reqwest::redirect::Policy::custom(move |attempt| {
                 if attempt.previous().len() >= 5
                     || attempt.url().scheme() != initial_scheme

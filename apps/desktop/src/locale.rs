@@ -110,10 +110,10 @@ mod tests {
 
     #[test]
     fn english_resources_resolve() {
-        for line in include_str!("../../../locales/application.en.yml").lines() {
-            let (key, value) = line.split_once(": ").unwrap();
-            let value: String = serde_json::from_str(value).unwrap();
-            assert_eq!(rust_i18n::t!(key, locale = "en"), value, "{key}");
+        let resource: std::collections::BTreeMap<String, String> =
+            serde_saphyr::from_str(include_str!("../../../locales/application.en.yml")).unwrap();
+        for (key, value) in resource {
+            assert_eq!(rust_i18n::t!(&key, locale = "en"), value, "{key}");
         }
     }
 
@@ -136,11 +136,11 @@ mod tests {
             ("ru", include_str!("../../../locales/application.ru.yml")),
         ];
         for (locale, resource) in resources {
-            for line in resource.lines() {
-                let (key, value) = line.split_once(": ").unwrap();
-                let value: String = serde_json::from_str(value).unwrap();
+            let resource: std::collections::BTreeMap<String, String> =
+                serde_saphyr::from_str(resource).unwrap();
+            for (key, value) in resource {
                 assert_eq!(
-                    rust_i18n::t!(key, locale = locale),
+                    rust_i18n::t!(&key, locale = locale),
                     value,
                     "{locale}: {key}"
                 );

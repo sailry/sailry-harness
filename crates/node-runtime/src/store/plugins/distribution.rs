@@ -19,6 +19,15 @@ pub(in crate::store) fn install(
         return Ok(());
     }
     let transaction = db.transaction().map_err(storage_error)?;
+    let populated: bool = transaction
+        .query_row("SELECT EXISTS(SELECT 1 FROM plugins)", [], |row| row.get(0))
+        .map_err(storage_error)?;
+    if populated {
+        transaction
+            .execute("UPDATE node SET plugin_defaults=1 WHERE singleton=1", [])
+            .map_err(storage_error)?;
+        return transaction.commit().map_err(storage_error);
+    }
     for &(name, enabled) in crate::plugins::DEFAULTS {
         let mut result = Ok(Output::Plugin(host.install_bundled(name)?));
         let mut event = finish(

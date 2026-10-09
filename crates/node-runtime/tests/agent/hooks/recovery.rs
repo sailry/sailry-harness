@@ -16,7 +16,16 @@ async fn never_replays_end_after_restart() {
         else {
             panic!("turn expected")
         };
-        file(&fixture.root.join("ends.txt")).await;
+        let expected = format!("{}\n", turn.id);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !std::fs::read_to_string(fixture.root.join("ends.txt"))
+                .is_ok_and(|content| content == expected)
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("hook output deadline");
         let Fixture {
             directory,
             root,

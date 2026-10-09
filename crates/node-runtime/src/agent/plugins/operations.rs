@@ -7,6 +7,7 @@ use sailry_link::{Local, Transport};
 use sailry_protocol::{Command, Request, plugin, tool::Operation};
 use serde_json::{Value, json};
 
+mod commands;
 mod connections;
 mod files;
 mod progress;
@@ -21,6 +22,7 @@ pub(super) fn bind(
     stop: &CancellationToken,
 ) -> Vec<ToolRegistration> {
     let mut tools = Vec::new();
+    let mut search_bound = false;
     for package in &invocation.plugins {
         let Some(extension) = &package.extension else {
             continue;
@@ -42,9 +44,11 @@ pub(super) fn bind(
                 || !declaration.available_on(std::env::consts::OS)
                 || !declaration.available_in(invocation.project, invocation.connections.bound)
                 || !available(ingress, invocation, operation)
+                || (operation == Operation::SearchWeb && search_bound)
             {
                 continue;
             }
+            search_bound |= operation == Operation::SearchWeb;
             let name = alias(&package.summary.name, &declaration.name);
             let tool: Arc<dyn Tool> = if operation == Operation::DelegateAgent {
                 Arc::new(super::super::delegation::Delegate::new(
@@ -106,6 +110,9 @@ pub(super) fn bind(
 
 pub(super) fn available(ingress: &Ingress, invocation: &Invocation, operation: Operation) -> bool {
     match operation {
+        Operation::SearchWeb => {
+            ingress.search.available() && !super::model_tools::preferred(ingress, invocation)
+        }
         Operation::BrowseDatabase | Operation::QueryDatabase | Operation::ExecuteDatabase => {
             !invocation.connections.databases.is_empty()
         }
@@ -333,6 +340,13 @@ impl HostOperation {
             return serde_json::to_value(output)
                 .map_err(|error| Fault::new(ErrorCode::Internal, error.to_string()));
         }
+        let workspace = matches!(
+            request.command,
+            Command::RunCommand {
+                access: sailry_protocol::process::Access::Workspace,
+                ..
+            }
+        );
         let work = async {
             let admission = self.transport.dispatch(request).await?;
             let output = admission.completion.await.map_err(|_| {
@@ -354,6 +368,7 @@ impl HostOperation {
             }
             let mut value = serde_json::to_value(&output)
                 .map_err(|error| Fault::new(ErrorCode::Internal, error.to_string()))?;
+            commands::annotate(&output, &mut value, workspace);
             if self.ingress.code.after_edit()
                 && matches!(self.operation, Operation::WriteFile | Operation::EditFile)
                 && let sailry_protocol::Output::FileWritten(written) = &output
@@ -392,6 +407,33 @@ impl HostOperation {
     ) -> adk_core::Result<Value> {
         let work = async {
             let mut request = self.prepare(arguments.clone()).await?;
+            if let Command::RunCommand { access, .. } = &mut request.command {
+                let requested: sailry_protocol::process::Access = authorized_arguments
+                    .get("access")
+                    .filter(|value| !value.is_null())
+                    .cloned()
+                    .map(serde_json::from_value)
+                    .transpose()
+                    .map_err(|_| Fault::invalid("invalid command access"))?
+                    .unwrap_or_default();
+                if *access != requested {
+                    return Err(Fault::new(
+                        ErrorCode::PermissionDenied,
+                        "prepared command access differs from approval",
+                    ));
+                }
+                *access = self
+                    .ingress
+                    .approved_command_access(
+                        self.turn,
+                        adk_core::ToolConfirmationRequest {
+                            tool_name: self.name.clone(),
+                            function_call_id: Some(context.function_call_id().into()),
+                            args: authorized_arguments.clone(),
+                        },
+                    )
+                    .await?;
+            }
             self.ingress
                 .check_plugin(self.caller, request.clone())
                 .await?;

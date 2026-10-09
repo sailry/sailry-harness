@@ -6,6 +6,7 @@ use sailry_protocol::plugin::skills::Resolved;
 use sailry_protocol::{ErrorCode, Fault};
 use std::{fs::File, io::Write, time::Duration};
 
+pub(crate) mod login;
 pub(super) mod source;
 
 #[derive(Clone, Default)]
