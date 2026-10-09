@@ -614,7 +614,7 @@ impl Database {
             format!("credential-v1:{}", blake3::hash(&encoded).to_hex()).into_bytes()
         } else if matches!(
             request.command,
-            Command::WriteFile { .. } | Command::EditFile { .. }
+            Command::WriteFile { .. } | Command::EditFile { .. } | Command::EditNotebook { .. }
         ) {
             // The ledger owns replay identity, not another copy of project content.
             format!("file-v1:{}", blake3::hash(&encoded).to_hex()).into_bytes()

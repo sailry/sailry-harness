@@ -298,6 +298,7 @@ impl Database {
                 Command::ListDirectory { worktree, .. }
                 | Command::ReadFile { worktree, .. }
                 | Command::ReadFileLines { worktree, .. }
+                | Command::ReadNotebook { worktree, .. }
                 | Command::FindFiles { worktree, .. }
                 | Command::DownloadFile { worktree, .. }
                 | Command::SearchFiles { worktree, .. } => {
@@ -309,6 +310,7 @@ impl Database {
                 Command::UploadFile(spec) => (Some(Action::WriteFiles), Some(spec.worktree), None),
                 Command::WriteFile { worktree, .. }
                 | Command::EditFile { worktree, .. }
+                | Command::EditNotebook { worktree, .. }
                 | Command::DeleteFile { worktree, .. }
                 | Command::MoveFile { worktree, .. }
                 | Command::FinishFileUpload { worktree, .. }
