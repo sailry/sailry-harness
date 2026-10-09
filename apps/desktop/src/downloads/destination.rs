@@ -3,7 +3,7 @@ use sailry_link::CancellationToken;
 use std::{fs, io, path::PathBuf, time::SystemTime};
 use tempfile::NamedTempFile;
 
-pub(super) struct Destination {
+pub(crate) struct Destination {
     path: PathBuf,
     parent: PathBuf,
     expected: Option<Stamp>,

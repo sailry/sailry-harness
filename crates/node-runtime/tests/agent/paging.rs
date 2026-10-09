@@ -292,6 +292,50 @@ async fn restores_streamed_turns() {
                 .unwrap()
                 .page
         );
+        for _ in 0..24 {
+            let turn = submit(&client, session.id).await;
+            super::finished(&client, session.id, turn).await;
+        }
+        let all = client
+            .read_conversation(session.id, None, 100)
+            .await
+            .unwrap();
+        assert_eq!(all.page.runs.len(), 51);
+        for format in [
+            sailry_client::conversation::export::Format::Markdown,
+            sailry_client::conversation::export::Format::Html,
+        ] {
+            let document = client
+                .export_conversation(
+                    session.id,
+                    "History export",
+                    format,
+                    "export-assets",
+                    &CancellationToken::new(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(document.content.matches("History fixture").count(), 51);
+            assert!(document.content.contains("原文 🙂"));
+            assert!(document.content.contains("资料.txt"));
+            assert!(document.attachments.is_empty());
+        }
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        assert_eq!(
+            client
+                .export_conversation(
+                    session.id,
+                    "Cancelled",
+                    sailry_client::conversation::export::Format::Markdown,
+                    "assets",
+                    &cancelled
+                )
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::Cancelled
+        );
         let model_requests = {
             let requests = server.requests.lock().unwrap();
             assert_eq!(
@@ -299,7 +343,7 @@ async fn restores_streamed_turns() {
                     .iter()
                     .filter(|request| !agent_support::compaction::is_summary(request))
                     .count(),
-                78
+                102
             );
             requests.len()
         };
@@ -313,7 +357,7 @@ async fn restores_streamed_turns() {
         let Update::ConversationSnapshot(restored) = subscription.next().await.unwrap() else {
             panic!("snapshot expected");
         };
-        assert_eq!(restored.statistics, all.statistics);
+        assert_totals(&restored.statistics, 51, 102);
         drop(subscription);
         assert_eq!(
             client
@@ -321,7 +365,7 @@ async fn restores_streamed_turns() {
                 .await
                 .unwrap()
                 .page,
-            *all.page
+            all.page
         );
         assert_eq!(server.requests.lock().unwrap().len(), model_requests);
         node.shutdown().await.unwrap();

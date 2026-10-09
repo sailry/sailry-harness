@@ -9,7 +9,7 @@ use sailry_client::Client;
 use sailry_link::CancellationToken;
 use std::{path::PathBuf, sync::Arc};
 
-mod destination;
+pub(crate) mod destination;
 #[cfg(test)]
 mod tests;
 pub(crate) mod transfer;

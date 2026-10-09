@@ -1,0 +1,5 @@
+conversation_export: "Export"
+conversation_export_markdown: "Markdown"
+conversation_export_html: "HTML"
+conversation_exported: "Exported"
+conversation_export_failed: "Conversation export failed"

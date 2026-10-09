@@ -6,6 +6,7 @@ use sailry_protocol::{SessionId, TerminalId};
 
 #[cfg(test)]
 mod capture;
+mod export;
 mod project;
 mod rename;
 mod session;
@@ -53,6 +54,8 @@ pub(crate) enum Command {
     Archive,
     Unarchive,
     Delete,
+    ExportMarkdown,
+    ExportHtml,
 }
 
 #[derive(Clone, PartialEq, Action)]

@@ -66,6 +66,31 @@ async fn materializes_inputs() {
                     Part::Attachment(pdf.clone())
                 ]
             );
+            for format in [
+                sailry_client::conversation::export::Format::Markdown,
+                sailry_client::conversation::export::Format::Html,
+            ] {
+                let exported = client
+                    .export_conversation(
+                        session.id,
+                        "Attachments",
+                        format,
+                        "assets",
+                        &CancellationToken::new(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(exported.attachments.len(), 3);
+                for attachment in [&image, &document, &pdf] {
+                    assert!(exported.attachments.contains(attachment));
+                    assert!(exported.content.contains(
+                        &sailry_client::conversation::export::attachment_name(attachment)
+                    ));
+                }
+                assert_eq!(download(&client, &document).await, text.as_bytes());
+                assert_eq!(download(&client, &image).await, bytes);
+                assert_eq!(download(&client, &pdf).await, pdf_bytes);
+            }
             assert_eq!(
                 client
                     .execute(discard(&client, &image))

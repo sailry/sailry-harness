@@ -73,6 +73,12 @@ impl Shell {
                 disabled(Command::ForkWorktree),
                 action(Command::ForkWorktree),
             );
+        let export = NativeMenu::new()
+            .menu(
+                tr("conversation_export_markdown"),
+                action(Command::ExportMarkdown),
+            )
+            .menu(tr("conversation_export_html"), action(Command::ExportHtml));
         let menu = NativeMenu::new()
             .menu_with_icon(
                 tr("workspace_rename"),
@@ -126,6 +132,7 @@ impl Shell {
             )
             .separator()
             .submenu(tr("content_copy"), copy)
+            .submenu(tr("conversation_export"), export)
             .separator()
             .submenu(tr("session_fork"), fork)
             .separator()
@@ -220,6 +227,18 @@ impl Shell {
                 }
             }
             Command::NewWindow => self.session_window(session.clone(), window, cx),
+            Command::ExportMarkdown | Command::ExportHtml => export::choose(
+                Arc::new(live.client()),
+                live.services.runtime.clone(),
+                session.clone(),
+                if command == Command::ExportMarkdown {
+                    sailry_client::conversation::export::Format::Markdown
+                } else {
+                    sailry_client::conversation::export::Format::Html
+                },
+                window,
+                cx,
+            ),
             _ => return false,
         }
         cx.notify();

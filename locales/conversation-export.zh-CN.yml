@@ -1,0 +1,5 @@
+conversation_export: "导出"
+conversation_export_markdown: "Markdown"
+conversation_export_html: "HTML"
+conversation_exported: "已导出"
+conversation_export_failed: "会话导出失败"

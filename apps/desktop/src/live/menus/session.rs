@@ -8,6 +8,8 @@ use sailry_protocol::{ErrorCode, Request, Session};
 pub(super) fn items(archived: bool) -> Vec<(Command, &'static str)> {
     vec![
         (Command::Open, "workspace_open_session"),
+        (Command::ExportMarkdown, "conversation_export_markdown"),
+        (Command::ExportHtml, "conversation_export_html"),
         if archived {
             (Command::Unarchive, "session_unarchive")
         } else {

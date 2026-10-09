@@ -1,0 +1,5 @@
+conversation_export: "エクスポート"
+conversation_export_markdown: "Markdown"
+conversation_export_html: "HTML"
+conversation_exported: "エクスポート済み"
+conversation_export_failed: "会話のエクスポートに失敗しました"
