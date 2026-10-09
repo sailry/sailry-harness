@@ -3,6 +3,7 @@ use adk_sandbox::sandbox::WrappedCommand;
 use sailry_protocol::{ErrorCode, Fault};
 use std::{
     fmt::Write as _,
+    os::unix::ffi::OsStrExt,
     os::unix::fs::FileTypeExt,
     path::{Path, PathBuf},
 };
@@ -26,11 +27,12 @@ pub(super) fn protect(command: &mut WrappedCommand, paths: &[PathBuf]) -> Result
     )
     .expect("writing to a String cannot fail");
     for path in paths {
-        let path = path
-            .to_str()
-            .ok_or_else(|| unavailable("Git metadata path is not valid UTF-8"))?;
-        writeln!(policy, "(deny file-write* (subpath {}))", literal(path))
-            .expect("writing to a String cannot fail");
+        writeln!(
+            policy,
+            "(deny file-write* (subpath {}))",
+            path_literal(path)
+        )
+        .expect("writing to a String cannot fail");
     }
     *profile = policy.into();
     Ok(())
@@ -89,6 +91,23 @@ fn literal(value: &str) -> String {
                     .expect("writing to a String cannot fail");
             }
             character => text.push(character),
+        }
+    }
+    text.push('"');
+    text
+}
+
+fn path_literal(path: &Path) -> String {
+    if let Some(path) = path.to_str() {
+        return literal(path);
+    }
+    let mut text = String::from("\"");
+    for &byte in path.as_os_str().as_bytes() {
+        match byte {
+            b'\\' => text.push_str("\\\\"),
+            b'"' => text.push_str("\\\""),
+            0x20..=0x7e => text.push(char::from(byte)),
+            _ => write!(text, "\\x{byte:02x}").expect("writing to a String cannot fail"),
         }
     }
     text.push('"');

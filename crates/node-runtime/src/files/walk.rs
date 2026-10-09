@@ -9,7 +9,7 @@ use sailry_protocol::{
 };
 use std::{path::Path, time::SystemTime};
 
-mod ignores;
+pub(crate) mod ignores;
 
 #[derive(Default)]
 pub(crate) struct Report {
@@ -152,14 +152,6 @@ pub(crate) fn visit(
         &mut |dir, name, relative, _| visitor(dir, name, relative),
         &mut |_, _| Ok(()),
     )
-}
-
-pub(crate) fn directories(
-    root: &Path,
-    control: &Control,
-    visitor: &mut impl FnMut(&Dir, &str) -> Result<(), Fault>,
-) -> Result<Report, Fault> {
-    traverse(root, "", true, control, &mut |_, _, _, _| Ok(true), visitor)
 }
 
 fn traverse(

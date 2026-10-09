@@ -35,7 +35,11 @@ async fn protects_metadata_across_both_paths() {
             (plugin_tool("commands", "run_command"), json!({"access":"unrestricted", "command":
                 "git -c user.name=Fixture -c user.email=fixture@example.invalid add tracked.txt && \
                  git -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m Changed && \
+                 git init --quiet newly-created && \
                  git log -1 --format=%s"})),
+            (plugin_tool("commands", "run_command"), json!({"command":
+                "if printf changed > newly-created/.git/config; then exit 90; fi; \
+                 printf cached-protection"})),
         ]).await;
         let mut fixture = Fixture::new(remote, &server).await;
         permission(&mut fixture, Permission::Full).await;
@@ -47,7 +51,7 @@ async fn protects_metadata_across_both_paths() {
         let turn = approvals::rules::submit(&fixture.client, &fixture.session).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         let outputs = process::results(&page);
-        assert_eq!(outputs.len(), 2, "{page:?}");
+        assert_eq!(outputs.len(), 3, "{page:?}");
         assert!(
             outputs
                 .iter()
@@ -56,6 +60,13 @@ async fn protects_metadata_across_both_paths() {
         );
         assert_eq!(outputs[0].stdout.text, "protected");
         assert_eq!(outputs[1].stdout.text.trim(), "Changed");
+        assert_eq!(outputs[2].stdout.text, "cached-protection");
+        assert!(fixture.root.join("newly-created/.git/HEAD").is_file());
+        assert!(
+            !std::fs::read_to_string(fixture.root.join("newly-created/.git/config"))
+                .unwrap()
+                .contains("changed")
+        );
         assert_eq!(
             std::fs::read(fixture.root.join(".git/config")).unwrap(),
             config
@@ -66,11 +77,13 @@ async fn protects_metadata_across_both_paths() {
         );
         assert!(!fixture.root.join(".git/hooks/pre-commit").exists());
         assert!(!fixture.root.join("renamed-metadata").exists());
-        assert_eq!(page.approvals.len(), 2);
+        assert_eq!(page.approvals.len(), 3);
         assert_eq!(page.approvals[0].source, ApprovalSource::Sandbox);
         assert_eq!(page.approvals[0].access, Some(Access::Workspace));
         assert_eq!(page.approvals[1].source, ApprovalSource::Full);
         assert_eq!(page.approvals[1].access, Some(Access::Unrestricted));
+        assert_eq!(page.approvals[2].source, ApprovalSource::Sandbox);
+        assert_eq!(page.approvals[2].access, Some(Access::Workspace));
         assert!(
             page.approvals
                 .iter()

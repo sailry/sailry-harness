@@ -9,17 +9,27 @@ pub(super) fn load(
     control: &Control,
     report: &mut Report,
 ) -> Option<Gitignore> {
+    load_path(directory, Path::new(prefix), control, report)
+}
+
+pub(crate) fn load_path(
+    directory: &Dir,
+    prefix: &Path,
+    control: &Control,
+    report: &mut Report,
+) -> Option<Gitignore> {
+    let label = prefix.to_string_lossy();
     let metadata = match directory.symlink_metadata(".gitignore") {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
         Err(_) => {
-            report.diagnostic(prefix, "could not inspect .gitignore");
+            report.diagnostic(&label, "could not inspect .gitignore");
             return None;
         }
     };
     if metadata.is_symlink() || !metadata.is_file() {
         report.diagnostic(
-            prefix,
+            &label,
             ".gitignore is not a regular file; its rules were not loaded",
         );
         return None;
@@ -37,7 +47,11 @@ pub(super) fn load(
             .map_err(|_| Fault::invalid(".gitignore is not UTF-8 text"))?;
         // Only already-confined text is parsed. add(path) and global ignore discovery
         // would read ambient paths, including symlinked files outside the worktree.
-        let mut builder = GitignoreBuilder::new(if prefix.is_empty() { "." } else { prefix });
+        let mut builder = GitignoreBuilder::new(if prefix.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            prefix
+        });
         for line in text.lines() {
             control.check()?;
             builder
@@ -51,7 +65,7 @@ pub(super) fn load(
     match result {
         Ok(matcher) => Some(matcher),
         Err(error) => {
-            report.diagnostic(prefix, &error.message);
+            report.diagnostic(&label, &error.message);
             None
         }
     }

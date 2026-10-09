@@ -218,6 +218,45 @@ async fn protects_ancestor_and_symlink_targets() {
     );
 }
 
+#[tokio::test]
+async fn protects_native_metadata_despite_unreadable_siblings() {
+    use std::os::unix::{ffi::OsStringExt, fs::PermissionsExt};
+
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("work");
+    let home = directory.path().join("home");
+    let profile = directory.path().join("profile");
+    for path in [&root, &home, &profile] {
+        std::fs::create_dir(path).unwrap();
+    }
+    let native = root.join(if cfg!(target_os = "linux") {
+        std::ffi::OsString::from_vec(b"native-\xff".to_vec())
+    } else {
+        std::ffi::OsString::from("native-资料")
+    });
+    std::fs::create_dir(&native).unwrap();
+    git(&native, &["init", "--quiet"]);
+    let original = std::fs::read(native.join(".git/config")).unwrap();
+    let restricted = root.join("restricted");
+    std::fs::create_dir(&restricted).unwrap();
+    std::fs::set_permissions(&restricted, std::fs::Permissions::from_mode(0)).unwrap();
+    let output = run(
+        &root,
+        &profile,
+        &home,
+        String::from(
+            "if printf changed > native-*/.git/config; then exit 90; fi; \
+             printf allowed > output.txt || exit 91; printf protected",
+        ),
+    )
+    .await;
+    std::fs::set_permissions(&restricted, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(output.outcome, Outcome::Exited(0), "{output:?}");
+    assert_eq!(output.stdout.text, "protected");
+    assert_eq!(std::fs::read(native.join(".git/config")).unwrap(), original);
+    assert_eq!(std::fs::read(root.join("output.txt")).unwrap(), b"allowed");
+}
+
 #[cfg(target_os = "macos")]
 #[tokio::test]
 async fn rejects_future_case_insensitive_metadata() {
