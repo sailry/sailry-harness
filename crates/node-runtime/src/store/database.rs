@@ -405,7 +405,9 @@ impl Database {
             }
         } else if matches!(
             request.command,
-            Command::StartCodeServer { .. }
+            Command::ExportBackup { .. }
+                | Command::RestoreBackup { .. }
+                | Command::StartCodeServer { .. }
                 | Command::InstallKnowledgeModel { .. }
                 | Command::DeleteKnowledgeModel { .. }
                 | Command::InstallCodeServer { .. }
@@ -890,4 +892,28 @@ pub(super) fn encode(value: &impl serde::Serialize) -> Result<Vec<u8>, Fault> {
 }
 pub(super) fn storage_error(_: impl std::fmt::Display) -> Fault {
     Fault::new(ErrorCode::Internal, "Node storage operation failed")
+}
+
+pub(super) fn validate_backup(db: &Connection, node: NodeId) -> Result<(), Fault> {
+    schema::validate_backup(db, node).map_err(storage_error)?;
+    validation::stored(db).map_err(storage_error)?;
+    let integrity: String = db
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .map_err(storage_error)?;
+    if integrity != "ok" {
+        return Err(Fault::invalid("backup database integrity check failed"));
+    }
+    let mut foreign = db
+        .prepare("PRAGMA foreign_key_check")
+        .map_err(storage_error)?;
+    if foreign
+        .query([])
+        .map_err(storage_error)?
+        .next()
+        .map_err(storage_error)?
+        .is_some()
+    {
+        return Err(Fault::invalid("backup database has invalid references"));
+    }
+    Ok(())
 }

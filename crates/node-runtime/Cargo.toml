@@ -51,6 +51,7 @@ test-support = []
 computer-worker = ["dep:cua-platform-macos"]
 
 [dependencies]
+opendal.workspace = true
 cua-driver-sdk.workspace = true
 cua-driver-contract.workspace = true
 russh.workspace = true

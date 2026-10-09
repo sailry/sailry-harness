@@ -708,6 +708,17 @@ pub enum Command {
     SaveSandboxSettings(crate::sandbox::Settings),
     ReadSearchSettings,
     SaveSearchSettings(crate::search::Update),
+    ReadBackupSettings,
+    SaveBackupSettings(crate::backup::Update),
+    ListBackups,
+    ExportBackup {
+        expected_revision: u64,
+    },
+    RestoreBackup {
+        id: String,
+        expected_revision: u64,
+        target: String,
+    },
     ListShells,
     SaveTerminalSettings(crate::terminal::Settings),
     ListMediaModels,
@@ -1384,6 +1395,8 @@ impl Command {
                 | Self::ReadTerminalSettings
                 | Self::ReadSandboxSettings
                 | Self::ReadSearchSettings
+                | Self::ReadBackupSettings
+                | Self::ListBackups
                 | Self::ListShells
                 | Self::ReadPluginSecret { .. }
                 | Self::ListMediaModels
@@ -1655,6 +1668,13 @@ pub enum Output {
     TerminalSettings(crate::terminal::Settings),
     SandboxSettings(crate::sandbox::Settings),
     SearchSettings(crate::search::Settings),
+    BackupSettings(crate::backup::Settings),
+    Backups(crate::backup::Page),
+    Backup(crate::backup::Record),
+    BackupRestored {
+        record: crate::backup::Record,
+        target: String,
+    },
     Shells(Vec<String>),
     TerminalTools(Vec<crate::terminal::ToolInfo>),
     MediaSettings(crate::media::Settings),
@@ -1804,6 +1824,9 @@ pub enum Event {
         revision: u64,
     },
     SearchSettingsChanged {
+        revision: u64,
+    },
+    BackupSettingsChanged {
         revision: u64,
     },
     PluginChanged(crate::plugin::Summary),

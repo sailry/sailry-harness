@@ -268,3 +268,13 @@ fn incompatible(path: &Path, reason: impl std::fmt::Display) -> Error {
         "incompatible development database at {path:?}: {reason}; existing data was not changed; use --data-dir <new absolute private directory> to start with a fresh profile"
     ))
 }
+
+pub(super) fn validate_backup(connection: &Connection, node: NodeId) -> Result<(), Error> {
+    let path = Path::new("backup");
+    if !ownership(connection, path)? {
+        identity(connection, path, node)?;
+        verify(connection, path, DDL)
+    } else {
+        Err(incompatible(path, "backup database is empty"))
+    }
+}

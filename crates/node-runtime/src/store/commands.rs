@@ -182,6 +182,12 @@ pub(super) fn execute(
         Command::SaveSandboxSettings(settings) => super::sandbox::save(db, settings),
         Command::ReadSearchSettings => Ok((Output::SearchSettings(super::search::read(db)?), None)),
         Command::SaveSearchSettings(update) => super::search::save(db, request, update),
+        Command::ReadBackupSettings | Command::SaveBackupSettings(_) => {
+            super::backup::execute(db, request)
+        }
+        Command::ListBackups | Command::ExportBackup { .. } | Command::RestoreBackup { .. } => Err(
+            Fault::invalid("backup operation requires the resource worker"),
+        ),
         Command::SearchWeb(_)
         | Command::CancelWebSearch { .. }
         | Command::TestSearchDriver { .. } => Err(Fault::new(

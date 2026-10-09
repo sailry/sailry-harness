@@ -100,6 +100,7 @@ impl Projection {
                     Event::PluginValuesChanged { .. }
                     | Event::KnowledgeModelsChanged { .. }
                     | Event::KnowledgeSettingsChanged { .. }
+                    | Event::BackupSettingsChanged { .. }
                     | Event::KnowledgeCollectionsChanged => {}
                     Event::PluginRemoved { name } => {
                         snapshot.plugins.retain(|item| item.name != name)

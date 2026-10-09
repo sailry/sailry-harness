@@ -7,6 +7,13 @@ use sailry_protocol::{
 use serde::de::DeserializeOwned;
 
 pub(super) fn stored(db: &Connection) -> Result<(), Error> {
+    records::<crate::store::backup::Stored>(
+        db,
+        "backup_settings.body",
+        "SELECT body FROM backup_settings",
+    )?;
+    crate::store::backup::read(db)
+        .map_err(|_| Error::Worker("incompatible stored backup configuration".into()))?;
     records::<crate::store::search::Stored>(
         db,
         "search_settings.body",

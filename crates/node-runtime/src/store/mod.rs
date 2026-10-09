@@ -1,6 +1,7 @@
 mod admission;
 pub(crate) mod agent;
 mod attachments;
+mod backup;
 mod code;
 mod commands;
 mod connections;
@@ -54,6 +55,15 @@ use database::Database;
 const CAPACITY: usize = 64;
 
 enum Job {
+    BackupPlan {
+        expected: Option<u64>,
+        reply: oneshot::Sender<Result<crate::backup::Plan, Fault>>,
+    },
+    BackupSnapshot {
+        revision: u64,
+        cancel: sailry_link::CancellationToken,
+        reply: oneshot::Sender<Result<backup::Capture, Fault>>,
+    },
     KnowledgeCatalog {
         reply: oneshot::Sender<Result<knowledge::Catalog, Fault>>,
     },
@@ -704,6 +714,8 @@ impl Store {
                         _ => false,
                     };
                     match job {
+                        Job::BackupPlan { expected, reply } => { let _ = reply.send(backup::plan(&database.connection, expected)); }
+                        Job::BackupSnapshot { revision, cancel, reply } => { let _ = reply.send(backup::capture(&database, revision, &cancel)); }
                         Job::KnowledgeCatalog { reply } => {
                             let _ = reply.send(knowledge::catalog(&database.connection));
                         }

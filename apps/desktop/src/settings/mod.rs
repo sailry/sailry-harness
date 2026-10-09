@@ -1,4 +1,5 @@
 mod appearance;
+mod backup;
 mod catalog;
 mod code;
 mod connections;
@@ -41,6 +42,7 @@ pub enum Section {
     Conversation,
     Terminal,
     Knowledge,
+    Backup,
     Hooks,
     Plugin,
     Market,
@@ -64,12 +66,13 @@ impl Section {
 
     // Sailry Code 67ae9fa0: app/sailry_code_app/lib/settings/settings_models.dart.
     #[cfg(test)]
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 17] = [
         Self::General,
         Self::Appearance,
         Self::Conversation,
         Self::Terminal,
         Self::Knowledge,
+        Self::Backup,
         Self::Hooks,
         Self::Plugins,
         Self::Market,
@@ -99,13 +102,17 @@ impl Section {
             "settings_group_tools",
             &[Self::Terminal, Self::Connections, Self::Hooks],
         ),
-        ("settings_group_system", &[Self::Permissions, Self::About]),
+        (
+            "settings_group_system",
+            &[Self::Permissions, Self::Backup, Self::About],
+        ),
     ];
 
     pub(crate) fn navigation_order(self) -> u16 {
         match self {
             Self::General | Self::Providers | Self::Terminal | Self::Permissions => 100,
             Self::About | Self::Knowledge => 200,
+            Self::Backup => 300,
             Self::Appearance | Self::Connections => 200,
             Self::Conversation => 300,
             Self::Shortcuts => 400,
@@ -122,6 +129,7 @@ impl Section {
             Self::Conversation => "settings_conversation",
             Self::Terminal => "settings_terminal",
             Self::Knowledge => "settings_knowledge",
+            Self::Backup => "settings_backup",
             Self::Hooks => "hooks_settings",
             Self::Plugin => "plugins_settings_title",
             Self::Market => "plugins_market",
@@ -144,6 +152,7 @@ impl Section {
             Self::Conversation => return Icon::default().path("reicon:messages/chat-round"),
             Self::Terminal => IconName::SquareTerminal,
             Self::Knowledge => IconName::BookOpen,
+            Self::Backup => return gpui_kit::assets::IconName::Upload.into(),
             Self::Hooks => IconName::Settings2,
             Self::Plugin => IconName::Settings2,
             Self::Market | Self::Plugins => IconName::GalleryVerticalEnd,
@@ -171,6 +180,7 @@ pub struct Workspace {
     code: code::State,
     search: search::State,
     knowledge: knowledge::State,
+    backup: backup::State,
     hooks: hooks::State,
     conversation: conversation::State,
     opacity: appearance::opacity::State,
@@ -263,6 +273,7 @@ impl Workspace {
             code: code::State::default(),
             search: search::State::new(window, cx),
             knowledge: knowledge::State::default(),
+            backup: backup::State::default(),
             hooks: hooks::State::default(),
             conversation: conversation::State::new(window, cx),
             opacity: appearance::opacity::State::new(cx),
@@ -314,6 +325,7 @@ impl Workspace {
 
     pub fn deactivate(&mut self, cx: &mut Context<Self>) {
         self.clear_knowledge(cx);
+        self.clear_backup(cx);
         self.clear_code(cx);
         self.clear_search(cx);
         self.clear_hooks(cx);
@@ -344,6 +356,7 @@ impl Render for Workspace {
             Section::Conversation => self.conversation(window, cx),
             Section::Terminal => self.terminal(window, cx),
             Section::Knowledge => self.knowledge(window, cx),
+            Section::Backup => self.backup(window, cx),
             Section::Hooks => self.hooks.render(window, cx),
             Section::Shortcuts => self.shortcuts.clone().into_any_element(),
             Section::Dictation => {

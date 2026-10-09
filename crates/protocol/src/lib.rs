@@ -1,5 +1,6 @@
 pub mod activity;
 pub mod attachment;
+pub mod backup;
 pub mod browser;
 pub mod code;
 pub mod computer;

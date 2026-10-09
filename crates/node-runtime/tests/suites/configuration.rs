@@ -21,3 +21,6 @@ mod roles;
 mod schema;
 #[path = "../search.rs"]
 mod search;
+
+#[path = "../backup.rs"]
+mod backup;

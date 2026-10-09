@@ -139,6 +139,9 @@ impl Ingress {
                 self.check_request(caller, request.clone(), internal)
                     .await?;
             }
+            if matches!(request.command, sailry_protocol::Command::ListBackups) {
+                return self.read_backup(request).await;
+            }
             if matches!(
                 request.command,
                 sailry_protocol::Command::FetchWeb(_)

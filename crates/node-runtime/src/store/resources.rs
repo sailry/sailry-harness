@@ -9,6 +9,12 @@ use tokio::{runtime::Handle, sync::oneshot};
 pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Fault> {
     if matches!(
         request.command,
+        Command::ExportBackup { .. } | Command::RestoreBackup { .. }
+    ) {
+        return super::backup::prepare(database, request);
+    }
+    if matches!(
+        request.command,
         Command::InstallKnowledgeModel { .. } | Command::DeleteKnowledgeModel { .. }
     ) {
         return super::knowledge::runtime::prepare(request);
@@ -130,6 +136,9 @@ impl Worker {
         self.runtime.spawn(async move {
             let operation = async {
                 match &execution.request.command {
+                    Command::ExportBackup { .. } | Command::RestoreBackup { .. } => {
+                        ingress.change_backup(&execution.request, &stop).await
+                    }
                     Command::InstallKnowledgeModel { .. }
                     | Command::DeleteKnowledgeModel { .. } => {
                         ingress.change_knowledge(&execution.request, &stop).await

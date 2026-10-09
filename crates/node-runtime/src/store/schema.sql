@@ -394,3 +394,5 @@ CREATE TABLE hook_executions (
     result BLOB,
     PRIMARY KEY(turn,phase,ordinal)
 );
+
+CREATE TABLE backup_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
