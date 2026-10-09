@@ -892,6 +892,14 @@
       ],
       "type": "object"
     },
+    "NativeSettings": {
+      "description": "Fixed host adapters for the corresponding bundled feature packages.",
+      "enum": [
+        "code",
+        "search"
+      ],
+      "type": "string"
+    },
     "Navigation": {
       "additionalProperties": false,
       "properties": {
@@ -1035,6 +1043,7 @@
         "storage.delete",
         "storage.transaction",
         "knowledge.query",
+        "knowledge.read",
         "knowledge.collections",
         "knowledge.create",
         "knowledge.rebuild",
@@ -1338,6 +1347,17 @@
         "full_width": {
           "default": false,
           "type": "boolean"
+        },
+        "native": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NativeSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A built-in host settings renderer; cannot be combined with a script entry."
         },
         "navigation": {
           "$ref": "#/$defs/Navigation"

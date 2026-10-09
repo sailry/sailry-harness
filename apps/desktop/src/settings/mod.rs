@@ -40,8 +40,6 @@ pub enum Section {
     Appearance,
     Conversation,
     Terminal,
-    Code,
-    Search,
     Knowledge,
     Hooks,
     Plugin,
@@ -66,13 +64,11 @@ impl Section {
 
     // Sailry Code 67ae9fa0: app/sailry_code_app/lib/settings/settings_models.dart.
     #[cfg(test)]
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 16] = [
         Self::General,
         Self::Appearance,
         Self::Conversation,
         Self::Terminal,
-        Self::Code,
-        Self::Search,
         Self::Knowledge,
         Self::Hooks,
         Self::Plugins,
@@ -101,13 +97,7 @@ impl Section {
         ("settings_group_ai", &[Self::Providers, Self::Knowledge]),
         (
             "settings_group_tools",
-            &[
-                Self::Terminal,
-                Self::Connections,
-                Self::Code,
-                Self::Search,
-                Self::Hooks,
-            ],
+            &[Self::Terminal, Self::Connections, Self::Hooks],
         ),
         ("settings_group_system", &[Self::Permissions, Self::About]),
     ];
@@ -117,8 +107,8 @@ impl Section {
             Self::General | Self::Providers | Self::Terminal | Self::Permissions => 100,
             Self::About | Self::Knowledge => 200,
             Self::Appearance | Self::Connections => 200,
-            Self::Conversation | Self::Code => 300,
-            Self::Shortcuts | Self::Search => 400,
+            Self::Conversation => 300,
+            Self::Shortcuts => 400,
             Self::Hooks => 500,
             Self::Dictation => 500,
             _ => 10_000,
@@ -131,8 +121,6 @@ impl Section {
             Self::Appearance => "settings_appearance",
             Self::Conversation => "settings_conversation",
             Self::Terminal => "settings_terminal",
-            Self::Code => "settings_code",
-            Self::Search => "settings_search",
             Self::Knowledge => "settings_knowledge",
             Self::Hooks => "hooks_settings",
             Self::Plugin => "plugins_settings_title",
@@ -155,8 +143,6 @@ impl Section {
             Self::Appearance => IconName::Palette,
             Self::Conversation => return Icon::default().path("reicon:messages/chat-round"),
             Self::Terminal => IconName::SquareTerminal,
-            Self::Code => IconName::Cpu,
-            Self::Search => IconName::Search,
             Self::Knowledge => IconName::BookOpen,
             Self::Hooks => IconName::Settings2,
             Self::Plugin => IconName::Settings2,
@@ -329,6 +315,7 @@ impl Workspace {
     pub fn deactivate(&mut self, cx: &mut Context<Self>) {
         self.clear_knowledge(cx);
         self.clear_code(cx);
+        self.clear_search(cx);
         self.clear_hooks(cx);
         self.permissions
             .update(cx, |panel, cx| panel.activate(false, cx));
@@ -341,6 +328,13 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let native = self.native_settings(cx);
+        if native != Some(sailry_protocol::plugin::desktop::NativeSettings::Code) {
+            self.clear_code(cx);
+        }
+        if native != Some(sailry_protocol::plugin::desktop::NativeSettings::Search) {
+            self.clear_search(cx);
+        }
         let content = match self.section {
             Section::Connections => self.connections.clone().into_any_element(),
             Section::Providers => self.providers(cx),
@@ -349,8 +343,6 @@ impl Render for Workspace {
             Section::Appearance => self.appearance(cx),
             Section::Conversation => self.conversation(window, cx),
             Section::Terminal => self.terminal(window, cx),
-            Section::Code => self.code.render(window, cx),
-            Section::Search => self.search(window, cx),
             Section::Knowledge => self.knowledge(window, cx),
             Section::Hooks => self.hooks.render(window, cx),
             Section::Shortcuts => self.shortcuts.clone().into_any_element(),

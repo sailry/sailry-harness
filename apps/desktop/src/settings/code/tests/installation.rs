@@ -35,7 +35,7 @@ fn uses_captured_consent_through_lifecycle(cx: &mut TestAppContext) {
         assert_eq!(consent.version, network.asset.version);
         assert_eq!(consent.urls, vec![network.asset.asset_url.clone()]);
         assert!(!consent.licenses.is_empty());
-        tap(cx, "code-install-0-0");
+        tap(cx, "code-install-rust-analyzer");
         assert!(fixture.transport.requests.lock().unwrap().is_empty());
         assert!(cx.debug_bounds("code-consent-details").is_some());
         for selector in [
@@ -67,8 +67,16 @@ fn uses_captured_consent_through_lifecycle(cx: &mut TestAppContext) {
         assert_eq!(receipt.version, network.asset.version);
         assert!(receipt.downloads.iter().all(|download| download.verified));
         assert_eq!(network.hits.load(Ordering::SeqCst), 1);
+        assert!(cx.debug_bounds("code-tab-installed").is_some());
+        assert!(cx.debug_bounds("code-edit-rust-analyzer").is_some());
+        assert!(cx.debug_bounds("code-install-rust-analyzer").is_none());
+        tap(cx, "code-details-rust-analyzer");
+        assert!(cx.debug_bounds("code-details-update").is_some());
+        assert!(cx.debug_bounds("code-details-uninstall").is_some());
+        assert!(cx.debug_bounds("code-detail-version").is_some());
+        tap(cx, "code-details-close");
         fixture.transport.drop_next.store(true, Ordering::SeqCst);
-        tap(cx, "code-start-0-0");
+        tap(cx, "code-start-rust-analyzer");
         assert!(cx.update(|window, cx| window.has_active_dialog(cx)));
         let startup = cx.update(|_, cx| {
             panel.read(cx).workspace.as_ref().unwrap().languages[0].servers[0]
@@ -127,10 +135,23 @@ fn uses_captured_consent_through_lifecycle(cx: &mut TestAppContext) {
             })
             .count();
         assert_eq!(starts, 1);
-        tap(cx, "code-uninstall-0");
+        fixture.bind(&owner, cx, false, Some(fixture.second));
+        wait(cx, |cx| {
+            selected(&owner, cx).read(cx).workspace.is_some()
+                && !selected(&owner, cx).read(cx).loading
+        });
+        tap(cx, "code-tab-installed");
+        assert!(cx.debug_bounds("code-server-rust-analyzer").is_some());
+        assert!(cx.debug_bounds("code-edit-rust-analyzer").is_none());
+        assert!(cx.debug_bounds("code-start-rust-analyzer").is_none());
+        tap(cx, "code-details-rust-analyzer");
+        assert!(cx.debug_bounds("code-detail-package").is_some());
+        tap(cx, "code-details-uninstall");
         assert!(cx.update(|window, cx| window.has_active_dialog(cx)));
         tap(cx, "code-consent-submit");
-        wait(cx, |cx| !panel.read(cx).pending && !panel.read(cx).loading);
+        wait(cx, |cx| {
+            !selected(&owner, cx).read(cx).pending && !selected(&owner, cx).read(cx).loading
+        });
         let Output::CodeInstallations(installs) = fixture.execute(Command::ListCodeInstallations)
         else {
             panic!("installations expected")
@@ -154,7 +175,7 @@ fn cancels_real_download_from_status_subscription(cx: &mut TestAppContext) {
         let fixture = Fixture::with_endpoint(remote, Some(network.endpoint.clone()));
         let (owner, cx) = fixture.mount(cx);
         let panel = cx.update(|_, cx| selected(&owner, cx));
-        tap(cx, "code-install-0-0");
+        tap(cx, "code-install-rust-analyzer");
         tap(cx, "code-consent-submit");
         wait(cx, |cx| {
             network.hits.load(Ordering::SeqCst) > 0
@@ -165,7 +186,20 @@ fn cancels_real_download_from_status_subscription(cx: &mut TestAppContext) {
                     .any(|installation| installation.status == InstallStatus::Downloading)
         });
         assert!(cx.update(|_, cx| panel.read(cx).pending));
-        tap(cx, "code-cancel-0");
+        assert!(cx.debug_bounds("code-install-rust-analyzer").is_some());
+        tap(cx, "code-install-rust-analyzer");
+        assert_eq!(
+            fixture
+                .transport
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|request| matches!(request.command, Command::InstallCodeServer { .. }))
+                .count(),
+            1
+        );
+        tap(cx, "code-cancel-rust-analyzer");
         wait(cx, |cx| {
             !panel.read(cx).pending
                 && panel.read(cx).cancelling.is_none()
@@ -208,7 +242,7 @@ fn retries_installation_and_rules_with_original_ids(cx: &mut TestAppContext) {
         let (owner, cx) = fixture.mount(cx);
         let panel = cx.update(|_, cx| selected(&owner, cx));
         fixture.transport.drop_next.store(true, Ordering::SeqCst);
-        tap(cx, "code-install-0-0");
+        tap(cx, "code-install-rust-analyzer");
         tap(cx, "code-consent-submit");
         wait(cx, |cx| {
             !panel.read(cx).pending

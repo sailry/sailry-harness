@@ -1,7 +1,38 @@
 use super::*;
-use crate::settings::search::tests::fixture::{Fixture, init, input, selected, tap, toast, wait};
+use crate::settings::search::tests::fixture::{
+    Fixture, draw, init, input, selected, tap, toast, wait,
+};
 use core::prelude::v1::test;
 use std::sync::atomic::Ordering;
+
+#[gpui::test]
+fn blocks_stale_credentials_and_allows_close(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let (owner, visual) = fixture.mount(cx);
+        tap(visual, "search-edit-exa");
+        input(visual, "search-api-key", "stale-target-key");
+        fixture.bind(&owner, visual, true);
+        tap(visual, "search-editor-save");
+        toast(visual, "search_target_changed");
+        assert!(fixture.transport.requests.lock().unwrap().is_empty());
+        assert!(!fixture.settings().providers[&Driver::Exa].key_configured);
+        let other = sailry_client::Client::new(fixture.other.local());
+        let Output::SearchSettings(settings) = fixture
+            .runtime
+            .block_on(other.execute(other.prepare(Command::ReadSearchSettings)))
+            .unwrap()
+        else {
+            panic!("settings expected")
+        };
+        assert!(!settings.providers[&Driver::Exa].key_configured);
+        tap(visual, "search-editor-cancel");
+        draw(visual);
+        assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+        fixture.close(visual);
+    }
+}
 
 #[gpui::test]
 fn saves_private_credentials_and_tests_the_driver(cx: &mut TestAppContext) {

@@ -85,11 +85,24 @@ impl Network {
                 } else {
                     attempt.follow()
                 }
-            }))
-            .build()
-            .map_err(unavailable)?;
+            }));
+        #[cfg(any(test, feature = "test-support"))]
+        let fixture = self
+            .endpoint
+            .read()
+            .expect("code fixture lock is healthy")
+            .is_some();
+        #[cfg(any(test, feature = "test-support"))]
+        let client = if fixture { client.no_proxy() } else { client };
+        let client = client.build().map_err(unavailable)?;
         let download = async {
-            let response = client.get(address).send().await.map_err(unavailable)?;
+            let response = client.get(address).send().await.map_err(|error| {
+                #[cfg(any(test, feature = "test-support"))]
+                if fixture {
+                    eprintln!("code fixture request failed: {error:?}");
+                }
+                unavailable(error)
+            })?;
             if !response.status().is_success() {
                 return Err(Fault::new(
                     if response.status() == reqwest::StatusCode::NOT_FOUND {

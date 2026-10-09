@@ -7,7 +7,7 @@ fn context() -> plugin::Context {
         turn: None,
         surface: Default::default(),
         package: Reference {
-            name: "knowledge".into(),
+            name: "notes-fixture".into(),
             digest: "a".repeat(64),
             settings_revision: 0,
         },

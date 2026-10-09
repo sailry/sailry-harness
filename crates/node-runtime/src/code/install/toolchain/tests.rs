@@ -77,7 +77,18 @@ async fn terminates_the_installer_process_group_on_cancel() {
     let fixture = Fixture::new().await;
     let python = CodeServerFixture::python();
     let executable = fixture.bin.join("hang");
-    std::fs::write(&executable,format!("#!{}\nimport subprocess,sys,pathlib,time\nchild=subprocess.Popen([sys.executable,'-c','import time;time.sleep(3600)'])\npathlib.Path('child.pid').write_text(str(child.pid))\ntime.sleep(3600)\n",python.display())).unwrap();
+    let script = format!(
+        "#!{}\n\
+         import subprocess,sys,pathlib,time\n\
+         child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(3600)'])\n\
+         marker=pathlib.Path('child.pid')\n\
+         temporary=marker.with_suffix('.tmp')\n\
+         temporary.write_text(str(child.pid))\n\
+         temporary.replace(marker)\n\
+         time.sleep(3600)\n",
+        python.display()
+    );
+    std::fs::write(&executable, script).unwrap();
     std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
     let stop = CancellationToken::new();
     let cancelled = stop.clone();

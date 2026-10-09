@@ -51,6 +51,27 @@ fn exports_match_the_deserialization_contract() {
 }
 
 #[test]
+fn validates_host_settings_adapters_offline() {
+    let validator = validator();
+    for bytes in [
+        include_bytes!("../../../../../plugins/code/plugin.json").as_slice(),
+        include_bytes!("../../../../../plugins/web-search/plugin.json").as_slice(),
+    ] {
+        let mut manifest: Value = serde_json::from_slice(bytes).unwrap();
+        assert!(validator.is_valid(&manifest), "{}", manifest["name"]);
+        assert!(parse(bytes).unwrap().issues.is_empty());
+        manifest["extensions"]["dev.sailry.platform"]["settings_page"]["native"] = json!("unknown");
+        assert!(!validator.is_valid(&manifest));
+        assert!(
+            parse(&serde_json::to_vec(&manifest).unwrap())
+                .unwrap()
+                .extension
+                .is_none()
+        );
+    }
+}
+
+#[test]
 fn renderer_shortcuts_preserve_strict_authoring() {
     let validator = validator();
     let mut manifest: Value =

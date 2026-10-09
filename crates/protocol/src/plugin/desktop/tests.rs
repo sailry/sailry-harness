@@ -1,5 +1,36 @@
 use super::*;
 
+#[test]
+fn roundtrips_host_settings_adapters() {
+    for (native, id) in [
+        (NativeSettings::Code, "code"),
+        (NativeSettings::Search, "search"),
+    ] {
+        let value = serde_json::json!({
+            "navigation":{"label":"Settings"}, "native":id, "entry":null,
+            "enabled_control":true, "placement":{"group":"tools", "order":300}
+        });
+        let page: Settings = serde_json::from_value(value).unwrap();
+        assert_eq!(page.native, Some(native));
+        assert!(page.entry.is_none());
+        assert!(page.enabled_control);
+        let encoded = serde_json::to_value(&page).unwrap();
+        assert_eq!(encoded["native"], id);
+        assert_eq!(serde_json::from_value::<Settings>(encoded).unwrap(), page);
+    }
+    let plain: Settings = serde_json::from_value(serde_json::json!({
+        "navigation":{"label":"Settings"}, "entry":null
+    }))
+    .unwrap();
+    assert!(plain.native.is_none());
+    assert!(
+        serde_json::from_value::<Settings>(serde_json::json!({
+            "navigation":{"label":"Settings"}, "native":"unknown", "entry":null
+        }))
+        .is_err()
+    );
+}
+
 fn manifest(paths: &[&str]) -> Manifest {
     Manifest {
         navigation: None,

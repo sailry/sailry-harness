@@ -109,15 +109,31 @@ async fn preserves_private_credentials_and_revisions() {
         changed.driver = Some(Selection::Auto);
         changed.prefer_native = !changed.prefer_native;
         changed.providers.get_mut(&Driver::Tavily).unwrap().enabled = true;
+        changed
+            .providers
+            .get_mut(&Driver::Searxng)
+            .unwrap()
+            .endpoint = Some("http://192.168.10.20:8080/".into());
         let update = search::Update {
             settings: changed.clone(),
-            credentials: BTreeMap::from([(
-                Driver::Tavily,
-                search::Credentials {
-                    key: SecretUpdate::Replace(Secret::new("synthetic-search-key".into())),
-                    ..Default::default()
-                },
-            )]),
+            credentials: BTreeMap::from([
+                (
+                    Driver::Tavily,
+                    search::Credentials {
+                        key: SecretUpdate::Replace(Secret::new("synthetic-search-key".into())),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    Driver::Searxng,
+                    search::Credentials {
+                        key: SecretUpdate::Replace(Secret::new("synthetic-lan-key".into())),
+                        basic: SecretUpdate::Replace(Secret::new(
+                            "lan-user:private-password".into(),
+                        )),
+                    },
+                ),
+            ]),
         };
         let request = client.prepare(Command::SaveSearchSettings(update));
         assert!(request.command.durable());
@@ -144,6 +160,9 @@ async fn preserves_private_credentials_and_revisions() {
                         .unwrap()
                         .contains("synthetic-search-key")
                 );
+                let serialized = serde_json::to_string(&update).unwrap();
+                assert!(!serialized.contains("synthetic-lan-key"));
+                assert!(!serialized.contains("private-password"));
                 assert_ne!(projection.apply(0, update).unwrap(), Apply::Recover);
                 if projection.snapshot().unwrap().search_settings_revision == saved.revision {
                     break;
@@ -154,6 +173,8 @@ async fn preserves_private_credentials_and_revisions() {
         .unwrap();
         let public = serde_json::to_string(projection.snapshot().unwrap()).unwrap();
         assert!(!public.contains("synthetic-search-key"));
+        assert!(!public.contains("synthetic-lan-key"));
+        assert!(!public.contains("private-password"));
         assert!(
             !serde_json::to_string(&read(&client).await)
                 .unwrap()
@@ -220,7 +241,7 @@ async fn searches_all_saved_drivers_without_task_approval() {
             .providers
             .get_mut(&Driver::Searxng)
             .unwrap()
-            .endpoint = Some("https://search.example/".into());
+            .endpoint = Some("http://192.168.10.20:8080/".into());
         credentials.insert(
             Driver::Searxng,
             search::Credentials {
@@ -406,7 +427,8 @@ async fn rejects_invalid_settings_without_storing_keys() {
         let original = read(&client).await;
         for endpoint in [
             "https://user:password@example.com/",
-            "http://public.example/",
+            "http://user:password@search.lan/",
+            "file:///private/search",
             "https://example.com/?key=private",
         ] {
             let mut settings = original.clone();

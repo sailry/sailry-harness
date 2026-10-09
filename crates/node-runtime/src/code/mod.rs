@@ -22,7 +22,7 @@ mod workspace;
 
 pub(crate) use operations::limit;
 pub(crate) use operations::{command, description, handles, parameters};
-pub(crate) use pool::Pool;
+pub(crate) use pool::{Pool, disabled};
 
 pub(crate) fn validate_package(package: &str, version: &str) -> Result<(), sailry_protocol::Fault> {
     install::validate_package(package, version)

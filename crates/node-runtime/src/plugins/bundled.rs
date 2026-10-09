@@ -14,7 +14,6 @@ pub(crate) const DEFAULTS: &[(&str, bool)] = &[
     ("computer", false),
     ("media", true),
     ("memory", true),
-    ("knowledge", true),
     ("files", true),
     ("code", true),
     ("progress", true),
@@ -55,6 +54,18 @@ pub(super) fn entries() -> Result<Vec<sailry_protocol::plugin::catalog::Entry>, 
 }
 
 impl Host {
+    pub(crate) fn bundled_version(name: &str) -> Result<Option<String>, Fault> {
+        let (_, files) = PACKAGES
+            .iter()
+            .find(|(id, _)| *id == name)
+            .ok_or_else(|| Fault::new(ErrorCode::NotFound, "bundled plugin is unavailable"))?;
+        let bytes = files
+            .iter()
+            .find(|(path, _)| *path == "plugin.json")
+            .expect("bundled plugin manifest");
+        Ok(manifest::parse(bytes.1)?.version)
+    }
+
     fn bundled_source(name: &str) -> Result<tempfile::TempDir, Fault> {
         let (_, files) = PACKAGES
             .iter()

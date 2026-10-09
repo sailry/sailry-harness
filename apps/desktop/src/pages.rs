@@ -22,18 +22,13 @@ impl Shell {
                 .flatten();
             self.settings.update(cx, |settings, cx| {
                 settings.bind_providers(transport.clone(), runtime.clone(), label.clone(), cx);
-                if settings.section == crate::settings::Section::Code {
-                    settings.bind_code(
-                        transport.clone(),
-                        runtime.clone(),
-                        label.clone(),
-                        worktree,
-                        window,
-                        cx,
-                    );
-                } else {
-                    settings.clear_code(cx);
-                }
+                settings.bind_code_scope(
+                    transport.clone(),
+                    runtime.clone(),
+                    label.clone(),
+                    worktree,
+                    cx,
+                );
                 if settings.section == crate::settings::Section::Hooks {
                     settings.bind_hooks(transport, runtime, label, worktree, window, cx);
                 } else {

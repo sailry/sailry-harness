@@ -92,15 +92,6 @@ fn validate(stored: &Stored) -> Result<(), Fault> {
             {
                 return Err(Fault::invalid("invalid search endpoint"));
             }
-            if url.scheme() != "https"
-                && !matches!(url.host(), Some(url::Host::Ipv4(ip)) if ip.is_loopback())
-                && !matches!(url.host(), Some(url::Host::Ipv6(ip)) if ip.is_loopback())
-                && url.host_str() != Some("localhost")
-            {
-                return Err(Fault::invalid(
-                    "search endpoints require HTTPS outside localhost",
-                ));
-            }
         }
         for secret in [&auth.key, &auth.basic].into_iter().flatten() {
             if secret.expose().trim().is_empty()

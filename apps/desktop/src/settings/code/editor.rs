@@ -1,17 +1,20 @@
 use super::*;
 use crate::{theme::DialogStyle as _, tr};
 use gpui_kit::component::{
-    button::{Button, ButtonVariants},
+    button::Button,
     dialog::DialogFooter,
     form::Field,
-    input::{Input, InputState},
+    input::{Input, InputEvent, InputState},
     scroll::ScrollableElement,
 };
 
-struct Editor {
+pub(super) struct Editor {
     owner: Entity<Panel>,
     server: String,
-    fields: Vec<(&'static str, Entity<InputState>)>,
+    pub(super) fields: Vec<(&'static str, Entity<InputState>)>,
+    previous: Option<code::Override>,
+    task: Option<Task<()>>,
+    closed: bool,
     error: Option<&'static str>,
 }
 
@@ -23,6 +26,7 @@ pub(super) fn open(owner: Entity<Panel>, server: String, window: &mut Window, cx
         .and_then(|draft| draft.servers.get(&server))
         .cloned();
     let values = current
+        .clone()
         .map(|value| {
             [
                 value.command.unwrap_or_default(),
@@ -45,7 +49,7 @@ pub(super) fn open(owner: Entity<Panel>, server: String, window: &mut Window, cx
         crate::feedback::observe(window, cx, |editor: &Editor, _| {
             editor.error.into_iter().collect()
         });
-        let fields = [
+        let fields: Vec<_> = [
             "code_command",
             "code_arguments",
             "code_configuration",
@@ -60,43 +64,94 @@ pub(super) fn open(owner: Entity<Panel>, server: String, window: &mut Window, cx
             )
         })
         .collect();
+        for (_, input) in &fields {
+            cx.subscribe_in(
+                input,
+                window,
+                |editor: &mut Editor, _, event, window, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        editor.changed(window, cx);
+                    }
+                },
+            )
+            .detach();
+        }
         Editor {
             owner,
             server,
             fields,
+            previous: current,
+            task: None,
+            closed: false,
             error: None,
         }
     });
+    #[cfg(test)]
+    {
+        let owner = editor.read(cx).owner.clone();
+        owner.update(cx, |panel, _| panel.editor = Some(editor.downgrade()));
+    }
     window.open_dialog(cx, move |dialog, window, _| {
-        let save = editor.clone();
+        let close = editor.clone();
+        let cancel = editor.clone();
         dialog
             .form_title(tr("code_custom_command"))
             .w((window.viewport_size().width - px(48.)).min(px(600.)))
+            .overlay_closable(false)
+            .on_cancel(move |_, window, cx| {
+                cancel.update(cx, |editor, cx| editor.finish(window, cx))
+            })
             .child(editor.clone())
             .footer(
-                DialogFooter::new()
-                    .w_full()
-                    .gap_2()
-                    .child(
-                        Button::new("code-editor-cancel")
-                            .label(tr("settings_cancel"))
-                            .on_click(|_, window, cx| window.close_dialog(cx)),
-                    )
-                    .child(
-                        Button::new("code-editor-save")
-                            .primary()
-                            .label(tr("settings_save"))
-                            .debug_selector(|| "code-editor-save".into())
-                            .on_click(move |_, window, cx| {
-                                save.update(cx, |editor, cx| editor.save(window, cx))
-                            }),
-                    ),
+                DialogFooter::new().child(
+                    Button::new("code-editor-close")
+                        .label(tr("close"))
+                        .debug_selector(|| "code-editor-close".into())
+                        .on_click(move |_, window, cx| {
+                            if close.update(cx, |editor, cx| editor.finish(window, cx)) {
+                                window.close_dialog(cx);
+                            }
+                        }),
+                ),
             )
     });
 }
 
 impl Editor {
-    fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.closed {
+            return;
+        }
+        self.error = None;
+        self.task = Some(cx.spawn_in(window, async move |owner, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(350))
+                .await;
+            _ = owner.update_in(cx, |editor, window, cx| {
+                editor.flush(false, window, cx);
+            });
+        }));
+        cx.notify();
+    }
+
+    fn finish(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if !self.owner.read(cx).active {
+            self.error = Some("code_target_changed");
+            self.closed = true;
+            self.task = None;
+            cx.notify();
+            return true;
+        }
+        if self.flush(true, window, cx) {
+            self.closed = true;
+            self.task = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn flush(&mut self, report: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let values: Vec<_> = self
             .fields
             .iter()
@@ -116,12 +171,26 @@ impl Editor {
             ))
         })();
         let Ok((args, config, environment)) = parsed else {
-            self.error = Some("code_invalid");
-            cx.notify();
-            return;
+            if report {
+                self.error = Some("code_invalid");
+                cx.notify();
+            }
+            return false;
         };
+        let script = code::Override {
+            disabled: self.previous.as_ref().is_some_and(|value| value.disabled),
+            command: (!values[0].is_empty()).then(|| values[0].clone()),
+            args,
+            config,
+            environment,
+        };
+        if self.previous.as_ref() == Some(&script)
+            || (self.previous.is_none() && values.iter().all(String::is_empty))
+        {
+            return true;
+        }
         let applied = self.owner.update(cx, |panel, cx| {
-            if !panel.active || panel.locked() {
+            if !panel.active || panel.loading {
                 panel.error = Some("code_target_changed");
                 cx.notify();
                 return false;
@@ -129,26 +198,19 @@ impl Editor {
             let Some(draft) = panel.draft.as_mut() else {
                 return false;
             };
-            let disabled = draft
-                .servers
-                .get(&self.server)
-                .is_some_and(|value| value.disabled);
-            draft.servers.insert(
-                self.server.clone(),
-                code::Override {
-                    disabled,
-                    command: (!values[0].is_empty()).then(|| values[0].clone()),
-                    args,
-                    config,
-                    environment,
-                },
-            );
+            if draft.servers.get(&self.server) != self.previous.as_ref() {
+                panel.error = Some("code_target_changed");
+                cx.notify();
+                return false;
+            }
+            draft.servers.insert(self.server.clone(), script.clone());
             panel.save(window, cx);
             true
         });
         if applied {
-            window.close_dialog(cx);
+            self.previous = Some(script);
         }
+        applied
     }
 }
 

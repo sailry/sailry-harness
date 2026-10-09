@@ -83,6 +83,45 @@ fn save(db: &Connection, info: &Info, installed: bool) -> Result<(), Fault> {
     Ok(())
 }
 
+fn enable(db: &Connection, mut info: Info, enabled: bool) -> Result<Info, Fault> {
+    let name = &info.summary.name;
+    info.summary.revision = next(db, name)?;
+    info.summary.enabled = enabled;
+    save(db, &info, true)?;
+    if !enabled {
+        super::agent::continuation::invalidate(db, name)?;
+    }
+    Ok(info)
+}
+
+pub(super) fn synchronize(
+    db: &Connection,
+    name: &str,
+    enabled: bool,
+) -> Result<Option<Summary>, Fault> {
+    let Some(info) = get(db, name)? else {
+        if enabled
+            && db
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM plugins WHERE name=?1 AND installed=0)",
+                    [name],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(storage_error)?
+        {
+            return Err(Fault::new(
+                ErrorCode::NotConfigured,
+                "plugin must be installed before enabling it",
+            ));
+        }
+        return Ok(None);
+    };
+    if info.summary.enabled == enabled {
+        return Ok(None);
+    }
+    Ok(Some(enable(db, info, enabled)?.summary))
+}
+
 pub(super) fn check_install(
     db: &Connection,
     name: &str,
@@ -240,6 +279,9 @@ fn finish_package(
         .as_ref()
         .is_none_or(|current| current.summary.enabled);
     save(db, info, true)?;
+    if name == "code" {
+        super::code::enable(db, info.summary.enabled)?;
+    }
     super::agent::continuation::invalidate(db, name)?;
     if let Command::InstallMcp {
         definition,
@@ -314,13 +356,11 @@ pub(super) fn execute(
             expected_revision,
             enabled,
         } => {
-            let mut info = required(db, name)?;
+            let info = required(db, name)?;
             super::commands::check_revision(info.summary.revision, *expected_revision)?;
-            info.summary.revision = next(db, name)?;
-            info.summary.enabled = *enabled;
-            save(db, &info, true)?;
-            if !enabled {
-                super::agent::continuation::invalidate(db, name)?;
+            let info = enable(db, info, *enabled)?;
+            if name == "code" {
+                super::code::enable(db, *enabled)?;
             }
             Ok((
                 Output::Plugin(info.clone()),
@@ -336,6 +376,9 @@ pub(super) fn execute(
             info.summary.revision = next(db, name)?;
             info.summary.enabled = false;
             save(db, &info, false)?;
+            if name == "code" {
+                super::code::enable(db, false)?;
+            }
             super::agent::continuation::invalidate(db, name)?;
             Ok((
                 Output::Plugins(list(db)?),

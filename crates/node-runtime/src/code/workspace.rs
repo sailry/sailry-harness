@@ -18,11 +18,7 @@ impl Pool {
             tokio::task::spawn_blocking(move || scan(&directory, &discovery, cancelled))
                 .await
                 .map_err(|error| Fault::invalid(error.to_string()))??;
-        let settings = self
-            .settings
-            .read()
-            .expect("code settings lock is healthy")
-            .clone();
+        let settings = self.settings();
         let mut languages = Vec::new();
         for (name, path) in paths {
             let Some(language) = rules
@@ -50,16 +46,21 @@ impl Pool {
             })
             .await
             .map_err(|error| Fault::invalid(error.to_string()))??;
-            let _ = self
-                .prepare(
-                    worktree,
-                    root.clone(),
-                    &code::Query::Symbols {
-                        path: Some(path.clone()),
-                        query: None,
-                    },
-                )
-                .await?;
+            if settings.enabled {
+                let prepared = self
+                    .prepare(
+                        worktree,
+                        root.clone(),
+                        &code::Query::Symbols {
+                            path: Some(path.clone()),
+                            query: None,
+                        },
+                    )
+                    .await;
+                if self.settings().enabled {
+                    prepared?;
+                }
+            }
             let running = self.list(worktree).await?;
             let mut servers = Vec::new();
             for name in settings

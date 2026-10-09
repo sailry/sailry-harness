@@ -1,9 +1,90 @@
 use super::*;
-use crate::settings::Section;
 use core::prelude::v1::test;
-use sailry_protocol::Command;
+use sailry_protocol::{Command, Output};
 pub(super) mod fixture;
 use fixture::{Fixture, draw, init, selected, tap, wait};
+
+#[gpui::test]
+fn switches_plugin_without_changing_driver_settings(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let (owner, visual) = fixture.mount(cx);
+        let settings = fixture.settings();
+        let Output::Plugin(initial) = fixture.execute(Command::ReadPlugin {
+            name: "web-search".into(),
+        }) else {
+            panic!("plugin expected")
+        };
+        let other = sailry_client::Client::new(fixture.other.local());
+        let untouched = fixture
+            .runtime
+            .block_on(other.execute(other.prepare(Command::ReadPlugin {
+                name: "web-search".into(),
+            })))
+            .unwrap();
+        owner.read_with(visual, |workspace, cx| {
+            assert_eq!(workspace.selected_plugin_settings(), Some("web-search"));
+            let page = workspace
+                .plugin_catalog
+                .metadata
+                .as_ref()
+                .unwrap()
+                .read(cx)
+                .entries["web-search"]
+                .extension
+                .as_ref()
+                .unwrap()
+                .settings_page
+                .as_ref()
+                .unwrap();
+            assert_eq!(
+                page.native,
+                Some(sailry_protocol::plugin::desktop::NativeSettings::Search)
+            );
+        });
+        for enabled in [!initial.summary.enabled, initial.summary.enabled] {
+            let Output::Plugin(previous) = fixture.execute(Command::ReadPlugin {
+                name: "web-search".into(),
+            }) else {
+                panic!("plugin expected")
+            };
+            tap(visual, "plugin-settings-enabled");
+            wait(visual, |cx| {
+                let workspace = owner.read(cx);
+                !workspace.plugin_catalog.busy()
+                    && workspace
+                        .plugin_catalog
+                        .packages
+                        .iter()
+                        .any(|plugin| plugin.name == "web-search" && plugin.enabled == enabled)
+            });
+            let requests = fixture.transport.requests.lock().unwrap();
+            let request = requests.last().unwrap();
+            assert_eq!(request.target, fixture.node.id());
+            assert_eq!(
+                request.command,
+                Command::SetPluginEnabled {
+                    name: "web-search".into(),
+                    expected_revision: previous.summary.revision,
+                    enabled,
+                }
+            );
+        }
+        assert_eq!(fixture.transport.requests.lock().unwrap().len(), 2);
+        assert_eq!(fixture.settings(), settings);
+        assert_eq!(
+            fixture
+                .runtime
+                .block_on(other.execute(other.prepare(Command::ReadPlugin {
+                    name: "web-search".into(),
+                })))
+                .unwrap(),
+            untouched
+        );
+        fixture.close(visual);
+    }
+}
 
 #[gpui::test]
 fn saves_and_observes_each_host(cx: &mut TestAppContext) {
@@ -16,7 +97,7 @@ fn saves_and_observes_each_host(cx: &mut TestAppContext) {
             assert_eq!(panel.saved.as_ref().unwrap(), &Settings::default());
             assert_eq!(
                 panel.picker.read(cx).selected_value(),
-                Some(&Some(Selection::Driver(Driver::Exa)))
+                Some(&Some(Selection::Auto))
             );
         });
         tap(visual, "search-prefer-native");
@@ -94,9 +175,10 @@ fn preview_does_not_open_a_node(cx: &mut TestAppContext) {
     let mut owner = None;
     let (_, visual) = cx.add_window_view(|window, cx| {
         let workspace = cx.new(|cx| Workspace::new(window, cx));
-        workspace.update(cx, |workspace, cx| workspace.select(Section::Search, cx));
+        let panel = workspace.read(cx).search.preview.clone();
+        panel.update(cx, |panel, _| panel.active = true);
         owner = Some(workspace.clone());
-        Root::new(workspace, window, cx)
+        Root::new(panel, window, cx)
     });
     tap(visual, "search-prefer-native");
     tap(visual, "search-test-exa");

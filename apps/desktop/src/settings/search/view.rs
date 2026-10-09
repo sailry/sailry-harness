@@ -79,7 +79,9 @@ impl Render for Panel {
                 .action(
                     Button::new(SharedString::from(format!("search-test-{}", id(driver))))
                         .debug_selector(move || format!("search-test-{}", id(driver)))
-                        .label(tr("search_test"))
+                        .icon(IconName::Play)
+                        .tooltip(tr("search_test"))
+                        .accessibility_label(tr("search_test"))
                         .disabled(locked || self.binding.is_none())
                         .on_click(cx.listener(move |panel, _, window, cx| {
                             panel.submit(Command::TestSearchDriver { driver }, window, cx)

@@ -60,7 +60,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             revision: 0,
-            driver: Some(Selection::Driver(Driver::Exa)),
+            driver: Some(Selection::Auto),
             prefer_native: true,
             fallback: true,
             providers: Driver::ALL
@@ -151,9 +151,9 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn defaults_select_keyless_exa_and_bound_results() {
+    fn defaults_select_auto_and_bound_results() {
         let settings = Settings::default();
-        assert_eq!(settings.driver, Some(Selection::Driver(Driver::Exa)));
+        assert_eq!(settings.driver, Some(Selection::Auto));
         assert!(settings.prefer_native && settings.fallback);
         assert!(settings.providers[&Driver::Exa].enabled);
         assert!(

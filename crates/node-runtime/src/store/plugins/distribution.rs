@@ -1,4 +1,4 @@
-//! Initial package distribution reuses ordinary installation and immutable metadata.
+//! Initial distribution and bundled settings refresh reuse ordinary installation.
 use super::*;
 
 #[cfg(test)]
@@ -16,7 +16,9 @@ pub(in crate::store) fn install(
         )
         .map_err(storage_error)?;
     if initialized {
-        return Ok(());
+        let transaction = db.transaction().map_err(storage_error)?;
+        refresh(&transaction, host)?;
+        return transaction.commit().map_err(storage_error);
     }
     let transaction = db.transaction().map_err(storage_error)?;
     let populated: bool = transaction
@@ -26,6 +28,7 @@ pub(in crate::store) fn install(
         transaction
             .execute("UPDATE node SET plugin_defaults=1 WHERE singleton=1", [])
             .map_err(storage_error)?;
+        refresh(&transaction, host)?;
         return transaction.commit().map_err(storage_error);
     }
     for &(name, enabled) in crate::plugins::DEFAULTS {
@@ -55,4 +58,45 @@ pub(in crate::store) fn install(
         .execute("UPDATE node SET plugin_defaults=1 WHERE singleton=1", [])
         .map_err(storage_error)?;
     transaction.commit().map_err(storage_error)
+}
+
+fn refresh(db: &Connection, host: &crate::plugins::Host) -> Result<(), Fault> {
+    for name in ["code", "web-search"] {
+        let Some(current) = get(db, name)? else {
+            continue;
+        };
+        if current.origin != Some(plugin::Origin::Bundled) {
+            continue;
+        }
+        let bundled = crate::plugins::Host::bundled_version(name)?;
+        let versions = current
+            .summary
+            .version
+            .as_deref()
+            .zip(bundled.as_deref())
+            .and_then(|(current, bundled)| {
+                Some((
+                    semver::Version::parse(current).ok()?,
+                    semver::Version::parse(bundled).ok()?,
+                ))
+            });
+        if !versions.is_some_and(|(current, bundled)| bundled.cmp_precedence(&current).is_gt()) {
+            continue;
+        }
+        let mut result = Ok(Output::Plugin(host.install_bundled(name)?));
+        let event = finish(
+            db,
+            &Command::InstallBundledPlugin {
+                name: name.into(),
+                expected_revision: current.summary.revision,
+            },
+            &mut result,
+        )?;
+        result?;
+        if let Some(event) = event {
+            db.execute("INSERT INTO events(body) VALUES(?1)", [encode(&event)?])
+                .map_err(storage_error)?;
+        }
+    }
+    Ok(())
 }

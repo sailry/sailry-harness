@@ -51,6 +51,21 @@ impl State {
 }
 
 impl Workspace {
+    pub(super) fn native_settings(&self, cx: &App) -> Option<desktop::NativeSettings> {
+        let name = self.selected_plugin_settings()?;
+        self.plugin_catalog
+            .metadata
+            .as_ref()?
+            .read(cx)
+            .entries
+            .get(name)?
+            .extension
+            .as_ref()?
+            .settings_page
+            .as_ref()?
+            .native
+    }
+
     #[cfg(test)]
     pub(crate) fn plugin_settings_panel(&self) -> Option<Entity<Panel>> {
         self.extensions.panel.clone()
@@ -166,6 +181,17 @@ impl Workspace {
     }
 
     pub(super) fn plugin_switch(&self, name: &str, cx: &mut Context<Self>) -> AnyElement {
+        Group::new("plugins_settings_title")
+            .heading(false)
+            .child(self.plugin_enabled_row(name, cx))
+            .into_any_element()
+    }
+
+    pub(in crate::settings) fn plugin_enabled_row(
+        &self,
+        name: &str,
+        cx: &mut Context<Self>,
+    ) -> Row {
         let summary = self
             .plugin_catalog
             .packages
@@ -178,25 +204,22 @@ impl Workspace {
             .is_none_or(|live| !live.connected)
             || self.plugin_catalog.busy();
         let enabled = summary.as_ref().is_some_and(|plugin| plugin.enabled);
-        Group::new("plugins_settings_title")
-            .heading(false)
-            .child(Row::new(
-                "plugins_enabled",
-                div()
-                    .debug_selector(|| "plugin-settings-enabled".into())
-                    .child(
-                        Switch::new("plugin-settings-enabled")
-                            .checked(enabled)
-                            .disabled(busy || summary.is_none())
-                            .accessibility_label(tr("plugins_enabled"))
-                            .on_click(cx.listener(move |this, enabled, _, cx| {
-                                if let Some(plugin) = &summary {
-                                    this.toggle_plugin(plugin, *enabled, cx);
-                                }
-                            })),
-                    ),
-            ))
-            .into_any_element()
+        Row::new(
+            "plugins_enabled",
+            div()
+                .debug_selector(|| "plugin-settings-enabled".into())
+                .child(
+                    Switch::new("plugin-settings-enabled")
+                        .checked(enabled)
+                        .disabled(busy || summary.is_none())
+                        .accessibility_label(tr("plugins_enabled"))
+                        .on_click(cx.listener(move |this, enabled, _, cx| {
+                            if let Some(plugin) = &summary {
+                                this.toggle_plugin(plugin, *enabled, cx);
+                            }
+                        })),
+                ),
+        )
     }
 
     pub(super) fn plugin_settings(
@@ -226,6 +249,20 @@ impl Workspace {
                 .child(tr("plugins_view_unavailable"))
                 .into_any_element();
         };
+        if let Some(native) = page.native {
+            let content = match native {
+                desktop::NativeSettings::Code => self.code(window, cx),
+                desktop::NativeSettings::Search => self.search(window, cx),
+            };
+            return v_flex()
+                .gap_6()
+                .when(
+                    page.enabled_control && native != desktop::NativeSettings::Code,
+                    |content| content.child(self.plugin_switch(&name, cx)),
+                )
+                .child(content)
+                .into_any_element();
+        }
         if page.entry.is_none() {
             if info.settings.is_none() {
                 return v_flex()

@@ -41,6 +41,7 @@ impl Transport for Observed {
             let tracked = matches!(
                 request.command,
                 Command::SaveCodeSettings { .. }
+                    | Command::SetPluginEnabled { .. }
                     | Command::InstallCodeServer { .. }
                     | Command::CancelCodeInstall { .. }
                     | Command::UninstallCodeServer { .. }
@@ -219,6 +220,13 @@ impl Fixture {
         settings
     }
 
+    pub fn executable(&self, server: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let path = self.root.parent().unwrap().join("bin").join(server);
+        std::fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
     pub fn mount<'a>(
         &self,
         cx: &'a mut TestAppContext,
@@ -227,13 +235,18 @@ impl Fixture {
         let (_, visual) = cx.add_window_view(|window, cx| {
             let settings = cx.new(|cx| Workspace::new(window, cx));
             settings.update(cx, |settings, cx| {
-                settings.section = super::super::super::Section::Code;
-                settings.bind_code(
+                settings.bind_providers(
+                    self.transport.clone(),
+                    self.runtime.clone(),
+                    "Fixture Node".into(),
+                    cx,
+                );
+                settings.open_plugin_settings("code", cx);
+                settings.bind_code_scope(
                     self.transport.clone(),
                     self.runtime.clone(),
                     "Fixture Node".into(),
                     Some(self.worktree),
-                    window,
                     cx,
                 );
             });
@@ -244,7 +257,7 @@ impl Fixture {
         let handle = visual.update(|window, _| window.window_handle());
         visual.simulate_window_resize(handle, size(px(1100.), px(1100.)));
         wait(visual, |cx| {
-            selected(&owner, cx).read(cx).saved.is_some() && !selected(&owner, cx).read(cx).loading
+            bound(&owner, cx, self.transport.target(), Some(self.worktree))
         });
         (owner, visual)
     }
@@ -261,18 +274,26 @@ impl Fixture {
         } else {
             self.transport.clone()
         };
-        cx.update(|window, cx| {
+        let node = transport.target();
+        cx.update(|_, cx| {
             owner.update(cx, |settings, cx| {
-                settings.bind_code(
+                settings.bind_providers(
+                    transport.clone(),
+                    self.runtime.clone(),
+                    "Selected Node".into(),
+                    cx,
+                );
+                settings.bind_code_scope(
                     transport,
                     self.runtime.clone(),
                     "Selected Node".into(),
                     tree,
-                    window,
                     cx,
                 )
             })
         });
+        wait(cx, |cx| bound(owner, cx, node, tree));
+        draw(cx);
     }
 
     pub fn close(self, cx: &mut VisualTestContext) {
@@ -296,6 +317,56 @@ pub(super) fn selected(owner: &Entity<Workspace>, cx: &App) -> Entity<Panel> {
     let state = &owner.read(cx).code;
     state.panels[&state.selected.unwrap()].clone()
 }
+fn bound(owner: &Entity<Workspace>, cx: &App, node: NodeId, tree: Option<WorktreeId>) -> bool {
+    let workspace = owner.read(cx);
+    workspace
+        .provider_link
+        .as_ref()
+        .is_some_and(|live| live.connected && live.binding.client.target() == node)
+        && !workspace.plugin_catalog.busy()
+        && workspace
+            .plugin_catalog
+            .metadata
+            .as_ref()
+            .is_some_and(|metadata| {
+                let metadata = metadata.read(cx);
+                metadata.settled()
+                    && metadata.entries.get("code").is_some_and(|info| {
+                        info.extension
+                            .as_ref()
+                            .and_then(|extension| extension.settings_page.as_ref())
+                            .is_some_and(|page| {
+                                page.native
+                                    == Some(sailry_protocol::plugin::desktop::NativeSettings::Code)
+                            })
+                    })
+            })
+        && workspace.code.selected == tree.map(|tree| (node, tree))
+        && tree.is_none_or(|_| {
+            let panel = selected(owner, cx);
+            panel.read(cx).saved.is_some() && !panel.read(cx).loading
+        })
+}
+pub(super) fn toggle(owner: &Entity<Workspace>, cx: &mut VisualTestContext, enabled: bool) {
+    tap(cx, "plugin-settings-enabled");
+    wait(cx, |cx| {
+        let workspace = owner.read(cx);
+        workspace.code.selected.is_some()
+            && !workspace.plugin_catalog.busy()
+            && workspace
+                .plugin_catalog
+                .packages
+                .iter()
+                .any(|plugin| plugin.name == "code" && plugin.enabled == enabled)
+            && !selected(owner, cx).read(cx).loading
+            && selected(owner, cx)
+                .read(cx)
+                .saved
+                .as_ref()
+                .is_some_and(|settings| settings.enabled == enabled)
+    });
+}
+#[track_caller]
 pub(super) fn wait(cx: &mut VisualTestContext, predicate: impl Fn(&App) -> bool) {
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
@@ -304,6 +375,7 @@ pub(super) fn wait(cx: &mut VisualTestContext, predicate: impl Fn(&App) -> bool)
             return;
         }
         assert!(Instant::now() < deadline, "code settings deadline");
+        cx.executor().advance_clock(Duration::from_millis(10));
         std::thread::sleep(Duration::from_millis(10));
     }
 }
@@ -314,15 +386,15 @@ pub(super) fn draw(cx: &mut VisualTestContext) {
         let _ = window.draw(cx);
     });
 }
+pub(super) fn lookup(cx: &mut VisualTestContext, selector: &str) -> Option<Bounds<Pixels>> {
+    cx.debug_bounds(Box::leak(selector.to_owned().into_boxed_str()))
+}
 pub(super) fn tap(cx: &mut VisualTestContext, selector: &str) {
-    let selector: &'static str = Box::leak(selector.to_owned().into_boxed_str());
     if cx.update(|window, cx| window.has_active_dialog(cx)) {
         std::thread::sleep(*dialog::ANIMATION_DURATION);
     }
     draw(cx);
-    let bounds = cx
-        .debug_bounds(selector)
-        .unwrap_or_else(|| panic!("missing {selector}"));
+    let bounds = lookup(cx, selector).unwrap_or_else(|| panic!("missing {selector}"));
     cx.simulate_mouse_move(bounds.center(), None, Modifiers::default());
     cx.simulate_click(bounds.center(), Modifiers::default());
     draw(cx);

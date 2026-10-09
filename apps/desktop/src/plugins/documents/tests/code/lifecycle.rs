@@ -134,7 +134,20 @@ fn discovers_installs_and_restarts_removed_servers(cx: &mut TestAppContext) {
                     .is_some_and(|provider| provider.startup.borrow().is_none())
         });
         assert!(!bin.exists());
-        fixture.execute(Command::InstallCodeServer { install });
+        let client = &fixture.binding.client;
+        let reinstalled = fixture
+            .runtime
+            .block_on(client.execute(client.prepare(Command::InstallCodeServer { install })))
+            .unwrap_or_else(|error| {
+                panic!(
+                    "second installation failed (remote={remote}): {error}; {}",
+                    network.diagnostics()
+                )
+            });
+        let Output::CodeInstallation(reinstalled) = reinstalled else {
+            panic!("installation expected")
+        };
+        assert_eq!(reinstalled.status, code::InstallStatus::Ready);
         ready(&input, visual);
         assert_eq!(network.hits.load(Ordering::SeqCst), 2);
         let restarted = std::fs::read_to_string(state.join("pid")).unwrap();

@@ -75,6 +75,9 @@ impl Panel {
     }
 
     pub(super) fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.dirty() || self.error == Some("code_conflict") {
+            return;
+        }
         let (Some(settings), Some(saved)) = (self.draft.clone(), self.saved.as_ref()) else {
             return;
         };
@@ -108,6 +111,10 @@ impl Panel {
         let Some(request) = self.request.clone() else {
             return;
         };
+        let submitted = match &request.command {
+            Command::SaveCodeSettings { settings, .. } => Some(settings.clone()),
+            _ => None,
+        };
         let durable = request.command.durable();
         let notice = match &request.command {
             Command::InstallCodeServer { .. } => "code_installed",
@@ -139,8 +146,12 @@ impl Panel {
                         panel.request = None;
                         match output {
                             Output::CodeSettings(settings) => {
-                                panel.saved = Some(settings.clone());
-                                panel.draft = Some(settings);
+                                if panel.draft == submitted {
+                                    panel.draft = Some(settings.clone());
+                                } else if let Some(draft) = panel.draft.as_mut() {
+                                    draft.revision = settings.revision;
+                                }
+                                panel.saved = Some(settings);
                             }
                             Output::CodeInstallation(installation) => {
                                 panel.accept_install(installation)
@@ -156,6 +167,9 @@ impl Panel {
                         }
                         window.push_notification(crate::tr(notice), cx);
                         if panel.active {
+                            if submitted.is_some() {
+                                panel.save(window, cx);
+                            }
                             panel.load(window, cx);
                         }
                     }
@@ -217,6 +231,9 @@ impl Panel {
     }
 
     pub(super) fn accept_install(&mut self, installation: code::Installation) {
+        if installation.receipt.is_some() && installation.status == code::InstallStatus::Ready {
+            self.tab = 0;
+        }
         self.installations
             .retain(|current| current.package != installation.package);
         self.installations.push(installation);

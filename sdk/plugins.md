@@ -67,6 +67,10 @@ Use GPUI Kit controls and its native `transition` API for interpolated position,
 
 Navigation and resource entries use `desktop.navigation` and `desktop.panel`. Scripted surfaces declare their JavaScript entry and resources. The host resolves entries from the captured Node inventory and immutable package; packages do not gain native privileges by choosing a familiar name. Standard conversation controls remain host-owned.
 
+`settings_page` contributes settings navigation, placement and an optional shared enable control. A script page supplies `entry`; a schema-generated page omits it. The bundled `code` and `web-search` packages can instead declare `native: "code"` or `native: "search"`, respectively, with no script entry. These fixed renderers reuse the existing Kit pages and captured Client connection. Other packages cannot select them, and declaring a native page adds no SDK permissions. Search and language operations still execute on Node; controller-only settings commands are not available to Agent scripts.
+
+Knowledge retrieval is a shared Node service rather than a bundled feature plugin. Notes, reminders and other feature packages organize their own collections and expose their own settings and conversation tools using the storage and knowledge operations in the v1 contract. The built-in knowledge settings configure vector models only.
+
 `ResourceTree.new(id, { items: JSON.stringify(items), selected, current })` takes a serialized `ResourceTreeItem[]` as its `items` field. The pinned Kit host bridge limits structured arguments to 16 nested levels, so the native host decodes and validates this recursive model while retaining Kit's tree state, events and native menus.
 
 Optional `guides: true` adds dashed hierarchy guides to resource rows, following `indent` and `skip_depth`; it defaults to false and leaves tree interactions and the branch variant unchanged.

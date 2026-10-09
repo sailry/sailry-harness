@@ -106,6 +106,8 @@ while True:
             (base / "child_pid").write_text(str(child.pid))
         if settings.get("initial_crash"):
             os._exit(7)
+        if settings.get("initial_hang"):
+            time.sleep(3600)
         sys.stderr.write("e" * settings.get("stderr", 0))
         sys.stderr.flush()
         reply(identity, {"capabilities": {"positionEncoding": settings.get("encoding", "utf-16"), "textDocumentSync": 1, "definitionProvider": True, "referencesProvider": True, "hoverProvider": True, "documentSymbolProvider": True, "workspaceSymbolProvider": True, "diagnosticProvider": {"interFileDependencies": True, "workspaceDiagnostics": False}}})

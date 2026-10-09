@@ -1,8 +1,5 @@
 use super::super::*;
-use crate::{
-    discovery_fixture::{Reply, Server},
-    settings::Section,
-};
+use crate::discovery_fixture::{Reply, Server};
 use sailry_client::Client;
 use sailry_link::{Admission, Link, NetworkScope, Pending, Subscription, Transport};
 use sailry_node_runtime::Node;
@@ -41,7 +38,9 @@ impl Transport for Observed {
             }
             let tracked = matches!(
                 request.command,
-                Command::SaveSearchSettings(_) | Command::TestSearchDriver { .. }
+                Command::SaveSearchSettings(_)
+                    | Command::TestSearchDriver { .. }
+                    | Command::SetPluginEnabled { .. }
             );
             if tracked {
                 self.requests.lock().unwrap().push(request.clone());
@@ -147,13 +146,13 @@ impl Fixture {
         let (_, visual) = cx.add_window_view(|window, cx| {
             let workspace = cx.new(|cx| Workspace::new(window, cx));
             workspace.update(cx, |workspace, cx| {
-                workspace.select(Section::Search, cx);
                 workspace.bind_providers(
                     self.transport.clone(),
                     self.runtime.clone(),
                     "Fixture host".into(),
                     cx,
                 );
+                workspace.open_plugin_settings("web-search", cx);
             });
             owner = Some(workspace.clone());
             Root::new(workspace, window, cx)
@@ -164,6 +163,8 @@ impl Fixture {
         wait(visual, |cx| {
             selected(&owner, cx)
                 .is_some_and(|panel| panel.read(cx).saved.is_some() && !panel.read(cx).pending)
+                && owner.read(cx).provider_link.as_ref().unwrap().connected
+                && !owner.read(cx).plugin_catalog.busy()
         });
         (owner, visual)
     }

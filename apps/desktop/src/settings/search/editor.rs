@@ -201,6 +201,11 @@ impl Editor {
         if self.pending || self.closed {
             return;
         }
+        if !self.owner.read(cx).active {
+            self.error = Some("search_target_changed");
+            cx.notify();
+            return;
+        }
         let update = match self.update(cx) {
             Ok(update) => update,
             Err(key) => {
@@ -274,6 +279,11 @@ impl Editor {
 
     fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.pending || self.request.is_some() || self.closed {
+            return;
+        }
+        if !self.owner.read(cx).active {
+            self.error = Some("search_target_changed");
+            cx.notify();
             return;
         }
         let Some(binding) = self.owner.read(cx).binding.clone() else {

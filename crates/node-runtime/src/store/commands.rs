@@ -163,10 +163,14 @@ pub(super) fn execute(
         Command::SaveCodeSettings {
             settings,
             expected_revision,
-        } => Ok((
-            Output::CodeSettings(super::code::save(db, settings, *expected_revision)?),
-            None,
-        )),
+        } => {
+            let saved = super::code::save(db, settings, *expected_revision)?;
+            let changed = super::plugins::synchronize(db, "code", saved.enabled)?;
+            Ok((
+                Output::CodeSettings(saved),
+                changed.map(Event::PluginChanged),
+            ))
+        }
         Command::ReadTerminalSettings => Ok((
             Output::TerminalSettings(super::terminals::settings::read(db)?),
             None,

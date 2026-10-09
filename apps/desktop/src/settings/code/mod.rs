@@ -1,6 +1,8 @@
 mod consent;
+mod details;
 mod editor;
 mod requests;
+mod rows;
 #[cfg(test)]
 mod tests;
 mod view;
@@ -16,6 +18,15 @@ use std::{collections::BTreeMap, sync::Arc};
 pub(super) struct State {
     panels: BTreeMap<(NodeId, WorktreeId), Entity<Panel>>,
     selected: Option<(NodeId, WorktreeId)>,
+    scope: Option<Scope>,
+}
+
+#[derive(Clone)]
+struct Scope {
+    transport: Arc<dyn Transport>,
+    runtime: Arc<tokio::runtime::Runtime>,
+    label: SharedString,
+    worktree: Option<WorktreeId>,
 }
 
 pub(super) struct Panel {
@@ -28,6 +39,7 @@ pub(super) struct Panel {
     workspace: Option<code::Workspace>,
     installations: Vec<code::Installation>,
     rules: Option<code::Rules>,
+    tab: usize,
     servers: Vec<code::Server>,
     loading: bool,
     pending: bool,
@@ -36,6 +48,9 @@ pub(super) struct Panel {
     error: Option<&'static str>,
     stop: Option<CancellationToken>,
     generation: u64,
+    plugin_revision: Option<u64>,
+    #[cfg(test)]
+    editor: Option<WeakEntity<editor::Editor>>,
 }
 
 impl Drop for Panel {
@@ -67,6 +82,7 @@ impl Panel {
             workspace: None,
             installations: Vec::new(),
             rules: None,
+            tab: 1,
             servers: Vec::new(),
             loading: false,
             pending: false,
@@ -75,6 +91,9 @@ impl Panel {
             error: None,
             stop: None,
             generation: 0,
+            plugin_revision: None,
+            #[cfg(test)]
+            editor: None,
         }
     }
 
@@ -88,6 +107,86 @@ impl Panel {
 }
 
 impl Workspace {
+    pub(crate) fn bind_code_scope(
+        &mut self,
+        transport: Arc<dyn Transport>,
+        runtime: Arc<tokio::runtime::Runtime>,
+        label: SharedString,
+        worktree: Option<WorktreeId>,
+        cx: &mut Context<Self>,
+    ) {
+        let changed = self.code.scope.as_ref().is_none_or(|scope| {
+            scope.transport.target() != transport.target() || scope.worktree != worktree
+        });
+        if changed {
+            self.clear_code(cx);
+        }
+        self.code.scope = Some(Scope {
+            transport,
+            runtime,
+            label,
+            worktree,
+        });
+    }
+
+    pub(in crate::settings) fn forget_code_scope(&mut self, cx: &mut Context<Self>) {
+        self.clear_code(cx);
+        self.code.scope = None;
+    }
+
+    pub(in crate::settings) fn code(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if let Some(scope) = self.code.scope.clone() {
+            self.bind_code(
+                scope.transport,
+                scope.runtime,
+                scope.label,
+                scope.worktree,
+                window,
+                cx,
+            );
+        }
+        if let Some(key) = self.code.selected
+            && let Some(panel) = self.code.panels.get(&key)
+            && let Some(plugin) = self
+                .plugin_catalog
+                .packages
+                .iter()
+                .find(|plugin| plugin.name == "code")
+        {
+            panel.update(cx, |panel, cx| {
+                if panel.plugin_revision.is_none() {
+                    panel.plugin_revision = Some(plugin.revision);
+                } else if panel.plugin_revision != Some(plugin.revision) && !panel.locked() {
+                    panel.plugin_revision = Some(plugin.revision);
+                    panel.load(window, cx);
+                }
+            });
+        }
+        let enabled = self.plugin_enabled_row("code", cx);
+        if let Some(panel) = self
+            .code
+            .selected
+            .and_then(|key| self.code.panels.get(&key))
+        {
+            let controls = panel.update(cx, |panel, cx| panel.controls(enabled, cx));
+            v_flex()
+                .gap_6()
+                .child(controls)
+                .child(panel.clone())
+                .into_any_element()
+        } else {
+            v_flex()
+                .gap_6()
+                .child(crate::settings::group::Group::new("code_settings").child(enabled))
+                .child(self.code.render(window, cx))
+                .into_any_element()
+        }
+    }
+
     pub(crate) fn bind_code(
         &mut self,
         transport: Arc<dyn Transport>,
@@ -113,7 +212,9 @@ impl Workspace {
                     runtime,
                     label,
                 };
-                cx.new(|cx| Panel::new(binding, transport, key.1, window, cx))
+                let panel = cx.new(|cx| Panel::new(binding, transport, key.1, window, cx));
+                cx.observe(&panel, |_, _, cx| cx.notify()).detach();
+                panel
             })
             .clone();
         self.code.selected = Some(key);

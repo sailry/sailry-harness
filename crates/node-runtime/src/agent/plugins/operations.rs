@@ -111,6 +111,7 @@ pub(super) fn bind(
 
 pub(super) fn available(ingress: &Ingress, invocation: &Invocation, operation: Operation) -> bool {
     match operation {
+        operation if crate::code::handles(operation) => ingress.code.enabled(),
         Operation::SearchWeb => {
             ingress.search.available() && !super::model_tools::preferred(ingress, invocation)
         }

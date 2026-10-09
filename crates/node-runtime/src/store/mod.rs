@@ -456,7 +456,6 @@ impl Store {
                         return Ok(());
                     }
                 };
-                match code::settings(&database.connection) {Ok(settings)=>code_pool.configure(settings),Err(error)=>{let _=ready.send(Err(crate::Error::from(error)));return Ok(());}}
                 match search::read(&database.connection) { Ok(settings) => searcher.configure(settings), Err(error) => {let _=ready.send(Err(crate::Error::from(error)));return Ok(());} }
                 if database.profile.is_some()
                     && let Err(error) =
@@ -466,6 +465,7 @@ impl Store {
                     return Ok(());
                 }
                 plugins::collection::run(&mut database.connection, &collection);
+                match code::initialize(&mut database.connection) {Ok(settings)=>cleanup_runtime.block_on(code_pool.configure(settings)),Err(error)=>{let _=ready.send(Err(crate::Error::from(error)));return Ok(());}}
                 attachments::collect(&database.connection, attachment_profile.as_deref());
                 let mut mutations =
                     match mutations::Worker::start(completed, move |caller, roots, request| {
@@ -796,12 +796,18 @@ impl Store {
                         }
                         Job::Completed(completed) => {
                             code::observe(&database,&completed.request,&completed.result,&code_pool,&cleanup_runtime);
-                            let result = database.finish_external(
+                            let mut result = database.finish_external(
                                 completed.caller,
                                 &completed.request,
                                 completed.result,
                                 &events,
                             );
+                            if result.is_ok() && code::configures(&completed.request.command) {
+                                match code::settings(&database.connection) {
+                                    Ok(settings) => cleanup_runtime.block_on(code_pool.configure(settings)),
+                                    Err(error) => result = Err(error),
+                                }
+                            }
                             let _ = completed.reply.send(result);
                             mutations.pending -= 1;
                         }
@@ -1032,7 +1038,13 @@ impl Store {
                             } else {
                                 reply
                             };
-                            let code_settings=matches!(request.command,sailry_protocol::Command::SaveCodeSettings { .. });
+                            let code_settings = code::configures(&request.command);
+                            let (reply, code_completion) = if code_settings {
+                                let (complete, response) = oneshot::channel();
+                                (complete, Some((reply, response)))
+                            } else {
+                                (reply, None)
+                            };
                             let search_settings=matches!(request.command,sailry_protocol::Command::SaveSearchSettings(_));
                             let launch = matches!(
                                 request.command,
@@ -1125,7 +1137,16 @@ impl Store {
                                     let _ = reply.send(result);
                                 }
                             }
-                            if code_settings && let Ok(settings)=code::settings(&database.connection) {code_pool.configure(settings);}
+                            if let Some((reply, completion)) = code_completion {
+                                let result = completion.blocking_recv().unwrap_or_else(|_| Err(unavailable()));
+                                if result.is_ok() {
+                                    match code::settings(&database.connection) {
+                                        Ok(settings) => cleanup_runtime.block_on(code_pool.configure(settings)),
+                                        Err(error) => {let _ = reply.send(Err(error)); continue;}
+                                    }
+                                }
+                                let _ = reply.send(result);
+                            }
                             if search_settings && let Ok(settings)=search::read(&database.connection) {searcher.configure(settings);}
                             if let Some(turn) = stopping
                                 && agent::stopping(&database.connection, turn)

@@ -7,6 +7,11 @@ impl Panel {
     }
 
     pub(super) fn submit(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.active {
+            self.error = Some("search_target_changed");
+            cx.notify();
+            return;
+        }
         if self.pending {
             return;
         }

@@ -24,6 +24,10 @@ struct Slot {
     server: Arc<Server>,
     restarts: u8,
 }
+struct Configuration {
+    settings: code::Settings,
+    stop: CancellationToken,
+}
 #[derive(Default)]
 struct State {
     prepared: BTreeMap<String, Plan>,
@@ -51,7 +55,7 @@ pub(crate) struct Pool {
     identities: Arc<super::identity::Cache>,
     closed: CancellationToken,
     state: Mutex<State>,
-    pub(super) settings: std::sync::RwLock<code::Settings>,
+    configuration: std::sync::RwLock<Configuration>,
     pub(super) rules: Arc<super::rules::Registry>,
     pub(super) install: Arc<super::install::Manager>,
 }
@@ -77,9 +81,12 @@ impl Pool {
             profile,
             environment,
             identities: Arc::default(),
+            configuration: std::sync::RwLock::new(Configuration {
+                settings: code::Settings::default(),
+                stop: closed.child_token(),
+            }),
             closed,
             state: Mutex::new(State::default()),
-            settings: Default::default(),
             rules,
             install,
         });
@@ -152,17 +159,72 @@ impl Pool {
         self.install.uninstall(package, version)
     }
 
-    pub(crate) fn configure(&self, settings: code::Settings) {
-        *self
-            .settings
-            .write()
-            .expect("code settings lock is healthy") = settings;
+    pub(crate) async fn configure(&self, settings: code::Settings) {
+        let enabled = settings.enabled;
+        {
+            let mut configuration = self
+                .configuration
+                .write()
+                .expect("code settings lock is healthy");
+            if !enabled {
+                configuration.stop.cancel();
+            } else if !configuration.settings.enabled {
+                configuration.stop = self.closed.child_token();
+            }
+            configuration.settings = settings;
+        }
+        if !enabled {
+            let mut state = self.state.lock().await;
+            state.prepared.clear();
+            state.failures.clear();
+            for slot in std::mem::take(&mut state.slots).into_values() {
+                slot.server.rpc.shutdown().await;
+            }
+        }
     }
-    pub(crate) fn after_edit(&self) -> bool {
-        self.settings
+    pub(super) fn settings(&self) -> code::Settings {
+        self.configuration
             .read()
             .expect("code settings lock is healthy")
-            .after_edit
+            .settings
+            .clone()
+    }
+    pub(crate) fn after_edit(&self) -> bool {
+        let configuration = self
+            .configuration
+            .read()
+            .expect("code settings lock is healthy");
+        let settings = &configuration.settings;
+        settings.enabled && settings.after_edit
+    }
+    pub(crate) fn enabled(&self) -> bool {
+        self.configuration
+            .read()
+            .expect("code settings lock is healthy")
+            .settings
+            .enabled
+    }
+    fn capture(&self) -> Result<(code::Settings, CancellationToken), Fault> {
+        let configuration = self
+            .configuration
+            .read()
+            .expect("code settings lock is healthy");
+        if !configuration.settings.enabled {
+            return Err(disabled());
+        }
+        if self.closed.is_cancelled() || configuration.stop.is_cancelled() {
+            return Err(unavailable());
+        }
+        Ok((configuration.settings.clone(), configuration.stop.clone()))
+    }
+    fn current(&self, stop: &CancellationToken) -> Result<(), Fault> {
+        if !self.enabled() {
+            Err(disabled())
+        } else if self.closed.is_cancelled() || stop.is_cancelled() {
+            Err(unavailable())
+        } else {
+            Ok(())
+        }
     }
 
     pub(super) fn resolver(&self, rules: Arc<super::rules::Rules>) -> resolve::Resolver {
@@ -178,18 +240,11 @@ impl Pool {
         root: PathBuf,
         query: &Query,
     ) -> Result<Option<Startup>, Fault> {
-        if self.closed.is_cancelled() {
-            return Err(unavailable());
-        }
+        let (settings, active) = self.capture()?;
         let Some(path) = query.path() else {
             return Ok(None);
         };
         let profile = self.profile.clone();
-        let settings = self
-            .settings
-            .read()
-            .expect("code settings lock is healthy")
-            .clone();
         let environment = self.environment.clone();
         let path = path.to_owned();
         let resolver = self.resolver(self.rules.get()?);
@@ -205,11 +260,13 @@ impl Pool {
         })
         .await
         .map_err(|error| Fault::invalid(error.to_string()))??;
+        self.current(&active)?;
         let Some(plan) = resolved.plan else {
             return Ok(None);
         };
         let startup = plan.startup.clone();
         let mut state = self.state.lock().await;
+        self.current(&active)?;
         state.cache(plan)?;
         let key = key(&startup);
         let warm = if let Some(slot) = state.slots.get(&key) {
@@ -221,10 +278,12 @@ impl Pool {
         } else {
             false
         };
+        self.current(&active)?;
         Ok((!warm).then_some(startup))
     }
 
     pub(crate) async fn validate(&self, startup: &Startup, root: &Path) -> Result<(), Fault> {
+        let (_, active) = self.capture()?;
         let plan = self
             .state
             .lock()
@@ -251,6 +310,7 @@ impl Pool {
         let actual = tokio::task::spawn_blocking(move || identities.revision(&executable))
             .await
             .map_err(|error| Fault::invalid(error.to_string()))??;
+        self.current(&active)?;
         if actual != expected {
             return Err(Fault::new(
                 ErrorCode::RevisionConflict,
@@ -266,8 +326,10 @@ impl Pool {
         root: &Path,
         stop: &CancellationToken,
     ) -> Result<code::Server, Fault> {
+        let (_, active) = self.capture()?;
         self.validate(startup, root).await?;
         let mut state = self.state.lock().await;
+        self.current(&active)?;
         let key = key(startup);
         let mut restarts = state
             .failures
@@ -279,7 +341,9 @@ impl Pool {
         {
             let status = slot.server.rpc.state.lock().await.status;
             if matches!(status, Status::Ready | Status::Indexing) {
-                return info(&slot.server).await;
+                let result = info(&slot.server).await;
+                self.current(&active)?;
+                return result;
             }
             restarts = slot.restarts + 1;
             if restarts > 3 {
@@ -296,7 +360,7 @@ impl Pool {
             ));
         }
         if restarts > 0 {
-            tokio::select! { biased; _ = stop.cancelled() => return Err(cancelled()), _ = self.closed.cancelled() => return Err(unavailable()), _ = tokio::time::sleep(Duration::from_millis(200 << (restarts-1))) => {} }
+            tokio::select! { biased; _ = stop.cancelled() => return Err(cancelled()), _ = active.cancelled() => return Err(self.current(&active).unwrap_err()), _ = tokio::time::sleep(Duration::from_millis(200 << (restarts-1))) => {} }
         }
         if let Some(slot) = state.slots.remove(&key) {
             slot.server.rpc.shutdown().await;
@@ -317,18 +381,37 @@ impl Pool {
                 slot.server.rpc.shutdown().await;
             }
         }
-        let plan = state.prepared[&startup.revision].clone();
-        let server = match Server::start(plan, &self.environment, self.closed.clone(), stop).await {
+        self.current(&active)?;
+        let plan = state
+            .prepared
+            .get(&startup.revision)
+            .cloned()
+            .ok_or_else(|| {
+                Fault::new(
+                    ErrorCode::PermissionDenied,
+                    "language startup was not prepared by this Node",
+                )
+            })?;
+        let server = match Server::start(plan, &self.environment, active.clone(), stop).await {
             Ok(server) => server,
             Err(error) => {
+                self.current(&active)?;
                 state
                     .failures
                     .insert(key, (startup.revision.clone(), restarts + 1));
                 return Err(error);
             }
         };
+        if let Err(error) = self.current(&active) {
+            server.rpc.shutdown().await;
+            return Err(error);
+        }
         state.failures.remove(&key);
         let result = info(&server).await?;
+        if let Err(error) = self.current(&active) {
+            server.rpc.shutdown().await;
+            return Err(error);
+        }
         state.slots.insert(key, Slot { server, restarts });
         Ok(result)
     }
@@ -341,13 +424,9 @@ impl Pool {
         overlay: Option<&Overlay>,
         stop: &CancellationToken,
     ) -> Result<code::Result, Fault> {
+        let (settings, active) = self.capture()?;
         let candidate = if let Some(path) = query.path() {
             let profile = self.profile.clone();
-            let settings = self
-                .settings
-                .read()
-                .expect("code settings lock is healthy")
-                .clone();
             let environment = self.environment.clone();
             let path = path.to_owned();
             let discovery_root = root.clone();
@@ -370,6 +449,7 @@ impl Pool {
             None
         };
         let mut state = self.state.lock().await;
+        self.current(&active)?;
         if let Some(plan) = candidate
             .as_ref()
             .and_then(|candidate| candidate.plan.as_ref())
@@ -412,6 +492,7 @@ impl Pool {
             return Ok(result);
         };
         let status = server.rpc.state.lock().await.status;
+        self.current(&active)?;
         if !matches!(status, Status::Ready | Status::Indexing) {
             let mut result = operations::empty(query, None);
             result.status = status;
@@ -420,7 +501,9 @@ impl Pool {
             result.notice = Some("Language server has stopped".into());
             return Ok(result);
         }
-        operations::read(&server, query, overlay, stop).await
+        let result = operations::read(&server, query, overlay, stop).await;
+        self.current(&active)?;
+        result
     }
 
     pub(crate) async fn list(&self, worktree: WorktreeId) -> Result<Vec<code::Server>, Fault> {
@@ -440,6 +523,9 @@ impl Pool {
         paths: &[String],
         stop: &CancellationToken,
     ) -> Result<Vec<code::Diagnostic>, Fault> {
+        let Ok((settings, active)) = self.capture() else {
+            return Ok(Vec::new());
+        };
         let servers = self
             .state
             .lock()
@@ -451,6 +537,9 @@ impl Pool {
             .collect::<Vec<_>>();
         let mut errors = Vec::new();
         for server in servers {
+            if self.current(&active).is_err() {
+                return Ok(Vec::new());
+            }
             if !matches!(
                 server.rpc.state.lock().await.status,
                 Status::Ready | Status::Indexing
@@ -458,6 +547,9 @@ impl Pool {
                 continue;
             }
             for path in paths {
+                if self.current(&active).is_err() {
+                    return Ok(Vec::new());
+                }
                 if !server
                     .plan
                     .root
@@ -484,18 +576,19 @@ impl Pool {
                         server.close(path).await?;
                         continue;
                     }
+                    Err(_) if self.current(&active).is_err() => return Ok(Vec::new()),
                     Err(error) => return Err(error),
                 }
-                if !self.after_edit() {
+                if !settings.after_edit {
                     continue;
                 }
                 server.settle(stop).await;
-                errors.extend(
-                    diagnostics::read(&server, path, Some(code::Severity::Error), stop)
-                        .await?
-                        .into_iter()
-                        .take(20 - errors.len()),
-                );
+                let diagnostics =
+                    diagnostics::read(&server, path, Some(code::Severity::Error), stop).await;
+                if self.current(&active).is_err() {
+                    return Ok(Vec::new());
+                }
+                errors.extend(diagnostics?.into_iter().take(20 - errors.len()));
                 if errors.len() >= 20 {
                     return Ok(errors);
                 }
@@ -505,6 +598,9 @@ impl Pool {
     }
 
     pub(crate) async fn watched(&self, worktree: WorktreeId) {
+        let Ok((_, active)) = self.capture() else {
+            return;
+        };
         let servers = self
             .state
             .lock()
@@ -515,6 +611,9 @@ impl Pool {
             .map(|(_, slot)| slot.server.clone())
             .collect::<Vec<_>>();
         for server in servers {
+            if self.current(&active).is_err() {
+                return;
+            }
             let paths = server
                 .documents
                 .lock()
@@ -575,6 +674,11 @@ impl Pool {
     }
 
     pub(crate) async fn shutdown(&self) {
+        self.configuration
+            .read()
+            .expect("code settings lock is healthy")
+            .stop
+            .cancel();
         self.install.shutdown();
         let slots = std::mem::take(&mut self.state.lock().await.slots);
         futures::future::join_all(
@@ -604,6 +708,9 @@ async fn info(server: &Server) -> Result<code::Server, Fault> {
 }
 fn unavailable() -> Fault {
     Fault::new(ErrorCode::Unavailable, "language services are unavailable")
+}
+pub(crate) fn disabled() -> Fault {
+    Fault::new(ErrorCode::Unavailable, "language services are disabled")
 }
 fn cancelled() -> Fault {
     Fault::new(ErrorCode::Cancelled, "language startup was cancelled")

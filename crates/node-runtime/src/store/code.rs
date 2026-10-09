@@ -11,6 +11,21 @@ pub(super) fn approved(db: &Connection, startup: &Startup) -> Result<bool, Fault
     db.query_row("SELECT EXISTS(SELECT 1 FROM code_startups WHERE worktree=?1 AND root=?2 AND server=?3 AND body=?4)",params![startup.worktree.to_string(),startup.root,startup.server,encode(startup)?],|row|row.get(0)).map_err(storage_error)
 }
 
+pub(super) fn configures(command: &Command) -> bool {
+    match command {
+        Command::SaveCodeSettings { .. } => true,
+        Command::SetPluginEnabled { name, .. }
+        | Command::RemovePlugin { name, .. }
+        | Command::InstallPlugin { name, .. }
+        | Command::InstallPluginUpload { name, .. }
+        | Command::InstallPluginSource { name, .. }
+        | Command::InstallBundledPlugin { name, .. }
+        | Command::InstallSkill { name, .. }
+        | Command::InstallMcp { name, .. } => name == "code",
+        _ => false,
+    }
+}
+
 pub(super) fn grant(db: &Connection, startup: &Startup) -> Result<(), Fault> {
     db.execute("INSERT INTO code_startups(worktree,root,server,body) VALUES(?1,?2,?3,?4) ON CONFLICT(worktree,root,server) DO UPDATE SET body=excluded.body",params![startup.worktree.to_string(),startup.root,startup.server,encode(startup)?]).map_err(storage_error)?;
     Ok(())
@@ -39,6 +54,9 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
     let Command::StartCodeServer { startup } = &request.command else {
         unreachable!("language startup expected")
     };
+    if !settings(&database.connection)?.enabled {
+        return Err(crate::code::disabled());
+    }
     database.worktree_root(startup.worktree)?;
     crate::files::path::components(&startup.root, true)?;
     if startup.server.is_empty()
@@ -253,6 +271,24 @@ pub(super) fn settings(db: &Connection) -> Result<sailry_protocol::code::Setting
         .transpose()
         .map(|settings| settings.unwrap_or_default())
 }
+
+pub(super) fn initialize(db: &mut Connection) -> Result<sailry_protocol::code::Settings, Fault> {
+    let transaction = db.transaction().map_err(storage_error)?;
+    let package: Option<Vec<u8>> = transaction
+        .query_row("SELECT body FROM plugins WHERE name='code'", [], |row| {
+            row.get(0)
+        })
+        .optional()
+        .map_err(storage_error)?;
+    if let Some(body) = package {
+        let info: sailry_protocol::plugin::Info =
+            serde_json::from_slice(&body).map_err(storage_error)?;
+        enable(&transaction, info.summary.enabled)?;
+    }
+    let settings = settings(&transaction)?;
+    transaction.commit().map_err(storage_error)?;
+    Ok(settings)
+}
 pub(super) fn save(
     db: &Connection,
     value: &sailry_protocol::code::Settings,
@@ -310,6 +346,16 @@ pub(super) fn save(
         .ok_or_else(|| Fault::invalid("code settings revision is exhausted"))?;
     db.execute("INSERT INTO code_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body",[encode(&saved)?]).map_err(storage_error)?;
     Ok(saved)
+}
+
+pub(super) fn enable(db: &Connection, enabled: bool) -> Result<(), Fault> {
+    let mut settings = settings(db)?;
+    if settings.enabled != enabled {
+        let expected = settings.revision;
+        settings.enabled = enabled;
+        save(db, &settings, expected)?;
+    }
+    Ok(())
 }
 
 pub(super) fn observe(
@@ -382,3 +428,6 @@ pub(super) fn observe(
         });
     }
 }
+
+#[cfg(test)]
+mod tests;

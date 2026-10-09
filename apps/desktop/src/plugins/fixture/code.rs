@@ -19,9 +19,27 @@ pub(crate) struct Network {
     pub asset: CodeServerFixture,
     pub held: Arc<AtomicBool>,
     pub hits: Arc<AtomicUsize>,
+    statistics: Arc<Statistics>,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
     children: Arc<Mutex<Vec<JoinHandle<()>>>>,
+}
+
+#[derive(Default)]
+struct Statistics {
+    accepted: AtomicUsize,
+    requests: AtomicUsize,
+    responses: AtomicUsize,
+    errors: Mutex<Vec<String>>,
+}
+
+impl Statistics {
+    fn failure(&self, message: String) {
+        let mut errors = self.errors.lock().unwrap();
+        if errors.len() < 16 {
+            errors.push(message);
+        }
+    }
 }
 
 impl Network {
@@ -48,6 +66,7 @@ impl Network {
         let held = Arc::new(AtomicBool::new(false));
         let hits = Arc::new(AtomicUsize::new(0));
         let stop = Arc::new(AtomicBool::new(false));
+        let statistics = Arc::new(Statistics::default());
         let children = Arc::new(Mutex::new(Vec::new()));
         let thread = Some(std::thread::spawn({
             let held = held.clone();
@@ -55,17 +74,28 @@ impl Network {
             let stop = stop.clone();
             let children = children.clone();
             let asset_path = asset.asset_path();
+            let statistics = statistics.clone();
             move || {
                 while !stop.load(Ordering::SeqCst) {
                     match listener.accept() {
                         Ok((stream, _)) => {
+                            statistics.accepted.fetch_add(1, Ordering::SeqCst);
                             let routes = routes.clone();
                             let held = held.clone();
                             let hits = hits.clone();
                             let stop = stop.clone();
                             let asset_path = asset_path.clone();
+                            let statistics = statistics.clone();
                             children.lock().unwrap().push(std::thread::spawn(move || {
-                                serve(stream, &routes, &asset_path, &held, &hits, &stop)
+                                serve(
+                                    stream,
+                                    &routes,
+                                    &asset_path,
+                                    &held,
+                                    &hits,
+                                    &stop,
+                                    &statistics,
+                                )
                             }));
                         }
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -81,10 +111,22 @@ impl Network {
             asset,
             held,
             hits,
+            statistics,
             stop,
             thread,
             children,
         }
+    }
+
+    pub fn diagnostics(&self) -> String {
+        format!(
+            "accepted={}, requests={}, asset_requests={}, responses={}, errors={:?}",
+            self.statistics.accepted.load(Ordering::SeqCst),
+            self.statistics.requests.load(Ordering::SeqCst),
+            self.hits.load(Ordering::SeqCst),
+            self.statistics.responses.load(Ordering::SeqCst),
+            self.statistics.errors.lock().unwrap()
+        )
     }
 }
 
@@ -106,6 +148,7 @@ fn serve(
     held: &AtomicBool,
     hits: &AtomicUsize,
     stop: &AtomicBool,
+    statistics: &Statistics,
 ) {
     stream
         .set_read_timeout(Some(Duration::from_secs(2)))
@@ -116,14 +159,20 @@ fn serve(
     let mut bytes = Vec::new();
     let mut chunk = [0u8; 4096];
     while bytes.len() < 32 * 1024 && !bytes.windows(4).any(|window| window == b"\r\n\r\n") {
-        let Ok(count) = stream.read(&mut chunk) else {
-            return;
+        let count = match stream.read(&mut chunk) {
+            Ok(count) => count,
+            Err(error) => {
+                statistics.failure(format!("request read: {error}"));
+                return;
+            }
         };
         if count == 0 {
+            statistics.failure("request closed before headers".into());
             return;
         }
         bytes.extend_from_slice(&chunk[..count]);
     }
+    statistics.requests.fetch_add(1, Ordering::SeqCst);
     let request = String::from_utf8_lossy(&bytes);
     let path = request
         .lines()
@@ -145,8 +194,15 @@ fn serve(
         "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
-    let _ = stream.write_all(header.as_bytes());
-    let _ = stream.write_all(body);
+    match stream
+        .write_all(header.as_bytes())
+        .and_then(|()| stream.write_all(body))
+    {
+        Ok(()) => {
+            statistics.responses.fetch_add(1, Ordering::SeqCst);
+        }
+        Err(error) => statistics.failure(format!("response write: {error}")),
+    }
 }
 
 fn rules(routes: &mut BTreeMap<String, Vec<u8>>) {

@@ -2,6 +2,9 @@ use super::*;
 use sailry_link::Transport;
 use std::sync::Arc;
 
+#[path = "distribution/refresh.rs"]
+mod refresh;
+
 #[tokio::test]
 async fn catalog_preserves_localized_metadata() {
     let index: serde_json::Value =
@@ -441,6 +444,78 @@ async fn removed_default(name: &str, enabled: bool) {
 }
 
 mod removed_defaults {
+    async fn service_only(client: &super::Client) {
+        use super::*;
+        let Output::Plugins(entries) = execute(client, Command::ListPlugins).await else {
+            panic!("inventory expected")
+        };
+        assert!(
+            !entries
+                .iter()
+                .any(|entry| entry.name == "knowledge" || entry.name == "sailry.builtin.knowledge")
+        );
+        let Output::PluginCatalog(catalog) = execute(
+            client,
+            Command::SearchPluginCatalog {
+                source: plugin::catalog::Source::Official,
+                query: String::new(),
+                page: 1,
+            },
+        )
+        .await
+        else {
+            panic!("catalog expected")
+        };
+        assert!(
+            !catalog
+                .entries
+                .iter()
+                .any(|entry| entry.name == "knowledge")
+        );
+        assert_eq!(
+            client
+                .execute(client.prepare(Command::InstallBundledPlugin {
+                    name: "knowledge".into(),
+                    expected_revision: 0,
+                }))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotFound
+        );
+        assert!(matches!(
+            execute(client, Command::ReadKnowledgeSettings).await,
+            Output::KnowledgeSettings(_)
+        ));
+        assert!(
+            matches!(execute(client, Command::ReadKnowledgeModels).await, Output::KnowledgeModels(models) if !models.is_empty())
+        );
+    }
+
+    #[tokio::test]
+    async fn knowledge() {
+        use super::*;
+        for remote in [false, true] {
+            let (directory, node, controller, client, _) = fixture(remote).await;
+            service_only(&client).await;
+            node.shutdown().await.unwrap();
+            let node = Node::start_with_plugin_catalog(
+                directory.path().join("node"),
+                "http://127.0.0.1:9/",
+            )
+            .await
+            .unwrap();
+            let client = Client::new(if remote {
+                controller.handle().remote(node.link().address())
+            } else {
+                node.local()
+            });
+            service_only(&client).await;
+            node.shutdown().await.unwrap();
+            controller.close().await.unwrap();
+        }
+    }
+
     macro_rules! check {
         ($($test:ident => ($name:literal, $enabled:literal)),* $(,)?) => {
             $(
@@ -567,6 +642,121 @@ async fn update_preserves_configuration_and_disabled_state() {
         assert_eq!(
             execute(&client, read()).await,
             Output::PluginSettings(configured)
+        );
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn preserves_unshipped_installed_package() {
+    for remote in [false, true] {
+        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let source = directory.path().join("source/notes-fixture");
+        fs::create_dir_all(&source).unwrap();
+        let manifest = serde_json::json!({
+            "$schema": plugin::schema::AGENT_PLUGINS_ID,
+            "name": "knowledge", "version": "0.1.0", "description": "Installed notes fixture",
+            "extensions": {"dev.sailry.platform": {
+                "api_version": "v1", "actions": ["knowledge.read", "storage.read"],
+                "tools": [{"name": "search_notes", "operation": "knowledge.query", "description": "Search owned notes", "contexts": ["plugin", "workspace"]}]
+            }}
+        });
+        fs::write(
+            source.join("plugin.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        let installed = info(
+            execute(
+                &client,
+                Command::InstallPlugin {
+                    worktree,
+                    path: "notes-fixture".into(),
+                    name: "knowledge".into(),
+                    expected_revision: 0,
+                },
+            )
+            .await,
+        );
+        let mut original = info(
+            execute(
+                &client,
+                Command::SetPluginEnabled {
+                    name: "knowledge".into(),
+                    expected_revision: installed.summary.revision,
+                    enabled: false,
+                },
+            )
+            .await,
+        );
+        let profile = node.profile().to_owned();
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+        // An earlier distribution may have supplied this ordinary installed package.
+        // Removing it from today's catalog must not delete private installed records.
+        original.origin = Some(plugin::Origin::Bundled);
+        let database = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+        database
+            .execute(
+                "UPDATE plugins SET body=?1 WHERE name='knowledge'",
+                [serde_json::to_vec(&original).unwrap()],
+            )
+            .unwrap();
+        drop(database);
+        let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+            .await
+            .unwrap();
+        let controller = Link::controller(
+            directory.path().join("updated-controller"),
+            NetworkScope::default(),
+        )
+        .await
+        .unwrap();
+        let address = controller
+            .handle()
+            .pair(node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(address)
+        } else {
+            node.local()
+        });
+        assert_eq!(
+            info(
+                execute(
+                    &client,
+                    Command::ReadPlugin {
+                        name: "knowledge".into()
+                    }
+                )
+                .await
+            ),
+            original
+        );
+        assert_eq!(
+            client
+                .execute(client.prepare(Command::InstallBundledPlugin {
+                    name: "knowledge".into(),
+                    expected_revision: original.summary.revision,
+                }))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotFound
+        );
+        assert_eq!(
+            info(
+                execute(
+                    &client,
+                    Command::ReadPlugin {
+                        name: "knowledge".into()
+                    }
+                )
+                .await
+            ),
+            original
         );
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();

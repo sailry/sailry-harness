@@ -22,10 +22,12 @@ use std::collections::BTreeMap;
 pub(super) struct State {
     preview: Entity<Panel>,
     panels: BTreeMap<NodeId, Entity<Panel>>,
+    selected: Option<NodeId>,
 }
 
 pub(super) struct Panel {
     binding: Option<Binding>,
+    active: bool,
     saved: Option<Settings>,
     picker: Entity<SelectState<Vec<Choice>>>,
     observed: Option<u64>,
@@ -75,6 +77,7 @@ impl State {
         Self {
             preview: cx.new(|cx| Panel::new(None, window, cx)),
             panels: Default::default(),
+            selected: None,
         }
     }
 }
@@ -99,8 +102,8 @@ impl Panel {
             },
         );
         let mut choices = vec![
-            Choice(Some(Selection::Driver(Driver::Exa))),
             Choice(Some(Selection::Auto)),
+            Choice(Some(Selection::Driver(Driver::Exa))),
         ];
         choices.extend(
             Driver::ALL
@@ -132,6 +135,7 @@ impl Panel {
         Self {
             saved: binding.is_none().then(Settings::default),
             binding,
+            active: false,
             picker,
             observed: None,
             pending: false,
@@ -140,7 +144,10 @@ impl Panel {
     }
 
     fn locked(&self) -> bool {
-        self.pending || self.saved.is_none() || self.error == Some("search_save_unknown")
+        !self.active
+            || self.pending
+            || self.saved.is_none()
+            || self.error == Some("search_save_unknown")
     }
 
     fn apply(&mut self, settings: Settings, window: &mut Window, cx: &mut Context<Self>) {
@@ -178,9 +185,32 @@ impl Panel {
 }
 
 impl Workspace {
+    pub(in crate::settings) fn clear_search(&mut self, cx: &mut Context<Self>) {
+        if let Some(node) = self.search.selected.take()
+            && let Some(panel) = self.search.panels.get(&node)
+        {
+            panel.update(cx, |panel, cx| {
+                panel.active = false;
+                cx.notify();
+            });
+        }
+        self.search
+            .preview
+            .update(cx, |panel, _| panel.active = false);
+    }
+
     pub(super) fn search(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let panel = if let Some(live) = &self.provider_link {
             let binding = live.binding.clone();
+            let node = binding.client.target();
+            if self.search.selected != Some(node) {
+                if let Some(previous) = self.search.selected
+                    && let Some(panel) = self.search.panels.get(&previous)
+                {
+                    panel.update(cx, |panel, _| panel.active = false);
+                }
+                self.search.selected = Some(node);
+            }
             let panel = self
                 .search
                 .panels
@@ -189,11 +219,15 @@ impl Workspace {
                 .clone();
             if live.connected {
                 panel.update(cx, |panel, cx| {
+                    panel.active = true;
                     panel.accept(live.search_revision, window, cx)
                 });
             }
             panel
         } else {
+            self.search
+                .preview
+                .update(cx, |panel, _| panel.active = true);
             self.search.preview.clone()
         };
         panel.into_any_element()

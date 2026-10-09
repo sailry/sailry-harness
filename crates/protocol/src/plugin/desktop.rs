@@ -179,9 +179,20 @@ pub struct Settings {
     #[serde(default)]
     pub placement: SettingsPlacement,
     pub navigation: Navigation,
+    /// A built-in host settings renderer; cannot be combined with a script entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<NativeSettings>,
     /// Absent for native renderers or a schema-generated configuration page.
     #[schemars(transform = super::schema::resource_path)]
     pub entry: Option<String>,
+}
+
+/// Fixed host adapters for the corresponding bundled feature packages.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeSettings {
+    Code,
+    Search,
 }
 
 #[derive(

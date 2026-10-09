@@ -178,6 +178,8 @@ pub struct Result {
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     pub revision: u64,
+    #[serde(default = "enabled")]
+    pub enabled: bool,
     pub after_edit: bool,
     pub servers: std::collections::BTreeMap<String, Override>,
     pub languages: std::collections::BTreeMap<String, Vec<String>>,
@@ -186,11 +188,15 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             revision: 0,
+            enabled: true,
             after_edit: true,
             servers: Default::default(),
             languages: Default::default(),
         }
     }
+}
+fn enabled() -> bool {
+    true
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -295,3 +301,6 @@ pub struct Rules {
     pub retrieved: String,
     pub cached: bool,
 }
+
+#[cfg(test)]
+mod tests;

@@ -61,6 +61,8 @@ impl Workspace {
             return;
         }
         self.clear_knowledge(cx);
+        self.forget_code_scope(cx);
+        self.clear_search(cx);
         self.provider_link = None;
         self.providers.channels.clear();
         self.roles.clear();

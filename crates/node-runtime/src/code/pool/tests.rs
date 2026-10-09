@@ -340,7 +340,7 @@ async fn freezes_the_returned_descriptor_after_configuration_changes() {
             environment: None,
         },
     );
-    pool.configure(settings.clone());
+    pool.configure(settings.clone()).await;
     let stop = CancellationToken::new();
     let result = pool
         .query(fixture.worktree, fixture.root.clone(), &query, None, &stop)
@@ -363,7 +363,7 @@ async fn freezes_the_returned_descriptor_after_configuration_changes() {
     assert!(!fixture.root.join("pid").exists());
     settings.servers.get_mut("rust-analyzer").unwrap().config =
         Some(json!({"fixture":{"option":"later"}}));
-    pool.configure(settings);
+    pool.configure(settings).await;
     pool.start(&returned, &fixture.root, &stop).await.unwrap();
     {
         let state = pool.state.lock().await;
@@ -371,5 +371,138 @@ async fn freezes_the_returned_descriptor_after_configuration_changes() {
         assert_eq!(server.plan.startup, returned);
         assert_eq!(server.plan.config, json!({"fixture":{"option":"captured"}}));
     }
+    pool.shutdown().await;
+}
+
+#[tokio::test]
+async fn invalidates_prepared_work_across_disable_and_enable() {
+    let fixture = Fixture::new().await;
+    let pool = Pool::new(None, fixture.environment.clone(), CancellationToken::new());
+    let query = Query::Hover {
+        path: "main.rs".into(),
+        line: 1,
+        symbol: "symbol".into(),
+    };
+    let startup = pool
+        .prepare(fixture.worktree, fixture.root.clone(), &query)
+        .await
+        .unwrap()
+        .unwrap();
+    let (_, captured) = pool.capture().unwrap();
+    let mut settings = pool.settings();
+    settings.enabled = false;
+    settings.after_edit = false;
+    pool.configure(settings.clone()).await;
+    assert_eq!(
+        pool.validate(&startup, &fixture.root).await.unwrap_err(),
+        disabled()
+    );
+    assert!(!fixture.root.join("pid").exists());
+    assert_eq!(
+        pool.prepare(
+            fixture.worktree,
+            fixture.root.clone(),
+            &Query::Symbols {
+                path: None,
+                query: None
+            }
+        )
+        .await
+        .unwrap_err(),
+        disabled()
+    );
+    assert!(
+        pool.changed(
+            fixture.worktree,
+            &["missing.rs".into()],
+            &CancellationToken::new()
+        )
+        .await
+        .unwrap()
+        .is_empty()
+    );
+    assert!(!pool.after_edit());
+    settings.enabled = true;
+    pool.configure(settings).await;
+    assert!(!pool.after_edit());
+    assert_eq!(
+        pool.current(&captured).unwrap_err().code,
+        ErrorCode::Unavailable
+    );
+    assert_eq!(
+        pool.start(&startup, &fixture.root, &CancellationToken::new())
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::PermissionDenied
+    );
+    let startup = pool
+        .prepare(fixture.worktree, fixture.root.clone(), &query)
+        .await
+        .unwrap()
+        .unwrap();
+    pool.start(&startup, &fixture.root, &CancellationToken::new())
+        .await
+        .unwrap();
+    let server = pool.state.lock().await.slots[&key(&startup)].server.clone();
+    let mut settings = pool.settings();
+    settings.enabled = false;
+    pool.configure(settings).await;
+    assert_eq!(server.rpc.state.lock().await.status, Status::Stopped);
+    assert!(pool.list(fixture.worktree).await.unwrap().is_empty());
+    assert_eq!(
+        pool.query(
+            fixture.worktree,
+            fixture.root.clone(),
+            &query,
+            None,
+            &CancellationToken::new()
+        )
+        .await
+        .unwrap_err(),
+        disabled()
+    );
+    pool.shutdown().await;
+}
+
+#[tokio::test]
+async fn cancels_initialization_before_disable_completes() {
+    let fixture = Fixture::new().await;
+    fixture.settings(json!({"initial_hang":true}));
+    let pool = Pool::new(None, fixture.environment.clone(), CancellationToken::new());
+    let startup = pool
+        .prepare(
+            fixture.worktree,
+            fixture.root.clone(),
+            &Query::Diagnostics {
+                path: "main.rs".into(),
+                severity: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let starting = pool.clone();
+    let root = fixture.root.clone();
+    let task = tokio::spawn(async move {
+        starting
+            .start(&startup, &root, &CancellationToken::new())
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !fixture.root.join("pid").exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let mut settings = pool.settings();
+    settings.enabled = false;
+    tokio::time::timeout(Duration::from_secs(2), pool.configure(settings))
+        .await
+        .unwrap();
+    assert_eq!(task.await.unwrap().unwrap_err(), disabled());
+    assert!(pool.list(fixture.worktree).await.unwrap().is_empty());
+    assert!(pool.state.lock().await.prepared.is_empty());
     pool.shutdown().await;
 }
