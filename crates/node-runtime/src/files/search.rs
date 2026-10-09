@@ -106,7 +106,7 @@ pub(super) fn search(
                             &mut searcher,
                             control,
                         );
-                        if let Ok(scan) = &outcome {
+                        if let Ok(Some(scan)) = &outcome {
                             retained = retained.saturating_sub(scan.rows.len());
                         }
                         outcomes.push((index, outcome));
@@ -135,7 +135,8 @@ pub(super) fn search(
         for (index, outcome) in outcomes {
             result.scanned_files += 1;
             match outcome {
-                Ok(scan) => scans.push((index, scan)),
+                Ok(Some(scan)) => scans.push((index, scan)),
+                Ok(None) => result.skipped += 1,
                 Err(error) => {
                     result.skipped += 1;
                     result.partial |= matches!(error.code, ErrorCode::Cancelled | ErrorCode::Busy);
@@ -261,9 +262,13 @@ fn inspect(
     matcher: &RegexMatcher,
     searcher: &mut Searcher,
     control: &Control,
-) -> Result<FileScan, Fault> {
+) -> Result<Option<FileScan>, Fault> {
     let bytes = bytes(root, relative, control)?;
-    let decoded = text::decode(&bytes).map_err(|error| Fault::invalid(error.to_string()))?;
+    let decoded = match text::decode(&bytes) {
+        Ok(decoded) => decoded,
+        Err(text::Error::Binary) => return Ok(None),
+        Err(error) => return Err(Fault::invalid(error.to_string())),
+    };
     let mut sink = RowSink {
         path: relative,
         control,
@@ -280,12 +285,12 @@ fn inspect(
         .search_slice(matcher, decoded.as_bytes(), &mut sink)
         .map_err(|error| failure(error, control))?;
     control.check()?;
-    Ok(FileScan {
+    Ok(Some(FileScan {
         path: relative.into(),
         count: sink.count,
         revision: blake3::hash(&bytes),
         rows: sink.rows,
-    })
+    }))
 }
 
 fn read_page(

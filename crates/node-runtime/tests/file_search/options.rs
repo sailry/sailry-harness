@@ -237,7 +237,12 @@ async fn pages_encoded_text_despite_skipped_files() {
             assert_eq!(page.truncated, next.is_some());
             assert_eq!(page.scanned_files, 7);
             assert_eq!(page.skipped, 3 + usize::from(inaccessible));
-            assert_eq!(page.diagnostics.len(), page.skipped);
+            assert_eq!(page.diagnostics.len(), page.skipped - 1);
+            assert!(
+                page.diagnostics
+                    .iter()
+                    .all(|entry| entry.path != "encoded/b-binary.txt")
+            );
             assert_eq!(
                 page.matches
                     .iter()
@@ -247,7 +252,6 @@ async fn pages_encoded_text_despite_skipped_files() {
             );
             for (path, message) in [
                 ("encoded/a-large.txt", "64 MiB"),
-                ("encoded/b-binary.txt", "binary content"),
                 ("encoded/c-invalid.txt", "UTF-8 nor GB18030"),
             ] {
                 assert!(

@@ -18,6 +18,70 @@ async fn page(client: &Client, worktree: WorktreeId, path: &str, offset: usize) 
     lines
 }
 
+#[tokio::test]
+async fn replays_mixed_newline_edits_with_raw_revisions() {
+    let fixture = Fixture::start().await;
+    for (index, client) in fixture.clients().iter().enumerate() {
+        let path = format!("mixed-{index}.txt");
+        let original = "keep\r\none\r\ntwo\r\nmiddle\none\ntwo\nlast\r\n";
+        std::fs::write(fixture.root.join(&path), original).unwrap();
+        let request = client.prepare(Command::EditFile {
+            worktree: fixture.worktree,
+            path: path.clone(),
+            old_text: None,
+            new_text: None,
+            replace_all: false,
+            edits: Some(vec![
+                FileEdit {
+                    old_text: "one\ntwo\n".into(),
+                    new_text: "A\nB\nC\n".into(),
+                    replace_all: true,
+                },
+                FileEdit {
+                    old_text: "last".into(),
+                    new_text: "final\nextra".into(),
+                    replace_all: false,
+                },
+            ]),
+            expected_revision: blake3::hash(original.as_bytes()).to_hex().to_string(),
+        });
+        let expected = "keep\r\nA\r\nB\r\nC\r\nmiddle\nA\nB\nC\nfinal\r\nextra\r\n";
+        let output = client.execute(request.clone()).await.unwrap();
+        let Output::FileWritten(written) = &output else {
+            panic!("file written expected")
+        };
+        assert_eq!(
+            written.revision,
+            blake3::hash(expected.as_bytes()).to_hex().to_string()
+        );
+        assert_eq!(
+            std::fs::read(fixture.root.join(&path)).unwrap(),
+            expected.as_bytes()
+        );
+        assert_eq!(client.execute(request).await.unwrap(), output);
+        let stale = client.prepare(Command::EditFile {
+            worktree: fixture.worktree,
+            path: path.clone(),
+            old_text: Some("final".into()),
+            new_text: Some("stale".into()),
+            replace_all: false,
+            edits: None,
+            expected_revision: blake3::hash(expected.replace("\r\n", "\n").as_bytes())
+                .to_hex()
+                .to_string(),
+        });
+        assert_eq!(
+            client.execute(stale).await.unwrap_err().code,
+            ErrorCode::RevisionConflict
+        );
+        assert_eq!(
+            std::fs::read(fixture.root.join(&path)).unwrap(),
+            expected.as_bytes()
+        );
+    }
+    fixture.close().await;
+}
+
 fn changes(worktree: WorktreeId, path: &str, text: &str) -> [Command; 2] {
     let revision = blake3::hash(text.as_bytes()).to_hex().to_string();
     [

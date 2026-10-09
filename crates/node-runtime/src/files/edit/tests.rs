@@ -1,5 +1,61 @@
 use super::*;
 
+#[test]
+fn matches_lf_edits_without_normalizing_original_bytes() {
+    let before = "prefix\r\nfirst\r\nsecond\r\nkeep\nfirst\nsecond\nend\r\n";
+    let edits = [FileEdit {
+        old_text: "first\nsecond\n".into(),
+        new_text: "changed\nmore\nlast\n".into(),
+        replace_all: true,
+    }];
+    let after = prepare(before, &edits, &revision(before)).unwrap();
+    assert_eq!(
+        after,
+        "prefix\r\nchanged\r\nmore\r\nlast\r\nkeep\nchanged\nmore\nlast\nend\r\n"
+    );
+    assert_eq!(
+        prepare(before, &edits, &revision(&before.replace("\r\n", "\n")))
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    let mut unique = edits;
+    unique[0].replace_all = false;
+    assert_eq!(
+        prepare(before, &unique, &revision(before))
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+}
+
+#[test]
+fn preserves_mixed_terminators_and_literal_carriage_returns() {
+    let before = "keep\r\na\r\nb\nc\r\ntail\n";
+    let edits = [
+        change("a\nb\nc", "A\nB\nC", false),
+        change("tail", "last\nextra", false),
+    ];
+    assert_eq!(
+        prepare(before, &edits, &revision(before)).unwrap(),
+        "keep\r\nA\r\nB\nC\r\nlast\nextra\n"
+    );
+    assert_eq!(
+        prepare(
+            "a\rb\r\n",
+            &[change("\r", "", false)],
+            &revision("a\rb\r\n")
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        prepare("a\rb\n", &[change("\r", "", false)], &revision("a\rb\n")).unwrap(),
+        "ab\n"
+    );
+}
+
 fn single(
     root: &std::path::Path,
     path: &str,

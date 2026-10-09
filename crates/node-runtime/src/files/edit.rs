@@ -4,6 +4,7 @@ use sailry_protocol::{
     ErrorCode, Fault, FileEdit, FileWritten, MAX_EDIT_BYTES, MAX_FILE_BYTES, MAX_FILE_EDITS,
 };
 use std::{borrow::Cow, cmp::Reverse, collections::BinaryHeap, path::Path};
+mod text;
 
 pub(crate) fn changes<'a>(
     old_text: Option<&str>,
@@ -82,35 +83,49 @@ pub(crate) fn prepare(before: &str, edits: &[FileEdit], expected: &str) -> Resul
         ));
     }
     let control = Control::new(CancellationToken::new());
+    let view = text::View::new(before);
+    let patterns: Vec<_> = edits
+        .iter()
+        .map(|edit| text::Pattern::new(&edit.old_text))
+        .collect();
     let mut matches = BinaryHeap::new();
     for (index, edit) in edits.iter().enumerate() {
-        let start = before
-            .find(edit.old_text.as_str())
+        let pattern = &patterns[index];
+        let start = pattern
+            .find(&view, 0)
             .ok_or_else(|| Fault::invalid("old text was not found in the file"))?;
-        let following = start + before[start..].chars().next().unwrap().len_utf8();
-        if !edit.replace_all && before[following..].contains(edit.old_text.as_str()) {
+        if !edit.replace_all
+            && pattern
+                .find(&view, pattern.following(&view, start))
+                .is_some()
+        {
             return Err(Fault::invalid(
                 "old text must occur exactly once in the file unless replace_all is true",
             ));
         }
-        matches.push(Reverse((start, index)));
+        let range = pattern.range(&view, start);
+        matches.push(Reverse((range.start, range.end, index, start)));
     }
     let mut after = String::with_capacity(before.len());
     let mut offset = 0;
-    while let Some(Reverse((start, index))) = matches.pop() {
+    while let Some(Reverse((start, end, index, position))) = matches.pop() {
         control.check()?;
         if start < offset {
             return Err(Fault::invalid("file edit matches overlap"));
         }
         let edit = &edits[index];
         append(&mut after, &before[offset..start])?;
-        append(&mut after, &edit.new_text)?;
-        offset = start + edit.old_text.len();
+        append(
+            &mut after,
+            &patterns[index].replacement(before, start..end, &edit.new_text),
+        )?;
+        offset = end;
         if edit.replace_all {
             // Advance one character so overlapping occurrences are rejected instead of silently skipped.
-            let following = start + before[start..].chars().next().unwrap().len_utf8();
-            if let Some(next) = before[following..].find(edit.old_text.as_str()) {
-                matches.push(Reverse((following + next, index)));
+            let pattern = &patterns[index];
+            if let Some(next) = pattern.find(&view, pattern.following(&view, position)) {
+                let range = pattern.range(&view, next);
+                matches.push(Reverse((range.start, range.end, index, next)));
             }
         }
     }

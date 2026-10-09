@@ -114,13 +114,40 @@ fn pages_past_skipped_files() {
         assert!(!result.partial, "{result:?}");
         assert_eq!(result.scanned_files, 4);
         assert_eq!(result.skipped, 3);
-        assert_eq!(result.diagnostics.len(), 3);
+        assert_eq!(result.diagnostics.len(), 2);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .all(|item| item.path != "b-binary.txt")
+        );
         assert_eq!(result.matches.len(), 1);
         assert_eq!(result.matches[0].path, "d-text.txt");
         assert_eq!(result.matches[0].line_number, offset + 1);
         assert_eq!(result.next_offset, (offset < 2).then_some(offset + 1));
         assert_eq!(result.truncated, offset < 2);
     }
+}
+
+#[test]
+fn binary_skips_do_not_consume_diagnostics() {
+    let root = directory();
+    for index in 0..100 {
+        std::fs::write(
+            root.path().join(format!("binary-{index:03}")),
+            b"hit\0binary",
+        )
+        .unwrap();
+    }
+    std::fs::write(root.path().join("invalid.txt"), b"hit\xff").unwrap();
+    std::fs::write(root.path().join("text.txt"), "hit\n").unwrap();
+    let result = search(root.path(), &options(), &control()).unwrap();
+    assert_eq!(result.skipped, 101);
+    assert_eq!(result.diagnostics.len(), 1);
+    assert_eq!(result.diagnostics[0].path, "invalid.txt");
+    assert!(!result.partial);
+    assert_eq!(result.matches.len(), 1);
+    assert_eq!(result.matches[0].path, "text.txt");
 }
 
 #[test]
@@ -328,6 +355,7 @@ fn detects_changes_between_scan_and_page() {
         &mut engine(&options),
         &control(),
     )
+    .unwrap()
     .unwrap();
     std::fs::write(root.path().join("a.txt"), "changed\n").unwrap();
     assert_eq!(
@@ -360,6 +388,7 @@ fn detects_encoding_changes_before_paging() {
         &mut engine(&options),
         &control(),
     )
+    .unwrap()
     .unwrap();
     std::fs::write(root.path().join("a.txt"), "hit 中文\n").unwrap();
     assert_eq!(
