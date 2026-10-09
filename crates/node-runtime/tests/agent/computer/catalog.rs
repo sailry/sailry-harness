@@ -2,14 +2,20 @@ use super::*;
 use adk_core::SchemaAdapter;
 use adk_model::openai::OpenAiSchemaAdapter;
 
+/// Mirrors admission: copied clipboard text can be private despite the SDK hint.
+fn read_only(tool: &Value) -> bool {
+    tool["name"] != "clipboard_read" && tool["annotations"]["readOnlyHint"] == true
+}
+
 fn parameters(definition: &Value) -> Value {
     let mut schema = definition["inputSchema"].clone();
+    let hidden = sailry_node_runtime::COMPUTER_HIDDEN;
     schema["properties"]
         .as_object_mut()
         .unwrap()
-        .remove("session");
+        .retain(|field, _| !hidden.contains(&field.as_str()));
     if let Some(required) = schema.get_mut("required").and_then(Value::as_array_mut) {
-        required.retain(|field| field != "session");
+        required.retain(|field| !hidden.iter().any(|name| field == name));
     }
     schema
 }
@@ -44,9 +50,7 @@ async fn preserves_host_bound_native_definitions() {
                     let tools = requests[0]["tools"].as_array().unwrap();
                     for definition in &definitions {
                         let name = definition["name"].as_str().unwrap();
-                        let expected = enabled
-                            && (mode == WorkMode::Code
-                                || definition["annotations"]["readOnlyHint"] == true);
+                        let expected = enabled && (mode == WorkMode::Code || read_only(definition));
                         let offered = tools.iter().find(|tool| tool["function"]["name"] == name);
                         assert_eq!(
                             offered.is_some(),
@@ -183,7 +187,12 @@ async fn responses_preserves_optional_parameters() {
                 .unwrap();
             let required = window["parameters"]["required"].as_array().unwrap();
             assert!(!required.iter().any(|field| field == "screenshot_out_file"));
-            assert!(window["parameters"]["properties"]["screenshot_out_file"].is_object());
+            assert!(
+                window["parameters"]["properties"]
+                    .get("screenshot_out_file")
+                    .is_none()
+            );
+            assert!(window["parameters"]["properties"]["max_depth"].is_object());
             assert!(window["parameters"]["properties"].get("session").is_none());
         }
         assert!(worker.records().is_empty());

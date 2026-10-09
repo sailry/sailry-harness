@@ -78,9 +78,15 @@ pub(super) async fn bind(
         bound
             .tools
             .extend(operations::bind(ingress, tasks, invocation, stop));
-        bound
-            .tools
-            .extend(computer::bind(ingress, invocation, stop));
+        let native = computer::bind(ingress, invocation, stop);
+        if !native.is_empty() {
+            let names = native.iter().map(|tool| tool.tool.name().to_owned());
+            // After compaction (0) and package observers (10).
+            bound
+                .callbacks
+                .push((20, computer::screenshots(names.collect())));
+        }
+        bound.tools.extend(native);
         let scripts = scripts::bind(ingress, tasks, invocation, stop).await?;
         bound.tools.extend(scripts.tools);
         bound.callbacks.extend(scripts.callbacks);

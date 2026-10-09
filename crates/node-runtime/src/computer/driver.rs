@@ -107,9 +107,6 @@ impl Runtime {
             // Start the idle clock before dispatch, conservatively within the
             // SDK's lease. Interrupted or refused calls do not extend it.
             self.sessions.get_mut(&session).unwrap().lease.used = called;
-            if name == "end_session" {
-                self.close(session).await;
-            }
         } else if closed(result.error_code.as_deref(), &output) {
             // A cancelled end-session call can revoke authority after its
             // future is dropped. Return the native refusal without replay,

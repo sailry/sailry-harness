@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn binds_omitted_session_arguments() {
-    let names = ["list_apps", "get_accessibility_tree"];
+    let names = ["list_apps", "list_windows"];
     let raw = driver::result(json!({"apps":[],"windows":[]}));
     for remote in [false, true] {
         let fixture = Fixture::new(
@@ -14,7 +14,7 @@ async fn binds_omitted_session_arguments() {
             WorkMode::Plan,
             Permission::Ask,
             true,
-            json!({"list_apps":raw,"get_accessibility_tree":raw}),
+            json!({"list_apps":raw,"list_windows":raw}),
         )
         .await;
         let page =
@@ -51,12 +51,11 @@ async fn binds_omitted_session_arguments() {
 }
 
 #[tokio::test]
-async fn refuses_public_session_substitution() {
-    let names = ["list_apps", "get_accessibility_tree"];
+async fn rejects_public_session_substitution() {
+    let names = ["list_apps", "list_windows"];
     let success = driver::result(json!({"apps":[],"windows":[]}));
-    let message = "public session substitution does not match the bound authorization context";
-    let refusal = json!({"content":[{"type":"text","text":message}],"isError":true,
-        "structuredContent":{"status":"refused","refusal":{"code":"permission_denied","message":message}}});
+    let refusal = json!({"error":{"code":"invalid_request",
+        "message":"computer argument session is not supported"},"isError":true});
     for remote in [false, true] {
         for label in ["wechat-hello", ""] {
             let arguments = json!({"session":label});
@@ -69,7 +68,7 @@ async fn refuses_public_session_substitution() {
                 WorkMode::Plan,
                 Permission::Ask,
                 true,
-                json!({"list_apps":success,"get_accessibility_tree":success}),
+                json!({"list_apps":success,"list_windows":success}),
             )
             .await;
             let page = super::super::questions::finish_plan(
@@ -83,18 +82,8 @@ async fn refuses_public_session_substitution() {
             for name in names {
                 assert_eq!(tool_result(&fixture, page.revision, name).await, refusal);
             }
-            let calls = fixture.worker.calls();
-            assert_eq!(calls.len(), names.len());
-            assert!(calls.iter().all(|call| call["arguments"] == arguments));
-            assert!(
-                !fixture
-                    .worker
-                    .records()
-                    .iter()
-                    .any(|record| record["operation"] == "invoke"
-                        && names.contains(&record["tool"].as_str().unwrap())),
-                "refused calls must not reach native fixture outcomes"
-            );
+            // Admission rejects the label before the SDK sees the call.
+            assert!(fixture.worker.calls().is_empty());
             fixture.shutdown().await;
         }
     }

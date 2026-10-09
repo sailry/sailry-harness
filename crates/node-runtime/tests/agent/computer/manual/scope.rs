@@ -15,7 +15,7 @@ const TOOLS: [&str; 7] = [
     "set_value",
     "verify_state",
 ];
-const OBSERVATIONS: [&str; 3] = ["list_apps", "get_accessibility_tree", "get_window_state"];
+const OBSERVATIONS: [&str; 3] = ["list_apps", "list_windows", "get_window_state"];
 const RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 const MARKUP: &[u8] = b"<tool_call>";
 
@@ -629,8 +629,8 @@ mod tests {
         fn request() -> Value {
             json!({"model":"isolated-model","stream":true,"reasoning":{"effort":"high"},
                 "input":[{"role":"user","content":"Observe my fixture"}],
-                "tools":[declaration("list_apps"),declaration("get_accessibility_tree"),
-                    declaration("get_window_state"),declaration("get_agent_cursor_state"),
+                "tools":[declaration("list_apps"),declaration("list_windows"),
+                    declaration("get_window_state"),declaration("get_screen_size"),
                     {"type":"function","name":"set_session_title","parameters":{"type":"object"},"strict":false}]})
         }
 
@@ -690,7 +690,7 @@ mod tests {
         async fn accepts_observations_and_isolated_title() {
             for (name, arguments) in [
                 ("list_apps", json!({})),
-                ("get_accessibility_tree", json!({})),
+                ("list_windows", json!({})),
                 (
                     "get_window_state",
                     json!({"pid":10,"window_id":20,

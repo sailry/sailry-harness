@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::path::Path;
 
 const MODEL: &str = "gpt-6-luna";
-const OBSERVATIONS: [&str; 3] = ["list_apps", "get_accessibility_tree", "get_window_state"];
+const OBSERVATIONS: [&str; 3] = ["list_apps", "list_windows", "get_window_state"];
 
 fn state(path: &Path) -> Value {
     serde_json::from_slice(&std::fs::read(path).expect("owned fixture state"))
@@ -183,7 +183,7 @@ async fn observes_owned_window() {
             panic!("planning session expected")
         };
         let message = format!(
-            "Use list_apps and get_accessibility_tree to discover the available apps and windows. Then use get_window_state to read the accessibility tree of my test window, PID {pid}, window ID {window}, with include_accessibility_tree true and include_screenshot false. Tell me whether its text includes {expected:?}. Do not inspect another window or take screenshots."
+            "Use list_apps and list_windows to discover the available apps and windows. Then use get_window_state to read the accessibility tree of my test window, PID {pid}, window ID {window}, with include_accessibility_tree true and include_screenshot false. Tell me whether its text includes {expected:?}. Do not inspect another window or take screenshots."
         );
         let Output::QueuedTurn(turn) = client
             .execute(client.prepare(Command::SubmitTurn {

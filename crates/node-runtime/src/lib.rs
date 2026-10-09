@@ -39,6 +39,8 @@ use tokio::task::JoinHandle;
 #[cfg(any(test, feature = "test-support"))]
 pub use code::fixtures::CodeServerFixture;
 pub use computer::Worker as ComputerWorker;
+#[cfg(any(test, feature = "test-support"))]
+pub use computer::{HIDDEN_PARAMETERS as COMPUTER_HIDDEN, TOOLS as COMPUTER_TOOLS};
 pub use error::Error;
 #[cfg(any(test, feature = "test-support"))]
 pub use process::environment::EnvironmentFixture;

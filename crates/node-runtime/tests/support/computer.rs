@@ -21,7 +21,12 @@ pub fn catalog() -> Vec<Value> {
     inventory["tools"]
         .as_array()
         .expect("native catalog")
-        .clone()
+        .iter()
+        .filter(|tool| {
+            sailry_node_runtime::COMPUTER_TOOLS.contains(&tool["name"].as_str().unwrap())
+        })
+        .cloned()
+        .collect()
 }
 
 pub fn result(value: Value) -> Value {

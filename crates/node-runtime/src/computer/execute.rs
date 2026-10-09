@@ -8,8 +8,16 @@ pub(crate) fn validate(name: &str, arguments: &Value) -> Result<(), Fault> {
     if super::definition(name).is_none() {
         return Err(Fault::invalid("unknown computer tool"));
     }
-    if !arguments.is_object() {
+    let Some(arguments) = arguments.as_object() else {
         return Err(Fault::invalid("computer arguments must be an object"));
+    };
+    if let Some(name) = super::catalog::HIDDEN
+        .iter()
+        .find(|name| arguments.contains_key(**name))
+    {
+        return Err(Fault::invalid(format!(
+            "computer argument {name} is not supported"
+        )));
     }
     Ok(())
 }

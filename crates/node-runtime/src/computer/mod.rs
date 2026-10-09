@@ -10,23 +10,39 @@ pub use worker::Worker;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use catalog::{catalog, definition, read_only};
+#[cfg(any(test, feature = "test-support"))]
+pub use catalog::HIDDEN as HIDDEN_PARAMETERS;
+#[cfg(any(test, feature = "test-support"))]
+pub use catalog::TOOLS;
+pub(crate) use catalog::{HIDDEN, catalog, definition, read_only};
 use sailry_link::CancellationToken;
 use sailry_protocol::SessionId;
 use serde_json::Value;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use tokio::sync::Mutex;
 pub(crate) type Result<T> = std::result::Result<T, String>;
 
 #[derive(Default)]
 pub(crate) struct Desktop {
     state: Arc<Mutex<driver::Runtime>>,
+    // Read without the runtime lock, which a running native call holds.
+    worker: AtomicBool,
     pub stop: CancellationToken,
 }
 
 impl Desktop {
     pub(crate) async fn configure_worker(&self, worker: Option<Worker>) {
+        self.worker.store(worker.is_some(), Ordering::Relaxed);
         self.state.lock().await.worker = worker;
+    }
+
+    /// Native control needs the application worker or a graphical session;
+    /// a headless Linux Host has neither.
+    pub(crate) fn available(&self) -> bool {
+        self.worker.load(Ordering::Relaxed) || graphical()
     }
 
     pub async fn execute(
@@ -62,6 +78,12 @@ impl Desktop {
         self.stop.cancel();
         self.state.lock().await.shutdown().await;
     }
+}
+
+fn graphical() -> bool {
+    !cfg!(target_os = "linux")
+        || std::env::var_os("DISPLAY").is_some()
+        || std::env::var_os("WAYLAND_DISPLAY").is_some()
 }
 
 fn error(value: impl std::fmt::Display) -> String {

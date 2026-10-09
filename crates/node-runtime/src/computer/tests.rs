@@ -6,7 +6,7 @@ mod metadata {
     use cua_driver_sdk::{CuaDriver, DriverHostOptions};
 
     #[test]
-    fn matches_original_inventory() {
+    fn exposes_reviewed_tools_unmodified() {
         let original = CuaDriver::inspect_host_tools(DriverHostOptions {
             cursor: Default::default(),
             host_owns_permission_ux: true,
@@ -17,40 +17,93 @@ mod metadata {
             authorization_host: None,
             activity_observer: None,
         });
-        assert_eq!(catalog(), &original["tools"]);
-        let tools = catalog().as_array().unwrap();
-        assert!(!tools.is_empty());
-        for tool in tools {
+        let reviewed: Vec<_> = original["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|tool| catalog::TOOLS.contains(&tool["name"].as_str().unwrap()))
+            .cloned()
+            .collect();
+        // A renamed or removed SDK tool must fail review instead of vanishing.
+        assert_eq!(reviewed.len(), catalog::TOOLS.len());
+        assert_eq!(catalog().as_array().unwrap(), &reviewed);
+        for tool in &reviewed {
             let name = tool["name"].as_str().unwrap();
             assert_eq!(definition(name), Some(tool));
-            assert_eq!(
-                read_only(name),
-                Some(
+            assert!(tool["inputSchema"].is_object());
+            if name != "clipboard_read" {
+                assert_eq!(
+                    read_only(name),
                     tool["annotations"]["readOnlyHint"]
                         .as_bool()
-                        .unwrap_or(false)
-                )
-            );
-            assert!(tool["inputSchema"].is_object());
+                        .or(Some(false))
+                );
+            }
         }
         assert_eq!(read_only("list_windows"), Some(true));
         assert_eq!(read_only("click"), Some(false));
-        assert!(definition("computer_batch").is_none());
-        assert!(definition("computer_observe").is_none());
+        assert_eq!(read_only("clipboard_read"), Some(false));
+        for hidden in [
+            "page",
+            "browser_navigate",
+            "set_config",
+            "install_ffmpeg",
+            "start_recording",
+            "replay_trajectory",
+            "end_session",
+            "check_permissions",
+            "set_agent_cursor_theme",
+            "computer_batch",
+        ] {
+            assert!(definition(hidden).is_none(), "{hidden}");
+        }
     }
 
     #[test]
-    fn package_has_no_custom_tools_or_prompt() {
+    fn package_adds_guidance_only() {
         let manifest: Value =
             serde_json::from_str(include_str!("../../../../plugins/computer/plugin.json")).unwrap();
         let extension = &manifest["extensions"]["dev.sailry.platform"];
         assert!(extension.get("tools").is_none());
-        assert!(extension.get("instructions").is_none());
+        assert!(
+            extension["instructions"]
+                .as_str()
+                .is_some_and(|text| text.contains("untrusted"))
+        );
         assert!(extension.get("host").is_none());
         assert_eq!(
             extension["actions"],
             json!(["computer.read", "computer.control"])
         );
+    }
+}
+
+mod arguments {
+    use super::*;
+
+    #[test]
+    fn rejects_host_paths_and_session() {
+        assert!(execute::validate("get_window_state", &json!({"pid":1})).is_ok());
+        for (name, arguments) in [
+            (
+                "get_window_state",
+                json!({"pid":1,"screenshot_out_file":"~/.zshrc"}),
+            ),
+            (
+                "get_desktop_state",
+                json!({"screenshot_out_file":"/tmp/a.png"}),
+            ),
+            ("click", json!({"pid":1,"debug_image_out":"/tmp/a.png"})),
+            ("clipboard_write", json!({"file_path":"/etc/hosts"})),
+            ("clipboard_write", json!({"image_path":"/tmp/a.png"})),
+            ("list_apps", json!({"session":"other"})),
+        ] {
+            assert!(
+                execute::validate(name, &arguments).is_err(),
+                "{name} {arguments}"
+            );
+        }
+        assert!(execute::validate("page", &json!({})).is_err());
     }
 }
 

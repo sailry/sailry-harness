@@ -248,10 +248,7 @@ fn dispatches(worker: &driver::Worker) -> Vec<Value> {
 }
 
 #[tokio::test]
-async fn rebinds_after_successful_end() {
-    let result = driver::result(
-        json!({"session":"sdk-ended-session","active":false,"unknown_extension":{"revision":7}}),
-    );
+async fn withholds_session_end() {
     for remote in [false, true] {
         let fixture = Fixture::new(
             remote,
@@ -262,160 +259,16 @@ async fn rebinds_after_successful_end() {
             WorkMode::Code,
             Permission::Full,
             true,
-            json!({"get_window_state":observation(),"end_session":result}),
+            json!({"get_window_state":observation()}),
         )
         .await;
         let page = finished(&fixture.client, fixture.session, fixture.turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        assert_eq!(
-            tool_result(&fixture, page.revision, "end_session").await,
-            result
-        );
-        let original = binds(&fixture.worker);
-        assert_eq!(original.len(), 1);
         let calls = dispatches(&fixture.worker);
-        assert_eq!(
-            calls.len(),
-            2,
-            "a successful end must not dispatch another end"
-        );
+        assert_eq!(calls.len(), 1, "a hidden lifecycle tool must not dispatch");
         assert_eq!(calls[0]["name"], READ);
-        assert_eq!(calls[0]["arguments"], arguments());
-        assert_eq!(calls[1]["name"], "end_session");
-        assert_eq!(calls[1]["arguments"], json!({}));
-        let old_handle = calls[0]["session_handle"].clone();
-        assert_eq!(calls[1]["session_handle"], old_handle);
-        let released = releases(&fixture.worker);
-        assert_eq!(released.len(), 2);
-        assert_eq!(released[0]["operation"], "call");
-        assert_eq!(released[1]["operation"], "close_session");
-        assert!(
-            released
-                .iter()
-                .all(|record| record["session_handle"] == old_handle)
-        );
-
-        let reader = Server::turn_tools(vec![(READ.into(), arguments())]).await;
-        endpoint(&fixture.client, fixture.session, &reader.endpoint).await;
-        let turn = submit(&fixture.client, fixture.session).await;
-        let page = finished(&fixture.client, fixture.session, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let bindings = binds(&fixture.worker);
-        assert_eq!(bindings.len(), 2);
-        assert_eq!(bindings[0], original[0]);
-        assert_ne!(
-            bindings[0]["arguments"]["public_session"],
-            bindings[1]["arguments"]["public_session"]
-        );
-        let calls = dispatches(&fixture.worker);
-        assert_eq!(
-            calls.len(),
-            3,
-            "an ended native action must not be replayed"
-        );
-        assert_eq!(calls[2]["name"], READ);
-        assert_eq!(calls[2]["arguments"], arguments());
-        assert_ne!(calls[2]["session_handle"], old_handle);
-        assert_eq!(releases(&fixture.worker), released);
-        let records = fixture.worker.records();
-        let invoked = records
-            .iter()
-            .rev()
-            .find(|record| record["operation"] == "invoke" && record["tool"] == READ)
-            .unwrap();
-        assert_eq!(
-            invoked["arguments"]["session"],
-            bindings[1]["arguments"]["public_session"]
-        );
-        assert_eq!(fixture.server.requests.lock().unwrap().len(), 3);
-        assert_eq!(reader.requests.lock().unwrap().len(), 2);
-
-        drop(fixture.client);
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
-        let released = releases(&fixture.worker);
-        assert_eq!(released.len(), 4);
-        assert_eq!(
-            released
-                .iter()
-                .filter(|record| record["session_handle"] == old_handle
-                    && record["operation"] == "call")
-                .count(),
-            1
-        );
-        assert_eq!(
-            released
-                .iter()
-                .filter(|record| record["session_handle"] == old_handle
-                    && record["operation"] == "close_session")
-                .count(),
-            1
-        );
-    }
-}
-
-#[tokio::test]
-async fn retains_binding_after_refused_end() {
-    let message = "Native session end was refused";
-    let result = json!({"content":[{"type":"text","text":message}],"isError":true,
-        "structuredContent":{"status":"refused","refusal":{"code":"permission_denied","message":message}}});
-    for remote in [false, true] {
-        let fixture = Fixture::new(
-            remote,
-            vec![
-                (READ.into(), arguments()),
-                ("end_session".into(), json!({})),
-            ],
-            WorkMode::Code,
-            Permission::Full,
-            true,
-            json!({"get_window_state":observation(),"end_session":result}),
-        )
-        .await;
-        let page = finished(&fixture.client, fixture.session, fixture.turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        assert_eq!(
-            tool_result(&fixture, page.revision, "end_session").await,
-            result
-        );
-        let original = binds(&fixture.worker);
-        assert_eq!(original.len(), 1);
-        let calls = dispatches(&fixture.worker);
-        assert_eq!(calls.len(), 2, "a refusal must not dispatch fallback tools");
-        assert_eq!(calls[0]["name"], READ);
-        assert_eq!(calls[0]["arguments"], arguments());
-        assert_eq!(calls[1]["name"], "end_session");
-        assert_eq!(calls[1]["arguments"], json!({}));
-        let handle = calls[0]["session_handle"].clone();
-        assert_eq!(calls[1]["session_handle"], handle);
-        let attempted = releases(&fixture.worker);
-        assert_eq!(attempted.len(), 1);
-        assert_eq!(attempted[0]["operation"], "call");
-
-        let reader = Server::turn_tools(vec![(READ.into(), arguments())]).await;
-        endpoint(&fixture.client, fixture.session, &reader.endpoint).await;
-        let turn = submit(&fixture.client, fixture.session).await;
-        let page = finished(&fixture.client, fixture.session, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        assert_eq!(binds(&fixture.worker), original);
-        let calls = dispatches(&fixture.worker);
-        assert_eq!(calls.len(), 3, "a refused end must not be replayed");
-        assert_eq!(calls[2]["name"], READ);
-        assert_eq!(calls[2]["arguments"], arguments());
-        assert_eq!(calls[2]["session_handle"], handle);
-        assert_eq!(releases(&fixture.worker), attempted);
-        let records = fixture.worker.records();
-        let invoked = records
-            .iter()
-            .rev()
-            .find(|record| record["operation"] == "invoke" && record["tool"] == READ)
-            .unwrap();
-        assert_eq!(
-            invoked["arguments"]["session"],
-            original[0]["arguments"]["public_session"]
-        );
-        assert_eq!(fixture.server.requests.lock().unwrap().len(), 3);
-        assert_eq!(reader.requests.lock().unwrap().len(), 2);
+        assert!(releases(&fixture.worker).is_empty());
+        assert_eq!(binds(&fixture.worker).len(), 1);
         fixture.shutdown().await;
     }
 }
