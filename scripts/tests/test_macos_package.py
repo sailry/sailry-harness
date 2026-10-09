@@ -1,11 +1,14 @@
 """macOS packaging fixtures never use developer certificates or Apple services."""
 
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+
+from test_python_runtime import archive as python_archive
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -47,17 +50,41 @@ class CodeSigning(unittest.TestCase):
             for path in (main, dependency, native, speech, host / "sailry-host", host / "libonnxruntime.dylib"):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"\xcf\xfa\xed\xfe" + b"fixture")
+            interpreter = b"\xcf\xfa\xed\xfeinterpreter fixture"
+            extension = b"\xcf\xfa\xed\xfeextension fixture"
+            data = python_archive(
+                [("python/lib/python3.12/fixture.so", extension, None)], interpreter=interpreter)
+            cache = root / "cache"
+            cache.mkdir()
+            (cache / "python.tar.gz").write_bytes(data)
+            lock = root / "python.lock.json"
+            digest = hashlib.sha256(data).hexdigest()
+            lock.write_text(json.dumps({"version": 1, "python_version": "3.12.13", "targets": {
+                "aarch64-apple-darwin": {"url": "https://release.invalid/python.tar.gz",
+                                          "archive": "python.tar.gz", "size": len(data),
+                                          "sha256": digest}}}))
+            outputs = [app / "Contents/MacOS", host]
+            python_objects = [output / "python" / name for output in outputs
+                              for name in ["bin/python3.12", "lib/python3.12/fixture.so"]]
             def command(*args):
                 path = args[-1]
-                if path.is_file() and path.suffix == ".dylib":
+                if path.is_file() and (path.suffix == ".dylib" or path in python_objects):
                     path.write_bytes(path.read_bytes() + b"signed fixture")
                 if path == app:
                     recorded = json.loads((resources / "onnx-runtime.json").read_text())
                     self.assertEqual(recorded["files"][0]["sha256"], signing.runtime.digest(native))
+                    receipt = json.loads((app / "Contents/MacOS/python/python-runtime.json").read_text())
+                    child = next(file for file in receipt["files"] if file["path"] == "bin/python3.12")
+                    self.assertEqual(child["sha256"], signing.python_runtime.digest(python_objects[0]))
                 return ""
-            with patch.object(signing, "run", side_effect=command) as run, \
+            with patch.object(signing.python_runtime, "LOCK", lock), \
+                    patch.object(signing.python_runtime, "urlopen") as request, \
+                    patch.object(signing, "run", side_effect=command) as run, \
                     patch.object(signing, "verify") as verify:
+                for output in outputs:
+                    signing.python_runtime.prepare("aarch64-apple-darwin", output, cache)
                 signing.sign(app, host, "aarch64-apple-darwin", "Fixture identity", "FIXTURE", root / "keychain")
+            request.assert_not_called()
             calls = [call.args for call in run.call_args_list]
             app_call = next(call for call in calls if call[-1] == app)
             self.assertEqual(calls[-1][-1], host / "sailry-host")
@@ -65,6 +92,35 @@ class CodeSigning(unittest.TestCase):
             self.assertTrue(all("--timestamp" in call and "runtime" in call for call in calls))
             self.assertTrue(all("--keychain" in call for call in calls))
             self.assertIn("--entitlements", app_call)
+            self.assertEqual(app_call[app_call.index("--entitlements") + 1],
+                             ROOT / "apps/desktop/macos/entitlements.plist")
+            for path in python_objects:
+                call = next(call for call in calls if call[-1] == path)
+                verify.assert_any_call(path, "FIXTURE")
+                if path.name == "python3.12":
+                    self.assertEqual(call[call.index("--entitlements") + 1],
+                                     str(ROOT / "scripts/package/python.entitlements.plist"))
+                else:
+                    self.assertNotIn("--entitlements", call)
+            self.assertTrue(all("--entitlements" not in call for call in calls
+                                if call[-1] != app and call[-1] not in python_objects))
+            for output in outputs:
+                python = output / "python"
+                receipt = json.loads((python / "python-runtime.json").read_text())
+                self.assertEqual(receipt["python_version"], "3.12.13")
+                self.assertEqual(receipt["target"], "aarch64-apple-darwin")
+                self.assertEqual(receipt["source"]["sha256"], digest)
+                self.assertFalse(python.stat().st_mode & 0o200)
+                self.assertTrue((python / "lib/python3.12/EXTERNALLY-MANAGED").is_file())
+                self.assertEqual((python / "bin/python3").resolve(), (python / "bin/python3.12").resolve())
+                for name, content in [("bin/python3.12", interpreter),
+                                      ("lib/python3.12/fixture.so", extension)]:
+                    expected = content + b"signed fixture"
+                    file = next(file for file in receipt["files"] if file["path"] == name)
+                    self.assertEqual((python / name).read_bytes(), expected)
+                    self.assertEqual(file["sha256"], signing.python_runtime.digest(python / name))
+                    self.assertEqual(file["size"], len(expected))
+                    self.assertFalse((python / name).stat().st_mode & 0o200)
             self.assertFalse((resources / "hosts").exists())
             self.assertFalse((resources / "office-runtime").exists())
             self.assertFalse((host / "office-runtime").exists())

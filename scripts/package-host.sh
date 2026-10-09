@@ -13,6 +13,8 @@ mkdir -p "$task_root/dist"
 task_output="$(mktemp -d "$task_root/dist/host-$task_target-$task_profile-XXXXXX")"
 mkdir "$task_output/host"
 cp "$task_root/target/host-artifacts/$task_target/sailry-host" "$task_output/host/sailry-host"
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/python-runtime.py" --target "$task_target" \
+  --output "$task_output/host" --cache "$task_root/target/python-cache"
 bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
   --output "$task_output/host" --source "$task_root/target/host-artifacts/$task_target" \
   --cache "$task_root/target/sherpa-onnx-prebuilt"

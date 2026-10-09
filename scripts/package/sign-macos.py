@@ -16,6 +16,9 @@ MAGIC = {
 runtime_spec = importlib.util.spec_from_file_location("onnx_runtime", Path(__file__).with_name("onnx-runtime.py"))
 runtime = importlib.util.module_from_spec(runtime_spec)
 runtime_spec.loader.exec_module(runtime)
+python_spec = importlib.util.spec_from_file_location("python_runtime", Path(__file__).with_name("python-runtime.py"))
+python_runtime = importlib.util.module_from_spec(python_spec)
+python_spec.loader.exec_module(python_runtime)
 
 
 def run(*args):
@@ -52,20 +55,24 @@ def sign(app, host, target, identity, team, keychain=None):
     options = ["--force", "--sign", identity, "--timestamp", "--options", "runtime"]
     if keychain:
         options.extend(["--keychain", str(keychain)])
+    python_runtime.unlock(app / "Contents/MacOS")
+    python_runtime.unlock(host)
     objects = mach_objects(app)
     if not objects:
         raise RuntimeError("The application contains no Mach-O code")
     for path in objects:
-        run("codesign", *options, path)
+        run("codesign", *options, *python_runtime.signing_options(path, app / "Contents/MacOS"), path)
         verify(path, team)
     runtime.finalize(target, app / "Contents/MacOS", speech=True)
+    python_runtime.finalize(target, app / "Contents/MacOS")
     run("codesign", *options, "--entitlements", ROOT / "apps/desktop/macos/entitlements.plist", app)
     verify(app, team, deep=True)
     # Host is a separate release asset, never a remote deployment payload inside Desktop.
     for path in mach_objects(host):
-        run("codesign", *options, path)
+        run("codesign", *options, *python_runtime.signing_options(path, host), path)
         verify(path, team)
     runtime.finalize(target, host, speech=False)
+    python_runtime.finalize(target, host)
     print(f"Developer ID signing verified: {len(objects)} Mach-O files and Sailry.app")
 
 

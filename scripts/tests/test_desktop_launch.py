@@ -13,6 +13,8 @@ import tarfile
 import tempfile
 import unittest
 
+from test_python_runtime import archive as python_archive
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -60,7 +62,8 @@ class NativeAssets(unittest.TestCase):
         self.target = self.root / "build output"
         self.bin = self.root / "bin"
         self.bin.mkdir()
-        for name in ("run-desktop.sh", "python.sh", "package/onnx-runtime.py"):
+        for name in ("run-desktop.sh", "python.sh", "package/onnx-runtime.py",
+                     "package/python-runtime.py", "package/python.entitlements.plist"):
             destination = self.project / "scripts" / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / "scripts" / name, destination)
@@ -111,6 +114,20 @@ path.write_bytes(path.read_bytes() + b"signature fixture")
         self.contents = {"libonnxruntime.dylib": b"runtime fixture",
                          "libsherpa-onnx-c-api.dylib": b"speech fixture"}
         self.archive()
+        self.python_contents = {"bin/python3.12": b"\xcf\xfa\xed\xfeinterpreter fixture",
+                                "lib/python3.12/fixture.so": b"\xcf\xfa\xed\xfeextension fixture"}
+        data = python_archive(
+            [("python/lib/python3.12/fixture.so", self.python_contents["lib/python3.12/fixture.so"], None)],
+            interpreter=self.python_contents["bin/python3.12"],
+        )
+        self.python_hash = hashlib.sha256(data).hexdigest()
+        (self.project / "scripts/package/python-runtime.lock.json").write_text(json.dumps({
+            "version": 1, "python_version": "3.12.13", "targets": {"aarch64-apple-darwin": {
+                "url": "https://release.invalid/python.tar.gz", "archive": "python.tar.gz",
+                "size": len(data), "sha256": self.python_hash}}}))
+        cache = self.target / "python-cache"
+        cache.mkdir()
+        (cache / "python.tar.gz").write_bytes(data)
 
     def program(self, name, content, python=True):
         path = self.bin / name
@@ -147,24 +164,55 @@ path.write_bytes(path.read_bytes() + b"signature fixture")
         result = subprocess.run(["/bin/bash", str(self.project / "scripts/run-desktop.sh")],
                                 env=environment, capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 73, result.stderr)
-        self.assertEqual(self.old_calls.read_text().splitlines(), ["-c"] * 4)
+        self.assertEqual(self.old_calls.read_text().splitlines(), ["-c"] * 7)
         calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
         native = self.target / "onnx-native/aarch64-apple-darwin"
         debug = self.target / "debug"
         app = debug / "Sailry.app"
-        outputs = [native, debug, app / "Contents/MacOS", app / "Contents/MacOS"]
-        self.assertEqual(len(calls), len(outputs))
-        for arguments, output in zip(calls, outputs):
-            self.assertEqual(arguments[0], str(self.project / "scripts/package/onnx-runtime.py"))
+        stages = [("python-runtime.py", debug), ("onnx-runtime.py", native),
+                  ("onnx-runtime.py", debug), ("python-runtime.py", app / "Contents/MacOS"),
+                  ("python-runtime.py", app / "Contents/MacOS"),
+                  ("onnx-runtime.py", app / "Contents/MacOS"),
+                  ("onnx-runtime.py", app / "Contents/MacOS")]
+        self.assertEqual(len(calls), len(stages))
+        for arguments, (script, output) in zip(calls, stages):
+            self.assertEqual(arguments[0], str(self.project / "scripts/package" / script))
             self.assertEqual(arguments[arguments.index("--output") + 1], str(output))
+        self.assertEqual(calls[4][calls[4].index("--sign") + 1], "FIXTURE")
         self.assertIn("--finalize", calls[-1])
         self.assertEqual(json.loads(self.build.read_text()), {
             "args": ["build", "--locked", "-p", "sailry-desktop"], "native": str(native)})
         signatures = [json.loads(line) for line in self.signatures.read_text().splitlines()]
+        python = app / "Contents/MacOS/python"
         self.assertEqual([arguments[-1] for arguments in signatures], [
+            str(python / "lib/python3.12/fixture.so"), str(python / "bin/python3.12"),
+        ] + [
             str(app / "Contents/MacOS" / name) for name in self.contents] + [str(app)])
         self.assertTrue(all(arguments[arguments.index("--sign") + 1] == "FIXTURE"
                             for arguments in signatures))
+        child = next(arguments for arguments in signatures
+                     if arguments[-1] == str(python / "bin/python3.12"))
+        self.assertEqual(child[child.index("--entitlements") + 1],
+                         str(self.project / "scripts/package/python.entitlements.plist"))
+        self.assertEqual(child[child.index("--options") + 1], "runtime")
+        self.assertTrue(all("--entitlements" not in arguments for arguments in signatures
+                            if arguments is not child))
+        for directory, signed in [(debug, False), (app / "Contents/MacOS", True)]:
+            python = directory / "python"
+            receipt = json.loads((python / "python-runtime.json").read_text())
+            self.assertEqual(receipt["target"], "aarch64-apple-darwin")
+            self.assertEqual(receipt["python_version"], "3.12.13")
+            self.assertEqual(receipt["source"]["sha256"], self.python_hash)
+            self.assertEqual((python / "bin/python3").resolve(), (python / "bin/python3.12").resolve())
+            self.assertTrue((python / "lib/python3.12/EXTERNALLY-MANAGED").is_file())
+            self.assertFalse(python.stat().st_mode & 0o200)
+            for name, content in self.python_contents.items():
+                expected = content + (b"signature fixture" if signed else b"")
+                self.assertEqual((python / name).read_bytes(), expected)
+                recorded = next(file for file in receipt["files"] if file["path"] == name)
+                self.assertEqual(recorded["sha256"], hashlib.sha256(expected).hexdigest())
+                self.assertEqual(recorded["size"], len(expected))
+                self.assertFalse((python / name).stat().st_mode & 0o200)
         for directory in (native, debug, debug / "deps", debug / "examples"):
             metadata = json.loads((directory / "onnx-runtime.json").read_text())
             self.assertEqual(metadata["target"], "aarch64-apple-darwin")

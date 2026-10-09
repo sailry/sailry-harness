@@ -90,6 +90,9 @@ New-Item -ItemType Directory -Path $task_output | Out-Null
 $task_app = Join-Path $task_output 'Sailry'
 New-Item -ItemType Directory -Path $task_app | Out-Null
 Copy-Item -LiteralPath $task_executable -Destination (Join-Path $task_app 'sailry-desktop.exe')
+& python (Join-Path $task_root 'scripts/package/python-runtime.py') --target $Target `
+    --output $task_app --cache (Join-Path $task_root 'target/python-cache')
+if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the pinned Python runtime' }
 $task_libraries = @{}
 foreach ($task_directory in @($task_build) + $DependencyDirectories) {
     foreach ($task_library in Get-ChildItem -LiteralPath $task_directory -Filter '*.dll' -File -Force) {
