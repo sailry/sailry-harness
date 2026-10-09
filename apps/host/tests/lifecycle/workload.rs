@@ -9,7 +9,7 @@ use serde_json::json;
 
 #[path = "../../../../crates/node-runtime/tests/agent_support/mod.rs"]
 #[allow(dead_code)]
-mod models;
+pub(super) mod models;
 
 fn counters(pid: u32) -> (f64, u64) {
     let output = Command::new("ps")
@@ -192,6 +192,7 @@ async fn terminal(client: &Client, host: &mut Host, worktree: WorktreeId) {
         client,
         NodeCommand::CreateTerminal(Launch {
             worktree,
+            access: sailry_protocol::process::Access::Workspace,
             viewport: Viewport {
                 columns: 100,
                 rows: 30,

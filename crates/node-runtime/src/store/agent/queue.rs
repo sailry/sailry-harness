@@ -242,6 +242,7 @@ fn input(command: Command) -> Result<Input, Fault> {
         Command::QueueTurn { message, .. }
         | Command::ReplaceTurn { message, .. }
         | Command::SubmitTurn { message, .. }
+        | Command::SubmitTask { message, .. }
         | Command::GuideTurn { message, .. }
         | Command::ContinueTurn { message, .. }
         | Command::EditQueuedTurn { message, .. } => Ok(message),

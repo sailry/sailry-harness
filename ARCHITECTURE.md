@@ -41,7 +41,7 @@ a controller does not stop already admitted work.
 | `crates/speech` | Shared speech capability and native audio integration | Conversation ownership |
 | `crates/content` | Reusable GPUI Kit editors, Markdown, diffs and selection | Node, Client, file acquisition and application state |
 | `apps/desktop` | GPUI Kit composition, focus, drafts and native integrations | Duplicate history or request recovery engines |
-| `apps/host` | Service arguments, signals and shared Node lifecycle | Desktop dependencies and a prompt loop |
+| `apps/host` | Service lifecycle and noninteractive control through Client | Desktop dependencies and a prompt loop |
 | `apps/mobile` | Flutter controller presentation | Independent business rules or credential storage |
 | `services/pairing-relay` | Expiring short-code ticket exchange | Business commands or agent execution |
 
@@ -50,7 +50,7 @@ Production dependency direction is acyclic:
 ```text
 desktop       → client + node-runtime + content + GPUI Kit
 content       → GPUI Kit
-host          → node-runtime
+host          → client + node-runtime
 mobile-bridge → client
 client        → protocol + link
 node-runtime  → protocol + link + ADK
@@ -234,6 +234,21 @@ profile-private Unix socket to request an invitation from the running Host; the
 management process does not open another Node or persistence owner. The socket
 uses a v1 control envelope and owner-only access. Disconnecting the sharing
 command cancels that invitation without revoking already established peer trust.
+The `submit` and `wait` subcommands use that socket to reach the same Node through
+Client commands and conversation subscriptions. New tasks use atomic session and
+first-turn admission; existing sessions use revision-checked turn admission.
+Request IDs retain the Node's durable replay identity. Management output reports
+canonical turn status and pending approvals or questions as JSON. Disconnect,
+timeout and observation cancellation leave admitted execution running, and task
+management never grants approval or creates another Node or history writer.
+The `acp` management subcommand adapts the official ACP SDK's stdio protocol to
+that socket's typed Request/Topic forwarding and an ordinary shared Client.
+It reuses the Node's sessions, immutable turn captures, canonical history and
+approval decisions; ADK's separate ACP server and Runner are not enabled.
+Editor lifecycle and presentation state are local to this adapter. Closing
+stdio or cancelling an RPC drops observation; explicit ACP session cancellation
+or session closure sends the Node's StopTurn command. Workspace registration, MCP installation and
+credential configuration remain explicit Node operations outside this adapter.
 The lower-level macOS launchd helper still only generates a service definition.
 Service lifecycle and local verification are also documented in the
 [pairing guide](services/pairing-relay/README.md#run-and-verify).

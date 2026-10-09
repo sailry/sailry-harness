@@ -8,6 +8,22 @@ if test "$#" -gt 0; then shift; fi
 case "$task_command" in
   version) test "$#" = 0; exec "$task_root/sailry-host" --version ;;
   share) exec "$task_root/sailry-host" share --data-dir "$task_data" "$@" ;;
+  submit|wait|acp)
+    task_profile_given=false
+    task_value=false
+    for task_argument in "$@"; do
+      if "$task_value"; then task_value=false; continue; fi
+      case "$task_argument" in
+        --data-dir) task_profile_given=true; task_value=true ;;
+        --stdin|--no-wait|--help|-h) ;;
+        *) task_value=true ;;
+      esac
+    done
+    if "$task_profile_given"; then
+      exec "$task_root/sailry-host" "$task_command" "$@"
+    fi
+    exec "$task_root/sailry-host" "$task_command" --data-dir "$task_data" "$@"
+    ;;
   update)
     # Use the installed, release-verified installer, not mutable remote code.
     bash "$task_root/install-host.sh" --update "$@"
@@ -33,6 +49,6 @@ case "$task_command" in
       esac
     fi
     ;;
-  help|--help|-h) printf 'Usage: sailry <version|start|stop|restart|status|share|update>\n' ;;
+  help|--help|-h) printf 'Usage: sailry <version|start|stop|restart|status|share|submit|wait|acp|update>\n' ;;
   *) echo 'Unknown command; use sailry help' >&2; exit 1 ;;
 esac

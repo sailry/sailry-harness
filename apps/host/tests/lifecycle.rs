@@ -7,11 +7,15 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use sailry_node_runtime::Node;
+#[path = "lifecycle/acp.rs"]
+mod acp;
 #[path = "lifecycle/control.rs"]
 mod control;
 #[cfg(target_os = "macos")]
 #[path = "lifecycle/launchd.rs"]
 mod launchd;
+#[path = "lifecycle/tasks.rs"]
+mod tasks;
 #[path = "lifecycle/workload.rs"]
 mod workload;
 

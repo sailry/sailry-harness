@@ -832,6 +832,27 @@ pub(super) fn execute(
             ))
         }
         Command::ContinueTurn { .. } => super::agent::continuation::admit(db, caller, request),
+        Command::SubmitTask {
+            session: id,
+            expected_revision,
+            message,
+        } => {
+            if request.plugin.is_some() {
+                return Err(Fault::new(
+                    ErrorCode::PermissionDenied,
+                    "task submission requires a native controller",
+                ));
+            }
+            let session = session(db, *id)?;
+            if let Some(revision) = expected_revision {
+                check_revision(session.revision, *revision)?;
+            }
+            let turn = super::agent::queue::create(db, caller, request, session, message, true)?;
+            Ok((
+                Output::QueuedTurn(turn.clone()),
+                Some(super::agent::activity::queued(db, turn)?),
+            ))
+        }
         Command::QueueTurn {
             session: id,
             expected_revision,

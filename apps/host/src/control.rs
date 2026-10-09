@@ -3,6 +3,7 @@ use sailry_link::{
     CancellationToken, LinkHandle,
     rendezvous::{DEFAULT_SERVICE, Relay, ShareState},
 };
+use std::sync::Arc;
 use std::{ffi::OsString, path::Path};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
@@ -13,8 +14,10 @@ use tokio::{
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
+pub(crate) mod task;
 #[cfg(test)]
 mod tests;
+pub(crate) mod transport;
 
 pub(crate) fn listen(profile: &Path) -> std::io::Result<UnixListener> {
     use std::os::unix::fs::{FileTypeExt, PermissionsExt};
@@ -30,7 +33,12 @@ pub(crate) fn listen(profile: &Path) -> std::io::Result<UnixListener> {
     Ok(listener)
 }
 
-pub(crate) async fn serve(listener: UnixListener, link: LinkHandle, stop: CancellationToken) {
+pub(crate) async fn serve(
+    listener: UnixListener,
+    link: LinkHandle,
+    transport: Arc<dyn sailry_link::Transport>,
+    stop: CancellationToken,
+) {
     let mut clients = JoinSet::new();
     loop {
         tokio::select! {
@@ -39,8 +47,9 @@ pub(crate) async fn serve(listener: UnixListener, link: LinkHandle, stop: Cancel
                 Ok((stream, _)) => {
                     let link = link.clone();
                     let stop = stop.clone();
+                    let transport = transport.clone();
                     clients.spawn(async move {
-                        if let Err(error) = handle(stream, link, stop).await {
+                        if let Err(error) = handle(stream, link, transport, stop).await {
                             eprintln!("Host control failed: {error}");
                         }
                     });
@@ -57,16 +66,27 @@ pub(crate) async fn serve(listener: UnixListener, link: LinkHandle, stop: Cancel
 async fn handle(
     stream: UnixStream,
     link: LinkHandle,
+    transport: Arc<dyn sailry_link::Transport>,
     stop: CancellationToken,
 ) -> Result<(), Error> {
     let (reader, mut writer) = stream.into_split();
-    let mut reader = BufReader::new(reader.take(8193));
+    let mut reader = BufReader::new(reader.take((sailry_protocol::MAX_FRAME_BYTES + 1) as u64));
     let mut request = String::new();
     tokio::time::timeout(
         std::time::Duration::from_secs(10),
         reader.read_line(&mut request),
     )
     .await??;
+    let value: serde_json::Value = serde_json::from_str(&request)?;
+    if matches!(
+        value["command"].as_str(),
+        Some("node_hello" | "node_request" | "node_subscribe")
+    ) {
+        return transport::serve(&request, reader, writer, transport, stop).await;
+    }
+    if matches!(value["command"].as_str(), Some("submit" | "wait")) {
+        return task::serve(&request, reader, writer, transport, stop).await;
+    }
     let relay = request_relay(&request)?;
     let (sender, mut receiver) = watch::channel(ShareState::Preparing);
     let sharing = relay.share(&link, sender, stop);

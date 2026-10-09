@@ -2,7 +2,13 @@ mod bootstrap;
 #[cfg(target_os = "macos")]
 use sailry_node_runtime::computer_worker;
 #[cfg(unix)]
+mod acp;
+#[cfg(unix)]
 mod control;
+#[cfg(all(test, unix))]
+#[path = "../../../crates/node-runtime/tests/agent_support/mod.rs"]
+#[allow(dead_code)]
+mod models;
 mod options;
 mod pairing;
 
@@ -20,7 +26,7 @@ fn main() -> std::process::ExitCode {
         .map_err(Box::<dyn std::error::Error>::from)
         .and_then(|runtime| runtime.block_on(run()));
     match result {
-        Ok(()) => std::process::ExitCode::SUCCESS,
+        Ok(code) => std::process::ExitCode::from(code),
         Err(error) => {
             eprintln!("sailry-host: {error}");
             std::process::ExitCode::FAILURE
@@ -28,21 +34,38 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-async fn run() -> Result<(), Box<dyn std::error::Error>> {
+async fn run() -> Result<u8, Box<dyn std::error::Error>> {
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
     if arguments.as_slice() == ["--version"] || arguments.as_slice() == ["version"] {
         println!("Sailry Host {}", env!("CARGO_PKG_VERSION"));
-        return Ok(());
+        return Ok(0);
     }
     #[cfg(unix)]
     if arguments
         .first()
         .is_some_and(|argument| argument == "share")
     {
-        return control::share(arguments.into_iter().skip(1)).await;
+        return control::share(arguments.into_iter().skip(1))
+            .await
+            .map(|()| 0);
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "submit" || argument == "wait")
+    {
+        #[cfg(unix)]
+        return control::task::run(arguments.into_iter()).await;
+        #[cfg(not(unix))]
+        return Err("Task management requires a Unix Host control socket".into());
+    }
+    if arguments.first().is_some_and(|argument| argument == "acp") {
+        #[cfg(unix)]
+        return acp::run(arguments.into_iter().skip(1)).await.map(|()| 0);
+        #[cfg(not(unix))]
+        return Err("ACP management requires a Unix Host control socket".into());
     }
     let Some(options) = options::parse(arguments.into_iter())? else {
-        return Ok(());
+        return Ok(0);
     };
     // Install handlers before opening a profile or announcing readiness.
     #[cfg(unix)]
@@ -75,7 +98,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     #[cfg(unix)]
-    let control = tokio::spawn(control::serve(control, node.link(), stop.clone()));
+    let control = tokio::spawn(control::serve(
+        control,
+        node.link(),
+        node.local(),
+        stop.clone(),
+    ));
     println!(
         "Node ready: {} (only paired peers are authorized)",
         node.profile().display()
@@ -118,5 +146,5 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     node.shutdown().await?;
     println!("Node stopped");
-    Ok(())
+    Ok(0)
 }

@@ -243,6 +243,58 @@ installations, add `~/.local/bin` to PATH if needed:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
+Submit a noninteractive task to the already running Host with a registered
+worktree ID or an existing session ID:
+
+```sh
+sailry submit --worktree "$WORKTREE_ID" --prompt-file task.txt --request-id "$REQUEST_ID"
+sailry submit --session "$SESSION_ID" --expected-revision "$REVISION" --stdin < task.txt
+sailry wait --session "$SESSION_ID" --turn "$TURN_ID"
+```
+
+Submission uses the Node's current defaults for a new session. An optional
+`--config` JSON file supplies a complete session configuration for a new task;
+existing sessions retain theirs. Without `--expected-revision`, the Node captures
+the session's current configuration on first admission; the same request ID and
+input recover that turn even if the session configuration later changes. An
+explicit revision must match for a new admission. `--no-wait` returns after durable
+admission.
+Each command writes one JSON result containing the Node, request, session, turn,
+frozen revision, `state`, answer text, and pending approvals or questions. Keep the same
+request ID, input and supplied revision option when retrying an uncertain
+submission. `wait` observes the original turn without submitting it again. Ctrl-C
+and `--timeout` end observation while execution continues; approvals remain
+available in Desktop or Mobile.
+
+Exit codes are `0` for admission or completion, `1` for failed or stopped work,
+`3` for pending approval, input or paused work, `4` for an uncertain result,
+`124` for timeout, and `130` for cancelled observation. Read the JSON `state` and
+`error` to distinguish admission failures from execution and observation results.
+Task management uses the private Unix control socket on macOS and Linux.
+
+For CI on an already configured Host, invoke `scripts/ci-task.sh`. Set
+`SAILRY_REQUEST_ID` to an ID retained across retries and exactly one of
+`SAILRY_WORKTREE` or `SAILRY_SESSION`; supply the prompt on stdin or through
+`SAILRY_PROMPT_FILE`. Optional variables are `SAILRY_PROFILE`, `SAILRY_TIMEOUT`,
+`SAILRY_EXPECTED_REVISION` for an existing session, `SAILRY_CONFIG` for a new task,
+and `SAILRY_COMMAND` for the installed management executable. The script forwards
+the JSON and exit code without starting a service or approving tools.
+
+ACP editors can launch `sailry acp --data-dir /absolute/profile` over stdio on
+macOS or Linux while that Host is running. The adapter opens registered project
+worktrees and creates, loads, resumes, lists or forks the Node's own sessions.
+Models, credentials, configuration revisions, tools and approvals remain in that
+Node. Editors receive canonical text, tool results and once-only approval
+requests, including delegated calls. Disconnecting stdio ends observation;
+`session/cancel` and `session/close` explicitly stop the current Node turn.
+
+Text and resource links are supported. Configure additional workspaces and MCP
+servers in Sailry; the adapter does not install or authorize them. Questions
+requiring Sailry's richer input UI remain available there. Sailry identifiers and
+status travel in `_meta.sailry`. Clients may supply `request_id` and
+`expected_revision` in that metadata to retain exact admission identity and
+configuration on a retry; uncertain submissions are never replayed automatically.
+
 Desktop's **Add Host** flow runs the same official installer over SSH, pinned to
 the desktop's release version, verifies the installer and archive checksums, and
 then pairs with the service. For an existing Host, run `sailry share` and pair

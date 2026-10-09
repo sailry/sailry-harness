@@ -560,6 +560,12 @@ pub enum Command {
         expected_revision: u64,
         message: crate::conversation::Input,
     },
+    /// Native task submission freezes the current configuration on first admission.
+    SubmitTask {
+        session: SessionId,
+        expected_revision: Option<u64>,
+        message: crate::conversation::Input,
+    },
     /// Guides an active child at its next model boundary using its frozen capture.
     GuideTurn {
         recipient: crate::TurnId,

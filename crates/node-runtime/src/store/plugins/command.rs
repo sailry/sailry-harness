@@ -10,13 +10,18 @@ pub(in crate::store) fn resolve(
     if request.plugin.is_some() {
         return Ok(None);
     }
-    let Command::SubmitTurn {
-        session,
-        expected_revision,
-        message,
-    } = &request.command
-    else {
-        return Ok(None);
+    let (session, expected_revision, message) = match &request.command {
+        Command::SubmitTurn {
+            session,
+            expected_revision,
+            message,
+        } => (session, Some(*expected_revision), message),
+        Command::SubmitTask {
+            session,
+            expected_revision,
+            message,
+        } => (session, *expected_revision, message),
+        _ => return Ok(None),
     };
     let text = message.text.trim_start();
     let Some(text) = text.strip_prefix('/') else {
@@ -25,7 +30,9 @@ pub(in crate::store) fn resolve(
     let end = text.find(char::is_whitespace).unwrap_or(text.len());
     let name = &text[..end];
     let session = commands::session(&db.connection, *session)?;
-    commands::check_revision(session.revision, *expected_revision)?;
+    if let Some(revision) = expected_revision {
+        commands::check_revision(session.revision, revision)?;
+    }
     crate::store::sessions::writable(&session)?;
     let references = if let Some(assistant) = &session.config.assistant {
         crate::store::agent::plugins::assistant(&db.connection, assistant)?

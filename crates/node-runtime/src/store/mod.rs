@@ -921,6 +921,7 @@ impl Store {
                             let launch = matches!(
                                 request.command,
                                 sailry_protocol::Command::SubmitTurn { .. }
+                                    | sailry_protocol::Command::SubmitTask { .. }
                                     | sailry_protocol::Command::ContinueTurn { .. }
                                     | sailry_protocol::Command::PluginTransaction { .. }
                                     | sailry_protocol::Command::StartSession(_)
