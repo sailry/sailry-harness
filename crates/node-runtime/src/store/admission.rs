@@ -156,6 +156,30 @@ impl Ingress {
             }
             if matches!(
                 request.command,
+                sailry_protocol::Command::SearchModels(_)
+                    | sailry_protocol::Command::ReadModelVersions { .. }
+                    | sailry_protocol::Command::ResolveModel { .. }
+            ) {
+                return self.model_catalog(request).await;
+            }
+            if matches!(
+                request.command,
+                sailry_protocol::Command::SearchPluginValues(_)
+            ) && self.knowledge.get().is_some()
+            {
+                return self.read_storage_search(request).await;
+            }
+            if matches!(
+                request.command,
+                sailry_protocol::Command::QueryKnowledge(_)
+                    | sailry_protocol::Command::ReadKnowledgeCitation(_)
+                    | sailry_protocol::Command::ReadKnowledgeModels
+                    | sailry_protocol::Command::CancelKnowledgeModel { .. }
+            ) {
+                return self.read_knowledge(request).await;
+            }
+            if matches!(
+                request.command,
                 sailry_protocol::Command::ReadCode { .. }
                     | sailry_protocol::Command::ListCodeServers { .. }
                     | sailry_protocol::Command::ListCodePackages { .. }
@@ -366,6 +390,7 @@ impl Ingress {
                 });
             }
             let (reply, response) = oneshot::channel();
+            let knowledge_change = super::knowledge::runtime::changes(&request.command);
             let job = Job::Request {
                 caller,
                 request: Box::new(request),
@@ -383,7 +408,13 @@ impl Ingress {
             }
             let result = response.await.map_err(|_| unavailable())?;
             self.dispatch.wake.notify_one();
-            result
+            result.map(|admission| {
+                if knowledge_change {
+                    super::knowledge::runtime::observe(self, admission)
+                } else {
+                    admission
+                }
+            })
         })
     }
 }

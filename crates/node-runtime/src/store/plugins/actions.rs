@@ -74,6 +74,22 @@ impl Database {
             (Some(action), None, None)
         } else {
             match &request.command {
+                Command::QueryKnowledge(_)
+                | Command::ReadKnowledgeCitation(_)
+                | Command::ListKnowledgeCollections => (
+                    Some(Action::ReadKnowledge),
+                    context.worktree,
+                    context.session,
+                ),
+                Command::CreateKnowledgeCollection { .. }
+                | Command::UpdateKnowledgeCollection { .. }
+                | Command::DeleteKnowledgeCollection { .. }
+                | Command::RebuildKnowledgeCollection { .. }
+                | Command::PauseKnowledgeCollection { .. } => (
+                    Some(Action::WriteKnowledge),
+                    context.worktree,
+                    context.session,
+                ),
                 Command::ReadActivityCatalog | Command::ReadActivity { .. }
                     if context.worktree.is_none()
                         && context.session.is_none()

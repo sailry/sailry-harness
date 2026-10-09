@@ -96,7 +96,10 @@ impl Projection {
                             .plugins
                             .sort_by(|left, right| left.name.cmp(&right.name));
                     }
-                    Event::PluginValuesChanged { .. } => {}
+                    Event::PluginValuesChanged { .. }
+                    | Event::KnowledgeModelsChanged { .. }
+                    | Event::KnowledgeSettingsChanged { .. }
+                    | Event::KnowledgeCollectionsChanged => {}
                     Event::PluginRemoved { name } => {
                         snapshot.plugins.retain(|item| item.name != name)
                     }

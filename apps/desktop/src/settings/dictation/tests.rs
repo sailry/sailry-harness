@@ -1,5 +1,6 @@
 use super::*;
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt;
 
 #[gpui::test]
 fn language_and_downloads(cx: &mut TestAppContext) {
@@ -193,4 +194,99 @@ fn granted_authorization(cx: &mut TestAppContext) {
         });
     });
     assert!(cx.opened_url().is_none());
+}
+
+#[gpui::test]
+fn switches_persisted_controller_models(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let directory = tempfile::tempdir().unwrap();
+    let id = sailry_protocol::ModelId::new();
+    let source = sailry_protocol::models::Source {
+        hub: sailry_protocol::models::Hub::HuggingFace,
+        repository: "fixture/sensevoice".into(),
+        revision: "a".repeat(40),
+    };
+    let definition = sailry_protocol::models::Definition {
+        source: source.clone(),
+        name: "Controller speech".into(),
+        license: "Apache-2.0".into(),
+        format: sailry_protocol::models::Format::SenseVoice {},
+        assets: ["model.onnx", "tokens.txt"]
+            .into_iter()
+            .map(|name| sailry_protocol::models::Asset {
+                source: source.clone(),
+                path: name.into(),
+                name: name.into(),
+                bytes: 4,
+                sha256: "b".repeat(64),
+            })
+            .collect(),
+    };
+    std::fs::create_dir(directory.path().join("models")).unwrap();
+    std::fs::write(
+        directory.path().join("models/speech.json"),
+        serde_json::to_vec(&vec![dictation::models::Record {
+            id,
+            definition,
+            installed: true,
+        }])
+        .unwrap(),
+    )
+    .unwrap();
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+        cx.set_global(preferences::Preferences::open(
+            directory.path().join("preferences.json"),
+        ));
+        cx.set_global(dictation::Service::default());
+    });
+    let mut panel = None;
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let view = cx.new(Panel::new);
+        view.update(cx, |panel, cx| panel.bind(None, window, cx));
+        panel = Some(view.clone());
+        Root::new(view, window, cx)
+    });
+    let panel = panel.unwrap();
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|window, cx| {
+        let selector = SharedString::from(format!("speech-select-{id}"));
+        assert_ne!(window.find(selector.clone()).disabled(), Some(true));
+        window.click(selector, cx);
+    });
+    visual.run_until_parked();
+    assert_eq!(
+        preferences::Preferences::open(directory.path().join("preferences.json"))
+            .data
+            .dictation
+            .unwrap()
+            .model,
+        Some(id)
+    );
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let bounds = visual.debug_bounds("speech-default-select").unwrap();
+    visual.simulate_click(bounds.center(), Modifiers::default());
+    visual.run_until_parked();
+    visual.update(|window, cx| {
+        assert_eq!(preferences::data(cx).dictation.unwrap().model, None);
+        panel.update(cx, |panel, cx| panel.remove(id, window, cx));
+        assert!(dictation::Service::models(cx).unwrap().entries().is_empty());
+        window.remove_window();
+    });
+    assert_eq!(
+        preferences::Preferences::open(directory.path().join("preferences.json"))
+            .data
+            .dictation
+            .unwrap()
+            .model,
+        None
+    );
+    assert!(
+        dictation::models::Manager::open(directory.path().into())
+            .unwrap()
+            .entries()
+            .is_empty()
+    );
 }

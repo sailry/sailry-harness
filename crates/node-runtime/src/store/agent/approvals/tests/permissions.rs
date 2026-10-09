@@ -104,6 +104,7 @@ mod storage {
             fields: ["title".into(), "body".into()],
             tags: vec![],
             order: 1,
+            source: None,
         };
         let reads = [
             Command::ReadPluginValue { key: "item".into() },

@@ -1,0 +1,337 @@
+{
+  "description": "Original bilingual engineering source notes with ten lexical anchors and twenty paraphrase or cross-language queries. Ground truth was written before observing model rankings. This is a small acceptance corpus, not product-wide retrieval evaluation.",
+  "documents": [
+    {
+      "id": "connection-pool",
+      "title": "Database connection pool",
+      "text": "The connection pool is shared by database queries within one execution service. A connection is checked out only while the operation is running, and returned when the transaction ends. Set a small upper bound rather than creating a new connection for every request. If the pool is exhausted, callers wait in a bounded queue with cancellation. A transaction must keep its connection until commit or rollback. Pool capacity and query timeouts should be measured separately; increasing the limit can overwhelm the database without making slow queries faster."
+    },
+    {
+      "id": "duplicate-submission",
+      "title": "Submitting durable work twice",
+      "text": "A controller may lose the completion reply after the service has already admitted a request. Retrying with the original request identifier lets the service return the existing outcome. A freshly generated identifier would describe a different operation and could append the same record or charge an account again. Keep safe receipt separate from business completion. When an admitted operation has an uncertain side effect, report that uncertainty and inspect its outcome; do not automatically replay the external action. Store admission before acknowledging that the request can survive reconnect."
+    },
+    {
+      "id": "document-conflicts",
+      "title": "Saving a document safely",
+      "text": "The editor retains the revision stamp obtained when the file was read. Before saving, compare that stamp with the current file so an external change produces a conflict instead of being silently overwritten. Keep the user's draft when the comparison fails. Write the replacement to a private temporary file in the same directory and publish it through the supported atomic rename path. This prevents a partially written document from becoming visible. It does not provide database isolation against an unrelated program that writes at the same time."
+    },
+    {
+      "id": "ssh-identities",
+      "title": "Remote login identities",
+      "text": "An SSH identity includes a public key and protected private key material. Only the execution host that performs the remote login needs access to the private portion. Store it in protected credential storage rather than a synchronized settings record. An activity event can identify which credential was selected, but must not contain the key or passphrase. The same principle applies when a remote controller changes an SSH profile: the controller sends an explicit secret update, and subsequent reads expose only whether a secret is configured."
+    },
+    {
+      "id": "discardable-cache",
+      "title": "Recovering disk space",
+      "text": "When a data volume is nearly full, distinguish original user content from disposable derived data. Build artifacts, downloaded caches that can be fetched again, and rebuildable search indexes may be removed after their owners have stopped using them. Conversation history, credentials, source documents, and uncommitted edits are not caches. Before deleting an old task checkout, preserve every uncommitted source version and inspect ignored files. If the purpose of an ignored file is unknown, keep it until ownership is understood rather than treating it as generated."
+    },
+    {
+      "id": "compute-queues",
+      "title": "Background CPU scheduling",
+      "text": "CPU inference runs on a small bounded worker pool so indexing cannot start an unbounded number of threads. Interactive queries use a separate queue from background document ingestion. When both have work, the worker gives the interactive queue priority between batches. A long ingestion batch still finishes before switching; choose a small batch size to bound that delay. Cancellation removes queued work and is checked again before publication. Measure queue waiting time separately from inference time, because a fast model can still feel slow when many background jobs are ahead of a user request."
+    },
+    {
+      "id": "language-process-env",
+      "title": "Launching script-based language servers",
+      "text": "A language server may be a script whose first line invokes an interpreter through env. Resolve that interpreter using the server's captured login environment rather than the desktop application's minimal launch environment. PATH entries can point to version-manager shims or symlinked installations under the user's home directory. A restricted process needs read and execute access to the actual interpreter and its runtime dependencies. That access must not grant unrelated home data or credentials, and must not change the workspace write boundary or default network policy."
+    },
+    {
+      "id": "conversation-summary",
+      "title": "Reducing a long conversation",
+      "text": "Before compressing a chat, record its current objective, user constraints, verified facts, modified paths and reasons, errors that were resolved, unfinished actions, current progress, and the next step. Preserve the user's explicit instructions word for word, especially restrictions on data or authorization. Do not relabel an assistant's own proposal as a user instruction. A short summary that loses a still-active constraint can cause the next turn to undo earlier work. The next step should address the latest request while keeping the original objective unless the user clearly cancelled it."
+    },
+    {
+      "id": "vector-storage",
+      "title": "Compact vector storage",
+      "text": "A normalized document embedding can be stored as an eight-bit vector with a scale value. Quantization replaces floating-point coordinates with signed integer values, reducing a 384-coordinate record from roughly fifteen hundred bytes to under four hundred bytes. At query time, compare the decoded direction with the normalized query embedding. Model identity and dimension remain part of the collection binding; vectors from different models must never share a similarity ranking. Reject malformed dimensions, nonfinite values, and vectors with no direction before committing derived index data."
+    },
+    {
+      "id": "local-reconnect",
+      "title": "Controllers on a local network",
+      "text": "A phone and a desktop may control the same long-running execution host over a paired local connection. Reconnecting should recover the host's existing sessions and request outcomes instead of starting another execution service for the same data profile. Transport receipts acknowledge admission, while result subscriptions rebuild client projections from a snapshot and ordered events. This design also works on an isolated network when the requested operation does not require an external model or download. Network pairing establishes identity; it does not transfer ownership of the host's credentials."
+    },
+    {
+      "id": "symlink-boundary",
+      "title": "Confining project reads",
+      "text": "A path that appears inside a workspace can still escape through a symlink in its parents or final component. Open the captured root as a directory capability and walk components without following links. The authority belongs to that retained root, not to whatever an ambient absolute path resolves to later. Reject linked files when the operation's contract requires ordinary confined files. Directory traversal should report skipped links honestly. Do not broaden access to the link target merely because a caller supplied a relative path that began inside the project."
+    },
+    {
+      "id": "incremental-index",
+      "title": "Refreshing changed sources",
+      "text": "An incremental index stores a content digest and modification time for each source document. If both the source identity and its collection binding are unchanged, existing chunks can be reused. Changed content is extracted and replaced as one source update, with stale workers prevented from publishing into a newer generation. After a complete scan, prune entries for files that no longer exist. A cancelled or incomplete scan must not imply that the unseen tail was deleted. The source remains authoritative; losing the derived database should require a rebuild rather than losing registered collections."
+    },
+    {
+      "id": "plugin-private-store",
+      "title": "Small private plugin records",
+      "text": "Each installed extension can keep bounded records in its own storage namespace. The owner package and captured scope determine which records a request may read or update. A node-wide preference is different from a value scoped to one worktree or session. Use revision-checked updates when multiple controllers can edit a record. Storage events should reveal the affected keys and revisions without broadcasting private values. A second plugin does not gain access merely by guessing a key with the same spelling, and an index over plugin content must preserve the same ownership boundary."
+    },
+    {
+      "id": "command-descendants",
+      "title": "Stopping command descendants",
+      "text": "A managed command can start helper processes that outlive its immediate shell. Cancellation must terminate the owned process group on Unix, or the attached job on Windows, rather than only sending a signal to the first process. Attach the Windows child before allowing it to run so it cannot create unowned descendants during a startup race. After termination, continue draining the captured output before reporting completion. A process that exits normally should not cause the service to terminate an unrelated process that later reuses the same numeric identifier."
+    },
+    {
+      "id": "git-working-edits",
+      "title": "Respecting an existing working tree",
+      "text": "Before changing a repository, inspect its status and recent commits to identify existing local work. Preserve edits that were made by another person or a different active task. Destructive commands such as resetting the tree, cleaning untracked files, discarding paths, or forcing a push require explicit authorization. An unexpected change in a file being edited is a reason to stop and reconcile ownership. Do not make a test pass by reverting an unrelated fix. Stage only paths belonging to the current task and keep independently owned build lanes intact."
+    },
+    {
+      "id": "download-integrity",
+      "title": "模型文件的完整性",
+      "text": "下载模型时，目录中的配置、分词器和权重都来自固定的仓库修订。每个文件都有预先记录的大小和哈希校验值。传输先写入私有临时文件，流结束后核对实际字节数以及 SHA-256，再发布到缓存目录。检查失败或用户取消时，不应留下看似已安装的权重。命中缓存也要校验真实内容，不能只看文件名。安装进度包含已经接收的比例与速度，完成状态仅在所有资产通过验证后发布。"
+    },
+    {
+      "id": "profile-defaults",
+      "title": "启动时补齐资料字段",
+      "text": "开发期间的数据定义仍使用当前版本。启动发现缺少表、列或配置字段时，可以集中补齐并填入约定的默认值，而不猜测历史版本。先在隔离副本中验证更新，再保存原始资料的私有备份。真正写入时，新增结构、默认字段和当前格式验证位于同一个事务。任何一步失败都回滚。已有会话、配置、凭据和已经发送的任务配置必须保留，不得以启动失败为由清空整个资料目录。"
+    },
+    {
+      "id": "office-citations",
+      "title": "办公文档中的引用位置",
+      "text": "检索结果需要返回可定位到原始文档的引用。PDF 使用实际页码；工作簿使用表名和单元格范围；演示文稿按文件声明的展示顺序给出幻灯片编号；文字文档保留真实的章节部件。位置来自解析器的结构信息，而不是从可编辑的显示标题中猜测数字。每个引用还包含源文件路径和内容修订。源文件改变后，旧引用需要明确标记过期，不能假装已经对应新的文本。"
+    },
+    {
+      "id": "rank-fusion",
+      "title": "合并关键词与语义排序",
+      "text": "关键词打分和向量相似度通常不在同一个数值范围，直接相加会让某一种检索方式不合理地支配结果。可以依据各自列表中的名次进行倒数排名融合，让两个列表对同一候选的支持累积。先应用授权集合、标签、路径和时间筛选，再分别生成候选和融合。缺少可用模型时只做关键词检索，并真实报告这一模式。融合得到的分数代表排序依据，不应展示为模型理解问题的概率。"
+    },
+    {
+      "id": "speech-idle-memory",
+      "title": "语音识别的空闲内存",
+      "text": "语音听写使用本地识别模型时，只在实际录音和转写需要时加载权重。用户结束听写后，模型可以暂时保留，方便短时间内继续输入。长时间没有工作时，空闲计时器释放识别器和关联缓冲区，使内存回到系统。取消录音还应停止后续转写与文本插入。识别模型的常驻占用和一次转写的临时峰值要分别测量，不能用权重文件的磁盘大小代替真实内存使用量。"
+    },
+    {
+      "id": "download-deadlines",
+      "title": "长下载的超时策略",
+      "text": "连接超时限制建立网络连接需要的时间，读取空闲超时限制两次收到数据之间的停顿。大文件下载只要持续收到数据，就不应因为总过程超过六十秒而必然失败。设置覆盖完整响应体的总超时，会使慢速网络上的模型和安装包无法完成。用户取消是另一条独立路径，需要及时停止传输并清理临时文件。显示平均或缓存的吞吐率时，避免在每个小数据块到达时都进行昂贵计算。"
+    },
+    {
+      "id": "readonly-exploration",
+      "title": "探索项目时的审批",
+      "text": "助手只想查看项目时，应优先使用只读工具，例如按文件名查找、分段读取、查看提交或行级历史。这些操作不需要借助具有修改能力的命令终端。Ask 模式仍要求批准实际修改或扩大访问的操作，但不应该为了普通探索不断弹出命令审批。只读工具的路径边界和身份检查仍然有效。把相关检查合成少量明确的操作，能够减少审批次数，同时保留用户对副作用的控制。"
+    },
+    {
+      "id": "settings-cas",
+      "title": "多个控制端保存设置",
+      "text": "同一个执行主机可能被手机和桌面同时控制。读取设置时返回当前修订，保存时附上这次读取的修订号。若另一端已经先保存，主机返回版本冲突并保留新的权威配置。界面不能把自己的旧副本直接覆盖上去，也不能丢弃尚未保存的草稿。重新加载后，用户可以核对新状态并再次保存。每个主机都有独立的设置和凭据，切换主机不能把前一个主机的草稿误提交给后一个。"
+    },
+    {
+      "id": "secret-events",
+      "title": "事件流里的凭据边界",
+      "text": "模型服务的 API 密钥属于执行主机的受保护存储。连接设置的读取结果只能说明密钥是否已经配置，不能包含原始密钥。订阅事件、日志和界面缓存也不得记录秘密值。保存界面可以发送保留、替换或清除这三种明确的秘密更新，空输入不代表删除原凭据。认证测试在主机内部读取保存的凭据，返回通过或失败的反馈；它不需要把凭据重新发送到控制端。"
+    },
+    {
+      "id": "filter-before-rank",
+      "title": "检索前的标签过滤",
+      "text": "集合内的内容可以带有用于筛选的标签。一次查询要求多个标签时，只有全部符合的来源才进入候选。标签过滤应同时作用于关键词和语义两条路径，也应在取候选上限之前执行。否则，前排被排除的向量可能占满候选名额，使本来符合条件的文件消失。授权集合、路径前缀和修改时间采用相同的前置原则。返回结果的每个引用都应来自本次允许的集合，而不是在界面中补做过滤。"
+    },
+    {
+      "id": "explicit-sharing",
+      "title": "向会话开放插件知识",
+      "text": "插件建立的集合默认只允许所有者访问。控制端可以显式选择，把某个集合共享给指定名称的插件，例如会话内置的知识搜索工具。共享列表中的名称是准确的包身份，不是模糊匹配。新建集合的共享复选框默认不选中，修改集合时也应保留其他已有的明确授权。不能因为集合恰好位于同一个主机或项目中，就自动允许其他插件查询其中的私有内容。"
+    },
+    {
+      "id": "download-cancel-owner",
+      "title": "取消模型下载的请求归属",
+      "text": "模型下载属于启动它的已认证请求。取消入口必须核对调用者和当前下载的归属，不能让另一个控制端猜到模型名称就停止别人的工作。下载一旦取消，原来的安装请求以取消状态结束，缓存不会发布未验证的文件。取消按钮在等待安装完成期间仍要可用；它只报告已请求取消，不能报告已经安装成功。查询或预览被取消时，也不应连带取消同一主机上不相关的任务。"
+    },
+    {
+      "id": "terminal-drain",
+      "title": "终端输出的完整收尾",
+      "text": "伪终端输出是字节流，一段 UTF-8 字符可能被拆到两次读取中。显示层应保留不完整字节并在后续数据到达时继续解码，避免汉字变成替换符。命令结束后仍可能有尚未读完的最后一批输出。先终止输入和子进程，再持续排空读取，最后关闭读端。Windows 控制台关闭期间也需要保持读取，避免关闭调用等待输出被消费而挂起。停止操作不能被正在等待标准输入的进程永久卡住。"
+    },
+    {
+      "id": "ignored-sources",
+      "title": "来源目录的忽略规则",
+      "text": "扫描目录集合时，逐层读取项目的忽略规则，使 .gitignore 中排除的文件不进入派生索引。子目录规则可以覆盖父目录规则，但排除整个父目录时不应为了寻找例外而越过安全边界。扫描还要跳过版本控制内部目录、凭据文件、二进制以及符号链接。无法解析或读取的条目应记录明确的跳过原因。扫描数量可以逐步增长，不能到达一个任意上限后悄悄丢弃后面的来源。"
+    },
+    {
+      "id": "local-remote-proof",
+      "title": "本地与配对路径的验证",
+      "text": "共享命令由同一个主机服务处理，但本地调用和配对远程调用经过不同的传输路径。功能验收需要使用隔离资料分别验证两条路径，包括权限、请求修订、持久接收和事件订阅。进程内单元测试不能证明远程身份与重连工作正常，界面假数据也不能证明后端已经接通。测试应该说明使用了真实服务、模拟外部响应还是仅检查静态格式，不把更窄的证据描述为整个产品的验收。"
+    }
+  ],
+  "queries": [
+    {
+      "text": "connection pool",
+      "expected": [
+        "connection-pool"
+      ]
+    },
+    {
+      "text": "提交同一条任务两遍怎么避免重复扣款或写入",
+      "expected": [
+        "duplicate-submission"
+      ]
+    },
+    {
+      "text": "revision stamp",
+      "expected": [
+        "document-conflicts"
+      ]
+    },
+    {
+      "text": "远程登录的身份密钥应该放哪里，才能不泄露到同步记录",
+      "expected": [
+        "ssh-identities"
+      ]
+    },
+    {
+      "text": "Storage is almost full. Which data can be safely thrown away?",
+      "expected": [
+        "discardable-cache"
+      ]
+    },
+    {
+      "text": "界面操作正常但向量任务一直排队，如何防止后台计算挤占交互任务",
+      "expected": [
+        "compute-queues"
+      ]
+    },
+    {
+      "text": "login environment",
+      "expected": [
+        "language-process-env"
+      ]
+    },
+    {
+      "text": "What must survive when a long chat is summarized?",
+      "expected": [
+        "conversation-summary"
+      ]
+    },
+    {
+      "text": "eight-bit vector",
+      "expected": [
+        "vector-storage"
+      ]
+    },
+    {
+      "text": "手机如何在断网的局域网恢复同一个主机上的任务记录",
+      "expected": [
+        "local-reconnect"
+      ]
+    },
+    {
+      "text": "An in-project shortcut leads outside the allowed tree; should reading through it succeed?",
+      "expected": [
+        "symlink-boundary"
+      ]
+    },
+    {
+      "text": "content digest",
+      "expected": [
+        "incremental-index"
+      ]
+    },
+    {
+      "text": "如何为每个扩展保存自己的小配置，且不让别的扩展读取",
+      "expected": [
+        "plugin-private-store"
+      ]
+    },
+    {
+      "text": "Stopping a shell command should also stop its grandchildren",
+      "expected": [
+        "command-descendants"
+      ]
+    },
+    {
+      "text": "仓库里有其他人尚未提交的修改，我能为排查问题直接清理它们吗",
+      "expected": [
+        "git-working-edits"
+      ]
+    },
+    {
+      "text": "哈希校验",
+      "expected": [
+        "download-integrity"
+      ]
+    },
+    {
+      "text": "How can adding missing database fields preserve the original profile if startup fails?",
+      "expected": [
+        "profile-defaults"
+      ]
+    },
+    {
+      "text": "页码",
+      "expected": [
+        "office-citations"
+      ]
+    },
+    {
+      "text": "两个排序列表的分数单位不同，怎样合成同一个结果列表",
+      "expected": [
+        "rank-fusion"
+      ]
+    },
+    {
+      "text": "After dictation ends, how can the speech recognizer stop occupying RAM?",
+      "expected": [
+        "speech-idle-memory"
+      ]
+    },
+    {
+      "text": "Large downloads are active but exceed a minute; which deadline should apply?",
+      "expected": [
+        "download-deadlines"
+      ]
+    },
+    {
+      "text": "只读工具",
+      "expected": [
+        "readonly-exploration"
+      ]
+    },
+    {
+      "text": "两台控制端同时改同一设置时，怎样避免最后一次保存抹掉前一次",
+      "expected": [
+        "settings-cas"
+      ]
+    },
+    {
+      "text": "Do not include provider API credentials in subscribed state updates",
+      "expected": [
+        "secret-events"
+      ]
+    },
+    {
+      "text": "标签过滤",
+      "expected": [
+        "filter-before-rank"
+      ]
+    },
+    {
+      "text": "让会话助手查询另一个插件的数据，需要什么明确许可",
+      "expected": [
+        "explicit-sharing"
+      ]
+    },
+    {
+      "text": "Can another controller cancel the model download that I started?",
+      "expected": [
+        "download-cancel-owner"
+      ]
+    },
+    {
+      "text": "终端停止时怎样保证跨块汉字和最后一批输出都不丢",
+      "expected": [
+        "terminal-drain"
+      ]
+    },
+    {
+      "text": "忽略规则",
+      "expected": [
+        "ignored-sources"
+      ]
+    },
+    {
+      "text": "A feature works in process; how do we prove it also works over pairing?",
+      "expected": [
+        "local-remote-proof"
+      ]
+    }
+  ]
+}

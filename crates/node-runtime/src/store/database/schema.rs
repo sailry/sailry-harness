@@ -35,6 +35,7 @@ impl Schema {
             State::Current => {}
             State::Upgrade { plan, path } => {
                 plan.apply(connection)?;
+                verify_owned(connection, path, DDL)?;
                 upgrades::reconcile(connection)?;
                 verify(connection, path, DDL)?;
                 super::validation::stored(connection)?;
@@ -49,15 +50,19 @@ pub(super) fn prepare(connection: &Connection, path: &Path, node: NodeId) -> Res
         return Ok(Schema(State::Fresh));
     }
     identity(connection, path, node)?;
-    if verify(connection, path, DDL).is_ok() && super::validation::stored(connection).is_ok() {
+    if verify(connection, path, DDL).is_ok()
+        && super::validation::stored(connection).is_ok()
+        && crate::store::plugins::storage::search::validate(connection).is_ok()
+    {
         return Ok(Schema(State::Current));
     }
     let mut preview = Connection::open_in_memory()?;
     backup::copy(connection, &mut preview)?;
     let plan = plan::Plan::prepare(&preview, path)?;
     plan.apply(&preview)?;
-    verify(&preview, path, DDL)?;
+    verify_owned(&preview, path, DDL)?;
     upgrades::reconcile(&preview)?;
+    verify(&preview, path, DDL)?;
     super::validation::stored(&preview)?;
     identity(&preview, path, node)?;
     backup::save(connection, path)?;
@@ -113,6 +118,14 @@ fn ownership(connection: &Connection, path: &Path) -> Result<bool, Error> {
 }
 
 fn verify(connection: &Connection, path: &Path, ddl: &str) -> Result<(), Error> {
+    layout(connection, path, ddl, false)
+}
+
+fn verify_owned(connection: &Connection, path: &Path, ddl: &str) -> Result<(), Error> {
+    layout(connection, path, ddl, true)
+}
+
+fn layout(connection: &Connection, path: &Path, ddl: &str, rebuilding: bool) -> Result<(), Error> {
     let reference = Connection::open_in_memory()?;
     reference.execute_batch(ddl)?;
     let mut expected = objects(&reference)?;
@@ -122,13 +135,31 @@ fn verify(connection: &Connection, path: &Path, ddl: &str) -> Result<(), Error> 
         let definitions = crate::store::plugins::storage::search::definitions(connection)
             .map_err(|_| incompatible(path, "plugin search declarations cannot be read"))?;
         for definition in definitions {
+            if rebuilding {
+                let header = normalize(definition.split_once('(').unwrap().0);
+                let name = header
+                    .strip_prefix("CREATE VIRTUAL TABLE")
+                    .and_then(|header| header.strip_suffix("USING FTS5"))
+                    .unwrap()
+                    .trim();
+                if let Some(sql) = actual.get(&("table".into(), name.to_ascii_lowercase()))
+                    && !normalize(sql).starts_with(&format!("{header}("))
+                {
+                    return Err(incompatible(
+                        path,
+                        "plugin search table is not an owned FTS5 index",
+                    ));
+                }
+            }
             reference.execute_batch(&definition)?;
         }
         let indexes = objects(&reference)?
             .into_iter()
             .filter(|(identity, _)| !expected.contains_key(identity))
             .collect::<BTreeMap<_, _>>();
-        compare(&indexes, &actual, path)?;
+        if !rebuilding {
+            compare(&indexes, &actual, path)?;
+        }
         expected.extend(indexes);
     }
     if let Some((kind, name)) = actual.keys().find(|identity| {

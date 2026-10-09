@@ -40,29 +40,43 @@ class CodeSigning(unittest.TestCase):
             resources = app / "Contents/Resources"
             main = app / "Contents/MacOS/sailry-desktop"
             dependency = app / "Contents/Frameworks/fixture.dylib"
+            native = app / "Contents/MacOS/libonnxruntime.dylib"
+            speech = app / "Contents/MacOS/libsherpa-onnx-c-api.dylib"
             host = root / "host"
             host.mkdir()
-            for path in (main, dependency, host / "sailry-host"):
+            for path in (main, dependency, native, speech, host / "sailry-host", host / "libonnxruntime.dylib"):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"\xcf\xfa\xed\xfe" + b"fixture")
             def command(*args):
+                path = args[-1]
+                if path.is_file() and path.suffix == ".dylib":
+                    path.write_bytes(path.read_bytes() + b"signed fixture")
+                if path == app:
+                    recorded = json.loads((native.parent / "onnx-runtime.json").read_text())
+                    self.assertEqual(recorded["files"][0]["sha256"], signing.runtime.digest(native))
                 return ""
             with patch.object(signing, "run", side_effect=command) as run, \
                     patch.object(signing, "verify") as verify:
                 signing.sign(app, host, "aarch64-apple-darwin", "Fixture identity", "FIXTURE", root / "keychain")
             calls = [call.args for call in run.call_args_list]
-            self.assertEqual(calls[-2][-1], app)
+            app_call = next(call for call in calls if call[-1] == app)
             self.assertEqual(calls[-1][-1], host / "sailry-host")
             self.assertTrue(all("--deep" not in call for call in calls))
             self.assertTrue(all("--timestamp" in call and "runtime" in call for call in calls))
             self.assertTrue(all("--keychain" in call for call in calls))
-            self.assertIn("--entitlements", calls[-2])
+            self.assertIn("--entitlements", app_call)
             self.assertFalse((resources / "hosts").exists())
             self.assertFalse((resources / "office-runtime").exists())
             self.assertFalse((host / "office-runtime").exists())
             verify.assert_any_call(dependency, "FIXTURE")
+            verify.assert_any_call(native, "FIXTURE")
+            verify.assert_any_call(speech, "FIXTURE")
+            verify.assert_any_call(host / "libonnxruntime.dylib", "FIXTURE")
             verify.assert_any_call(app, "FIXTURE", deep=True)
             verify.assert_any_call(host / "sailry-host", "FIXTURE")
+            recorded = json.loads((host / "onnx-runtime.json").read_text())
+            self.assertEqual(recorded["files"][0]["sha256"], signing.runtime.digest(host / "libonnxruntime.dylib"))
+            self.assertIsNone(recorded["sherpa_version"])
 
     def test_rejects_wrong_team_and_incomplete_metadata(self):
         for metadata in ("TeamIdentifier=OTHER\nflags=0x10000(runtime)\nTimestamp=now\n",

@@ -4,6 +4,7 @@ mod connections;
 pub(super) mod conversation;
 mod files;
 mod git;
+mod knowledge;
 mod media;
 mod models;
 mod roles;
@@ -203,7 +204,13 @@ impl Host {
                 })
             })
             .async_function("searchValues", move |args| {
-                let query = serde_json::from_value(decode(args.value(0)?)?).map_err(|error| HostError::new(error.to_string()))?;
+                let mut value = decode(args.value(0)?)?;
+                if value.get("mode").is_none()
+                    && value.get("query").and_then(serde_json::Value::as_str).is_some_and(|query| !query.trim().is_empty())
+                {
+                    value["mode"] = serde_json::json!("hybrid");
+                }
+                let query = serde_json::from_value(value).map_err(|error| HostError::new(error.to_string()))?;
                 search.read_public(Command::SearchPluginValues(query))
             })
             .function("deleteValue", move |args| {
@@ -214,6 +221,7 @@ impl Host {
             });
         let module =
             self.session_model_module(self.worktree_module(self.usage_module(module, sources)));
+        let module = self.knowledge_module(module);
         self.change_module(self.roles_module(self.media_module(self.computer_module(
             self.file_module(
                 self.terminal_module(self.git_module(self.conversation_module(module))),
@@ -340,7 +348,10 @@ pub(in crate::plugins) fn public_output(output: Output) -> Result<Value, HostErr
     }
     if matches!(
         output,
-        Output::PluginTransaction(_) | Output::PluginSearch(_)
+        Output::PluginTransaction(_)
+            | Output::PluginSearch(_)
+            | Output::KnowledgeCollection(_)
+            | Output::KnowledgeCollections(_)
     ) {
         return Ok(sailry_protocol::plugin::transaction::sdk::output(output));
     }

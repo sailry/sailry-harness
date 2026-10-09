@@ -40,11 +40,16 @@ fi
 task_output="$task_root/target/host-artifacts/$task_target"
 mkdir -p "$task_output"
 cp "$task_binary" "$task_output/sailry-host"
+python3 "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
+  --output "$task_output" --cache "$task_root/target/sherpa-onnx-prebuilt"
 if [[ "$task_target" == *linux-gnu ]]; then
   "$task_strip" --strip-debug "$task_output/sailry-host"
 else
   strip -S "$task_output/sailry-host"
+  codesign --force --sign - "$task_output/libonnxruntime.dylib"
   codesign --force --sign - "$task_output/sailry-host"
+  python3 "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
+    --output "$task_output" --finalize
 fi
 chmod 755 "$task_output/sailry-host"
 printf 'Host build: %s\n' "$task_output"

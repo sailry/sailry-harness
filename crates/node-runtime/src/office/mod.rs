@@ -1,4 +1,5 @@
 //! Native Office inspection on the execution Node.
+use sailry_protocol::knowledge::Position;
 use sailry_protocol::{Fault, office::*};
 use std::{
     io::{Cursor, Read as _},
@@ -13,6 +14,12 @@ mod workbook;
 
 pub(crate) const LIMIT: usize = 32 * 1024 * 1024;
 const TEXT_LIMIT: usize = 128 * 1024;
+
+pub(crate) struct Part {
+    pub name: String,
+    pub text: String,
+    pub position: Position,
+}
 
 fn invalid(error: impl std::fmt::Display) -> Fault {
     Fault::invalid(format!("Office: {error}"))
@@ -42,25 +49,21 @@ pub(crate) fn bytes(root: &Path, path: &str) -> Result<Vec<u8>, Fault> {
 }
 
 pub(crate) fn read(root: &Path, options: &Read) -> Result<Inspection, Fault> {
-    let ext = extension(&options.path)?;
+    extension(&options.path)?;
     let bytes = bytes(root, &options.path)?;
     let revision = blake3::hash(&bytes).to_hex().to_string();
-    let sections = match ext {
-        "pdf" => pdf::read(&bytes)?,
-        "xlsx" => workbook::read(&bytes)?,
-        _ => package::read(&bytes, ext)?,
-    };
+    let sections = parts(&options.path, &bytes)?;
     // Long document parts continue in subsequent offsets instead of losing their tail.
     let mut chunks = Vec::new();
-    for (name, text) in sections {
-        let mut remaining = text.as_str();
+    for part in sections {
+        let mut remaining = part.text.as_str();
         loop {
             let mut end = remaining.len().min(TEXT_LIMIT);
             while !remaining.is_char_boundary(end) {
                 end -= 1;
             }
             chunks.push(Section {
-                name: name.clone(),
+                name: part.name.clone(),
                 text: remaining[..end].to_owned(),
                 truncated: end < remaining.len(),
             });
@@ -86,4 +89,15 @@ pub(crate) fn read(root: &Path, options: &Read) -> Result<Inspection, Fault> {
         sections,
         next,
     })
+}
+
+pub(crate) fn parts(path: &str, bytes: &[u8]) -> Result<Vec<Part>, Fault> {
+    if bytes.len() > LIMIT {
+        return Err(invalid("file exceeds 32 MiB"));
+    }
+    match extension(path)? {
+        "pdf" => pdf::parts(bytes),
+        "xlsx" => workbook::parts(bytes),
+        ext => package::parts(bytes, ext),
+    }
 }

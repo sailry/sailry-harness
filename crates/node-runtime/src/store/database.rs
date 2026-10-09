@@ -403,6 +403,8 @@ impl Database {
         } else if matches!(
             request.command,
             Command::StartCodeServer { .. }
+                | Command::InstallKnowledgeModel { .. }
+                | Command::DeleteKnowledgeModel { .. }
                 | Command::InstallCodeServer { .. }
                 | Command::UninstallCodeServer { .. }
                 | Command::UpdateCodeRules
@@ -689,6 +691,16 @@ impl Database {
             .map(|(output, event)| (output, event.into_iter().collect()))
         };
         let outcome = outcome.and_then(|(output, mut changes)| {
+            if self.profile.is_some()
+                && super::knowledge::runtime::storage::changes(&request.command)
+                && super::knowledge::semantic::changed(
+                    &transaction,
+                    request,
+                    &sailry_link::CancellationToken::new(),
+                )?
+            {
+                changes.push(Event::KnowledgeCollectionsChanged);
+            }
             if super::providers::quota::affected(&request.command) {
                 changes.extend(super::providers::quota::reconcile(&transaction, self.node)?);
             }

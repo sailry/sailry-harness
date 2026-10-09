@@ -76,10 +76,16 @@ impl View {
         if self.readonly() || self.dictation.phase != Phase::Idle {
             return;
         }
-        let directory = crate::dictation::directory(cx);
-        let Some(directory) = directory else {
-            crate::feedback::info("", tr("dictation_unavailable").as_ref(), window, cx);
-            return;
+        let captured = match crate::dictation::capture(cx) {
+            Ok(captured) => captured,
+            Err("dictation_model_missing") => {
+                cx.emit(Event::DictationSettings);
+                return;
+            }
+            Err(error) => {
+                crate::feedback::info("", tr(error).as_ref(), window, cx);
+                return;
+            }
         };
         let cancel = CancellationToken::new();
         let finish = CancellationToken::new();
@@ -91,10 +97,8 @@ impl View {
             task: None,
             partial: None,
         };
-        let check = directory.clone();
-        let ready = cx
-            .background_executor()
-            .spawn(async move { crate::dictation::model::ready(&check) });
+        let check = captured.clone();
+        let ready = cx.background_executor().spawn(async move { check.ready() });
         self.dictation.task = Some(cx.spawn_in(window, async move |view, cx| {
             let ready = ready.await;
             let _ = view.update_in(cx, |view, window, cx| {
@@ -124,7 +128,7 @@ impl View {
                             }
                             if granted && !view.readonly() {
                                 view.record_dictation(
-                                    directory, options, finish, cancel, window, cx,
+                                    captured, options, finish, cancel, window, cx,
                                 );
                             } else {
                                 view.dictation = State::default();
@@ -142,7 +146,7 @@ impl View {
 
     fn record_dictation(
         &mut self,
-        directory: std::path::PathBuf,
+        captured: crate::dictation::models::Capture,
         options: crate::preferences::Dictation,
         finish: CancellationToken,
         cancel: CancellationToken,
@@ -153,7 +157,7 @@ impl View {
         let (updates, mut receiver) = tokio::sync::mpsc::channel(4);
         self.binding.runtime.spawn(async move {
             let result =
-                crate::dictation::run(directory, options, owner, finish, cancel, updates.clone())
+                crate::dictation::run(captured, options, owner, finish, cancel, updates.clone())
                     .await;
             let _ = updates.send(Update::Finished(result)).await;
         });

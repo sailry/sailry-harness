@@ -3,6 +3,7 @@ use sailry_protocol::{NodeId, Output, Request};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 mod conversation;
+mod knowledge;
 mod planning;
 
 fn context() -> plugin::Context {
@@ -219,7 +220,7 @@ fn indexed_storage_preserves_exact_revisions_and_scope() {
         let search=matches!(request.command,sailry_protocol::Command::SearchPluginValues(_));
         requests.lock().unwrap().push(request);
         let entry=plugin::storage::Entry { key:"item".into(),revision:9007199254740993,present:true,value:json!({}) };
-        if search { Ok(Output::PluginSearch(plugin::storage::SearchPage { entries:vec![entry],next:None,now_ms:100 })) }
+        if search { Ok(Output::PluginSearch(plugin::storage::SearchPage { entries:vec![entry],next:None,now_ms:100,mode:plugin::storage::Mode::Keyword,indexing:false })) }
         else { Ok(Output::PluginValue(plugin::storage::Entry { revision:9007199254740994,..entry })) }
     }).unwrap();
     assert_eq!(
@@ -236,6 +237,59 @@ fn indexed_storage_preserves_exact_revisions_and_scope() {
     assert!(
         matches!(&requests[1].command,sailry_protocol::Command::WriteIndexedPluginValue { expected_revision:9007199254740993,index,.. } if index.order==100)
     );
+}
+
+#[test]
+fn preserves_original_search_query() {
+    let captured = Arc::new(Mutex::new(Vec::new()));
+    let queries = captured.clone();
+    let result = run(
+        bundle(
+            r#"
+        import {searchValues} from 'sailry/sdk';
+        export async function run() {
+            const input={query:'  Original order! 東京  ',terms:['order','original']};
+            const first=await searchValues(input);
+            const explicit=await searchValues({...input,mode:'keyword'});
+            const plain=await searchValues({terms:['original']});
+            return {modes:[first.mode,explicit.mode,plain.mode],mutated:input.mode !== undefined};
+        }
+    "#,
+        ),
+        "run",
+        json!(null),
+        context(),
+        NodeId([1; 32]),
+        CancellationToken::new(),
+        move |request| {
+            let sailry_protocol::Command::SearchPluginValues(query) = request.command else {
+                panic!("storage search expected");
+            };
+            let mode = query.mode;
+            queries.lock().unwrap().push(query);
+            Ok(Output::PluginSearch(plugin::storage::SearchPage {
+                entries: vec![],
+                next: None,
+                now_ms: 1,
+                mode,
+                indexing: false,
+            }))
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        result,
+        json!({"modes":["hybrid","keyword","keyword"],"mutated":false})
+    );
+    let queries = captured.lock().unwrap();
+    assert_eq!(queries.len(), 3);
+    assert_eq!(
+        queries[0].query.as_deref(),
+        Some("  Original order! 東京  ")
+    );
+    assert_eq!(queries[0].terms, ["order", "original"]);
+    assert_eq!(queries[1].query, queries[0].query);
+    assert!(queries[2].query.is_none());
 }
 
 #[test]

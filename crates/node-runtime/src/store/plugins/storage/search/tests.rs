@@ -1,5 +1,7 @@
 use super::*;
 use serde_json::json;
+mod keywords;
+mod ranked;
 
 fn database() -> Connection {
     let db = Connection::open_in_memory().unwrap();
@@ -12,11 +14,14 @@ fn metadata() -> Index {
         fields: ["literal".into(), String::new()],
         tags: vec!["visible".into()],
         order: 1,
+        source: None,
     }
 }
 fn query() -> Search {
     Search {
         terms: Vec::new(),
+        query: None,
+        mode: storage::Mode::Keyword,
         weights: [3, 1],
         all: Vec::new(),
         any: Vec::new(),
@@ -78,6 +83,14 @@ fn bounds_index_metadata_and_query_inputs() {
         },
         Search {
             terms: vec!["x".repeat(storage::MAX_QUERY_BYTES + 1)],
+            ..query()
+        },
+        Search {
+            query: Some("x".repeat(storage::MAX_QUERY_BYTES + 1)),
+            ..query()
+        },
+        Search {
+            query: Some("original\0query".into()),
             ..query()
         },
         Search {

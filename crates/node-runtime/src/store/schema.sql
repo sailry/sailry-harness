@@ -72,6 +72,21 @@ CREATE TABLE IF NOT EXISTS media_settings (
     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
     body BLOB NOT NULL
 );
+CREATE TABLE knowledge_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);
+CREATE TABLE knowledge_models (
+    id TEXT PRIMARY KEY,
+    digest TEXT NOT NULL UNIQUE,
+    body BLOB NOT NULL
+);
+CREATE TABLE knowledge_collections (
+    id TEXT PRIMARY KEY,
+    revision INTEGER NOT NULL CHECK(revision>0),
+    generation INTEGER NOT NULL CHECK(generation>0),
+    body BLOB NOT NULL
+);
 CREATE TABLE IF NOT EXISTS session_media (
     session TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
     body BLOB NOT NULL

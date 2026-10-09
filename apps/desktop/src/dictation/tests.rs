@@ -1,4 +1,5 @@
 use super::*;
+mod runtime;
 
 #[tokio::test]
 async fn missing_model() {
@@ -7,7 +8,7 @@ async fn missing_model() {
     let (updates, _) = mpsc::channel(4);
     assert_eq!(
         run(
-            path.clone(),
+            models::Capture::default_at(path.clone()),
             Default::default(),
             Arc::default(),
             CancellationToken::new(),
@@ -28,7 +29,7 @@ async fn concurrent_recording() {
     let guard = owner.lock().await;
     let (updates, _) = mpsc::channel(4);
     let result = run(
-        path.clone(),
+        models::Capture::default_at(path.clone()),
         Default::default(),
         owner.clone(),
         CancellationToken::new(),
@@ -50,7 +51,7 @@ async fn cancelled_input() {
     let (updates, _) = mpsc::channel(4);
     assert_eq!(
         run(
-            path.clone(),
+            models::Capture::default_at(path.clone()),
             Default::default(),
             Arc::default(),
             CancellationToken::new(),

@@ -3,7 +3,7 @@ pub mod model;
 mod sampler;
 pub use sampler::Sampler;
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 
 pub const SAMPLE_RATE: u32 = 16_000;

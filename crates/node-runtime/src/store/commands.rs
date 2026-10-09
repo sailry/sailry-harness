@@ -11,6 +11,29 @@ pub(super) fn execute(
     request: &Request,
 ) -> Result<(Output, Option<Event>), Fault> {
     match &request.command {
+        Command::ReadKnowledgeSettings => super::knowledge::settings(db, request)
+            .map(|settings| (Output::KnowledgeSettings(settings), None)),
+        Command::ListKnowledgeCollections => super::knowledge::list(db, request)
+            .map(|collections| (Output::KnowledgeCollections(collections), None)),
+        Command::SaveKnowledgeSettings(_)
+        | Command::CreateKnowledgeCollection { .. }
+        | Command::UpdateKnowledgeCollection { .. }
+        | Command::DeleteKnowledgeCollection { .. }
+        | Command::RebuildKnowledgeCollection { .. }
+        | Command::PauseKnowledgeCollection { .. }
+        | Command::RegisterKnowledgeModel { .. } => super::knowledge::execute(db, request),
+        Command::ReadKnowledgeModels
+        | Command::SearchModels(_)
+        | Command::ReadModelVersions { .. }
+        | Command::ResolveModel { .. }
+        | Command::CancelKnowledgeModel { .. }
+        | Command::QueryKnowledge(_)
+        | Command::ReadKnowledgeCitation(_)
+        | Command::InstallKnowledgeModel { .. }
+        | Command::DeleteKnowledgeModel { .. } => Err(Fault::new(
+            ErrorCode::Internal,
+            "knowledge execution must run outside the database",
+        )),
         Command::StartSession(draft) => {
             super::sessions::start(db, node, caller, profile, request, draft)
         }

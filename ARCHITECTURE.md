@@ -39,6 +39,8 @@ a controller does not stop already admitted work.
 | `crates/node-runtime` | Admission, persistence, configuration, ADK execution and resource services | GPUI, Flutter and controller presentation |
 | `crates/mobile-bridge` | Client handles, subscriptions and Rust/Dart adaptation | Node, ADK, PTY, Git execution and tool drivers |
 | `crates/speech` | Shared speech capability and native audio integration | Conversation ownership |
+| `crates/embedding` | CPU model loading, token offsets and normalized local vectors | Source grants, indexing and controllers |
+| `crates/model-assets` | Verified, cancellable model downloads shared by speech and retrieval | Model selection and configuration |
 | `crates/content` | Reusable GPUI Kit editors, Markdown, diffs and selection | Node, Client, file acquisition and application state |
 | `apps/desktop` | GPUI Kit composition, focus, drafts and native integrations | Duplicate history or request recovery engines |
 | `apps/host` | Service lifecycle and noninteractive control through Client | Desktop dependencies and a prompt loop |
@@ -81,6 +83,31 @@ revision-checked command. Resuming elsewhere preserves its effective configurati
 Credentials remain in the execution Node's protected storage, never public events
 or UI caches. Projects remain at registered paths; profiles contain Node storage,
 plugin packages/data and uploaded attachments.
+
+Knowledge collections, settings and explicit plugin grants remain in the primary
+Node database. `storage/knowledge.db` contains only derived chunks, full-text
+indexes and quantized vectors; removing that cache never removes registered
+sources or configuration. Plugins query their captured private storage or granted
+collections through the same Client boundary. Source revisions, tags, paths and
+access grants constrain candidates before ranking. Citations resolve through the
+execution Node and recheck their source identity before returning original text.
+Uninstalled models keep keyword retrieval available. Code discovery continues to
+use filename matching, text search and language-server symbols.
+
+One lazy CPU model owner per Node serves small indexing batches and prioritizes
+interactive query work. Optional model assets require an explicit install action
+and immutable revision, size and SHA-256 verification. Source watchers request
+incremental updates; pausing retains existing keyword results, and explicit
+rebuilds invalidate only the selected collection's derived data.
+
+Model discovery reads public Hugging Face or ModelScope catalogs through the
+selected Node. Each registered embedding definition binds its supported algorithm
+and asset hashes to an immutable model identity; branch labels never substitute
+for pinned file revisions. Desktop downloads and selects compatible speech models
+locally, and recording retains its selected model until transcription finishes.
+Both consumers use the packaged ONNX Runtime image; SenseVoice retains Sherpa's
+recognition algorithm. Model updates within supported formats do not require an
+application release, while new algorithms require implementation and validation.
 Disposable command, browser and transfer staging lives under the configurable
 profile's `tmp` directory, separate from durable worktree outputs and attachments.
 Command scratch is scoped to the admitted turn and retained while its commands

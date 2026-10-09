@@ -1,6 +1,8 @@
 use super::*;
 use crate::store::database::Database;
 
+mod indexes;
+
 mod comparison {
     use super::*;
 
@@ -383,7 +385,7 @@ mod startup {
         );
     }
 
-    fn fixture(sql: &str) -> (tempfile::TempDir, PathBuf, NodeId) {
+    pub(super) fn fixture(sql: &str) -> (tempfile::TempDir, PathBuf, NodeId) {
         let directory = tempfile::tempdir().unwrap();
         let path = directory
             .path()
@@ -413,7 +415,12 @@ mod startup {
         (directory, path, node)
     }
 
-    fn rejected(directory: &Path, path: &Path, node: NodeId, detail: &str) -> Connection {
+    pub(super) fn rejected(
+        directory: &Path,
+        path: &Path,
+        node: NodeId,
+        detail: &str,
+    ) -> Connection {
         let before = std::fs::read(path).unwrap();
         let files = entries(directory);
         let error = Database::open(path, node, None).err().unwrap().to_string();
@@ -450,7 +457,7 @@ mod startup {
         connection
     }
 
-    fn entries(directory: &Path) -> Vec<OsString> {
+    pub(super) fn entries(directory: &Path) -> Vec<OsString> {
         let mut entries = std::fs::read_dir(directory)
             .unwrap()
             .map(|entry| entry.unwrap().file_name())
@@ -459,7 +466,7 @@ mod startup {
         entries
     }
 
-    fn upgraded(directory: &Path, path: &Path, node: NodeId) -> Connection {
+    pub(super) fn upgraded(directory: &Path, path: &Path, node: NodeId) -> Connection {
         let database = Database::open(path, node, None).unwrap();
         database.close().unwrap();
         let backups = directory.join("backups");

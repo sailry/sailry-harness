@@ -1,0 +1,22 @@
+[package]
+name = "sailry-embedding"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+ort.workspace = true
+sailry-model-assets = { workspace = true, features = ["onnx"] }
+sailry-protocol.workspace = true
+tokenizers.workspace = true
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

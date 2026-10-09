@@ -5,7 +5,15 @@ pub(super) fn description(operation: Operation) -> &'static str {
     if crate::code::handles(operation) {
         return crate::code::description(operation);
     }
+    if knowledge::handles(operation) {
+        return knowledge::description(operation);
+    }
     match operation {
+        Operation::KnowledgeQuery
+        | Operation::KnowledgeCollections
+        | Operation::KnowledgeCreate
+        | Operation::KnowledgeRebuild
+        | Operation::KnowledgeRemove => unreachable!("knowledge operation handled above"),
         Operation::CodeDiagnostics
         | Operation::CodeDefinition
         | Operation::CodeReferences
@@ -85,6 +93,9 @@ pub(super) fn parameters(operation: Operation) -> Value {
     if crate::code::handles(operation) {
         return crate::code::parameters(operation);
     }
+    if knowledge::handles(operation) {
+        return knowledge::parameters(operation);
+    }
     if repository::handles(operation) {
         return repository::parameters(operation);
     }
@@ -109,6 +120,11 @@ pub(super) fn parameters(operation: Operation) -> Value {
     let key = json!({"type":"string", "minLength":1, "maxLength":plugin::storage::MAX_KEY_BYTES});
     let revision = json!({"type":"integer", "minimum":0});
     let (properties, required) = match operation {
+        Operation::KnowledgeQuery
+        | Operation::KnowledgeCollections
+        | Operation::KnowledgeCreate
+        | Operation::KnowledgeRebuild
+        | Operation::KnowledgeRemove => unreachable!("knowledge operation handled above"),
         Operation::CodeDiagnostics
         | Operation::CodeDefinition
         | Operation::CodeReferences
@@ -237,6 +253,9 @@ pub(super) fn command(
 ) -> Result<Command, Fault> {
     if crate::code::handles(operation) {
         return crate::code::command(operation, arguments, context);
+    }
+    if knowledge::handles(operation) {
+        return knowledge::command(operation, arguments, context);
     }
     match operation {
         Operation::ListDirectory
@@ -433,6 +452,11 @@ pub(super) fn command(
         _ => {}
     }
     let kind = match operation {
+        Operation::KnowledgeQuery
+        | Operation::KnowledgeCollections
+        | Operation::KnowledgeCreate
+        | Operation::KnowledgeRebuild
+        | Operation::KnowledgeRemove => unreachable!("knowledge operation handled above"),
         Operation::CodeDiagnostics
         | Operation::CodeDefinition
         | Operation::CodeReferences

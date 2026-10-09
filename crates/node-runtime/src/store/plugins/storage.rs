@@ -11,6 +11,7 @@ pub(in crate::store) mod conversation;
 #[cfg(test)]
 mod schema_tests;
 pub(in crate::store) mod search;
+pub(in crate::store) mod semantic;
 
 pub(super) fn execute(db: &Connection, request: &Request) -> Result<Output, Fault> {
     let name = &request

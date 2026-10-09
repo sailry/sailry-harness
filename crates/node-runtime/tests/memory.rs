@@ -209,6 +209,8 @@ async fn restores_scoped_revisions() {
                 client
                     .prepare(Command::SearchPluginValues(plugin::storage::Search {
                         terms: vec!["中文".into()],
+                        query: None,
+                        mode: plugin::storage::Mode::Keyword,
                         weights: [3, 1],
                         all: vec!["state:active".into(), "scope:global".into()],
                         any: vec![],

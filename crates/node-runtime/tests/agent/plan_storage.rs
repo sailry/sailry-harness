@@ -311,6 +311,7 @@ async fn uses_frozen_mode_at_admission() {
                 fields: ["title".into(), "body".into()],
                 tags: vec![],
                 order: 0,
+                source: None,
             };
             let writes = [
                 Command::WritePluginValue {

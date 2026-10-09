@@ -8,7 +8,9 @@ mod draft;
 mod entry;
 pub(crate) mod group;
 mod hooks;
+mod knowledge;
 mod mcp;
+mod model_library;
 mod plugins;
 pub(crate) use plugins::open_bound as open_plugin_details;
 mod preferences;
@@ -40,6 +42,7 @@ pub enum Section {
     Terminal,
     Code,
     Search,
+    Knowledge,
     Hooks,
     Plugin,
     Market,
@@ -63,13 +66,14 @@ impl Section {
 
     // Sailry Code 67ae9fa0: app/sailry_code_app/lib/settings/settings_models.dart.
     #[cfg(test)]
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::General,
         Self::Appearance,
         Self::Conversation,
         Self::Terminal,
         Self::Code,
         Self::Search,
+        Self::Knowledge,
         Self::Hooks,
         Self::Plugins,
         Self::Market,
@@ -94,7 +98,7 @@ impl Section {
                 Self::Dictation,
             ],
         ),
-        ("settings_group_ai", &[Self::Providers]),
+        ("settings_group_ai", &[Self::Providers, Self::Knowledge]),
         (
             "settings_group_tools",
             &[
@@ -111,7 +115,7 @@ impl Section {
     pub(crate) fn navigation_order(self) -> u16 {
         match self {
             Self::General | Self::Providers | Self::Terminal | Self::Permissions => 100,
-            Self::About => 200,
+            Self::About | Self::Knowledge => 200,
             Self::Appearance | Self::Connections => 200,
             Self::Conversation | Self::Code => 300,
             Self::Shortcuts | Self::Search => 400,
@@ -129,6 +133,7 @@ impl Section {
             Self::Terminal => "settings_terminal",
             Self::Code => "settings_code",
             Self::Search => "settings_search",
+            Self::Knowledge => "settings_knowledge",
             Self::Hooks => "hooks_settings",
             Self::Plugin => "plugins_settings_title",
             Self::Market => "plugins_market",
@@ -152,6 +157,7 @@ impl Section {
             Self::Terminal => IconName::SquareTerminal,
             Self::Code => IconName::Cpu,
             Self::Search => IconName::Search,
+            Self::Knowledge => IconName::BookOpen,
             Self::Hooks => IconName::Settings2,
             Self::Plugin => IconName::Settings2,
             Self::Market | Self::Plugins => IconName::GalleryVerticalEnd,
@@ -178,6 +184,7 @@ pub struct Workspace {
     terminal: terminal::State,
     code: code::State,
     search: search::State,
+    knowledge: knowledge::State,
     hooks: hooks::State,
     conversation: conversation::State,
     opacity: appearance::opacity::State,
@@ -269,6 +276,7 @@ impl Workspace {
             terminal,
             code: code::State::default(),
             search: search::State::new(window, cx),
+            knowledge: knowledge::State::default(),
             hooks: hooks::State::default(),
             conversation: conversation::State::new(window, cx),
             opacity: appearance::opacity::State::new(cx),
@@ -319,6 +327,7 @@ impl Workspace {
     }
 
     pub fn deactivate(&mut self, cx: &mut Context<Self>) {
+        self.clear_knowledge(cx);
         self.clear_code(cx);
         self.clear_hooks(cx);
         self.permissions
@@ -342,9 +351,15 @@ impl Render for Workspace {
             Section::Terminal => self.terminal(window, cx),
             Section::Code => self.code.render(window, cx),
             Section::Search => self.search(window, cx),
+            Section::Knowledge => self.knowledge(window, cx),
             Section::Hooks => self.hooks.render(window, cx),
             Section::Shortcuts => self.shortcuts.clone().into_any_element(),
-            Section::Dictation => self.dictation.clone().into_any_element(),
+            Section::Dictation => {
+                let binding = self.provider_link.as_ref().map(|live| live.binding.clone());
+                self.dictation
+                    .update(cx, |panel, cx| panel.bind(binding, window, cx));
+                self.dictation.clone().into_any_element()
+            }
             Section::Permissions => self.permissions.clone().into_any_element(),
             Section::Market => self.plugin_page(window, cx),
             Section::Plugins => self.plugins(cx),

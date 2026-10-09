@@ -70,6 +70,7 @@ fn transcribes_offline_fixtures() {
     let samples: Vec<(String, Vec<String>)> =
         serde_json::from_slice(&std::fs::read(root.join("expected.json")).unwrap()).unwrap();
     for (file, expected) in samples {
+        assert_eq!(expected.len(), 1, "use the complete expected transcript");
         let wave = sherpa_onnx::Wave::read(root.join(&file).to_str().unwrap()).unwrap();
         for gain in [1., 0.001] {
             let audio: Vec<_> = wave.samples().iter().map(|value| value * gain).collect();
@@ -82,12 +83,11 @@ fn transcribes_offline_fixtures() {
             .unwrap();
             eprintln!("{file}: {text}");
             assert!(!text.is_empty(), "empty transcript for {file}");
-            for expected in &expected {
-                assert!(
-                    text.to_lowercase().contains(&expected.to_lowercase()),
-                    "unexpected transcript for {file}: {text}"
-                );
-            }
+            assert_eq!(
+                text.to_lowercase(),
+                expected[0].to_lowercase(),
+                "unexpected transcript for {file} at gain {gain}"
+            );
         }
     }
 }

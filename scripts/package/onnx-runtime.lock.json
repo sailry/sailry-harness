@@ -1,0 +1,176 @@
+{
+  "version": 1,
+  "runtime_version": "1.28.2",
+  "sherpa_version": "1.13.8",
+  "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/",
+  "targets": {
+    "aarch64-apple-darwin": {
+      "archive": "sherpa-onnx-v1.13.8-osx-arm64-shared-lib.tar.bz2",
+      "size": 8773198,
+      "sha256": "ae77050cdae565496059d96f5ab33d77b397a0864282a4e4a26e3b3b3effb948",
+      "files": [
+        {
+          "name": "libonnxruntime.dylib",
+          "member": "sherpa-onnx-v1.13.8-osx-arm64-shared-lib/lib/libonnxruntime.dylib",
+          "size": 28775120,
+          "sha256": "3567d114f7299d559993e536d605a6f46d7bc9d2542004accc80ee9bf5457f0b",
+          "role": "runtime"
+        },
+        {
+          "name": "libsherpa-onnx-c-api.dylib",
+          "member": "sherpa-onnx-v1.13.8-osx-arm64-shared-lib/lib/libsherpa-onnx-c-api.dylib",
+          "size": 4172832,
+          "sha256": "ee098d8b419d49b92101cde3c970a333b361066eb2d79a11ab480a116552b908",
+          "role": "speech"
+        }
+      ]
+    },
+    "aarch64-pc-windows-msvc": {
+      "archive": "sherpa-onnx-v1.13.8-win-arm64-shared-MT-Release-lib.tar.bz2",
+      "size": 7622849,
+      "sha256": "22cd2b2b5e35c1132abc74a91ee77f683645437382617af6a4bd5818b9c509f4",
+      "files": [
+        {
+          "name": "onnxruntime.dll",
+          "member": "sherpa-onnx-v1.13.8-win-arm64-shared-MT-Release-lib/lib/onnxruntime.dll",
+          "size": 17635328,
+          "sha256": "968d081836cad9af537105f59e34d4997bca2ce6d78ff39d3e47660620e8a642",
+          "role": "runtime"
+        },
+        {
+          "name": "onnxruntime.lib",
+          "member": "sherpa-onnx-v1.13.8-win-arm64-shared-MT-Release-lib/lib/onnxruntime.lib",
+          "size": 2124,
+          "sha256": "9c2733702690024427ca55ccbd6792cd19f44503d8a2c04dd68b6af83225de84",
+          "role": "link"
+        },
+        {
+          "name": "onnxruntime_providers_shared.dll",
+          "member": "sherpa-onnx-v1.13.8-win-arm64-shared-MT-Release-lib/lib/onnxruntime_providers_shared.dll",
+          "size": 104448,
+          "sha256": "05fb0cc694b0671db544e77c55c3736d13be850b8b4045145e982e072e6f938f",
+          "role": "runtime"
+        },
+        {
+          "name": "sherpa-onnx-c-api.dll",
+          "member": "sherpa-onnx-v1.13.8-win-arm64-shared-MT-Release-lib/lib/sherpa-onnx-c-api.dll",
+          "size": 4584960,
+          "sha256": "48fc834012df0874d60282f0575705f133a1130b5a57cdcdcfb848fd42b47439",
+          "role": "speech"
+        },
+        {
+          "name": "sherpa-onnx-c-api.lib",
+          "member": "sherpa-onnx-v1.13.8-win-arm64-shared-MT-Release-lib/lib/sherpa-onnx-c-api.lib",
+          "size": 75604,
+          "sha256": "a65b3cc8a6cb5f0ffa340715ff76aec2cc5580a828209cdbc6b8884b30cbbae4",
+          "role": "link"
+        }
+      ]
+    },
+    "aarch64-unknown-linux-gnu": {
+      "archive": "sherpa-onnx-v1.13.8-linux-aarch64-shared-cpu-lib.tar.bz2",
+      "size": 12595068,
+      "sha256": "fb98b80628a383909bf83626daca2e0d0ffc93bf1f7d222eaaa4282b388f072f",
+      "files": [
+        {
+          "name": "libonnxruntime.so",
+          "member": "sherpa-onnx-v1.13.8-linux-aarch64-shared-cpu-lib/lib/libonnxruntime.so",
+          "size": 34606912,
+          "sha256": "cfc800d4438f15e8d9017521326776ca7117d8783cb847ccccc2fc61ac4d540f",
+          "role": "runtime"
+        },
+        {
+          "name": "libsherpa-onnx-c-api.so",
+          "member": "sherpa-onnx-v1.13.8-linux-aarch64-shared-cpu-lib/lib/libsherpa-onnx-c-api.so",
+          "size": 4613032,
+          "sha256": "11378e1aea169aecb59a4d41ca8da6f5ee4f3614c34a4b908dd78de7646a518d",
+          "role": "speech"
+        }
+      ]
+    },
+    "x86_64-apple-darwin": {
+      "archive": "sherpa-onnx-v1.13.8-osx-x64-shared-lib.tar.bz2",
+      "size": 10014197,
+      "sha256": "0f88371565a06372889c76266e253abd1b415fcc6f98232cabd968933efb0711",
+      "files": [
+        {
+          "name": "libonnxruntime.dylib",
+          "member": "sherpa-onnx-v1.13.8-osx-x64-shared-lib/lib/libonnxruntime.dylib",
+          "size": 32315856,
+          "sha256": "2bf27180c09e6fd3f407c9ab25205ebf1ff95f2d53bfa35e35409b5849e0ac70",
+          "role": "runtime"
+        },
+        {
+          "name": "libsherpa-onnx-c-api.dylib",
+          "member": "sherpa-onnx-v1.13.8-osx-x64-shared-lib/lib/libsherpa-onnx-c-api.dylib",
+          "size": 4542656,
+          "sha256": "d32eb199b94c076afef9cfc42e445c581c0326a72fb2cfdfdc177ebacf9bf38f",
+          "role": "speech"
+        }
+      ]
+    },
+    "x86_64-pc-windows-msvc": {
+      "archive": "sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib.tar.bz2",
+      "size": 8032957,
+      "sha256": "b8eedf41bd6d3779218887b48367bb7a3ece5aaa7667f01f69ee823a12b0a9e7",
+      "files": [
+        {
+          "name": "onnxruntime.dll",
+          "member": "sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib/lib/onnxruntime.dll",
+          "size": 17799168,
+          "sha256": "7f66f939a881baf4f46a2216496798edf4a1429878b646d12674aa62f27d8a25",
+          "role": "runtime"
+        },
+        {
+          "name": "onnxruntime.lib",
+          "member": "sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib/lib/onnxruntime.lib",
+          "size": 2124,
+          "sha256": "b9fc3cd678257d88a111b0773ede4bfceaf0fe95daab4379f2b2b37348a68781",
+          "role": "link"
+        },
+        {
+          "name": "onnxruntime_providers_shared.dll",
+          "member": "sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib/lib/onnxruntime_providers_shared.dll",
+          "size": 104960,
+          "sha256": "551d0e1fe4c227d8542314ba718d52f4379e0c7bfe729a37c59833a884e27b4d",
+          "role": "runtime"
+        },
+        {
+          "name": "sherpa-onnx-c-api.dll",
+          "member": "sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib/lib/sherpa-onnx-c-api.dll",
+          "size": 4605952,
+          "sha256": "300e0c88400903fc4cfc88be88a8ae587a24cc658653e0e1fd1c2b8dbbc68557",
+          "role": "speech"
+        },
+        {
+          "name": "sherpa-onnx-c-api.lib",
+          "member": "sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib/lib/sherpa-onnx-c-api.lib",
+          "size": 75604,
+          "sha256": "ff29efcc1af67ecdd860905025cde2c48915d6c1060ca1a43cc2e442a138e401",
+          "role": "link"
+        }
+      ]
+    },
+    "x86_64-unknown-linux-gnu": {
+      "archive": "sherpa-onnx-v1.13.8-linux-x64-shared-lib.tar.bz2",
+      "size": 9816899,
+      "sha256": "3892d184be41027e18165e67f549cd4e4cdd8dcd73ac5579e97afd55e14e30b6",
+      "files": [
+        {
+          "name": "libonnxruntime.so",
+          "member": "sherpa-onnx-v1.13.8-linux-x64-shared-lib/lib/libonnxruntime.so",
+          "size": 27026609,
+          "sha256": "4b3607aebd1784b26b6f9b20e4bd974c7ab8287043e4d095cb7d2cb40b5e566e",
+          "role": "runtime"
+        },
+        {
+          "name": "libsherpa-onnx-c-api.so",
+          "member": "sherpa-onnx-v1.13.8-linux-x64-shared-lib/lib/libsherpa-onnx-c-api.so",
+          "size": 5124192,
+          "sha256": "b8351ca1632571ac108adbb317bcc4bf7cfe84b72690e3017316b0da3e1e344f",
+          "role": "speech"
+        }
+      ]
+    }
+  }
+}

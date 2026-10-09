@@ -17,6 +17,8 @@ mod external_browser;
 mod files;
 mod git;
 mod host;
+mod knowledge;
+mod models;
 mod office;
 mod plugins;
 mod ports;
@@ -99,6 +101,14 @@ pub struct Node {
 }
 
 impl Node {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn indexed_knowledge_inputs(&self) -> u64 {
+        self.ingress
+            .knowledge
+            .get()
+            .map_or(0, |service| service.models.indexed_inputs())
+    }
+
     pub async fn start(path: impl AsRef<Path>) -> Result<Self, Error> {
         Self::start_with_network(path, NetworkScope::default()).await
     }

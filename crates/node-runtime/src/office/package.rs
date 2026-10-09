@@ -63,12 +63,12 @@ pub(super) fn target(base: &str, relative: &str) -> Result<String, Fault> {
     Ok(parts.join("/"))
 }
 
-fn ordered(package: &Package, ext: &str) -> Result<Vec<String>, Fault> {
+fn ordered(package: &Package, ext: &str) -> Result<Vec<(String, Position)>, Fault> {
     if ext == "docx" {
         return Ok(package
             .keys()
             .filter(|name| part(name, ext))
-            .cloned()
+            .map(|name| (name.clone(), Position::Section { name: name.clone() }))
             .collect());
     }
     let document =
@@ -76,10 +76,14 @@ fn ordered(package: &Package, ext: &str) -> Result<Vec<String>, Fault> {
     let relations = roxmltree::Document::parse(xml(package, "ppt/_rels/presentation.xml.rels")?)
         .map_err(invalid)?;
     let mut names = Vec::new();
-    for slide in document
+    for (index, slide) in document
         .descendants()
         .filter(|n| n.tag_name().name() == "sldId")
+        .enumerate()
     {
+        let position = Position::Slide {
+            slide: u32::try_from(index + 1).map_err(invalid)?,
+        };
         let id = slide.attribute((
             "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
             "id",
@@ -98,18 +102,21 @@ fn ordered(package: &Package, ext: &str) -> Result<Vec<String>, Fault> {
             .rsplit_once('/')
             .ok_or_else(|| invalid("invalid slide part"))?;
         let rel_name = format!("{base}/_rels/{file}.rels");
-        names.push(name.clone());
+        names.push((name.clone(), position.clone()));
         if package.contains_key(&rel_name) {
             let notes = roxmltree::Document::parse(xml(package, &rel_name)?).map_err(invalid)?;
             for note in notes.descendants().filter(|n| {
                 n.attribute("Type")
                     .is_some_and(|t| t.ends_with("/notesSlide"))
             }) {
-                names.push(target(
-                    base,
-                    note.attribute("Target")
-                        .ok_or_else(|| invalid("notes target is missing"))?,
-                )?);
+                names.push((
+                    target(
+                        base,
+                        note.attribute("Target")
+                            .ok_or_else(|| invalid("notes target is missing"))?,
+                    )?,
+                    position.clone(),
+                ));
             }
         }
     }
@@ -150,17 +157,21 @@ fn runs<'a>(paragraph: roxmltree::Node<'a, 'a>) -> Vec<roxmltree::Node<'a, 'a>> 
         .collect()
 }
 
-pub(super) fn read(bytes: &[u8], ext: &str) -> Result<Vec<(String, String)>, Fault> {
+pub(super) fn parts(bytes: &[u8], ext: &str) -> Result<Vec<Part>, Fault> {
     let package = open(bytes)?;
     let mut result = Vec::new();
-    for name in ordered(&package, ext)? {
+    for (name, position) in ordered(&package, ext)? {
         let text = xml(&package, &name)?;
         let document = roxmltree::Document::parse(text).map_err(invalid)?;
         let text = paragraphs(&document)
             .map(|p| runs(p).iter().filter_map(|n| n.text()).collect::<String>())
             .collect::<Vec<_>>()
             .join("\n");
-        result.push((name.clone(), text));
+        result.push(Part {
+            name,
+            text,
+            position,
+        });
     }
     if result.is_empty() {
         return Err(invalid("document has no readable parts"));

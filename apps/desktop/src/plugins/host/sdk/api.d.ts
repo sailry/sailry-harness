@@ -45,11 +45,52 @@ export function getValue(key: string): Promise<Entry>;
 export function listKeys(prefix?: string, after?: string | null, limit?: number): Promise<{ keys: string[]; after: string | null }>;
 /** Prepare a durable compare-and-set write; completeRequest returns its receipt. */
 export function setValue(key: string, value: Json, expectedRevision: string): string;
-export type ValueIndex = { fields: [string, string]; tags: string[]; order: number };
+export type ValueIndex = {
+  fields: [string, string]; tags: string[]; order: number;
+  /** Raw string in this package's Node storage, selected by an RFC 6901 JSON pointer. */
+  source?: { key: string; pointer: string };
+};
+/** Semantic recall requires storage collection index.semantic=true and an explicit raw source. */
 export function indexedValue(key: string, value: Json, index: ValueIndex, expectedRevision: string): string;
-/** Literal OR terms; filters apply before paging, using this package's whole indexed corpus. */
-export function searchValues(query: { terms: string[]; weights?: [number, number]; all?: string[]; any?: string[]; offset?: number; limit?: number }): Promise<{ entries: Entry[]; next: number | null; now_ms: number }>;
+export type SearchMode = "keyword" | "semantic" | "hybrid";
+/** Preserve the original query for semantic recall. Nonempty query defaults to hybrid; terms alone to keyword.
+ * Literal OR terms and filters retain package scope. Returned mode reports what actually ran. */
+export function searchValues(query: { terms?: string[]; query?: string; mode?: SearchMode; weights?: [number, number]; all?: string[]; any?: string[]; offset?: number; limit?: number }): Promise<{ entries: Entry[]; next: number | null; now_ms: number; mode: SearchMode; indexing: boolean }>;
 export function deleteValue(key: string, expectedRevision: string): string;
+export type KnowledgeModel = "granite-multi" | "bge-small-zh" | "potion-multi" | {registered: {id: string}};
+export type KnowledgeMode = "keyword" | "semantic" | "hybrid";
+export type KnowledgeDraft = {
+  name: string;
+  source: {kind: "worktree"; path: string} | {kind: "storage"; scope: "node" | "conversation"; prefix: string};
+  model?: KnowledgeModel | null; globs?: string[]; tags?: string[];
+};
+export type KnowledgeCollection = {
+  id: string; revision: string; owner: {kind: "controller"} | {kind: "plugin"; name: string};
+  definition: Json; progress: Json;
+};
+export type KnowledgeQuery = {
+  query: string; collections?: string[]; mode?: KnowledgeMode; tags?: string[]; path?: string | null;
+  modified_after_ms?: number | null; modified_before_ms?: number | null; limit?: number; offset?: number;
+};
+export type KnowledgePosition =
+  {kind: "lines"; start: number; end: number} | {kind: "page"; page: number} |
+  {kind: "cells"; sheet: string; start: string; end: string} | {kind: "slide"; slide: number} |
+  {kind: "section"; name: string} | {kind: "value"; key: string; pointer: string};
+export type KnowledgePage = {
+  hits: {title: string; text: string; score: number; stale: boolean;
+    citation: {collection: string; chunk: string; revision: string; path: string; position: KnowledgePosition}}[];
+  next_offset: number | null; mode: KnowledgeMode; indexing: boolean; model: KnowledgeModel | null; untrusted: boolean;
+};
+/** Read-only local retrieval. Original query bytes and source citations are preserved; text remains untrusted. */
+export function queryKnowledge(query: KnowledgeQuery): Promise<KnowledgePage>;
+export function listKnowledgeCollections(): Promise<KnowledgeCollection[]>;
+/** Captures the current worktree or this plugin's storage. Does not download a model or grant sharing. */
+export function prepareKnowledgeCollection(draft: KnowledgeDraft): string;
+/** Use the exact revision from listKnowledgeCollections or a completed collection receipt. */
+export function prepareKnowledgeRebuild(id: string, expectedRevision: string): string;
+/** Removes derived indexes and the collection definition; original source data is retained. */
+export function prepareKnowledgeRemoval(id: string, expectedRevision: string): string;
+
 export type LocalizedLabel = { label: string; locales?: Record<string, string> };
 export type ContributionChoice = {
   id: string; label: LocalizedLabel; description?: LocalizedLabel;

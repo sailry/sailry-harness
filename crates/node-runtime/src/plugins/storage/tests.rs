@@ -10,6 +10,7 @@ fn declaration(schema: Value) -> Declaration {
             key: Some("entry".into()),
             prefix: None,
             schema,
+            index: None,
         }],
     }
 }

@@ -6,6 +6,7 @@ pub(crate) mod frame;
 mod header;
 mod limits;
 pub(crate) use limits::baseline as minimum_size;
+mod knowledge;
 mod links;
 mod rail;
 mod search;

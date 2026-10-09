@@ -10,9 +10,11 @@ pub(crate) mod dispatch;
 mod external;
 mod forwarding;
 pub(crate) mod hooks;
+pub(crate) mod knowledge;
 mod login;
 mod mcp;
 pub(crate) mod media;
+mod models;
 mod mutations;
 mod notifications;
 mod outcomes;
@@ -36,7 +38,7 @@ mod worktrees;
 use std::{
     path::PathBuf,
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -51,6 +53,58 @@ use database::Database;
 const CAPACITY: usize = 64;
 
 enum Job {
+    KnowledgeCatalog {
+        reply: oneshot::Sender<Result<knowledge::Catalog, Fault>>,
+    },
+    KnowledgeAllowed {
+        request: Box<Request>,
+        reply: oneshot::Sender<Result<Vec<knowledge::Stored>, Fault>>,
+    },
+    KnowledgeProgress {
+        id: sailry_protocol::KnowledgeId,
+        generation: u64,
+        progress: sailry_protocol::knowledge::Progress,
+        reply: oneshot::Sender<Result<(), Fault>>,
+    },
+    KnowledgeModels {
+        models: Vec<sailry_protocol::knowledge::ModelInfo>,
+        reply: oneshot::Sender<Result<(), Fault>>,
+    },
+    KnowledgeSources {
+        stored: Box<knowledge::Stored>,
+        after: Option<String>,
+        limit: u16,
+        stop: CancellationToken,
+        reply: oneshot::Sender<Result<knowledge::storage::PageRaw, Fault>>,
+    },
+    KnowledgeSourceCurrent {
+        stored: Box<knowledge::Stored>,
+        record: Box<knowledge::storage::Record>,
+        stop: CancellationToken,
+        reply: oneshot::Sender<Result<bool, Fault>>,
+    },
+    KnowledgeSource {
+        stored: Box<knowledge::Stored>,
+        key: String,
+        stop: CancellationToken,
+        reply: oneshot::Sender<Result<Option<knowledge::storage::Record>, Fault>>,
+    },
+    KnowledgeSemanticPlan {
+        request: Box<Request>,
+        stop: CancellationToken,
+        reply: oneshot::Sender<Result<knowledge::semantic::Plan, Fault>>,
+    },
+    KnowledgeSemanticPage {
+        request: Box<Request>,
+        plan: Box<knowledge::semantic::Plan>,
+        selection: Box<knowledge::semantic::Selection>,
+        stop: CancellationToken,
+        reply: oneshot::Sender<Result<knowledge::semantic::Materialized, Fault>>,
+    },
+    KnowledgeRegister {
+        stop: CancellationToken,
+        reply: oneshot::Sender<Result<(), Fault>>,
+    },
     DispatchTick {
         recover: bool,
         reply: oneshot::Sender<Result<dispatch::Batch, Fault>>,
@@ -200,6 +254,7 @@ pub(crate) struct Ingress {
     pub(crate) external_browser: Arc<crate::external_browser::Browsers>,
     pub(crate) git: crate::git::Git,
     pub(crate) code: Arc<crate::code::Pool>,
+    pub(crate) knowledge: Arc<OnceLock<Arc<crate::knowledge::Service>>>,
     code_queries: Arc<crate::code::Queries>,
     pub(crate) web: Arc<crate::web::Fetcher>,
     pub(crate) search: Arc<crate::web::Searcher>,
@@ -321,6 +376,7 @@ impl Store {
             web: Arc::default(),
             search: Arc::default(),
             code: crate::code::Pool::new(profile.clone(), environment.clone(), closed.clone()),
+            knowledge: Arc::new(OnceLock::new()),
             terminals: terminals.clone(),
             commands: Arc::default(),
             environment: environment.clone(),
@@ -647,6 +703,36 @@ impl Store {
                         _ => false,
                     };
                     match job {
+                        Job::KnowledgeCatalog { reply } => {
+                            let _ = reply.send(knowledge::catalog(&database.connection));
+                        }
+                        Job::KnowledgeAllowed { request, reply } => {
+                            let _ = reply.send(knowledge::allowed(&database.connection, &request));
+                        }
+                        Job::KnowledgeProgress { id, generation, progress, reply } => {
+                            let _ = reply.send(knowledge::runtime::progress(&mut database, id, generation, &progress, &events));
+                        }
+                        Job::KnowledgeModels { models, reply } => {
+                            let _ = reply.send(knowledge::runtime::models(&mut database, models, &events));
+                        }
+                        Job::KnowledgeSources { stored, after, limit, stop, reply } => {
+                            let _ = reply.send(knowledge::storage::page(&database.connection, &stored, after.as_deref(), limit, &stop));
+                        }
+                        Job::KnowledgeSourceCurrent { stored, record, stop, reply } => {
+                            let _ = reply.send(knowledge::storage::unchanged(&database.connection, &stored, &record, &stop));
+                        }
+                        Job::KnowledgeSource { stored, key, stop, reply } => {
+                            let _ = reply.send(knowledge::storage::record(&database.connection, &stored, &key, &stop));
+                        }
+                        Job::KnowledgeSemanticPlan { request, stop, reply } => {
+                            let _ = reply.send(knowledge::runtime::storage::prepare(&mut database, &request, &stop, &events));
+                        }
+                        Job::KnowledgeSemanticPage { request, plan, selection, stop, reply } => {
+                            let _ = reply.send(knowledge::semantic::materialize(&database.connection, &request, &plan, &selection, &stop));
+                        }
+                        Job::KnowledgeRegister { stop, reply } => {
+                            let _ = reply.send(knowledge::runtime::storage::register(&mut database, &stop, &events));
+                        }
                         Job::Authorization {
                             reference,
                             provider,
@@ -1088,6 +1174,10 @@ impl Store {
         initialized
             .await
             .map_err(|error| Error::Worker(error.to_string()))??;
+        if let Err(error) = knowledge::runtime::start(&store.ingress).await {
+            let _ = store.shutdown().await;
+            return Err(Error::from(error));
+        }
         Ok(store)
     }
 
@@ -1115,6 +1205,9 @@ impl Store {
 
     pub(crate) async fn shutdown(mut self) -> Result<(), Error> {
         self.stop_admission();
+        if let Some(knowledge) = self.ingress.knowledge.get() {
+            knowledge.shutdown().await;
+        }
         let browsers = self.ingress.external_browser.shutdown().await;
         self.ingress.computer.shutdown().await;
         self.ingress.ports.join().await;

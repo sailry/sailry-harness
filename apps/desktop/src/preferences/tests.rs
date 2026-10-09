@@ -72,6 +72,7 @@ fn preserves_failed_changes() {
     preferences.data.dictation = Some(Dictation {
         microphone: Some("fixture-device-id".into()),
         language: Language::English,
+        model: None,
     });
     preferences.data.pairing = "https://pairing.example.test".into();
     preferences.data.iroh_relays = Some(vec!["https://relay.example.test".into()]);
@@ -320,4 +321,29 @@ mod plugin_directories {
             assert_eq!(plugins::directory(node, "example", "current", cx), None);
         });
     }
+}
+
+#[test]
+fn persists_selected_speech_model() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("preferences.json");
+    let mut preferences = Preferences::open(path.clone());
+    let id = sailry_protocol::ModelId::new();
+    preferences.data.dictation = Some(Dictation {
+        model: Some(id),
+        ..Default::default()
+    });
+    preferences.save();
+    assert_eq!(preferences.error, None);
+    assert_eq!(
+        Preferences::open(path).data.dictation.unwrap().model,
+        Some(id)
+    );
+}
+
+#[test]
+fn missing_speech_selection_uses_default() {
+    let options: Dictation =
+        serde_json::from_str(r#"{"microphone":null,"language":"auto"}"#).unwrap();
+    assert_eq!(options.model, None);
 }

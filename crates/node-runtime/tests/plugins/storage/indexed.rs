@@ -4,17 +4,23 @@ use sailry_protocol::plugin::{
     transaction::Operation,
 };
 
+#[path = "indexed/keywords.rs"]
+mod keywords;
+
 fn index(title: &str, body: &str, tags: &[&str], order: i64) -> Index {
     Index {
         fields: [title.into(), body.into()],
         tags: tags.iter().map(|tag| (*tag).into()).collect(),
         order,
+        source: None,
     }
 }
 
 fn query(terms: &[&str]) -> Search {
     Search {
         terms: terms.iter().map(|term| (*term).into()).collect(),
+        query: None,
+        mode: sailry_protocol::plugin::storage::Mode::Keyword,
         weights: [3, 1],
         all: Vec::new(),
         any: Vec::new(),

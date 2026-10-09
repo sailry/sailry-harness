@@ -39,10 +39,16 @@ export function setValue(key, value, expectedRevision) {
 export function setConversationValue(key, value, expectedRevision) {
   return prepareRequest({kind: "write_plugin_conversation_value", data: {key, value, expected_revision: expectedRevision}});
 }
+/** Semantic collections reference raw text with index.source {key, pointer} in this namespace. */
 export function indexedValue(key, value, index, expectedRevision) {
   return prepareRequest({kind: "write_indexed_plugin_value", data: {key, value, index, expected_revision: expectedRevision}});
 }
-export async function searchValues(query) { return read("search_plugin_values", query); }
+/** Preserve the original query for semantic recall; query defaults to hybrid, terms alone to keyword. */
+export async function searchValues(input) {
+  const query = {...input};
+  if (typeof query.query === "string" && query.query.trim() && query.mode === undefined) query.mode = "hybrid";
+  return read("search_plugin_values", query);
+}
 export function deleteValue(key, expectedRevision) {
   return prepareRequest({kind: "remove_plugin_value", data: {key, expected_revision: expectedRevision}});
 }
@@ -51,6 +57,16 @@ export function deleteConversationValue(key, expectedRevision) {
 }
 export function prepareNotification(content) {
   return prepareRequest({kind: "publish_notification", data: {package: scope.package, content}});
+}
+export async function queryKnowledge(query) { return read("query_knowledge", query); }
+export async function listKnowledgeCollections() { return read("list_knowledge_collections"); }
+/** Captures this worktree or the plugin's own storage; never accepts owner or sharing overrides. */
+export function prepareKnowledgeCollection(draft) { return call("knowledge.create", draft); }
+export function prepareKnowledgeRebuild(id, expectedRevision) {
+  return prepareRequest({kind:"rebuild_knowledge_collection",data:{id,expected_revision:expectedRevision}});
+}
+export function prepareKnowledgeRemoval(id, expectedRevision) {
+  return prepareRequest({kind:"delete_knowledge_collection",data:{id,expected_revision:expectedRevision}});
 }
 export async function inspectGit() { return read("inspect_git", {worktree: scope.worktree}); }
 export async function readFile(path) { return read("read_file", {worktree: scope.worktree, path}); }

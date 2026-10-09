@@ -18,6 +18,8 @@ percent-encoding.workspace = true
 lsp-types.workspace = true
 cpal.workspace = true
 sailry-speech.workspace = true
+sailry-model-assets = { workspace = true, features = ["onnx"] }
+ort.workspace = true
 sailry-content.workspace = true
 sha2.workspace = true
 self_update.workspace = true
@@ -84,6 +86,8 @@ windows-sys = { workspace = true, features = ["Win32_System_Threading", "Win32_S
 
 [dev-dependencies]
 serde-saphyr.workspace = true
+sailry-embedding.workspace = true
+libloading.workspace = true
 zipsign-api = { workspace = true, features = ["sign-zip"] }
 russh.workspace = true
 portable-pty.workspace = true

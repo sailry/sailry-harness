@@ -1,5 +1,6 @@
 //! Local draft input; audio never enters Node, Link, or conversation history.
 mod capture;
+pub(crate) mod models;
 pub(crate) mod permission;
 pub(crate) use capture::microphones;
 pub(crate) use sailry_speech::{MAX_SAMPLES, SAMPLE_RATE, Sampler, model};
@@ -15,6 +16,7 @@ pub(crate) type Result<T> = std::result::Result<T, &'static str>;
 #[derive(Default)]
 pub(crate) struct Service {
     owner: Arc<Mutex<()>>,
+    models: Option<Arc<models::Manager>>,
 }
 impl gpui_kit::Global for Service {}
 
@@ -27,12 +29,36 @@ pub(crate) enum Update {
 }
 
 impl Service {
+    pub fn models(cx: &mut gpui_kit::App) -> Result<Arc<models::Manager>> {
+        if cx.try_global::<Self>().is_none() {
+            cx.set_global(Self::default());
+        }
+        if let Some(manager) = &cx.global::<Self>().models {
+            return Ok(manager.clone());
+        }
+        let directory = cx
+            .try_global::<crate::preferences::Preferences>()
+            .and_then(|preferences| preferences.directory())
+            .ok_or("dictation_unavailable")?;
+        let manager = models::Manager::open(directory.to_path_buf())?;
+        cx.global_mut::<Self>().models = Some(manager.clone());
+        Ok(manager)
+    }
+
     pub fn shared(cx: &mut gpui_kit::App) -> Arc<Mutex<()>> {
         if cx.try_global::<Self>().is_none() {
             cx.set_global(Self::default());
         }
         cx.global::<Self>().owner.clone()
     }
+}
+
+pub(crate) fn capture(cx: &mut gpui_kit::App) -> Result<models::Capture> {
+    let selected = crate::preferences::data(cx)
+        .dictation
+        .unwrap_or_default()
+        .model;
+    Service::models(cx)?.capture(selected)
 }
 
 pub(crate) fn directory(cx: &gpui_kit::App) -> Option<PathBuf> {
@@ -42,7 +68,7 @@ pub(crate) fn directory(cx: &gpui_kit::App) -> Option<PathBuf> {
 }
 
 pub(crate) async fn run(
-    directory: PathBuf,
+    captured: models::Capture,
     options: crate::preferences::Dictation,
     owner: Arc<Mutex<()>>,
     finish: CancellationToken,
@@ -54,8 +80,8 @@ pub(crate) async fn run(
     }
     let _owner = owner.try_lock_owned().map_err(|_| "dictation_busy")?;
     let _ = updates.send(Update::Preparing).await;
-    let check = directory.clone();
-    let ready = tokio::task::spawn_blocking(move || model::ready(&check))
+    let check = captured.clone();
+    let ready = tokio::task::spawn_blocking(move || check.ready())
         .await
         .map_err(|_| "dictation_failed")?;
     if cancel.is_cancelled() {
@@ -65,13 +91,12 @@ pub(crate) async fn run(
         return Err("dictation_model_missing");
     }
     permission::verify()?;
-    let path = directory;
     if cancel.is_cancelled() {
         return Ok(String::new());
     }
     // Device setup and inference stay off GPUI's executor. Authorization belongs to the central UI.
     tokio::task::spawn_blocking(move || {
-        let recognizer = model::Recognizer::new(&path, options.language).map_err(error_key)?;
+        let recognizer = captured.recognizer(options.language)?;
         let mut recorder = capture::Recorder::new(options.microphone.as_deref())?;
         if cancel.is_cancelled() {
             return Ok(String::new());

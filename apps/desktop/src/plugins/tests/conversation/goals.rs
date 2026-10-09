@@ -27,11 +27,11 @@ fn package(fixture: &fixture::Fixture) -> plugin::Reference {
         code = code
             .replace(
                 &format!("new Button('{id}')"),
-                &format!("Anchor.new('{id}',{{lastControl:view.lastControl ?? null}}).child(new Button('{id}')"),
+                &format!("Anchor.new('{id}').child(new Button('{id}')"),
             )
             .replace(
                 &format!(".on_click((_,cx) => view.perform('{action}',cx))]"),
-                &format!(".on_click((_,cx) => {{view.lastControl={{kind:'{action}',revision:view.goal?.revision ?? null,busy:view.busy,loading:view.loading,pending:view.pending?.kind ?? null}};view.perform('{action}',cx);cx.notify();}}))]"),
+                &format!(".on_click((_,cx) => view.perform('{action}',cx)))]"),
             );
     }
     std::fs::write(
@@ -134,6 +134,27 @@ fn cancelled(fixture: &fixture::Fixture, visual: &mut VisualTestContext, count: 
     assert_eq!(fixture.task_requests(), count);
 }
 
+fn declaration(view: &Entity<View>, cx: &gpui::App, selector: &str) -> Option<String> {
+    let panel = contributions(view.read(cx)).read(cx).test_panel("goals")?;
+    let snapshot = super::super::snapshot(&panel, cx);
+    let anchor = format!("module_component sailry/test.Anchor \"{selector}\" props=");
+    let mut lines = snapshot.lines();
+    let mut declaration = None;
+    while let Some(line) = lines.next() {
+        if !line.trim_start().starts_with(&anchor) {
+            continue;
+        }
+        assert!(declaration.is_none(), "ambiguous {selector}");
+        let button = lines.next().unwrap_or_default().trim();
+        assert!(
+            button.starts_with("Button "),
+            "expected {selector} button: {snapshot}"
+        );
+        declaration = Some(button.to_owned());
+    }
+    declaration
+}
+
 fn control(view: &Entity<View>, visual: &mut VisualTestContext, selector: &'static str) {
     use gpui_kit::test::TestWindowExt;
 
@@ -142,22 +163,31 @@ fn control(view: &Entity<View>, visual: &mut VisualTestContext, selector: &'stat
     loop {
         visual.executor().advance_clock(Duration::from_millis(10));
         visual.run_until_parked();
-        let clicked = visual.update(|window, cx| {
+        let (clicked, declaration) = visual.update(|window, cx| {
             window.render_frame(cx);
+            let declaration = declaration(view, cx, selector);
             let Some(button) = window.try_find(selector) else {
-                return false;
+                return (false, declaration);
             };
-            if !button.visible() || button.disabled() == Some(true) {
-                return false;
-            }
             assert_eq!(button.role(), Some(gpui::Role::Button));
+            // Pinned Kit buttons omit aria-disabled; wait on the published builder call.
+            if !button.visible()
+                || !declaration
+                    .as_ref()
+                    .is_some_and(|button| button.contains(":disabled[Bool(false)]"))
+            {
+                return (false, declaration);
+            }
             window.click(selector, cx);
-            true
+            (true, declaration)
         });
         if clicked {
             return;
         }
-        assert!(Instant::now() < deadline, "disabled {selector}");
+        assert!(
+            Instant::now() < deadline,
+            "disabled {selector}: {declaration:?}"
+        );
         std::thread::sleep(Duration::from_millis(10));
     }
 }
@@ -519,6 +549,21 @@ fn restores_status_and_requires_manual_resume(cx: &mut TestAppContext) {
         });
         assert_eq!(read(&fixture, &package)["id"], original["id"]);
         assert_eq!(visual.read(|cx| view.read(cx).draft(cx)), "Keep this draft");
+        wait(visual, |_| {
+            let Output::Conversation(history) = fixture.execute(Command::ReadConversation {
+                session: fixture.session.id,
+                before: None,
+                limit: 100,
+            }) else {
+                panic!("conversation expected")
+            };
+            history.page.runs.len() == 3
+                && history
+                    .page
+                    .runs
+                    .iter()
+                    .all(|run| run.status == Status::Completed)
+        });
         let Output::Conversation(history) = fixture.execute(Command::ReadConversation {
             session: fixture.session.id,
             before: None,
@@ -527,6 +572,13 @@ fn restores_status_and_requires_manual_resume(cx: &mut TestAppContext) {
             panic!("conversation expected")
         };
         assert_eq!(history.page.runs.len(), 3);
+        assert!(
+            history
+                .page
+                .runs
+                .iter()
+                .all(|run| run.status == Status::Completed)
+        );
         fixture.execute(Command::RewindConversation {
             session: fixture.session.id,
             through: None,

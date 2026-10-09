@@ -695,6 +695,56 @@ pub enum Command {
     ListMediaModels,
     ReadMediaSettings,
     SaveMediaSettings(crate::media::Settings),
+    ReadKnowledgeSettings,
+    ReadKnowledgeModels,
+    SearchModels(crate::models::Search),
+    ReadModelVersions {
+        hub: crate::models::Hub,
+        repository: String,
+    },
+    ResolveModel {
+        kind: crate::models::Kind,
+        source: crate::models::Source,
+    },
+    RegisterKnowledgeModel {
+        definition: crate::models::Definition,
+    },
+    InstallKnowledgeModel {
+        model: crate::knowledge::Model,
+    },
+    CancelKnowledgeModel {
+        model: crate::knowledge::Model,
+    },
+    DeleteKnowledgeModel {
+        model: crate::knowledge::Model,
+    },
+    QueryKnowledge(crate::knowledge::Query),
+    ReadKnowledgeCitation(crate::knowledge::CitationRequest),
+    SaveKnowledgeSettings(crate::knowledge::Settings),
+    ListKnowledgeCollections,
+    CreateKnowledgeCollection {
+        definition: crate::knowledge::Definition,
+        /// Only controllers may select a real installed plugin as the owner.
+        plugin: Option<String>,
+    },
+    UpdateKnowledgeCollection {
+        id: crate::KnowledgeId,
+        expected_revision: u64,
+        definition: crate::knowledge::Definition,
+    },
+    DeleteKnowledgeCollection {
+        id: crate::KnowledgeId,
+        expected_revision: u64,
+    },
+    RebuildKnowledgeCollection {
+        id: crate::KnowledgeId,
+        expected_revision: u64,
+    },
+    PauseKnowledgeCollection {
+        id: crate::KnowledgeId,
+        expected_revision: u64,
+        paused: bool,
+    },
     CreateTerminal(crate::terminal::Launch),
     /// Open an existing terminal, restoring an absent shell without replaying input.
     OpenTerminal {
@@ -1311,6 +1361,15 @@ impl Command {
                 | Self::ReadPluginSecret { .. }
                 | Self::ListMediaModels
                 | Self::ReadMediaSettings
+                | Self::ReadKnowledgeSettings
+                | Self::ReadKnowledgeModels
+                | Self::SearchModels(_)
+                | Self::ReadModelVersions { .. }
+                | Self::ResolveModel { .. }
+                | Self::CancelKnowledgeModel { .. }
+                | Self::QueryKnowledge(_)
+                | Self::ReadKnowledgeCitation(_)
+                | Self::ListKnowledgeCollections
                 | Self::InspectTerminal { .. }
                 | Self::ClaimTerminal { .. }
                 | Self::InputTerminal { .. }
@@ -1425,6 +1484,21 @@ pub struct Snapshot {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Output {
+    ModelSearch(crate::models::Page),
+    ModelVersions(Vec<crate::models::Version>),
+    ModelDefinition(crate::models::Definition),
+    KnowledgeModels(Vec<crate::knowledge::ModelInfo>),
+    KnowledgeModel {
+        model: crate::knowledge::Model,
+    },
+    KnowledgeSearch(crate::knowledge::Page),
+    KnowledgeCitation(crate::knowledge::CitationPage),
+    KnowledgeSettings(crate::knowledge::Settings),
+    KnowledgeCollections(Vec<crate::knowledge::Collection>),
+    KnowledgeCollection(crate::knowledge::Collection),
+    KnowledgeCollectionDeleted {
+        id: crate::KnowledgeId,
+    },
     Code(crate::code::Result),
     HookSettings(crate::hooks::State),
     CodeSettings(crate::code::Settings),
@@ -1672,6 +1746,14 @@ pub enum RequestOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Event {
+    KnowledgeModelsChanged {
+        models: Vec<crate::knowledge::ModelInfo>,
+    },
+    KnowledgeSettingsChanged {
+        revision: u64,
+    },
+    /// Invalidates collection metadata without exposing source paths or values.
+    KnowledgeCollectionsChanged,
     TaskStarted {
         session: Box<Session>,
         turn: QueuedTurn,

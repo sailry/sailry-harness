@@ -75,9 +75,17 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                     json!(self.context.package.settings_revision.to_string());
                 Ok(value)
             }
-            "prepare" | "read" => {
+            "prepare" | "read" | "knowledge.create" => {
                 let mut value: Json = serde_json::from_str(body)
                     .map_err(|_| sailry_protocol::Fault::invalid("invalid SDK command"))?;
+                if operation == "knowledge.create" {
+                    let draft: sailry_protocol::knowledge::Draft = serde_json::from_value(value)
+                        .map_err(|_| Fault::invalid("invalid knowledge collection draft"))?;
+                    value = json!(Command::CreateKnowledgeCollection {
+                        definition: draft.into_definition(self.context.worktree)?,
+                        plugin: None,
+                    });
+                }
                 if let Some(revision) = value.pointer_mut("/data/package/settings_revision") {
                     let text = revision.as_str().ok_or_else(|| {
                         sailry_protocol::Fault::invalid("package revision must be a decimal string")
@@ -105,6 +113,8 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                             | "remove_plugin_conversation_value"
                             | "submit_turn"
                             | "continue_turn"
+                            | "rebuild_knowledge_collection"
+                            | "delete_knowledge_collection"
                     )
                 ) && let Some(revision) = value.pointer_mut("/data/expected_revision")
                 {
@@ -267,6 +277,11 @@ fn allowed(command: &Command) -> bool {
             | Command::WritePluginConversationValue { .. }
             | Command::WriteIndexedPluginValue { .. }
             | Command::SearchPluginValues(_)
+            | Command::QueryKnowledge(_)
+            | Command::ListKnowledgeCollections
+            | Command::CreateKnowledgeCollection { .. }
+            | Command::RebuildKnowledgeCollection { .. }
+            | Command::DeleteKnowledgeCollection { .. }
             | Command::RemovePluginValue { .. }
             | Command::RemovePluginConversationValue { .. }
             | Command::ReadPluginSettings { .. }

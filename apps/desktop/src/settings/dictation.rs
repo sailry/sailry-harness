@@ -4,9 +4,8 @@ use dictation::permission::{self, Status};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     component::{
-        button::{Button, ButtonVariants},
+        button::Button,
         menu::{DropdownMenu, PopupMenuItem},
-        progress::Progress,
         *,
     },
     *,
@@ -15,6 +14,7 @@ use sailry_link::CancellationToken;
 
 #[cfg(test)]
 mod tests;
+mod view;
 
 #[derive(Clone, Copy, Default, PartialEq)]
 enum State {
@@ -32,17 +32,21 @@ pub(super) struct Panel {
     microphones: Vec<(String, String)>,
     cancel: CancellationToken,
     task: Option<Task<()>>,
+    manager: Option<std::sync::Arc<dictation::models::Manager>>,
+    binding: Option<super::providers::Binding>,
+    watch: Option<Task<()>>,
+    seen: std::collections::BTreeMap<sailry_protocol::ModelId, dictation::models::State>,
     permission: Status,
     permission_stop: CancellationToken,
 }
 
 impl Drop for Panel {
     fn drop(&mut self) {
-        self.cancel.cancel();
         self.permission_stop.cancel();
     }
 }
 
+#[cfg(test)]
 enum Update {
     Progress(dictation::model::DownloadProgress),
     Finished(dictation::Result<()>),
@@ -57,12 +61,19 @@ impl Panel {
             microphones: vec![],
             cancel: CancellationToken::new(),
             task: None,
+            manager: None,
+            binding: None,
+            watch: None,
+            seen: Default::default(),
             permission: Status::Unknown,
             permission_stop: CancellationToken::new(),
         }
     }
 
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
+        if dictation::directory(cx).is_none() {
+            return;
+        }
         if dictation::directory(cx).is_some() {
             self.permission = permission::status();
             cx.notify();
@@ -70,19 +81,24 @@ impl Panel {
         if matches!(self.state, State::Checking | State::Downloading(_)) {
             return;
         }
-        let Some(directory) = dictation::directory(cx) else {
+        let selected = preferences::data(cx).dictation.unwrap_or_default().model;
+        let Ok(captured) = dictation::capture(cx) else {
+            self.state = State::Missing;
             return;
         };
         self.state = State::Checking;
-        let job = cx.background_executor().spawn(async move {
-            (
-                dictation::model::ready(&directory),
-                dictation::microphones(),
-            )
-        });
+        let job = cx
+            .background_executor()
+            .spawn(async move { (captured.ready(), dictation::microphones()) });
         self.task = Some(cx.spawn(async move |owner, cx| {
             let (ready, devices) = job.await;
             _ = owner.update(cx, |this, cx| {
+                if preferences::data(cx).dictation.unwrap_or_default().model != selected {
+                    return;
+                }
+                if let Some(manager) = &this.manager {
+                    manager.observe(selected, ready);
+                }
                 this.state = if ready { State::Ready } else { State::Missing };
                 this.microphones = devices.unwrap_or_default();
                 cx.notify();
@@ -114,53 +130,225 @@ impl Panel {
         cx.notify();
     }
 
-    fn download(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !matches!(self.state, State::Missing | State::Failed) {
+    pub(super) fn bind(
+        &mut self,
+        binding: Option<super::providers::Binding>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.binding = binding;
+        if self.manager.is_some() || dictation::directory(cx).is_none() {
             return;
         }
-        let Some(directory) = dictation::directory(cx) else {
+        match dictation::Service::models(cx) {
+            Ok(manager) => {
+                let mut changes = manager.subscribe();
+                self.seen = manager
+                    .entries()
+                    .into_iter()
+                    .map(|entry| (entry.record.id, entry.state))
+                    .collect();
+                self.manager = Some(manager);
+                self.watch = Some(cx.spawn_in(window, async move |owner, cx| {
+                    while changes.changed().await.is_ok() {
+                        if owner
+                            .update_in(cx, |panel, window, cx| {
+                                let selected =
+                                    preferences::data(cx).dictation.unwrap_or_default().model;
+                                let state =
+                                    panel.manager.as_ref().and_then(|manager| match selected {
+                                        Some(id) => manager
+                                            .entries()
+                                            .into_iter()
+                                            .find(|entry| entry.record.id == id)
+                                            .map(|entry| entry.state),
+                                        None => manager.default_state(),
+                                    });
+                                if let Some(state) = state {
+                                    panel.accept_state(state, window, cx);
+                                }
+                                for entry in panel
+                                    .manager
+                                    .as_ref()
+                                    .map(|manager| manager.entries())
+                                    .unwrap_or_default()
+                                {
+                                    let previous = panel.seen.insert(entry.record.id, entry.state);
+                                    if selected != Some(entry.record.id)
+                                        && previous != Some(entry.state)
+                                    {
+                                        if let dictation::models::State::Failed(error) = entry.state
+                                        {
+                                            crate::feedback::info(
+                                                "",
+                                                tr(error).as_ref(),
+                                                window,
+                                                cx,
+                                            );
+                                        } else if entry.state == dictation::models::State::Installed
+                                            && matches!(
+                                                previous,
+                                                Some(dictation::models::State::Downloading(_))
+                                            )
+                                        {
+                                            window.push_notification(tr("knowledge_installed"), cx);
+                                        }
+                                    }
+                                }
+                                cx.notify();
+                            })
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                }));
+                self.refresh(cx);
+            }
+            Err(error) => crate::feedback::info("", tr(error).as_ref(), window, cx),
+        }
+    }
+
+    fn accept_state(
+        &mut self,
+        state: dictation::models::State,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match state {
+            dictation::models::State::Missing => self.state = State::Missing,
+            dictation::models::State::Downloading(progress) => {
+                self.state = State::Downloading(progress)
+            }
+            dictation::models::State::Installed => {
+                if matches!(self.state, State::Downloading(_)) {
+                    window.push_notification(tr("knowledge_installed"), cx);
+                }
+                self.state = State::Ready;
+            }
+            dictation::models::State::Failed(error) => {
+                if self.state != State::Failed {
+                    crate::feedback::info("", tr(error).as_ref(), window, cx);
+                }
+                self.state = State::Failed;
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn install(
+        &mut self,
+        id: Option<sailry_protocol::ModelId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(manager) = &self.manager else {
             return;
         };
         let Some(runtime) = cx
             .try_global::<crate::backend::Services>()
             .map(|services| services.runtime.clone())
+            .or_else(|| self.binding.as_ref().map(|binding| binding.runtime.clone()))
         else {
             crate::feedback::info("", tr("dictation_unavailable").as_ref(), window, cx);
             return;
         };
-        let owner = dictation::Service::shared(cx);
-        self.cancel = CancellationToken::new();
-        let cancel = self.cancel.clone();
-        self.state = State::Downloading(Default::default());
-        let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
-        runtime.spawn(async move {
-            let result = async {
-                let _guard = owner.try_lock_owned().map_err(|_| "dictation_busy")?;
-                dictation::model::prepare_with_progress(&directory, &cancel, |value| {
-                    let _ = sender.try_send(Update::Progress(value));
-                })
-                .await
-                .map(|_| ())
-                .map_err(dictation::error_key)
-            }
-            .await;
-            let _ = sender.send(Update::Finished(result)).await;
-        });
-        self.task = Some(cx.spawn_in(window, async move |owner, cx| {
-            while let Some(update) = receiver.recv().await {
-                let ended = matches!(update, Update::Finished(_));
-                if owner
-                    .update_in(cx, |this, window, cx| this.accept(update, window, cx))
-                    .is_err()
-                    || ended
-                {
-                    break;
+        match manager.start(id, None, &runtime) {
+            Ok(cancel) => {
+                if id == preferences::data(cx).dictation.unwrap_or_default().model {
+                    self.cancel = cancel;
+                    self.state = State::Downloading(Default::default());
                 }
             }
-        }));
+            Err(error) => crate::feedback::info("", tr(error).as_ref(), window, cx),
+        }
         cx.notify();
     }
 
+    pub(super) fn library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(binding) = self.binding.clone() {
+            super::model_library::open(
+                super::model_library::Target::Speech(cx.entity()),
+                binding,
+                window,
+                cx,
+            );
+        } else {
+            crate::feedback::info("", tr("knowledge_host_required").as_ref(), window, cx);
+        }
+    }
+
+    pub(super) fn admits(&self, node: sailry_protocol::NodeId) -> bool {
+        self.manager.is_some()
+            && self
+                .binding
+                .as_ref()
+                .is_some_and(|binding| binding.client.target() == node)
+    }
+
+    pub(super) fn register(
+        &mut self,
+        definition: sailry_protocol::models::Definition,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let result = self
+            .manager
+            .as_ref()
+            .ok_or("dictation_unavailable")
+            .and_then(|manager| manager.register(definition));
+        match result {
+            Ok(id) => self.install(Some(id), window, cx),
+            Err(error) => crate::feedback::info("", tr(error).as_ref(), window, cx),
+        }
+    }
+
+    pub(super) fn select(
+        &mut self,
+        id: Option<sailry_protocol::ModelId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(manager) = &self.manager else {
+            return;
+        };
+        if id.is_some_and(|id| {
+            !manager.entries().iter().any(|entry| {
+                entry.record.id == id && entry.state == dictation::models::State::Installed
+            })
+        }) {
+            crate::feedback::info("", tr("dictation_model_missing").as_ref(), window, cx);
+            return;
+        }
+        preferences::update(cx, |data| data.dictation.get_or_insert_default().model = id);
+        self.state = State::Missing;
+        self.refresh(cx);
+    }
+
+    pub(super) fn remove(
+        &mut self,
+        id: sailry_protocol::ModelId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let result = self
+            .manager
+            .as_ref()
+            .ok_or("dictation_unavailable")
+            .and_then(|manager| manager.remove(id));
+        match result {
+            Ok(()) => {
+                if preferences::data(cx).dictation.unwrap_or_default().model == Some(id) {
+                    self.select(None, window, cx);
+                }
+                window.push_notification(tr("knowledge_deleted"), cx);
+            }
+            Err(error) => crate::feedback::info("", tr(error).as_ref(), window, cx),
+        }
+        cx.notify();
+    }
+
+    #[cfg(test)]
     fn accept(&mut self, update: Update, window: &mut Window, cx: &mut Context<Self>) {
         match update {
             Update::Progress(value) => self.state = State::Downloading(value),
@@ -183,205 +371,92 @@ fn language_key(language: preferences::Language) -> &'static str {
     }
 }
 
-impl Render for Panel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let options = preferences::data(cx).dictation.unwrap_or_default();
-        let selected = options.microphone.clone();
-        let devices = self.microphones.clone();
-        let microphone = selected
-            .as_ref()
-            .map(|id| {
-                devices
-                    .iter()
-                    .find(|(key, _)| key == id)
-                    .map(|(_, label)| label.clone())
-                    .unwrap_or_else(|| {
-                        tr(
-                            if matches!(self.state, State::Unavailable | State::Checking) {
-                                "dictation_device_loading"
-                            } else {
-                                "dictation_device_missing"
-                            },
-                        )
-                        .to_string()
-                    })
-            })
-            .unwrap_or_else(|| tr("dictation_microphone_default").to_string());
-        let model_action = match self.state {
-            State::Downloading(value) => h_flex()
-                .w_full()
-                .gap_2()
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .min_w_0()
-                        .gap_1()
-                        .child(
-                            div()
-                                .debug_selector(|| "dictation-download-progress".into())
-                                .child(
-                                    Progress::new("dictation-progress")
-                                        .value(value.percent)
-                                        .small(),
-                                ),
-                        )
-                        .child(
-                            h_flex()
-                                .justify_between()
-                                .gap_2()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(format!("{:.0}%", value.percent))
-                                .child(
-                                    div()
-                                        .debug_selector(|| "dictation-download-speed".into())
-                                        .child(rust_i18n::t!(
-                                            "dictation_download_speed",
-                                            value = format!(
-                                                "{:.2}",
-                                                value.bytes_per_second / 1_000_000.
-                                            )
-                                        )),
-                                ),
-                        ),
-                )
-                .child(
-                    Button::new("dictation-download-cancel")
-                        .ghost()
-                        .small()
-                        .label(tr("settings_cancel"))
-                        .disabled(self.cancel.is_cancelled())
-                        .debug_selector(|| "dictation-download-cancel".into())
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.cancel.cancel();
-                            cx.notify();
-                        })),
-                )
-                .into_any_element(),
-            State::Missing | State::Failed => Button::new("dictation-download")
-                .primary()
-                .label(tr(if self.state == State::Failed {
-                    "dictation_retry"
-                } else {
-                    "dictation_download_model"
-                }))
-                .debug_selector(|| "dictation-download".into())
-                .on_click(cx.listener(|this, _, window, cx| this.download(window, cx)))
-                .into_any_element(),
-            state => div()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .debug_selector(|| "dictation-model-status".into())
-                .child(tr(match state {
-                    State::Ready => "dictation_ready",
-                    State::Checking => "dictation_checking",
-                    _ => "dictation_unavailable",
-                }))
-                .into_any_element(),
+impl Panel {
+    pub(super) fn cancel(&mut self, id: Option<sailry_protocol::ModelId>, cx: &mut Context<Self>) {
+        if let Some(manager) = &self.manager {
+            manager.cancel(id);
+        } else {
+            self.cancel.cancel();
+        }
+        cx.notify();
+    }
+
+    pub(super) fn model_rows(
+        &self,
+        owner: Entity<Self>,
+        library: bool,
+        cx: &App,
+    ) -> Vec<super::entry::Entry> {
+        use super::model_library::{ManagedModel, ModelKey, ModelStatus, Target};
+        let selected = preferences::data(cx).dictation.unwrap_or_default().model;
+        let current = match self.state {
+            State::Missing => ModelStatus::Missing,
+            State::Downloading(progress) => ModelStatus::Downloading(progress),
+            State::Ready => ModelStatus::Installed,
+            State::Checking => ModelStatus::Checking,
+            State::Unavailable => ModelStatus::Unavailable,
+            State::Failed => ModelStatus::Failed,
         };
-        v_flex()
-            .gap_6()
-            .child(
-                Group::new("dictation_input")
-                    .child(
-                        Row::new(
-                            "dictation_access",
-                            h_flex().when(permission::settings_url().is_some(), |row| {
-                                if self.permission == Status::Granted {
-                                    return row.child(
-                                        div()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .debug_selector(|| "dictation-access-Granted".into())
-                                            .child(tr("dictation_access_granted")),
-                                    );
-                                }
-                                row.child(
-                                    Button::new("dictation-authorize")
-                                        .label(tr("permission_request"))
-                                        .debug_selector(|| "dictation-authorize".into())
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            this.authorize(window, cx)
-                                        })),
-                                )
-                            }),
-                        )
-                        .description("dictation_access_hint")
-                        .wide(),
-                    )
-                    .child(
-                        Row::new(
-                            "dictation_microphone_label",
-                            Button::new("dictation-microphone")
-                                .w_full()
-                                .label(microphone)
-                                .dropdown_caret(true)
-                                .debug_selector(|| "dictation-microphone".into())
-                                .dropdown_menu(move |menu, _, _| {
-                                    std::iter::once((
-                                        None,
-                                        tr("dictation_microphone_default").to_string(),
-                                    ))
-                                    .chain(
-                                        devices
-                                            .iter()
-                                            .map(|(id, name)| (Some(id.clone()), name.clone())),
-                                    )
-                                    .fold(
-                                        menu,
-                                        |menu, (id, name)| {
-                                            menu.item(
-                                                PopupMenuItem::new(name)
-                                                    .checked(id == selected)
-                                                    .on_click(move |_, _, cx| {
-                                                        preferences::update(cx, |data| {
-                                                            data.dictation
-                                                                .get_or_insert_default()
-                                                                .microphone = id.clone();
-                                                        })
-                                                    }),
-                                            )
-                                        },
-                                    )
-                                }),
-                        )
-                        .wide(),
-                    )
-                    .child(
-                        Row::new(
-                            "dictation_language",
-                            Button::new("dictation-language")
-                                .w_full()
-                                .label(tr(language_key(options.language)))
-                                .dropdown_caret(true)
-                                .debug_selector(|| "dictation-language".into())
-                                .dropdown_menu(move |menu, _, _| {
-                                    preferences::Language::ALL.into_iter().fold(
-                                        menu,
-                                        |menu, language| {
-                                            menu.item(
-                                                PopupMenuItem::new(tr(language_key(language)))
-                                                    .checked(language == options.language)
-                                                    .on_click(move |_, _, cx| {
-                                                        preferences::update(cx, |data| {
-                                                            data.dictation
-                                                                .get_or_insert_default()
-                                                                .language = language;
-                                                        })
-                                                    }),
-                                            )
-                                        },
-                                    )
-                                }),
-                        )
-                        .wide(),
-                    ),
-            )
-            .child(
-                Group::new("dictation_local_model").child(
-                    Row::new("dictation_model_name", model_action)
-                        .description("dictation_model_size")
-                        .wide(),
+        let default = if selected.is_none() {
+            current
+        } else {
+            self.manager
+                .as_ref()
+                .and_then(|manager| manager.default_state())
+                .map_or(ModelStatus::Missing, model_status)
+        };
+        let mut models = vec![ManagedModel {
+            key: ModelKey::Speech(None),
+            name: tr("dictation_model_name"),
+            detail: String::new(),
+            status: default,
+            selected: selected.is_none(),
+            selectable: true,
+            removable: false,
+            cancelling: self.manager.as_ref().map_or_else(
+                || self.cancel.is_cancelled(),
+                |manager| manager.cancelling(None),
+            ),
+        }];
+        for entry in self
+            .manager
+            .as_ref()
+            .map(|manager| manager.entries())
+            .unwrap_or_default()
+        {
+            let id = entry.record.id;
+            let definition = entry.record.definition;
+            models.push(ManagedModel {
+                key: ModelKey::Speech(Some(id)),
+                name: definition.name.into(),
+                detail: format!(
+                    "{} · {}",
+                    definition.source.repository, definition.source.revision
                 ),
-            )
+                status: if selected == Some(id) {
+                    current
+                } else {
+                    model_status(entry.state)
+                },
+                selected: selected == Some(id),
+                selectable: entry.state == dictation::models::State::Installed,
+                removable: true,
+                cancelling: self
+                    .manager
+                    .as_ref()
+                    .is_some_and(|manager| manager.cancelling(Some(id))),
+            });
+        }
+        super::model_library::model_rows(Target::Speech(owner), models, false, library, cx)
+    }
+}
+
+fn model_status(state: dictation::models::State) -> super::model_library::ModelStatus {
+    use super::model_library::ModelStatus;
+    match state {
+        dictation::models::State::Missing => ModelStatus::Missing,
+        dictation::models::State::Downloading(progress) => ModelStatus::Downloading(progress),
+        dictation::models::State::Installed => ModelStatus::Installed,
+        dictation::models::State::Failed(_) => ModelStatus::Failed,
     }
 }

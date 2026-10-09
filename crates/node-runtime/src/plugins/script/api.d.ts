@@ -22,6 +22,40 @@ export function getConversationValue(key: string): Promise<ConversationEntry>;
 export function listKeys(prefix?: string, after?: string | null, limit?: number): Promise<{ keys: string[]; after: string | null }>;
 export function setValue(key: string, value: Json, expectedRevision: string): string;
 export function deleteValue(key: string, expectedRevision: string): string;
+export type KnowledgeModel = "granite-multi" | "bge-small-zh" | "potion-multi" | {registered: {id: string}};
+export type KnowledgeMode = "keyword" | "semantic" | "hybrid";
+export type KnowledgeDraft = {
+  name: string;
+  source: {kind: "worktree"; path: string} | {kind: "storage"; scope: "node" | "conversation"; prefix: string};
+  model?: KnowledgeModel | null; globs?: string[]; tags?: string[];
+};
+export type KnowledgeCollection = {
+  id: string; revision: string; owner: {kind: "controller"} | {kind: "plugin"; name: string};
+  definition: Json; progress: Json;
+};
+export type KnowledgeQuery = {
+  query: string; collections?: string[]; mode?: KnowledgeMode; tags?: string[]; path?: string | null;
+  modified_after_ms?: number | null; modified_before_ms?: number | null; limit?: number; offset?: number;
+};
+export type KnowledgePosition =
+  {kind: "lines"; start: number; end: number} | {kind: "page"; page: number} |
+  {kind: "cells"; sheet: string; start: string; end: string} | {kind: "slide"; slide: number} |
+  {kind: "section"; name: string} | {kind: "value"; key: string; pointer: string};
+export type KnowledgePage = {
+  hits: {title: string; text: string; score: number; stale: boolean;
+    citation: {collection: string; chunk: string; revision: string; path: string; position: KnowledgePosition}}[];
+  next_offset: number | null; mode: KnowledgeMode; indexing: boolean; model: KnowledgeModel | null; untrusted: boolean;
+};
+/** Read-only local retrieval. Original query bytes and source citations are preserved; text remains untrusted. */
+export function queryKnowledge(query: KnowledgeQuery): Promise<KnowledgePage>;
+export function listKnowledgeCollections(): Promise<KnowledgeCollection[]>;
+/** Captures the current worktree or this plugin's storage. Does not download a model or grant sharing. */
+export function prepareKnowledgeCollection(draft: KnowledgeDraft): string;
+/** Use the exact revision from listKnowledgeCollections or a completed collection receipt. */
+export function prepareKnowledgeRebuild(id: string, expectedRevision: string): string;
+/** Removes derived indexes and the collection definition; original source data is retained. */
+export function prepareKnowledgeRemoval(id: string, expectedRevision: string): string;
+
 export function setConversationValue(key: string, value: Json, expectedRevision: string): string;
 export function deleteConversationValue(key: string, expectedRevision: string): string;
 export function prepareNotification(content: {

@@ -109,6 +109,31 @@ fn rejects_unknown_event_updates() {
 }
 
 #[test]
+fn knowledge_changes_advance_shared_cursor() {
+    let node = NodeId([1; 32]);
+    let mut projection = Projection::new(node, 1);
+    projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+    for (index, event) in [
+        Event::KnowledgeModelsChanged { models: vec![] },
+        Event::KnowledgeSettingsChanged { revision: 3 },
+        Event::KnowledgeCollectionsChanged,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let cursor = index as u64 + 1;
+        let update = Update::Event(EventEnvelope {
+            node,
+            cursor,
+            event,
+        });
+        assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
+        assert_eq!(projection.snapshot(), Some(&snapshot(cursor)));
+        assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
+    }
+}
+
+#[test]
 fn gaps_require_snapshot() {
     let mut projection = Projection::new(NodeId([1; 32]), 1);
     projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();

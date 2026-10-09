@@ -74,6 +74,19 @@ pub fn output(output: Output) -> Value {
                 value["revision"] = json!(entry.revision.to_string());
             }
         }
+        Output::KnowledgeCollection(collection) => {
+            value["data"]["revision"] = json!(collection.revision.to_string());
+        }
+        Output::KnowledgeCollections(collections) => {
+            for (value, collection) in value["data"]
+                .as_array_mut()
+                .expect("typed collections")
+                .iter_mut()
+                .zip(collections)
+            {
+                value["revision"] = json!(collection.revision.to_string());
+            }
+        }
         Output::Dispatch(dispatch::Output::Handler(_) | dispatch::Output::Schedule(_)) => {
             let record = &mut value["data"]["data"];
             record["revision"] = json!(
@@ -182,6 +195,8 @@ mod tests {
                 }],
                 next: None,
                 now_ms: 1,
+                mode: super::super::super::storage::Mode::Keyword,
+                indexing: false,
             },
         ));
         assert_eq!(page["data"]["entries"][0]["revision"], "9007199254740993");

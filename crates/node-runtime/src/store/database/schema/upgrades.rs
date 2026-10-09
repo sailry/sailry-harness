@@ -18,5 +18,10 @@ pub(super) fn retained(kind: &str, name: &str) -> bool {
 }
 
 pub(super) fn reconcile(db: &Connection) -> Result<bool, Error> {
-    json::reconcile(db)
+    let changed = json::reconcile(db)?;
+    crate::store::plugins::storage::search::rebuild(db)
+        .map_err(|error| Error::Worker(error.message))?;
+    crate::store::plugins::storage::search::validate(db)
+        .map_err(|error| Error::Worker(error.message))?;
+    Ok(changed)
 }

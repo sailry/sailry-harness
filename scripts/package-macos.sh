@@ -26,6 +26,10 @@ task_app="$task_output/Sailry.app"
 mkdir -p "$task_app/Contents/MacOS" "$task_app/Contents/Resources" "$task_output/host"
 cp "$task_build/sailry-desktop" "$task_app/Contents/MacOS/sailry-desktop"
 cp "$task_build/sailry-host" "$task_output/host/sailry-host"
+python3 "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
+  --output "$task_app/Contents/MacOS" --source "$task_build" --cache "$task_root/target/sherpa-onnx-prebuilt" --speech
+python3 "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
+  --output "$task_output/host" --source "$task_build" --cache "$task_root/target/sherpa-onnx-prebuilt"
 cp "$task_root/scripts/host-launchd.sh" "$task_output/host/host-launchd.sh"
 cp "$task_root/scripts/host-command.sh" "$task_output/host/sailry"
 cp "$task_root/scripts/install-host.sh" "$task_output/host/install-host.sh"
@@ -57,7 +61,15 @@ if test "$task_signing" = developer-id; then
   python3 "$task_root/scripts/package/sign-macos.py" --app "$task_app" \
     --host "$task_output/host" --target "$task_target"
 else
+  for task_library in libonnxruntime.dylib libsherpa-onnx-c-api.dylib; do
+    codesign --force --sign - "$task_app/Contents/MacOS/$task_library"
+  done
+  codesign --force --sign - "$task_output/host/libonnxruntime.dylib"
   codesign --force --sign - "$task_output/host/sailry-host"
+  python3 "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
+    --output "$task_app/Contents/MacOS" --speech --finalize
+  python3 "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
+    --output "$task_output/host" --finalize
   codesign --force --sign - "$task_app"
 fi
 codesign --verify --deep --strict "$task_app"

@@ -94,6 +94,10 @@ pub enum Action {
     ReadStorage,
     #[serde(rename = "storage.write")]
     WriteStorage,
+    #[serde(rename = "knowledge.read")]
+    ReadKnowledge,
+    #[serde(rename = "knowledge.write")]
+    WriteKnowledge,
 }
 
 impl Action {
@@ -121,6 +125,7 @@ impl Action {
                 | Self::ReadProjects
                 | Self::ReadWeb
                 | Self::ReadStorage
+                | Self::ReadKnowledge
         )
     }
 }
@@ -136,6 +141,8 @@ mod tests {
             ("files.read", Action::ReadFiles),
             ("models.read", Action::ReadModels),
             ("models.generate", Action::GenerateText),
+            ("knowledge.read", Action::ReadKnowledge),
+            ("knowledge.write", Action::WriteKnowledge),
         ] {
             assert_eq!(serde_json::to_value(&action).unwrap(), json!(name));
             assert_eq!(
@@ -175,6 +182,8 @@ mod tests {
         assert!(names.contains(&json!("files.read")));
         assert!(names.contains(&json!("models.read")));
         assert!(names.contains(&json!("models.generate")));
+        assert!(names.contains(&json!("knowledge.read")));
+        assert!(names.contains(&json!("knowledge.write")));
         assert!(!names.contains(&json!("unknown.action")));
         assert!(!names.contains(&json!("Unsupported")));
         assert!(!names.is_empty());

@@ -64,6 +64,8 @@ identifier!(
     ProviderId,
     EventId,
     JobId,
+    KnowledgeId,
+    ModelId,
     NotificationId,
     ScheduleId
 );

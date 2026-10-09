@@ -22,6 +22,21 @@ pub(super) fn stored(db: &Connection) -> Result<(), Error> {
         "sandbox_settings.body",
         "SELECT body FROM sandbox_settings",
     )?;
+    records::<sailry_protocol::knowledge::Settings>(
+        db,
+        "knowledge_settings.body",
+        "SELECT body FROM knowledge_settings",
+    )?;
+    records::<crate::store::knowledge::Stored>(
+        db,
+        "knowledge_collections.body",
+        "SELECT body FROM knowledge_collections",
+    )?;
+    crate::store::knowledge::validate_stored(db).map_err(|_| {
+        Error::Worker(
+            "incompatible stored knowledge configuration; existing data was not changed".into(),
+        )
+    })?;
     records::<role::Profile>(db, "roles.body", "SELECT body FROM roles")?;
     records::<sailry_protocol::hooks::Settings>(
         db,

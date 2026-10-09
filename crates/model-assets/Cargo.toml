@@ -1,0 +1,30 @@
+[package]
+name = "sailry-model-assets"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[features]
+onnx = ["dep:ort", "dep:libloading", "dep:prost", "dep:memmap2"]
+
+[dependencies]
+cap-fs-ext.workspace = true
+cap-std.workspace = true
+cap-tempfile.workspace = true
+libc.workspace = true
+reqwest.workspace = true
+ort = { workspace = true, optional = true }
+libloading = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
+memmap2 = { workspace = true, optional = true }
+sailry-protocol.workspace = true
+rustls.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util"] }
+tokio-util.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["net"] }

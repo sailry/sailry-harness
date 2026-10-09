@@ -191,6 +191,16 @@ pub enum Operation {
     DeleteValue,
     #[serde(rename = "storage.transaction")]
     StorageTransaction,
+    #[serde(rename = "knowledge.query")]
+    KnowledgeQuery,
+    #[serde(rename = "knowledge.collections")]
+    KnowledgeCollections,
+    #[serde(rename = "knowledge.create")]
+    KnowledgeCreate,
+    #[serde(rename = "knowledge.rebuild")]
+    KnowledgeRebuild,
+    #[serde(rename = "knowledge.remove")]
+    KnowledgeRemove,
     #[serde(rename = "settings.read")]
     ReadSettings,
     #[serde(rename = "process.run")]
@@ -255,6 +265,10 @@ impl Operation {
             Self::SetValue | Self::DeleteValue | Self::StorageTransaction => {
                 Some(Action::WriteStorage)
             }
+            Self::KnowledgeQuery | Self::KnowledgeCollections => Some(Action::ReadKnowledge),
+            Self::KnowledgeCreate | Self::KnowledgeRebuild | Self::KnowledgeRemove => {
+                Some(Action::WriteKnowledge)
+            }
             Self::ReadCommand => Some(Action::ReadCommands),
             Self::RunCommand | Self::StopCommand | Self::WriteCommand => {
                 Some(Action::ControlCommands)
@@ -285,6 +299,9 @@ impl Operation {
                 | Self::SetValue
                 | Self::DeleteValue
                 | Self::StorageTransaction
+                | Self::KnowledgeCreate
+                | Self::KnowledgeRebuild
+                | Self::KnowledgeRemove
                 | Self::RunCommand
                 | Self::StopCommand
                 | Self::WriteCommand
@@ -433,6 +450,53 @@ mod flow_tests {
     use super::*;
     use crate::plugin::Action;
     use serde_json::json;
+
+    #[test]
+    fn knowledge_preserves_read_and_write_grants() {
+        for (name, operation, action, read_only) in [
+            (
+                "knowledge.query",
+                Operation::KnowledgeQuery,
+                Action::ReadKnowledge,
+                true,
+            ),
+            (
+                "knowledge.collections",
+                Operation::KnowledgeCollections,
+                Action::ReadKnowledge,
+                true,
+            ),
+            (
+                "knowledge.create",
+                Operation::KnowledgeCreate,
+                Action::WriteKnowledge,
+                false,
+            ),
+            (
+                "knowledge.rebuild",
+                Operation::KnowledgeRebuild,
+                Action::WriteKnowledge,
+                false,
+            ),
+            (
+                "knowledge.remove",
+                Operation::KnowledgeRemove,
+                Action::WriteKnowledge,
+                false,
+            ),
+        ] {
+            assert_eq!(
+                serde_json::from_value::<Operation>(json!(name)).unwrap(),
+                operation
+            );
+            assert_eq!(operation.action(), Some(action.clone()));
+            assert_eq!(operation.read_only(), read_only);
+            assert_eq!(action.read_only(), read_only);
+            let declaration: Declaration =
+                serde_json::from_value(json!({"name":"knowledge","operation":name})).unwrap();
+            assert!(declaration.valid());
+        }
+    }
 
     #[test]
     fn child_control_requires_native_tools() {

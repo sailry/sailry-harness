@@ -1,5 +1,6 @@
 use super::*;
 mod git;
+mod knowledge;
 mod notifications;
 mod sessions;
 mod transactions;
@@ -113,6 +114,40 @@ fn storage_scopes_local_and_remote_receipts() {
         assert_eq!(page["entries"][0]["key"], "prefs");
         assert_eq!(page["entries"][0]["revision"], "4");
         assert!(page["now_ms"].as_u64().unwrap() > 0);
+        for (input, raw, mode) in [
+            (
+                json!({"terms":["literal"],"query":"  Original order! 東京  "}),
+                Some("  Original order! 東京  "),
+                sailry_protocol::plugin::storage::Mode::Hybrid,
+            ),
+            (
+                json!({"terms":["literal"],"query":"  Original order! 東京  ","mode":"keyword"}),
+                Some("  Original order! 東京  "),
+                sailry_protocol::plugin::storage::Mode::Keyword,
+            ),
+            (
+                json!({"terms":["literal"]}),
+                None,
+                sailry_protocol::plugin::storage::Mode::Keyword,
+            ),
+        ] {
+            let page = complete(&fixture, &module, "searchValues", json!([input]));
+            assert_eq!(page["mode"], "keyword");
+            let requests = fixture.transport.requests.lock().unwrap();
+            let query = requests
+                .iter()
+                .rev()
+                .find_map(|request| {
+                    if let Command::SearchPluginValues(query) = &request.command {
+                        Some(query)
+                    } else {
+                        None
+                    }
+                })
+                .expect("storage search request expected");
+            assert_eq!(query.query.as_deref(), raw);
+            assert_eq!(query.mode, mode);
+        }
         let ordinary = call(&module, "setValue", json!(["prefs", null, "4"]));
         assert_eq!(
             complete(&fixture, &module, "completeRequest", json!([ordinary]))["Ok"]["data"]["revision"],

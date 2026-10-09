@@ -31,6 +31,10 @@ impl Shell {
             self.open_chat_link(&chat, link, window, cx);
             return;
         }
+        if knowledge::recognizes(&link) {
+            knowledge::failure("knowledge_citation_unavailable", window, cx);
+            return;
+        }
         if let Some(live) = &self.live {
             if let Some(worktree) = live.selected_worktree() {
                 self.open_workspace_link(
@@ -73,6 +77,10 @@ impl Shell {
     ) {
         if url::Url::parse(&link).is_ok_and(|url| matches!(url.scheme(), "http" | "https")) {
             self.open_conversation_link(link, window, cx);
+            return;
+        }
+        if knowledge::recognizes(&link) {
+            self.open_knowledge_link(chat, link, window, cx);
             return;
         }
         let view = chat.read(cx);

@@ -49,6 +49,7 @@ fn declared(scope: Scope, default: bool) -> Declaration {
             key: Some("entry".into()),
             prefix: None,
             schema: json!({"type":"object","properties":{"title":{"type":"string"},"ready":{"type":"boolean","default":default}}}),
+            index: None,
         }],
     }
 }
@@ -201,6 +202,7 @@ fn search_projects_defaults_without_changing_indexes() {
         fields: ["Find".into(), String::new()],
         tags: vec![],
         order: 0,
+        source: None,
     };
     write(
         &db,
@@ -220,6 +222,8 @@ fn search_projects_defaults_without_changing_indexes() {
             None,
             Command::SearchPluginValues(storage::Search {
                 terms: vec!["Find".into()],
+                query: None,
+                mode: storage::Mode::Keyword,
                 weights: [1, 1],
                 all: vec![],
                 any: vec![],

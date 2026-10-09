@@ -6,15 +6,18 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
-reqwest.workspace = true
-rustls.workspace = true
-sha2.workspace = true
-tempfile.workspace = true
+sailry-model-assets.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util"] }
 tokio-util.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+
+[target.'cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))'.dependencies]
+sherpa-onnx = { workspace = true, features = ["shared"] }
+
+[target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
 sherpa-onnx.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+tempfile.workspace = true

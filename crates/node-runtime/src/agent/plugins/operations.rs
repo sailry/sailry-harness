@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 mod commands;
 mod connections;
 mod files;
+mod knowledge;
 mod progress;
 mod repository;
 mod schema;

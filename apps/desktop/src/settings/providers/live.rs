@@ -60,6 +60,7 @@ impl Workspace {
         {
             return;
         }
+        self.clear_knowledge(cx);
         self.provider_link = None;
         self.providers.channels.clear();
         self.roles.clear();

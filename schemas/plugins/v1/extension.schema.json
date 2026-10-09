@@ -47,7 +47,9 @@
             "web.read",
             "models.generate",
             "storage.read",
-            "storage.write"
+            "storage.write",
+            "knowledge.read",
+            "knowledge.write"
           ],
           "type": "string"
         },
@@ -1032,6 +1034,11 @@
         "storage.set",
         "storage.delete",
         "storage.transaction",
+        "knowledge.query",
+        "knowledge.collections",
+        "knowledge.create",
+        "knowledge.rebuild",
+        "knowledge.remove",
         "settings.read",
         "process.run",
         "process.read",
@@ -1419,6 +1426,16 @@
         }
       ],
       "properties": {
+        "index": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StorageDeclarationIndex"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "key": {
           "description": "Select one exact key or one nonempty prefix, never both.",
           "maxLength": 128,
@@ -1461,6 +1478,16 @@
       "required": [
         "collections"
       ],
+      "type": "object"
+    },
+    "StorageDeclarationIndex": {
+      "additionalProperties": false,
+      "properties": {
+        "semantic": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
       "type": "object"
     },
     "StorageScope": {

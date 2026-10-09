@@ -2,6 +2,7 @@
 """Sign native code in a fresh macOS application and separate Host package."""
 
 import argparse
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -11,6 +12,10 @@ MAGIC = {
     b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",
     b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca", b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca",
 }
+
+runtime_spec = importlib.util.spec_from_file_location("onnx_runtime", Path(__file__).with_name("onnx-runtime.py"))
+runtime = importlib.util.module_from_spec(runtime_spec)
+runtime_spec.loader.exec_module(runtime)
 
 
 def run(*args):
@@ -53,11 +58,14 @@ def sign(app, host, target, identity, team, keychain=None):
     for path in objects:
         run("codesign", *options, path)
         verify(path, team)
+    runtime.finalize(target, app / "Contents/MacOS", speech=True)
     run("codesign", *options, "--entitlements", ROOT / "apps/desktop/macos/entitlements.plist", app)
     verify(app, team, deep=True)
     # Host is a separate release asset, never a remote deployment payload inside Desktop.
-    run("codesign", *options, host / "sailry-host")
-    verify(host / "sailry-host", team)
+    for path in mach_objects(host):
+        run("codesign", *options, path)
+        verify(path, team)
+    runtime.finalize(target, host, speech=False)
     print(f"Developer ID signing verified: {len(objects)} Mach-O files and Sailry.app")
 
 
