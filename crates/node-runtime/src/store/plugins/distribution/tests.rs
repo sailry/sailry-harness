@@ -79,7 +79,14 @@ fn refresh_preserves_configuration_and_private_records() {
 #[test]
 fn skips_custom_newer_unchanged_and_removed_packages() {
     let (_directory, host, mut db) = fixture();
-    for name in ["code", "web-search"] {
+    for name in [
+        "code",
+        "web-search",
+        "browser",
+        "files",
+        "office",
+        "commands",
+    ] {
         let original = required(&db, name).unwrap();
         for origin in [
             None,
@@ -137,6 +144,7 @@ fn skips_custom_newer_unchanged_and_removed_packages() {
     let memory = older(&db, "memory");
     install(&mut db, &host).unwrap();
     assert_eq!(required(&db, "memory").unwrap(), memory);
+    assert!(get(&db, "plugin-builder").unwrap().is_none());
 }
 
 #[test]

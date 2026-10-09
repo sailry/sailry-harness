@@ -84,7 +84,7 @@ fn bundled(path: &Path, mut installed: Info) -> Info {
 fn records(path: &Path) -> Vec<(String, String, Vec<u8>)> {
     let db = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
     let mut statement = db
-        .prepare("SELECT plugin,'settings',body FROM plugin_settings WHERE plugin IN ('code','web-search') UNION ALL SELECT name,key,value FROM plugin_values WHERE name IN ('code','web-search') ORDER BY 1,2")
+        .prepare("SELECT plugin,'settings',body FROM plugin_settings WHERE plugin IN ('code','web-search','browser') UNION ALL SELECT name,key,value FROM plugin_values WHERE name IN ('code','web-search','browser') ORDER BY 1,2")
         .unwrap();
     statement
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
@@ -406,6 +406,81 @@ async fn retains_disabled_configuration_on_each_path() {
                 current
             );
         }
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn retains_browser_configuration_on_each_path() {
+    for remote in [false, true] {
+        let (directory, node, controller, client, _) = fixture(remote).await;
+        let current = info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: "browser".into(),
+                },
+            )
+            .await,
+        );
+        let mut previous = disable(&client, current).await;
+        previous.summary.version = Some("0.1.1".into());
+        let profile = directory.path().join("node");
+        let path = profile.join("storage/node.sqlite3");
+        node.shutdown().await.unwrap();
+        let previous = bundled(&path, previous);
+        let retained = records(&path);
+        let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        let current = info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: "browser".into(),
+                },
+            )
+            .await,
+        );
+        assert_eq!(current.summary.version.as_deref(), Some("0.1.2"));
+        assert_eq!(current.origin, Some(plugin::Origin::Bundled));
+        assert_eq!(current.summary.revision, previous.summary.revision + 1);
+        assert_eq!(
+            current.summary.settings_revision,
+            previous.summary.settings_revision
+        );
+        assert!(!current.summary.enabled);
+        assert_eq!(records(&path), retained);
+        let inventory = execute(&client, Command::ListPlugins).await;
+        node.shutdown().await.unwrap();
+        let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        assert_eq!(execute(&client, Command::ListPlugins).await, inventory);
+        assert_eq!(
+            info(
+                execute(
+                    &client,
+                    Command::ReadPlugin {
+                        name: "browser".into()
+                    }
+                )
+                .await
+            ),
+            current
+        );
+        assert_eq!(records(&path), retained);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

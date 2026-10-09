@@ -297,8 +297,9 @@ The application lives in `sailry-harness`; official plugin source lives only in
 `sailry-plugins`. The `plugins/` Git submodule pins a reviewed plugin commit.
 Builds embed that snapshot as ordinary package assets for offline use; new Node
 profiles install the selected defaults once, without resurrecting removed packages.
-Startup refreshes already installed bundled search and language-service packages
-when their shipped versions increase, preserving their enable choices and settings.
+Startup refreshes already installed bundled search, language-service, browser,
+files, Office, command and plugin-builder packages when their shipped versions
+increase, preserving their enable choices and settings.
 Removed packages and packages from other sources are not changed by this refresh.
 The online official marketplace reads the plugin repository's `catalog.json`;
 unavailable networks leave the bundled snapshot installable. Invalid indexes are

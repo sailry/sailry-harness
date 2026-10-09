@@ -61,7 +61,15 @@ pub(in crate::store) fn install(
 }
 
 fn refresh(db: &Connection, host: &crate::plugins::Host) -> Result<(), Fault> {
-    for name in ["code", "web-search"] {
+    for name in [
+        "code",
+        "web-search",
+        "browser",
+        "files",
+        "office",
+        "commands",
+        "plugin-builder",
+    ] {
         let Some(current) = get(db, name)? else {
             continue;
         };
