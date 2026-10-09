@@ -42,8 +42,9 @@ just preview
 
 Direct Desktop and Host binaries default to `~/.sailry`; one running Node may own
 a profile. Close the installed app before running `just desktop` with that profile.
-Profiles contain Node storage, protected credentials, plugin packages,
-plugin data, and attachments. Projects remain at their registered paths. Remote
+Profiles contain Node configuration and plaintext credentials, plugin packages,
+plugin data, and attachments. Credentials stay out of public events, logs and UI
+caches. Projects remain at their registered paths. Remote
 execution data stays on the execution Node. Incompatible development profiles are
 reported without conversion, reset, or deletion.
 

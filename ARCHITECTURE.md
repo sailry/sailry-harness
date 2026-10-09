@@ -80,9 +80,10 @@ their captured Node and resource identity.
 The Node owns configuration and immutable sent-turn revisions. Controller
 defaults initialize new sessions; an existing session requires an explicit
 revision-checked command. Resuming elsewhere preserves its effective configuration.
-Credentials remain in the execution Node's protected storage, never public events
-or UI caches. Projects remain at registered paths; profiles contain Node storage,
-plugin packages/data and uploaded attachments.
+Configuration and credentials are stored as plaintext in the execution Node's
+configuration database, never public events, logs or UI caches. Projects remain
+at registered paths; profiles contain Node storage, plugin packages/data and
+uploaded attachments.
 
 Knowledge collections, settings and explicit plugin grants remain in the primary
 Node database. `storage/knowledge.db` contains only derived chunks, full-text
@@ -93,6 +94,10 @@ access grants constrain candidates before ranking. Citations resolve through the
 execution Node and recheck their source identity before returning original text.
 Uninstalled models keep keyword retrieval available. Code discovery continues to
 use filename matching, text search and language-server symbols.
+Knowledge retrieval is a Node service for plugin-owned features; no standalone
+knowledge plugin is bundled. Desktop settings configure vector models. Plugins
+such as notes and reminders organize their own collections and expose their
+settings, feature switches and conversation tools through shared plugin APIs.
 
 One lazy CPU model owner per Node serves small indexing batches and prioritizes
 interactive query work. Optional model assets require an explicit install action
@@ -108,6 +113,8 @@ locally, and recording retains its selected model until transcription finishes.
 Both consumers use the packaged ONNX Runtime image; SenseVoice retains Sherpa's
 recognition algorithm. Model updates within supported formats do not require an
 application release, while new algorithms require implementation and validation.
+The shared model installer resumes verified partial downloads when the source
+validator is unchanged, and verifies the complete asset before publishing it.
 Disposable command, browser and transfer staging lives under the configurable
 profile's `tmp` directory, separate from durable worktree outputs and attachments.
 Command scratch is scoped to the admitted turn and retained while its commands
@@ -171,6 +178,14 @@ disable command sandboxing for subsequent calls in existing sessions without
 changing captured access for pending or running commands. User-created
 terminals start with the complete login-shell environment. Language services
 and configured hooks retain their own execution policies.
+The language-service plugin's enable switch controls the Node's service setting
+atomically. Disabling it cancels pending starts and queries, stops active servers
+before command completion and omits language tools from subsequent turns.
+Installation remains available while disabled. Enabled services start on demand
+and stop after inactivity; installation alone does not launch a server.
+Native controllers configure ordered hook scripts per worktree. Admitted turns
+capture each script's order and enabled state; a phase has one durable launch
+receipt, and recovery never replays that group after a crash or cancellation.
 
 Workspace commands cannot write captured Git metadata, including linked repository
 metadata and common directories. Git writes use complete access. macOS also denies
@@ -184,14 +199,26 @@ Multi-edit operations check the original file revision and publish one complete
 result. Background commands may use a PTY and accept durably admitted input;
 completion, stop and replay retain the original command identity.
 
-Public web reads and search run on the execution Node. Web reads validate and
-pin public DNS addresses on every redirect, retain bounded paged snapshots,
-and supply untrusted content without browser authentication. Search settings
+Public web reads and search run on the execution Node. Direct web reads validate
+and pin public DNS addresses on every redirect. Web reads alone explicitly use
+configured environment or system HTTP(S) proxies, honoring proxy exclusions.
+A selected proxy receives the original hostname and resolves it remotely; local
+DNS is checked when available, ignoring proxy fake-IP answers. This supports
+TUN proxies and avoids relying on polluted local DNS, but cannot enforce the
+same destination-IP confinement as direct reads: the user-selected proxy is
+trusted to route public hostnames. Literal private URLs and private local DNS
+answers remain rejected, and each redirect is rechecked. Proxy failures do not
+fall back to direct access. Other HTTP clients retain their existing proxy
+configuration. Reads retain bounded paged snapshots and supply untrusted content
+without browser authentication. Search settings
 and credentials belong to that Node. A turn uses provider-native search when
 available and preferred, otherwise one configured search tool; transient
 failures can try each configured driver once and respect rate-limit cooldowns.
-Private search keys and explicitly imported GitHub login tokens remain in
-protected storage. Public GitHub reads do not require a GitHub MCP credential.
+Search keys and manually supplied GitHub credentials are stored as plaintext in
+the Node configuration database. Connecting an existing `gh` login stores its
+account identity, then reads the current token transiently for MCP requests;
+logout, account changes and token rotation invalidate cached connections. Public
+GitHub reads do not require a GitHub MCP credential.
 
 The delegation plugin manages role settings; Node owns and freezes the configured
 roster. Delegation selects a matching configured role. An omitted or null role
@@ -244,6 +271,9 @@ The application lives in `sailry-harness`; official plugin source lives only in
 `sailry-plugins`. The `plugins/` Git submodule pins a reviewed plugin commit.
 Builds embed that snapshot as ordinary package assets for offline use; new Node
 profiles install the selected defaults once, without resurrecting removed packages.
+Startup refreshes already installed bundled search and language-service packages
+when their shipped versions increase, preserving their enable choices and settings.
+Removed packages and packages from other sources are not changed by this refresh.
 The online official marketplace reads the plugin repository's `catalog.json`;
 unavailable networks leave the bundled snapshot installable. Invalid indexes are
 reported, not treated as an offline result. Official installation and updates
@@ -255,6 +285,12 @@ Packages use the Agent Plugins manifest and Sailry's v1 extension contract.
 Node owns validation, immutable resources, grants, private KV, callbacks,
 tools and dispatch. Updates affect new admission; admitted work retains its
 captured package and settings revision.
+Search and language-service packages contribute their settings navigation and
+enable controls through the shared plugin contract. Their declared native pages
+reuse Desktop's Kit composition and the same Client commands for local and remote
+Nodes. Core operations remain Node-owned; the pages do not grant Agent scripts
+access to controller-only configuration commands. Knowledge retrieval has no
+standalone package or conversation entry; feature plugins use its shared service.
 
 Headless JavaScript callbacks use a bounded Node-owned QuickJS runtime. Desktop
 entries use GPUI Kit script bindings and host-owned SDKs. Desktop and headless
@@ -328,7 +364,7 @@ a separate decision.
 
 ## Security and quality constraints
 
-Authenticated Node/resource access, path confinement, protected credentials,
+Authenticated Node/resource access, path confinement, Node-owned credentials,
 revision checks and honest uncertain outcomes are the primary boundaries.
 Destructive actions identify their target and consequence. Imported sources and
 resources retain their licenses; root Apache licensing does not replace those
