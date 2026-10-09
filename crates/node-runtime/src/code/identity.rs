@@ -5,16 +5,16 @@ use std::{
     fs::{File, Metadata},
     io::Read,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::SystemTime,
 };
 
 const CAPACITY: usize = 512;
-const MAX_BYTES: u64 = 128 * 1024 * 1024;
+type Slot = Arc<Mutex<Option<Entry>>>;
 
 #[derive(Default)]
 pub(super) struct Cache {
-    entries: Mutex<BTreeMap<PathBuf, Entry>>,
+    entries: Mutex<BTreeMap<PathBuf, Slot>>,
     #[cfg(test)]
     reads: std::sync::atomic::AtomicUsize,
 }
@@ -41,11 +41,6 @@ impl Stamp {
         if !metadata.is_file() {
             return Err(Fault::invalid("language executable is not a regular file"));
         }
-        if metadata.len() > MAX_BYTES {
-            return Err(Fault::invalid(
-                "language executable exceeds the identity limit",
-            ));
-        }
         Ok(Self {
             size: metadata.len(),
             modified: metadata.modified().map_err(unavailable)?,
@@ -65,12 +60,11 @@ impl Stamp {
 impl Cache {
     pub fn revision(&self, executable: &Path) -> Result<String, Fault> {
         let path = executable.canonicalize().map_err(unavailable)?;
-        let mut entries = self
-            .entries
-            .lock()
-            .expect("language identity lock is healthy");
+        let slot = self.slot(&path);
+        // One executable's initial read is shared, without blocking other paths.
+        let mut entry = slot.lock().expect("language executable lock is healthy");
         let stamp = Stamp::read(path.metadata().map_err(unavailable)?)?;
-        if let Some(entry) = entries.get(&path)
+        if let Some(entry) = entry.as_ref()
             && entry.stamp == stamp
         {
             return Ok(entry.revision.clone());
@@ -79,31 +73,44 @@ impl Cache {
         if Stamp::read(file.metadata().map_err(unavailable)?)? != stamp {
             return Err(changed());
         }
-        let revision = self.digest(&mut file)?;
+        let revision = self.digest(&mut file, stamp.size)?;
         if Stamp::read(file.metadata().map_err(unavailable)?)? != stamp
             || Stamp::read(path.metadata().map_err(unavailable)?)? != stamp
         {
             return Err(changed());
         }
-        if entries.len() >= CAPACITY && !entries.contains_key(&path) {
-            entries.pop_first();
-        }
-        entries.insert(
-            path,
-            Entry {
-                stamp,
-                revision: revision.clone(),
-            },
-        );
+        *entry = Some(Entry {
+            stamp,
+            revision: revision.clone(),
+        });
         Ok(revision)
     }
 
-    fn digest(&self, file: &mut File) -> Result<String, Fault> {
+    fn slot(&self, path: &Path) -> Slot {
+        let mut entries = self
+            .entries
+            .lock()
+            .expect("language identity lock is healthy");
+        if let Some(entry) = entries.get(path) {
+            return entry.clone();
+        }
+        if entries.len() >= CAPACITY {
+            entries.pop_first();
+        }
+        let entry = Arc::new(Mutex::new(None));
+        entries.insert(path.into(), entry.clone());
+        entry
+    }
+
+    fn digest(&self, file: &mut File, expected: u64) -> Result<String, Fault> {
         #[cfg(test)]
         self.reads
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut digest = Sha256::new();
         let mut buffer = [0u8; 64 * 1024];
+        // Bound a concurrently growing file by its captured size, rather than
+        // imposing an arbitrary limit on valid installed language servers.
+        let mut file = file.take(expected.saturating_add(1));
         let mut total = 0;
         loop {
             let count = file.read(&mut buffer).map_err(unavailable)?;
@@ -111,12 +118,13 @@ impl Cache {
                 break;
             }
             total += count as u64;
-            if total > MAX_BYTES {
-                return Err(Fault::invalid(
-                    "language executable exceeds the identity limit",
-                ));
+            if total > expected {
+                return Err(changed());
             }
             digest.update(&buffer[..count]);
+        }
+        if total != expected {
+            return Err(changed());
         }
         Ok(format!("{:x}", digest.finalize()))
     }
