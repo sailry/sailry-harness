@@ -98,6 +98,28 @@ pub(super) fn execute(
         Command::ListMediaModels => Ok((Output::MediaModels(super::media::catalog(db)?), None)),
         Command::ReadMediaSettings => Ok((Output::MediaSettings(super::media::read(db)?), None)),
         Command::SaveMediaSettings(settings) => super::media::save(db, settings),
+        Command::ReadCode { .. }
+        | Command::ListCodeServers { .. }
+        | Command::StartCodeServer { .. }
+        | Command::ListCodePackages { .. }
+        | Command::InstallCodeServer { .. }
+        | Command::CancelCodeInstall { .. }
+        | Command::CancelCodeQuery { .. }
+        | Command::ListCodeInstallations
+        | Command::UninstallCodeServer { .. }
+        | Command::ReadCodeRules
+        | Command::UpdateCodeRules => Err(Fault::new(
+            ErrorCode::Internal,
+            "language operations must run outside the database",
+        )),
+        Command::ReadCodeSettings => Ok((Output::CodeSettings(super::code::settings(db)?), None)),
+        Command::SaveCodeSettings {
+            settings,
+            expected_revision,
+        } => Ok((
+            Output::CodeSettings(super::code::save(db, settings, *expected_revision)?),
+            None,
+        )),
         Command::ReadTerminalSettings => Ok((
             Output::TerminalSettings(super::terminals::settings::read(db)?),
             None,

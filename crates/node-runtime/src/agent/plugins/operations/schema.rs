@@ -2,7 +2,15 @@
 use super::*;
 
 pub(super) fn description(operation: Operation) -> &'static str {
+    if crate::code::handles(operation) {
+        return crate::code::description(operation);
+    }
     match operation {
+        Operation::CodeDiagnostics
+        | Operation::CodeDefinition
+        | Operation::CodeReferences
+        | Operation::CodeHover
+        | Operation::CodeSymbols => unreachable!("code operation handled above"),
         Operation::InspectGit
         | Operation::ReadGitDiff
         | Operation::ReadGitLog
@@ -64,6 +72,9 @@ pub(super) fn description(operation: Operation) -> &'static str {
 }
 
 pub(super) fn parameters(operation: Operation) -> Value {
+    if crate::code::handles(operation) {
+        return crate::code::parameters(operation);
+    }
     if repository::handles(operation) {
         return repository::parameters(operation);
     }
@@ -85,6 +96,11 @@ pub(super) fn parameters(operation: Operation) -> Value {
     let key = json!({"type":"string", "minLength":1, "maxLength":plugin::storage::MAX_KEY_BYTES});
     let revision = json!({"type":"integer", "minimum":0});
     let (properties, required) = match operation {
+        Operation::CodeDiagnostics
+        | Operation::CodeDefinition
+        | Operation::CodeReferences
+        | Operation::CodeHover
+        | Operation::CodeSymbols => unreachable!("code operation handled above"),
         Operation::InspectGit
         | Operation::ReadGitDiff
         | Operation::ReadGitLog
@@ -190,6 +206,9 @@ pub(super) fn command(
     arguments: Value,
     context: &plugin::Context,
 ) -> Result<Command, Fault> {
+    if crate::code::handles(operation) {
+        return crate::code::command(operation, arguments, context);
+    }
     match operation {
         Operation::ListDirectory
         | Operation::ReadFile
@@ -363,6 +382,11 @@ pub(super) fn command(
         _ => {}
     }
     let kind = match operation {
+        Operation::CodeDiagnostics
+        | Operation::CodeDefinition
+        | Operation::CodeReferences
+        | Operation::CodeHover
+        | Operation::CodeSymbols => unreachable!("code operation handled above"),
         Operation::InspectGit
         | Operation::ReadGitDiff
         | Operation::ReadGitLog

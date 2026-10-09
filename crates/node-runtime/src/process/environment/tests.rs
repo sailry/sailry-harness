@@ -31,6 +31,19 @@ fn preserves_unix_name_case() {
 }
 
 #[test]
+fn binds_filtered_launch_values() {
+    let initial = Environment::filtered([("PATH".into(), "/fixture/bin".into())]);
+    let changed = Environment::filtered([("PATH".into(), "/other/bin".into())]);
+    let ignored = Environment::filtered([
+        ("PATH".into(), "/fixture/bin".into()),
+        ("OPENAI_API_KEY".into(), "private".into()),
+        ("SSH_AUTH_SOCK".into(), "/fixture/agent".into()),
+    ]);
+    assert_ne!(initial.identity(), changed.identity());
+    assert_eq!(initial.identity(), ignored.identity());
+}
+
+#[test]
 fn filters_sensitive_values() {
     let environment = Environment::filtered(
         [

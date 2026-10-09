@@ -266,6 +266,7 @@ pub enum ApprovalSource {
     Full,
     SessionRule,
     PrefixRule,
+    CodeRule,
 }
 
 /// Authorization metadata references the exact call in canonical ADK history.
@@ -283,6 +284,7 @@ pub struct Approval {
     pub reason: Option<String>,
     pub prefix: Option<String>,
     pub can_remember: bool,
+    pub startup: Option<crate::code::Startup>,
     pub access: Option<crate::process::Access>,
 }
 

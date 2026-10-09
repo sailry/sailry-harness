@@ -157,7 +157,10 @@ async fn respond(
     let length = headers
         .get("content-length")
         .map_or(0, |value| value.parse::<usize>().unwrap());
-    assert!(length <= 64 * 1024);
+    assert!(
+        length <= 1024 * 1024,
+        "provider fixture request exceeds its body limit: {length}"
+    );
     while bytes.len() < boundary + length {
         let count = stream.read(&mut buffer).await?;
         if count == 0 {

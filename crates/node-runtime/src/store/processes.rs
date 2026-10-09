@@ -119,6 +119,7 @@ pub(super) struct Worker {
     environment: Arc<Environment>,
     capacity: Arc<Semaphore>,
     commands: Arc<process::background::Commands>,
+    code: Arc<crate::code::Pool>,
 }
 
 impl Worker {
@@ -129,9 +130,11 @@ impl Worker {
         agents: Arc<crate::agent::Controls>,
         commands: Arc<process::background::Commands>,
         environment: Arc<Environment>,
+        code: Arc<crate::code::Pool>,
     ) -> Self {
         Self {
             pending: 0,
+            code,
             commands,
             runtime,
             completed,
@@ -158,6 +161,7 @@ impl Worker {
         let environment = self.environment.clone();
         let capacity = self.capacity.clone();
         let commands = self.commands.clone();
+        let code = self.code.clone();
         let agents = self.agents.clone();
         self.runtime.spawn(async move {
             let mut execution = execution;
@@ -172,7 +176,7 @@ impl Worker {
                     if stop.is_cancelled() || closed.is_cancelled() {
                         return Ok(Output::CommandResult(process::cancelled()));
                     }
-                    return commands
+                    let info=commands
                         .start(
                             execution.request.id,
                             execution.launch.session,
@@ -180,8 +184,9 @@ impl Worker {
                             execution.launch.launch,
                             environment,
                             closed,
-                        )
-                        .map(Output::CommandStarted);
+                        )?;
+                    commands.watch(info.id,execution.launch.worktree,code);
+                    return Ok(Output::CommandStarted(info));
                 }
                 let permit = tokio::select! {
                     biased;

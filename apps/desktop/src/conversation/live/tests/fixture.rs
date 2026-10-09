@@ -61,13 +61,26 @@ impl Fixture {
         remote: bool,
         server: impl FnOnce(&tokio::runtime::Runtime) -> support::Server,
     ) -> Self {
+        Self::with_environment(remote, |_| None, server)
+    }
+
+    pub(crate) fn with_environment(
+        remote: bool,
+        setup: impl FnOnce(&std::path::Path) -> Option<sailry_node_runtime::EnvironmentFixture>,
+        server: impl FnOnce(&tokio::runtime::Runtime) -> support::Server,
+    ) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
-        let node = runtime
-            .block_on(Node::start_isolated(directory.path().join("node")))
-            .unwrap();
+        let node = match setup(directory.path()) {
+            Some(environment) => runtime.block_on(Node::start_with_environment(
+                directory.path().join("node"),
+                environment,
+            )),
+            None => runtime.block_on(Node::start_isolated(directory.path().join("node"))),
+        }
+        .unwrap();
         let controller = runtime
             .block_on(Link::controller(
                 directory.path().join("controller"),

@@ -3,6 +3,7 @@ use super::*;
 use serde_json::json;
 
 mod access;
+mod code;
 mod permissions;
 mod planning;
 mod rules;
@@ -27,6 +28,10 @@ impl Fixture {
     }
 
     fn with_mode(permission: Permission, mode: sailry_protocol::WorkMode) -> Self {
+        Self::with_catalog(permission, mode, false)
+    }
+
+    fn with_catalog(permission: Permission, mode: sailry_protocol::WorkMode, code: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let path = directory
             .path()
@@ -35,6 +40,9 @@ impl Fixture {
             .join("node.sqlite3");
         let mut database = Database::open(&path, NodeId([31; 32]), None).unwrap();
         super::super::tests::fixture::files(&database, directory.path());
+        if code {
+            super::super::tests::fixture::package(&database, directory.path(), "code");
+        }
         let (events, _) = broadcast::channel(64);
         let Output::Project(project) = command(
             &mut database,

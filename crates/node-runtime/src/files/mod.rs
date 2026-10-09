@@ -15,7 +15,7 @@ pub(crate) mod ssh;
 pub(crate) mod transfers;
 mod trash;
 mod version;
-mod walk;
+pub(crate) mod walk;
 pub(crate) mod watch;
 pub(crate) use create::directory;
 pub(crate) use edit::edit;
@@ -174,12 +174,18 @@ fn capture_with(
     Ok(text)
 }
 
-struct Control {
+pub(crate) struct Control {
     cancelled: CancellationToken,
     deadline: Instant,
 }
 
 impl Control {
+    pub(crate) fn new(cancelled: CancellationToken) -> Self {
+        Self {
+            cancelled,
+            deadline: Instant::now() + Duration::from_secs(5),
+        }
+    }
     fn check(&self) -> Result<(), Fault> {
         if self.cancelled.is_cancelled() {
             Err(Fault::new(ErrorCode::Cancelled, "file read cancelled"))

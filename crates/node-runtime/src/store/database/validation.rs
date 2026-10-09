@@ -7,6 +7,16 @@ use sailry_protocol::{
 use serde::de::DeserializeOwned;
 
 pub(super) fn stored(db: &Connection) -> Result<(), Error> {
+    records::<sailry_protocol::code::Settings>(
+        db,
+        "code_settings.body",
+        "SELECT body FROM code_settings",
+    )?;
+    records::<sailry_protocol::code::Startup>(
+        db,
+        "code_startups.body",
+        "SELECT body FROM code_startups",
+    )?;
     records::<sailry_protocol::conversation::Approval>(
         db,
         "agent_approvals.body",

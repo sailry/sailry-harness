@@ -2614,3 +2614,4 @@ provider_key_hint: "Digite a chave API"
 form_date_hint: "Escolha a data"
 form_time_hint: "HH:mm:ss"
 approval_unrestricted: Acesso completo ao sistema de arquivos e à rede
+approval_code_start: "Iniciar %{server} em %{worktree}"

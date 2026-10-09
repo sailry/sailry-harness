@@ -259,6 +259,14 @@ impl Database {
                 }
                 Command::ResolvePluginModel { .. } => (Some(Action::ReadModels), None, None),
                 Command::RequestPluginHttp(_) => (Some(Action::Http), None, None),
+                Command::ReadCode { worktree, .. } | Command::ListCodeServers { worktree } => {
+                    (Some(Action::ReadCode), Some(*worktree), None)
+                }
+                Command::StartCodeServer { startup } if context.turn.is_some() => (
+                    Some(Action::ReadCode),
+                    Some(startup.worktree),
+                    context.session,
+                ),
                 Command::ListDirectory { worktree, .. }
                 | Command::ReadFile { worktree, .. }
                 | Command::ReadFileLines { worktree, .. }

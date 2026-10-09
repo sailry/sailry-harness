@@ -287,6 +287,7 @@ fn preserves_base_permission_precedence() {
             choice: Some(ApprovalChoice::Session),
             reason: None,
             prefix: None,
+            startup: None,
             can_remember: true,
             access: None,
         };

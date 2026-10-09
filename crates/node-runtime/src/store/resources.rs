@@ -7,6 +7,15 @@ use std::{panic::AssertUnwindSafe, sync::Arc};
 use tokio::{runtime::Handle, sync::oneshot};
 
 pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Fault> {
+    if matches!(
+        request.command,
+        Command::StartCodeServer { .. }
+            | Command::InstallCodeServer { .. }
+            | Command::UninstallCodeServer { .. }
+            | Command::UpdateCodeRules
+    ) {
+        return super::code::prepare(database, request);
+    }
     let (session, worktree) = match &request.command {
         Command::UseBrowser {
             session,
@@ -115,6 +124,12 @@ impl Worker {
         self.runtime.spawn(async move {
             let operation = async {
                 match &execution.request.command {
+                    Command::StartCodeServer { .. }
+                    | Command::InstallCodeServer { .. }
+                    | Command::UninstallCodeServer { .. }
+                    | Command::UpdateCodeRules => {
+                        ingress.change_code(&execution.request, &stop).await
+                    }
                     Command::UseBrowser { .. } => {
                         crate::browser::execute(
                             &ingress,

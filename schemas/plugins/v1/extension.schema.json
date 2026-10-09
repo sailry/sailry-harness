@@ -4,6 +4,7 @@
       "oneOf": [
         {
           "enum": [
+            "code.read",
             "activity.read",
             "usage.read",
             "databases.read",
@@ -978,11 +979,18 @@
     },
     "Operation": {
       "enum": [
+        "code.diagnostics",
+        "code.definition",
+        "code.references",
+        "code.hover",
+        "code.symbols",
         "git.status",
         "git.diff",
         "git.log",
         "git.show",
         "git.blame",
+        "git.changes",
+        "git.change",
         "worktrees.list",
         "worktrees.create",
         "worktrees.register",

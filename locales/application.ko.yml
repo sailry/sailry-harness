@@ -2614,3 +2614,4 @@ provider_key_hint: "API 키 입력"
 form_date_hint: "날짜 선택"
 form_time_hint: "HH:mm:ss"
 approval_unrestricted: 전체 파일 시스템 및 네트워크 접근
+approval_code_start: "%{worktree}에서 %{server} 시작"

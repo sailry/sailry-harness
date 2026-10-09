@@ -87,6 +87,16 @@ pub struct Flow {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub enum Operation {
+    #[serde(rename = "code.diagnostics")]
+    CodeDiagnostics,
+    #[serde(rename = "code.definition")]
+    CodeDefinition,
+    #[serde(rename = "code.references")]
+    CodeReferences,
+    #[serde(rename = "code.hover")]
+    CodeHover,
+    #[serde(rename = "code.symbols")]
+    CodeSymbols,
     #[serde(rename = "git.status")]
     InspectGit,
     #[serde(rename = "git.diff")]
@@ -185,6 +195,11 @@ impl Operation {
     pub fn action(self) -> Option<crate::plugin::Action> {
         use crate::plugin::Action;
         match self {
+            Self::CodeDiagnostics
+            | Self::CodeDefinition
+            | Self::CodeReferences
+            | Self::CodeHover
+            | Self::CodeSymbols => Some(Action::ReadCode),
             Self::InspectGit
             | Self::ReadGitDiff
             | Self::ReadGitLog

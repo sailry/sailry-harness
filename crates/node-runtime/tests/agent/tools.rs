@@ -214,7 +214,25 @@ async fn reads_bound_worktree() {
             ),
             (
                 "git",
-                &["git_status", "git_diff", "git_log", "git_show", "git_blame"],
+                &[
+                    "git_status",
+                    "git_diff",
+                    "git_log",
+                    "git_show",
+                    "git_blame",
+                    "list_git_changes",
+                    "read_git_change",
+                ],
+            ),
+            (
+                "code",
+                &[
+                    "code_hover",
+                    "code_definition",
+                    "code_references",
+                    "code_diagnostics",
+                    "code_symbols",
+                ],
             ),
         ];
         for (package, tools) in packages {

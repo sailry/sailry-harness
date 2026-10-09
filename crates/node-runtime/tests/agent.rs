@@ -12,6 +12,9 @@ mod browser;
 #[path = "agent/checkpoints.rs"]
 mod checkpoints;
 #[cfg(unix)]
+#[path = "agent/code.rs"]
+mod code;
+#[cfg(unix)]
 #[path = "agent/compaction.rs"]
 mod compaction;
 #[path = "agent/computer.rs"]

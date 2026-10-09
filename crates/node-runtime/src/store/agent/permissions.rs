@@ -84,3 +84,30 @@ pub(super) fn source(
         _ => ApprovalSource::User,
     })
 }
+
+pub(super) fn code_source(
+    db: &Connection,
+    turn: TurnId,
+    request: &ToolConfirmationRequest,
+    startup: &sailry_protocol::code::Startup,
+) -> Result<ApprovalSource, Fault> {
+    let run = super::calls::active(db, turn)?;
+    if run.worktree != startup.worktree
+        || !super::plugins::operation(db, turn, &request.tool_name)?
+            .is_some_and(crate::code::handles)
+    {
+        return Err(Fault::new(
+            ErrorCode::PermissionDenied,
+            "language startup is outside the admitted read tool",
+        ));
+    }
+    crate::files::path::components(&startup.root, true)?;
+    if super::super::code::approved(db, startup)? {
+        return Ok(ApprovalSource::CodeRule);
+    }
+    Ok(match config(db, turn)?.permission {
+        Permission::Ask => ApprovalSource::User,
+        Permission::Project => ApprovalSource::Project,
+        Permission::Full => ApprovalSource::Full,
+    })
+}

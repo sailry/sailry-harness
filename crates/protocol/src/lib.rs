@@ -1,6 +1,7 @@
 pub mod activity;
 pub mod attachment;
 pub mod browser;
+pub mod code;
 pub mod computer;
 mod config;
 pub mod connection;

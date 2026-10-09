@@ -903,6 +903,41 @@ pub enum Command {
         worktree: WorktreeId,
         path: String,
     },
+    ReadCode {
+        worktree: WorktreeId,
+        query: crate::code::Query,
+        overlay: Option<crate::code::Overlay>,
+    },
+    ListCodeServers {
+        worktree: WorktreeId,
+    },
+    ListCodePackages {
+        worktree: WorktreeId,
+    },
+    InstallCodeServer {
+        install: crate::code::Install,
+    },
+    CancelCodeInstall {
+        package: String,
+    },
+    CancelCodeQuery {
+        request: RequestId,
+    },
+    ListCodeInstallations,
+    UninstallCodeServer {
+        package: String,
+        version: String,
+    },
+    ReadCodeRules,
+    UpdateCodeRules,
+    ReadCodeSettings,
+    SaveCodeSettings {
+        settings: crate::code::Settings,
+        expected_revision: u64,
+    },
+    StartCodeServer {
+        startup: crate::code::Startup,
+    },
     ReadFileLines {
         worktree: WorktreeId,
         path: String,
@@ -1222,6 +1257,14 @@ impl Command {
                 | Self::ListDirectory { .. }
                 | Self::BrowseFiles { .. }
                 | Self::ReadFile { .. }
+                | Self::ReadCode { .. }
+                | Self::ListCodeServers { .. }
+                | Self::ListCodePackages { .. }
+                | Self::ListCodeInstallations
+                | Self::CancelCodeInstall { .. }
+                | Self::CancelCodeQuery { .. }
+                | Self::ReadCodeRules
+                | Self::ReadCodeSettings
                 | Self::ReadFileLines { .. }
                 | Self::FindFiles { .. }
                 | Self::ReadOffice { .. }
@@ -1304,6 +1347,21 @@ pub struct Snapshot {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Output {
+    Code(crate::code::Result),
+    CodeSettings(crate::code::Settings),
+    CodeServer(crate::code::Server),
+    CodeServers(Vec<crate::code::Server>),
+    CodePackages(crate::code::Workspace),
+    CodeInstallation(crate::code::Installation),
+    CodeInstallations(Vec<crate::code::Installation>),
+    CodeUninstalled {
+        package: String,
+        version: String,
+    },
+    CodeRules(crate::code::Rules),
+    CodeQueryCancelled {
+        request: RequestId,
+    },
     ActivityCatalog(crate::activity::Catalog),
     ProjectCatalog(crate::projects::Catalog),
     PluginTransaction(Vec<Output>),
@@ -1603,6 +1661,12 @@ pub struct EventEnvelope {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Update {
+    CodeServers {
+        node: NodeId,
+        worktree: WorktreeId,
+        servers: Vec<crate::code::Server>,
+        installations: Vec<crate::code::Installation>,
+    },
     Commands {
         node: NodeId,
         session: SessionId,
@@ -1629,6 +1693,7 @@ pub enum Update {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Topic {
+    CodeServers(WorktreeId),
     Commands(SessionId),
     Browser,
     McpLogin(RequestId),

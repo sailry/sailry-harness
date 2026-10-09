@@ -163,6 +163,7 @@ fn preserves_live_metadata() {
         state: ApprovalState::Approved,
         source: ApprovalSource::User,
         access: None,
+        startup: None,
         can_remember: true,
         prefix: Some("cargo test".into()),
         choice: Some(conversation::ApprovalChoice::Session),

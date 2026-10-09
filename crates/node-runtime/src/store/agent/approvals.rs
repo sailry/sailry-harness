@@ -29,6 +29,30 @@ impl Ingress {
                 turn,
                 request,
                 binding,
+                startup: None,
+                reply,
+            })))
+            .await
+            .map_err(|_| super::super::unavailable())?;
+        response.await.map_err(|_| super::super::unavailable())?
+    }
+
+    pub(crate) async fn confirm_code(
+        &self,
+        turn: TurnId,
+        request: ToolConfirmationRequest,
+        binding: Binding,
+        startup: sailry_protocol::code::Startup,
+    ) -> Result<Decision, Fault> {
+        let root = self.worktree_root(startup.worktree).await?;
+        self.code.validate(&startup, &root).await?;
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .send(Job::Agent(Box::new(Operation::Confirm {
+                turn,
+                request,
+                binding: Some(binding),
+                startup: Some(startup),
                 reply,
             })))
             .await
@@ -65,6 +89,7 @@ impl Ingress {
     }
 }
 
+#[cfg(test)]
 pub(super) fn begin(
     database: &mut Database,
     turn: TurnId,
@@ -72,11 +97,26 @@ pub(super) fn begin(
     binding: Option<&Binding>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Approval, Fault> {
+    begin_with(database, turn, request, binding, None, events)
+}
+
+pub(super) fn begin_with(
+    database: &mut Database,
+    turn: TurnId,
+    request: &ToolConfirmationRequest,
+    binding: Option<&Binding>,
+    startup: Option<&sailry_protocol::code::Startup>,
+    events: &broadcast::Sender<EventEnvelope>,
+) -> Result<Approval, Fault> {
     let transaction = database.connection.transaction().map_err(storage_error)?;
     let run = active(&transaction, turn)?;
     let call = call_id(request)?;
     let (entry, index) = super::calls::locate(&transaction, turn, request)?;
-    let mut source = super::permissions::source(&transaction, turn, request)?;
+    let mut source = if let Some(startup) = startup {
+        super::permissions::code_source(&transaction, turn, request, startup)?
+    } else {
+        super::permissions::source(&transaction, turn, request)?
+    };
     if let Some(binding) = binding {
         rules::validate(&transaction, turn, request, binding)?;
     }
@@ -86,7 +126,8 @@ pub(super) fn begin(
     if escape {
         source = ApprovalSource::User;
     }
-    let can_remember = binding.is_some() && source == ApprovalSource::User && !escape;
+    let can_remember =
+        startup.is_none() && binding.is_some() && source == ApprovalSource::User && !escape;
     let prefix = binding
         .and_then(|binding| rules::command(binding, request))
         .and_then(prefix::offered)
@@ -116,6 +157,7 @@ pub(super) fn begin(
         prefix,
         can_remember,
         access,
+        startup: startup.cloned(),
     };
     let exists: bool = transaction
         .query_row(
@@ -272,6 +314,16 @@ pub(super) fn authorize(
         ));
     }
     access::check(&approval, prepared)?;
+    if let Some(startup) = &approval.startup {
+        if !matches!(prepared, Some(Command::StartCodeServer { startup: actual }) if actual == startup)
+        {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "prepared language startup differs from approval",
+            ));
+        }
+        super::super::code::grant(&transaction, startup)?;
+    }
     rules::check_prepared(&approval, prepared)?;
     transaction
         .execute(

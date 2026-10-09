@@ -119,6 +119,7 @@ pub(super) enum Operation {
         turn: TurnId,
         request: adk_core::ToolConfirmationRequest,
         binding: Option<ApprovalBinding>,
+        startup: Option<sailry_protocol::code::Startup>,
         reply: oneshot::Sender<Result<Decision, Fault>>,
     },
     Authorize {
@@ -483,8 +484,16 @@ pub(super) fn execute(
             turn,
             request,
             binding,
+            startup,
             reply,
-        } => match approvals::begin(database, turn, &request, binding.as_ref(), events) {
+        } => match approvals::begin_with(
+            database,
+            turn,
+            &request,
+            binding.as_ref(),
+            startup.as_ref(),
+            events,
+        ) {
             Ok(approval) if approval.state == ApprovalState::Approved => {
                 let _ = reply.send(Ok(Decision::Approve));
             }

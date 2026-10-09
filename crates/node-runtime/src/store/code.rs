@@ -1,0 +1,380 @@
+//! Startup grants bind one exact server descriptor and reuse durable Node admission.
+use super::{
+    Ingress,
+    database::{Database, encode, storage_error},
+};
+use rusqlite::{Connection, OptionalExtension, params};
+use sailry_link::{Admission, CancellationToken};
+use sailry_protocol::{Command, ErrorCode, Fault, Output, Request, WorktreeId, code::Startup};
+
+pub(super) fn approved(db: &Connection, startup: &Startup) -> Result<bool, Fault> {
+    db.query_row("SELECT EXISTS(SELECT 1 FROM code_startups WHERE worktree=?1 AND root=?2 AND server=?3 AND body=?4)",params![startup.worktree.to_string(),startup.root,startup.server,encode(startup)?],|row|row.get(0)).map_err(storage_error)
+}
+
+pub(super) fn grant(db: &Connection, startup: &Startup) -> Result<(), Fault> {
+    db.execute("INSERT INTO code_startups(worktree,root,server,body) VALUES(?1,?2,?3,?4) ON CONFLICT(worktree,root,server) DO UPDATE SET body=excluded.body",params![startup.worktree.to_string(),startup.root,startup.server,encode(startup)?]).map_err(storage_error)?;
+    Ok(())
+}
+
+pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Fault> {
+    if !matches!(request.command, Command::StartCodeServer { .. }) {
+        controller(request)?;
+        return match &request.command {
+            Command::InstallCodeServer { install } => {
+                if install.package.is_empty()
+                    || install.version.is_empty()
+                    || install.revision.len() != 64
+                {
+                    return Err(Fault::invalid("invalid language install descriptor"));
+                }
+                Ok(())
+            }
+            Command::UninstallCodeServer { package, version } => {
+                crate::code::validate_package(package, version)
+            }
+            Command::UpdateCodeRules => Ok(()),
+            _ => unreachable!("language lifecycle expected"),
+        };
+    }
+    let Command::StartCodeServer { startup } = &request.command else {
+        unreachable!("language startup expected")
+    };
+    database.worktree_root(startup.worktree)?;
+    crate::files::path::components(&startup.root, true)?;
+    if startup.server.is_empty()
+        || startup.server.len() > 256
+        || startup.executable.is_empty()
+        || startup.executable.len() > 4096
+        || startup.revision.len() != 64
+        || !startup
+            .revision
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(Fault::invalid("invalid language startup descriptor"));
+    }
+    if let Some(context) = &request.plugin {
+        let turn = context.turn.ok_or_else(|| {
+            Fault::new(
+                ErrorCode::PermissionDenied,
+                "callbacks cannot start language servers",
+            )
+        })?;
+        if context.worktree != Some(startup.worktree) {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "language startup is outside the captured worktree",
+            ));
+        }
+        let record:Option<(Vec<u8>,Vec<u8>)>=database.connection.query_row("SELECT body,binding FROM agent_approvals WHERE turn=?1 AND request=?2 AND claimed=1",params![turn.to_string(),request.id.to_string()],|row|Ok((row.get(0)?,row.get(1)?))).optional().map_err(storage_error)?;
+        let (body, binding) = record.ok_or_else(|| {
+            Fault::new(
+                ErrorCode::PermissionDenied,
+                "language startup has no claimed approval",
+            )
+        })?;
+        let approval: sailry_protocol::conversation::Approval =
+            serde_json::from_slice(&body).map_err(storage_error)?;
+        let binding: Option<super::agent::ApprovalBinding> =
+            serde_json::from_slice(&binding).map_err(storage_error)?;
+        if context.session != Some(approval.session)
+            || context.invocation.is_some()
+            || !binding.is_some_and(|binding| {
+                binding.owner == context.package
+                    && binding.operation.is_some_and(crate::code::handles)
+            })
+        {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "language startup belongs to another captured call or package",
+            ));
+        }
+        if approval.state != sailry_protocol::conversation::ApprovalState::Approved
+            || approval.startup.as_ref() != Some(startup)
+        {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "language startup differs from the approved descriptor",
+            ));
+        }
+    }
+    // A direct authenticated controller sends this explicit consent command.
+    // Agents and callbacks retain a plugin context and must claim their original approval.
+    grant(&database.connection, startup)
+}
+
+pub(super) fn controller(request: &Request) -> Result<(), Fault> {
+    if request.plugin.is_some() {
+        return Err(Fault::new(
+            ErrorCode::PermissionDenied,
+            "language installation and rule updates require explicit controller consent",
+        ));
+    }
+    Ok(())
+}
+
+impl Ingress {
+    pub(crate) async fn code_approved(&self, startup: Startup) -> Result<bool, Fault> {
+        let (reply, response) = tokio::sync::oneshot::channel();
+        self.send_internal(super::Job::CodeApproved { startup, reply })
+            .await?;
+        response.await.map_err(|_| super::unavailable())?
+    }
+
+    pub(crate) async fn prepare_code(
+        &self,
+        worktree: WorktreeId,
+        query: &sailry_protocol::code::Query,
+    ) -> Result<Option<Startup>, Fault> {
+        let root = self.worktree_root(worktree).await?;
+        self.code.prepare(worktree, root, query).await
+    }
+
+    pub(super) async fn read_code(
+        &self,
+        caller: sailry_protocol::NodeId,
+        request: Request,
+    ) -> Result<Admission, Fault> {
+        if request.target != self.node || request.version != sailry_protocol::VERSION {
+            return Err(Fault::new(
+                ErrorCode::WrongTarget,
+                "Node or protocol version mismatch",
+            ));
+        }
+        let output = match &request.command {
+            Command::ReadCode {
+                worktree,
+                query,
+                overlay,
+            } => {
+                let active = self.code_queries.begin(caller, request.id, &self.closed)?;
+                Output::Code(
+                    active
+                        .run(async {
+                            let root = self.worktree_root(*worktree).await?;
+                            self.code.prepare(*worktree, root.clone(), query).await?;
+                            let mut result = self
+                                .code
+                                .query(*worktree, root, query, overlay.as_ref(), &active.stop)
+                                .await?;
+                            if let Some(startup) = &result.startup {
+                                result.startup_approved =
+                                    self.code_approved(startup.clone()).await?;
+                            }
+                            if let Some(name) = &result.package {
+                                result.package_info = self.code.package(name)?;
+                            }
+                            crate::code::limit(&mut result)?;
+                            Ok(result)
+                        })
+                        .await?,
+                )
+            }
+            Command::ListCodeServers { worktree } => {
+                self.worktree_root(*worktree).await?;
+                Output::CodeServers(self.code.list(*worktree).await?)
+            }
+            Command::ListCodePackages { worktree } => {
+                let root = self.worktree_root(*worktree).await?;
+                let mut workspace = self.code.packages(*worktree, root, &self.closed).await?;
+                for language in &mut workspace.languages {
+                    for candidate in &mut language.servers {
+                        if let Some(startup) = &candidate.startup {
+                            candidate.startup_approved =
+                                self.code_approved(startup.clone()).await?;
+                        }
+                    }
+                }
+                Output::CodePackages(workspace)
+            }
+            Command::ListCodeInstallations => Output::CodeInstallations(self.code.installations()?),
+            Command::CancelCodeInstall { package } => {
+                Output::CodeInstallation(self.code.cancel_install(package)?)
+            }
+            Command::CancelCodeQuery { request } => {
+                self.code_queries.cancel(caller, *request);
+                Output::CodeQueryCancelled { request: *request }
+            }
+            Command::ReadCodeRules => Output::CodeRules(self.code.rules_status()?),
+            _ => unreachable!("code read expected"),
+        };
+        let (reply, completion) = tokio::sync::oneshot::channel();
+        let _ = reply.send(Ok(output));
+        Ok(Admission {
+            receipt: sailry_protocol::Receipt {
+                id: request.id,
+                durable: false,
+            },
+            completion,
+        })
+    }
+
+    pub(super) async fn change_code(
+        &self,
+        request: &Request,
+        stop: &CancellationToken,
+    ) -> Result<Output, Fault> {
+        match &request.command {
+            Command::StartCodeServer { startup } => {
+                let root = self.worktree_root(startup.worktree).await?;
+                self.code
+                    .start(startup, &root, stop)
+                    .await
+                    .map(Output::CodeServer)
+            }
+            Command::InstallCodeServer { install } => self
+                .code
+                .install(install, stop)
+                .await
+                .map(Output::CodeInstallation),
+            Command::UninstallCodeServer { package, version } => {
+                self.code.uninstall(package, version).await?;
+                Ok(Output::CodeUninstalled {
+                    package: package.clone(),
+                    version: version.clone(),
+                })
+            }
+            Command::UpdateCodeRules => self.code.update_rules(stop).await.map(Output::CodeRules),
+            _ => unreachable!("language lifecycle expected"),
+        }
+    }
+}
+
+pub(super) fn settings(db: &Connection) -> Result<sailry_protocol::code::Settings, Fault> {
+    let body: Option<Vec<u8>> = db
+        .query_row(
+            "SELECT body FROM code_settings WHERE singleton=1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(storage_error)?;
+    body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
+        .transpose()
+        .map(|settings| settings.unwrap_or_default())
+}
+pub(super) fn save(
+    db: &Connection,
+    value: &sailry_protocol::code::Settings,
+    expected: u64,
+) -> Result<sailry_protocol::code::Settings, Fault> {
+    let current = settings(db)?;
+    if value.revision != expected || current.revision != expected {
+        return Err(Fault::new(
+            ErrorCode::RevisionConflict,
+            "code settings changed before saving",
+        ));
+    }
+    if value.servers.len() > 64
+        || value.languages.len() > 64
+        || serde_json::to_vec(value).map_err(storage_error)?.len() > 64 * 1024
+    {
+        return Err(Fault::invalid("code settings exceed the limit"));
+    }
+    for (name, server) in &value.servers {
+        if name.is_empty()
+            || name.len() > 256
+            || name.chars().any(char::is_control)
+            || server.command.as_ref().is_some_and(|command| {
+                command.is_empty() || command.len() > 4096 || command.contains('\0')
+            })
+            || server.args.as_ref().is_some_and(|args| {
+                args.len() > 64
+                    || args
+                        .iter()
+                        .any(|arg| arg.len() > 4096 || arg.contains('\0'))
+            })
+            || server.environment.as_ref().is_some_and(|values| {
+                values.len() > 64
+                    || values.iter().any(|(name, value)| {
+                        name.is_empty() || name.contains(['=', '\0']) || value.contains('\0')
+                    })
+            })
+        {
+            return Err(Fault::invalid("invalid language server override"));
+        }
+    }
+    if value.languages.iter().any(|(language, servers)| {
+        language.is_empty()
+            || language.len() > 256
+            || servers.len() > 16
+            || servers.iter().any(|server| {
+                server.is_empty() || server.len() > 256 || server.chars().any(char::is_control)
+            })
+    }) {
+        return Err(Fault::invalid("invalid language candidate override"));
+    }
+    let mut saved = value.clone();
+    saved.revision = expected
+        .checked_add(1)
+        .ok_or_else(|| Fault::invalid("code settings revision is exhausted"))?;
+    db.execute("INSERT INTO code_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body",[encode(&saved)?]).map_err(storage_error)?;
+    Ok(saved)
+}
+
+pub(super) fn observe(
+    _database: &Database,
+    request: &Request,
+    result: &sailry_link::Response,
+    pool: &std::sync::Arc<crate::code::Pool>,
+    runtime: &tokio::runtime::Handle,
+) {
+    if result.is_err() {
+        return;
+    }
+    let change = match &request.command {
+        Command::WriteFile { worktree, path, .. }
+        | Command::EditFile { worktree, path, .. }
+        | Command::FinishFileUpload { worktree, path, .. }
+        | Command::TrashFile { worktree, path, .. }
+        | Command::TrashEntry { worktree, path } => Some((*worktree, vec![path.clone()])),
+        Command::RenameEntry {
+            worktree, from, to, ..
+        }
+        | Command::CopyEntry {
+            worktree, from, to, ..
+        } => Some((*worktree, vec![from.clone(), to.clone()])),
+        Command::CopyEntryTo { worktree, to, .. } | Command::MoveEntryTo { worktree, to, .. } => {
+            Some((*worktree, vec![to.clone()]))
+        }
+        // The successful restore validated this worktree against the immutable checkpoint.
+        Command::RestoreFileCheckpoint { worktree, .. } => {
+            result.as_ref().ok().and_then(|output| {
+                if let Output::FileRestored(restored) = output {
+                    Some((*worktree, vec![restored.path.clone()]))
+                } else {
+                    None
+                }
+            })
+        }
+        Command::ApplyTurnHunk(selection) => result.as_ref().ok().and_then(|output| match output {
+            Output::HunkApplied(applied)
+                if selection.operation
+                    == sailry_protocol::conversation::checkpoint::hunk::Operation::Reject
+                    && applied.index.is_none()
+                    && applied.session == selection.session
+                    && applied.turn == selection.turn
+                    && applied.path == selection.path
+                    && applied.hunk == selection.hunk =>
+            {
+                Some((selection.worktree, vec![applied.path.clone()]))
+            }
+            _ => None,
+        }),
+        _ => None,
+    };
+    if let Some((worktree, paths)) = change {
+        let pool = pool.clone();
+        runtime.spawn(async move {
+            let _ = pool
+                .changed(worktree, &paths, &CancellationToken::new())
+                .await;
+        });
+    }
+    if let Command::RemoveWorktree { worktree, .. } = request.command {
+        let pool = pool.clone();
+        runtime.spawn(async move {
+            pool.remove(worktree).await;
+        });
+    }
+}

@@ -144,164 +144,205 @@ async fn incompatible_profile_is_not_initialized_or_converted() {
     );
 }
 
-#[tokio::test]
-async fn removed_defaults_stay_removed() {
+async fn removed_default(name: &str, enabled: bool) {
     for remote in [false, true] {
-        for (name, enabled) in [
-            ("reminders", true),
-            ("scheduled-tasks", true),
-            ("web-search", true),
-            ("goals", true),
-            ("commands", true),
-            ("external-browser", false),
-            ("browser", true),
-            ("computer", false),
-            ("media", true),
-            ("memory", true),
-            ("files", true),
-            ("progress", true),
-            ("delegation", true),
-            ("statistics", true),
-            ("databases", true),
-            ("ssh", true),
-            ("worktrees", true),
-            ("git", true),
-            ("context7", true),
-            ("github", true),
-            ("code-review", true),
-            ("office", true),
-        ] {
-            let (directory, node, controller, client, _) = fixture(remote).await;
-            let installed = info(execute(&client, Command::ReadPlugin { name: name.into() }).await);
-            assert_eq!(installed.origin, Some(plugin::Origin::Bundled));
-            assert_eq!(installed.summary.enabled, enabled);
-            assert_eq!(installed.summary.revision, 1);
-            assert_eq!(installed.summary.digest.len(), 64);
-            if let Some(desktop) = &installed.extension.as_ref().unwrap().desktop {
-                let (surface, entry) = if let Some(entry) = &desktop.entry {
-                    (plugin::desktop::Surface::Workspace, entry)
-                } else if let Some(entry) = &desktop.ui_entry {
-                    (plugin::desktop::Surface::Composer, entry)
-                } else {
-                    (
-                        plugin::desktop::Surface::Settings,
-                        installed
-                            .extension
-                            .as_ref()
-                            .unwrap()
-                            .settings_page
-                            .as_ref()
-                            .unwrap()
-                            .entry
-                            .as_ref()
-                            .unwrap(),
-                    )
-                };
-                let Output::PluginView(bundle) = execute(
-                    &client,
-                    Command::ReadPluginView {
-                        package: installed.summary.reference(),
-                        surface,
-                    },
-                )
-                .await
-                else {
-                    panic!("view expected")
-                };
-                assert!(bundle.valid());
-                assert_eq!(&bundle.entry, entry);
-            } else if let Some(host) = &installed.extension.as_ref().unwrap().host {
-                assert!(host.valid());
-                assert!(
+        let (directory, node, controller, client, _) = fixture(remote).await;
+        let installed = info(execute(&client, Command::ReadPlugin { name: name.into() }).await);
+        assert_eq!(installed.origin, Some(plugin::Origin::Bundled));
+        assert_eq!(installed.summary.enabled, enabled);
+        assert_eq!(installed.summary.revision, 1);
+        assert_eq!(installed.summary.digest.len(), 64);
+        if name == "code" {
+            use sailry_protocol::tool::Operation;
+            let extension = installed.extension.as_ref().unwrap();
+            assert!(extension.desktop.is_none());
+            assert!(extension.host.is_none());
+            assert!(installed.skills.is_empty());
+            assert!(installed.mcp.is_empty());
+            assert!(extension.model_tools.is_empty());
+            assert_eq!(extension.actions, [plugin::Action::ReadCode]);
+            assert_eq!(
+                extension
+                    .tools
+                    .iter()
+                    .map(|tool| tool.operation)
+                    .collect::<Vec<_>>(),
+                vec![
+                    Some(Operation::CodeDiagnostics),
+                    Some(Operation::CodeDefinition),
+                    Some(Operation::CodeReferences),
+                    Some(Operation::CodeHover),
+                    Some(Operation::CodeSymbols),
+                ]
+            );
+            assert!(
+                extension
+                    .tools
+                    .iter()
+                    .all(|tool| tool.handler.is_none() && tool.server.is_none())
+            );
+        } else if let Some(desktop) = &installed.extension.as_ref().unwrap().desktop {
+            let (surface, entry) = if let Some(entry) = &desktop.entry {
+                (plugin::desktop::Surface::Workspace, entry)
+            } else if let Some(entry) = &desktop.ui_entry {
+                (plugin::desktop::Surface::Composer, entry)
+            } else {
+                (
+                    plugin::desktop::Surface::Settings,
                     installed
                         .extension
                         .as_ref()
                         .unwrap()
-                        .tools
-                        .iter()
-                        .all(|tool| {
-                            tool.handler
-                                .as_ref()
-                                .is_some_and(|handler| host.handlers.contains(&handler.name))
-                        })
-                );
-            } else if installed.skills.is_empty() && installed.mcp.is_empty() {
-                assert_eq!(installed.extension.as_ref().unwrap().model_tools.len(), 1);
-            } else {
-                assert!(!installed.skills.is_empty());
-                let extension = installed.extension.as_ref().unwrap();
-                assert!(extension.model_tools.is_empty());
-                assert!(extension.tools.iter().all(|tool| {
-                    tool.handler.is_none()
-                        && tool.server.as_ref().is_some_and(|server| {
-                            installed.mcp.iter().any(|entry| &entry.name == server)
-                        })
-                }));
-            }
-            let disabled = info(
-                execute(
-                    &client,
-                    Command::SetPluginEnabled {
-                        name: name.into(),
-                        expected_revision: 1,
-                        enabled: false,
-                    },
+                        .settings_page
+                        .as_ref()
+                        .unwrap()
+                        .entry
+                        .as_ref()
+                        .unwrap(),
                 )
-                .await,
-            );
-            assert!(!disabled.summary.enabled);
-            let update = client.prepare(Command::InstallBundledPlugin {
-                name: name.into(),
-                expected_revision: 2,
-            });
-            let result = client.execute(update.clone()).await.unwrap();
-            let updated = info(result.clone());
-            assert_eq!(updated.origin, Some(plugin::Origin::Bundled));
-            assert_eq!(updated.summary.revision, 3);
-            assert!(!updated.summary.enabled);
-            execute(
+            };
+            let Output::PluginView(bundle) = execute(
                 &client,
-                Command::RemovePlugin {
-                    name: name.into(),
-                    expected_revision: 3,
+                Command::ReadPluginView {
+                    package: installed.summary.reference(),
+                    surface,
                 },
             )
-            .await;
-            drop(client);
-            node.shutdown().await.unwrap();
-            let node = Node::start(directory.path().join("node")).await.unwrap();
-            let client = Client::new(if remote {
-                controller.handle().remote(node.link().address())
-            } else {
-                node.local()
-            });
-            assert_eq!(client.execute(update).await.unwrap(), result);
-            let Output::Plugins(entries) = execute(&client, Command::ListPlugins).await else {
-                panic!("inventory expected")
+            .await
+            else {
+                panic!("view expected")
             };
+            assert!(bundle.valid());
+            assert_eq!(&bundle.entry, entry);
+        } else if let Some(host) = &installed.extension.as_ref().unwrap().host {
+            assert!(host.valid());
             assert!(
-                !entries
+                installed
+                    .extension
+                    .as_ref()
+                    .unwrap()
+                    .tools
                     .iter()
-                    .any(|entry| entry.name == name
-                        || entry.name == format!("sailry.builtin.{name}"))
+                    .all(|tool| {
+                        tool.handler
+                            .as_ref()
+                            .is_some_and(|handler| host.handlers.contains(&handler.name))
+                    })
             );
-            let reinstalled = info(
-                execute(
-                    &client,
-                    Command::InstallBundledPlugin {
-                        name: name.into(),
-                        expected_revision: 0,
-                    },
-                )
-                .await,
-            );
-            assert!(reinstalled.summary.enabled);
-            assert_eq!(reinstalled.origin, Some(plugin::Origin::Bundled));
-            assert_eq!(reinstalled.summary.revision, 5);
-            assert_eq!(reinstalled.summary.digest, installed.summary.digest);
-            node.shutdown().await.unwrap();
-            controller.close().await.unwrap();
+        } else if installed.skills.is_empty() && installed.mcp.is_empty() {
+            assert_eq!(installed.extension.as_ref().unwrap().model_tools.len(), 1);
+        } else {
+            assert!(!installed.skills.is_empty());
+            let extension = installed.extension.as_ref().unwrap();
+            assert!(extension.model_tools.is_empty());
+            assert!(extension.tools.iter().all(|tool| {
+                tool.handler.is_none()
+                    && tool.server.as_ref().is_some_and(|server| {
+                        installed.mcp.iter().any(|entry| &entry.name == server)
+                    })
+            }));
         }
+        let disabled = info(
+            execute(
+                &client,
+                Command::SetPluginEnabled {
+                    name: name.into(),
+                    expected_revision: 1,
+                    enabled: false,
+                },
+            )
+            .await,
+        );
+        assert!(!disabled.summary.enabled);
+        let update = client.prepare(Command::InstallBundledPlugin {
+            name: name.into(),
+            expected_revision: 2,
+        });
+        let result = client.execute(update.clone()).await.unwrap();
+        let updated = info(result.clone());
+        assert_eq!(updated.origin, Some(plugin::Origin::Bundled));
+        assert_eq!(updated.summary.revision, 3);
+        assert!(!updated.summary.enabled);
+        execute(
+            &client,
+            Command::RemovePlugin {
+                name: name.into(),
+                expected_revision: 3,
+            },
+        )
+        .await;
+        drop(client);
+        node.shutdown().await.unwrap();
+        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        assert_eq!(client.execute(update).await.unwrap(), result);
+        let Output::Plugins(entries) = execute(&client, Command::ListPlugins).await else {
+            panic!("inventory expected")
+        };
+        assert!(
+            !entries
+                .iter()
+                .any(|entry| entry.name == name || entry.name == format!("sailry.builtin.{name}"))
+        );
+        let reinstalled = info(
+            execute(
+                &client,
+                Command::InstallBundledPlugin {
+                    name: name.into(),
+                    expected_revision: 0,
+                },
+            )
+            .await,
+        );
+        assert!(reinstalled.summary.enabled);
+        assert_eq!(reinstalled.origin, Some(plugin::Origin::Bundled));
+        assert_eq!(reinstalled.summary.revision, 5);
+        assert_eq!(reinstalled.summary.digest, installed.summary.digest);
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
+mod removed_defaults {
+    macro_rules! check {
+        ($($test:ident => ($name:literal, $enabled:literal)),* $(,)?) => {
+            $(
+                #[tokio::test]
+                async fn $test() {
+                    super::removed_default($name, $enabled).await;
+                }
+            )*
+        };
+    }
+
+    check! {
+        reminders => ("reminders", true),
+        scheduled_tasks => ("scheduled-tasks", true),
+        web_search => ("web-search", true),
+        goals => ("goals", true),
+        commands => ("commands", true),
+        external_browser => ("external-browser", false),
+        browser => ("browser", true),
+        computer => ("computer", false),
+        media => ("media", true),
+        memory => ("memory", true),
+        files => ("files", true),
+        code => ("code", true),
+        progress => ("progress", true),
+        delegation => ("delegation", true),
+        statistics => ("statistics", true),
+        databases => ("databases", true),
+        ssh => ("ssh", true),
+        worktrees => ("worktrees", true),
+        git => ("git", true),
+        context7 => ("context7", true),
+        github => ("github", true),
+        code_review => ("code-review", true),
+        office => ("office", true),
     }
 }
 

@@ -12,6 +12,7 @@ pub(super) enum Call {
     Command(Box<Request>),
     Subscribe,
     WatchFiles(sailry_protocol::WorktreeId),
+    WatchCodeServers(sailry_protocol::WorktreeId),
     WatchTerminal(sailry_protocol::TerminalId),
     WatchBrowser,
     WatchCommands(sailry_protocol::SessionId),

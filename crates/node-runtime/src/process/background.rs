@@ -20,6 +20,7 @@ struct Entry {
     output: watch::Receiver<(Capture, Capture)>,
     stop: CancellationToken,
     task: Option<JoinHandle<()>>,
+    watch: Option<(sailry_protocol::WorktreeId, Arc<crate::code::Pool>)>,
 }
 
 pub(crate) struct Commands {
@@ -37,6 +38,31 @@ impl Default for Commands {
 }
 
 impl Commands {
+    pub(crate) fn watch(
+        &self,
+        id: RequestId,
+        worktree: sailry_protocol::WorktreeId,
+        code: Arc<crate::code::Pool>,
+    ) {
+        let finished = {
+            let mut entries = self.entries.lock().unwrap();
+            let Some(entry) = entries.get_mut(&id) else {
+                return;
+            };
+            if matches!(entry.info.status, Status::Running | Status::Stopping) {
+                entry.watch = Some((worktree, code.clone()));
+                false
+            } else {
+                true
+            }
+        };
+        if finished {
+            tokio::spawn(async move {
+                code.watched(worktree).await;
+            });
+        }
+    }
+
     pub fn start(
         self: &Arc<Self>,
         id: RequestId,
@@ -95,6 +121,7 @@ impl Commands {
                 output: output.clone(),
                 stop: stop.clone(),
                 task: None,
+                watch: None,
             },
         );
         let owner = self.clone();
@@ -134,10 +161,19 @@ impl Commands {
                 Ok(Err(error)) => Status::Failed(error.message),
                 Err(_) => Status::Failed("background command execution failed".into()),
             };
-            if let Some(entry) = owner.entries.lock().unwrap().get_mut(&id) {
-                entry.info.status = status;
-                entry.info.services.clear();
-                owner.changes.send_replace(());
+            let watch = {
+                let mut entries = owner.entries.lock().unwrap();
+                if let Some(entry) = entries.get_mut(&id) {
+                    entry.info.status = status;
+                    entry.info.services.clear();
+                    owner.changes.send_replace(());
+                    entry.watch.take()
+                } else {
+                    None
+                }
+            };
+            if let Some((worktree, code)) = watch {
+                code.watched(worktree).await;
             }
         });
         entries.get_mut(&id).unwrap().task = Some(task);

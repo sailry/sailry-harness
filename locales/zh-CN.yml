@@ -2612,3 +2612,4 @@ updates_details: "详情"
 updates_recovery_failed: "草稿恢复未完成"
 updates_profile_inside: "数据目录位于 Sailry 应用内，请移出后再更新"
 approval_unrestricted: 完整文件系统和网络访问
+approval_code_start: "在 %{worktree} 启动 %{server}"

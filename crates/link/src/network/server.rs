@@ -138,6 +138,7 @@ async fn request(
         | Call::WatchProviderLogin(_)
         | Call::WatchMcpLogin(_)
         | Call::WatchFiles(_)
+        | Call::WatchCodeServers(_)
         | Call::WatchTerminal(_)
         | Call::WatchBrowser
         | Call::WatchCommands(_)
@@ -157,6 +158,7 @@ async fn request(
                 Call::WatchProviderLogin(id) => sailry_protocol::Topic::ProviderLogin(id),
                 Call::WatchMcpLogin(id) => sailry_protocol::Topic::McpLogin(id),
                 Call::WatchFiles(worktree) => sailry_protocol::Topic::Files(worktree),
+                Call::WatchCodeServers(worktree) => sailry_protocol::Topic::CodeServers(worktree),
                 Call::WatchTerminal(terminal) => sailry_protocol::Topic::Terminal(terminal),
                 Call::WatchCommands(session) => sailry_protocol::Topic::Commands(session),
                 Call::WatchBrowser => sailry_protocol::Topic::Browser,

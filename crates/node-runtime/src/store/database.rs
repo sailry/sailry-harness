@@ -401,7 +401,11 @@ impl Database {
             }
         } else if matches!(
             request.command,
-            Command::UseExternalBrowser { .. }
+            Command::StartCodeServer { .. }
+                | Command::InstallCodeServer { .. }
+                | Command::UninstallCodeServer { .. }
+                | Command::UpdateCodeRules
+                | Command::UseExternalBrowser { .. }
                 | Command::UseBrowser { .. }
                 | Command::UseComputer { .. }
                 | Command::UseMedia { .. }

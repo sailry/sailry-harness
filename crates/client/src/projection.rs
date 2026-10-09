@@ -46,7 +46,8 @@ impl Projection {
             return Ok(Apply::Ignored);
         }
         match update {
-            Update::Commands { .. }
+            Update::CodeServers { .. }
+            | Update::Commands { .. }
             | Update::BrowserCall(_)
             | Update::ProviderLogin(_)
             | Update::McpLogin(_)

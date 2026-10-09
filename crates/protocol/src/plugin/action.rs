@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub enum Action {
+    #[serde(rename = "code.read")]
+    ReadCode,
     #[serde(rename = "activity.read")]
     ReadActivity,
     #[serde(rename = "usage.read")]
@@ -96,7 +98,8 @@ impl Action {
     pub fn read_only(&self) -> bool {
         matches!(
             self,
-            Self::ReadActivity
+            Self::ReadCode
+                | Self::ReadActivity
                 | Self::ReadUsage
                 | Self::ReadDatabases
                 | Self::ReadSsh

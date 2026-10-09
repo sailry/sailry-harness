@@ -117,6 +117,15 @@ impl Client {
         result
     }
 
+    pub async fn subscribe_code_servers(
+        &self,
+        worktree: sailry_protocol::WorktreeId,
+    ) -> Result<Box<dyn Subscription>, Fault> {
+        self.transport
+            .subscribe(sailry_protocol::Topic::CodeServers(worktree))
+            .await
+    }
+
     pub async fn subscribe_browser(&self) -> Result<Box<dyn Subscription>, Fault> {
         self.transport
             .subscribe(sailry_protocol::Topic::Browser)

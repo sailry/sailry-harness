@@ -19,6 +19,7 @@ pub(in crate::conversation) fn check_transition(
         || previous.access != incoming.access
         || previous.prefix != incoming.prefix
         || previous.can_remember != incoming.can_remember
+        || previous.startup != incoming.startup
         || terminal
             && !stale
             && (previous.state != incoming.state

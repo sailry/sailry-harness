@@ -165,6 +165,19 @@ impl Environment {
         self.values.get(OsStr::new("HOME")).map(Path::new)
     }
 
+    pub(crate) fn identity(&self) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        let mut digest = Sha256::new();
+        for (key, value) in &self.values {
+            for item in [key, value] {
+                let bytes = item.as_encoded_bytes();
+                digest.update((bytes.len() as u64).to_le_bytes());
+                digest.update(bytes);
+            }
+        }
+        digest.finalize().into()
+    }
+
     #[cfg(unix)]
     pub(crate) fn login_shell(&self) -> Option<&OsStr> {
         self.terminal

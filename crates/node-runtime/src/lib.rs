@@ -5,6 +5,7 @@
 
 mod agent;
 mod browser;
+mod code;
 mod computer;
 #[cfg(all(target_os = "macos", feature = "computer-worker"))]
 pub use computer::worker_host as computer_worker;
@@ -33,6 +34,8 @@ use std::time::Duration;
 use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
 
+#[cfg(any(test, feature = "test-support"))]
+pub use code::fixtures::CodeServerFixture;
 pub use computer::Worker as ComputerWorker;
 pub use error::Error;
 #[cfg(any(test, feature = "test-support"))]
@@ -231,6 +234,18 @@ impl Node {
         ))
         .await
         .map_err(|error| Error::Worker(error.to_string()))?
+    }
+
+    /// Rewrites official code downloads to a declared loopback test fixture.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn start_with_code(
+        path: impl AsRef<Path>,
+        environment: EnvironmentFixture,
+        endpoint: &str,
+    ) -> Result<Self, Error> {
+        let node = Self::start_with_environment(path, environment).await?;
+        node.ingress.code.fixture(endpoint);
+        Ok(node)
     }
 
     async fn start_owned(

@@ -10,6 +10,8 @@ use std::time::Duration;
 
 mod children;
 mod choices;
+#[cfg(unix)]
+mod code;
 mod lifecycle;
 mod permissions;
 #[cfg(unix)]
@@ -133,6 +135,7 @@ fn uses_captured_access_without_display() {
         state: ApprovalState::Pending,
         source: ApprovalSource::User,
         access: Some(Access::Unrestricted),
+        startup: None,
         can_remember: false,
         prefix: None,
         choice: None,

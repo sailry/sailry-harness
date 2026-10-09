@@ -1,6 +1,7 @@
 mod admission;
 pub(crate) mod agent;
 mod attachments;
+mod code;
 mod commands;
 mod connections;
 mod database;
@@ -124,6 +125,10 @@ enum Job {
         id: sailry_protocol::TerminalId,
         reply: oneshot::Sender<Result<terminals::Opening, Fault>>,
     },
+    CodeApproved {
+        startup: sailry_protocol::code::Startup,
+        reply: oneshot::Sender<Result<bool, Fault>>,
+    },
     CheckPlugin {
         caller: NodeId,
         request: Box<Request>,
@@ -183,6 +188,8 @@ pub(crate) struct Ingress {
     pub(crate) computer: Arc<crate::computer::Desktop>,
     pub(crate) external_browser: Arc<crate::external_browser::Browsers>,
     pub(crate) git: crate::git::Git,
+    pub(crate) code: Arc<crate::code::Pool>,
+    code_queries: Arc<crate::code::Queries>,
     terminals: Arc<crate::terminal::Terminals>,
     commands: Arc<crate::process::background::Commands>,
     pub(crate) environment: Arc<crate::process::Environment>,
@@ -276,6 +283,7 @@ impl Store {
         let accepting = Arc::new(AtomicBool::new(true));
         let closing = Arc::new(AtomicBool::new(false));
         let agents = Arc::new(crate::agent::Controls::default());
+        let closed = CancellationToken::new();
         let lifecycle = sender.clone();
         let terminals = crate::terminal::Terminals::new(node, move |info| {
             let _ = lifecycle.blocking_send(Job::TerminalInfo(info));
@@ -296,6 +304,8 @@ impl Store {
             external_browser: Arc::new(crate::external_browser::Browsers::new(profile.clone())),
             computer: Arc::new(crate::computer::Desktop::default()),
             git: crate::git::Git::new(),
+            code_queries: Arc::new(crate::code::Queries::default()),
+            code: crate::code::Pool::new(profile.clone(), environment.clone(), closed.clone()),
             terminals: terminals.clone(),
             commands: Arc::default(),
             environment: environment.clone(),
@@ -305,7 +315,7 @@ impl Store {
             closing: closing.clone(),
             agents: agents.clone(),
             plugins: crate::plugins::Host::new(profile.clone()).with_github(skills),
-            closed: CancellationToken::new(),
+            closed,
             dispatch: Arc::new(crate::dispatch::Controls::default()),
         });
         let (ready, initialized) = oneshot::channel();
@@ -334,6 +344,7 @@ impl Store {
             agents.clone(),
             ingress.commands.clone(),
             ingress.environment.clone(),
+            ingress.code.clone(),
         );
         let mut plugin_work = plugins::execution::Worker::new(ingress.clone());
         let mut resource_work = resources::Worker::new(ingress.clone());
@@ -357,6 +368,7 @@ impl Store {
             ingress.sender.clone(),
             ingress.closed.clone(),
         );
+        let code_pool = ingress.code.clone();
         let worker = std::thread::Builder::new()
             .name("sailry-store".into())
             .spawn(move || {
@@ -367,6 +379,7 @@ impl Store {
                         return Ok(());
                     }
                 };
+                match code::settings(&database.connection) {Ok(settings)=>code_pool.configure(settings),Err(error)=>{let _=ready.send(Err(crate::Error::from(error)));return Ok(());}}
                 if database.profile.is_some()
                     && let Err(error) =
                         plugins::distribution::install(&mut database.connection, &collection)
@@ -670,6 +683,7 @@ impl Store {
                             closing.store(true, Ordering::Release);
                         }
                         Job::Completed(completed) => {
+                            code::observe(&database,&completed.request,&completed.result,&code_pool,&cleanup_runtime);
                             let result = database.finish_external(
                                 completed.caller,
                                 &completed.request,
@@ -721,6 +735,17 @@ impl Store {
                             resource_work.pending -= 1;
                         }
                         Job::Executed(completed) => {
+                            if matches!(completed.result, Ok(sailry_protocol::Output::CommandResult(_)))
+                                && let sailry_protocol::Command::RunCommand { turn, .. } = &completed.request.command
+                                && let Ok(worktree) = database.connection.query_row(
+                                    "SELECT r.worktree FROM turns t JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision WHERE t.id=?1",
+                                    [turn.to_string()], |row| row.get::<_, String>(0),
+                                )
+                                && let Ok(worktree) = worktree.parse()
+                            {
+                                let pool = code_pool.clone();
+                                cleanup_runtime.spawn(async move { pool.watched(worktree).await; });
+                            }
                             let result = database.finish_external(
                                 completed.caller,
                                 &completed.request,
@@ -755,6 +780,7 @@ impl Store {
                             let _ = completed.reply.send(result);
                             databases.finished(completed.caller, completed.request.id);
                         }
+                        Job::CodeApproved {startup,reply}=>{let _=reply.send(code::approved(&database.connection,&startup));},
                         Job::CheckPlugin {
                             caller,
                             request,
@@ -890,6 +916,7 @@ impl Store {
                             } else {
                                 reply
                             };
+                            let code_settings=matches!(request.command,sailry_protocol::Command::SaveCodeSettings { .. });
                             let launch = matches!(
                                 request.command,
                                 sailry_protocol::Command::SubmitTurn { .. }
@@ -980,6 +1007,7 @@ impl Store {
                                     let _ = reply.send(result);
                                 }
                             }
+                            if code_settings && let Ok(settings)=code::settings(&database.connection) {code_pool.configure(settings);}
                             if let Some(turn) = stopping
                                 && agent::stopping(&database.connection, turn)
                             {
@@ -1062,6 +1090,7 @@ impl Store {
         self.ingress.computer.shutdown().await;
         self.ingress.ports.join().await;
         self.ingress.commands.close().await;
+        self.ingress.code.shutdown().await;
         let terminals = self.ingress.terminals.clone();
         tokio::task::spawn_blocking(move || terminals.join())
             .await
@@ -1149,6 +1178,12 @@ impl Handler for Ingress {
             }
             if let sailry_protocol::Topic::Conversation(id) = topic {
                 return self.conversation(id).await;
+            }
+            if let sailry_protocol::Topic::CodeServers(worktree) = topic {
+                self.worktree_root(worktree).await?;
+                return Ok(self
+                    .code
+                    .subscribe(self.node, worktree, self.closed.clone()));
             }
             if let sailry_protocol::Topic::Files(worktree) = topic {
                 let root = self.worktree_root(worktree).await?;

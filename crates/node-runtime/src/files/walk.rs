@@ -9,7 +9,7 @@ use std::path::Path;
 const MAX_ENTRIES: usize = 10_000;
 
 #[derive(Default)]
-pub(super) struct Report {
+pub(crate) struct Report {
     pub visited: usize,
     pub skipped: usize,
     pub truncated: bool,
@@ -69,7 +69,7 @@ pub(super) fn find(
     })
 }
 
-pub(super) fn visit(
+pub(crate) fn visit(
     root: &Path,
     control: &Control,
     visitor: &mut impl FnMut(&Dir, &str, &str) -> Result<bool, Fault>,

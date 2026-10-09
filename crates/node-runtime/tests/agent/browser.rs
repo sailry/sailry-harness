@@ -150,7 +150,12 @@ async fn routes_through_controller() {
             );
             let subscription = tokio::time::timeout(Duration::from_secs(2), browser)
                 .await
-                .unwrap()
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "browser responder failed in {mode:?} (remote={remote}): {error}; results={:?}",
+                        page.entries
+                    )
+                })
                 .unwrap();
             let requests = server.requests.lock().unwrap().clone();
             let tools = requests[0]["tools"].as_array().unwrap();

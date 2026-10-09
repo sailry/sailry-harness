@@ -122,6 +122,34 @@ impl View {
                                 .child(scope),
                         )
                     })
+                    .when_some(approval.startup.as_ref(), |row, startup| {
+                        let worktree = self
+                            .node
+                            .snapshot
+                            .as_ref()
+                            .and_then(|snapshot| {
+                                snapshot
+                                    .worktrees
+                                    .iter()
+                                    .find(|worktree| worktree.id == startup.worktree)
+                            })
+                            .map(|worktree| worktree.path.clone())
+                            .unwrap_or_else(|| startup.worktree.to_string());
+                        row.child(
+                            div()
+                                .debug_selector(move || format!("live-approval-startup-{id}"))
+                                .font_medium()
+                                .whitespace_normal()
+                                .child(
+                                    rust_i18n::t!(
+                                        "approval_code_start",
+                                        server = startup.server,
+                                        worktree = worktree
+                                    )
+                                    .to_string(),
+                                ),
+                        )
+                    })
                     .children(
                         details
                             .notices

@@ -12,3 +12,8 @@ vendor/adk-model/ and vendor/adk-gemini/.
 Imported Ghostty shell integration contains GPL-3.0-or-later material; the root
 Apache license does not relicense those scripts. Relevant notices and GPL text
 remain in third_party_licenses/.
+
+Helix language rules and Mason package registry
+Helix: https://github.com/helix-editor/helix at ba40e547426b0f9896c8bdc699a4ab11f2b37dbc (MPL-2.0)
+Mason: https://github.com/mason-org/mason-registry at 2026-10-08-head-mirror, 73f39fa4b90654e88737aedf72e44b14ff92c5e5 (Apache-2.0)
+Original snapshots, checksums, provenance and license copies: crates/node-runtime/src/code/upstream/

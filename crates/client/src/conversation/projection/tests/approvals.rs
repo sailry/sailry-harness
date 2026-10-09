@@ -13,6 +13,7 @@ fn recovers_decisions() {
         state: ApprovalState::Pending,
         source: sailry_protocol::conversation::ApprovalSource::User,
         access: Some(sailry_protocol::process::Access::Unrestricted),
+        startup: None,
         can_remember: false,
         prefix: None,
         choice: None,
@@ -75,7 +76,7 @@ fn recovers_decisions() {
 
 #[test]
 fn preserves_rule_identity() {
-    for change in 0..5 {
+    for change in 0..6 {
         let (mut projection, mut snapshot, run, _) = fixture();
         let approval = Approval {
             id: ApprovalId::new(),
@@ -86,6 +87,7 @@ fn preserves_rule_identity() {
             state: ApprovalState::Pending,
             source: conversation::ApprovalSource::User,
             access: None,
+            startup: None,
             can_remember: true,
             prefix: Some("cargo test".into()),
             choice: None,
@@ -103,7 +105,16 @@ fn preserves_rule_identity() {
             1 => changed.prefix = Some("cargo build".into()),
             2 => changed.can_remember = false,
             3 => changed.access = Some(sailry_protocol::process::Access::Unrestricted),
-            _ => changed.source = conversation::ApprovalSource::Sandbox,
+            4 => changed.source = conversation::ApprovalSource::Sandbox,
+            _ => {
+                changed.startup = Some(sailry_protocol::code::Startup {
+                    worktree: sailry_protocol::WorktreeId::new(),
+                    root: String::new(),
+                    server: "fixture".into(),
+                    executable: "tool".into(),
+                    revision: "a".repeat(64),
+                })
+            }
         }
         assert!(
             projection
@@ -136,6 +147,7 @@ fn preserves_complete_decision() {
                 state,
                 source: conversation::ApprovalSource::User,
                 access: None,
+                startup: None,
                 can_remember: true,
                 prefix: Some("cargo test".into()),
                 choice: choice.clone(),
