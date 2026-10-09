@@ -6,6 +6,7 @@ fn stamp() -> Stat {
         size: 120,
         modified_seconds: 1_700_000_000,
         modified_nanos: 123,
+        extractor: [0; 32],
     }
 }
 
@@ -47,6 +48,10 @@ fn checks_exact_witness_and_processed_model() {
         },
         Stat {
             modified_nanos: stat.modified_nanos + 1,
+            ..stat
+        },
+        Stat {
+            extractor: [1; 32],
             ..stat
         },
     ] {

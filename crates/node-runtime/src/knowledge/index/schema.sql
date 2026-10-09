@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS file_stamps (
   source INTEGER PRIMARY KEY REFERENCES sources(id) ON DELETE CASCADE,
   size INTEGER NOT NULL,
   modified_seconds INTEGER NOT NULL,
-  modified_nanos INTEGER NOT NULL
+  modified_nanos INTEGER NOT NULL,
+  extractor BLOB NOT NULL DEFAULT X'0000000000000000000000000000000000000000000000000000000000000000'
 );
 CREATE INDEX IF NOT EXISTS chunks_source ON chunks(source);
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(title,text,cjk_title,cjk_text,tokenize='unicode61 remove_diacritics 2 tokenchars ''+#''');

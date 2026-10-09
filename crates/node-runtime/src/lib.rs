@@ -20,6 +20,7 @@ mod git;
 mod host;
 mod knowledge;
 mod models;
+mod ocr;
 mod office;
 mod plugins;
 mod ports;

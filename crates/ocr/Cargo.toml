@@ -1,0 +1,21 @@
+[package]
+name = "sailry-ocr"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+image.workspace = true
+ndarray.workspace = true
+oar-ocr-core.workspace = true
+ort.workspace = true
+rayon.workspace = true
+sailry-model-assets = { workspace = true, features = ["onnx"] }
+sailry-protocol.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

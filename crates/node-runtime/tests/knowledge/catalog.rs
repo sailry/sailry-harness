@@ -5,6 +5,94 @@ use tokio::net::TcpListener;
 #[cfg(feature = "test-support")]
 mod fixture;
 
+#[cfg(feature = "test-support")]
+#[tokio::test]
+async fn refreshes_the_registered_ocr_profile() {
+    let fixture = Fixture::start().await;
+    let catalog = self::fixture::Catalog::start().await;
+    for hub in [Hub::HuggingFace, Hub::ModelScope] {
+        fixture
+            .node
+            .set_model_catalog_fixture(hub, &catalog.endpoint)
+            .unwrap();
+        for client in fixture.clients() {
+            let Output::ModelDefinition(mut previous) = execute(
+                &client,
+                Command::ResolveModel {
+                    kind: Kind::Ocr,
+                    source: ModelSource {
+                        hub,
+                        repository: "org/model".into(),
+                        revision: "HEAD".into(),
+                    },
+                },
+            )
+            .await
+            else {
+                panic!("OCR definition expected")
+            };
+            previous.name = "Chosen mobile profile".into();
+            previous.source.revision = "b".repeat(40);
+            for asset in &mut previous.assets {
+                asset.source.revision = "b".repeat(40);
+            }
+            let Output::OcrModel { id } = execute(
+                &client,
+                Command::RegisterOcrModel {
+                    definition: previous.clone(),
+                },
+            )
+            .await
+            else {
+                panic!("OCR ID expected")
+            };
+            let admission = client
+                .dispatch(client.prepare(Command::RefreshOcrModel { id }))
+                .await
+                .unwrap();
+            assert!(!admission.receipt.durable);
+            let Output::ModelDefinition(latest) = admission.completion.await.unwrap().unwrap()
+            else {
+                panic!("updated OCR definition expected")
+            };
+            assert_eq!(latest.name, previous.name);
+            assert_eq!(latest.format, previous.format);
+            assert_eq!(
+                latest.format,
+                sailry_protocol::models::Format::PaddleOcr {
+                    family: sailry_protocol::models::PaddleFamily::V5,
+                    orientation: false
+                }
+            );
+            assert_eq!(
+                latest
+                    .assets
+                    .iter()
+                    .map(|asset| (&asset.name, &asset.path))
+                    .collect::<Vec<_>>(),
+                previous
+                    .assets
+                    .iter()
+                    .map(|asset| (&asset.name, &asset.path))
+                    .collect::<Vec<_>>()
+            );
+            assert!(
+                latest
+                    .assets
+                    .iter()
+                    .all(|asset| asset.source.revision == self::fixture::REVISION)
+            );
+            assert!(
+                latest
+                    .assets
+                    .iter()
+                    .any(|asset| asset.path == "pp-ocrv5_mobile_rec.onnx")
+            );
+        }
+    }
+    fixture.close().await;
+}
+
 #[tokio::test]
 async fn captures_saved_mirror_for_each_controller() {
     let fixture = Fixture::start().await;

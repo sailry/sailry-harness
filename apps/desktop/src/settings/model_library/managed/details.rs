@@ -22,6 +22,9 @@ pub(super) fn open(target: Target, key: ModelKey, window: &mut Window, cx: &mut 
             Target::Speech(owner) => {
                 cx.observe(owner, |_, _, cx| cx.notify()).detach();
             }
+            Target::Ocr(owner) => {
+                cx.observe(owner, |_, _, cx| cx.notify()).detach();
+            }
         }
         Details { target, key }
     });

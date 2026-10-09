@@ -383,6 +383,7 @@ CREATE TABLE code_startups (
 
 CREATE TABLE code_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
 CREATE TABLE python_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
+CREATE TABLE ocr_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
 
 CREATE TABLE hook_settings (
     worktree TEXT PRIMARY KEY REFERENCES worktrees(id) ON DELETE CASCADE,

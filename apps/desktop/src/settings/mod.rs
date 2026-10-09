@@ -20,6 +20,7 @@ mod resource_card;
 pub(crate) use providers::channel;
 pub(crate) use providers::{Channel, Model, ModelCategory};
 mod roles;
+mod runtime;
 mod search;
 pub(crate) use roles::Role;
 pub(crate) mod extensions;
@@ -42,6 +43,7 @@ pub enum Section {
     Conversation,
     Terminal,
     Knowledge,
+    Runtime,
     Backup,
     Hooks,
     Plugin,
@@ -66,12 +68,13 @@ impl Section {
 
     // Sailry Code 67ae9fa0: app/sailry_code_app/lib/settings/settings_models.dart.
     #[cfg(test)]
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::General,
         Self::Appearance,
         Self::Conversation,
         Self::Terminal,
         Self::Knowledge,
+        Self::Runtime,
         Self::Backup,
         Self::Hooks,
         Self::Plugins,
@@ -100,7 +103,12 @@ impl Section {
         ("settings_group_ai", &[Self::Providers, Self::Knowledge]),
         (
             "settings_group_tools",
-            &[Self::Terminal, Self::Connections, Self::Hooks],
+            &[
+                Self::Terminal,
+                Self::Connections,
+                Self::Hooks,
+                Self::Runtime,
+            ],
         ),
         (
             "settings_group_system",
@@ -118,6 +126,7 @@ impl Section {
             Self::Shortcuts => 400,
             Self::Hooks => 500,
             Self::Dictation => 500,
+            Self::Runtime => 600,
             _ => 10_000,
         }
     }
@@ -129,6 +138,7 @@ impl Section {
             Self::Conversation => "settings_conversation",
             Self::Terminal => "settings_terminal",
             Self::Knowledge => "settings_knowledge",
+            Self::Runtime => "settings_runtime",
             Self::Backup => "settings_backup",
             Self::Hooks => "hooks_settings",
             Self::Plugin => "plugins_settings_title",
@@ -152,6 +162,7 @@ impl Section {
             Self::Conversation => return Icon::default().path("reicon:messages/chat-round"),
             Self::Terminal => IconName::SquareTerminal,
             Self::Knowledge => IconName::BookOpen,
+            Self::Runtime => IconName::Cpu,
             Self::Backup => return gpui_kit::assets::IconName::Upload.into(),
             Self::Hooks => IconName::Settings2,
             Self::Plugin => IconName::Settings2,
@@ -180,6 +191,7 @@ pub struct Workspace {
     code: code::State,
     search: search::State,
     knowledge: knowledge::State,
+    runtime: runtime::State,
     backup: backup::State,
     hooks: hooks::State,
     conversation: conversation::State,
@@ -273,6 +285,7 @@ impl Workspace {
             code: code::State::default(),
             search: search::State::new(window, cx),
             knowledge: knowledge::State::default(),
+            runtime: runtime::State::default(),
             backup: backup::State::default(),
             hooks: hooks::State::default(),
             conversation: conversation::State::new(window, cx),
@@ -325,6 +338,7 @@ impl Workspace {
 
     pub fn deactivate(&mut self, cx: &mut Context<Self>) {
         self.clear_knowledge(cx);
+        self.clear_runtime(cx);
         self.clear_backup(cx);
         self.clear_code(cx);
         self.clear_search(cx);
@@ -356,6 +370,7 @@ impl Render for Workspace {
             Section::Conversation => self.conversation(window, cx),
             Section::Terminal => self.terminal(window, cx),
             Section::Knowledge => self.knowledge(window, cx),
+            Section::Runtime => self.runtime(window, cx),
             Section::Backup => self.backup(window, cx),
             Section::Hooks => self.hooks.render(window, cx),
             Section::Shortcuts => self.shortcuts.clone().into_any_element(),

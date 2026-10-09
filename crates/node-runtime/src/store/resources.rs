@@ -21,6 +21,12 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
     }
     if matches!(
         request.command,
+        Command::InstallOcrModel { .. } | Command::DeleteOcrModel { .. }
+    ) {
+        return super::python::controller(request);
+    }
+    if matches!(
+        request.command,
         Command::StartCodeServer { .. }
             | Command::InstallCodeServer { .. }
             | Command::UninstallCodeServer { .. }
@@ -138,6 +144,9 @@ impl Worker {
                 match &execution.request.command {
                     Command::ExportBackup { .. } | Command::RestoreBackup { .. } => {
                         ingress.change_backup(&execution.request, &stop).await
+                    }
+                    Command::InstallOcrModel { .. } | Command::DeleteOcrModel { .. } => {
+                        ingress.change_ocr(&execution.request, &stop).await
                     }
                     Command::InstallKnowledgeModel { .. }
                     | Command::DeleteKnowledgeModel { .. } => {

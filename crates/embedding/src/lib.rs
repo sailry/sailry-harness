@@ -256,7 +256,7 @@ impl Kernel {
                     directory,
                 )?)))
             }
-            Format::SenseVoice {} => Err(Error::Invalid(
+            Format::SenseVoice {} | Format::PaddleOcr { .. } => Err(Error::Invalid(
                 "speech format cannot produce embeddings".into(),
             )),
         }

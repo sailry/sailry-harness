@@ -19,7 +19,7 @@ impl Index {
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM sources s JOIN file_stamps f ON f.source=s.id
              WHERE s.collection=?1 AND s.locator=?2 AND f.size=?3 AND f.modified_seconds=?4
-             AND f.modified_nanos=?5 AND s.tags=?6 AND (?7=0 OR s.embedded=1))",
+             AND f.modified_nanos=?5 AND s.tags=?6 AND (?7=0 OR s.embedded=1) AND f.extractor=?8)",
                 params![
                     binding.id.to_string(),
                     locator,
@@ -27,7 +27,8 @@ impl Index {
                     integer(stat.modified_seconds)?,
                     stat.modified_nanos,
                     serde_json::to_string(tags).map_err(error)?,
-                    embedded
+                    embedded,
+                    stat.extractor.as_slice()
                 ],
                 |row| row.get(0),
             )
@@ -48,16 +49,17 @@ impl Index {
         }
         self.db
             .execute(
-                "INSERT INTO file_stamps(source,size,modified_seconds,modified_nanos)
-             SELECT id,?3,?4,?5 FROM sources WHERE collection=?1 AND locator=?2
+                "INSERT INTO file_stamps(source,size,modified_seconds,modified_nanos,extractor)
+             SELECT id,?3,?4,?5,?6 FROM sources WHERE collection=?1 AND locator=?2
              ON CONFLICT(source) DO UPDATE SET size=excluded.size,
-             modified_seconds=excluded.modified_seconds,modified_nanos=excluded.modified_nanos",
+             modified_seconds=excluded.modified_seconds,modified_nanos=excluded.modified_nanos,extractor=excluded.extractor",
                 params![
                     binding.id.to_string(),
                     locator,
                     integer(stat.size)?,
                     integer(stat.modified_seconds)?,
-                    stat.modified_nanos
+                    stat.modified_nanos,
+                    stat.extractor.as_slice()
                 ],
             )
             .map_err(error)?;

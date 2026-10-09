@@ -18,6 +18,7 @@ pub(crate) mod media;
 mod models;
 mod mutations;
 mod notifications;
+mod ocr;
 mod outcomes;
 mod plugin_oauth;
 mod plugins;
@@ -64,6 +65,13 @@ enum Job {
         revision: u64,
         cancel: sailry_link::CancellationToken,
         reply: oneshot::Sender<Result<backup::Capture, Fault>>,
+    },
+    OcrCatalog {
+        reply: oneshot::Sender<Result<ocr::Catalog, Fault>>,
+    },
+    OcrModels {
+        models: Vec<sailry_protocol::ocr::Model>,
+        reply: oneshot::Sender<Result<(), Fault>>,
     },
     PythonSettings {
         reply: oneshot::Sender<Result<sailry_protocol::python::Settings, Fault>>,
@@ -278,6 +286,7 @@ pub(crate) struct Ingress {
     pub(crate) external_browser: Arc<crate::external_browser::Browsers>,
     pub(crate) git: crate::git::Git,
     pub(crate) code: Arc<crate::code::Pool>,
+    pub(crate) ocr: Arc<crate::ocr::Service>,
     pub(crate) knowledge: Arc<OnceLock<Arc<crate::knowledge::Service>>>,
     code_queries: Arc<crate::code::Queries>,
     pub(crate) web: Arc<crate::web::Fetcher>,
@@ -381,13 +390,14 @@ impl Store {
         let terminals = crate::terminal::Terminals::new(node, move |info| {
             let _ = lifecycle.blocking_send(Job::TerminalInfo(info));
         });
+        let ocr = crate::ocr::Service::new(profile.clone(), closed.child_token());
         let ingress = Arc::new(Ingress {
             node,
             profile: profile.clone(),
             host: crate::host::Host::new(),
             discovery: crate::providers::Discovery::new(),
             catalog,
-            files: crate::files::Files::new(),
+            files: crate::files::Files::new().with_ocr(ocr.clone()),
             oauth: Arc::default(),
             #[cfg(any(test, feature = "test-support"))]
             authorization_endpoint: authorization.model_endpoint.clone(),
@@ -404,6 +414,7 @@ impl Store {
             web: Arc::default(),
             search: Arc::default(),
             code: crate::code::Pool::new(profile.clone(), environment.clone(), closed.clone()),
+            ocr,
             knowledge: Arc::new(OnceLock::new()),
             terminals: terminals.clone(),
             commands: Arc::default(),
@@ -713,6 +724,8 @@ impl Store {
                     match job {
                         Job::BackupPlan { expected, reply } => { let _ = reply.send(backup::plan(&database.connection, expected)); }
                         Job::BackupSnapshot { revision, cancel, reply } => { let _ = reply.send(backup::capture(&database, revision, &cancel)); }
+                        Job::OcrCatalog { reply } => { let _ = reply.send(ocr::read(&database.connection)); }
+                        Job::OcrModels { models, reply } => { let _ = reply.send(ocr::models(&mut database, models, &events)); }
                         Job::PythonSettings { reply } => {
                             let _ = reply.send(python::read(&database.connection));
                         }
@@ -1218,6 +1231,10 @@ impl Store {
         initialized
             .await
             .map_err(|error| Error::Worker(error.to_string()))??;
+        if let Err(error) = ocr::start(&store.ingress).await {
+            let _ = store.shutdown().await;
+            return Err(Error::from(error));
+        }
         let configured = async {
             let settings = store.ingress.python_settings().await?;
             store.ingress.plugins.configure_python(settings.index)
@@ -1248,6 +1265,7 @@ impl Store {
         self.ingress.dispatch.stop.cancel();
         self.ingress.accepting.store(false, Ordering::Release);
         self.ingress.closed.cancel();
+        self.ingress.ocr.shutdown();
         self.ingress.external_browser.stop.cancel();
         self.ingress.computer.stop.cancel();
         self.ingress.watches.shutdown();

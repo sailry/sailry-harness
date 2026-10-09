@@ -7,7 +7,6 @@ fn selects_cls_without_other_tokens() {
         [3., 4.]
     );
 }
-
 #[test]
 fn rejects_mismatched_outputs() {
     for (shape, values, tokens, dimension) in [
@@ -39,14 +38,4 @@ fn excludes_masked_rows_from_mean() {
         pool_output(&[1, 2, 2], &[1., 2., 3., 4.], &[0, 0], 2, Pooling::Mean).unwrap(),
         [0., 0.]
     );
-}
-
-#[test]
-fn joins_owned_workers() {
-    let (sender, receiver) = std::sync::mpsc::channel();
-    let worker = Threads
-        .create(move || sender.send(std::thread::current().id()).unwrap())
-        .unwrap();
-    Threads::join(worker).unwrap();
-    assert_ne!(receiver.recv().unwrap(), std::thread::current().id());
 }

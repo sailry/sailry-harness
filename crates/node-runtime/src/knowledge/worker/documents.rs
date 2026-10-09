@@ -32,6 +32,7 @@ pub(super) fn unchanged(
     root: Option<&Path>,
     document: &SourceDoc,
     cancel: CancellationToken,
+    ocr: std::sync::Arc<crate::ocr::Service>,
 ) -> Result<bool, Fault> {
     let selected = match source {
         Source::Worktree { worktree, .. } => Source::Worktree {
@@ -42,7 +43,7 @@ pub(super) fn unchanged(
             path: document.path.clone(),
         },
     };
-    let mut scan = scan(&selected, root, cancel)?;
+    let mut scan = scan(&selected, root, cancel)?.with_ocr(ocr);
     // Recheck the retained metadata witness after encoding. Citations always reread
     // the bytes; uncooperative writers preserving size and time evade this witness.
     if let Some(entry) =

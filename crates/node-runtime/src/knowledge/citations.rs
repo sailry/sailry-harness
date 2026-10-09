@@ -79,13 +79,15 @@ impl Service {
                 let captured_root = root.clone();
                 let stop = cancel.clone();
                 let complete = input.context;
+                let ocr = ingress.ocr.clone();
                 let text = tokio::task::spawn_blocking(move || {
-                    context(
+                    context_with(
                         &definition,
                         captured_root.as_deref(),
                         &citation,
                         stop,
                         complete,
+                        Some(ocr),
                     )
                 })
                 .await
@@ -167,12 +169,24 @@ fn changed() -> Fault {
     )
 }
 
+#[cfg(test)]
 fn context(
     definition: &Definition,
     root: Option<&Path>,
     citation: &Citation,
     cancel: CancellationToken,
     complete: bool,
+) -> Result<String, Fault> {
+    context_with(definition, root, citation, cancel, complete, None)
+}
+
+fn context_with(
+    definition: &Definition,
+    root: Option<&Path>,
+    citation: &Citation,
+    cancel: CancellationToken,
+    complete: bool,
+    ocr: Option<std::sync::Arc<crate::ocr::Service>>,
 ) -> Result<String, Fault> {
     let locator = Path::new(&citation.path);
     let (mut scan, relative) = match &definition.source {
@@ -228,6 +242,9 @@ fn context(
             .any(|matched| matched)
     {
         return Err(changed());
+    }
+    if let Some(ocr) = ocr {
+        scan = scan.with_ocr(ocr);
     }
     if let Some(entry) = scan.next() {
         match entry? {

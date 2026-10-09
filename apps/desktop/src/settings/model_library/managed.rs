@@ -28,6 +28,7 @@ impl ModelKey {
                 "details" => "dictation-model-details".into(),
                 _ => unreachable!("recommended speech model has no removal action"),
             },
+            Self::Ocr(id) => format!("ocr-{action}-{}", blake3::Hash::from(id).to_hex()),
         }
     }
 }
@@ -153,10 +154,12 @@ impl Target {
         let entries = match self {
             Self::Knowledge(panel) => panel.read(cx).model_entries(cx),
             Self::Speech(panel) => panel.read(cx).model_entries(cx),
+            Self::Ocr(panel) => panel.read(cx).model_entries(cx),
         };
         entries.into_iter().find(|model| match (model.key, key) {
             (ModelKey::Embedding(left), ModelKey::Embedding(right)) => left == right,
             (ModelKey::Speech(left), ModelKey::Speech(right)) => left == right,
+            (ModelKey::Ocr(left), ModelKey::Ocr(right)) => left == right,
             _ => false,
         })
     }
@@ -166,6 +169,7 @@ impl Target {
                 panel.read(cx).definition_for(model)
             }
             (Self::Speech(panel), ModelKey::Speech(id)) => panel.read(cx).definition_for(id),
+            (Self::Ocr(panel), ModelKey::Ocr(id)) => panel.read(cx).definition_for(id),
             _ => None,
         }
     }

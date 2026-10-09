@@ -19,6 +19,14 @@ pub enum Hub {
 pub enum Kind {
     Embedding,
     Speech,
+    Ocr,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PaddleFamily {
+    V5,
+    V6,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +48,10 @@ pub enum Format {
         dimension: u16,
     },
     SenseVoice {},
+    PaddleOcr {
+        family: PaddleFamily,
+        orientation: bool,
+    },
 }
 
 impl Format {
@@ -47,13 +59,14 @@ impl Format {
         match self {
             Self::Transformer { .. } | Self::Static { .. } => Kind::Embedding,
             Self::SenseVoice {} => Kind::Speech,
+            Self::PaddleOcr { .. } => Kind::Ocr,
         }
     }
 
     pub fn dimension(self) -> Option<u16> {
         match self {
             Self::Transformer { dimension, .. } | Self::Static { dimension } => Some(dimension),
-            Self::SenseVoice {} => None,
+            Self::SenseVoice {} | Self::PaddleOcr { .. } => None,
         }
     }
 }
@@ -126,7 +139,7 @@ impl Definition {
                 .into_iter()
                 .flatten()
                 .any(|prefix| prefix.len() > MAX_PREFIX_BYTES || prefix.contains('\0'))
-            || self.format.kind() == Kind::Speech
+            || self.format.kind() != Kind::Embedding
                 && (self.query_prefix.is_some() || self.document_prefix.is_some())
             || self
                 .format
@@ -141,6 +154,17 @@ impl Definition {
             Format::Transformer { .. } => &["config.json", "tokenizer.json", "model.onnx"],
             Format::Static { .. } => &["config.json", "tokenizer.json", "model.safetensors"],
             Format::SenseVoice {} => &["model.onnx", "tokens.txt"],
+            Format::PaddleOcr {
+                orientation: false, ..
+            } => &["detector.onnx", "recognizer.onnx", "dictionary.txt"],
+            Format::PaddleOcr {
+                orientation: true, ..
+            } => &[
+                "detector.onnx",
+                "recognizer.onnx",
+                "dictionary.txt",
+                "orientation.onnx",
+            ],
         };
         let mut names = std::collections::BTreeSet::new();
         for asset in &self.assets {

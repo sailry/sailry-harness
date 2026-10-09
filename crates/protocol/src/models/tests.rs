@@ -11,6 +11,17 @@ fn definition(format: Format) -> Definition {
         Format::Transformer { .. } => &["config.json", "model.onnx", "tokenizer.json"],
         Format::Static { .. } => &["config.json", "model.safetensors", "tokenizer.json"],
         Format::SenseVoice {} => &["model.onnx", "tokens.txt"],
+        Format::PaddleOcr {
+            orientation: false, ..
+        } => &["detector.onnx", "recognizer.onnx", "dictionary.txt"],
+        Format::PaddleOcr {
+            orientation: true, ..
+        } => &[
+            "detector.onnx",
+            "recognizer.onnx",
+            "dictionary.txt",
+            "orientation.onnx",
+        ],
     };
     Definition {
         source: source.clone(),
@@ -40,6 +51,31 @@ fn transformer() -> Format {
         dimension: 384,
         pooling: Pooling::Cls,
         token_types: false,
+    }
+}
+
+#[test]
+fn binds_ocr_roles_and_family() {
+    for family in [PaddleFamily::V5, PaddleFamily::V6] {
+        for orientation in [false, true] {
+            let mut selected = definition(Format::PaddleOcr {
+                family,
+                orientation,
+            });
+            selected.validate().unwrap();
+            assert_eq!(selected.format.kind(), Kind::Ocr);
+            assert_eq!(selected.format.dimension(), None);
+            let encoded = serde_json::to_vec(&selected).unwrap();
+            assert_eq!(
+                serde_json::from_slice::<Definition>(&encoded).unwrap(),
+                selected
+            );
+            selected.query_prefix = Some("query: ".into());
+            assert!(selected.validate().is_err());
+            selected.query_prefix = None;
+            selected.assets.pop();
+            assert!(selected.validate().is_err());
+        }
     }
 }
 

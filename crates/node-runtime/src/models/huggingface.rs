@@ -20,6 +20,8 @@ pub(super) async fn search(
             query.append_pair("direction", "-1");
             if request.kind == sailry_protocol::models::Kind::Speech {
                 query.append_pair("search", "sensevoice");
+            } else if request.kind == sailry_protocol::models::Kind::Ocr {
+                query.append_pair("search", "paddleocr");
             }
         } else {
             query.append_pair("search", request.query.trim());

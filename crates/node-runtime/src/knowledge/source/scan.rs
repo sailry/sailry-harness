@@ -46,6 +46,7 @@ impl Frame {
 }
 
 pub(in crate::knowledge) struct Scan {
+    ocr: Option<std::sync::Arc<crate::ocr::Service>>,
     frames: Vec<Frame>,
     inherited: Vec<Gitignore>,
     pending: Option<Target>,
@@ -65,6 +66,7 @@ impl Scan {
         cancel: CancellationToken,
     ) -> Result<Self, Fault> {
         let mut scan = Self {
+            ocr: None,
             frames: Vec::new(),
             inherited: Vec::new(),
             pending: None,
@@ -138,6 +140,7 @@ impl Scan {
             return Err(Fault::invalid("knowledge source must be a regular file"));
         }
         Ok(Self {
+            ocr: None,
             frames: Vec::new(),
             inherited: Vec::new(),
             pending: Some(Target {
@@ -201,13 +204,27 @@ impl Scan {
         std::mem::take(&mut self.watches)
     }
 
+    pub(in crate::knowledge) fn with_ocr(
+        mut self,
+        ocr: std::sync::Arc<crate::ocr::Service>,
+    ) -> Self {
+        self.ocr = Some(ocr);
+        self
+    }
+
     fn extract(
         &mut self,
         target: Target,
         reuse: &mut impl FnMut(&str, Stat) -> Result<bool, Fault>,
     ) -> Result<Entry, Fault> {
         let path = self.locator(&target.relative);
-        match read::document(target, path.clone(), &self.cancel, reuse) {
+        match read::document(
+            target,
+            path.clone(),
+            &self.cancel,
+            reuse,
+            self.ocr.as_deref(),
+        ) {
             Ok(entry) => Ok(entry),
             Err(error) if error.code != ErrorCode::InvalidRequest => Err(error),
             Err(error) => Ok(skipped(path, error.message)),

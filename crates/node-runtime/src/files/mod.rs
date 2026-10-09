@@ -44,13 +44,20 @@ use tokio::sync::Semaphore;
 #[derive(Clone)]
 pub(crate) struct Files {
     capacity: Arc<Semaphore>,
+    ocr: Option<Arc<crate::ocr::Service>>,
 }
 
 impl Files {
     pub(crate) fn new() -> Self {
         Self {
             capacity: Arc::new(Semaphore::new(4)),
+            ocr: None,
         }
+    }
+
+    pub(crate) fn with_ocr(mut self, ocr: Arc<crate::ocr::Service>) -> Self {
+        self.ocr = Some(ocr);
+        self
     }
 
     pub(crate) async fn inspect(
@@ -65,6 +72,7 @@ impl Files {
             .try_acquire_owned()
             .map_err(|_| Fault::new(ErrorCode::Busy, "file read capacity exhausted"))?;
         let cancelled = closed.child_token();
+        let ocr = self.ocr.clone();
         let _guard = cancelled.clone().drop_guard();
         let searching = matches!(
             &command,
@@ -87,7 +95,8 @@ impl Files {
                     directory::list(&root, path, after.as_ref(), &control).map(Output::Directory)
                 }
                 Command::ReadOffice { options, .. } => {
-                    crate::office::read(&root, &options).map(Output::OfficeContent)
+                    crate::office::read_with(&root, &options, ocr.as_deref(), &control.cancelled)
+                        .map(Output::OfficeContent)
                 }
                 Command::ReadNotebook { options, .. } => {
                     notebook::read(&root, &options, &control).map(Output::NotebookPage)

@@ -278,7 +278,8 @@ fn collection(
                 Source::Storage { .. } => None,
             }
             .ok_or_else(unavailable)?;
-            let mut scan = documents::scan(source, root.as_deref(), cancel.clone())?;
+            let mut scan = documents::scan(source, root.as_deref(), cancel.clone())?
+                .with_ocr(ingress.ocr.clone());
             watches.add(&watch, scan.take_watches());
             let matches = |path: &str| {
                 filters.is_empty()
@@ -357,6 +358,7 @@ fn collection(
                                 root.as_deref(),
                                 &document,
                                 cancel.clone(),
+                                ingress.ocr.clone(),
                             )? {
                                 return Err(Fault::new(
                                     ErrorCode::RevisionConflict,

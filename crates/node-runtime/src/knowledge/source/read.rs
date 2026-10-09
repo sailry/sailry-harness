@@ -6,6 +6,7 @@ pub(super) fn document(
     path: String,
     cancel: &CancellationToken,
     reuse: &mut impl FnMut(&str, Stat) -> Result<bool, Fault>,
+    ocr: Option<&crate::ocr::Service>,
 ) -> Result<Entry, Fault> {
     cancelled(cancel)?;
     let mut file = files::open_regular(&target.directory, &target.name)?;
@@ -23,6 +24,17 @@ pub(super) fn document(
         size: before.len(),
         modified_seconds: modified.as_secs(),
         modified_nanos: modified.subsec_nanos(),
+        extractor: if target
+            .name
+            .rsplit('.')
+            .next()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+            || crate::ocr::document::supported(&target.name)
+        {
+            ocr.map_or([0; 32], crate::ocr::Service::signature)
+        } else {
+            [0; 32]
+        },
     };
     if reuse(&path, stat)? {
         cancelled(cancel)?;
@@ -68,8 +80,13 @@ pub(super) fn document(
         .next()
         .unwrap_or_default()
         .to_ascii_lowercase();
-    let parts = if matches!(extension.as_str(), "pdf" | "docx" | "xlsx" | "pptx") {
-        crate::office::parts(&target.name, &bytes)?
+    let parts = if matches!(extension.as_str(), "pdf" | "docx" | "xlsx" | "pptx")
+        || crate::ocr::document::supported(&target.name)
+    {
+        if crate::ocr::document::supported(&target.name) && stat.extractor == [0; 32] {
+            return Ok(excluded(path, "OCR is unavailable"));
+        }
+        crate::office::parts_with(&target.name, &bytes, ocr, cancel)?
             .into_iter()
             .map(|part| Part {
                 title: part.name,
@@ -94,7 +111,14 @@ pub(super) fn document(
     cancelled(cancel)?;
     Ok(Entry::Document(SourceDoc {
         path,
-        revision: blake3::hash(&bytes).to_hex().to_string(),
+        revision: if stat.extractor == [0; 32] {
+            blake3::hash(&bytes).to_hex().to_string()
+        } else {
+            let mut hash = blake3::Hasher::new();
+            hash.update(&bytes);
+            hash.update(&stat.extractor);
+            hash.finalize().to_hex().to_string()
+        },
         modified_ms,
         stat,
         parts,

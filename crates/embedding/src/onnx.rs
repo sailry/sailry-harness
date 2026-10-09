@@ -1,11 +1,10 @@
-use crate::{Error, pool};
+use crate::Error;
 use ort::{
-    environment::ThreadManager,
     session::{Session, SessionInputValue},
     value::{Tensor, TensorElementType, ValueType},
 };
 use sailry_protocol::models::Pooling;
-use std::{path::Path, thread::JoinHandle};
+use std::path::Path;
 use tokenizers::Encoding;
 
 #[cfg(test)]
@@ -28,23 +27,7 @@ impl Model {
     ) -> Result<Self, Error> {
         sailry_model_assets::onnx::validate(&directory.join("model.onnx"))?;
         sailry_model_assets::runtime::initialize()?;
-        let session = Session::builder()?
-            .with_independent_thread_pool()
-            .map_err(ort::Error::<()>::from)?
-            .with_no_environment_execution_providers()
-            .map_err(ort::Error::<()>::from)?
-            .with_execution_providers([ort::ep::CPU::default().build()])
-            .map_err(ort::Error::<()>::from)?
-            .with_parallel_execution(false)
-            .map_err(ort::Error::<()>::from)?
-            .with_intra_threads(pool::threads())
-            .map_err(ort::Error::<()>::from)?
-            .with_inter_threads(1)
-            .map_err(ort::Error::<()>::from)?
-            .with_config_entry("session.intra_op.allow_spinning", "0")
-            .map_err(ort::Error::<()>::from)?
-            .with_thread_manager(Threads)
-            .map_err(ort::Error::<()>::from)?
+        let session = sailry_model_assets::session::builder()?
             .commit_from_file(directory.join("model.onnx"))?;
         let names: &[&str] = if types {
             &["input_ids", "attention_mask", "token_type_ids"]
@@ -148,27 +131,5 @@ fn pool_output(
                 })
                 .collect())
         }
-    }
-}
-
-struct Threads;
-
-impl ThreadManager for Threads {
-    type Thread = JoinHandle<()>;
-
-    fn create(&self, work: impl FnOnce() + Send + 'static) -> ort::Result<Self::Thread> {
-        std::thread::Builder::new()
-            .name("sailry-embedding-onnx".into())
-            .spawn(move || {
-                pool::background();
-                work();
-            })
-            .map_err(ort::Error::wrap)
-    }
-
-    fn join(thread: Self::Thread) -> ort::Result<()> {
-        thread
-            .join()
-            .map_err(|_| ort::Error::new("embedding worker panicked"))
     }
 }

@@ -721,6 +721,24 @@ pub enum Command {
     },
     ReadPythonSettings,
     SavePythonSettings(crate::python::Settings),
+    ReadOcrSettings,
+    SaveOcrSettings(crate::ocr::Settings),
+    ReadOcrModels,
+    RefreshOcrModel {
+        id: String,
+    },
+    RegisterOcrModel {
+        definition: crate::models::Definition,
+    },
+    InstallOcrModel {
+        id: String,
+    },
+    DeleteOcrModel {
+        id: String,
+    },
+    CancelOcrModel {
+        id: String,
+    },
     ListShells,
     SaveTerminalSettings(crate::terminal::Settings),
     ListMediaModels,
@@ -1400,6 +1418,10 @@ impl Command {
                 | Self::ReadBackupSettings
                 | Self::ListBackups
                 | Self::ReadPythonSettings
+                | Self::ReadOcrSettings
+                | Self::ReadOcrModels
+                | Self::RefreshOcrModel { .. }
+                | Self::CancelOcrModel { .. }
                 | Self::ListShells
                 | Self::ReadPluginSecret { .. }
                 | Self::ListMediaModels
@@ -1679,6 +1701,11 @@ pub enum Output {
         target: String,
     },
     PythonSettings(crate::python::Settings),
+    OcrSettings(crate::ocr::Settings),
+    OcrModels(Vec<crate::ocr::Model>),
+    OcrModel {
+        id: String,
+    },
     Shells(Vec<String>),
     TerminalTools(Vec<crate::terminal::ToolInfo>),
     MediaSettings(crate::media::Settings),
@@ -1835,6 +1862,12 @@ pub enum Event {
     },
     PythonSettingsChanged {
         revision: u64,
+    },
+    OcrSettingsChanged {
+        revision: u64,
+    },
+    OcrModelsChanged {
+        models: Vec<crate::ocr::Model>,
     },
     PluginChanged(crate::plugin::Summary),
     /// Invalidates private package data without broadcasting its keys or values.

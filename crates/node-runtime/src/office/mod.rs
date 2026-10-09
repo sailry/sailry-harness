@@ -48,11 +48,23 @@ pub(crate) fn bytes(root: &Path, path: &str) -> Result<Vec<u8>, Fault> {
     Ok(bytes)
 }
 
+#[cfg(test)]
 pub(crate) fn read(root: &Path, options: &Read) -> Result<Inspection, Fault> {
-    extension(&options.path)?;
+    read_with(root, options, None, &sailry_link::CancellationToken::new())
+}
+
+pub(crate) fn read_with(
+    root: &Path,
+    options: &Read,
+    ocr: Option<&crate::ocr::Service>,
+    cancel: &sailry_link::CancellationToken,
+) -> Result<Inspection, Fault> {
+    if !crate::ocr::document::supported(&options.path) {
+        extension(&options.path)?;
+    }
     let bytes = bytes(root, &options.path)?;
     let revision = blake3::hash(&bytes).to_hex().to_string();
-    let sections = parts(&options.path, &bytes)?;
+    let sections = parts_with(&options.path, &bytes, ocr, cancel)?;
     // Long document parts continue in subsequent offsets instead of losing their tail.
     let mut chunks = Vec::new();
     for part in sections {
@@ -99,5 +111,39 @@ pub(crate) fn parts(path: &str, bytes: &[u8]) -> Result<Vec<Part>, Fault> {
         "pdf" => pdf::parts(bytes),
         "xlsx" => workbook::parts(bytes),
         ext => package::parts(bytes, ext),
+    }
+}
+
+pub(crate) fn parts_with(
+    path: &str,
+    bytes: &[u8],
+    ocr: Option<&crate::ocr::Service>,
+    cancel: &sailry_link::CancellationToken,
+) -> Result<Vec<Part>, Fault> {
+    if bytes.len() > LIMIT {
+        return Err(invalid("file exceeds 32 MiB"));
+    }
+    if crate::ocr::document::supported(path) {
+        return crate::ocr::document::image(
+            ocr.ok_or_else(|| {
+                Fault::new(
+                    sailry_protocol::ErrorCode::NotConfigured,
+                    "an OCR model must be installed",
+                )
+            })?,
+            bytes,
+            cancel,
+        );
+    }
+    let parts = parts(path, bytes)?;
+    if path
+        .rsplit('.')
+        .next()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+        && let Some(ocr) = ocr
+    {
+        crate::ocr::document::pdf(ocr, bytes, parts, cancel)
+    } else {
+        Ok(parts)
     }
 }

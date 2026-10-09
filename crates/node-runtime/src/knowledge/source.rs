@@ -27,6 +27,7 @@ pub(super) struct Stat {
     pub size: u64,
     pub modified_seconds: u64,
     pub modified_nanos: u32,
+    pub extractor: [u8; 32],
 }
 
 pub(super) struct Part {

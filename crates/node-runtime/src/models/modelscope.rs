@@ -34,6 +34,7 @@ pub(super) async fn search(
                 match request.kind {
                     sailry_protocol::models::Kind::Embedding => "onnx",
                     sailry_protocol::models::Kind::Speech => "sensevoice",
+                    sailry_protocol::models::Kind::Ocr => "oar-ocr",
                 }
             } else {
                 request.query.trim()

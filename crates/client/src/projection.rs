@@ -102,6 +102,8 @@ impl Projection {
                     | Event::KnowledgeSettingsChanged { .. }
                     | Event::BackupSettingsChanged { .. }
                     | Event::PythonSettingsChanged { .. }
+                    | Event::OcrSettingsChanged { .. }
+                    | Event::OcrModelsChanged { .. }
                     | Event::KnowledgeCollectionsChanged => {}
                     Event::PluginRemoved { name } => {
                         snapshot.plugins.retain(|item| item.name != name)

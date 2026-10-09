@@ -6,7 +6,7 @@ mod tests;
 mod view;
 pub(super) use managed::rows as model_rows;
 
-use super::{dictation, knowledge, providers::Binding};
+use super::{dictation, knowledge, providers::Binding, runtime};
 use crate::{theme::DialogStyle as _, tr};
 use gpui_kit::{
     component::{
@@ -27,6 +27,7 @@ use sailry_protocol::{
 pub(super) enum Target {
     Knowledge(Entity<knowledge::Panel>),
     Speech(Entity<dictation::Panel>),
+    Ocr(Entity<runtime::Panel>),
 }
 
 impl Target {
@@ -34,18 +35,21 @@ impl Target {
         match self {
             Self::Knowledge(_) => Kind::Embedding,
             Self::Speech(_) => Kind::Speech,
+            Self::Ocr(_) => Kind::Ocr,
         }
     }
     fn available(&self, node: NodeId, cx: &App) -> bool {
         match self {
             Self::Knowledge(panel) => panel.read(cx).admits(node),
             Self::Speech(panel) => panel.read(cx).admits(node),
+            Self::Ocr(panel) => panel.read(cx).admits(node),
         }
     }
     fn busy(&self, cx: &App) -> bool {
         match self {
             Self::Knowledge(panel) => panel.read(cx).locked(),
             Self::Speech(_) => false,
+            Self::Ocr(panel) => panel.read(cx).locked(),
         }
     }
 
@@ -53,6 +57,7 @@ impl Target {
         match self {
             Self::Knowledge(panel) => panel.read(cx).model_status(definition),
             Self::Speech(panel) => panel.read(cx).model_status(definition),
+            Self::Ocr(panel) => panel.read(cx).model_status(definition),
         }
     }
 
@@ -60,6 +65,7 @@ impl Target {
         match self {
             Self::Knowledge(panel) => panel.read(cx).source_status(source, self.kind()),
             Self::Speech(panel) => panel.read(cx).source_status(source, self.kind()),
+            Self::Ocr(panel) => panel.read(cx).source_status(source, self.kind()),
         }
     }
 
@@ -71,6 +77,9 @@ impl Target {
             Self::Speech(panel) => {
                 panel.update(cx, |panel, cx| panel.register(definition, window, cx))
             }
+            Self::Ocr(panel) => panel.update(cx, |panel, cx| {
+                panel.submit(Command::RegisterOcrModel { definition }, window, cx)
+            }),
         }
     }
 }
@@ -79,6 +88,7 @@ impl Target {
 pub(super) enum ModelKey {
     Embedding(Model),
     Speech(Option<ModelId>),
+    Ocr([u8; 32]),
 }
 
 #[derive(Clone, Copy)]
@@ -123,6 +133,9 @@ impl Target {
             (Self::Speech(panel), ModelKey::Speech(None)) => {
                 panel.update(cx, |panel, cx| panel.install(None, window, cx));
             }
+            (Self::Ocr(panel), ModelKey::Ocr(id)) => {
+                panel.update(cx, |panel, cx| panel.install(id, window, cx))
+            }
             _ => unreachable!("model row belongs to its target"),
         }
     }
@@ -134,6 +147,9 @@ impl Target {
             (Self::Speech(panel), ModelKey::Speech(Some(id))) => {
                 panel.update(cx, |panel, cx| panel.update_model(id, window, cx));
             }
+            (Self::Ocr(panel), ModelKey::Ocr(id)) => {
+                panel.update(cx, |panel, cx| panel.update_model(id, window, cx))
+            }
             _ => unreachable!("only registered models can be updated"),
         }
     }
@@ -144,6 +160,9 @@ impl Target {
             }
             (Self::Speech(panel), ModelKey::Speech(id)) => {
                 panel.update(cx, |panel, cx| panel.cancel(id, cx));
+            }
+            (Self::Ocr(panel), ModelKey::Ocr(id)) => {
+                panel.update(cx, |panel, cx| panel.cancel(id, window, cx))
             }
             _ => unreachable!("model row belongs to its target"),
         }
@@ -166,6 +185,17 @@ impl Target {
                 let title = tr("knowledge_delete");
                 crate::prompts::confirm(
                     &title,
+                    &name,
+                    tr("knowledge_delete"),
+                    window,
+                    cx,
+                    move |window, cx| panel.update(cx, |panel, cx| panel.remove(id, window, cx)),
+                );
+            }
+            (Self::Ocr(panel), ModelKey::Ocr(id)) => {
+                let panel = panel.clone();
+                crate::prompts::confirm(
+                    &tr("knowledge_delete"),
                     &name,
                     tr("knowledge_delete"),
                     window,
@@ -236,7 +266,11 @@ pub(super) fn open(
         let hub = cx.new(|cx| {
             SelectState::new(
                 vec![HubChoice(Hub::HuggingFace), HubChoice(Hub::ModelScope)],
-                Some(IndexPath::new(0)),
+                Some(IndexPath::new(if target.kind() == Kind::Ocr {
+                    1
+                } else {
+                    0
+                })),
                 window,
                 cx,
             )
@@ -296,6 +330,7 @@ pub(super) fn open(
         match &target {
             Target::Knowledge(panel) => cx.observe(panel, |_, _, cx| cx.notify()).detach(),
             Target::Speech(panel) => cx.observe(panel, |_, _, cx| cx.notify()).detach(),
+            Target::Ocr(panel) => cx.observe(panel, |_, _, cx| cx.notify()).detach(),
         }
         Library {
             target,
@@ -323,6 +358,7 @@ pub(super) fn open(
             .form_title(tr(match library.read(cx).target.kind() {
                 Kind::Embedding => "model_library_embedding",
                 Kind::Speech => "model_library_speech",
+                Kind::Ocr => "model_library_ocr",
             }))
             .w((window.viewport_size().width - px(48.)).min(px(680.)))
             .h((window.viewport_size().height - px(96.)).min(px(640.)))

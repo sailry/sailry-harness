@@ -65,6 +65,10 @@ impl Index {
             .map_err(error)?;
         db.execute_batch(include_str!("index/schema.sql"))
             .map_err(error)?;
+        let extractor: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('file_stamps') WHERE name='extractor')", [], |row| row.get(0)).map_err(error)?;
+        if !extractor {
+            db.execute_batch("ALTER TABLE file_stamps ADD COLUMN extractor BLOB NOT NULL DEFAULT X'0000000000000000000000000000000000000000000000000000000000000000'").map_err(error)?;
+        }
         let version: i64 = db
             .query_row(
                 "SELECT version FROM metadata WHERE singleton=1",

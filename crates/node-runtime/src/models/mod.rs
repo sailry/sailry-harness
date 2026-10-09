@@ -137,6 +137,26 @@ pub(crate) async fn resolve(
     resolve::definition(&http, kind, source, cancel).await
 }
 
+/// Updates the same OCR profile, retaining the detector, recognizer and dictionary roles.
+pub(crate) async fn refresh_ocr(
+    previous: &Definition,
+    mirror: Option<&str>,
+    cancel: &CancellationToken,
+    #[cfg(any(test, feature = "test-support"))] fixture: Option<reqwest::Url>,
+) -> Result<Definition, Fault> {
+    previous.validate()?;
+    if previous.format.kind() != Kind::Ocr {
+        return Err(Fault::invalid("OCR model format required"));
+    }
+    let http = http(
+        previous.source.hub,
+        mirror,
+        #[cfg(any(test, feature = "test-support"))]
+        fixture,
+    )?;
+    resolve::ocr::refresh(&http, previous, cancel).await
+}
+
 struct Repository {
     source: Source,
     name: String,

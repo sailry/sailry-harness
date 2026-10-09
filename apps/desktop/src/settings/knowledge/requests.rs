@@ -279,7 +279,10 @@ impl Panel {
     }
 }
 
-pub(super) async fn execute(binding: &Binding, request: Request) -> (Result<Output, Fault>, bool) {
+pub(in crate::settings) async fn execute(
+    binding: &Binding,
+    request: Request,
+) -> (Result<Output, Fault>, bool) {
     let durable = request.command.durable();
     let result = binding.client.execute(request.clone()).await;
     if durable && result.is_err() {
@@ -292,7 +295,7 @@ pub(super) async fn execute(binding: &Binding, request: Request) -> (Result<Outp
     }
 }
 
-pub(super) fn error_key(code: ErrorCode) -> &'static str {
+pub(in crate::settings) fn error_key(code: ErrorCode) -> &'static str {
     match code {
         ErrorCode::RevisionConflict => "knowledge_conflict",
         ErrorCode::InvalidRequest => "knowledge_invalid",

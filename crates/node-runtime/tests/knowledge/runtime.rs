@@ -1,4 +1,5 @@
 use super::*;
+mod fixtures;
 
 #[tokio::test]
 async fn shares_runtime_configuration_and_conflicts() {
@@ -33,6 +34,181 @@ async fn shares_runtime_configuration_and_conflicts() {
                 .code,
             ErrorCode::RevisionConflict
         );
+
+        let Output::OcrSettings(previous) = execute(writer, Command::ReadOcrSettings).await else {
+            panic!("OCR settings expected")
+        };
+        let mut changed = previous.clone();
+        changed.enabled = !previous.enabled;
+        let output = execute(writer, Command::SaveOcrSettings(changed)).await;
+        assert_eq!(execute(reader, Command::ReadOcrSettings).await, output);
+        assert_eq!(
+            writer
+                .execute(writer.prepare(Command::SaveOcrSettings(previous)))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::RevisionConflict
+        );
+        let Output::OcrModels(models) = execute(reader, Command::ReadOcrModels).await else {
+            panic!("OCR models expected")
+        };
+        assert_eq!(models.len(), 3);
+        assert!(
+            models
+                .iter()
+                .all(|model| model.state == sailry_protocol::ocr::State::Missing)
+        );
+    }
+    fixture.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires the explicit pinned OCR reference fixture and packaged ONNX Runtime"]
+async fn reads_images_and_indexes_scanned_sources() {
+    let reference = PathBuf::from(
+        std::env::var_os("SAILRY_OCR_REFERENCE").expect("OCR reference path required"),
+    );
+    let fixture = Fixture::start().await;
+    let [local, remote] = fixture.clients();
+    let Output::OcrModels(models) = execute(&local, Command::ReadOcrModels).await else {
+        panic!("OCR models expected")
+    };
+    let model = models
+        .iter()
+        .find(|model| model.definition.name == "PP-OCRv6 tiny")
+        .unwrap();
+    let directory = fixture.temp.path().join("node/models/ocr").join(&model.id);
+    fs::create_dir(&directory).unwrap();
+    for asset in &model.definition.assets {
+        fs::copy(
+            reference.join("pp-ocrv6-tiny").join(&asset.name),
+            directory.join(&asset.name),
+        )
+        .unwrap();
+    }
+    let Output::OcrModels(models) = execute(&remote, Command::ReadOcrModels).await else {
+        panic!("OCR models expected")
+    };
+    assert_eq!(
+        models
+            .iter()
+            .find(|entry| entry.id == model.id)
+            .unwrap()
+            .state,
+        sailry_protocol::ocr::State::Missing
+    );
+    execute(
+        &remote,
+        Command::InstallOcrModel {
+            id: model.id.clone(),
+        },
+    )
+    .await;
+    let Output::OcrModels(models) = execute(&local, Command::ReadOcrModels).await else {
+        panic!("OCR models expected")
+    };
+    assert_eq!(
+        models
+            .iter()
+            .find(|entry| entry.id == model.id)
+            .unwrap()
+            .state,
+        sailry_protocol::ocr::State::Installed
+    );
+    fs::copy(reference.join("mixed.png"), fixture.root.join("scan.png")).unwrap();
+    fixtures::scanned_pdf(&reference.join("mixed.png"), &fixture.root.join("scan.pdf"));
+    let mut citations = Vec::new();
+    for path in ["scan.png", "scan.pdf"] {
+        for client in [&local, &remote] {
+            let Output::OfficeContent(inspection) = execute(
+                client,
+                Command::ReadOffice {
+                    worktree: fixture.worktree,
+                    options: office::Read {
+                        path: path.into(),
+                        offset: 0,
+                    },
+                },
+            )
+            .await
+            else {
+                panic!("Office inspection expected")
+            };
+            assert!(
+                inspection
+                    .sections
+                    .iter()
+                    .any(|section| section.text.contains("Sailry")),
+                "{inspection:?}"
+            );
+        }
+        let collection = saved(
+            execute(
+                &remote,
+                Command::CreateKnowledgeCollection {
+                    definition: definition(Source::Worktree {
+                        worktree: fixture.worktree,
+                        path: path.into(),
+                    }),
+                    plugin: None,
+                },
+            )
+            .await,
+        );
+        let citation = tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                let result = execute(
+                    &local,
+                    Command::QueryKnowledge(query("Sailry", collection.id)),
+                )
+                .await;
+                if let Output::KnowledgeSearch(mut result) = result
+                    && !result.hits.is_empty()
+                {
+                    break result.hits.remove(0).citation;
+                }
+                tokio::time::sleep(Duration::from_millis(30)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(citation.position, Position::Page { page: 1 });
+        let input = CitationRequest {
+            collection: collection.id,
+            chunk: citation.chunk.clone(),
+            revision: citation.revision.clone(),
+            context: true,
+            offset: 0,
+            limit: 20000,
+        };
+        for client in [&local, &remote] {
+            let Output::KnowledgeCitation(page) =
+                execute(client, Command::ReadKnowledgeCitation(input.clone())).await
+            else {
+                panic!("OCR citation expected")
+            };
+            assert!(page.text.contains("Sailry"));
+            assert!(page.untrusted && page.context);
+        }
+        citations.push(input);
+    }
+    let Output::OcrSettings(mut settings) = execute(&remote, Command::ReadOcrSettings).await else {
+        panic!("OCR settings expected")
+    };
+    settings.enabled = false;
+    execute(&remote, Command::SaveOcrSettings(settings)).await;
+    for client in [&local, &remote] {
+        for input in &citations {
+            assert_eq!(
+                client
+                    .execute(client.prepare(Command::ReadKnowledgeCitation(input.clone())))
+                    .await
+                    .unwrap_err()
+                    .code,
+                ErrorCode::RevisionConflict
+            );
+        }
     }
     fixture.close().await;
 }

@@ -175,6 +175,13 @@ fn files() -> BTreeMap<String, Vec<u8>> {
         ("1_Pooling/config.json",serde_json::to_vec(&json!({"word_embedding_dimension":8,"pooling_mode_cls_token":true,"pooling_mode_mean_tokens":false})).unwrap()),
         ("tokenizer.json",b"immutable tokenizer metadata fixture".to_vec()),
         ("onnx/model.onnx",b"immutable graph metadata fixture".to_vec()),
+        ("ocr.json",serde_json::to_vec(&json!({"family":"v5", "detector":"pp-ocrv5_mobile_det.onnx", "recognizer":"pp-ocrv5_mobile_rec.onnx", "dictionary":"ppocrv5_dict.txt"})).unwrap()),
+        ("pp-ocrv5_mobile_det.onnx",b"mobile detector metadata".to_vec()),
+        ("pp-ocrv5_mobile_rec.onnx",b"mobile recognizer metadata".to_vec()),
+        ("ppocrv5_dict.txt", "你\n好\n".as_bytes().to_vec()),
+        ("pp-ocrv6_tiny_det.onnx",b"tiny detector metadata".to_vec()),
+        ("pp-ocrv6_tiny_rec.onnx",b"tiny recognizer metadata".to_vec()),
+        ("ppocrv6_tiny_dict.txt", b"a\nb\n".to_vec()),
     ].into_iter().map(|(path,body)|(path.into(),body)).collect()
 }
 fn checksum(body: &[u8]) -> String {

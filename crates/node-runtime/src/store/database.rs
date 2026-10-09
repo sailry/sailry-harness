@@ -409,6 +409,8 @@ impl Database {
                 | Command::RestoreBackup { .. }
                 | Command::StartCodeServer { .. }
                 | Command::InstallKnowledgeModel { .. }
+                | Command::InstallOcrModel { .. }
+                | Command::DeleteOcrModel { .. }
                 | Command::DeleteKnowledgeModel { .. }
                 | Command::InstallCodeServer { .. }
                 | Command::UninstallCodeServer { .. }

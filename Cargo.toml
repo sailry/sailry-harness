@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/desktop", "apps/host", "crates/node-runtime", "crates/protocol", "crates/link", "crates/client", "crates/mobile-bridge", "crates/speech", "crates/content", "crates/embedding", "crates/model-assets"]
+members = ["apps/desktop", "apps/host", "crates/node-runtime", "crates/protocol", "crates/link", "crates/client", "crates/mobile-bridge", "crates/speech", "crates/content", "crates/embedding", "crates/model-assets", "crates/ocr"]
 exclude = ["vendor/rmcp", "vendor/portable-pty", "vendor/gpui-base", "vendor/gpui-component", "vendor/gpui-renderer/gpui", "vendor/gpui-renderer/apple", "vendor/gpui-renderer/wgpu", "vendor/gpui-renderer/windows", "vendor/rquickjs-compat", "vendor/block", "vendor/libghostty-vt-sys", "vendor/adk-model", "vendor/adk-gemini"]
 resolver = "2"
 
@@ -22,6 +22,10 @@ cua-platform-macos = { package = "platform-macos", git = "https://github.com/try
 sherpa-onnx = { version = "=1.13.8", default-features = false }
 sailry-speech = { path = "crates/speech" }
 sailry-embedding = { path = "crates/embedding" }
+sailry-ocr = { path = "crates/ocr" }
+oar-ocr-core = { version = "=0.10.0", default-features = false, features = ["simd"] }
+ndarray = "=0.17.2"
+hayro = { version = "=0.8.0", default-features = false, features = ["embed-cmaps", "simd"] }
 sailry-model-assets = { path = "crates/model-assets" }
 ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "load-dynamic", "api-28"] }
 libloading = "=0.9.0"

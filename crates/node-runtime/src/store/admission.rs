@@ -182,6 +182,7 @@ impl Ingress {
                 sailry_protocol::Command::SearchModels(_)
                     | sailry_protocol::Command::ReadModelVersions { .. }
                     | sailry_protocol::Command::ResolveModel { .. }
+                    | sailry_protocol::Command::RefreshOcrModel { .. }
             ) {
                 return self.model_catalog(request).await;
             }
@@ -200,6 +201,13 @@ impl Ingress {
                     | sailry_protocol::Command::CancelKnowledgeModel { .. }
             ) {
                 return self.read_knowledge(request).await;
+            }
+            if matches!(
+                request.command,
+                sailry_protocol::Command::ReadOcrModels
+                    | sailry_protocol::Command::CancelOcrModel { .. }
+            ) {
+                return self.read_ocr(request).await;
             }
             if matches!(
                 request.command,
@@ -420,6 +428,11 @@ impl Ingress {
                 request.command,
                 sailry_protocol::Command::SavePythonSettings(_)
             );
+            let ocr_change = matches!(
+                request.command,
+                sailry_protocol::Command::SaveOcrSettings(_)
+                    | sailry_protocol::Command::RegisterOcrModel { .. }
+            );
             let job = Job::Request {
                 caller,
                 request: Box::new(request),
@@ -438,7 +451,9 @@ impl Ingress {
             let result = response.await.map_err(|_| unavailable())?;
             self.dispatch.wake.notify_one();
             result.map(|admission| {
-                if python_change {
+                if ocr_change {
+                    super::ocr::observe(self, admission)
+                } else if python_change {
                     super::python::observe(self, admission)
                 } else if knowledge_change {
                     super::knowledge::runtime::observe(self, admission, knowledge_invalidation)

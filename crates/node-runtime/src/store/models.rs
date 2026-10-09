@@ -54,6 +54,24 @@ impl Ingress {
                 )
                 .await?,
             ),
+            Command::RefreshOcrModel { id } => {
+                let catalog = self.ocr_catalog().await?;
+                let previous = crate::ocr::catalog::definitions(&catalog.records)?
+                    .remove(id)
+                    .ok_or_else(|| {
+                        Fault::new(ErrorCode::NotFound, "OCR model is not registered")
+                    })?;
+                Output::ModelDefinition(
+                    crate::models::refresh_ocr(
+                        &previous,
+                        mirror.as_deref(),
+                        &stop,
+                        #[cfg(any(test, feature = "test-support"))]
+                        self.model_catalog_fixtures.get(previous.source.hub),
+                    )
+                    .await?,
+                )
+            }
             _ => return Err(Fault::invalid("model discovery expected")),
         };
         let (reply, completion) = oneshot::channel();

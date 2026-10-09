@@ -40,6 +40,7 @@ a controller does not stop already admitted work.
 | `crates/mobile-bridge` | Client handles, subscriptions and Rust/Dart adaptation | Node, ADK, PTY, Git execution and tool drivers |
 | `crates/speech` | Shared speech capability and native audio integration | Conversation ownership |
 | `crates/embedding` | CPU model loading, token offsets and normalized local vectors | Source grants, indexing and controllers |
+| `crates/ocr` | Shared CPU image recognition and PaddleOCR decoding | Model downloads, source grants and controllers |
 | `crates/model-assets` | Verified, cancellable model downloads shared by speech and retrieval | Model selection and configuration |
 | `crates/content` | Reusable GPUI Kit editors, Markdown, diffs and selection | Node, Client, file acquisition and application state |
 | `apps/desktop` | GPUI Kit composition, focus, drafts and native integrations | Duplicate history or request recovery engines |
@@ -132,6 +133,13 @@ environments by runtime and requirements identity. Skills and MCP receive the
 owning interpreter; task scripts and additional environments use the private
 session directory through ordinary command permissions. The Node's PyPI setting
 is independent from model download sources.
+
+OCR is an optional Node-owned CPU service using the packaged ONNX Runtime.
+Explicitly installed PaddleOCR definitions retain their selected profile and
+immutable asset revisions, sizes and hashes. Image and scanned-PDF inspection,
+including knowledge extraction, uses this same cancellable service through the
+local or remote Client boundary. Model settings and installation state remain on
+the execution Node.
 
 Disposable command, browser and transfer staging lives under the configurable
 profile's `tmp` directory, separate from durable worktree outputs and attachments.

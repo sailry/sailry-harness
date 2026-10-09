@@ -26,6 +26,7 @@ pub(super) fn execute(
         | Command::SearchModels(_)
         | Command::ReadModelVersions { .. }
         | Command::ResolveModel { .. }
+        | Command::RefreshOcrModel { .. }
         | Command::CancelKnowledgeModel { .. }
         | Command::QueryKnowledge(_)
         | Command::ReadKnowledgeCitation(_)
@@ -193,6 +194,13 @@ pub(super) fn execute(
             Ok((Output::PythonSettings(super::python::read(db)?), None))
         }
         Command::SavePythonSettings(settings) => super::python::save(db, request, settings),
+        Command::ReadOcrSettings
+        | Command::SaveOcrSettings(_)
+        | Command::RegisterOcrModel { .. } => super::ocr::execute(db, request),
+        Command::ReadOcrModels
+        | Command::CancelOcrModel { .. }
+        | Command::InstallOcrModel { .. }
+        | Command::DeleteOcrModel { .. } => Err(Fault::invalid("OCR resource command expected")),
         Command::SearchWeb(_)
         | Command::CancelWebSearch { .. }
         | Command::TestSearchDriver { .. } => Err(Fault::new(

@@ -7,6 +7,7 @@ use sailry_protocol::{
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+pub(super) mod ocr;
 mod prefixes;
 
 pub(super) async fn definition(
@@ -15,25 +16,10 @@ pub(super) async fn definition(
     source: &Source,
     cancel: &CancellationToken,
 ) -> Result<Definition, Fault> {
-    source.validate()?;
-    let source = if source.revision == "HEAD" {
-        match source.hub {
-            Hub::HuggingFace => Source {
-                revision: "main".into(),
-                ..source.clone()
-            },
-            Hub::ModelScope => modelscope::head(http, &source.repository, cancel).await?,
-        }
-    } else {
-        source.clone()
-    };
-    let repository = match source.hub {
-        Hub::HuggingFace => huggingface::repository(http, &source, cancel).await?,
-        Hub::ModelScope => modelscope::repository(http, &source, cancel).await?,
-    };
+    let repository = repository(http, source, cancel).await?;
     let (query_prefix, document_prefix) = match kind {
         Kind::Embedding => prefixes::read(http, &repository, cancel).await?,
-        Kind::Speech => (None, None),
+        Kind::Speech | Kind::Ocr => (None, None),
     };
     let has_prefix = [&query_prefix, &document_prefix]
         .into_iter()
@@ -42,6 +28,7 @@ pub(super) async fn definition(
     let (format, assets) = match kind {
         Kind::Embedding => embedding(http, &repository, has_prefix, cancel).await?,
         Kind::Speech => speech(http, &repository, cancel).await?,
+        Kind::Ocr => ocr::definition(http, &repository, cancel).await?,
     };
     let definition = Definition {
         source: repository.source,
@@ -54,6 +41,29 @@ pub(super) async fn definition(
     };
     definition.validate()?;
     Ok(definition)
+}
+
+async fn repository(
+    http: &Http,
+    source: &Source,
+    cancel: &CancellationToken,
+) -> Result<Repository, Fault> {
+    source.validate()?;
+    let source = if source.revision == "HEAD" {
+        match source.hub {
+            Hub::HuggingFace => Source {
+                revision: "main".into(),
+                ..source.clone()
+            },
+            Hub::ModelScope => modelscope::head(http, &source.repository, cancel).await?,
+        }
+    } else {
+        source.clone()
+    };
+    match source.hub {
+        Hub::HuggingFace => huggingface::repository(http, &source, cancel).await,
+        Hub::ModelScope => modelscope::repository(http, &source, cancel).await,
+    }
 }
 
 async fn embedding(
@@ -74,7 +84,7 @@ async fn embedding(
     let file = match format {
         Format::Static { .. } => required(repository, "model.safetensors")?,
         Format::Transformer { .. } => graph(repository, false)?,
-        Format::SenseVoice {} => unreachable!(),
+        Format::SenseVoice {} | Format::PaddleOcr { .. } => unreachable!(),
     };
     let name = if matches!(format, Format::Static { .. }) {
         "model.safetensors"
@@ -190,7 +200,7 @@ pub(super) async fn inspect(
         Hub::HuggingFace => huggingface::repository(http, &source, cancel).await?,
         Hub::ModelScope => modelscope::repository(http, &source, cancel).await?,
     };
-    if !super::commit(&repository.source.revision) {
+    if !super::commit(&repository.source.revision) && kind != Kind::Ocr {
         return Err(Fault::new(
             ErrorCode::Unavailable,
             "model catalog could not pin the repository revision",
@@ -225,7 +235,7 @@ pub(super) async fn inspect(
             let weights = match format {
                 Format::Static { .. } => required(&repository, "model.safetensors")?,
                 Format::Transformer { .. } => graph(&repository, false)?,
-                Format::SenseVoice {} => unreachable!(),
+                Format::SenseVoice {} | Format::PaddleOcr { .. } => unreachable!(),
             };
             if weights.bytes == 0 || weights.bytes > MAX_ASSET_BYTES {
                 return Err(Fault::invalid("model asset exceeds its size limit"));
@@ -245,6 +255,7 @@ pub(super) async fn inspect(
             }
             Format::SenseVoice {}
         }
+        Kind::Ocr => ocr::profile(http, &repository, cancel).await?.0,
     };
     Ok(sailry_protocol::models::Item {
         source: repository.source,
