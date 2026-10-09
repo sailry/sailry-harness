@@ -1,8 +1,16 @@
 """Development recipes reuse the application default unless a profile is explicit."""
 
+import hashlib
+import io
+import json
+import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
+import sys
+import tarfile
+import tempfile
 import unittest
 
 
@@ -41,6 +49,147 @@ class DesktopProfile(unittest.TestCase):
 
     def test_keeps_preview_separate(self):
         self.assertEqual(self.preview.strip(), "bash scripts/run-desktop.sh --preview")
+
+
+class NativeAssets(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="sailry-desktop-launch-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.project = self.root / "project space"
+        self.target = self.root / "build output"
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        for name in ("run-desktop.sh", "python.sh", "package/onnx-runtime.py"):
+            destination = self.project / "scripts" / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / "scripts" / name, destination)
+        for name in ("apps/desktop/macos/Info.plist", "assets/branding/Sailry.icns",
+                     "apps/desktop/macos/zh_CN.lproj/InfoPlist.strings"):
+            destination = self.project / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text("resource fixture")
+        self.old_calls = self.root / "old-python-calls"
+        self.calls = self.root / "native-python-calls"
+        self.signatures = self.root / "signatures"
+        self.build = self.root / "build.json"
+        self.program("python3", f'''#!/bin/sh
+printf '%s\\n' "$1" >> {shlex.quote(str(self.old_calls))}
+if test "$1" = -c; then exit 1; fi
+exit 91
+''', python=False)
+        self.program("python3.14", f'''
+import json, os, sys
+if sys.argv[1] != "-c":
+    with open({str(self.calls)!r}, "a") as output:
+        output.write(json.dumps(sys.argv[1:]) + "\\n")
+os.execv(sys.executable, [sys.executable, *sys.argv[1:]])
+''')
+        self.program("rustc", 'print("host: aarch64-apple-darwin")\n')
+        self.program("uname", 'print("Darwin")\n')
+        self.program("security", 'print(\'  1) FIXTURE "Apple Development: Fixture User (FIXTURE)"\')\n')
+        self.program("cargo", f'''
+import json, os, sys
+from pathlib import Path
+Path({str(self.build)!r}).write_text(json.dumps({{
+    "args": sys.argv[1:], "native": os.environ["SHERPA_ONNX_LIB_DIR"]
+}}))
+binary = Path(os.environ["CARGO_TARGET_DIR"]) / "debug/sailry-desktop"
+binary.write_bytes(b"compiled fixture")
+binary.chmod(0o755)
+''')
+        self.program("codesign", f'''
+import json, sys
+from pathlib import Path
+path = Path(sys.argv[-1])
+with open({str(self.signatures)!r}, "a") as output:
+    output.write(json.dumps(sys.argv[1:]) + "\\n")
+if path.is_dir():
+    raise SystemExit(73)
+path.write_bytes(path.read_bytes() + b"signature fixture")
+''')
+        self.contents = {"libonnxruntime.dylib": b"runtime fixture",
+                         "libsherpa-onnx-c-api.dylib": b"speech fixture"}
+        self.archive()
+
+    def program(self, name, content, python=True):
+        path = self.bin / name
+        path.write_text((f"#!{sys.executable}\n" if python else "") + content)
+        path.chmod(0o755)
+
+    def archive(self):
+        stream = io.BytesIO()
+        files = []
+        with tarfile.open(fileobj=stream, mode="w:bz2") as package:
+            for name, content in self.contents.items():
+                member = tarfile.TarInfo("fixed/lib/" + name)
+                member.size = len(content)
+                package.addfile(member, io.BytesIO(content))
+                files.append({"name": name, "member": member.name, "size": len(content),
+                              "sha256": hashlib.sha256(content).hexdigest(),
+                              "role": "runtime" if name == "libonnxruntime.dylib" else "speech"})
+        data = stream.getvalue()
+        self.archive_hash = hashlib.sha256(data).hexdigest()
+        lock = {"version": 1, "runtime_version": "1.28.2", "sherpa_version": "1.13.8",
+                "source": "https://release.invalid/", "targets": {"aarch64-apple-darwin": {
+                    "archive": "fixed.tar.bz2", "size": len(data),
+                    "sha256": self.archive_hash, "files": files}}}
+        (self.project / "scripts/package/onnx-runtime.lock.json").write_text(json.dumps(lock))
+        cache = self.target / "sherpa-onnx-prebuilt"
+        cache.mkdir(parents=True)
+        (cache / "fixed.tar.bz2").write_bytes(data)
+
+    def test_selects_python_for_each_native_stage(self):
+        environment = {key: value for key, value in os.environ.items()
+                       if not key.startswith("SAILRY_")}
+        environment.update({"PATH": str(self.bin) + os.pathsep + "/usr/bin:/bin",
+                            "CARGO_TARGET_DIR": str(self.target)})
+        result = subprocess.run(["/bin/bash", str(self.project / "scripts/run-desktop.sh")],
+                                env=environment, capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 73, result.stderr)
+        self.assertEqual(self.old_calls.read_text().splitlines(), ["-c"] * 4)
+        calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
+        native = self.target / "onnx-native/aarch64-apple-darwin"
+        debug = self.target / "debug"
+        app = debug / "Sailry.app"
+        outputs = [native, debug, app / "Contents/MacOS", app / "Contents/MacOS"]
+        self.assertEqual(len(calls), len(outputs))
+        for arguments, output in zip(calls, outputs):
+            self.assertEqual(arguments[0], str(self.project / "scripts/package/onnx-runtime.py"))
+            self.assertEqual(arguments[arguments.index("--output") + 1], str(output))
+        self.assertIn("--finalize", calls[-1])
+        self.assertEqual(json.loads(self.build.read_text()), {
+            "args": ["build", "--locked", "-p", "sailry-desktop"], "native": str(native)})
+        signatures = [json.loads(line) for line in self.signatures.read_text().splitlines()]
+        self.assertEqual([arguments[-1] for arguments in signatures], [
+            str(app / "Contents/MacOS" / name) for name in self.contents] + [str(app)])
+        self.assertTrue(all(arguments[arguments.index("--sign") + 1] == "FIXTURE"
+                            for arguments in signatures))
+        for directory in (native, debug, debug / "deps", debug / "examples"):
+            metadata = json.loads((directory / "onnx-runtime.json").read_text())
+            self.assertEqual(metadata["target"], "aarch64-apple-darwin")
+            self.assertEqual(metadata["runtime_version"], "1.28.2")
+            self.assertEqual(metadata["sherpa_version"], "1.13.8")
+            self.assertEqual(metadata["source"]["sha256"], self.archive_hash)
+            for file in metadata["files"]:
+                self.assertEqual((directory / file["name"]).read_bytes(), self.contents[file["name"]])
+                self.assertEqual(file["sha256"], hashlib.sha256(self.contents[file["name"]]).hexdigest())
+                self.assertEqual(file["source_sha256"], file["sha256"])
+                self.assertEqual(file["size"], len(self.contents[file["name"]]))
+        metadata = json.loads((app / "Contents/Resources/onnx-runtime.json").read_text())
+        self.assertEqual(metadata["target"], "aarch64-apple-darwin")
+        self.assertEqual(metadata["runtime_version"], "1.28.2")
+        self.assertEqual(metadata["sherpa_version"], "1.13.8")
+        self.assertEqual(metadata["source"]["sha256"], self.archive_hash)
+        self.assertFalse((app / "Contents/MacOS/onnx-runtime.json").exists())
+        self.assertEqual((app / "Contents/MacOS/sailry-desktop").read_bytes(), b"compiled fixture")
+        for file in metadata["files"]:
+            content = self.contents[file["name"]]
+            self.assertEqual((app / "Contents/MacOS" / file["name"]).read_bytes(), content + b"signature fixture")
+            self.assertEqual(file["source_sha256"], hashlib.sha256(content).hexdigest())
+            self.assertEqual(file["sha256"], hashlib.sha256(content + b"signature fixture").hexdigest())
+            self.assertNotEqual(file["sha256"], file["source_sha256"])
+            self.assertEqual(file["size"], len(content + b"signature fixture"))
 
 
 if __name__ == "__main__":

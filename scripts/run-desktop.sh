@@ -7,9 +7,9 @@ task_target="${CARGO_TARGET_DIR:-$task_root/target}"
 task_build="$task_target/debug"
 task_triple="$(rustc -vV | awk '/^host: / {print $2}')"
 task_native="$task_target/onnx-native/$task_triple"
-python3 "$task_root/scripts/package/onnx-runtime.py" --target "$task_triple" \
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_triple" \
   --output "$task_native" --cache "$task_target/sherpa-onnx-prebuilt" --speech --link
-python3 "$task_root/scripts/package/onnx-runtime.py" --target "$task_triple" \
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_triple" \
   --output "$task_build" --source "$task_native" --speech --link --cargo
 
 if test "$(uname -s)" != Darwin; then
@@ -44,12 +44,12 @@ mv "$task_app/Contents/MacOS/sailry-desktop.next" "$task_app/Contents/MacOS/sail
 cp "$task_root/apps/desktop/macos/Info.plist" "$task_app/Contents/Info.plist"
 cp "$task_root/assets/branding/Sailry.icns" "$task_app/Contents/Resources/Sailry.icns"
 cp -R "$task_root/apps/desktop/macos/zh_CN.lproj" "$task_app/Contents/Resources/"
-python3 "$task_root/scripts/package/onnx-runtime.py" --target "$task_triple" \
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_triple" \
   --output "$task_app/Contents/MacOS" --source "$task_build" --speech
 for task_library in libonnxruntime.dylib libsherpa-onnx-c-api.dylib; do
   codesign --force --timestamp=none --sign "$task_identity" "$task_app/Contents/MacOS/$task_library"
 done
-python3 "$task_root/scripts/package/onnx-runtime.py" --target "$task_triple" \
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_triple" \
   --output "$task_app/Contents/MacOS" --speech --finalize
 codesign --force --timestamp=none --sign "$task_identity" "$task_app"
 # LaunchServices gives Sailry its own TCC identity. Direct execution attributes
