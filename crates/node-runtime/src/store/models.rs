@@ -22,14 +22,37 @@ impl Ingress {
         let _guard = stop.clone().drop_guard();
         let mirror = self.knowledge_catalog().await?.settings.mirror;
         let output = match &request.command {
-            Command::SearchModels(search) => {
-                Output::ModelSearch(crate::models::search(search, mirror.as_deref(), &stop).await?)
-            }
+            Command::SearchModels(search) => Output::ModelSearch(
+                crate::models::search(
+                    search,
+                    mirror.as_deref(),
+                    &stop,
+                    #[cfg(any(test, feature = "test-support"))]
+                    self.model_catalog_fixtures.get(search.hub),
+                )
+                .await?,
+            ),
             Command::ReadModelVersions { hub, repository } => Output::ModelVersions(
-                crate::models::versions(*hub, repository, mirror.as_deref(), &stop).await?,
+                crate::models::versions(
+                    *hub,
+                    repository,
+                    mirror.as_deref(),
+                    &stop,
+                    #[cfg(any(test, feature = "test-support"))]
+                    self.model_catalog_fixtures.get(*hub),
+                )
+                .await?,
             ),
             Command::ResolveModel { kind, source } => Output::ModelDefinition(
-                crate::models::resolve(*kind, source, mirror.as_deref(), &stop).await?,
+                crate::models::resolve(
+                    *kind,
+                    source,
+                    mirror.as_deref(),
+                    &stop,
+                    #[cfg(any(test, feature = "test-support"))]
+                    self.model_catalog_fixtures.get(source.hub),
+                )
+                .await?,
             ),
             _ => return Err(Fault::invalid("model discovery expected")),
         };

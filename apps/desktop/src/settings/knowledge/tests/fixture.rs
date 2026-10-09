@@ -4,7 +4,8 @@ use sailry_client::Client;
 use sailry_link::{Admission, Link, NetworkScope, Pending, Subscription, Transport};
 use sailry_node_runtime::Node;
 use sailry_protocol::{
-    Command, ErrorCode, Fault, Output, Receipt, Request, RequestId, RequestOutcome, Topic,
+    Command, ErrorCode, Event, Fault, Output, Receipt, Request, RequestId, RequestOutcome, Topic,
+    Update,
 };
 use std::{
     sync::{
@@ -24,6 +25,8 @@ pub(in crate::settings) struct Observed {
     lose_inspect: AtomicBool,
     pub hold_install: AtomicBool,
     pub catalog: Mutex<Option<sailry_protocol::models::Definition>>,
+    pub catalog_more: AtomicBool,
+    pub states: Arc<Mutex<std::collections::BTreeMap<Model, knowledge::ModelState>>>,
     install: Mutex<Option<Held>>,
     cancelled: Mutex<Option<RequestId>>,
 }
@@ -33,26 +36,70 @@ struct Held {
     sender: tokio::sync::oneshot::Sender<Result<Output, Fault>>,
 }
 
+struct ObservedStream {
+    inner: Box<dyn Subscription>,
+    states: Arc<Mutex<std::collections::BTreeMap<Model, knowledge::ModelState>>>,
+}
+
+impl Subscription for ObservedStream {
+    fn next(&mut self) -> Pending<'_, Result<Update, Fault>> {
+        Box::pin(async move {
+            let mut update = self.inner.next().await?;
+            if let Update::Event(envelope) = &mut update
+                && let Event::KnowledgeModelsChanged { models } = &mut envelope.event
+            {
+                apply_states(models, &self.states.lock().unwrap());
+            }
+            Ok(update)
+        })
+    }
+}
+
+fn apply_states(
+    models: &mut [ModelInfo],
+    states: &std::collections::BTreeMap<Model, knowledge::ModelState>,
+) {
+    for info in models {
+        if let Some(state) = states.get(&info.model) {
+            info.state = state.clone();
+        }
+    }
+}
+
 impl Transport for Observed {
     fn target(&self) -> NodeId {
         self.inner.target()
     }
     fn subscribe(&self, topic: Topic) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
-        self.inner.subscribe(topic)
+        Box::pin(async move {
+            Ok(Box::new(ObservedStream {
+                inner: self.inner.subscribe(topic).await?,
+                states: self.states.clone(),
+            }) as Box<dyn Subscription>)
+        })
     }
     fn dispatch(&self, request: Request) -> Pending<'_, Result<Admission, Fault>> {
         Box::pin(async move {
             if let Some(definition) = self.catalog.lock().unwrap().clone() {
                 use sailry_protocol::models::{Item, Page, Version};
                 let output = match &request.command {
-                    Command::SearchModels(_) => Some(Output::ModelSearch(Page {
-                        items: vec![Item {
-                            repository: definition.source.repository.clone(),
-                            name: definition.name.clone(),
-                        }],
-                        next_cursor: None,
-                        partial: false,
-                    })),
+                    Command::SearchModels(search) => {
+                        let mut source = definition.source.clone();
+                        if search.cursor.as_deref() == Some("second") {
+                            source.revision = "c".repeat(40);
+                        }
+                        Some(Output::ModelSearch(Page {
+                            items: vec![Item {
+                                source,
+                                format: definition.format,
+                                name: definition.name.clone(),
+                            }],
+                            next_cursor: (self.catalog_more.load(Ordering::SeqCst)
+                                && search.cursor.is_none())
+                            .then(|| "second".into()),
+                            partial: false,
+                        }))
+                    }
                     Command::ReadModelVersions { .. } => {
                         Some(Output::ModelVersions(vec![Version {
                             name: "Pinned fixture".into(),
@@ -126,19 +173,27 @@ impl Transport for Observed {
             }
             let tracked = matches!(
                 request.command,
-                Command::SaveKnowledgeSettings(_)
-                    | Command::RegisterKnowledgeModel { .. }
-                    | Command::CreateKnowledgeCollection { .. }
-                    | Command::UpdateKnowledgeCollection { .. }
-                    | Command::DeleteKnowledgeCollection { .. }
-                    | Command::RebuildKnowledgeCollection { .. }
-                    | Command::PauseKnowledgeCollection { .. }
+                Command::SaveKnowledgeSettings(_) | Command::RegisterKnowledgeModel { .. }
             );
             if tracked {
                 self.requests.lock().unwrap().push(request.clone());
             }
             let dropped = tracked && self.lose_reply.swap(false, Ordering::SeqCst);
+            let read_models = matches!(request.command, Command::ReadKnowledgeModels);
             let mut admission = self.inner.dispatch(request).await?;
+            if read_models {
+                let states = self.states.clone();
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                let completion = std::mem::replace(&mut admission.completion, receiver);
+                tokio::spawn(async move {
+                    if let Ok(mut result) = completion.await {
+                        if let Ok(Output::KnowledgeModels(models)) = &mut result {
+                            apply_states(models, &states.lock().unwrap());
+                        }
+                        _ = sender.send(result);
+                    }
+                });
+            }
             if tracked {
                 let outcomes = self.outcomes.clone();
                 let id = admission.receipt.id;
@@ -210,6 +265,8 @@ impl Fixture {
             lose_inspect: AtomicBool::new(false),
             hold_install: AtomicBool::new(false),
             catalog: Mutex::default(),
+            catalog_more: AtomicBool::new(false),
+            states: Arc::default(),
             install: Mutex::default(),
             cancelled: Mutex::default(),
         });
@@ -236,33 +293,6 @@ impl Fixture {
             panic!("knowledge settings expected")
         };
         settings
-    }
-
-    pub fn collections(&self) -> Vec<Collection> {
-        let Output::KnowledgeCollections(collections) =
-            self.execute(Command::ListKnowledgeCollections)
-        else {
-            panic!("knowledge collections expected")
-        };
-        collections
-    }
-
-    pub fn keyword(&self) {
-        let mut settings = self.settings();
-        settings.model = None;
-        self.execute(Command::SaveKnowledgeSettings(settings));
-    }
-
-    pub fn source(&self) -> std::path::PathBuf {
-        let path = self
-            .directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("sources");
-        std::fs::create_dir_all(&path).unwrap();
-        std::fs::write(path.join("notes.txt"), "Knowledge fixture text\n").unwrap();
-        path
     }
 
     pub fn mount<'a>(
@@ -357,6 +387,23 @@ pub(in crate::settings) fn selected(owner: &Entity<Workspace>, cx: &App) -> Opti
     let workspace = owner.read(cx);
     let node = workspace.provider_link.as_ref()?.binding.client.target();
     workspace.knowledge.panels.get(&node).cloned()
+}
+
+pub(in crate::settings) fn set_state(
+    owner: &Entity<Panel>,
+    model: Model,
+    state: knowledge::ModelState,
+    cx: &mut App,
+) {
+    owner.update(cx, |panel, cx| {
+        panel
+            .models
+            .iter_mut()
+            .find(|info| info.model == model)
+            .unwrap()
+            .state = state;
+        cx.notify();
+    });
 }
 
 pub(in crate::settings) fn draw(cx: &mut VisualTestContext) {

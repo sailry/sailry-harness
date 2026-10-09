@@ -7,14 +7,12 @@ impl Library {
             return;
         }
         let query = self.query.read(cx).value().trim().to_owned();
-        if query.is_empty() {
-            return;
-        }
         let hub = self.hub(cx);
         let cursor = if more { self.cursor.clone() } else { None };
         if more && (cursor.is_none() || self.searched.as_ref() != Some(&(hub, query.clone()))) {
             return;
         }
+        self.installing = None;
         self.loading = true;
         self.generation += 1;
         let generation = self.generation;
@@ -54,7 +52,7 @@ impl Library {
                             if !library
                                 .items
                                 .iter()
-                                .any(|previous| previous.repository == item.repository)
+                                .any(|previous| previous.source == item.source)
                             {
                                 library.items.push(item);
                             }
@@ -72,6 +70,79 @@ impl Library {
         cx.notify();
     }
 
+    pub(super) fn install(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.loading || !self.available(cx) || self.target.busy(cx) {
+            return;
+        }
+        let Some(item) = self.items.get(index) else {
+            return;
+        };
+        if matches!(
+            self.target.source_status(&item.source, cx),
+            ModelStatus::Installed | ModelStatus::Downloading(_) | ModelStatus::Checking
+        ) {
+            return;
+        }
+        let expected = item.source.clone();
+        let source = expected.clone();
+        self.installing = Some(expected.clone());
+        let kind = self.target.kind();
+        self.loading = true;
+        self.repository = Some(expected.repository.clone());
+        self.definition = None;
+        self.generation += 1;
+        let generation = self.generation;
+        let binding = self.binding.clone();
+        let job = binding.runtime.spawn(async move {
+            binding
+                .client
+                .execute(
+                    binding
+                        .client
+                        .prepare(Command::ResolveModel { kind, source }),
+                )
+                .await
+        });
+        cx.spawn_in(window, async move |owner, cx| {
+            let result = job.await;
+            _ = owner.update_in(cx, |library, window, cx| {
+                if library.generation != generation {
+                    return;
+                }
+                library.loading = false;
+                if !library.available(cx) {
+                    cx.notify();
+                    return;
+                }
+                match result {
+                    Ok(Ok(Output::ModelDefinition(definition)))
+                        if definition.format.kind() == kind
+                            && definition.source.hub == expected.hub
+                            && definition.source.repository == expected.repository
+                            && definition.source.revision == expected.revision
+                            && definition.validate().is_ok() =>
+                    {
+                        if !matches!(
+                            library.target.model_status(&definition, cx),
+                            ModelStatus::Installed
+                                | ModelStatus::Downloading(_)
+                                | ModelStatus::Checking
+                        ) {
+                            library.target.download(definition, window, cx);
+                        }
+                    }
+                    _ => {
+                        library.installing = None;
+                        library.failure(window, cx);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     pub(super) fn versions(
         &mut self,
         repository: String,
@@ -81,6 +152,7 @@ impl Library {
         if self.loading || !self.available(cx) {
             return;
         }
+        self.installing = None;
         self.loading = true;
         self.repository = Some(repository.clone());
         self.definition = None;

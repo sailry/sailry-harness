@@ -16,46 +16,49 @@ impl Render for Library {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let locked = self.loading || !self.available(cx);
         let downloading = locked || self.target.busy(cx);
-        let controls = v_flex()
+        let controls = h_flex()
+            .w_full()
+            .items_center()
             .gap_3()
             .child(
-                Row::new(
-                    "model_library_source",
-                    Select::new(&self.hub).w_full().disabled(locked),
-                )
-                .wide(),
+                div()
+                    .debug_selector(|| "model-library-source".into())
+                    .w_48()
+                    .flex_shrink_0()
+                    .child(Select::new(&self.hub).w_full().disabled(locked)),
             )
             .child(
-                h_flex()
-                    .w_full()
-                    .gap_3()
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .debug_selector(|| "model-library-query".into())
                     .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .debug_selector(|| "model-library-query".into())
-                            .child(
-                                Input::new(&self.query)
-                                    .id("model-library-query")
-                                    .w_full()
-                                    .disabled(locked),
-                            ),
-                    )
-                    .child(
-                        Button::new("model-library-search")
-                            .label(tr("model_library_search"))
-                            .debug_selector(|| "model-library-search".into())
-                            .disabled(locked)
-                            .on_click(cx.listener(|library, _, window, cx| {
-                                library.search(false, window, cx)
-                            })),
+                        Input::new(&self.query)
+                            .id("model-library-query")
+                            .w_full()
+                            .disabled(locked),
+                    ),
+            )
+            .child(
+                Button::new("model-library-search")
+                    .label(tr("model_library_search"))
+                    .loading(self.loading && self.repository.is_none())
+                    .debug_selector(|| "model-library-search".into())
+                    .disabled(locked)
+                    .on_click(
+                        cx.listener(|library, _, window, cx| library.search(false, window, cx)),
                     ),
             );
         let mut results = Group::new("model_library_results")
             .heading(false)
             .empty(IconName::Search, "model_library_empty");
         for (index, item) in self.items.iter().enumerate() {
-            let repository = item.repository.clone();
+            let repository = item.source.repository.clone();
+            let status = self.target.source_status(&item.source, cx);
+            let installed = matches!(status, ModelStatus::Installed);
+            let installing = matches!(status, ModelStatus::Downloading(_) | ModelStatus::Checking)
+                || (self.installing.as_ref() == Some(&item.source)
+                    && (self.loading || self.target.busy(cx)));
             let selected = self.repository.as_ref() == Some(&repository);
             results = results.child(
                 Entry::new(
@@ -71,15 +74,44 @@ impl Render for Library {
                 )
                 .action(
                     Button::new(format!("model-library-versions-{index}"))
-                        .label(tr(if selected {
-                            "model_library_selected"
-                        } else {
-                            "model_library_versions"
-                        }))
+                        .icon(IconName::Settings2)
+                        .accessibility_label(tr("model_library_versions"))
+                        .tooltip(tr("model_library_versions"))
                         .disabled(locked || selected)
                         .debug_selector(move || format!("model-library-versions-{index}"))
                         .on_click(cx.listener(move |library, _, window, cx| {
                             library.versions(repository.clone(), window, cx)
+                        })),
+                )
+                .action(
+                    Button::new(format!("model-library-install-{index}"))
+                        .icon(
+                            Icon::new(if installed {
+                                gpui_kit::assets::IconName::Check
+                            } else {
+                                gpui_kit::assets::IconName::Download
+                            })
+                            .text_color(if installed {
+                                cx.theme().muted_foreground
+                            } else {
+                                cx.theme().primary
+                            }),
+                        )
+                        .accessibility_label(tr(if installed {
+                            "knowledge_installed"
+                        } else {
+                            "knowledge_install"
+                        }))
+                        .tooltip(tr(if installed {
+                            "knowledge_installed"
+                        } else {
+                            "knowledge_install"
+                        }))
+                        .loading(installing)
+                        .disabled(downloading || installed || installing)
+                        .debug_selector(move || format!("model-library-install-{index}"))
+                        .on_click(cx.listener(move |library, _, window, cx| {
+                            library.install(index, window, cx)
                         })),
                 ),
             );
@@ -119,6 +151,12 @@ impl Render for Library {
                 )
             })
             .when_some(self.definition.as_ref(), |view, definition| {
+                let status = self
+                    .target
+                    .model_status(self.draft(cx).as_ref().unwrap_or(definition), cx);
+                let installed = matches!(status, ModelStatus::Installed);
+                let installing =
+                    matches!(status, ModelStatus::Downloading(_) | ModelStatus::Checking);
                 view.when(definition.format.kind() == Kind::Embedding, |view| {
                     view.child(
                         Row::new(
@@ -187,8 +225,13 @@ impl Render for Library {
                     .action(
                         Button::new("model-library-download")
                             .primary()
-                            .label(tr("dictation_download_model"))
-                            .disabled(downloading)
+                            .label(tr(if installed {
+                                "knowledge_installed"
+                            } else {
+                                "dictation_download_model"
+                            }))
+                            .loading(installing)
+                            .disabled(downloading || installed || installing)
                             .debug_selector(|| "model-library-download".into())
                             .on_click(
                                 cx.listener(|library, _, window, cx| library.download(window, cx)),
@@ -203,6 +246,5 @@ impl Render for Library {
                         .child(spinner::Spinner::new()),
                 )
             })
-            .child(Group::new("model_library_manage").children(self.target.rows(true, cx)))
     }
 }

@@ -186,8 +186,7 @@ pub struct Search {
 
 impl Search {
     pub fn validate(&self) -> Result<(), Fault> {
-        if self.query.trim().is_empty()
-            || self.query.len() > 512
+        if self.query.len() > 512
             || self.query.contains('\0')
             || self
                 .cursor
@@ -202,8 +201,9 @@ impl Search {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Item {
-    pub repository: String,
+    pub source: Source,
     pub name: String,
+    pub format: Format,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

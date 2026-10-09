@@ -53,6 +53,9 @@ fn registers_on_each_selected_node(cx: &mut TestAppContext) {
         tap(visual, "knowledge-model-library");
         let library =
             visual.update(|_, cx| panel.read(cx).library.as_ref().unwrap().upgrade().unwrap());
+        wait(visual, |cx| {
+            library.read(cx).items.len() == 1 && !library.read(cx).loading
+        });
         input(visual, "model-library-query", "encoder");
         tap(visual, "model-library-search");
         wait(visual, |cx| {
@@ -153,4 +156,164 @@ fn rejects_download_after_host_change(cx: &mut TestAppContext) {
             .all(|request| !matches!(request.command, Command::RegisterKnowledgeModel { .. }))
     );
     fixture.close(visual);
+}
+
+#[gpui::test]
+fn loads_defaults_and_pages_online_results(cx: &mut TestAppContext) {
+    use gpui_kit::test::TestWindowExt;
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        *fixture.transport.catalog.lock().unwrap() = Some(definition());
+        fixture.transport.catalog_more.store(true, Ordering::SeqCst);
+        let (owner, visual) = fixture.mount(cx);
+        let panel = visual.update(|_, cx| selected(&owner, cx).unwrap());
+        tap(visual, "knowledge-model-library");
+        let library =
+            visual.update(|_, cx| panel.read(cx).library.as_ref().unwrap().upgrade().unwrap());
+        wait(visual, |cx| {
+            library.read(cx).items.len() == 1 && !library.read(cx).loading
+        });
+        let source = visual.debug_bounds("model-library-source").unwrap();
+        visual.update(|window, cx| {
+            assert!(
+                window
+                    .try_find("model-library-knowledge-model-potion-multi")
+                    .is_none()
+            );
+            assert_eq!(
+                library.read(cx).hub.read(cx).selected_value(),
+                Some(&Hub::HuggingFace)
+            );
+            assert_eq!(HubChoice(Hub::HuggingFace).title(), "huggingface.co");
+            assert_eq!(HubChoice(Hub::ModelScope).title(), "modelscope.cn");
+            let query = window.find("model-library-query").bounds();
+            let search = window.find("model-library-search").bounds();
+            assert!((source.center().y - query.center().y).abs() <= px(1.));
+            assert!((source.center().y - search.center().y).abs() <= px(1.));
+        });
+        tap(visual, "model-library-more");
+        wait(visual, |cx| {
+            library.read(cx).items.len() == 2 && !library.read(cx).loading
+        });
+        visual.update(|_, cx| {
+            assert!(library.read(cx).cursor.is_none());
+            assert_ne!(
+                library.read(cx).items[0].source.revision,
+                library.read(cx).items[1].source.revision
+            );
+        });
+        let requests = fixture.transport.requests.lock().unwrap();
+        let searches = requests
+            .iter()
+            .filter_map(|request| {
+                if let Command::SearchModels(search) = &request.command {
+                    Some(search)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(searches.len(), 2);
+        assert!(searches[0].query.is_empty() && searches[0].cursor.is_none());
+        assert_eq!(searches[1].cursor.as_deref(), Some("second"));
+        drop(requests);
+        fixture.close(visual);
+    }
+}
+
+#[gpui::test]
+fn disables_current_install_and_allows_new_revision(cx: &mut TestAppContext) {
+    use gpui_kit::test::TestWindowExt;
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let candidate = definition();
+        *fixture.transport.catalog.lock().unwrap() = Some(candidate.clone());
+        let Output::KnowledgeModel { model } = fixture.execute(Command::RegisterKnowledgeModel {
+            definition: candidate.clone(),
+        }) else {
+            panic!("registered model expected");
+        };
+        let (owner, visual) = fixture.mount(cx);
+        let panel = visual.update(|_, cx| selected(&owner, cx).unwrap());
+        wait(visual, |cx| panel.read(cx).definition_for(model).is_some());
+        fixture
+            .transport
+            .states
+            .lock()
+            .unwrap()
+            .insert(model, sailry_protocol::knowledge::ModelState::Installed);
+        visual.update(|_, cx| {
+            crate::settings::knowledge::tests::fixture::set_state(
+                &panel,
+                model,
+                sailry_protocol::knowledge::ModelState::Installed,
+                cx,
+            )
+        });
+        tap(visual, "knowledge-model-library");
+        let library =
+            visual.update(|_, cx| panel.read(cx).library.as_ref().unwrap().upgrade().unwrap());
+        wait(visual, |cx| {
+            library.read(cx).items.len() == 1 && !library.read(cx).loading
+        });
+        let before = fixture.transport.requests.lock().unwrap().len();
+        visual.update(|window, cx| {
+            assert!(matches!(
+                library
+                    .read(cx)
+                    .target
+                    .source_status(&library.read(cx).items[0].source, cx),
+                ModelStatus::Installed
+            ));
+            window.click("model-library-install-0", cx);
+        });
+        draw(visual);
+        assert_eq!(fixture.transport.requests.lock().unwrap().len(), before);
+        let mut newer = candidate;
+        newer.source.revision = "c".repeat(40);
+        for asset in &mut newer.assets {
+            asset.source.revision = newer.source.revision.clone();
+        }
+        *fixture.transport.catalog.lock().unwrap() = Some(newer.clone());
+        tap(visual, "model-library-search");
+        wait(visual, |cx| {
+            library.read(cx).items[0].source == newer.source && !library.read(cx).loading
+        });
+        fixture.transport.hold_install.store(true, Ordering::SeqCst);
+        tap(visual, "model-library-install-0");
+        wait(visual, |cx| {
+            panel.read(cx).locked()
+                && fixture
+                    .transport
+                    .requests
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|request| {
+                        matches!(
+                            request.command,
+                            Command::InstallKnowledgeModel {
+                                model: Model::Registered { .. }
+                            }
+                        )
+                    })
+        });
+        let pending = fixture.transport.requests.lock().unwrap().len();
+        visual.update(|window, cx| window.click("model-library-install-0", cx));
+        draw(visual);
+        assert_eq!(fixture.transport.requests.lock().unwrap().len(), pending);
+        let requests = fixture.transport.requests.lock().unwrap();
+        assert!(requests.iter().any(|request|matches!(&request.command,Command::ResolveModel {source,..} if source==&newer.source)));
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| matches!(request.command, Command::RegisterKnowledgeModel { .. }))
+                .count(),
+            1
+        );
+        drop(requests);
+        fixture.close(visual);
+    }
 }

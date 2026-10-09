@@ -1,8 +1,8 @@
-use super::{File, PAGE_SIZE, Repository, commit, digest, http::Http, item};
+use super::{File, Listing, PAGE_SIZE, Repository, commit, digest, http::Http, item};
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     ErrorCode, Fault,
-    models::{Hub, Page, Search, Source, Version},
+    models::{Hub, Search, Source, Version},
 };
 use std::collections::BTreeMap;
 
@@ -10,11 +10,20 @@ pub(super) async fn search(
     http: &Http,
     request: &Search,
     cancel: &CancellationToken,
-) -> Result<Page, Fault> {
+) -> Result<Listing, Fault> {
     let mut url = http.url(&["api", "models"]);
     {
         let mut query = url.query_pairs_mut();
-        query.append_pair("search", request.query.trim());
+        if request.query.trim().is_empty() {
+            query.append_pair("filter", "onnx");
+            query.append_pair("sort", "downloads");
+            query.append_pair("direction", "-1");
+            if request.kind == sailry_protocol::models::Kind::Speech {
+                query.append_pair("search", "sensevoice");
+            }
+        } else {
+            query.append_pair("search", request.query.trim());
+        }
         query.append_pair("limit", &PAGE_SIZE.to_string());
         // Compatible ONNX and static exports can lack pipeline metadata.
         // Compatibility is established by resolution and installation.
@@ -66,7 +75,7 @@ pub(super) async fn search(
         }
     }
     let partial = items.len() != rows.len();
-    Ok(Page {
+    Ok(Listing {
         items,
         next_cursor,
         partial,

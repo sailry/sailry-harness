@@ -7,7 +7,7 @@ use std::time::Duration;
 pub(super) struct Http {
     client: Client,
     base: Url,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fixture: bool,
 }
 
@@ -37,12 +37,12 @@ impl Http {
         Ok(Self {
             client: client(true)?,
             base,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             fixture: false,
         })
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn fixture(base: Url) -> Self {
         Self {
             client: client(false).expect("fixture client is valid"),
@@ -76,7 +76,7 @@ impl Http {
             sha256: file.sha256.clone().unwrap_or_default(),
         };
         let base = self.base.clone();
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         let base = if self.fixture {
             let mut base = base;
             base.set_scheme("https")
@@ -87,7 +87,7 @@ impl Http {
         };
         let url = sailry_model_assets::url(&asset, Some(base.as_str()))
             .map_err(|_| Fault::invalid("invalid pinned model asset URL"))?;
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if self.fixture {
             let mut fixture = self.base.clone();
             fixture.set_path(url.path());
@@ -167,7 +167,9 @@ impl Http {
 
 fn client(https: bool) -> Result<Client, Fault> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    Client::builder()
+    let builder = Client::builder();
+    let builder = if https { builder } else { builder.no_proxy() };
+    builder
         .https_only(https)
         .connect_timeout(Duration::from_secs(10))
         .read_timeout(Duration::from_secs(30))

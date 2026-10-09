@@ -59,9 +59,19 @@ fn language_and_downloads(cx: &mut TestAppContext) {
         });
         window.draw(cx).clear(cx);
     });
-    let cancel = visual.debug_bounds("dictation-download-cancel").unwrap();
+    visual.update(|window, cx| window.click("dictation-model-details", cx));
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
     assert!(visual.debug_bounds("dictation-download-progress").is_some());
     assert!(visual.debug_bounds("dictation-download-speed").is_some());
+    visual.update(|window, cx| {
+        window
+            .within("gpui_component::dialog::footer::DialogFooter")
+            .click("close", cx)
+    });
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let cancel = visual.debug_bounds("dictation-download-cancel").unwrap();
     visual.simulate_click(cancel.center(), Modifiers::default());
     visual.update(|window, cx| {
         panel.update(cx, |this, cx| {
@@ -82,6 +92,9 @@ fn language_and_downloads(cx: &mut TestAppContext) {
         window.draw(cx).clear(cx);
     });
     assert!(visual.debug_bounds("dictation-download").is_none());
+    visual.update(|window, cx| window.click("dictation-model-details", cx));
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
     assert!(visual.debug_bounds("dictation-model-status").is_some());
 }
 

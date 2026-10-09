@@ -124,10 +124,10 @@ async fn cancels_tokenizer_reads() {
     let selected = source(Hub::HuggingFace, REVISION);
     let request = resolve::definition(&http, Kind::Embedding, &selected, &cancel);
     let cancellation = async {
-        server.wait(3).await;
+        server.wait(4).await;
         cancel.cancel();
     };
     let (result, _) = tokio::join!(request, cancellation);
     assert_eq!(result.unwrap_err().code, ErrorCode::Cancelled);
-    assert!(server.requests()[2].path.ends_with("/tokenizer.json"));
+    assert!(server.requests()[3].path.ends_with("/tokenizer.json"));
 }

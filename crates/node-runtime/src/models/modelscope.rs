@@ -1,8 +1,8 @@
-use super::{File, PAGE_SIZE, Repository, commit, digest, http::Http, item, refs::Refs};
+use super::{File, Listing, PAGE_SIZE, Repository, commit, digest, http::Http, item, refs::Refs};
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     ErrorCode, Fault,
-    models::{Hub, Page, Search, Source, Version},
+    models::{Hub, Search, Source, Version},
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -13,7 +13,7 @@ pub(super) async fn search(
     http: &Http,
     request: &Search,
     cancel: &CancellationToken,
-) -> Result<Page, Fault> {
+) -> Result<Listing, Fault> {
     let page = request
         .cursor
         .as_deref()
@@ -28,7 +28,17 @@ pub(super) async fn search(
     }
     let mut url = http.url(&["openapi", "v1", "models"]);
     url.query_pairs_mut()
-        .append_pair("search", request.query.trim())
+        .append_pair(
+            "search",
+            if request.query.trim().is_empty() {
+                match request.kind {
+                    sailry_protocol::models::Kind::Embedding => "onnx",
+                    sailry_protocol::models::Kind::Speech => "sensevoice",
+                }
+            } else {
+                request.query.trim()
+            },
+        )
         .append_pair("page_number", &page.to_string())
         .append_pair("page_size", &PAGE_SIZE.to_string());
     // Task labels vary across ONNX exports and can be absent for Model2Vec.
@@ -68,11 +78,41 @@ pub(super) async fn search(
     let more = u64::from(page * PAGE_SIZE) < total;
     let capped = (page + 1) * PAGE_SIZE > RESULT_LIMIT;
     let partial = items.len() != rows.len() || more && capped;
-    Ok(Page {
+    Ok(Listing {
         items,
         next_cursor: (more && !capped).then(|| (page + 1).to_string()),
         partial,
     })
+}
+
+pub(super) async fn head(
+    http: &Http,
+    repository: &str,
+    cancel: &CancellationToken,
+) -> Result<Source, Fault> {
+    let (info, _) = http
+        .json(
+            http.repository(&["openapi", "v1", "models"], repository, &[]),
+            cancel,
+        )
+        .await?;
+    let info = data(&info)?;
+    let revision = if let Some(branch) = info.get("default_branch").and_then(Value::as_str) {
+        branch.to_owned()
+    } else {
+        let revisions = revisions(http, repository, cancel).await?;
+        if revisions.branches.len() != 1 {
+            return Err(Fault::invalid("model default branch is unavailable"));
+        }
+        revisions.branches[0].clone()
+    };
+    let source = Source {
+        hub: Hub::ModelScope,
+        repository: repository.into(),
+        revision,
+    };
+    source.validate()?;
+    Ok(source)
 }
 
 pub(super) async fn versions(

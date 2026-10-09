@@ -245,6 +245,8 @@ pub(crate) struct Ingress {
     catalog: crate::providers::catalog::Catalog,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) authorization_endpoint: Option<String>,
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) model_catalog_fixtures: Arc<crate::models::Fixtures>,
     pub(crate) files: crate::files::Files,
     watches: Arc<crate::files::watch::Watches>,
     transfers: Arc<crate::files::transfers::Transfers>,
@@ -365,6 +367,8 @@ impl Store {
             files: crate::files::Files::new(),
             #[cfg(any(test, feature = "test-support"))]
             authorization_endpoint: authorization.model_endpoint.clone(),
+            #[cfg(any(test, feature = "test-support"))]
+            model_catalog_fixtures: Arc::default(),
             watches: Arc::new(crate::files::watch::Watches::default()),
             transfers: crate::files::transfers::Transfers::new(profile.clone()),
             ports: Arc::new(crate::ports::Ports::default()),

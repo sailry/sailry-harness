@@ -23,15 +23,7 @@ impl Panel {
                 .client
                 .execute(binding.client.prepare(Command::ReadKnowledgeModels))
                 .await?;
-            let collections = binding
-                .client
-                .execute(binding.client.prepare(Command::ListKnowledgeCollections))
-                .await?;
-            let snapshot = binding
-                .client
-                .execute(binding.client.prepare(Command::Snapshot))
-                .await?;
-            Ok::<_, Fault>((settings, models, collections, snapshot))
+            Ok::<_, Fault>((settings, models))
         });
         cx.spawn_in(window, async move |owner, cx| {
             let result = job.await;
@@ -48,16 +40,14 @@ impl Panel {
                     Ok(Ok((
                         Output::KnowledgeSettings(settings),
                         Output::KnowledgeModels(models),
-                        Output::KnowledgeCollections(collections),
-                        Output::Snapshot(snapshot),
-                    ))) if snapshot.node == panel.binding.client.target() => {
+                    ))) => {
                         let dirty = panel.dirty(cx);
                         let selected = if dirty {
                             panel.model.read(cx).selected_value().copied().flatten()
                         } else {
                             settings.model
                         };
-                        panel.update_choices(models, selected, window, cx);
+                        let chosen = panel.update_choices(models, selected, window, cx);
                         if dirty
                             && !panel.rebase
                             && panel
@@ -68,13 +58,15 @@ impl Panel {
                             panel.error = Some("knowledge_conflict");
                         } else {
                             panel.apply(settings, dirty, window, cx);
+                            panel.model.update(cx, |state, cx| {
+                                state.set_selected_value(&chosen, window, cx)
+                            });
                             if panel.rebase {
                                 panel.error = None;
                             }
                         }
-                        panel.collections = collections;
-                        panel.worktrees = snapshot.worktrees;
                         panel.rebase = false;
+                        panel.fallback(selected, chosen, window, cx);
                     }
                     Ok(Err(error)) => panel.error = Some(error_key(error.code)),
                     _ => panel.error = Some("knowledge_failed"),
@@ -93,6 +85,79 @@ impl Panel {
         if let Some(settings) = self.settings(cx) {
             self.submit(Command::SaveKnowledgeSettings(settings), window, cx);
         }
+    }
+
+    pub(in crate::settings) fn install(
+        &mut self,
+        model: Model,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.locked() {
+            return;
+        }
+        let Some(previous) = self.definition_for(model) else {
+            return;
+        };
+        let mut source = previous.source.clone();
+        source.revision = "HEAD".into();
+        let binding = self.binding.clone();
+        let generation = self.generation;
+        self.pending = true;
+        let job = binding.runtime.spawn(async move {
+            binding
+                .client
+                .execute(binding.client.prepare(Command::ResolveModel {
+                    kind: sailry_protocol::models::Kind::Embedding,
+                    source,
+                }))
+                .await
+        });
+        cx.spawn_in(window, async move |owner, cx| {
+            let result = job.await;
+            _ = owner.update_in(cx, |panel, window, cx| {
+                panel.pending = false;
+                if !panel.active || panel.generation != generation {
+                    return;
+                }
+                match result {
+                    Ok(Ok(Output::ModelDefinition(mut definition))) => {
+                        if !matches!(model, Model::Registered { .. }) {
+                            if previous.query_prefix.is_some() {
+                                definition.query_prefix = previous.query_prefix;
+                            }
+                            if previous.document_prefix.is_some() {
+                                definition.document_prefix = previous.document_prefix;
+                            }
+                        }
+                        if matches!(
+                            panel.model_status(&definition),
+                            super::super::model_library::ModelStatus::Installed
+                        ) {
+                            crate::feedback::info(
+                                "",
+                                &crate::tr("knowledge_up_to_date"),
+                                window,
+                                cx,
+                            );
+                            cx.notify();
+                            return;
+                        }
+                        panel.submit(Command::RegisterKnowledgeModel { definition }, window, cx);
+                    }
+                    Ok(Err(error)) => {
+                        panel.error = Some(error_key(error.code));
+                        cx.notify();
+                    }
+                    _ => {
+                        panel.error = Some("knowledge_failed");
+                        cx.notify();
+                    }
+                }
+            });
+        })
+        .detach();
+        cx.notify();
     }
 
     pub(in crate::settings) fn submit(
@@ -123,10 +188,6 @@ impl Panel {
         let notice = match &request.command {
             Command::InstallKnowledgeModel { .. } => "knowledge_installed",
             Command::DeleteKnowledgeModel { .. } => "knowledge_deleted",
-            Command::DeleteKnowledgeCollection { .. } => "knowledge_deleted",
-            Command::RebuildKnowledgeCollection { .. } => "knowledge_rebuild_started",
-            Command::PauseKnowledgeCollection { paused: true, .. } => "knowledge_pause_requested",
-            Command::PauseKnowledgeCollection { paused: false, .. } => "knowledge_resume_requested",
             _ => "knowledge_saved",
         };
         let registering = matches!(request.command, Command::RegisterKnowledgeModel { .. });

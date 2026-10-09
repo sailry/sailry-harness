@@ -195,3 +195,27 @@ fn preserves_optional_input_prefixes() {
     speech.query_prefix = Some("query: ".into());
     assert!(speech.validate().is_err());
 }
+
+#[test]
+fn permits_default_discovery_and_bounds_queries() {
+    let mut search = Search {
+        hub: Hub::HuggingFace,
+        kind: Kind::Embedding,
+        query: String::new(),
+        cursor: None,
+    };
+    search.validate().unwrap();
+    for query in ["a".repeat(513), "query\0text".into()] {
+        search.query = query;
+        assert_eq!(
+            search.validate().unwrap_err().code,
+            ErrorCode::InvalidRequest
+        );
+    }
+    search.query.clear();
+    search.cursor = Some("a".repeat(8193));
+    assert_eq!(
+        search.validate().unwrap_err().code,
+        ErrorCode::InvalidRequest
+    );
+}

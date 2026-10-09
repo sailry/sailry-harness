@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
+mod compatibility;
 mod discovery;
 mod mirrors;
 mod prefixes;

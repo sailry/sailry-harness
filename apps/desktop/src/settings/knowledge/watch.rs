@@ -30,10 +30,7 @@ impl Panel {
                             Ok(Update::Event(envelope)) if envelope.node == node => {
                                 match envelope.event {
                                     Event::KnowledgeModelsChanged { models } => Some(Some(models)),
-                                    Event::KnowledgeSettingsChanged { .. }
-                                    | Event::KnowledgeCollectionsChanged
-                                    | Event::WorktreeRegistered(_)
-                                    | Event::WorktreeRemoved { .. } => Some(None),
+                                    Event::KnowledgeSettingsChanged { .. } => Some(None),
                                     _ => None,
                                 }
                             }
@@ -64,9 +61,17 @@ impl Panel {
                             return;
                         }
                         if let Some(models) = update {
-                            panel.models = models;
-                            if panel.loading {
+                            if panel.loading || panel.locked() {
+                                panel.models = models;
                                 panel.refresh = true;
+                            } else {
+                                let selected = if panel.dirty(cx) {
+                                    panel.model.read(cx).selected_value().copied().flatten()
+                                } else {
+                                    panel.saved.as_ref().and_then(|settings| settings.model)
+                                };
+                                let chosen = panel.update_choices(models, selected, window, cx);
+                                panel.fallback(selected, chosen, window, cx);
                             }
                         } else {
                             panel.load(window, cx);

@@ -1,7 +1,8 @@
-//! The two model owners share one Kit list and progress presentation.
+//! Model owners share the same Kit rows and detailed download progress.
+mod details;
 use super::*;
 use crate::settings::entry::Entry;
-use gpui_kit::component::{button::Button, progress::Progress};
+use gpui_kit::component::button::Button;
 use gpui_kit::prelude::FluentBuilder as _;
 
 impl ModelKey {
@@ -24,6 +25,7 @@ impl ModelKey {
                 "progress" => "dictation-download-progress".into(),
                 "speed" => "dictation-download-speed".into(),
                 "status" => "dictation-model-status".into(),
+                "details" => "dictation-model-details".into(),
                 _ => unreachable!("recommended speech model has no removal action"),
             },
         }
@@ -49,16 +51,7 @@ pub(in crate::settings) fn rows(
                     value
                 }
             };
-            let status = match model.status {
-                ModelStatus::Missing => "knowledge_missing",
-                ModelStatus::Downloading(_) => "knowledge_downloading",
-                ModelStatus::Installed => "knowledge_installed",
-                ModelStatus::Checking => "dictation_checking",
-                ModelStatus::Unavailable => "dictation_unavailable",
-                ModelStatus::Failed => "dictation_retry",
-            };
-            let status_id = selector("status");
-            let mut content = v_flex()
+            let content = v_flex()
                 .min_w_0()
                 .gap_1()
                 .child(div().font_medium().child(model.name.clone()))
@@ -68,39 +61,17 @@ pub(in crate::settings) fn rows(
                             .text_color(cx.theme().muted_foreground)
                             .child(model.detail.clone()),
                     )
-                })
-                .child(
-                    div()
-                        .debug_selector(move || status_id.clone())
-                        .text_color(cx.theme().muted_foreground)
-                        .child(tr(status)),
-                );
-            if let ModelStatus::Downloading(progress) = model.status {
-                let progress_id = selector("progress");
-                let speed_id = selector("speed");
-                content = content
-                    .child(
-                        div().debug_selector(move || progress_id.clone()).child(
-                            Progress::new(SharedString::from(selector("progress")))
-                                .value(progress.percent)
-                                .small()
-                                .w_full()
-                                .accessibility_label(tr("knowledge_downloading")),
-                        ),
-                    )
-                    .child(
-                        div()
-                            .debug_selector(move || speed_id.clone())
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(format!(
-                                "{:.0}% · {}/s",
-                                progress.percent,
-                                size(progress.bytes_per_second as u64)
-                            )),
-                    );
-            }
+                });
             let mut entry = Entry::new(selector("row"), content);
+            let owner = target.clone();
+            let id = selector("details");
+            entry = entry.action(
+                Button::new(SharedString::from(id.clone()))
+                    .debug_selector(move || id.clone())
+                    .icon(IconName::Settings2)
+                    .accessibility_label(tr("knowledge_model_details"))
+                    .on_click(move |_, window, cx| details::open(owner.clone(), key, window, cx)),
+            );
             match model.status {
                 ModelStatus::Missing | ModelStatus::Failed => {
                     let owner = target.clone();
@@ -108,25 +79,32 @@ pub(in crate::settings) fn rows(
                     entry = entry.action(
                         Button::new(SharedString::from(id.clone()))
                             .debug_selector(move || id.clone())
-                            .label(tr(if matches!(model.status, ModelStatus::Failed) {
-                                "dictation_retry"
-                            } else {
-                                "knowledge_install"
-                            }))
+                            .icon(gpui_kit::assets::IconName::Download)
+                            .accessibility_label(tr("knowledge_install"))
                             .disabled(locked)
                             .on_click(move |_, window, cx| owner.install(key, window, cx)),
                     );
                 }
-                ModelStatus::Downloading(_) => {
-                    let owner = target.clone();
-                    let id = selector("cancel");
+                ModelStatus::Downloading(_) | ModelStatus::Checking => {
                     entry = entry.action(
-                        Button::new(SharedString::from(id.clone()))
-                            .debug_selector(move || id.clone())
-                            .label(tr("settings_cancel"))
-                            .disabled(model.cancelling)
-                            .on_click(move |_, window, cx| owner.cancel(key, window, cx)),
+                        Button::new(SharedString::from(selector("install")))
+                            .icon(gpui_kit::assets::IconName::Download)
+                            .loading(true)
+                            .disabled(true)
+                            .accessibility_label(tr("knowledge_downloading")),
                     );
+                    if matches!(model.status, ModelStatus::Downloading(_)) {
+                        let owner = target.clone();
+                        let id = selector("cancel");
+                        entry = entry.action(
+                            Button::new(SharedString::from(id.clone()))
+                                .debug_selector(move || id.clone())
+                                .icon(IconName::CircleX)
+                                .accessibility_label(tr("settings_cancel"))
+                                .disabled(model.cancelling)
+                                .on_click(move |_, window, cx| owner.cancel(key, window, cx)),
+                        );
+                    }
                 }
                 _ => {}
             }
@@ -136,7 +114,8 @@ pub(in crate::settings) fn rows(
                 entry = entry.action(
                     Button::new(SharedString::from(id.clone()))
                         .debug_selector(move || id.clone())
-                        .label(tr(if model.selected {
+                        .icon(IconName::Check)
+                        .accessibility_label(tr(if model.selected {
                             "model_library_selected"
                         } else {
                             "model_library_select"
@@ -145,22 +124,20 @@ pub(in crate::settings) fn rows(
                         .on_click(move |_, window, cx| owner.select(key, window, cx)),
                 );
             }
-            if model.removable && !matches!(model.status, ModelStatus::Downloading(_)) {
-                let owner = target.clone();
-                let name = model.name.clone();
-                let id = selector("delete");
-                entry = entry.action(
-                    Button::new(SharedString::from(id.clone()))
-                        .debug_selector(move || id.clone())
-                        .icon(IconName::CircleX)
-                        .accessibility_label(tr("knowledge_delete"))
-                        .disabled(locked)
-                        .on_click(move |_, window, cx| owner.remove(key, name.clone(), window, cx)),
-                );
-            }
             entry
         })
         .collect()
+}
+
+fn label(status: ModelStatus) -> &'static str {
+    match status {
+        ModelStatus::Missing => "knowledge_missing",
+        ModelStatus::Downloading(_) => "knowledge_downloading",
+        ModelStatus::Installed => "knowledge_installed",
+        ModelStatus::Checking => "dictation_checking",
+        ModelStatus::Unavailable => "dictation_unavailable",
+        ModelStatus::Failed => "dictation_retry",
+    }
 }
 
 fn size(bytes: u64) -> String {
@@ -168,5 +145,28 @@ fn size(bytes: u64) -> String {
         format!("{:.1} MiB", bytes as f64 / (1024. * 1024.))
     } else {
         format!("{:.1} KiB", bytes as f64 / 1024.)
+    }
+}
+
+impl Target {
+    fn entry(&self, key: ModelKey, cx: &App) -> Option<ManagedModel> {
+        let entries = match self {
+            Self::Knowledge(panel) => panel.read(cx).model_entries(cx),
+            Self::Speech(panel) => panel.read(cx).model_entries(cx),
+        };
+        entries.into_iter().find(|model| match (model.key, key) {
+            (ModelKey::Embedding(left), ModelKey::Embedding(right)) => left == right,
+            (ModelKey::Speech(left), ModelKey::Speech(right)) => left == right,
+            _ => false,
+        })
+    }
+    fn definition(&self, key: ModelKey, cx: &App) -> Option<Definition> {
+        match (self, key) {
+            (Self::Knowledge(panel), ModelKey::Embedding(model)) => {
+                panel.read(cx).definition_for(model)
+            }
+            (Self::Speech(panel), ModelKey::Speech(id)) => panel.read(cx).definition_for(id),
+            _ => None,
+        }
     }
 }

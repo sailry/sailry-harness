@@ -1,5 +1,4 @@
 mod consent;
-mod editor;
 pub(super) mod requests;
 #[cfg(test)]
 pub(super) mod tests;
@@ -8,13 +7,13 @@ mod watch;
 
 use super::{Workspace, providers::Binding};
 use gpui_kit::{
-    component::{input::InputState, searchable_list::SearchableListItem, select::SelectState, *},
+    component::{searchable_list::SearchableListItem, select::SelectState, *},
     *,
 };
 use sailry_link::CancellationToken;
 use sailry_protocol::{
-    NodeId, Request, Worktree,
-    knowledge::{self, Collection, Model, ModelInfo, Settings},
+    NodeId, Request,
+    knowledge::{self, Model, ModelInfo, Settings},
 };
 use std::collections::BTreeMap;
 
@@ -29,10 +28,9 @@ pub(super) struct Panel {
     active: bool,
     saved: Option<Settings>,
     model: Entity<SelectState<Vec<ModelChoice>>>,
-    mirror: Entity<InputState>,
     models: Vec<ModelInfo>,
-    collections: Vec<Collection>,
-    worktrees: Vec<Worktree>,
+    tab: usize,
+    draft: bool,
     loading: bool,
     refresh: bool,
     rebase: bool,
@@ -42,8 +40,6 @@ pub(super) struct Panel {
     error: Option<&'static str>,
     stop: Option<CancellationToken>,
     generation: u64,
-    #[cfg(test)]
-    editor: Option<WeakEntity<editor::Editor>>,
     #[cfg(test)]
     pub(super) library: Option<WeakEntity<super::model_library::Library>>,
 }
@@ -66,15 +62,6 @@ impl SearchableListItem for ModelChoice {
     }
 }
 
-fn model_key(model: Model) -> &'static str {
-    match model {
-        Model::GraniteMulti => "knowledge_model_granite",
-        Model::BgeSmallZh => "knowledge_model_bge",
-        Model::PotionMulti => "knowledge_model_potion",
-        Model::Registered { .. } => "knowledge_models",
-    }
-}
-
 fn model_label(info: &ModelInfo) -> SharedString {
     match info.model {
         Model::Registered { .. } => format!("{} · {}", info.definition.name, info.revision).into(),
@@ -83,17 +70,10 @@ fn model_label(info: &ModelInfo) -> SharedString {
 }
 
 fn choices() -> Vec<ModelChoice> {
-    Model::ALL
-        .into_iter()
-        .map(|model| ModelChoice {
-            value: Some(model),
-            label: crate::tr(model_key(model)),
-        })
-        .chain(std::iter::once(ModelChoice {
-            value: None,
-            label: crate::tr("knowledge_keyword_only"),
-        }))
-        .collect()
+    vec![ModelChoice {
+        value: None,
+        label: crate::tr("knowledge_keyword_only"),
+    }]
 }
 
 impl Drop for Panel {
@@ -135,17 +115,24 @@ impl Panel {
                 })
             },
         );
+        let model = cx.new(|cx| SelectState::new(choices(), Some(IndexPath::new(0)), window, cx));
+        cx.subscribe_in(&model, window, |panel: &mut Self, _, event, window, cx| {
+            if matches!(event, select::SelectEvent::Confirm(_)) && !panel.locked() {
+                panel.draft = true;
+                if panel.dirty(cx) {
+                    panel.save(window, cx);
+                }
+            }
+        })
+        .detach();
         Self {
             binding,
             active: false,
             saved: None,
-            model: cx.new(|cx| SelectState::new(choices(), Some(IndexPath::new(0)), window, cx)),
-            mirror: cx.new(|cx| {
-                InputState::new(window, cx).placeholder(crate::tr("knowledge_mirror_default"))
-            }),
+            model,
             models: Vec::new(),
-            collections: Vec::new(),
-            worktrees: Vec::new(),
+            tab: 0,
+            draft: false,
             loading: false,
             refresh: false,
             rebase: false,
@@ -156,8 +143,6 @@ impl Panel {
             stop: None,
             generation: 0,
             #[cfg(test)]
-            editor: None,
-            #[cfg(test)]
             library: None,
         }
     }
@@ -166,15 +151,12 @@ impl Panel {
         self.saved.as_ref().map(|saved| Settings {
             revision: saved.revision,
             model: self.model.read(cx).selected_value().copied().flatten(),
-            mirror: {
-                let value = self.mirror.read(cx).value().trim().to_owned();
-                (!value.is_empty()).then_some(value)
-            },
+            mirror: saved.mirror.clone(),
         })
     }
 
     fn dirty(&self, cx: &App) -> bool {
-        self.settings(cx) != self.saved
+        self.draft && self.settings(cx) != self.saved
     }
 
     pub(super) fn locked(&self) -> bool {
@@ -192,9 +174,7 @@ impl Panel {
             self.model.update(cx, |model, cx| {
                 model.set_selected_value(&settings.model, window, cx)
             });
-            self.mirror.update(cx, |mirror, cx| {
-                mirror.set_value(settings.mirror.clone().unwrap_or_default(), window, cx)
-            });
+            self.draft = false;
         }
         self.saved = Some(settings);
     }
@@ -215,24 +195,20 @@ impl Panel {
         selected: Option<Model>,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
+    ) -> Option<Model> {
         self.models = models;
         let mut options = self
             .models
             .iter()
+            .filter(|info| info.state == knowledge::ModelState::Installed)
             .map(|info| ModelChoice {
                 value: Some(info.model),
                 label: model_label(info),
             })
             .collect::<Vec<_>>();
-        if let Some(model) = selected
-            && !options.iter().any(|option| option.value == Some(model))
-        {
-            options.push(ModelChoice {
-                value: Some(model),
-                label: self.model_name(model),
-            });
-        }
+        let selected = selected
+            .filter(|model| options.iter().any(|option| option.value == Some(*model)))
+            .or_else(|| selected.and_then(|_| options.first().and_then(|option| option.value)));
         options.push(ModelChoice {
             value: None,
             label: crate::tr("knowledge_keyword_only"),
@@ -241,6 +217,25 @@ impl Panel {
             state.set_items(options, window, cx);
             state.set_selected_value(&selected, window, cx);
         });
+        selected
+    }
+
+    fn fallback(
+        &mut self,
+        selected: Option<Model>,
+        chosen: Option<Model>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if selected.is_some()
+            && chosen.is_some()
+            && selected != chosen
+            && !self.locked()
+            && !self.dirty(cx)
+        {
+            self.draft = true;
+            self.save(window, cx);
+        }
     }
 
     pub(super) fn library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -283,7 +278,7 @@ impl Workspace {
             self.knowledge.selected = selected;
         }
         let Some(binding) = binding else {
-            return crate::settings::group::Group::new("knowledge_collections")
+            return crate::settings::group::Group::new("knowledge_models")
                 .empty(IconName::Inbox, "knowledge_host_required")
                 .into_any_element();
         };
@@ -313,41 +308,43 @@ impl Workspace {
 }
 
 impl Panel {
+    pub(in crate::settings) fn model_status(
+        &self,
+        definition: &sailry_protocol::models::Definition,
+    ) -> super::model_library::ModelStatus {
+        availability(
+            self.models
+                .iter()
+                .filter(|info| super::model_library::equivalent(&info.definition, definition)),
+        )
+    }
+
+    pub(in crate::settings) fn source_status(
+        &self,
+        source: &sailry_protocol::models::Source,
+        kind: sailry_protocol::models::Kind,
+    ) -> super::model_library::ModelStatus {
+        if source.revision.len() != 40
+            || !source.revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return super::model_library::ModelStatus::Missing;
+        }
+        availability(self.models.iter().filter(|info| {
+            info.definition.source == *source && info.definition.format.kind() == kind
+        }))
+    }
+
     pub(super) fn model_rows(
         &self,
         owner: Entity<Self>,
         library: bool,
         cx: &App,
     ) -> Vec<super::entry::Entry> {
-        use super::model_library::{ManagedModel, ModelKey, ModelStatus, Target};
+        use super::model_library::{ModelStatus, Target};
         let models = self
-            .models
-            .iter()
-            .map(|info| ManagedModel {
-                key: ModelKey::Embedding(info.model),
-                name: info.definition.name.clone().into(),
-                detail: format!(
-                    "{} · {} · {:.1} MiB",
-                    info.repository,
-                    info.revision,
-                    info.size_bytes as f64 / (1024. * 1024.)
-                ),
-                status: match info.state {
-                    knowledge::ModelState::Missing => ModelStatus::Missing,
-                    knowledge::ModelState::Downloading {
-                        percent,
-                        bytes_per_second,
-                    } => ModelStatus::Downloading(sailry_model_assets::Progress {
-                        percent: f32::from(percent),
-                        bytes_per_second: bytes_per_second as f64,
-                    }),
-                    knowledge::ModelState::Installed => ModelStatus::Installed,
-                },
-                selected: false,
-                selectable: false,
-                removable: info.state == knowledge::ModelState::Installed,
-                cancelling: !self.active || self.cancelling.is_some(),
-            })
+            .model_entries(cx)
+            .into_iter()
+            .filter(|model| matches!(model.status, ModelStatus::Installed) == (self.tab == 0))
             .collect();
         super::model_library::model_rows(
             Target::Knowledge(owner),
@@ -358,6 +355,53 @@ impl Panel {
         )
     }
 
+    pub(in crate::settings) fn definition_for(
+        &self,
+        model: Model,
+    ) -> Option<sailry_protocol::models::Definition> {
+        self.models
+            .iter()
+            .find(|info| info.model == model)
+            .map(|info| info.definition.clone())
+    }
+
+    pub(in crate::settings) fn model_entries(
+        &self,
+        _cx: &App,
+    ) -> Vec<super::model_library::ManagedModel> {
+        use super::model_library::{ManagedModel, ModelKey};
+        self.models
+            .iter()
+            .filter(|info| {
+                matches!(info.model, Model::Registered { .. })
+                    || !self.models.iter().any(|candidate| {
+                        matches!(candidate.model, Model::Registered { .. })
+                            && candidate.definition.source.repository
+                                == info.definition.source.repository
+                            && candidate.definition.source.hub == info.definition.source.hub
+                            && (info.state != knowledge::ModelState::Installed
+                                || candidate.state == knowledge::ModelState::Installed)
+                    })
+            })
+            .map(|info| ManagedModel {
+                key: ModelKey::Embedding(info.model),
+                name: info.definition.name.clone().into(),
+                detail: match info.model {
+                    Model::GraniteMulti | Model::PotionMulti => {
+                        crate::tr("knowledge_multilingual").to_string()
+                    }
+                    Model::BgeSmallZh => crate::tr("knowledge_chinese").to_string(),
+                    Model::Registered { .. } => info.repository.clone(),
+                },
+                status: status(&info.state),
+                selected: false,
+                selectable: false,
+                removable: info.state == knowledge::ModelState::Installed,
+                cancelling: !self.active || self.cancelling.is_some(),
+            })
+            .collect()
+    }
+
     pub(super) fn remove_model(
         owner: Entity<Self>,
         model: Model,
@@ -365,5 +409,34 @@ impl Panel {
         cx: &mut App,
     ) {
         consent::model(owner, model, window, cx);
+    }
+}
+
+fn availability<'a>(
+    models: impl Iterator<Item = &'a ModelInfo>,
+) -> super::model_library::ModelStatus {
+    models
+        .max_by_key(|info| match &info.state {
+            knowledge::ModelState::Installed => 2,
+            knowledge::ModelState::Downloading { .. } => 1,
+            knowledge::ModelState::Missing => 0,
+        })
+        .map_or(super::model_library::ModelStatus::Missing, |info| {
+            status(&info.state)
+        })
+}
+
+fn status(state: &knowledge::ModelState) -> super::model_library::ModelStatus {
+    use super::model_library::ModelStatus;
+    match state {
+        knowledge::ModelState::Missing => ModelStatus::Missing,
+        knowledge::ModelState::Downloading {
+            percent,
+            bytes_per_second,
+        } => ModelStatus::Downloading(sailry_model_assets::Progress {
+            percent: f32::from(*percent),
+            bytes_per_second: *bytes_per_second as f64,
+        }),
+        knowledge::ModelState::Installed => ModelStatus::Installed,
     }
 }

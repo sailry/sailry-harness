@@ -288,6 +288,16 @@ impl Node {
         self.ingress.search.fixture(driver, endpoint);
     }
 
+    /// Routes model metadata requests to an explicit loopback test catalog.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_model_catalog_fixture(
+        &self,
+        hub: sailry_protocol::models::Hub,
+        endpoint: &str,
+    ) -> Result<(), sailry_protocol::Fault> {
+        self.ingress.model_catalog_fixtures.set(hub, endpoint)
+    }
+
     async fn start_owned(
         path: PathBuf,
         network_scope: NetworkScope,

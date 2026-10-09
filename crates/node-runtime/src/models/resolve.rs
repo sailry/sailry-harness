@@ -16,9 +16,20 @@ pub(super) async fn definition(
     cancel: &CancellationToken,
 ) -> Result<Definition, Fault> {
     source.validate()?;
+    let source = if source.revision == "HEAD" {
+        match source.hub {
+            Hub::HuggingFace => Source {
+                revision: "main".into(),
+                ..source.clone()
+            },
+            Hub::ModelScope => modelscope::head(http, &source.repository, cancel).await?,
+        }
+    } else {
+        source.clone()
+    };
     let repository = match source.hub {
-        Hub::HuggingFace => huggingface::repository(http, source, cancel).await?,
-        Hub::ModelScope => modelscope::repository(http, source, cancel).await?,
+        Hub::HuggingFace => huggingface::repository(http, &source, cancel).await?,
+        Hub::ModelScope => modelscope::repository(http, &source, cancel).await?,
     };
     let (query_prefix, document_prefix) = match kind {
         Kind::Embedding => prefixes::read(http, &repository, cancel).await?,
@@ -51,50 +62,65 @@ async fn embedding(
     has_prefix: bool,
     cancel: &CancellationToken,
 ) -> Result<(Format, Vec<Asset>), Fault> {
+    let (format, config_asset) = embedding_profile(http, repository, has_prefix, cancel).await?;
+    let tokenizer = small(
+        http,
+        required(repository, "tokenizer.json")?,
+        "tokenizer.json",
+        cancel,
+    )
+    .await?
+    .1;
+    let file = match format {
+        Format::Static { .. } => required(repository, "model.safetensors")?,
+        Format::Transformer { .. } => graph(repository, false)?,
+        Format::SenseVoice {} => unreachable!(),
+    };
+    let name = if matches!(format, Format::Static { .. }) {
+        "model.safetensors"
+    } else {
+        "model.onnx"
+    };
+    let weights = asset(http, file, name, cancel).await?;
+    Ok((format, vec![config_asset, tokenizer, weights]))
+}
+
+async fn embedding_profile(
+    http: &Http,
+    repository: &Repository,
+    has_prefix: bool,
+    cancel: &CancellationToken,
+) -> Result<(Format, Asset), Fault> {
     let config = required(repository, "config.json")?;
     let (value, config_asset) = json(http, config, "config.json", cancel).await?;
-    let tokenizer = required(repository, "tokenizer.json")?;
-    let tokenizer = small(http, tokenizer, "tokenizer.json", cancel).await?.1;
-    if value.get("model_type").and_then(Value::as_str) == Some("model2vec") {
+    let format = if value.get("model_type").and_then(Value::as_str) == Some("model2vec") {
         if value.get("normalize").and_then(Value::as_bool) != Some(true) {
             return Err(Fault::invalid(
                 "static model requires normalized mean pooling",
             ));
         }
-        let dimension = dimension(&value, "hidden_dim")?;
-        let table = asset(
-            http,
-            required(repository, "model.safetensors")?,
-            "model.safetensors",
-            cancel,
-        )
-        .await?;
-        return Ok((
-            Format::Static { dimension },
-            vec![config_asset, tokenizer, table],
-        ));
-    }
-    let dimension = dimension(&value, "hidden_size")?;
-    let pooling = pooling(http, repository, &value, dimension, has_prefix, cancel).await?;
-    let token_types = match value.get("type_vocab_size") {
-        None => false,
-        Some(value) => {
-            value
-                .as_u64()
-                .ok_or_else(|| Fault::invalid("model token type configuration is invalid"))?
-                > 0
+        Format::Static {
+            dimension: dimension(&value, "hidden_dim")?,
         }
-    };
-    let graph = graph(repository, false)?;
-    let graph = asset(http, graph, "model.onnx", cancel).await?;
-    Ok((
+    } else {
+        let dimension = dimension(&value, "hidden_size")?;
+        let pooling = pooling(http, repository, &value, dimension, has_prefix, cancel).await?;
+        let token_types = match value.get("type_vocab_size") {
+            None => false,
+            Some(value) => {
+                value
+                    .as_u64()
+                    .ok_or_else(|| Fault::invalid("model token type configuration is invalid"))?
+                    > 0
+            }
+        };
         Format::Transformer {
             dimension,
             pooling,
             token_types,
-        },
-        vec![config_asset, tokenizer, graph],
-    ))
+        }
+    };
+    Ok((format, config_asset))
 }
 
 async fn speech(
@@ -102,6 +128,26 @@ async fn speech(
     repository: &Repository,
     cancel: &CancellationToken,
 ) -> Result<(Format, Vec<Asset>), Fault> {
+    speech_profile(http, repository, cancel).await?;
+    // Repository metadata identifies a candidate. Installation still verifies
+    // the actual single-file graph and constructs the SenseVoice recognizer.
+    let graph = asset(http, graph(repository, true)?, "model.onnx", cancel).await?;
+    let tokens = small(
+        http,
+        required(repository, "tokens.txt")?,
+        "tokens.txt",
+        cancel,
+    )
+    .await?
+    .1;
+    Ok((Format::SenseVoice {}, vec![graph, tokens]))
+}
+
+async fn speech_profile(
+    http: &Http,
+    repository: &Repository,
+    cancel: &CancellationToken,
+) -> Result<(), Fault> {
     let mut sense_voice = repository
         .source
         .repository
@@ -122,18 +168,89 @@ async fn speech(
             "only SenseVoice speech models are supported",
         ));
     }
-    // Repository metadata identifies a candidate. Installation still verifies
-    // the actual single-file graph and constructs the SenseVoice recognizer.
-    let graph = asset(http, graph(repository, true)?, "model.onnx", cancel).await?;
-    let tokens = small(
-        http,
-        required(repository, "tokens.txt")?,
-        "tokens.txt",
-        cancel,
-    )
-    .await?
-    .1;
-    Ok((Format::SenseVoice {}, vec![graph, tokens]))
+    Ok(())
+}
+
+pub(super) async fn inspect(
+    http: &Http,
+    kind: Kind,
+    hub: Hub,
+    candidate: super::Candidate,
+    cancel: &CancellationToken,
+) -> Result<sailry_protocol::models::Item, Fault> {
+    let source = match hub {
+        Hub::HuggingFace => Source {
+            hub,
+            repository: candidate.repository,
+            revision: "main".into(),
+        },
+        Hub::ModelScope => modelscope::head(http, &candidate.repository, cancel).await?,
+    };
+    let repository = match hub {
+        Hub::HuggingFace => huggingface::repository(http, &source, cancel).await?,
+        Hub::ModelScope => modelscope::repository(http, &source, cancel).await?,
+    };
+    if !super::commit(&repository.source.revision) {
+        return Err(Fault::new(
+            ErrorCode::Unavailable,
+            "model catalog could not pin the repository revision",
+        ));
+    }
+    // Listing inspection never downloads tokenizer, token tables or model weights.
+    for file in repository.files.values().filter(|file| {
+        file.path.ends_with("config.json")
+            || matches!(
+                file.path.as_str(),
+                "modules.json" | "config_sentence_transformers.json"
+            )
+    }) {
+        if file.bytes > super::METADATA_BYTES as u64 {
+            return Err(Fault::invalid(
+                "model configuration exceeds its metadata limit",
+            ));
+        }
+    }
+    let format = match kind {
+        Kind::Embedding => {
+            let (query, document) = prefixes::read(http, &repository, cancel).await?;
+            let has_prefix = [query, document]
+                .into_iter()
+                .flatten()
+                .any(|value| !value.is_empty());
+            let (format, _) = embedding_profile(http, &repository, has_prefix, cancel).await?;
+            let tokenizer = required(&repository, "tokenizer.json")?;
+            if tokenizer.bytes == 0 || tokenizer.bytes > SMALL_BYTES as u64 {
+                return Err(Fault::invalid("model tokenizer exceeds its size limit"));
+            }
+            let weights = match format {
+                Format::Static { .. } => required(&repository, "model.safetensors")?,
+                Format::Transformer { .. } => graph(&repository, false)?,
+                Format::SenseVoice {} => unreachable!(),
+            };
+            if weights.bytes == 0 || weights.bytes > MAX_ASSET_BYTES {
+                return Err(Fault::invalid("model asset exceeds its size limit"));
+            }
+            format
+        }
+        Kind::Speech => {
+            speech_profile(http, &repository, cancel).await?;
+            let tokens = required(&repository, "tokens.txt")?;
+            let weights = graph(&repository, true)?;
+            if tokens.bytes == 0
+                || tokens.bytes > SMALL_BYTES as u64
+                || weights.bytes == 0
+                || weights.bytes > MAX_ASSET_BYTES
+            {
+                return Err(Fault::invalid("model asset exceeds its size limit"));
+            }
+            Format::SenseVoice {}
+        }
+    };
+    Ok(sailry_protocol::models::Item {
+        source: repository.source,
+        name: candidate.name,
+        format,
+    })
 }
 
 async fn pooling(

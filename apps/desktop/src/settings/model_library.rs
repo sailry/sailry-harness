@@ -49,6 +49,20 @@ impl Target {
         }
     }
 
+    fn model_status(&self, definition: &Definition, cx: &App) -> ModelStatus {
+        match self {
+            Self::Knowledge(panel) => panel.read(cx).model_status(definition),
+            Self::Speech(panel) => panel.read(cx).model_status(definition),
+        }
+    }
+
+    fn source_status(&self, source: &Source, cx: &App) -> ModelStatus {
+        match self {
+            Self::Knowledge(panel) => panel.read(cx).source_status(source, self.kind()),
+            Self::Speech(panel) => panel.read(cx).source_status(source, self.kind()),
+        }
+    }
+
     fn download(&self, definition: Definition, window: &mut Window, cx: &mut App) {
         match self {
             Self::Knowledge(panel) => panel.update(cx, |panel, cx| {
@@ -88,23 +102,39 @@ pub(super) struct ManagedModel {
     pub(super) cancelling: bool,
 }
 
+pub(super) fn equivalent(left: &Definition, right: &Definition) -> bool {
+    left.source == right.source
+        && left.format == right.format
+        && left.query_prefix == right.query_prefix
+        && left.document_prefix == right.document_prefix
+        && left.assets.len() == right.assets.len()
+        && left.assets.iter().all(|asset| right.assets.contains(asset))
+}
+
 impl Target {
-    fn rows(&self, library: bool, cx: &App) -> Vec<crate::settings::entry::Entry> {
-        match self {
-            Self::Knowledge(panel) => panel.read(cx).model_rows(panel.clone(), library, cx),
-            Self::Speech(panel) => panel.read(cx).model_rows(panel.clone(), library, cx),
-        }
-    }
     fn install(&self, key: ModelKey, window: &mut Window, cx: &mut App) {
         match (self, key) {
-            (Self::Knowledge(panel), ModelKey::Embedding(model)) => panel
-                .update(cx, |panel, cx| {
-                    panel.submit(Command::InstallKnowledgeModel { model }, window, cx)
-                }),
-            (Self::Speech(panel), ModelKey::Speech(id)) => {
-                panel.update(cx, |panel, cx| panel.install(id, window, cx));
+            (Self::Knowledge(panel), ModelKey::Embedding(model)) => {
+                panel.update(cx, |panel, cx| panel.install(model, window, cx))
+            }
+            (Self::Speech(panel), ModelKey::Speech(Some(id))) => {
+                panel.update(cx, |panel, cx| panel.update_model(id, window, cx));
+            }
+            (Self::Speech(panel), ModelKey::Speech(None)) => {
+                panel.update(cx, |panel, cx| panel.install(None, window, cx));
             }
             _ => unreachable!("model row belongs to its target"),
+        }
+    }
+    fn update(&self, key: ModelKey, window: &mut Window, cx: &mut App) {
+        match (self, key) {
+            (Self::Knowledge(panel), ModelKey::Embedding(model)) => {
+                panel.update(cx, |panel, cx| panel.install(model, window, cx));
+            }
+            (Self::Speech(panel), ModelKey::Speech(Some(id))) => {
+                panel.update(cx, |panel, cx| panel.update_model(id, window, cx));
+            }
+            _ => unreachable!("only registered models can be updated"),
         }
     }
     fn cancel(&self, key: ModelKey, window: &mut Window, cx: &mut App) {
@@ -153,10 +183,11 @@ struct HubChoice(Hub);
 impl SearchableListItem for HubChoice {
     type Value = Hub;
     fn title(&self) -> SharedString {
-        tr(match self.0 {
-            Hub::HuggingFace => "model_library_huggingface",
-            Hub::ModelScope => "model_library_modelscope",
-        })
+        match self.0 {
+            Hub::HuggingFace => "huggingface.co",
+            Hub::ModelScope => "modelscope.cn",
+        }
+        .into()
     }
     fn value(&self) -> &Hub {
         &self.0
@@ -184,6 +215,7 @@ pub(super) struct Library {
     items: Vec<Item>,
     repository: Option<String>,
     definition: Option<Definition>,
+    installing: Option<Source>,
     query_prefix: Entity<InputState>,
     document_prefix: Entity<InputState>,
     cursor: Option<String>,
@@ -212,6 +244,10 @@ pub(super) fn open(
         let version = cx.new(|cx| SelectState::new(Vec::<VersionChoice>::new(), None, window, cx));
         let query_prefix = cx.new(|cx| InputState::new(window, cx));
         let document_prefix = cx.new(|cx| InputState::new(window, cx));
+        cx.observe(&query_prefix, |_: &mut Library, _, cx| cx.notify())
+            .detach();
+        cx.observe(&document_prefix, |_: &mut Library, _, cx| cx.notify())
+            .detach();
         cx.subscribe_in(
             &query,
             window,
@@ -238,6 +274,7 @@ pub(super) fn open(
                     library
                         .version
                         .update(cx, |state, cx| state.set_items(Vec::new(), window, cx));
+                    library.search(false, window, cx);
                     cx.notify();
                 }
             },
@@ -269,6 +306,7 @@ pub(super) fn open(
             items: Vec::new(),
             repository: None,
             definition: None,
+            installing: None,
             query_prefix,
             document_prefix,
             cursor: None,
@@ -295,6 +333,11 @@ pub(super) fn open(
             })
             .child(library.clone())
     });
+    result.update(cx, |_, cx| {
+        cx.defer_in(window, |library, window, cx| {
+            library.search(false, window, cx)
+        })
+    });
     result
 }
 
@@ -317,19 +360,27 @@ impl Library {
         if self.target.busy(cx) {
             return;
         }
-        if let Some(definition) = &self.definition {
-            let mut definition = definition.clone();
-            if definition.format.kind() == Kind::Embedding {
-                let prefix = |value: SharedString| (!value.is_empty()).then(|| value.to_string());
-                definition.query_prefix = prefix(self.query_prefix.read(cx).value());
-                definition.document_prefix = prefix(self.document_prefix.read(cx).value());
-            }
+        if let Some(definition) = self.draft(cx) {
             if definition.validate().is_err() {
                 self.failure(window, cx);
                 return;
             }
-            self.target.download(definition, window, cx);
+            if !matches!(
+                self.target.model_status(&definition, cx),
+                ModelStatus::Installed | ModelStatus::Downloading(_) | ModelStatus::Checking
+            ) {
+                self.target.download(definition, window, cx);
+            }
         }
+    }
+    fn draft(&self, cx: &App) -> Option<Definition> {
+        let mut definition = self.definition.clone()?;
+        if definition.format.kind() == Kind::Embedding {
+            let prefix = |value: SharedString| (!value.is_empty()).then(|| value.to_string());
+            definition.query_prefix = prefix(self.query_prefix.read(cx).value());
+            definition.document_prefix = prefix(self.document_prefix.read(cx).value());
+        }
+        Some(definition)
     }
     fn failure(&self, window: &mut Window, cx: &mut Context<Self>) {
         crate::feedback::info("", tr("model_library_failed").as_ref(), window, cx);

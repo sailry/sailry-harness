@@ -36,6 +36,7 @@ pub(super) struct Panel {
     binding: Option<super::providers::Binding>,
     watch: Option<Task<()>>,
     seen: std::collections::BTreeMap<sailry_protocol::ModelId, dictation::models::State>,
+    resolving: std::collections::BTreeSet<sailry_protocol::ModelId>,
     permission: Status,
     permission_stop: CancellationToken,
 }
@@ -53,6 +54,45 @@ enum Update {
 }
 
 impl Panel {
+    pub(in crate::settings) fn model_status(
+        &self,
+        definition: &sailry_protocol::models::Definition,
+    ) -> super::model_library::ModelStatus {
+        self.manager
+            .as_ref()
+            .and_then(|manager| {
+                manager.entries().into_iter().find(|entry| {
+                    super::model_library::equivalent(&entry.record.definition, definition)
+                })
+            })
+            .map_or(super::model_library::ModelStatus::Missing, |entry| {
+                model_status(entry.state)
+            })
+    }
+
+    pub(in crate::settings) fn source_status(
+        &self,
+        source: &sailry_protocol::models::Source,
+        kind: sailry_protocol::models::Kind,
+    ) -> super::model_library::ModelStatus {
+        if source.revision.len() != 40
+            || !source.revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return super::model_library::ModelStatus::Missing;
+        }
+        self.manager
+            .as_ref()
+            .and_then(|manager| {
+                manager.entries().into_iter().find(|entry| {
+                    entry.record.definition.source == *source
+                        && entry.record.definition.format.kind() == kind
+                })
+            })
+            .map_or(super::model_library::ModelStatus::Missing, |entry| {
+                model_status(entry.state)
+            })
+    }
+
     pub fn new(cx: &mut Context<Self>) -> Self {
         cx.observe_global::<preferences::Preferences>(|_, cx| cx.notify())
             .detach();
@@ -65,6 +105,7 @@ impl Panel {
             binding: None,
             watch: None,
             seen: Default::default(),
+            resolving: Default::default(),
             permission: Status::Unknown,
             permission_stop: CancellationToken::new(),
         }
@@ -265,6 +306,70 @@ impl Panel {
         cx.notify();
     }
 
+    pub(in crate::settings) fn update_model(
+        &mut self,
+        id: sailry_protocol::ModelId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(binding) = self.binding.clone() else {
+            return;
+        };
+        let Some(definition) = self.definition_for(Some(id)) else {
+            return;
+        };
+        if !self.resolving.insert(id) {
+            return;
+        }
+        let node = binding.client.target();
+        let mut source = definition.source;
+        source.revision = "HEAD".into();
+        let job = binding.runtime.spawn(async move {
+            binding
+                .client
+                .execute(
+                    binding
+                        .client
+                        .prepare(sailry_protocol::Command::ResolveModel {
+                            kind: sailry_protocol::models::Kind::Speech,
+                            source,
+                        }),
+                )
+                .await
+        });
+        cx.spawn_in(window, async move |owner, cx| {
+            let result = job.await;
+            _ = owner.update_in(cx, |panel, window, cx| {
+                panel.resolving.remove(&id);
+                if !panel.admits(node) {
+                    cx.notify();
+                    return;
+                }
+                match result {
+                    Ok(Ok(sailry_protocol::Output::ModelDefinition(definition))) => {
+                        if matches!(
+                            panel.model_status(&definition),
+                            super::model_library::ModelStatus::Installed
+                        ) {
+                            crate::feedback::info(
+                                "",
+                                tr("knowledge_up_to_date").as_ref(),
+                                window,
+                                cx,
+                            );
+                        } else {
+                            panel.register(definition, window, cx);
+                        }
+                    }
+                    _ => crate::feedback::info("", tr("model_library_failed").as_ref(), window, cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     pub(super) fn library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(binding) = self.binding.clone() {
             super::model_library::open(
@@ -387,7 +492,32 @@ impl Panel {
         library: bool,
         cx: &App,
     ) -> Vec<super::entry::Entry> {
-        use super::model_library::{ManagedModel, ModelKey, ModelStatus, Target};
+        super::model_library::model_rows(
+            super::model_library::Target::Speech(owner),
+            self.model_entries(cx),
+            false,
+            library,
+            cx,
+        )
+    }
+
+    pub(in crate::settings) fn definition_for(
+        &self,
+        id: Option<sailry_protocol::ModelId>,
+    ) -> Option<sailry_protocol::models::Definition> {
+        self.manager
+            .as_ref()?
+            .entries()
+            .into_iter()
+            .find(|entry| Some(entry.record.id) == id)
+            .map(|entry| entry.record.definition)
+    }
+
+    pub(in crate::settings) fn model_entries(
+        &self,
+        cx: &App,
+    ) -> Vec<super::model_library::ManagedModel> {
+        use super::model_library::{ManagedModel, ModelKey, ModelStatus};
         let selected = preferences::data(cx).dictation.unwrap_or_default().model;
         let current = match self.state {
             State::Missing => ModelStatus::Missing,
@@ -429,11 +559,10 @@ impl Panel {
             models.push(ManagedModel {
                 key: ModelKey::Speech(Some(id)),
                 name: definition.name.into(),
-                detail: format!(
-                    "{} · {}",
-                    definition.source.repository, definition.source.revision
-                ),
-                status: if selected == Some(id) {
+                detail: definition.source.repository,
+                status: if self.resolving.contains(&id) {
+                    ModelStatus::Checking
+                } else if selected == Some(id) {
                     current
                 } else {
                     model_status(entry.state)
@@ -447,7 +576,7 @@ impl Panel {
                     .is_some_and(|manager| manager.cancelling(Some(id))),
             });
         }
-        super::model_library::model_rows(Target::Speech(owner), models, false, library, cx)
+        models
     }
 }
 
