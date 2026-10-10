@@ -27,7 +27,7 @@ fn page(parts: Vec<Part>) -> Page {
 }
 
 #[test]
-fn keeps_complete_unicode_and_safe_fences() {
+fn keeps_body_without_thinking() {
     let text = "完整文本 🙂\n```rust\nlet example = 1;\n```\n".repeat(400);
     let document = render(
         &page(vec![
@@ -40,7 +40,7 @@ fn keeps_complete_unicode_and_safe_fences() {
     )
     .unwrap();
     assert!(document.content.contains(&text));
-    assert!(document.content.contains("````text\n``` quoted\n````"));
+    assert!(!document.content.contains("quoted"));
 }
 
 #[test]
@@ -119,4 +119,44 @@ fn rejects_changed_attachment_metadata() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn excludes_work_before_final_reply() {
+    let mut page = page(vec![Part::Text("Question".into())]);
+    let mut assistant = page.entries[0].clone();
+    assistant.id = "assistant".into();
+    assistant.author = "assistant".into();
+    assistant.sequence = 2;
+    assistant.parts = vec![
+        Part::Text("Progress update".into()),
+        Part::Thinking("Private reasoning".into()),
+        Part::Text("Final **answer**".into()),
+    ];
+    page.entries.push(assistant);
+    let document = render(&page, "Conversation", Format::Markdown, "assets").unwrap();
+    assert!(document.content.contains("Question"));
+    assert!(document.content.contains("Final **answer**"));
+    assert!(!document.content.contains("Progress update"));
+    assert!(!document.content.contains("Private reasoning"));
+}
+
+#[test]
+fn preserves_formula_delimiters_and_code() {
+    let text = r"Inline \(x^2\) and $y^2$.
+
+\[a < b\]
+
+`\(literal\)`";
+    let document = render(
+        &page(vec![Part::Text(text.into())]),
+        "Formulas",
+        Format::Html,
+        "assets",
+    )
+    .unwrap();
+    assert!(document.content.contains(r"\(x^2\)"));
+    assert!(document.content.contains(r"\(y^2\)"));
+    assert!(document.content.contains(r"\[a &lt; b\]"));
+    assert!(document.content.contains(r"<code>\(literal\)</code>"));
 }

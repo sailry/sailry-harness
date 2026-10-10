@@ -2,7 +2,7 @@
 use crate::Client;
 use sailry_link::CancellationToken;
 use sailry_protocol::{
-    ErrorCode, Fault, SessionId,
+    ErrorCode, Fault, SessionId, TurnId,
     attachment::Attachment,
     conversation::{Page, Part},
 };
@@ -43,12 +43,46 @@ impl Client {
         assets: &str,
         cancel: &CancellationToken,
     ) -> Result<Document, Fault> {
+        self.export_selection(session, None, title, format, assets, cancel)
+            .await
+    }
+
+    /// Exports only the final reply belonging to the requested turn.
+    pub async fn export_reply(
+        &self,
+        session: SessionId,
+        turn: TurnId,
+        title: &str,
+        format: Format,
+        assets: &str,
+        cancel: &CancellationToken,
+    ) -> Result<Document, Fault> {
+        self.export_selection(session, Some(turn), title, format, assets, cancel)
+            .await
+    }
+
+    async fn export_selection(
+        &self,
+        session: SessionId,
+        turn: Option<TurnId>,
+        title: &str,
+        format: Format,
+        assets: &str,
+        cancel: &CancellationToken,
+    ) -> Result<Document, Fault> {
         let mut history = tokio::select! { _ = cancel.cancelled() => return Err(cancelled()), result = self.read_conversation(session, None, 50) => result? };
         let mut bytes = serde_json::to_vec(&history.page)
             .map_err(|error| Fault::invalid(error.to_string()))?
             .len();
+        if bytes > MAX_BYTES {
+            return Err(Fault::invalid("conversation export exceeds 64 MiB"));
+        }
         let mut seen = BTreeSet::new();
         while let Some(cursor) = history.page.next_before {
+            if turn.is_some_and(|turn| history.page.entries.iter().any(|entry| entry.turn == turn))
+            {
+                break;
+            }
             if !seen.insert(cursor) {
                 return Err(Fault::invalid("conversation export cursor did not advance"));
             }
@@ -64,6 +98,15 @@ impl Client {
             let next = older.page.next_before;
             super::history::merge(&mut history.page, older.page, true)?;
             history.page.next_before = next;
+        }
+        if let Some(turn) = turn {
+            history
+                .page
+                .entries
+                .retain(|entry| entry.turn == turn && entry.author != "user");
+            if history.page.entries.is_empty() {
+                return Err(Fault::invalid("Reply is unavailable"));
+            }
         }
         render(&history.page, title, format, assets)
     }
@@ -106,90 +149,59 @@ fn render(page: &Page, title: &str, format: Format, assets: &str) -> Result<Docu
             "export attachment directory must be a relative path",
         ));
     }
-    let mut markdown = format!("# {}\n\n", heading(title));
+    let mut markdown = String::new();
     let mut attachments = BTreeMap::new();
     let mut images = BTreeMap::new();
+    // Match the transcript's final reply boundary: work before the last tool,
+    // reasoning or compaction part is not part of the published answer.
+    let mut boundaries = BTreeMap::new();
     for entry in &page.entries {
-        markdown.push_str(&format!("## {}\n\n", heading(&entry.author)));
-        for part in &entry.parts {
-            match part {
-                Part::Text(text) => {
-                    markdown.push_str(text);
-                    markdown.push_str("\n\n");
-                }
-                Part::Thinking(text) | Part::Compaction(text) => {
-                    fenced(&mut markdown, text, "text");
-                }
-                Part::Reference(reference) => {
-                    markdown.push_str(&format!("> {}\n\n", heading(&reference.label)));
-                }
-                Part::Attachment(attachment) => {
-                    attachment_link(&mut markdown, &mut attachments, attachment, assets, false)?
-                }
-                Part::Image(image) => {
-                    attachment_link(
-                        &mut markdown,
-                        &mut attachments,
-                        &image.attachment,
-                        assets,
-                        true,
-                    )?;
-                    images.insert(image.attachment.id, image.clone());
-                }
-                Part::ToolCall {
-                    name,
-                    arguments,
-                    display,
-                    ..
-                } => {
-                    markdown.push_str(&format!("> `{}`", heading(name).replace('`', "\\`")));
-                    if let Some(text) = display
-                        .as_ref()
-                        .filter(|display| display.valid())
-                        .and_then(|display| display.input.as_ref())
-                        .and_then(|input| input.summary.as_ref())
-                        .and_then(|field| field.read(arguments))
-                    {
-                        markdown.push_str(": ");
-                        markdown.push_str(&heading(text));
-                    }
-                    markdown.push_str("\n\n");
-                }
-                Part::ToolResult {
-                    name,
-                    result,
-                    images: inline,
-                    ..
-                } => {
-                    markdown.push_str(&format!("> `{}`\n\n", heading(name).replace('`', "\\`")));
-                    let text = serde_json::to_string_pretty(result)
-                        .map_err(|error| Fault::invalid(error.to_string()))?;
-                    if text.chars().count() <= 2000 {
-                        fenced(&mut markdown, &text, "json");
-                    } else {
-                        fenced(
-                            &mut markdown,
-                            &format!("{}…", text.chars().take(2000).collect::<String>()),
-                            "json",
-                        );
-                    }
-                    for image in inline {
-                        attachment_link(
-                            &mut markdown,
-                            &mut attachments,
-                            &image.attachment,
-                            assets,
-                            true,
-                        )?;
-                        images.insert(image.attachment.id, image.clone());
-                    }
-                }
-                Part::Resource(value) => fenced(&mut markdown, &value.to_string(), "json"),
-            }
-            if markdown.len() > MAX_BYTES {
-                return Err(Fault::invalid("conversation export exceeds 64 MiB"));
+        if entry.author == "user" {
+            continue;
+        }
+        for (index, part) in entry.parts.iter().enumerate() {
+            if !matches!(part, Part::Text(_) | Part::Image(_) | Part::Attachment(_)) {
+                boundaries.insert(entry.turn, (entry.sequence, index));
             }
         }
+    }
+    let conversation = page.entries.iter().any(|entry| entry.author == "user");
+    for entry in &page.entries {
+        let user = entry.author == "user";
+        let mut body = String::new();
+        for (index, part) in entry.parts.iter().enumerate() {
+            if !user
+                && boundaries
+                    .get(&entry.turn)
+                    .is_some_and(|boundary| (entry.sequence, index) <= *boundary)
+            {
+                continue;
+            }
+            match part {
+                Part::Text(text) => {
+                    body.push_str(text);
+                    body.push_str("\n\n");
+                }
+                Part::Attachment(attachment) => {
+                    attachment_link(&mut body, &mut attachments, attachment, assets, false)?
+                }
+                Part::Image(image) => {
+                    attachment_link(&mut body, &mut attachments, &image.attachment, assets, true)?;
+                    images.insert(image.attachment.id, image.clone());
+                }
+                _ => (),
+            }
+        }
+        if body.is_empty() {
+            continue;
+        }
+        if conversation {
+            markdown.push_str(&format!(
+                "## {}\n\n",
+                entry.author.replace(['#', '<', '>', '\n', '\r'], "")
+            ));
+        }
+        markdown.push_str(&body);
         for citation in &entry.citations {
             if safe_url(&citation.uri) {
                 markdown.push_str(&format!(
@@ -198,6 +210,9 @@ fn render(page: &Page, title: &str, format: Format, assets: &str) -> Result<Docu
                     citation.uri.replace(['<', '>'], "")
                 ));
             }
+        }
+        if markdown.len() > MAX_BYTES {
+            return Err(Fault::invalid("conversation export exceeds 64 MiB"));
         }
     }
     let content = match format {
@@ -237,13 +252,6 @@ fn attachment_link(
     Ok(())
 }
 
-fn heading(value: &str) -> String {
-    value
-        .lines()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .replace(['#', '[', ']', '<', '>'], "")
-}
 fn label(value: &str) -> String {
     value
         .lines()
@@ -255,17 +263,6 @@ fn label(value: &str) -> String {
         .replace('<', "\\<")
         .replace('>', "\\>")
 }
-fn fenced(output: &mut String, text: &str, language: &str) {
-    let count = text
-        .split(|character| character != '`')
-        .map(str::len)
-        .max()
-        .unwrap_or(0)
-        .max(2)
-        + 1;
-    let fence = "`".repeat(count);
-    output.push_str(&format!("{fence}{language}\n{text}\n{fence}\n\n"));
-}
 fn safe_url(url: &str) -> bool {
     url::Url::parse(url).is_ok_and(|url| {
         matches!(url.scheme(), "https" | "http")
@@ -275,12 +272,26 @@ fn safe_url(url: &str) -> bool {
 }
 fn html(title: &str, markdown: &str) -> String {
     use pulldown_cmark::{Event, Options, Parser, Tag};
+    let markdown = math_delimiters(markdown);
     let parser = Parser::new_ext(
-        markdown,
-        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
+        &markdown,
+        Options::ENABLE_TABLES
+            | Options::ENABLE_STRIKETHROUGH
+            | Options::ENABLE_TASKLISTS
+            | Options::ENABLE_MATH,
     )
     .map(|event| match event {
         Event::Html(value) | Event::InlineHtml(value) => Event::Text(value),
+        Event::InlineMath(value) => Event::Html(
+            format!(
+                "<span class=\"math inline\">\\({}\\)</span>",
+                escape(&value)
+            )
+            .into(),
+        ),
+        Event::DisplayMath(value) => Event::Html(
+            format!("<div class=\"math display\">\\[{}\\]</div>", escape(&value)).into(),
+        ),
         Event::Start(Tag::Link {
             link_type,
             dest_url,
@@ -323,4 +334,58 @@ fn html(title: &str, markdown: &str) -> String {
     format!(
         "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{title}</title><style>body{{max-width:900px;margin:3rem auto;padding:0 1rem;font:16px/1.6 system-ui}}pre{{overflow:auto;padding:1rem;background:#f5f5f5}}img{{max-width:100%}}table{{border-collapse:collapse}}td,th{{padding:.5rem;border:1px solid #ccc}}blockquote{{margin-left:0;padding-left:1rem;border-left:3px solid #ccc}}</style></head><body>{body}</body></html>"
     )
+}
+
+fn escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn math_delimiters(source: &str) -> String {
+    use pulldown_cmark::{Event, Parser, Tag};
+    let protected: Vec<_> = Parser::new(source)
+        .into_offset_iter()
+        .filter_map(|(event, span)| {
+            matches!(
+                event,
+                Event::Code(_)
+                    | Event::Start(Tag::CodeBlock(_) | Tag::Link { .. } | Tag::Image { .. })
+                    | Event::Html(_)
+                    | Event::InlineHtml(_)
+            )
+            .then_some(span)
+        })
+        .collect();
+    let mut output = String::new();
+    let mut cursor = 0;
+    while let Some(at) = source[cursor..].find('\\').map(|offset| cursor + offset) {
+        output.push_str(&source[cursor..at]);
+        let delimiter = source.as_bytes().get(at + 1).copied();
+        let close = match delimiter {
+            Some(b'(') => Some("\\)"),
+            Some(b'[') => Some("\\]"),
+            _ => None,
+        };
+        let end =
+            close.and_then(|close| source[at + 2..].find(close).map(|offset| at + 2 + offset));
+        if let Some(end) = end.filter(|end| {
+            !protected
+                .iter()
+                .any(|span| span.start < *end + 2 && span.end > at)
+                && (at == 0 || source.as_bytes()[at - 1] != b'\\')
+        }) {
+            let marker = if delimiter == Some(b'[') { "$$" } else { "$" };
+            output.push_str(marker);
+            output.push_str(&source[at + 2..end]);
+            output.push_str(marker);
+            cursor = end + 2;
+        } else {
+            output.push('\\');
+            cursor = at + 1;
+        }
+    }
+    output.push_str(&source[cursor..]);
+    output
 }

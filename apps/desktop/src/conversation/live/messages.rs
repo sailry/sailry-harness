@@ -581,6 +581,9 @@ impl View {
                             }),
                     )
                 })
+                .when(!frame::active(run.status), |row| {
+                    row.child(self.export_menu(turn, cx))
+                })
                 .when(run.status != Status::Cancelled && !self.readonly(), |row| {
                     row.child(self.turn_menu(turn, cx))
                 })

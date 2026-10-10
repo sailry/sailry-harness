@@ -78,7 +78,12 @@ impl Shell {
                 tr("conversation_export_markdown"),
                 action(Command::ExportMarkdown),
             )
-            .menu(tr("conversation_export_html"), action(Command::ExportHtml));
+            .menu(tr("conversation_export_html"), action(Command::ExportHtml))
+            .menu_with_disabled(
+                tr("conversation_export_image"),
+                !cfg!(any(target_os = "macos", target_os = "windows")),
+                action(Command::ExportImage),
+            );
         let menu = NativeMenu::new()
             .menu_with_icon(
                 tr("workspace_rename"),
@@ -132,7 +137,11 @@ impl Shell {
             )
             .separator()
             .submenu(tr("content_copy"), copy)
-            .submenu(tr("conversation_export"), export)
+            .submenu_with_icon(
+                tr("conversation_export"),
+                gpui_kit::assets::IconName::Download,
+                export,
+            )
             .separator()
             .submenu(tr("session_fork"), fork)
             .separator()
@@ -227,14 +236,16 @@ impl Shell {
                 }
             }
             Command::NewWindow => self.session_window(session.clone(), window, cx),
-            Command::ExportMarkdown | Command::ExportHtml => export::choose(
+            Command::ExportMarkdown | Command::ExportHtml | Command::ExportImage => export::choose(
                 Arc::new(live.client()),
                 live.services.runtime.clone(),
                 session.clone(),
                 if command == Command::ExportMarkdown {
-                    sailry_client::conversation::export::Format::Markdown
+                    export::Format::Markdown
+                } else if command == Command::ExportHtml {
+                    export::Format::Html
                 } else {
-                    sailry_client::conversation::export::Format::Html
+                    export::Format::Image
                 },
                 window,
                 cx,

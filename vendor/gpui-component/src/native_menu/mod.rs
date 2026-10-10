@@ -58,6 +58,7 @@ enum NativeMenuItem {
         action: Option<Box<dyn Action>>,
     },
     Submenu {
+        icon: Option<Box<Icon>>,
         label: SharedString,
         disabled: bool,
         items: Vec<NativeMenuItem>,
@@ -181,7 +182,24 @@ impl NativeMenu {
     /// Append a submenu built from another [`NativeMenu`].
     pub fn submenu(mut self, label: impl Into<SharedString>, submenu: NativeMenu) -> Self {
         self.items.push(NativeMenuItem::Submenu {
+            icon: None,
             label: label.into(),
+            disabled: false,
+            items: submenu.items,
+        });
+        self
+    }
+
+    /// Append a submenu with a native content icon.
+    pub fn submenu_with_icon(
+        mut self,
+        label: impl Into<SharedString>,
+        icon: impl Into<Icon>,
+        submenu: NativeMenu,
+    ) -> Self {
+        self.items.push(NativeMenuItem::Submenu {
+            label: label.into(),
+            icon: Some(Box::new(icon.into())),
             disabled: false,
             items: submenu.items,
         });
@@ -343,6 +361,7 @@ impl From<gpui::Menu> for NativeMenu {
                     action: Some(action),
                 }),
                 gpui::MenuItem::Submenu(submenu) => native.items.push(NativeMenuItem::Submenu {
+                    icon: None,
                     label: submenu.name.clone(),
                     disabled: submenu.disabled,
                     items: Self::from(submenu).items,

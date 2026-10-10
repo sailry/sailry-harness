@@ -1,24 +1,63 @@
 use super::*;
 use crate::{downloads::destination::Destination, theme::DialogStyle as _};
 use gpui_kit::component::{button::Button, dialog::DialogFooter, spinner::Spinner};
-use sailry_client::conversation::export::{Format, attachment_name};
+use sailry_client::conversation::export::{Format as DocumentFormat, attachment_name};
 use sailry_link::CancellationToken;
-use sailry_protocol::{Output, Session, SessionId};
+use sailry_protocol::{Output, Session, TurnId};
 use std::{path::PathBuf, sync::Arc};
 use tokio::io::AsyncWriteExt as _;
+
+pub(crate) mod image;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Format {
+    Markdown,
+    Html,
+    Image,
+}
+impl Format {
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Markdown => "md",
+            Self::Html => "html",
+            Self::Image => "png",
+        }
+    }
+    fn document(self) -> DocumentFormat {
+        match self {
+            Self::Markdown => DocumentFormat::Markdown,
+            Self::Html | Self::Image => DocumentFormat::Html,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct Selection {
+    pub session: Session,
+    pub turn: Option<TurnId>,
+}
+impl From<Session> for Selection {
+    fn from(session: Session) -> Self {
+        Self {
+            session,
+            turn: None,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests;
 
-pub(super) fn choose(
+pub(crate) fn choose(
     client: Arc<Client>,
     runtime: Arc<tokio::runtime::Runtime>,
-    session: Session,
+    selection: impl Into<Selection>,
     format: Format,
     window: &mut Window,
     cx: &mut App,
 ) {
-    let name: String = crate::activity::title(&session)
+    let selection = selection.into();
+    let name: String = crate::activity::title(&selection.session)
         .chars()
         .map(|character| {
             if character.is_alphanumeric() || matches!(character, '-' | '_') {
@@ -45,7 +84,7 @@ pub(super) fn choose(
         .spawn(cx, async move |cx| {
             let selected = selected.await;
             _ = cx.update(|window, cx| match selected {
-                Ok(Ok(Some(path))) => start(client, runtime, session, format, path, window, cx),
+                Ok(Ok(Some(path))) => start(client, runtime, selection, format, path, window, cx),
                 Ok(Ok(None)) => (),
                 _ => crate::feedback::error("", &tr("files_download_picker"), window, cx),
             });
@@ -70,7 +109,7 @@ impl Render for Progress {
 fn start(
     client: Arc<Client>,
     runtime: Arc<tokio::runtime::Runtime>,
-    session: Session,
+    selection: Selection,
     format: Format,
     path: PathBuf,
     window: &mut Window,
@@ -99,38 +138,69 @@ fn start(
             )
     });
     let closing = cancel.clone();
-    let title = crate::activity::title(&session).to_string();
-    let job = runtime.spawn(save(client, session.id, title, format, path, cancel));
+    let title = crate::activity::title(&selection.session).to_string();
+    let job = runtime.spawn(prepare(
+        client,
+        selection,
+        title,
+        format,
+        path,
+        cancel.clone(),
+    ));
     window
         .spawn(cx, async move |cx| {
-            let result = job.await;
+            let result = match job.await {
+                Ok(Ok(prepared)) => {
+                    let rendered = if format == Format::Image {
+                        match cx.update(|window, cx| {
+                            image::render(
+                                prepared.html.clone(),
+                                prepared.assets.clone(),
+                                prepared.staging.path().to_owned(),
+                                window,
+                                cx,
+                            )
+                        }) {
+                            Ok(task) => tokio::select! { result = task => result, _ = cancel.cancelled() => Err("files_download_cancelled") },
+                            Err(_) => Err("conversation_export_failed"),
+                        }
+                    } else {
+                        Ok(prepared.html.as_bytes().to_vec())
+                    };
+                    match rendered {
+                        Ok(bytes) => runtime
+                            .spawn(publish(prepared, bytes, cancel))
+                            .await
+                            .unwrap_or(Err("conversation_export_failed")),
+                        Err(error) => Err(error),
+                    }
+                }
+                Ok(Err(error)) => Err(error),
+                Err(_) => Err("conversation_export_failed"),
+            };
             _ = cx.update(|window, cx| {
                 if !closing.is_cancelled() {
                     window.close_dialog(cx);
                 }
                 match result {
-                    Ok(Ok(())) => {
-                        crate::feedback::info("", &tr("conversation_exported"), window, cx)
-                    }
-                    Ok(Err("files_download_cancelled")) => (),
-                    Ok(Err(key)) => crate::feedback::error("", &tr(key), window, cx),
-                    Err(_) => {
-                        crate::feedback::error("", &tr("conversation_export_failed"), window, cx)
-                    }
+                    Ok(()) => crate::feedback::info("", &tr("conversation_exported"), window, cx),
+                    Err("files_download_cancelled") => (),
+                    Err(key) => crate::feedback::error("", &tr(key), window, cx),
                 }
             });
         })
         .detach();
 }
 
-async fn save(
+async fn prepare(
     client: Arc<Client>,
-    session: SessionId,
+    selection: Selection,
     title: String,
     format: Format,
     path: PathBuf,
     cancel: CancellationToken,
-) -> Result<(), &'static str> {
+) -> Result<Prepared, &'static str> {
+    let session = selection.session.id;
     let destination = Destination::prepare(path.clone())?;
     let parent = path.parent().ok_or("files_download_destination")?;
     let staging = tempfile::Builder::new()
@@ -138,16 +208,25 @@ async fn save(
         .tempdir_in(parent)
         .map_err(|_| "files_download_destination")?;
     let assets = format!("sailry-assets-{}", sailry_protocol::RequestId::new());
-    let document = client
-        .export_conversation(session, &title, format, &assets, &cancel)
-        .await
-        .map_err(|error| {
-            if error.code == sailry_protocol::ErrorCode::Cancelled {
-                "files_download_cancelled"
-            } else {
-                "conversation_export_failed"
-            }
-        })?;
+    let document = match selection.turn {
+        Some(turn) => {
+            client
+                .export_reply(session, turn, &title, format.document(), &assets, &cancel)
+                .await
+        }
+        None => {
+            client
+                .export_conversation(session, &title, format.document(), &assets, &cancel)
+                .await
+        }
+    }
+    .map_err(|error| {
+        if error.code == sailry_protocol::ErrorCode::Cancelled {
+            "files_download_cancelled"
+        } else {
+            "conversation_export_failed"
+        }
+    })?;
     for attachment in &document.attachments {
         let command = document
             .images
@@ -187,11 +266,56 @@ async fn save(
             .await
             .map_err(|_| "files_download_destination")?;
     }
-    let has_assets = !document.attachments.is_empty();
+    if format != Format::Markdown {
+        image::assets(staging.path())?;
+    }
+    Ok(Prepared {
+        destination,
+        staging,
+        assets: assets.clone(),
+        html: if format == Format::Markdown {
+            format!(
+                "{}\n---\n\n[Sailry](https://sailry.dev)\n",
+                document.content
+            )
+        } else {
+            image::decorate(&document.content, &assets)
+        },
+        has_assets: format != Format::Markdown || !document.attachments.is_empty(),
+        image: format == Format::Image,
+        parent: parent.to_owned(),
+    })
+}
+
+struct Prepared {
+    destination: Destination,
+    staging: tempfile::TempDir,
+    assets: String,
+    html: String,
+    has_assets: bool,
+    image: bool,
+    parent: PathBuf,
+}
+
+async fn publish(
+    prepared: Prepared,
+    bytes: Vec<u8>,
+    cancel: CancellationToken,
+) -> Result<(), &'static str> {
+    let Prepared {
+        destination,
+        staging,
+        assets,
+        parent,
+        has_assets,
+        image,
+        ..
+    } = prepared;
+    let has_assets = has_assets && !image;
     let published = parent.join(&assets);
     let mut writer = tokio::fs::File::from_std(destination.writer()?);
     writer
-        .write_all(document.content.as_bytes())
+        .write_all(&bytes)
         .await
         .map_err(|_| "files_download_destination")?;
     drop(writer);

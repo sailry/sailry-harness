@@ -162,3 +162,5 @@ the Kit 0.7.0 source revision and the patches above. This follows the dependency
 selection in upstream Kit revision `87d10ae5e1299d1be18670a37570c5402f952e34`
 without taking its unrelated component changes. The Component public API
 and presentation patches are unchanged.
+
+Native menu submenus accept optional icons through `submenu_with_icon`; the pinned Kit only supported icons on leaf items. This keeps conversation export on the OS-native menu path on macOS and Windows.

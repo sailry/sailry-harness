@@ -434,6 +434,14 @@ startup does not reset or delete user data. Third-party dependency versions, ord
 data revisions and event sequences are independent. Release compatibility remains
 a separate decision.
 
+Conversation export reads canonical history through Client. Per-reply actions select
+one turn's final reply; session exports include user messages and final replies.
+Tool activity, reasoning and diagnostics are excluded. Markdown retains source syntax;
+HTML bundles offline formula, diagram and chart rendering. Desktop's existing native
+WebView boundary renders PNG in bounded tiles on macOS and Windows. Export captures
+Node/session identity, supports cancellation and preserves changed destination files.
+HTML and images include Sailry branding and the static website QR code.
+
 ## Security and quality constraints
 
 Authenticated Node/resource access, path confinement, Node-owned credentials,

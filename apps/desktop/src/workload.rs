@@ -40,6 +40,11 @@ pub(super) fn run(output: &Path) {
         crate::content::visuals::verify_native(output);
         return;
     }
+    #[cfg(target_os = "macos")]
+    if std::env::var("SAILRY_WORKLOAD_CASE").is_ok_and(|value| value == "conversation-export") {
+        crate::live::menus::export::image::check::run(output);
+        return;
+    }
     println!("Native frame scheduling: true");
     let directory = tempfile::tempdir().unwrap();
     let runtime = Arc::new(

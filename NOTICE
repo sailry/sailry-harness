@@ -27,3 +27,8 @@ Thin Kit integration packages retain the same source revision and select GPUI
 licenses remain in vendor/gpui-kit/, vendor/gpui-base/ and vendor/gpui-component/.
 The renderer patches use the published GPUI 0.3.8 snapshot of Zed at
 279fe070bb389b79652e52065b2f001edcc0b11b, with notices in vendor/gpui-renderer/.
+
+Offline conversation export
+html2canvas 1.4.1 (MIT) and Apache ECharts 6.0.0 (Apache-2.0) retain their
+licenses and source checksums in apps/desktop/assets/export/. The existing
+MathJax and Mermaid assets retain their notices in crates/content/assets/visuals/.

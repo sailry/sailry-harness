@@ -263,8 +263,10 @@ fn captures_nodes_and_publishes_attachment_links(cx: &mut TestAppContext) {
             assert!(!document.contains(&format!("Captured export from Node {}", 1 - index)));
             assert!(document.contains("report.txt"));
             match format {
+                Format::Image => unreachable!("Portable export fixture"),
                 Format::Markdown => assert!(
-                    document.starts_with("# ") && document.contains("[report.txt](<sailry-assets-")
+                    document.starts_with("## ")
+                        && document.contains("[report.txt](<sailry-assets-")
                 ),
                 Format::Html => assert!(
                     document.starts_with("<!doctype html>")
@@ -458,6 +460,74 @@ fn preserves_changed_destinations_and_cleans_assets(cx: &mut TestAppContext) {
             Command::DownloadAttachment { .. }
         ) && request.target
             == fixture.nodes[index].id()));
+    }
+    visual.update(|window, _| window.remove_window());
+    drop(shell);
+    fixture.close();
+}
+
+#[gpui_kit::test]
+fn footer_exports_only_captured_reply(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    for index in 0..2 {
+        seed(&fixture, index);
+    }
+    let output = tempfile::tempdir().unwrap();
+    let (shell, visual) = mount(&fixture, cx);
+    for index in 0..2 {
+        let session = fixture.sessions[index].clone();
+        let history = fixture
+            .runtime
+            .block_on(client(&fixture, index).read_conversation(session.id, None, 50))
+            .unwrap();
+        let turn = history.page.runs.last().unwrap().turn;
+        let expected = fixture
+            .runtime
+            .block_on(client(&fixture, index).export_reply(
+                session.id,
+                turn,
+                "Reply",
+                sailry_client::conversation::export::Format::Markdown,
+                "assets",
+                &CancellationToken::new(),
+            ))
+            .unwrap()
+            .content;
+        assert!(!expected.is_empty());
+        assert!(!expected.contains("Captured export from Node"));
+        assert!(!expected.contains("ask_user"));
+        select(&shell, visual, fixture.nodes[index].id(), &session);
+        visual.update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.reveal_session(session.clone(), window, cx)
+            })
+        });
+        let selector: &'static str = Box::leak(format!("reply-export-{turn}").into_boxed_str());
+        wait(visual, |window, _| {
+            use gpui_kit::test::TestWindowExt as _;
+            window.try_find(selector).is_some()
+        });
+        crate::live::file_tests::click(visual, selector);
+        visual.simulate_mouse_move(point(px(-100.), px(-100.)), None, Modifiers::default());
+        visual.simulate_keystrokes("down enter");
+        wait(visual, |_, _| true);
+        assert!(visual.did_prompt_for_new_path());
+        select(
+            &shell,
+            visual,
+            fixture.nodes[1 - index].id(),
+            &fixture.sessions[1 - index],
+        );
+        let path = output.path().join(format!("reply-{index}.md"));
+        visual.simulate_new_path_selection(|_| Some(path.clone()));
+        wait(visual, |window, cx| {
+            path.exists() && !window.has_active_dialog(cx)
+        });
+        let actual = std::fs::read_to_string(path).unwrap();
+        assert!(actual.starts_with(&expected));
+        assert!(!actual.contains("Captured export from Node"));
+        assert!(!actual.contains("ask_user"));
+        assert!(actual.contains("[Sailry](https://sailry.dev)"));
     }
     visual.update(|window, _| window.remove_window());
     drop(shell);

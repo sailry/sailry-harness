@@ -251,6 +251,7 @@ unsafe fn build_menu<'a>(
                 position += 1;
             }
             NativeMenuItem::Submenu {
+                icon,
                 label,
                 disabled,
                 items,
@@ -268,6 +269,18 @@ unsafe fn build_menu<'a>(
                 // For MF_POPUP, the id parameter is the submenu handle.
                 let _ =
                     unsafe { AppendMenuW(menu, flags, submenu.0 as usize, PCWSTR(wide.as_ptr())) };
+                if let Some(icon) = icon {
+                    if let Some(bitmap) = unsafe { load_hbitmap(icon, asset_source, image_px) } {
+                        let info = MENUITEMINFOW {
+                            cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
+                            fMask: MIIM_BITMAP,
+                            hbmpItem: bitmap,
+                            ..Default::default()
+                        };
+                        let _ = unsafe { SetMenuItemInfoW(menu, position, true, &info) };
+                        bitmaps.push(bitmap);
+                    }
+                }
                 position += 1;
             }
         }

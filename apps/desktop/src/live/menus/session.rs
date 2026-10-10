@@ -10,6 +10,7 @@ pub(super) fn items(archived: bool) -> Vec<(Command, &'static str)> {
         (Command::Open, "workspace_open_session"),
         (Command::ExportMarkdown, "conversation_export_markdown"),
         (Command::ExportHtml, "conversation_export_html"),
+        (Command::ExportImage, "conversation_export_image"),
         if archived {
             (Command::Unarchive, "session_unarchive")
         } else {
@@ -88,21 +89,29 @@ impl Shell {
                                         menu
                                     };
                                 let owner = owner.clone();
-                                menu.item(PopupMenuItem::new(tr(label)).on_click(
-                                    move |_, window, cx| {
-                                        let _ = owner.update(cx, |shell, cx| {
-                                            shell.live_resource_action(
-                                                &Dispatch {
-                                                    node,
-                                                    target: Target::Session(id),
-                                                    command,
-                                                },
-                                                window,
-                                                cx,
-                                            );
-                                        });
-                                    },
-                                ))
+                                menu.item(
+                                    PopupMenuItem::new(tr(label))
+                                        .disabled(
+                                            command == Command::ExportImage
+                                                && !cfg!(any(
+                                                    target_os = "macos",
+                                                    target_os = "windows"
+                                                )),
+                                        )
+                                        .on_click(move |_, window, cx| {
+                                            let _ = owner.update(cx, |shell, cx| {
+                                                shell.live_resource_action(
+                                                    &Dispatch {
+                                                        node,
+                                                        target: Target::Session(id),
+                                                        command,
+                                                    },
+                                                    window,
+                                                    cx,
+                                                );
+                                            });
+                                        }),
+                                )
                             })
                     }),
             )
