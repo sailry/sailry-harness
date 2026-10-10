@@ -26,6 +26,7 @@ mod scheduled;
 mod scopes;
 mod session;
 mod settings;
+pub(in crate::plugins) mod task_plaza;
 mod terminals;
 mod theme;
 mod worktrees;

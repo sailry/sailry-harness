@@ -20,6 +20,16 @@ The desktop TypeScript contract is [api.d.ts](../apps/desktop/src/plugins/host/s
 | Declarative UI | `publishContributions(states)`, `nextContributionEvent()` |
 | Low-level context, resources and UI | Existing `sailry` exports: `context`, `theme`, `Header`, `Image`, `Conversation`, `header_action`, `next_change` |
 
+`Image.new(id, {path, fit, width, height})` renders declared package images through GPUI Kit.
+`fit` defaults to `contain`; `cover` crops to the component bounds and `fill`
+maps the image to those bounds. The public adapter exposes Kit's existing
+`ObjectFit`, which the pinned script image export does not expose. Transparent
+atlas composition can therefore share exact layer coordinates without changing
+image alpha or implementing another renderer.
+Optional positive pixel `width` and `height` set explicit image bounds and their
+layout aspect ratio. Atlas layers can use these to avoid Kit inferring an
+intrinsic source ratio from percentage heights during layout.
+
 Model prompts and response parsing belong to the package. `resolveModel` validates the selected model and reasoning effort against the Node catalog; credentials remain on that Node.
 
 ```js

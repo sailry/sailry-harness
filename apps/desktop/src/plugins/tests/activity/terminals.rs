@@ -63,22 +63,14 @@ fn unread_result_opens_captured_terminal(cx: &mut TestAppContext) {
             });
         }
         let project = fixture.session.project.unwrap();
-        wait(visual, |cx| {
-            snapshot(&panel, cx).contains(&format!("activity-terminal-{}", info.id))
-                && shell
-                    .read(cx)
-                    .activity
-                    .unread_terminals(fixture.node.id())
-                    .contains(&info.id)
-        });
+        let completed = format!("activity-project-activity_completed-{project}");
+        wait(visual, |cx| snapshot(&panel, cx).contains(&completed));
         let selector: &'static str =
             Box::leak(format!("activity-terminal-{}", info.id).into_boxed_str());
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        let person = visual.debug_bounds(selector).unwrap();
-        let room = visual
-            .debug_bounds(super::selector(format!("activity-room-tile-{project}")))
-            .unwrap();
-        assert!(room.contains(&person.center()));
+        let card = visual.debug_bounds(selector).unwrap();
+        let column = visual.debug_bounds("activity_completed-column").unwrap();
+        assert!(card.left() >= column.left() && card.right() <= column.right());
         click(visual, selector);
         wait(visual, |cx| {
             shell.read(cx).page == Page::Terminal
@@ -92,20 +84,23 @@ fn unread_result_opens_captured_terminal(cx: &mut TestAppContext) {
         let cached = open(&shell, &fixture, visual);
         assert_eq!(cached, panel);
         wait(visual, |cx| {
-            shell
-                .read(cx)
-                .activity
-                .unread_terminals(fixture.node.id())
-                .is_empty()
+            snapshot(&panel, cx).contains(&format!("activity-project-activity_idle-{project}"))
+                && shell
+                    .read(cx)
+                    .activity
+                    .unread_terminals(fixture.node.id())
+                    .is_empty()
         });
-        click(visual, super::selector(format!("activity-room-{project}")));
-        wait(visual, |cx| {
-            snapshot(&panel, cx).contains("activity-detail-list")
-        });
-        click(
-            visual,
-            super::selector(format!("activity-detail-terminal-{}", info.id)),
-        );
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let card = visual.debug_bounds(selector).unwrap();
+        let column = visual.debug_bounds("activity_idle-column").unwrap();
+        assert!(card.left() >= column.left() && card.right() <= column.right());
+        let header: &'static str =
+            Box::leak(format!("activity-project-activity_idle-{project}").into_boxed_str());
+        click(visual, header);
+        assert!(visual.debug_bounds(selector).is_none());
+        click(visual, header);
+        click(visual, selector);
         wait(visual, |cx| shell.read(cx).page == Page::Terminal);
         visual.update(|window, _| window.remove_window());
         drop(cached);

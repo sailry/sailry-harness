@@ -1,3 +1,7 @@
+// The explicit capture harness has no unit-test registrations; their helpers
+// and unrelated application launch paths are intentionally unused in that build.
+#![cfg_attr(feature = "design-capture", allow(dead_code, unused_imports))]
+
 mod activity;
 #[cfg(any(test, feature = "workload-tests"))]
 #[allow(dead_code)]
@@ -86,6 +90,17 @@ fn tr(key: &str) -> SharedString {
 }
 
 fn main() {
+    #[cfg(test)]
+    {
+        plugins::capture_design();
+        return;
+    }
+    #[cfg(not(test))]
+    launch();
+}
+
+#[cfg(not(test))]
+fn launch() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     if updater::run_helper() {
         return;

@@ -5,7 +5,14 @@ edition.workspace = true
 publish.workspace = true
 license.workspace = true
 
+[[test]]
+name = "plaza-render"
+path = "src/main.rs"
+harness = false
+required-features = ["design-capture"]
+
 [features]
+design-capture = []
 workload-tests = ["sailry-node-runtime/test-support"]
 
 [build-dependencies]

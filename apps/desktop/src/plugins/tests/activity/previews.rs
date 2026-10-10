@@ -71,6 +71,50 @@ impl Transport for Held {
     }
 }
 
+fn painted_bounds(window: &Window, bounds: Bounds<Pixels>) -> Bounds<ScaledPixels> {
+    Bounds::from_corners(
+        window.pixel_snap_point(bounds.origin),
+        window.pixel_snap_point(bounds.bottom_right()),
+    )
+    .scale(window.scale_factor())
+}
+
+fn surface(visual: &mut VisualTestContext, bounds: Bounds<Pixels>, background: Hsla) {
+    visual.update(|window, cx| {
+        let bounds = painted_bounds(window, bounds);
+        let quads: Vec<_> = window
+            .painted_quads()
+            .into_iter()
+            .filter(|quad| quad.bounds == bounds)
+            .collect();
+        // GPUI paints the fill and the border as separate native quads.
+        assert!(
+            quads.iter().any(|quad| {
+                quad.border_widths == gpui_kit::Edges::all(ScaledPixels(window.scale_factor()))
+                    && quad.border_color == cx.theme().border
+            }),
+            "native surface border {bounds:?}"
+        );
+        let fills: Vec<_> = quads
+            .iter()
+            .filter(|quad| {
+                quad.border_widths == gpui_kit::Edges::default()
+                    && !quad.background.is_transparent()
+            })
+            .collect();
+        if background.a > 0. {
+            assert!(
+                fills
+                    .iter()
+                    .any(|quad| quad.background == background.into()),
+                "native surface fill {bounds:?}"
+            );
+        } else {
+            assert!(fills.is_empty(), "transparent native surface {bounds:?}");
+        }
+    });
+}
+
 #[gpui::test]
 fn cancels_on_hide_and_resumes_cached_page(cx: &mut TestAppContext) {
     init(cx);
@@ -107,9 +151,15 @@ fn cancels_on_hide_and_resumes_cached_page(cx: &mut TestAppContext) {
             })
         });
         wait(visual, |_| held.reads.load(Ordering::SeqCst) > 0);
-        wait(visual, |cx| snapshot(&panel, cx).contains("activity-world"));
-        click(visual, "activity-zoom-in");
-        let world = visual.debug_bounds("activity-world").unwrap().size;
+        let project: &'static str = Box::leak(
+            format!(
+                "activity-project-activity_idle-{}",
+                fixture.session.project.unwrap()
+            )
+            .into_boxed_str(),
+        );
+        wait(visual, |cx| snapshot(&panel, cx).contains(project));
+        click(visual, project);
         visual.update(|window, cx| {
             shell.update(cx, |shell, cx| {
                 shell.navigate(Page::Settings, window, cx);
@@ -148,20 +198,15 @@ fn cancels_on_hide_and_resumes_cached_page(cx: &mut TestAppContext) {
                 .clone()),
             panel
         );
-        assert_eq!(
-            visual.debug_bounds("activity-world").unwrap().size,
-            world,
-            "cached zoom survives leaving the page"
+        let viewport: &'static str = Box::leak(format!("{project}-viewport").into_boxed_str());
+        assert!(
+            visual.debug_bounds(viewport).is_none(),
+            "cached disclosures survive leaving the page"
         );
         held.release.cancel();
-        click(
-            visual,
-            selector(format!(
-                "activity-room-{}",
-                fixture.session.project.unwrap()
-            )),
-        );
         wait(visual, |cx| snapshot(&panel, cx).contains("Fresh preview"));
+        click(visual, project);
+        assert!(visual.debug_bounds(viewport).is_some());
         visual.update(|window, _| window.remove_window());
         drop(panel);
         drop(shell);
@@ -170,11 +215,22 @@ fn cancels_on_hide_and_resumes_cached_page(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn room_lists_use_current_previews(cx: &mut TestAppContext) {
+fn cards_fit_short_and_clamped_previews(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
         install(&fixture);
+        let mut sessions = vec![fixture.session.clone()];
+        for _ in 0..2 {
+            let Output::Session(session) = fixture.execute(Command::CreateSession {
+                project: fixture.session.project,
+                worktree: Some(fixture.session.worktree),
+                config: Some(fixture.session.config.clone()),
+            }) else {
+                panic!("session expected");
+            };
+            sessions.push(session);
+        }
         let release = CancellationToken::new();
         release.cancel();
         let held = Arc::new(Held {
@@ -182,7 +238,15 @@ fn room_lists_use_current_previews(cx: &mut TestAppContext) {
             reads: AtomicUsize::new(0),
             cancelled: AtomicUsize::new(0),
             release,
-            text: [(fixture.session.id, "## Fresh preview\n**Verified**".into())].into(),
+            text: [
+                (sessions[0].id, "Short preview".into()),
+                (sessions[1].id, "Wrapped preview ".repeat(24)),
+                (
+                    sessions[2].id,
+                    "First line\nSecond line\nThird line\nFourth line".into(),
+                ),
+            ]
+            .into(),
         });
         let (shell, visual) = files::mount(&fixture, remote, cx);
         let panel = open(&shell, &fixture, visual);
@@ -194,34 +258,86 @@ fn room_lists_use_current_previews(cx: &mut TestAppContext) {
                 panel.open(package, window, cx);
             })
         });
-        wait(visual, |cx| snapshot(&panel, cx).contains("activity-world"));
-        click(
-            visual,
-            selector(format!(
-                "activity-room-{}",
-                fixture.session.project.unwrap()
-            )),
-        );
         wait(visual, |cx| {
-            snapshot(&panel, cx).contains("Fresh preview Verified")
+            let view = snapshot(&panel, cx);
+            view.contains("Short preview")
+                && view.contains("Wrapped preview")
+                && view.contains("Third line")
         });
-        click(visual, "activity-dialog-close");
         let handle = visual.update(|window, _| window.window_handle());
         for mode in [ThemeMode::Light, ThemeMode::Dark] {
             visual.update(|window, cx| Theme::change(mode, Some(window), cx));
             for width in [1440., 900.] {
                 visual.simulate_window_resize(handle, size(px(width), px(1000.)));
                 visual.update(|window, cx| window.draw(cx).clear(cx));
-                assert!(visual.debug_bounds("activity-world").is_some());
-                assert!(visual.debug_bounds("activity-plaza").is_some());
-                assert!(
-                    visual
-                        .debug_bounds(selector(format!(
-                            "activity-room-{}",
-                            fixture.session.project.unwrap()
-                        )))
-                        .is_some()
+                for lane in [
+                    "activity_board_waiting",
+                    "activity_board_running",
+                    "activity_completed",
+                    "activity_idle",
+                ] {
+                    let selector = Box::leak(format!("{lane}-heading").into_boxed_str());
+                    let bounds = visual.debug_bounds(selector).unwrap();
+                    let background = visual.update(|_, cx| cx.theme().group_box);
+                    // The absolute probe measures the padding box inside the border.
+                    surface(visual, bounds.dilate(px(1.)), background);
+                }
+                let rem = visual.update(|window, _| window.rem_size());
+                let mut heights = Vec::new();
+                for (index, session) in sessions.iter().enumerate() {
+                    let part = |suffix: &str| {
+                        Box::leak(format!("activity-{}{suffix}", session.id).into_boxed_str())
+                            as &'static str
+                    };
+                    let card = visual.debug_bounds(part("")).unwrap();
+                    let header = visual.debug_bounds(part("-header")).unwrap();
+                    let title = visual.debug_bounds(part("-title")).unwrap();
+                    let message = visual.debug_bounds(part("-content")).unwrap();
+                    let footer = visual.debug_bounds(part("-footer")).unwrap();
+                    let project = visual.debug_bounds(part("-project")).unwrap();
+                    let border = px(1.);
+                    assert_eq!(title.size.height, rem * 1.5);
+                    assert_eq!(
+                        message.size.height,
+                        rem * if index == 0 { 1.25 } else { 2.5 }
+                    );
+                    let inset = rem + border;
+                    assert_eq!(header.left(), card.left() + inset);
+                    assert_eq!(header.right(), card.right() - inset);
+                    assert_eq!(header.top(), card.top() + inset);
+                    assert_eq!(footer.bottom(), card.bottom() - inset);
+                    assert_eq!(title.left(), header.left());
+                    assert_eq!(message.right(), header.right());
+                    assert!(header.contains(&project.center()));
+                    let background = visual.update(|_, cx| {
+                        if mode.is_dark() {
+                            cx.theme().muted
+                        } else {
+                            cx.theme().group_box
+                        }
+                    });
+                    assert_eq!(background.a == 0., !mode.is_dark());
+                    surface(visual, card, background);
+                    assert!(header.bottom() <= title.top());
+                    assert!(title.bottom() < message.top());
+                    assert!(message.bottom() < footer.top());
+                    heights.push(card.size.height);
+                }
+                assert_eq!(heights[1] - heights[0], rem * 1.25);
+                assert_eq!(heights[2], heights[1]);
+                let project = format!(
+                    "activity-project-activity_idle-{}",
+                    fixture.session.project.unwrap()
                 );
+                let header: &'static str = Box::leak(project.clone().into_boxed_str());
+                let viewport: &'static str =
+                    Box::leak(format!("{project}-viewport").into_boxed_str());
+                let list = visual.debug_bounds(viewport).unwrap();
+                assert_eq!(
+                    list.size.height,
+                    heights.iter().copied().sum::<Pixels>() + rem * 1.5
+                );
+                assert!(visual.debug_bounds(header).unwrap().bottom() < list.top());
             }
         }
         visual.update(|window, _| window.remove_window());

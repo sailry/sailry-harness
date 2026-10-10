@@ -44,6 +44,11 @@ mod ssh_transfers;
 mod terminals;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(crate) fn capture_design() {
+    tests::task_plaza::rendering::run();
+}
 mod tree;
 #[cfg(test)]
 pub(crate) use tests::diagnostics;

@@ -41,8 +41,8 @@ fn plaza_resolves_through_shared_controls(cx: &mut TestAppContext) {
         });
         let (shell, visual) = files::mount(&fixture, remote, cx);
         let panel = open(&shell, &fixture, visual);
-        let id = selector(format!("activity-{}", fixture.session.id));
-        let position = selector(format!("activity-{}-position", fixture.session.id));
+        let id = selector(format!("plaza-{}", fixture.session.id));
+        let position = selector(format!("plaza-{}-position", fixture.session.id));
         let seated = visual.debug_bounds(position).unwrap();
         fixture.execute(Command::SubmitTurn {
             session: fixture.session.id,
@@ -53,7 +53,7 @@ fn plaza_resolves_through_shared_controls(cx: &mut TestAppContext) {
         let approval = pending(&fixture).unwrap();
         // The scene follows the canonical waiting projection without a walking phase.
         wait(visual, |cx| snapshot(&panel, cx).contains("Approval 1"));
-        let plaza = visual.debug_bounds("activity-plaza").unwrap();
+        let plaza = visual.debug_bounds("plaza-atrium").unwrap();
         assert!(plaza.contains(&visual.debug_bounds(position).unwrap().center()));
         click(visual, id);
         wait(visual, |cx| {
@@ -78,7 +78,7 @@ fn plaza_resolves_through_shared_controls(cx: &mut TestAppContext) {
         // Dismiss the shared approval popover before closing its parent dialog.
         click(visual, "live-approval-trigger");
         assert!(visual.debug_bounds("pending-approvals").is_none());
-        click(visual, "activity-dialog-close");
+        click(visual, "plaza-dialog-close");
         wait(visual, |cx| {
             chat(&panel, cx).is_none() && weak.upgrade().is_none()
         });
@@ -126,7 +126,7 @@ fn plaza_resolves_through_shared_controls(cx: &mut TestAppContext) {
             std::fs::read_to_string(fixture.directory.path().join("project/approved.txt")).unwrap(),
             "Approved result"
         );
-        click(visual, "activity-dialog-close");
+        click(visual, "plaza-dialog-close");
         wait(visual, |cx| {
             chat(&panel, cx).is_none() && snapshot(&panel, cx).contains("Approval 0")
         });

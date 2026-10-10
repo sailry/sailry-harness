@@ -193,7 +193,7 @@ impl Host {
 export function theme(): { is_dark: boolean; colors: Record<string, string> };
                 export const Header: { new(id: string, props: { content: string }): import("gpui-kit").Element };
                 export function header_action(): Promise<string>;
-                export const Image: { new(id: string, props: { path: string, circular?: boolean }): import("gpui-kit").Element };
+                export const Image: { new(id: string, props: { path: string, circular?: boolean, fit?: "contain" | "cover" | "fill", width?: number, height?: number }): import("gpui-kit").Element };
                 export const Terminal: { new(id: string, props: { terminal: string | null }): import("gpui-kit").Element };
                 export const BrowserAnnotationImage: { new(id: string, props: {token:string}): import("gpui-kit").Element };
                 export const BrowserSurface: { new(id: string, props?: {covered?:boolean}): import("gpui-kit").Element };

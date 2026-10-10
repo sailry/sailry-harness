@@ -1,5 +1,5 @@
 use super::{cache::Cache, host::Host};
-use gpui_kit::{App, AppContext as _, Entity, IntoElement, Styled, Window};
+use gpui_kit::{App, AppContext as _, Entity, IntoElement, Styled, StyledImage as _, Window};
 use gpui_shell::{ShellRoot, ShellRuntime, policy::Policy};
 use std::{rc::Rc, sync::Arc};
 
@@ -113,7 +113,31 @@ impl Mounted {
                     .and_then(|path| images.get(path))
                 {
                     Some(path) => {
-                        let mut image = gpui_kit::img(path.clone()).size_full();
+                        let fit = match args.props().get("fit").and_then(|fit| fit.as_str()) {
+                            Some("fill") => gpui_kit::ObjectFit::Fill,
+                            Some("cover") => gpui_kit::ObjectFit::Cover,
+                            _ => gpui_kit::ObjectFit::Contain,
+                        };
+                        let mut image = gpui_kit::img(path.clone()).size_full().object_fit(fit);
+                        // Percent heights still infer the source aspect ratio in
+                        // Kit. Explicit pixel dimensions keep atlas layers aligned.
+                        let dimension = |key| {
+                            args.props()
+                                .get(key)
+                                .and_then(|value| value.as_number())
+                                .filter(|value| {
+                                    value.is_finite() && *value > 0. && *value <= f32::MAX as f64
+                                })
+                                .map(|value| value as f32)
+                        };
+                        if let (Some(width), Some(height)) =
+                            (dimension("width"), dimension("height"))
+                        {
+                            image = image
+                                .w(gpui_kit::px(width))
+                                .h(gpui_kit::px(height))
+                                .aspect_ratio(width / height);
+                        }
                         // Div overflow clips rectangular bounds; the image renderer
                         // applies rounded corners to the actual texture.
                         if args
