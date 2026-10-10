@@ -209,6 +209,9 @@ feed without entering the storage worker queue. Publication checks active turn
 ownership and cancellation. Canonical messages and tool results still commit
 through the authoritative ADK history path before publishing durable changes;
 reconnect combines that history with any current drafts from the same feed.
+When a run stops or fails, remaining visible text and reasoning are sealed and
+written as interrupted canonical output before its terminal status is published.
+Completed entries are not duplicated, and incomplete tool calls are not retained.
 
 On macOS and Linux, Agent commands use a workspace sandbox by default. It
 permits workspace writes and read-only access to installed toolchains, with

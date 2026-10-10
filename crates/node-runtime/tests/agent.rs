@@ -414,7 +414,7 @@ async fn shares_frozen_runs_after_restart() {
 }
 
 #[tokio::test]
-async fn cancellation_discards_partial_text() {
+async fn cancellation_preserves_partial_text() {
     for remote in [false, true] {
         let fixture = tempfile::tempdir().unwrap();
         let root = fixture.path().join("project");
@@ -451,10 +451,31 @@ async fn cancellation_discards_partial_text() {
                 panic!("turn expected")
             };
             server.wait_count(if stop_node { 2 } else { 1 }).await;
+            let mut stream = client.subscribe_conversation(session.id).await.unwrap();
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    match stream.next().await.unwrap() {
+                        Update::ConversationSnapshot(snapshot)
+                            if snapshot.drafts.iter().any(|draft| {
+                                draft.turn == turn.id
+                                    && draft.parts == vec![Part::Text("partial-fixture".into())]
+                            }) =>
+                        {
+                            break;
+                        }
+                        Update::ConversationFrame(frame)
+                            if matches!(frame.change, sailry_protocol::conversation::Change::Delta(ref draft) if draft.turn == turn.id && draft.parts == vec![Part::Text("partial-fixture".into())]) => break,
+                        _ => {}
+                    }
+                }
+            })
+            .await
+            .unwrap();
             controller.handle().disconnect(node.id()).await;
             let page = history(&client, session.id).await;
             assert_eq!(page.runs.last().unwrap().status, Status::Running);
-            assert!(!text(&page).contains("partial-fixture"));
+            assert!(!page.entries.iter().any(|entry| entry.turn == turn.id
+                && entry.parts == vec![Part::Text("partial-fixture".into())]));
             if stop_node {
                 break;
             }
@@ -462,7 +483,20 @@ async fn cancellation_discards_partial_text() {
             client.execute(stop.clone()).await.unwrap();
             let page = finished(&client, session.id, turn.id).await;
             assert_eq!(page.runs.last().unwrap().status, Status::Cancelled);
-            assert!(!text(&page).contains("partial-fixture"));
+            assert_eq!(
+                page.entries
+                    .iter()
+                    .filter(|entry| entry.turn == turn.id
+                        && entry.parts == vec![Part::Text("partial-fixture".into())])
+                    .count(),
+                1
+            );
+            let mut resumed = client.subscribe_conversation(session.id).await.unwrap();
+            let Update::ConversationSnapshot(snapshot) = resumed.next().await.unwrap() else {
+                panic!("snapshot expected")
+            };
+            assert!(snapshot.drafts.is_empty());
+            assert!(text(&snapshot.page).contains("partial-fixture"));
             client.execute(stop).await.unwrap();
         }
         tokio::time::timeout(Duration::from_secs(5), node.shutdown())
@@ -475,7 +509,13 @@ async fn cancellation_discards_partial_text() {
         let page = history(&client, session.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Interrupted);
         assert_eq!(server.requests.lock().unwrap().len(), 2);
-        assert!(!text(&page).contains("partial-fixture"));
+        assert_eq!(
+            page.entries
+                .iter()
+                .filter(|entry| entry.parts == vec![Part::Text("partial-fixture".into())])
+                .count(),
+            2
+        );
         node.shutdown().await.unwrap();
     }
 }

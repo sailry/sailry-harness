@@ -38,6 +38,22 @@ impl Default for Feed {
 }
 
 impl Feeds {
+    pub(super) fn seal(&self, session: SessionId, turn: TurnId) -> Vec<Draft> {
+        let mut feeds = self.0.lock().unwrap();
+        let Some(feed) = feeds.get_mut(&session) else {
+            return Vec::new();
+        };
+        if feed.active != Some(turn) {
+            return Vec::new();
+        }
+        feed.finalized = None;
+        feed.drafts
+            .iter()
+            .filter(|draft| draft.turn == turn)
+            .cloned()
+            .collect()
+    }
+
     fn reset(&self, session: SessionId) {
         if let Some(feed) = self.0.lock().unwrap().get_mut(&session) {
             feed.sequence += 1;

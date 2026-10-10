@@ -421,14 +421,17 @@ impl View {
                 work_open,
                 cx,
             ))
-            .when(run.status == Status::Cancelled, |content| {
-                content.child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(tr("turn_cancelled")),
-                )
-            });
+            .when(
+                run.status == Status::Cancelled && copy.is_empty(),
+                |content| {
+                    content.child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(tr("turn_cancelled")),
+                    )
+                },
+            );
         let content = content
             .when_some(phase, |content, phase| {
                 content.child(
@@ -547,14 +550,14 @@ impl View {
                 .group(format!("footer-{turn}"))
                 .debug_selector(move || format!("live-turn-footer-{turn}"))
                 .gap_2()
-                .when(run.status != Status::Cancelled && !copy.is_empty(), |row| {
+                .when(!copy.is_empty(), |row| {
                     row.child(
                         Clipboard::new(format!("{turn}-copy"))
                             .value(copy.clone())
                             .tooltip(tr("turn_copy")),
                     )
                 })
-                .when(run.status != Status::Cancelled && !copy.is_empty(), |row| {
+                .when(!copy.is_empty(), |row| {
                     let id = format!("{turn}-read");
                     let active = crate::reader::active(&id, cx);
                     row.child(

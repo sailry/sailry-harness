@@ -3,6 +3,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 mod citations;
+mod interrupted;
+pub(super) use interrupted::retain;
 pub(super) mod pages;
 mod web_search;
 

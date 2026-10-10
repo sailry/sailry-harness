@@ -250,3 +250,91 @@ fn commentary_context(cx: &mut TestAppContext) {
         fixture.close();
     }
 }
+
+#[gpui::test]
+fn preserves_output_after_stopping(cx: &mut TestAppContext) {
+    fixture::init(cx);
+    for remote in [false, true] {
+        let gates: Vec<_> = (0..3)
+            .map(|_| Arc::new(tokio::sync::Notify::new()))
+            .collect();
+        let fixture = fixture::Fixture::with_server(remote, |runtime| {
+            runtime.block_on(support::Server::staged(gates.clone()))
+        });
+        let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
+        fixture.start();
+        wait(visual, |cx| {
+            view.read(cx)
+                .history
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot
+                        .drafts
+                        .iter()
+                        .any(|draft| draft.parts == [Part::Text("First".into())])
+                })
+        });
+        click(visual, "live-chat-send");
+        wait(visual, |cx| {
+            view.read(cx)
+                .history
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot.drafts.is_empty()
+                        && snapshot
+                            .page
+                            .runs
+                            .iter()
+                            .any(|run| run.status == Status::Cancelled)
+                })
+        });
+        let turn = view.read_with(visual, |view, _| {
+            let page = &view.history.snapshot.as_ref().unwrap().page;
+            assert_eq!(
+                page.entries
+                    .iter()
+                    .filter(|entry| entry.parts == [Part::Text("First".into())])
+                    .count(),
+                1
+            );
+            page.runs[0].turn
+        });
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            visual
+                .debug_bounds(Box::leak(format!("live-turn-text-{turn}").into_boxed_str()))
+                .is_some()
+        );
+        assert!(
+            visual
+                .debug_bounds(Box::leak(format!("live-turn-read-{turn}").into_boxed_str()))
+                .is_some()
+        );
+        visual.update(|window, _| window.remove_window());
+        let (restored, visual) =
+            fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
+        wait(visual, |cx| {
+            restored
+                .read(cx)
+                .history
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot.page.entries.iter().any(|entry| {
+                        entry.turn == turn && entry.parts == [Part::Text("First".into())]
+                    })
+                })
+        });
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            visual
+                .debug_bounds(Box::leak(format!("live-turn-text-{turn}").into_boxed_str()))
+                .is_some()
+        );
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}

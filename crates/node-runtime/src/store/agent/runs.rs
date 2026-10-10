@@ -396,8 +396,7 @@ pub(super) fn finish(
     error: Option<Fault>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Status, Fault> {
-    let transaction = database.connection.transaction().map_err(storage_error)?;
-    let mut run = get(&transaction, turn)?;
+    let mut run = get(&database.connection, turn)?;
     if !matches!(run.status, Status::Running | Status::Stopping) {
         return Err(Fault::new(
             ErrorCode::Conflict,
@@ -411,6 +410,10 @@ pub(super) fn finish(
     } else {
         status
     };
+    if run.status != Status::Completed {
+        super::history::retain(database, &run, events)?;
+    }
+    let transaction = database.connection.transaction().map_err(storage_error)?;
     run.error = error;
     run.finished_ms = Some(chrono::Utc::now().timestamp_millis());
     put(&transaction, &run)?;
