@@ -49,7 +49,7 @@ pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule 
                     .hover(background.blend(cx.theme().accent))
                     .active(background.blend(cx.theme().secondary_active)))
                 .bg(background).w_full().min_w_0().h_auto()
-                .flex_shrink_0().p_3().border_1().border_color(cx.theme().border)
+                .flex_shrink_0().p_4().border_1().border_color(cx.theme().border)
                 .rounded(cx.theme().radius_lg)
                 .children(args.take_children())
                 .on_click(move |_, _, _| {let _=cards.try_send(id.clone());})

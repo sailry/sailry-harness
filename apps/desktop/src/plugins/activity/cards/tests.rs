@@ -39,7 +39,7 @@ export default class Cards extends View {
         .child(div().flex_1().child('Title'))
         .child(HoverSwap.new('metadata',{group:'card'})
           .child(Paint.new('project'))
-          .child(Paint.new('time',{text:clock(new Date(2026,9,3,21,7).getTime())})))));
+          .child(Paint.new('time',{text:clock(new Date(2026,9,3,21,7).getTime(),new Date(2026,9,3,9).getTime())})))));
   }
 }
 "#,

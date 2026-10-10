@@ -244,16 +244,19 @@ fn cards_disclosures_and_lifecycle(cx: &mut TestAppContext) {
                             .min(window_size.height))
                         / 2.,
                 );
+                let last: &'static str =
+                    Box::leak(format!("activity-{}", sessions.last().unwrap().id).into_boxed_str());
+                // Scroll exactly the clipped overflow so the region reaches its end without chaining.
+                let overflow = visual.debug_bounds(last).unwrap().bottom() - list.bottom();
+                assert!(overflow > px(0.));
                 visual.simulate_event(ScrollWheelEvent {
                     position,
-                    delta: ScrollDelta::Pixels(point(px(0.), px(-300.))),
+                    delta: ScrollDelta::Pixels(point(px(0.), -overflow)),
                     ..Default::default()
                 });
                 visual.run_until_parked();
                 visual.update(|window, cx| window.draw(cx).clear(cx));
                 assert!(visual.debug_bounds(initial).unwrap().top() < after.top());
-                let last: &'static str =
-                    Box::leak(format!("activity-{}", sessions.last().unwrap().id).into_boxed_str());
                 let last = visual.debug_bounds(last).unwrap();
                 assert!(last.top() >= list.top() && last.bottom() <= list.bottom());
                 assert_eq!(visual.debug_bounds(header).unwrap(), heading);
@@ -264,7 +267,7 @@ fn cards_disclosures_and_lifecycle(cx: &mut TestAppContext) {
                         .unwrap(),
                     peer
                 );
-                for delta in [point(px(0.), px(300.)), point(px(100.), px(0.))] {
+                for delta in [point(px(0.), overflow), point(px(100.), px(0.))] {
                     visual.simulate_event(ScrollWheelEvent {
                         position,
                         delta: ScrollDelta::Pixels(delta),
@@ -299,19 +302,18 @@ fn cards_disclosures_and_lifecycle(cx: &mut TestAppContext) {
                 Box::leak(format!("activity-{}-{name}", session.id).into_boxed_str())
                     as &'static str
             };
+            let header = visual.debug_bounds(part("header")).unwrap();
             let title = visual.debug_bounds(part("title")).unwrap();
-            let content = visual.debug_bounds(part("content")).unwrap();
             let location = visual.debug_bounds(part("location")).unwrap();
-            assert_eq!(title.size.height, rem * 1.25);
-            assert_eq!(content.size.height, rem * 1.25);
-            assert_eq!(
-                bounds.size.height,
-                title.size.height + content.size.height + rem * 2. + px(2.)
-            );
-            assert!(content.top() > title.bottom());
-            assert_eq!(location.top(), title.top() + rem * 0.125);
-            assert!(location.left() > title.right());
-            assert!(bounds.contains(&location.center()));
+            let footer = visual.debug_bounds(part("footer")).unwrap();
+            // Cards without a current preview omit the message row.
+            assert!(visual.debug_bounds(part("content")).is_none());
+            assert_eq!(title.size.height, rem * 1.5);
+            assert_eq!(header.top(), bounds.top() + rem + px(1.));
+            assert_eq!(footer.bottom(), bounds.bottom() - rem - px(1.));
+            assert!(header.bottom() <= title.top() && title.bottom() <= footer.top());
+            assert_eq!(location.left(), title.left());
+            assert!(header.contains(&location.center()));
             assert!(
                 location.contains(&visual.debug_bounds(part("project-icon")).unwrap().center())
             );
@@ -347,7 +349,7 @@ fn cards_disclosures_and_lifecycle(cx: &mut TestAppContext) {
         );
         visual.simulate_event(ScrollWheelEvent {
             position: list.center(),
-            delta: ScrollDelta::Pixels(point(px(0.), px(-300.))),
+            delta: ScrollDelta::Pixels(point(px(0.), list.bottom() - last.bottom())),
             ..Default::default()
         });
         visual.run_until_parked();
@@ -378,9 +380,14 @@ fn cards_disclosures_and_lifecycle(cx: &mut TestAppContext) {
         assert!(visual.debug_bounds(viewport).is_some());
         let latest: &Session = sessions.last().unwrap();
         let list = visual.debug_bounds(viewport).unwrap();
+        let tail = visual
+            .debug_bounds(Box::leak(
+                format!("activity-{}", latest.id).into_boxed_str(),
+            ))
+            .unwrap();
         visual.simulate_event(ScrollWheelEvent {
             position: list.center(),
-            delta: ScrollDelta::Pixels(point(px(0.), px(-300.))),
+            delta: ScrollDelta::Pixels(point(px(0.), list.bottom() - tail.bottom())),
             ..Default::default()
         });
         visual.run_until_parked();

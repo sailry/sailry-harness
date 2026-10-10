@@ -293,23 +293,22 @@ fn cards_fit_short_and_clamped_previews(cx: &mut TestAppContext) {
                     let header = visual.debug_bounds(part("-header")).unwrap();
                     let title = visual.debug_bounds(part("-title")).unwrap();
                     let message = visual.debug_bounds(part("-content")).unwrap();
-                    let footer = visual.debug_bounds(part("-location")).unwrap();
+                    let footer = visual.debug_bounds(part("-footer")).unwrap();
                     let project = visual.debug_bounds(part("-project")).unwrap();
                     let border = px(1.);
-                    assert_eq!(title.size.height, rem * 1.25);
+                    assert_eq!(title.size.height, rem * 1.5);
                     assert_eq!(
                         message.size.height,
                         rem * if index == 0 { 1.25 } else { 2.5 }
                     );
-                    assert_eq!(
-                        card.size.height,
-                        title.size.height + message.size.height + rem * 2. + border * 2.
-                    );
-                    assert_eq!(header.left(), card.left() + rem * 0.75 + border);
-                    assert_eq!(header.right(), card.right() - rem * 0.75 - border);
+                    let inset = rem + border;
+                    assert_eq!(header.left(), card.left() + inset);
+                    assert_eq!(header.right(), card.right() - inset);
+                    assert_eq!(header.top(), card.top() + inset);
+                    assert_eq!(footer.bottom(), card.bottom() - inset);
                     assert_eq!(title.left(), header.left());
                     assert_eq!(message.right(), header.right());
-                    assert!((project.right() - header.right()).abs() < px(1.));
+                    assert!(header.contains(&project.center()));
                     let background = visual.update(|_, cx| {
                         if mode.is_dark() {
                             cx.theme().muted
@@ -319,10 +318,9 @@ fn cards_fit_short_and_clamped_previews(cx: &mut TestAppContext) {
                     });
                     assert_eq!(background.a == 0., !mode.is_dark());
                     surface(visual, card, background);
+                    assert!(header.bottom() <= title.top());
                     assert!(title.bottom() < message.top());
-                    assert_eq!(footer.top(), title.top() + rem * 0.125);
-                    assert!(footer.left() > title.right());
-                    assert!(card.contains(&footer.center()));
+                    assert!(message.bottom() < footer.top());
                     heights.push(card.size.height);
                 }
                 assert_eq!(heights[1] - heights[0], rem * 1.25);
