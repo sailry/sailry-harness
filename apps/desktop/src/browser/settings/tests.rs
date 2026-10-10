@@ -89,6 +89,10 @@ fn denied_access(cx: &mut TestAppContext, locale: &str, message: &str) {
         window.click("permission_full_disk", cx);
     });
     visual.run_until_parked();
+    assert!(visual.opened_url().is_none());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    visual.update(|window, cx| window.click("permission_full_disk-settings", cx));
+    visual.run_until_parked();
     assert_eq!(
         visual.opened_url().as_deref(),
         Some("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
@@ -109,10 +113,10 @@ fn denied_access(cx: &mut TestAppContext, locale: &str, message: &str) {
             Some(crate::tr("permission_continue").as_ref())
         );
         assert_eq!(
-            window.find("permission_full_disk").label(),
+            window.find("permission_full_disk-settings").label(),
             Some(crate::tr("permission_settings").as_ref())
         );
-        window.click("permission_full_disk", cx);
+        window.click("permission_full_disk-settings", cx);
     });
     visual.run_until_parked();
     assert_eq!(

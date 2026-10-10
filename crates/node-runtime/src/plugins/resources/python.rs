@@ -68,6 +68,35 @@ impl Resources {
 }
 
 impl Host {
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn register_python_environment_fixture(
+        &self,
+        name: &str,
+        environment: &Environment,
+    ) -> Result<Arc<std::sync::atomic::AtomicUsize>, Fault> {
+        if self.python.get().is_some() {
+            return Err(Fault::new(
+                ErrorCode::Conflict,
+                "Python runtime is already initialized",
+            ));
+        }
+        let package = self.install_bundled(name)?;
+        let reference = package.summary.reference();
+        let directory = self.resolve(&reference, CancellationToken::new())?;
+        let requirements = requirements(&directory, reference)?
+            .ok_or_else(|| Fault::invalid("fixture package requires Python dependencies"))?;
+        let (manager, installations) = crate::python::Manager::ready_fixture(
+            self.profile.clone().ok_or_else(unavailable)?,
+            &requirements,
+            Arc::new(environment.clone()),
+            self.python_progress.clone(),
+        )?;
+        self.python.set(Arc::new(manager)).map_err(|_| {
+            Fault::new(ErrorCode::Conflict, "Python runtime is already initialized")
+        })?;
+        Ok(installations)
+    }
+
     pub(crate) fn retain_python(&self, packages: Vec<Info>) {
         *self
             .python_packages

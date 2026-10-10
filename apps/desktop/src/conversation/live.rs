@@ -13,7 +13,7 @@ use sailry_protocol::{
     WorktreeId,
     conversation::{Provider, Status},
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::{cell::Cell, collections::BTreeMap, rc::Rc, sync::Arc};
 
 mod actions;
 mod activity;
@@ -157,6 +157,7 @@ pub(crate) struct View {
     provider_ids: BTreeMap<(NodeId, sailry_protocol::ProviderId), usize>,
     dictation: dictation::State,
     pending: bool,
+    guidance_pending: Rc<Cell<bool>>,
     retry: Option<actions::Attempt>,
     error: Option<&'static str>,
     backup: Option<Session>,
@@ -283,8 +284,17 @@ impl View {
         let commands = cx.new(|_| commands::Panel::new(binding.clone()));
         cx.observe(&commands, |_, _, cx| cx.notify()).detach();
         let queue_owner = cx.weak_entity();
-        let queue = cx
-            .new(|cx| queue::Panel::new(queue_owner, binding.clone(), images.clone(), window, cx));
+        let guidance_pending = Rc::new(Cell::new(false));
+        let queue = cx.new(|cx| {
+            queue::Panel::new(
+                queue_owner,
+                binding.clone(),
+                images.clone(),
+                guidance_pending.clone(),
+                window,
+                cx,
+            )
+        });
         let search = cx.new(|cx| {
             search::Search::new(
                 binding.clone(),
@@ -392,6 +402,7 @@ impl View {
             provider_ids: BTreeMap::new(),
             dictation: dictation::State::default(),
             pending: false,
+            guidance_pending,
             retry: None,
             error: None,
             backup: None,

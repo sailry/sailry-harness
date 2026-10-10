@@ -115,16 +115,23 @@ fn resumes_without_source() {
             else {
                 panic!("role catalog expected")
             };
-            assert_eq!(roles.len(), 1);
-            assert_eq!(roles[0].key, "explore");
-            assert!(roles[0].read_only);
-            execution
-                .execute(execution.prepare(Command::RemoveRole {
-                    role: roles[0].id,
-                    expected_revision: roles[0].revision,
-                }))
-                .await
-                .unwrap();
+            assert_eq!(
+                roles
+                    .iter()
+                    .map(|role| role.key.as_str())
+                    .collect::<Vec<_>>(),
+                ["explore", "research"]
+            );
+            assert!(roles.iter().all(|role| role.read_only));
+            for role in roles {
+                execution
+                    .execute(execution.prepare(Command::RemoveRole {
+                        role: role.id,
+                        expected_revision: role.revision,
+                    }))
+                    .await
+                    .unwrap();
+            }
             for name in ["context7", "github"] {
                 execution
                     .execute(execution.prepare(Command::SetPluginEnabled {

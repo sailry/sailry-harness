@@ -171,7 +171,7 @@ pub(super) async fn turns(client: &Client, session: &Session, prefix: &str, coun
                         .filter(|entry| entry.turn == turn.id)
                         .flat_map(|entry| &entry.parts)
                         .any(|part| matches!(part, sailry_protocol::conversation::Part::ToolResult { name, result, .. }
-                            if name == "read_file" && result.to_string().contains("Tool output fixture"))),
+                            if name == &crate::agent_fixture::plugin_tool("files", "read_file") && result.to_string().contains("Tool output fixture"))),
                         "completed turn must include the actual file tool result");
                     break;
                 }
@@ -215,64 +215,122 @@ pub(super) async fn terminal(client: &Client, session: &Session) -> Info {
 }
 
 pub(super) async fn output(client: &Client, info: &Info) {
-    let mut subscription = client.subscribe_terminal(info.id).await.unwrap();
-    let mut screen = sailry_client::terminal::Projection::new(client.target(), info.id, 1);
-    screen.apply(1, subscription.next().await.unwrap()).unwrap();
-    let Output::TerminalSnapshot(current) =
-        execute(client, Command::InspectTerminal { terminal: info.id }).await
-    else {
-        panic!("terminal expected")
-    };
-    let Output::Terminal(info) = execute(
-        client,
-        Command::ClaimTerminal {
-            terminal: info.id,
-            expected_revision: current.info.revision,
-        },
-    )
-    .await
-    else {
-        panic!("claimed terminal expected")
-    };
-    execute(client, Command::InputTerminal { terminal: info.id, revision: info.revision,
-        input: Input::Paste { text: concat!("awk 'BEGIN { for (i=0;i<20000;i++) printf ",
-        "\"%06d continuous terminal output xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n\",i }'; ",
-        "printf '%s%s\\n' 'load-' 'complete'").into() },
-    }).await;
-    execute(
-        client,
-        Command::InputTerminal {
-            terminal: info.id,
-            revision: info.revision,
-            input: Input::Key {
-                event: KeyEvent {
-                    key: Key::Enter,
-                    action: Action::Press,
-                    modifiers: Modifiers::default(),
-                    utf8: None,
-                    unshifted_codepoint: None,
-                },
-            },
-        },
-    )
-    .await;
-    tokio::time::timeout(Duration::from_secs(30), async {
-        loop {
-            screen.apply(1, subscription.next().await.unwrap()).unwrap();
-            let content: String = screen
-                .snapshot()
-                .unwrap()
-                .screen
-                .rows
-                .iter()
-                .flat_map(|row| row.spans.iter().map(|span| span.text.as_str()))
-                .collect();
-            if content.contains("load-complete") {
-                assert!(content.contains("019999"));
-                break;
+    let (updates, mut views) =
+        tokio::sync::watch::channel(sailry_client::terminal::View::default());
+    let stop = sailry_link::CancellationToken::new();
+    let observation = client.watch_terminal(info.id, updates, stop.clone());
+    tokio::pin!(observation);
+    let mut initial_sequence = 0;
+    let outcome = {
+        let workload = async {
+            loop {
+                if let Some(snapshot) = &views.borrow().snapshot {
+                    initial_sequence = snapshot.sequence;
+                    break;
+                }
+                views.changed().await.unwrap();
             }
+            let Output::TerminalSnapshot(current) =
+                execute(client, Command::InspectTerminal { terminal: info.id }).await
+            else {
+                panic!("terminal expected")
+            };
+            let Output::Terminal(info) = execute(
+                client,
+                Command::ClaimTerminal {
+                    terminal: info.id,
+                    expected_revision: current.info.revision,
+                },
+            )
+            .await
+            else {
+                panic!("claimed terminal expected")
+            };
+            execute(
+                client,
+                Command::InputTerminal {
+                    terminal: info.id,
+                    revision: info.revision,
+                    input: Input::Paste {
+                        text: concat!(
+                            "awk 'BEGIN { for (i=0;i<20000;i++) printf ",
+                            "\"%06d continuous terminal output xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n\",i }'; ",
+                            "printf '%s%s\\n' 'load-' 'complete'"
+                        )
+                        .into(),
+                    },
+                },
+            )
+            .await;
+            execute(
+                client,
+                Command::InputTerminal {
+                    terminal: info.id,
+                    revision: info.revision,
+                    input: Input::Key {
+                        event: KeyEvent {
+                            key: Key::Enter,
+                            action: Action::Press,
+                            modifiers: Modifiers::default(),
+                            utf8: None,
+                            unshifted_codepoint: None,
+                        },
+                    },
+                },
+            )
+            .await;
+            tokio::time::timeout(Duration::from_secs(30), async {
+                loop {
+                    let content = screen_content(views.borrow().snapshot.as_ref().unwrap());
+                    if content.contains("load-complete") {
+                        assert!(content.contains("019999"));
+                        break;
+                    }
+                    views.changed().await.unwrap();
+                }
+            })
+            .await
+        };
+        tokio::pin!(workload);
+        tokio::select! {
+            result = &mut observation => panic!("terminal observation ended: {result:?}"),
+            outcome = &mut workload => outcome,
         }
-    })
-    .await
-    .expect("terminal workload deadline");
+    };
+    let diagnostic = outcome.err().map(|_| {
+        let view = views.borrow();
+        let snapshot = view.snapshot.as_ref().unwrap();
+        let content = screen_content(snapshot);
+        let tail: String = content
+            .chars()
+            .rev()
+            .take(240)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        format!(
+            "terminal workload deadline: sequence={}, frames={}, status={:?}, connected={}, error={:?}, tail={tail:?}",
+            snapshot.sequence,
+            snapshot.sequence.saturating_sub(initial_sequence),
+            snapshot.info.status,
+            view.connected,
+            view.error.as_ref().map(|error| &error.code),
+        )
+    });
+    stop.cancel();
+    observation.await.unwrap();
+    if let Some(diagnostic) = diagnostic {
+        panic!("{diagnostic}");
+    }
+}
+
+fn screen_content(snapshot: &Snapshot) -> String {
+    snapshot
+        .screen
+        .scrollback
+        .iter()
+        .chain(&snapshot.screen.rows)
+        .flat_map(|row| row.spans.iter().map(|span| span.text.as_str()))
+        .collect()
 }

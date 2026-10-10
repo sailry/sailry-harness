@@ -90,16 +90,16 @@ fn tr(key: &str) -> SharedString {
 }
 
 fn main() {
-    #[cfg(test)]
+    #[cfg(all(test, feature = "design-capture"))]
     {
         plugins::capture_design();
         return;
     }
-    #[cfg(not(test))]
+    #[cfg(not(all(test, feature = "design-capture")))]
     launch();
 }
 
-#[cfg(not(test))]
+#[cfg(not(all(test, feature = "design-capture")))]
 fn launch() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     if updater::run_helper() {

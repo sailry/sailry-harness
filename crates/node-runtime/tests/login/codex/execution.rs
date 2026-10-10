@@ -93,6 +93,23 @@ async fn retains_capture_through_refresh() {
             )
             .await
             .unwrap();
+        let queue = fixture
+            .client
+            .read_conversation(turn.session, None, 10)
+            .await
+            .unwrap()
+            .page
+            .queue;
+        assert!(queue.paused);
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::SetQueuePaused {
+                session: turn.session,
+                expected_revision: queue.revision,
+                paused: false,
+            }))
+            .await
+            .unwrap();
         let page =
             super::super::execution::finished(&fixture.client, &turn, Status::Completed).await;
         assert_eq!(answer(&page, turn.id), "Authorized Codex response");

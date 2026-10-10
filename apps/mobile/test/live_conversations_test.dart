@@ -92,6 +92,24 @@ class ConnectionFixture implements Connection {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class QueueConnectionFixture extends ConnectionFixture {
+  bool unavailable = true;
+
+  @override
+  Future<String> execute({required String request}) async {
+    reconciled.add(request);
+    if (unavailable) {
+      unavailable = false;
+      return jsonEncode({
+        'Err': {'code': 'unavailable', 'message': 'Connection interrupted'},
+      });
+    }
+    return jsonEncode({
+      'Ok': {'kind': 'queued_turn', 'data': {}},
+    });
+  }
+}
+
 Map<String, dynamic> session({String id = 'session', int revision = 7}) => {
   'id': id,
   'project': 'project',
@@ -974,6 +992,103 @@ void main() {
     });
     await tester.pumpWidget(const SizedBox());
     updates.dispose();
+    app.dispose();
+  });
+
+  testWidgets('unknown queue edit keeps its request after disconnection', (
+    tester,
+  ) async {
+    final connection = QueueConnectionFixture();
+    var writes = 0;
+    final record = session();
+    final host = HostConnection.test(
+      id: 'node',
+      label: 'Node',
+      connection: connection,
+      snapshot: {
+        'sessions': [record],
+      },
+      command: (kind, data) async {
+        if (kind == 'read_queued_turn') {
+          return {
+            'data': {
+              'revision': 3,
+              'message': {
+                'text': 'Queued input',
+                'attachments': ['retained-file'],
+              },
+            },
+          };
+        }
+        expectSync(kind, 'edit_queued_turn');
+        expectSync(data?['message'], {
+          'text': 'Edited queue draft',
+          'attachments': ['retained-file'],
+        });
+        writes++;
+        throw const CommandFailure(
+          'outcome_unknown',
+          request: 'queue-original',
+        );
+      },
+    );
+    final app = AppSession.test(hosts: [host]);
+    await mount(
+      tester,
+      LiveConversationPage(
+        host: host,
+        sessionId: 'session',
+        initialSession: record,
+      ),
+      app,
+    );
+    connection.updates.emit(
+      view(
+        queue: {
+          'revision': 12,
+          'paused': false,
+          'items': [
+            {'turn': 'queued', 'revision': 3, 'preview': 'Queued input'},
+          ],
+        },
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'Unsent composer draft');
+    await tester.tap(find.text('${tr('queueShort')}  1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Queued input'));
+    await tester.pumpAndSettle();
+    final editor = find.descendant(
+      of: find.byType(TextFormField),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(editor, 'Edited queue draft');
+    await tester.tap(find.text(tr('save')));
+    await tester.pumpAndSettle();
+    expect(find.text('Edited queue draft'), findsOneWidget);
+    expect(tester.widget<TextField>(editor).enabled, isFalse);
+    await tester.tap(find.text(tr('conversationCheckResult')));
+    await tester.pumpAndSettle();
+    expect(find.text('Edited queue draft'), findsOneWidget);
+    expect(connection.reconciled, ['queue-original']);
+    Navigator.of(tester.element(find.byType(TextFormField))).pop();
+    await tester.pumpAndSettle();
+    Navigator.of(tester.element(find.byType(LiveQueue))).pop();
+    await tester.pumpAndSettle();
+    expect(find.text('Unsent composer draft'), findsOneWidget);
+    await tester.tap(find.text('${tr('queueShort')}  1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(tr('conversationCheckResult')));
+    await tester.pumpAndSettle();
+    expect(connection.reconciled, ['queue-original', 'queue-original']);
+    expect(writes, 1);
+    expect(find.text(tr('conversationCheckResult')), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox());
     app.dispose();
   });
 

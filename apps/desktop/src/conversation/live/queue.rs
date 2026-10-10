@@ -19,6 +19,8 @@ pub(super) struct Panel {
     child: bool,
     queue: Queue,
     connected: bool,
+    guidance_blocked: bool,
+    guidance_pending: Rc<Cell<bool>>,
     editing: Option<Editing>,
     pending: bool,
     retry: Option<actions::Attempt>,
@@ -36,7 +38,26 @@ struct Editing {
     references: Vec<sailry_protocol::conversation::reference::Reference>,
 }
 
+impl Drop for Panel {
+    fn drop(&mut self) {
+        self.guidance_pending.set(false);
+    }
+}
+
 impl Panel {
+    fn guidance_pending(&self) -> bool {
+        self.retry.as_ref().is_some_and(|attempt| {
+            matches!(attempt.request.command, Command::GuideQueuedTurn { .. })
+        })
+    }
+
+    fn sync_guidance(&self, cx: &mut Context<Self>) {
+        let pending = self.guidance_pending();
+        if self.guidance_pending.replace(pending) != pending {
+            let _ = self.owner.update(cx, |_, cx| cx.notify());
+        }
+    }
+
     pub(super) fn update_pending(&self) -> bool {
         self.pending || self.retry.is_some()
     }
@@ -47,6 +68,7 @@ impl Panel {
         owner: WeakEntity<View>,
         binding: Binding,
         images: Entity<attachments::images::Images>,
+        guidance_pending: Rc<Cell<bool>>,
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -96,6 +118,8 @@ impl Panel {
             child: false,
             queue: Queue::default(),
             connected: false,
+            guidance_blocked: false,
+            guidance_pending,
             editing: None,
             pending: false,
             retry: None,
@@ -112,12 +136,14 @@ impl Panel {
             .as_ref()
             .map(|snapshot| &snapshot.page.queue);
         let connected = view.connected();
+        let guidance_blocked = view.busy() || view.outgoing.is_some();
         let recipient = view.recipient().map(|run| run.turn);
         let outgoing = view.queued_outgoing();
         if self.session != view.session()
             || self.recipient != recipient
             || self.child != view.readonly()
             || self.connected != connected
+            || self.guidance_blocked != guidance_blocked
             || self.outgoing != outgoing
             || queue.is_some_and(|queue| *queue != self.queue)
         {
@@ -126,6 +152,7 @@ impl Panel {
             self.recipient = recipient;
             self.child = view.readonly();
             self.connected = connected;
+            self.guidance_blocked = guidance_blocked;
             if let Some(queue) = queue {
                 self.queue = queue.clone();
             }

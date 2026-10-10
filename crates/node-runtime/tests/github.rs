@@ -287,7 +287,7 @@ async fn refuses_stale_and_changed_targets() {
             .find(|worktree| worktree.project == Some(project.id))
             .unwrap()
             .id;
-        std::fs::write(root.join("github/plugin.json"),serde_json::json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"github","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":[],"settings_schema":"dev.sailry.platform/settings.json"}}}).to_string()).unwrap();
+        std::fs::write(root.join("github/plugin.json"),serde_json::json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"github","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":[],"settings_schema":"dev.sailry.platform/settings.json","credential_source":"github_cli"}}}).to_string()).unwrap();
         std::fs::write(
             root.join("github/dev.sailry.platform/settings.json"),
             include_str!("../../../plugins/github/dev.sailry.platform/settings.json"),

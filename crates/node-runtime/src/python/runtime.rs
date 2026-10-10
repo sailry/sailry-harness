@@ -10,6 +10,7 @@ use std::{
 };
 
 #[derive(Deserialize)]
+#[cfg_attr(any(test, feature = "test-support"), derive(serde::Serialize))]
 #[serde(deny_unknown_fields)]
 struct Receipt {
     version: u32,
@@ -20,6 +21,7 @@ struct Receipt {
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(any(test, feature = "test-support"), derive(serde::Serialize))]
 #[serde(deny_unknown_fields)]
 struct Source {
     url: String,
@@ -46,6 +48,50 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
+    #[cfg(any(test, feature = "test-support"))]
+    pub(super) fn fixture(root: &Path) -> Result<Self, Fault> {
+        let python = root.join(if cfg!(windows) {
+            "python.exe"
+        } else {
+            "bin/python3.12"
+        });
+        std::fs::create_dir_all(python.parent().expect("interpreter has a parent"))
+            .map_err(storage)?;
+        std::fs::write(&python, b"fixture interpreter").map_err(storage)?;
+        let marker = root.join(if cfg!(windows) {
+            "Lib/EXTERNALLY-MANAGED"
+        } else {
+            "lib/python3.12/EXTERNALLY-MANAGED"
+        });
+        std::fs::create_dir_all(marker.parent().expect("marker has a parent")).map_err(storage)?;
+        std::fs::write(marker, b"managed fixture").map_err(storage)?;
+        let receipt = Receipt {
+            version: 1,
+            python_version: VERSION.into(),
+            target: "fixture".into(),
+            source: Source {
+                url: "https://example.test/python.tar.gz".into(),
+                sha256: "a".repeat(64),
+            },
+            files: vec![integrity::File {
+                path: python
+                    .strip_prefix(root)
+                    .expect("interpreter belongs to fixture")
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+                size: std::fs::metadata(&python).map_err(storage)?.len(),
+                sha256: integrity::hash(&python, &CancellationToken::new())?,
+                link: None,
+            }],
+        };
+        std::fs::write(
+            root.join("python-runtime.json"),
+            serde_json::to_vec(&receipt).map_err(storage)?,
+        )
+        .map_err(storage)?;
+        Self::open(root)
+    }
+
     pub(crate) fn bundled() -> Result<Self, Fault> {
         let executable = std::env::current_exe().map_err(storage)?;
         let directory = executable.parent().ok_or_else(super::unavailable)?;

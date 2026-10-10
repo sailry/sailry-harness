@@ -316,8 +316,9 @@ async fn restores_streamed_turns() {
                 .await
                 .unwrap();
             assert_eq!(document.content.matches("History fixture").count(), 51);
-            assert!(document.content.contains("原文 🙂"));
-            assert!(document.content.contains("资料.txt"));
+            assert_eq!(document.content.matches("answer-fixture-a").count(), 51);
+            assert!(!document.content.contains("原文 🙂"));
+            assert!(!document.content.contains("资料.txt"));
             assert!(document.attachments.is_empty());
         }
         let cancelled = CancellationToken::new();

@@ -98,6 +98,17 @@ async fn resume(fixture: Fixture, first: Input, second: Input, remote: bool) {
         node.local()
     });
     execute(&client, Command::StartQueuedTurn { turn: queued.id }).await;
+    let queue = history(&client, fixture.session.id).await.queue;
+    assert!(queue.paused);
+    execute(
+        &client,
+        Command::SetQueuePaused {
+            session: fixture.session.id,
+            expected_revision: queue.revision,
+            paused: false,
+        },
+    )
+    .await;
     let page = finished(&client, fixture.session.id, queued.id).await;
     assert_eq!(
         page.runs.last().unwrap().status,

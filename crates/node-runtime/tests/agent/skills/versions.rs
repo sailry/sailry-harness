@@ -48,6 +48,17 @@ async fn retains_admitted_versions() {
         } else {
             node.local()
         });
+        let queue = history(&client, session.id).await.queue;
+        assert!(queue.paused);
+        execute(
+            &client,
+            Command::SetQueuePaused {
+                session: session.id,
+                expected_revision: queue.revision,
+                paused: false,
+            },
+        )
+        .await;
         for (turn, version) in [(&old, "1.0.0"), (&new, "2.0.0")] {
             execute(&client, Command::StartQueuedTurn { turn: turn.id }).await;
             let page = finished(&client, session.id, turn.id).await;

@@ -146,6 +146,23 @@ async fn keeps_captured_headers_through_restart_and_refresh() {
                 )
                 .await
                 .unwrap();
+            let queue = fixture
+                .client
+                .read_conversation(turn.session, None, 10)
+                .await
+                .unwrap()
+                .page
+                .queue;
+            assert!(queue.paused);
+            fixture
+                .client
+                .execute(fixture.client.prepare(Command::SetQueuePaused {
+                    session: turn.session,
+                    expected_revision: queue.revision,
+                    paused: false,
+                }))
+                .await
+                .unwrap();
             finished(&fixture.client, &turn, Status::Completed).await;
             assert_eq!(exchanges.load(Ordering::SeqCst), 2);
             assert_eq!(server.requests.lock().unwrap().len(), 7);

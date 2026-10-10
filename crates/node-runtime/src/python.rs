@@ -7,6 +7,9 @@ mod requirements;
 mod runtime;
 mod validation;
 
+#[cfg(any(test, feature = "test-support"))]
+mod fixture;
+
 #[cfg(test)]
 mod tests;
 
@@ -77,6 +80,8 @@ pub(crate) struct Manager {
     leases: Arc<Mutex<BTreeMap<String, Weak<()>>>>,
     references: Mutex<Option<BTreeSet<String>>>,
     collected: Mutex<Option<SystemTime>>,
+    #[cfg(any(test, feature = "test-support"))]
+    fixture_installations: Option<Arc<std::sync::atomic::AtomicUsize>>,
 }
 
 struct Prepared {
@@ -135,6 +140,8 @@ impl Manager {
             leases: Arc::default(),
             references: Mutex::new(None),
             collected: Mutex::new(None),
+            #[cfg(any(test, feature = "test-support"))]
+            fixture_installations: None,
         })
     }
 

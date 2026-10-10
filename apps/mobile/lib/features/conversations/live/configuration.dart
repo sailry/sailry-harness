@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
+import '../../../ui/toast.dart';
 import 'configuration_fields.dart';
 import 'presentation.dart' show failureLabel;
 
@@ -22,14 +23,22 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
   late Map<String, dynamic> _config = Map.of(object(widget.session['config']));
   late int _revision = widget.session['revision'] as int;
   bool _saving = false;
-  String? _error;
+  String? _pending;
+
+  void _accept(Map<String, dynamic> response) {
+    final session = object(response['data']);
+    setState(() {
+      _revision = session['revision'] as int;
+      _config = Map.of(object(session['config']));
+      _pending = null;
+    });
+  }
 
   Future<void> _save(Map<String, dynamic> config) async {
-    if (_saving || !widget.host.connected) return;
+    if (_saving || _pending != null || !widget.host.connected) return;
     setState(() {
       _config = config;
       _saving = true;
-      _error = null;
     });
     try {
       final response = await widget.host.command('set_session_config', {
@@ -37,18 +46,32 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
         'expected_revision': _revision,
         'config': config,
       });
-      final session = object(response['data']);
-      if (mounted) {
-        setState(() {
-          _revision = session['revision'] as int;
-          _config = Map.of(object(session['config']));
-        });
-      }
+      if (mounted) _accept(response);
     } catch (error) {
       if (mounted) {
-        setState(() {
-          _error = failureLabel(error, translate: context.tr);
-        });
+        if (error is CommandFailure && error.code == 'outcome_unknown') {
+          setState(() => _pending = error.request);
+        }
+        showToast(context, failureLabel(error, translate: context.tr));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _check() async {
+    final request = _pending;
+    if (_saving || request == null || !widget.host.connected) return;
+    setState(() => _saving = true);
+    try {
+      final response = await widget.host.execute(request);
+      if (mounted) _accept(response);
+    } catch (error) {
+      if (mounted) {
+        if (error is CommandFailure && error.rejected) {
+          setState(() => _pending = null);
+        }
+        showToast(context, failureLabel(error, translate: context.tr));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -60,7 +83,7 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
     final providers = objects(
       widget.host.snapshot['providers'],
     ).where((provider) => provider['enabled'] == true).toList();
-    final enabled = widget.host.connected;
+    final enabled = widget.host.connected && _pending == null;
     // Keep the controls' appearance stable during admission. Disabling every
     // control briefly on each selection makes the whole sheet flash.
     return AbsorbPointer(
@@ -78,13 +101,10 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
             },
             onCommitted: _save,
           ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
+          if (_pending != null)
+            TextButton(
+              onPressed: widget.host.connected ? _check : null,
+              child: Text(context.tr('conversationCheckResult')),
             ),
         ],
       ),

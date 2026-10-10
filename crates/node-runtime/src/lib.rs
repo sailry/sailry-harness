@@ -286,6 +286,18 @@ impl Node {
         self.ingress.plugins.set_python_runtime_fixture(path)
     }
 
+    /// Registers sealed ready assets for UI fixtures; the interpreter cannot run.
+    /// Available only to tests and the explicit `test-support` feature.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn register_python_environment_fixture(
+        &self,
+        name: &str,
+    ) -> Result<std::sync::Arc<std::sync::atomic::AtomicUsize>, sailry_protocol::Fault> {
+        self.ingress
+            .plugins
+            .register_python_environment_fixture(name, &self.ingress.environment)
+    }
+
     #[cfg(feature = "test-support")]
     pub fn set_web_proxy_fixture(
         &self,

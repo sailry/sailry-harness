@@ -294,12 +294,24 @@ fn emit_include_metadata(include_paths: &[PathBuf]) {
 /// values are the four Zig `OptimizeMode` names (`Debug`, `ReleaseSafe`, `ReleaseFast`,
 /// `ReleaseSmall`).
 ///
-/// Defaults to `ReleaseFast` for optimized builds. If `DEBUG` is `true` (as cargo sets for the
-/// `dev` profile), `Debug` mode is used. Otherwise, if `OPT_LEVEL` is `s` or `z`, `ReleaseSmall`
-/// is used.
+/// Development builds use `ReleaseSafe`, retaining Zig's ordinary runtime checks without
+/// Ghostty's exhaustive per-line page integrity scans. Explicit `Debug` remains available
+/// for native debugging. Release builds retain `ReleaseSmall` for `s` or `z`, otherwise
+/// `ReleaseFast`.
 fn zig_optimize_mode() -> &'static str {
-    if let Ok(override_mode) = env::var("LIBGHOSTTY_VT_SYS_OPTIMIZE") {
-        return match override_mode.as_str() {
+    let override_mode = env::var("LIBGHOSTTY_VT_SYS_OPTIMIZE").ok();
+    let debug = env::var("DEBUG").as_deref() == Ok("true");
+    let opt_level = env::var("OPT_LEVEL").ok();
+    optimize_mode(override_mode.as_deref(), debug, opt_level.as_deref())
+}
+
+fn optimize_mode(
+    override_mode: Option<&str>,
+    debug: bool,
+    opt_level: Option<&str>,
+) -> &'static str {
+    if let Some(override_mode) = override_mode {
+        return match override_mode {
             "Debug" => "Debug",
             "ReleaseSafe" => "ReleaseSafe",
             "ReleaseFast" => "ReleaseFast",
@@ -310,13 +322,58 @@ fn zig_optimize_mode() -> &'static str {
         };
     }
 
-    if env::var("DEBUG").as_deref() == Ok("true") {
-        return "Debug";
+    if debug {
+        return "ReleaseSafe";
     }
 
-    match env::var("OPT_LEVEL").as_deref() {
-        Ok("s") | Ok("z") => "ReleaseSmall",
+    match opt_level {
+        Some("s") | Some("z") => "ReleaseSmall",
         _ => "ReleaseFast",
+    }
+}
+
+#[cfg(test)]
+mod optimization {
+    use super::optimize_mode;
+
+    #[test]
+    fn safe_development() {
+        for level in [
+            None,
+            Some("0"),
+            Some("1"),
+            Some("2"),
+            Some("3"),
+            Some("s"),
+            Some("z"),
+        ] {
+            assert_eq!(optimize_mode(None, true, level), "ReleaseSafe");
+        }
+    }
+
+    #[test]
+    fn preserves_release_profiles() {
+        for level in [None, Some("0"), Some("1"), Some("2"), Some("3")] {
+            assert_eq!(optimize_mode(None, false, level), "ReleaseFast");
+        }
+        for level in [Some("s"), Some("z")] {
+            assert_eq!(optimize_mode(None, false, level), "ReleaseSmall");
+        }
+    }
+
+    #[test]
+    fn preserves_explicit_modes() {
+        for mode in ["Debug", "ReleaseSafe", "ReleaseFast", "ReleaseSmall"] {
+            for debug in [false, true] {
+                assert_eq!(optimize_mode(Some(mode), debug, Some("z")), mode);
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "must be one of Debug, ReleaseSafe, ReleaseFast, ReleaseSmall")]
+    fn rejects_invalid_override() {
+        optimize_mode(Some("debug"), true, Some("z"));
     }
 }
 

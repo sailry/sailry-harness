@@ -67,10 +67,11 @@ impl Projection {
             }
             Update::Snapshot(mut snapshot) => {
                 self.check_target(snapshot.node)?;
-                if self
-                    .snapshot
-                    .as_ref()
-                    .is_some_and(|current| snapshot.cursor < current.cursor)
+                if !self.recovery
+                    && self
+                        .snapshot
+                        .as_ref()
+                        .is_some_and(|current| snapshot.cursor < current.cursor)
                 {
                     return Ok(Apply::Ignored);
                 }

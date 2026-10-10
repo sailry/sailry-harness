@@ -145,6 +145,17 @@ async fn executes_retained_import() {
         };
         assert_eq!(retained.skill, installed.skill);
         execute(&client, Command::StartQueuedTurn { turn: turn.id }).await;
+        let queue = history(&client, session.id).await.queue;
+        assert!(queue.paused);
+        execute(
+            &client,
+            Command::SetQueuePaused {
+                session: session.id,
+                expected_revision: queue.revision,
+                paused: false,
+            },
+        )
+        .await;
         let (_, approval) = approvals::pending(&client, session.id).await;
         assert!(!root.join("script-count.txt").exists());
         execute(

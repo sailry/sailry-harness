@@ -126,12 +126,16 @@ fn new_session_preserves_the_draft(cx: &mut TestAppContext) {
                     && view.read(cx).binding().project == fixture.sessions[index].project
             })
         });
-        click(visual, "live-chat-input");
+        crate::conversation::live::tests::fixture::tap(visual, "live-chat-input");
         visual.simulate_input("Keep this draft 中文");
         let draft = shell.read_with(visual, |shell, _| shell.current_chat().unwrap().clone());
+        assert_eq!(
+            draft.read_with(visual, |view, cx| view.draft(cx)),
+            "Keep this draft 中文"
+        );
         let attachment = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(attachment.path(), "Preserved attachment").unwrap();
-        click(visual, "live-attach");
+        crate::conversation::live::tests::fixture::tap(visual, "live-attach");
         assert!(visual.did_prompt_for_paths());
         visual.simulate_path_prompt_response(|options| {
             assert!(options.files && !options.directories && options.multiple);

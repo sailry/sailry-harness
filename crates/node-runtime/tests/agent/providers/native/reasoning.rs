@@ -366,6 +366,17 @@ async fn restores_native_choices() {
             } else {
                 node.local()
             });
+            let queue = history(&client, fixture.session.id).await.queue;
+            assert!(queue.paused);
+            execute(
+                &client,
+                Command::SetQueuePaused {
+                    session: fixture.session.id,
+                    expected_revision: queue.revision,
+                    paused: false,
+                },
+            )
+            .await;
             for turn in turns {
                 execute(&client, Command::StartQueuedTurn { turn: turn.id }).await;
                 let page = finished(&client, turn.session, turn.id).await;

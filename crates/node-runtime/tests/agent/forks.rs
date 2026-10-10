@@ -224,6 +224,7 @@ async fn resumes_without_tool_replay() {
         let unchanged = history(&client, session.id).await;
         assert_eq!(unchanged.entries, original.entries);
         assert_eq!(unchanged.queue.items.len(), 1);
+        assert!(!unchanged.queue.paused);
         assert_eq!(
             std::fs::read_to_string(root.join("fork.txt")).unwrap(),
             "Original write 中文 🙂"
@@ -266,7 +267,10 @@ async fn resumes_without_tool_replay() {
                 .page,
             branched
         );
-        assert_eq!(history(&restored, session.id).await, unchanged);
+        let mut recovered = unchanged;
+        recovered.queue.paused = true;
+        recovered.queue.revision += 1;
+        assert_eq!(history(&restored, session.id).await, recovered);
         assert_eq!(server.requests.lock().unwrap().len(), 4);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();

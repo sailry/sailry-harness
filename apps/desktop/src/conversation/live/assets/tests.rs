@@ -525,10 +525,17 @@ fn opens_child_without_discarding_draft(cx: &mut TestAppContext) {
                     .collect::<Vec<_>>(),
             )
         });
+        // Dismiss the approval popover only after both child projections arrive.
+        // A later approval intentionally reopens it and can intercept draft input.
+        wait(visual, |cx| view.read(cx).approvals.pending_children() == 2);
         visual.simulate_keystrokes("escape");
         visual.run_until_parked();
         tap(visual, "live-chat-input");
         visual.simulate_input("Keep my draft");
+        assert_eq!(
+            view.read_with(visual, |view, cx| view.draft(cx).to_string()),
+            "Keep my draft"
+        );
         let selected = std::rc::Rc::new(std::cell::Cell::new(None));
         let captured = selected.clone();
         let _subscription = visual.update(|_, cx| {

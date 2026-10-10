@@ -430,7 +430,7 @@ async fn retains_disabled_configuration_on_each_path() {
             node.local()
         });
         let mut refreshed = Vec::new();
-        for (previous, version) in [(&previous[0], "0.1.3"), (&previous[1], "0.2.2")] {
+        for (previous, version) in [(&previous[0], "0.1.4"), (&previous[1], "0.2.2")] {
             let current = info(
                 execute(
                     &client,

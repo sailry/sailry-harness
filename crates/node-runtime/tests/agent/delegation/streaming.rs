@@ -3,7 +3,7 @@ use sailry_client::conversation::View;
 use sailry_link::CancellationToken;
 
 #[tokio::test]
-async fn recovers_and_clears_partial_output() {
+async fn recovers_and_preserves_stopped_output() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
@@ -138,7 +138,13 @@ async fn recovers_and_clears_partial_output() {
         .expect("child stop deadline");
         let page = history(&client, child.id).await;
         assert_eq!(projection.snapshot().unwrap().page.as_ref(), &page);
-        assert!(!text(&page).contains("partial-fixture"));
+        let retained = page
+            .entries
+            .iter()
+            .find(|entry| entry.id == snapshot.drafts[0].id)
+            .expect("stopped output must remain in canonical history");
+        assert_eq!(retained.turn, child_turn);
+        assert_eq!(retained.parts, snapshot.drafts[0].parts);
         assert_eq!(
             finished(&client, session.id, turn.id).await.runs[0].status,
             Status::Completed

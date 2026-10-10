@@ -39,7 +39,7 @@ Future<void> main() async {
     (item) => item['id'] == session,
   );
   final config = Map<String, dynamic>.from(current['config'] as Map)
-    ..['permission'] = 'full';
+    ..['permission'] = 'project';
   final updated = (await execute(connection, 'set_session_config', {
     'session': session,
     'expected_revision': current['revision'],
@@ -60,7 +60,7 @@ Future<void> main() async {
         approval['can_remember'] == false &&
         approval['prefix'] == null &&
         part(waiting, approval)['arguments']['access'] == 'unrestricted',
-    'network services require fresh unrestricted consent in full mode',
+    'network services require fresh unrestricted consent in project mode',
   );
   final before = await serviceView(commands, (_) => true);
   check((before['items'] as List).isEmpty, 'a pending service has not started');

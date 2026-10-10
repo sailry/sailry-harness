@@ -5,6 +5,7 @@ use crate::{
 };
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
+    spinner::Spinner,
     *,
 };
 use gpui_kit::prelude::FluentBuilder as _;
@@ -88,9 +89,8 @@ impl Shell {
             .when(!state.loaded && state.error.is_none(), |body| {
                 body.child(
                     div()
-                        .text_sm()
                         .debug_selector(|| "tunnels-loading".into())
-                        .child(tr("tunnels_loading")),
+                        .child(Spinner::new().small()),
                 )
             })
             .when(state.loaded && state.entries.is_empty(), |body| {

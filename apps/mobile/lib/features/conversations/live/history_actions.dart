@@ -40,10 +40,13 @@ extension _HistoryActions on _LiveConversationPageState {
       return true;
     } on CommandFailure catch (failure) {
       if (mounted) {
-        _historyPending =
-            failure.code == 'outcome_unknown' && failure.request != null
-            ? (kind: kind, request: failure.request!)
-            : null;
+        if (failure.code == 'outcome_unknown' && failure.request != null) {
+          _historyPending = (kind: kind, request: failure.request!);
+        } else if (failure.rejected) {
+          _historyPending = null;
+        } else {
+          _historyPending = pending;
+        }
         _rebuild();
         _failure(failure);
       }

@@ -46,7 +46,7 @@ mod terminals;
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "design-capture"))]
 pub(crate) fn capture_design() {
     tests::task_plaza::rendering::run();
 }

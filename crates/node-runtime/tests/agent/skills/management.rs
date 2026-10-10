@@ -163,6 +163,7 @@ async fn permissions_and_empty_inventory() {
                 ]
             })
             .await;
+            enabled_only(&fixture.client, &[]).await;
             let turn = fixture.submit().await;
             if permission != Permission::Full {
                 let (pending, approval) =

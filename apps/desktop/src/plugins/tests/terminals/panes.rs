@@ -224,6 +224,79 @@ fn wait_title(
 }
 
 #[gpui::test]
+fn preserves_host_when_hidden_terminal_closes(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = fixture(remote);
+        let package = install(&fixture);
+        let (shell, _launcher, visual) = open(&fixture, &package, remote, cx);
+        let (terminal, _panel) = create(&fixture, &shell, visual);
+        let selected = fixture.controller.id();
+        wait(visual, |cx| {
+            shell
+                .read(cx)
+                .live
+                .as_ref()
+                .unwrap()
+                .transport_for(selected)
+                .is_some()
+        });
+        visual.update(|window, cx| {
+            // The package observes this closure after navigation selects another Node.
+            fixture.execute(Command::CloseTerminal {
+                worktree: fixture.session.worktree,
+                terminal: id(terminal),
+            });
+            shell.update(cx, |shell, cx| shell.select_live_host(selected, window, cx));
+        });
+        wait(visual, |cx| {
+            let state = shell.read(cx);
+            let live = state.live.as_ref().unwrap();
+            !state.splits.read(cx).contains(terminal)
+                && live.selected == selected
+                && live.transport.target() == selected
+                && live.view.connected
+                && live
+                    .view
+                    .snapshot
+                    .as_ref()
+                    .is_some_and(|snapshot| snapshot.node == selected)
+        });
+        shell.read_with(visual, |shell, cx| {
+            assert_eq!(shell.page, crate::preview::Page::Host);
+            assert_eq!(shell.live.as_ref().unwrap().selected, selected);
+            assert_eq!(shell.live.as_ref().unwrap().transport.target(), selected);
+            assert_eq!(
+                shell.splits.read(cx).active,
+                Some(Target::Session(fixture.node.id(), fixture.session.id))
+            );
+        });
+        assert!(
+            terminals(&fixture)
+                .iter()
+                .any(|info| { info.id == id(terminal) && info.status == Status::Closed })
+        );
+        assert!(visual.debug_bounds("split-workspaces").is_none());
+        visual.update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.activate_pane(
+                    Target::Session(fixture.node.id(), fixture.session.id),
+                    window,
+                    cx,
+                )
+            });
+        });
+        wait(visual, |cx| {
+            let state = shell.read(cx);
+            let live = state.live.as_ref().unwrap();
+            state.page == crate::preview::Page::Conversation
+                && live.selected == fixture.node.id()
+                && live.view.connected
+        });
+    }
+}
+
+#[gpui::test]
 fn shares_workspace_and_preserves_process_on_detach(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {

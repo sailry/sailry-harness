@@ -484,6 +484,7 @@ impl Store {
         let code_pool = ingress.code.clone();
         let searcher = ingress.search.clone();
         let feeds = ingress.feeds.clone();
+        let dispatch_controls = ingress.dispatch.clone();
         let worker = std::thread::Builder::new()
             .name("sailry-store".into())
             .spawn(move || {
@@ -820,6 +821,9 @@ impl Store {
                                 completed.result,
                                 &events,
                             );
+                            if matches!(&result, Ok(sailry_protocol::Output::Plugin(_))) {
+                                dispatch_controls.wake.notify_one();
+                            }
                             if result.is_ok() && code::configures(&completed.request.command) {
                                 match code::settings(&database.connection) {
                                     Ok(settings) => cleanup_runtime.block_on(code_pool.configure(settings)),
@@ -836,6 +840,9 @@ impl Store {
                                 completed.result,
                                 &events,
                             );
+                            if matches!(&result, Ok(sailry_protocol::Output::Plugin(_))) {
+                                dispatch_controls.wake.notify_one();
+                            }
                             if result.is_ok() && code::configures(&completed.request.command) {
                                 match code::settings(&database.connection) {
                                     Ok(settings) => cleanup_runtime.block_on(code_pool.configure(settings)),

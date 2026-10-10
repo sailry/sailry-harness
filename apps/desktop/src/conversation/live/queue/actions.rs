@@ -3,6 +3,7 @@ use super::*;
 #[derive(Clone)]
 pub(super) struct Attempt {
     pub(super) request: Request,
+    message: Option<sailry_protocol::conversation::Input>,
 }
 
 impl Panel {
@@ -15,9 +16,35 @@ impl Panel {
         if self.blocked() || !self.allows(&command) {
             return;
         }
-        self.retry = Some(Attempt {
+        let attempt = Attempt {
             request: self.binding.client.prepare(command),
-        });
+            message: None,
+        };
+        if let Command::GuideQueuedTurn {
+            turn, recipient, ..
+        } = attempt.request.command
+            && let Some(item) = self.queue.items.iter().find(|item| item.turn == turn)
+        {
+            let input = sailry_protocol::conversation::Input {
+                text: item.preview.clone(),
+                attachments: item
+                    .attachments
+                    .iter()
+                    .map(|attachment| attachment.id)
+                    .collect(),
+                references: Vec::new(),
+            };
+            let attachments = item.attachments.clone();
+            let request = attempt.request.id;
+            let shown = self.owner.update(cx, |view, cx| {
+                view.show_guidance(turn, recipient, request, input, attachments, cx)
+            });
+            if !matches!(shown, Ok(true)) {
+                return;
+            }
+        }
+        self.retry = Some(attempt);
+        self.sync_guidance(cx);
         self.retry(window, cx);
     }
 
@@ -35,12 +62,61 @@ impl Panel {
         self.error = None;
         let client = self.binding.client.clone();
         let request = attempt.request.clone();
-        let job = self
-            .binding
-            .runtime
-            .spawn(async move { client.execute(request).await });
+        let runtime = self.binding.runtime.clone();
+        let read_client = client.clone();
+        let read_request = request.clone();
+        let captured = attempt.message.clone();
+        let read = runtime.spawn(async move {
+            if captured.is_some() {
+                return Ok(captured);
+            }
+            let Command::GuideQueuedTurn {
+                turn,
+                expected_revision,
+                ..
+            } = read_request.command
+            else {
+                return Ok(None);
+            };
+            match read_client
+                .execute(read_client.prepare(Command::ReadQueuedTurn { turn }))
+                .await?
+            {
+                Output::QueuedMessage(message)
+                    if message.turn.id == turn && message.revision == expected_revision =>
+                {
+                    Ok(Some(message.message))
+                }
+                Output::QueuedMessage(_) => Err(sailry_protocol::Fault::new(
+                    ErrorCode::RevisionConflict,
+                    "queued message changed before guidance",
+                )),
+                _ => Err(sailry_protocol::Fault::invalid("queued message expected")),
+            }
+        });
         self.action = Some(cx.spawn_in(window, async move |panel, cx| {
-            let result = job.await;
+            let prepared = read.await;
+            let result = match prepared {
+                Ok(Ok(message)) => {
+                    if let Some(message) = message {
+                        let _ = panel.update_in(cx, |panel, _, cx| {
+                            if let Some(attempt) = &mut panel.retry { attempt.message = Some(message.clone()); }
+                            let _ = panel.owner.update(cx, |view, cx| {
+                                if let Some(outgoing) = &mut view.outgoing
+                                    && outgoing.request == Some(attempt.request.id)
+                                {
+                                    outgoing.input = message.clone();
+                                }
+                                view.sync_rows(cx);
+                                cx.notify();
+                            });
+                        });
+                    }
+                    runtime.spawn(async move {client.execute(request).await}).await
+                }
+                Ok(Err(error)) => Ok(Err(error)),
+                Err(error) => Err(error),
+            };
             let _ = panel.update_in(cx, |panel, window, cx| {
                 panel.pending = false;
                 match result {
@@ -85,6 +161,19 @@ impl Panel {
                     }
                     Ok(Ok(Output::Queue(update))) => {
                         panel.retry = None;
+                        if let Command::GuideQueuedTurn {recipient,..} = attempt.request.command
+                            && let Some(item) = update.queue.items.iter().find(|item| item.guidance == Some(recipient))
+                        {
+                            let _ = panel.owner.update(cx, |view,cx| {
+                                if let Some(outgoing) = &mut view.outgoing
+                                    && outgoing.request == Some(attempt.request.id) {
+                                        outgoing.turn=Some(item.turn);
+                                        if let Some(guidance) = &mut outgoing.guidance {guidance.revision=Some(update.queue.revision);}
+                                    }
+                                view.sync_rows(cx);
+                                cx.notify();
+                            });
+                        }
                         if panel.child
                             && matches!(&attempt.request.command, Command::RemoveQueuedTurn { turn, .. }
                                 if panel.editing.as_ref().is_some_and(|editing| editing.turn == *turn))
@@ -126,10 +215,18 @@ impl Panel {
                             ErrorCode::OutcomeUnknown | ErrorCode::Unavailable | ErrorCode::Busy
                         ) {
                             panel.retry = None;
+                            let _ = panel.owner.update(cx, |view,cx| {
+                                if view.outgoing.as_ref().is_some_and(|message|message.request==Some(attempt.request.id)) {
+                                    view.outgoing=None;
+                                    view.sync_rows(cx);
+                                    cx.notify();
+                                }
+                            });
                         }
                     }
                     _ => panel.error = Some("chat_action_unknown"),
                 }
+                panel.sync_guidance(cx);
                 cx.notify();
             });
         }));

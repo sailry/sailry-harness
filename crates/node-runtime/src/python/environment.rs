@@ -11,6 +11,10 @@ impl Manager {
         destination: &Path,
         cancel: &CancellationToken,
     ) -> Result<(), Fault> {
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(installations) = &self.fixture_installations {
+            installations.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
         self.report(requirements, Stage::Creating);
         let stage = tempfile::Builder::new()
             .prefix("environment-")

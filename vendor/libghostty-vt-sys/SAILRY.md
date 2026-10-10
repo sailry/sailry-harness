@@ -6,4 +6,6 @@ The native Ghostty revision remains ab0b9da9e88fcb4b0533a1854e84628f663930af. `p
 
 GNU Linux builds explicitly select the glibc 2.28 target, including native builds, so Zig does not inherit a newer runner libc than the Host distribution linker supports. Other native targets keep host detection. Focused build-script tests cover both Linux architectures and native/cross target selection.
 
+Development builds default to Zig `ReleaseSafe`, including unoptimized Cargo profiles. Native terminal sampling showed Ghostty's `Debug` mode spending most output processing time in exhaustive page integrity scans after each linefeed. `ReleaseSafe` retains ordinary Zig runtime checks while omitting those debug-only scans. Explicit `LIBGHOSTTY_VT_SYS_OPTIMIZE=Debug` remains available; release profile selection and all explicit overrides are unchanged. Focused build-script tests cover these selections.
+
 Regression coverage is in the Node terminal VT tests, desktop title propagation tests, and real local/remote zsh resize test. The remaining bindings are unchanged upstream code.

@@ -12,18 +12,18 @@ pub(super) fn approved(db: &Connection, startup: &Startup) -> Result<bool, Fault
 }
 
 pub(super) fn configures(command: &Command) -> bool {
-    match command {
-        Command::SaveCodeSettings { .. } => true,
-        Command::SetPluginEnabled { .. }
-        | Command::RemovePlugin { .. }
-        | Command::InstallPlugin { .. }
-        | Command::InstallPluginUpload { .. }
-        | Command::InstallPluginSource { .. }
-        | Command::InstallBundledPlugin { .. }
-        | Command::InstallSkill { .. }
-        | Command::InstallMcp { .. } => true,
-        _ => false,
-    }
+    matches!(
+        command,
+        Command::SaveCodeSettings { .. }
+            | Command::SetPluginEnabled { .. }
+            | Command::RemovePlugin { .. }
+            | Command::InstallPlugin { .. }
+            | Command::InstallPluginUpload { .. }
+            | Command::InstallPluginSource { .. }
+            | Command::InstallBundledPlugin { .. }
+            | Command::InstallSkill { .. }
+            | Command::InstallMcp { .. }
+    )
 }
 
 pub(super) fn grant(db: &Connection, startup: &Startup) -> Result<(), Fault> {

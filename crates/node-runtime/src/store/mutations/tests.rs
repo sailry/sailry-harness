@@ -27,6 +27,7 @@ impl Fixture {
     async fn start(
         execute: impl Fn(&mutations::Roots, &Request) -> Response + Send + 'static,
     ) -> Self {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let directory =
             tempfile::tempdir_in(std::fs::canonicalize(std::env::temp_dir()).unwrap()).unwrap();
         let profile = crate::Profile::acquire(&directory.path().join("node-profile")).unwrap();

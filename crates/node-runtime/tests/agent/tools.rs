@@ -207,9 +207,12 @@ async fn reads_bound_worktree() {
                     "find_files",
                     "search_files",
                     "read_office",
+                    "read_notebook",
+                    "edit_notebook",
                 ],
             ),
             ("progress", &["update_plan"]),
+            ("brief", &["read_brief", "list_briefs", "write_brief"]),
             ("delegation", &["spawn_agent", "guide_agent", "wait_agent"]),
             (
                 "media",
@@ -244,6 +247,9 @@ async fn reads_bound_worktree() {
                     "code_references",
                     "code_diagnostics",
                     "code_symbols",
+                    "code_packages",
+                    "code_install",
+                    "code_uninstall",
                 ],
             ),
         ];

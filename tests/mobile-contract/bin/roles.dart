@@ -36,13 +36,20 @@ Future<void> main() async {
   var updates = await connection.watch();
   final shipped = await catalog(
     updates,
-    (roles) => roles.length == 1 && roles.single['key'] == 'explore',
+    (roles) =>
+        roles.length == 2 &&
+        roles.map((role) => role['key']).join(',') == 'explore,research',
   );
-  check(shipped.single['read_only'] == true, 'Explore is read only');
-  await execute(connection, 'remove_role', {
-    'role': shipped.single['id'],
-    'expected_revision': shipped.single['revision'],
-  });
+  check(
+    shipped.every((role) => role['read_only'] == true),
+    'Shipped roles are read only',
+  );
+  for (final role in shipped) {
+    await execute(connection, 'remove_role', {
+      'role': role['id'],
+      'expected_revision': role['revision'],
+    });
+  }
   await catalog(updates, (roles) => roles.isEmpty);
 
   Future<String> prepare(String kind, Map<String, dynamic> data) =>
@@ -78,7 +85,9 @@ Future<void> main() async {
   final created = await connection.execute(request: create);
   final saved = jsonDecode(created)['Ok']['data'];
   check(
-    saved['revision'] == 1 && saved['model'] == null && saved['read_only'] == false,
+    saved['revision'] == 1 &&
+        saved['model'] == null &&
+        saved['read_only'] == false,
     'inheritance persists',
   );
   var roles = await catalog(updates, (roles) => roles.length == 1);

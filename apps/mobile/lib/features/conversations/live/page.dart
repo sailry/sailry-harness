@@ -345,7 +345,18 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
   void _queue() => showAppSheet(
     context,
     context.tr('queue'),
-    child: LiveQueue(view: _view, session: widget.sessionId, command: _command),
+    child: LiveQueue(
+      view: _view,
+      session: widget.sessionId,
+      command: _command,
+      mutate: _historyCommand,
+      isPending: () => _historyPending != null,
+      check: () async {
+        final pending = _historyPending;
+        if (pending == null) return true;
+        return _historyCommand(pending.kind, {});
+      },
+    ),
   );
 
   Future<void> _attach() async {

@@ -100,6 +100,23 @@ async fn keeps_frozen_resources() {
             Command::StartQueuedTurn { turn: queued.id },
         )
         .await;
+        let queue = history(&fixture.client, fixture.session.id).await.queue;
+        assert!(queue.paused);
+        assert!(
+            queue
+                .items
+                .iter()
+                .any(|item| item.turn == queued.id && item.ready)
+        );
+        execute(
+            &fixture.client,
+            Command::SetQueuePaused {
+                session: fixture.session.id,
+                expected_revision: queue.revision,
+                paused: false,
+            },
+        )
+        .await;
         let page = finished(&fixture.client, fixture.session.id, queued.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         verify(&page, "Retained", secret);

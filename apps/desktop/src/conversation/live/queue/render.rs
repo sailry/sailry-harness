@@ -95,7 +95,7 @@ impl Panel {
                     .icon(IconName::Redo2)
                     .tooltip(tr("chat_queue_guide"))
                     .accessibility_label(tr("chat_queue_guide"))
-                    .disabled(self.blocked())
+                    .disabled(self.blocked() || self.guidance_blocked)
                     .debug_selector(move || format!("queue-guide-{turn}"))
                     .on_click(cx.listener(move |panel, _, window, cx| {
                         cx.stop_propagation();

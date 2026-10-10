@@ -159,6 +159,39 @@ fn rejects_previous_generation() {
 }
 
 #[test]
+fn reconnects_to_restored_node_cursor() {
+    let mut projection = Projection::new(NodeId([1; 32]), 1);
+    let mut current = snapshot(100);
+    current.defaults.revision = 9;
+    projection
+        .apply(1, Update::Snapshot(current.clone()))
+        .unwrap();
+    projection.reconnect(2).unwrap();
+    assert_eq!(
+        projection
+            .apply(1, Update::Snapshot(snapshot(200)))
+            .unwrap(),
+        Apply::Ignored
+    );
+    let mut restored = snapshot(20);
+    restored.defaults.revision = 3;
+    assert_eq!(
+        projection
+            .apply(2, Update::Snapshot(restored.clone()))
+            .unwrap(),
+        Apply::Applied
+    );
+    assert_eq!(projection.snapshot(), Some(&restored));
+    assert_eq!(projection.apply(2, event(21)).unwrap(), Apply::Applied);
+    assert_eq!(projection.snapshot().unwrap().defaults.revision, 21);
+    assert_eq!(
+        projection.apply(2, Update::Snapshot(snapshot(19))).unwrap(),
+        Apply::Ignored
+    );
+    assert_eq!(projection.snapshot().unwrap().cursor, 21);
+}
+
+#[test]
 fn rejects_foreign_or_stale_snapshots() {
     let mut projection = Projection::new(NodeId([1; 32]), 1);
     projection.apply(1, Update::Snapshot(snapshot(2))).unwrap();

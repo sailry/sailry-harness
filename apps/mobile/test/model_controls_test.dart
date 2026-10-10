@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +8,29 @@ import 'package:sailry_mobile/features/conversations/live/model_controls.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/ui/theme.dart';
+
+import 'live_conversations_test.dart' as fixture;
+
+class ConfigurationConnection extends fixture.ConnectionFixture {
+  @override
+  Future<String> execute({required String request}) async {
+    reconciled.add(request);
+    if (reconciled.length == 1) {
+      return jsonEncode({
+        'Err': {'code': 'unavailable', 'message': 'Connection interrupted'},
+      });
+    }
+    return jsonEncode({
+      'Ok': {
+        'kind': 'session',
+        'data': {
+          'revision': 10,
+          'config': {'mode': 'plan', 'permission': 'ask'},
+        },
+      },
+    });
+  }
+}
 
 void main() {
   testWidgets('model and effort save the captured revision', (tester) async {
@@ -182,8 +206,92 @@ void main() {
     expect(mode.selected, {'plan'});
     expect(mode.onSelectionChanged, isNotNull);
     expect(find.text(tr('conversationConflict')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('app-toast')),
+        matching: find.text(tr('conversationConflict')),
+      ),
+      findsOneWidget,
+    );
     expect(find.byType(ConversationConfiguration), findsOneWidget);
     expect(tester.takeException(), isNull);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox());
+    await host.close();
+    host.dispose();
+  });
+
+  testWidgets('unknown configuration retains its request and revision', (
+    tester,
+  ) async {
+    final connection = ConfigurationConnection();
+    var writes = 0;
+    final host = HostConnection.test(
+      id: 'node',
+      label: 'Node',
+      connection: connection,
+      command: (kind, data) async {
+        expect(kind, 'set_session_config');
+        writes++;
+        if (writes == 1) {
+          expect(data?['expected_revision'], 9);
+          throw const CommandFailure(
+            'outcome_unknown',
+            request: 'configuration-original',
+          );
+        }
+        expect(data?['expected_revision'], 10);
+        return {
+          'kind': 'session',
+          'data': {'revision': 11, 'config': data?['config']},
+        };
+      },
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SailryTheme.of(Brightness.light),
+        home: Scaffold(
+          body: ConversationConfiguration(
+            host: host,
+            session: {
+              'id': 'session',
+              'revision': 9,
+              'config': {'mode': 'code', 'permission': 'ask'},
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text(tr('conversationPlan')));
+    await tester.pumpAndSettle();
+    final mode = find.byKey(const ValueKey('configuration-mode'));
+    expect(tester.widget<SegmentedButton<String>>(mode).selected, {'plan'});
+    expect(
+      tester.widget<SegmentedButton<String>>(mode).onSelectionChanged,
+      isNull,
+    );
+    await tester.tap(find.text(tr('conversationCheckResult')));
+    await tester.pumpAndSettle();
+    expect(connection.reconciled, ['configuration-original']);
+    expect(find.text(tr('conversationCheckResult')), findsOneWidget);
+    await tester.tap(find.text(tr('conversationCheckResult')));
+    await tester.pumpAndSettle();
+    expect(connection.reconciled, [
+      'configuration-original',
+      'configuration-original',
+    ]);
+    expect(find.text(tr('conversationCheckResult')), findsNothing);
+    expect(
+      tester.widget<SegmentedButton<String>>(mode).onSelectionChanged,
+      isNotNull,
+    );
+    await tester.tap(find.text(tr('conversationFull')));
+    await tester.pumpAndSettle();
+    expect(writes, 2);
+    expect(tester.takeException(), isNull);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
     await tester.pumpWidget(const SizedBox());
     await host.close();
     host.dispose();

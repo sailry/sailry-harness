@@ -216,6 +216,12 @@ async fn searches_unloaded_history() {
             .await
             .unwrap();
         finished(&client, pending.id, turn.id).await;
+        let stopped = client
+            .search_conversation(pending.id, query("partial-fixture"))
+            .await
+            .unwrap();
+        assert_eq!(stopped.matches.len(), 1);
+        assert_eq!(stopped.matches[0].turn, turn.id);
         drop(stream);
         node.shutdown().await.unwrap();
         let node = Node::start(&profile).await.unwrap();
@@ -231,13 +237,12 @@ async fn searches_unloaded_history() {
                 .unwrap(),
             found
         );
-        assert!(
+        assert_eq!(
             client
                 .search_conversation(pending.id, query("partial-fixture"))
                 .await
-                .unwrap()
-                .matches
-                .is_empty()
+                .unwrap(),
+            stopped
         );
         assert_eq!(server.requests.lock().unwrap().len(), 26);
         assert_eq!(slow.requests.lock().unwrap().len(), 1);

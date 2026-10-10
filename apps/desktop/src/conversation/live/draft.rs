@@ -11,7 +11,10 @@ impl View {
     }
 
     pub(super) fn busy(&self) -> bool {
-        self.pending || self.retry.is_some() || self.preparing.is_some()
+        self.pending
+            || self.retry.is_some()
+            || self.preparing.is_some()
+            || self.guidance_pending.get()
     }
 
     pub(super) fn saving_config(&self) -> bool {

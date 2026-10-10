@@ -40,7 +40,7 @@ impl Ingress {
             .plugin
             .as_ref()
             .and_then(|context| context.session)
-            .or_else(|| {
+            .or({
                 if let Command::ReadArtifact { session, .. } = &request.command {
                     *session
                 } else {

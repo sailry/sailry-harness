@@ -268,12 +268,40 @@ async fn removed_default(name: &str, enabled: bool) {
         if name == "code" {
             use sailry_protocol::tool::Operation;
             let extension = installed.extension.as_ref().unwrap();
-            assert!(extension.desktop.is_none());
+            let desktop = extension.desktop.as_ref().unwrap();
+            let page = extension.settings_page.as_ref().unwrap();
+            assert!(page.enabled_control);
+            assert_eq!(
+                page.entry.as_deref(),
+                Some("dev.sailry.platform/desktop/settings.js")
+            );
+            assert!(desktop.resources.contains(page.entry.as_ref().unwrap()));
+            let Output::PluginView(bundle) = execute(
+                &client,
+                Command::ReadPluginView {
+                    package: installed.summary.reference(),
+                    surface: plugin::desktop::Surface::Settings,
+                },
+            )
+            .await
+            else {
+                panic!("view expected")
+            };
+            assert!(bundle.valid());
+            assert_eq!(Some(&bundle.entry), page.entry.as_ref());
             assert!(extension.host.is_none());
             assert!(installed.skills.is_empty());
             assert!(installed.mcp.is_empty());
             assert!(extension.model_tools.is_empty());
-            assert_eq!(extension.actions, [plugin::Action::ReadCode]);
+            assert_eq!(
+                extension.actions,
+                [
+                    plugin::Action::ReadCode,
+                    plugin::Action::ManageCode,
+                    plugin::Action::ReadCodeSettings,
+                    plugin::Action::SaveCodeSettings,
+                ]
+            );
             assert_eq!(
                 extension
                     .tools
@@ -286,6 +314,9 @@ async fn removed_default(name: &str, enabled: bool) {
                     Some(Operation::CodeReferences),
                     Some(Operation::CodeHover),
                     Some(Operation::CodeSymbols),
+                    Some(Operation::CodePackages),
+                    Some(Operation::InstallCodeServer),
+                    Some(Operation::UninstallCodeServer),
                 ]
             );
             assert!(

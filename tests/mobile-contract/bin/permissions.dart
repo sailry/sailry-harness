@@ -127,8 +127,13 @@ Future<void> main() async {
     final waiting = await until(
       updates,
       (snapshot) =>
-          hasPending(snapshot) &&
-          (snapshot['page']['approvals'] as List).length == 3,
+          (snapshot['page']['approvals'] as List).length == 3 &&
+          (mode == 'full'
+              ? (snapshot['page']['runs'] as List).any(
+                  (run) =>
+                      run['turn'] == turn['id'] && run['status'] == 'completed',
+                )
+              : hasPending(snapshot)),
     );
     final workspace = waiting['snapshot']['page']['approvals'][1];
     check(
@@ -140,17 +145,20 @@ Future<void> main() async {
               'printf x >> count.txt',
       'workspace commands run inside the sandbox in every frozen mode',
     );
-    final command = pending(waiting);
+    final command = mode == 'full'
+        ? waiting['snapshot']['page']['approvals'][2]
+        : pending(waiting);
     check(
       part(waiting, command)['name'] == env['SAILRY_RUN_TOOL'] &&
           part(waiting, command)['arguments']['access'] == 'unrestricted' &&
-          command['source'] == 'user' &&
+          command['source'] == (mode == 'full' ? 'full' : 'user') &&
+          command['state'] == (mode == 'full' ? 'approved' : 'pending') &&
           command['access'] == 'unrestricted' &&
           command['can_remember'] == false &&
           command['prefix'] == null &&
           command['choice'] == null &&
           unrestrictedApprovals.add(command['id'] as String),
-      'unrestricted commands need a fresh decision in every frozen mode',
+      'unrestricted commands retain their frozen authority',
     );
     final before = await connection.prepare(
       command: jsonEncode({
@@ -161,61 +169,75 @@ Future<void> main() async {
         },
       }),
     );
-    final untouched = jsonDecode(await connection.execute(request: before));
-    check(
-      index == 0
-          ? (untouched['Err']?['code'] == 'not_found')
-          : (untouched['Ok']?['data']?['text'] ==
-                List.filled(index, 'x').join()),
-      'pending unrestricted commands have no side effects',
-    );
-    final remember = await connection.prepare(
-      command: jsonEncode({
-        'kind': 'resolve_approval',
-        'data': {
-          'session': session,
-          'approval': command['id'],
-          'decision': 'approve_session',
-        },
-      }),
-    );
-    check(
-      jsonDecode(await connection.execute(request: remember))['Err']?['code'] ==
-          'invalid_request',
-      'unrestricted consent cannot be remembered',
-    );
-    final resumed = await reopen();
-    check(
-      pending(resumed)['id'] == command['id'] &&
-          pending(resumed)['state'] == 'pending',
-      'current permission and reconnect do not approve the frozen command',
-    );
-    final allow = await connection.prepare(
-      command: jsonEncode({
-        'kind': 'resolve_approval',
-        'data': {
-          'session': session,
-          'approval': command['id'],
-          'decision': 'approve',
-        },
-      }),
-    );
-    final receipt = await connection.execute(request: allow);
-    check(
-      jsonDecode(receipt)['Ok']['data']['state'] == 'approved' &&
-          jsonDecode(receipt)['Ok']['data']['choice'] == 'once',
-      'explicit command decision is durable for this call',
-    );
-    check(
-      await connection.execute(request: allow) == receipt,
-      'decision retry reuses original authority',
-    );
-    final completed = await until(
-      updates,
-      (snapshot) => (snapshot['page']['runs'] as List).any(
-        (run) => run['turn'] == turn['id'] && run['status'] == 'completed',
-      ),
-    );
+    if (mode != 'full') {
+      final untouched = jsonDecode(await connection.execute(request: before));
+      check(
+        index == 0
+            ? (untouched['Err']?['code'] == 'not_found')
+            : (untouched['Ok']?['data']?['text'] ==
+                  List.filled(index, 'x').join()),
+        'pending unrestricted commands have no side effects',
+      );
+      final remember = await connection.prepare(
+        command: jsonEncode({
+          'kind': 'resolve_approval',
+          'data': {
+            'session': session,
+            'approval': command['id'],
+            'decision': 'approve_session',
+          },
+        }),
+      );
+      check(
+        jsonDecode(
+              await connection.execute(request: remember),
+            )['Err']?['code'] ==
+            'invalid_request',
+        'unrestricted consent cannot be remembered',
+      );
+      final resumed = await reopen();
+      check(
+        pending(resumed)['id'] == command['id'] &&
+            pending(resumed)['state'] == 'pending',
+        'current permission and reconnect do not approve the frozen command',
+      );
+      final allow = await connection.prepare(
+        command: jsonEncode({
+          'kind': 'resolve_approval',
+          'data': {
+            'session': session,
+            'approval': command['id'],
+            'decision': 'approve',
+          },
+        }),
+      );
+      final receipt = await connection.execute(request: allow);
+      check(
+        jsonDecode(receipt)['Ok']['data']['state'] == 'approved' &&
+            jsonDecode(receipt)['Ok']['data']['choice'] == 'once',
+        'explicit command decision is durable for this call',
+      );
+      check(
+        await connection.execute(request: allow) == receipt,
+        'decision retry reuses original authority',
+      );
+    } else {
+      check(
+        (await current())['config']['permission'] == 'ask' &&
+            command['source'] == 'full' &&
+            command['state'] == 'approved',
+        'frozen full authority survives the current ask permission',
+      );
+    }
+    final completed = mode == 'full'
+        ? waiting
+        : await until(
+            updates,
+            (snapshot) => (snapshot['page']['runs'] as List).any(
+              (run) =>
+                  run['turn'] == turn['id'] && run['status'] == 'completed',
+            ),
+          );
     final page = completed['snapshot']['page'];
     final sources = (page['approvals'] as List)
         .map((approval) => approval['source'])
@@ -227,7 +249,7 @@ Future<void> main() async {
                 ? ['user', 'sandbox', 'user']
                 : mode == 'project'
                 ? ['project', 'sandbox', 'user']
-                : ['full', 'sandbox', 'user'],
+                : ['full', 'sandbox', 'full'],
           ),
       'automatic authority retains its frozen source',
     );

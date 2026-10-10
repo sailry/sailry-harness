@@ -8,7 +8,7 @@ use gpui_kit::component::{
 use gpui_kit::prelude::FluentBuilder as _;
 
 impl Shell {
-    pub(super) fn select_live_host(
+    pub(crate) fn select_live_host(
         &mut self,
         node: NodeId,
         window: &mut Window,

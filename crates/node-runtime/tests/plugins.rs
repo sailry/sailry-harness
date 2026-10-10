@@ -81,6 +81,7 @@ async fn inventory(client: &Client) -> Vec<Summary> {
         .into_iter()
         .filter(|entry| {
             ![
+                "brief",
                 "reminders",
                 "scheduled-tasks",
                 "web-search",

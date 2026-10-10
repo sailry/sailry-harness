@@ -1,4 +1,4 @@
-use sailry_client::Client;
+use sailry_client::{Apply, Client, Projection};
 use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
 use sailry_protocol::{
@@ -404,14 +404,53 @@ async fn restores_new_profiles_without_external_mutation() {
                 fs::read(external.join("source.txt")).unwrap(),
                 b"external source stays unchanged"
             );
+            // The controller can observe changes newer than the backup it restores.
+            for _ in 0..3 {
+                execute(
+                    &client,
+                    Command::SaveBackupSettings(Update {
+                        settings: settings(&client).await,
+                        identity: SecretUpdate::Keep,
+                        secret: SecretUpdate::Keep,
+                        session_token: SecretUpdate::Keep,
+                        passphrase: SecretUpdate::Keep,
+                    }),
+                )
+                .await;
+            }
+            let Output::Snapshot(current) = execute(&client, Command::Snapshot).await else {
+                unreachable!()
+            };
+            let mut projection = Projection::new(node.id(), 1);
+            projection
+                .apply(1, sailry_protocol::Update::Snapshot(current.clone()))
+                .unwrap();
             let id = node.id();
             node.shutdown().await.unwrap();
-            controller.close().await.unwrap();
             let restored = Node::start_with_plugin_catalog(&target, "http://127.0.0.1:9/")
                 .await
                 .unwrap();
             assert_eq!(restored.id(), id);
-            let reader = Client::new(restored.local());
+            let address = controller
+                .handle()
+                .pair(restored.link().invite().unwrap().ticket())
+                .await
+                .unwrap();
+            let reader = Client::new(if remote {
+                controller.handle().remote(address)
+            } else {
+                restored.local()
+            });
+            projection.reconnect(2).unwrap();
+            reader.recover(&mut projection, 2).await.unwrap();
+            let recovered = projection.snapshot().unwrap();
+            assert!(recovered.cursor < current.cursor);
+            let mut updates = reader.subscribe().await.unwrap();
+            assert_eq!(
+                projection.apply(2, updates.next().await.unwrap()).unwrap(),
+                Apply::Applied
+            );
+            drop(updates);
             let Output::Session(loaded) = execute(
                 &reader,
                 Command::ReadSession {
@@ -425,6 +464,7 @@ async fn restores_new_profiles_without_external_mutation() {
             assert_eq!(loaded.id, session.id);
             assert!(settings(&reader).await.credentials_configured);
             restored.shutdown().await.unwrap();
+            controller.close().await.unwrap();
         }
     }
 }

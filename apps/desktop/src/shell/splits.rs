@@ -105,7 +105,9 @@ impl Shell {
     ) {
         match event {
             panes::Event::Focus(target) => {
-                if self.splits.read(cx).active == Some(*target) {
+                if matches!(self.page, Page::Conversation | Page::Terminal)
+                    && self.splits.read(cx).active == Some(*target)
+                {
                     self.focus_pane(*target, window, cx);
                 }
             }
@@ -200,6 +202,8 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let visible = self.page == Page::Conversation
+            || self.page == Page::Terminal && self.terminal_workspace_visible(cx);
         self.release_plugin_pane(target);
         if let Target::Session(node, id) = target
             && self.splits.read(cx).contains(target)
@@ -207,7 +211,7 @@ impl Shell {
         {
             view.update(cx, |view, cx| view.stop_background(window, cx));
         }
-        let active = self.splits.read(cx).active == Some(target);
+        let active = visible && self.splits.read(cx).active == Some(target);
         if active {
             self.park_session_panel(window, cx);
         }

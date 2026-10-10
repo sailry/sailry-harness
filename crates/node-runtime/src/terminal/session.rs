@@ -11,6 +11,12 @@ use std::{
 };
 use tokio::sync::{broadcast, oneshot};
 
+#[cfg(test)]
+mod tests;
+
+const QUEUE_CAPACITY: usize = 64;
+const MAX_BATCH_BYTES: usize = 64 * 1024;
+
 pub(super) enum Message {
     Bytes(Vec<u8>),
     Eof(Result<(), String>),
@@ -49,7 +55,7 @@ impl Handle {
             caller,
             worktree,
         } = origin;
-        let (messages, receiver) = mpsc::sync_channel(64);
+        let (messages, receiver) = mpsc::sync_channel(QUEUE_CAPACITY);
         let (ready, initialized) = mpsc::sync_channel(1);
         let (events, _) = broadcast::channel(64);
         let stopped = Arc::new(AtomicBool::new(false));
@@ -200,42 +206,50 @@ impl Owner {
     fn run(&mut self, messages: &Receiver<Message>, stop: &AtomicBool) -> Status {
         let mut exited = None;
         let mut ended = None;
+        let mut pending = None;
         loop {
             if stop.load(Ordering::Acquire) {
                 // Node shutdown stops a process; only CloseTerminal removes its record.
                 return Status::Stopped;
             }
-            match messages.recv_timeout(Duration::from_millis(100)) {
-                Ok(Message::Bytes(bytes)) => match self.vt.write(&bytes) {
-                    Ok(write) => {
-                        if let Some(activity) = self.activity.update(&bytes) {
-                            let mut snapshot = self.snapshot.lock().unwrap();
-                            snapshot.info.activity = Some(ActivityReport {
-                                state: activity,
-                                sequence: snapshot
-                                    .info
-                                    .activity
-                                    .map_or(1, |report| report.sequence + 1),
-                            });
-                            (self.changed)(snapshot.info.clone());
-                        }
-                        for response in write.responses {
-                            if let Err(error) = self.process.write(response) {
-                                return Status::Failed {
-                                    message: error.message,
-                                };
+            let message = match pending.take() {
+                Some(message) => Ok(message),
+                None => messages.recv_timeout(Duration::from_millis(100)),
+            };
+            match message {
+                Ok(Message::Bytes(bytes)) => {
+                    let bytes = coalesce(bytes, messages, &mut pending);
+                    match self.vt.write(&bytes) {
+                        Ok(write) => {
+                            if let Some(activity) = self.activity.update(&bytes) {
+                                let mut snapshot = self.snapshot.lock().unwrap();
+                                snapshot.info.activity = Some(ActivityReport {
+                                    state: activity,
+                                    sequence: snapshot
+                                        .info
+                                        .activity
+                                        .map_or(1, |report| report.sequence + 1),
+                                });
+                                (self.changed)(snapshot.info.clone());
+                            }
+                            for response in write.responses {
+                                if let Err(error) = self.process.write(response) {
+                                    return Status::Failed {
+                                        message: error.message,
+                                    };
+                                }
+                            }
+                            if let Some(screen) = write.screen {
+                                self.publish(screen);
                             }
                         }
-                        if let Some(screen) = write.screen {
-                            self.publish(screen);
+                        Err(error) => {
+                            return Status::Failed {
+                                message: error.message,
+                            };
                         }
                     }
-                    Err(error) => {
-                        return Status::Failed {
-                            message: error.message,
-                        };
-                    }
-                },
+                }
                 Ok(Message::Command {
                     caller,
                     command,
@@ -399,6 +413,30 @@ impl Owner {
             screen,
         });
     }
+}
+
+fn coalesce(
+    mut bytes: Vec<u8>,
+    messages: &Receiver<Message>,
+    pending: &mut Option<Message>,
+) -> Vec<u8> {
+    // Project ready output together without waiting or crossing control commands.
+    for _ in 0..QUEUE_CAPACITY {
+        if bytes.len() >= MAX_BATCH_BYTES {
+            break;
+        }
+        match messages.try_recv() {
+            Ok(Message::Bytes(next)) if next.len() <= MAX_BATCH_BYTES - bytes.len() => {
+                bytes.extend(next);
+            }
+            Ok(message) => {
+                *pending = Some(message);
+                break;
+            }
+            Err(_) => break,
+        }
+    }
+    bytes
 }
 
 fn conflict() -> Fault {

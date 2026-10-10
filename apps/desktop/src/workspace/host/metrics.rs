@@ -57,7 +57,6 @@ impl Metrics {
             return v_flex()
                 .gap_3()
                 .debug_selector(|| "metrics-loading".into())
-                .child(tr("metrics_loading"))
                 .child(
                     Progress::new("metrics-loading")
                         .loading(true)

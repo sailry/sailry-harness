@@ -42,11 +42,12 @@ async fn restart_pauses_idle_input() {
         let page = finished(&fixture.client, fixture.session.id, fresh.id).await;
         assert!(!page.queue.paused);
         assert!(page.runs.iter().all(|run| run.status == Status::Completed));
-        let requests = fixture.server.requests.lock().unwrap();
-        assert_eq!(requests.len(), 2);
-        assert_eq!(prompt(&requests[0]), input);
-        assert_eq!(prompt(&requests[1]), "Resume with fresh input");
-        drop(requests);
+        {
+            let requests = fixture.server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert_eq!(prompt(&requests[0]), input);
+            assert_eq!(prompt(&requests[1]), "Resume with fresh input");
+        }
         fixture.close().await;
     }
 }
@@ -133,11 +134,12 @@ async fn fresh_submission_resumes_active_queue() {
             Status::Cancelled
         );
         assert!(page.queue.items.is_empty());
-        let requests = fixture.server.requests.lock().unwrap();
-        assert_eq!(requests.len(), 3);
-        assert_eq!(prompt(&requests[1]), "Fresh input");
-        assert_eq!(prompt(&requests[2]), "Edited waiting input");
-        drop(requests);
+        {
+            let requests = fixture.server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 3);
+            assert_eq!(prompt(&requests[1]), "Fresh input");
+            assert_eq!(prompt(&requests[2]), "Edited waiting input");
+        }
         fixture.close().await;
     }
 }

@@ -59,6 +59,8 @@ fn releases_navigation_when_selecting_another_host(cx: &mut TestAppContext) {
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         manifest["extensions"]["dev.sailry.platform"]["desktop"]["navigation"] =
             serde_json::json!({"label":"Summary","icon":"reicon:files/file-text"});
+        manifest["extensions"]["dev.sailry.platform"]["desktop"]["navigation_options"]["retention"] =
+            serde_json::json!({"mode":"always"});
         std::fs::write(path, manifest.to_string()).unwrap();
         let package = fixture.install(0);
         let (game, _server) = fixture.game_plugin_with("gomoku", &["ai_model"], |root| {

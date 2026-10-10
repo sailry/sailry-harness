@@ -290,8 +290,10 @@ mod tests {
                 .all(|entry| entry.bundled && entry.repository.is_none())
         );
         assert_eq!(page.entries, bundled::entries().unwrap());
-        for (query, expected) in [("文件", vec!["files"]), ("筑梦大亨", vec!["city-trader"])]
-        {
+        for (query, expected) in [
+            ("读取、编辑与管理文件", vec!["files"]),
+            ("筑梦大亨", vec!["city-trader"]),
+        ] {
             let page = host
                 .catalog(CatalogSource::Official, query, 1, CancellationToken::new())
                 .await

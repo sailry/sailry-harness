@@ -1,5 +1,6 @@
 use super::*;
 use crate::theme::DialogStyle as _;
+use gpui_kit::component::spinner::Spinner;
 
 pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
     window.open_dialog(cx, move |dialog, window, cx| {
@@ -124,7 +125,7 @@ impl Render for Editor {
             .debug_selector(|| "plugin-settings-form".into())
             .gap_4()
             .min_w_0()
-            .when(self.loading, |view| view.child(tr("plugins_loading")))
+            .when(self.loading, |view| view.child(Spinner::new().small()))
             .children(self.tab_bar(cx))
             .child(
                 gpui_kit::component::form::Form::vertical()

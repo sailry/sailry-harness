@@ -83,6 +83,17 @@ async fn restores_frozen_requests() {
                 history_before.entries
             );
             execute(&client, Command::StartQueuedTurn { turn: queued.id }).await;
+            let queue = history(&client, fixture.session.id).await.queue;
+            assert!(queue.paused);
+            execute(
+                &client,
+                Command::SetQueuePaused {
+                    session: fixture.session.id,
+                    expected_revision: queue.revision,
+                    paused: false,
+                },
+            )
+            .await;
             let page = finished(&client, queued.session, queued.id).await;
             assert_eq!(
                 page.runs.last().unwrap().status,

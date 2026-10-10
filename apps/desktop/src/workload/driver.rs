@@ -4,7 +4,6 @@ use crate::{
     shell::{Shell, ToggleSidebar},
 };
 use gpui_kit::component::ThemeMode;
-use sailry_client::Client;
 use sailry_protocol::Command;
 use serde_json::json;
 
@@ -25,15 +24,37 @@ pub(super) async fn run(scenario: Scenario, shell: Entity<Shell>, cx: &mut Async
                 .contains_key(&node)
         })
         .await;
-        cx.update(|_, cx| {
+        cx.update(|window, cx| {
             cx.activate(true);
-            shell.update(cx, |shell, cx| {
-                shell.live.as_mut().unwrap().select(node, cx)
-            })
+            shell.update(cx, |shell, cx| shell.select_live_host(node, window, cx))
         })
         .unwrap();
+        let mut previous = String::new();
         until(cx, "connected host", |_, cx| {
-            shell.read(cx).live.as_ref().unwrap().view.connected
+            let state = shell.read(cx);
+            let live = state.live.as_ref().unwrap();
+            let diagnostic = format!(
+                "expected={node:?}, selected={:?}, transport={:?}, connected={}, snapshot={:?}, session_present={}, error={:?}, page={:?}, pane={:?}",
+                live.selected,
+                live.transport.target(),
+                live.view.connected,
+                live.view.snapshot.as_ref().map(|snapshot| snapshot.node),
+                live.view.snapshot.as_ref().is_some_and(|snapshot| snapshot.sessions.iter().any(|value| value.id == session.id)),
+                live.view.error.as_ref().map(|error| error.code),
+                state.page,
+                state.splits.read(cx).active,
+            );
+            if diagnostic != previous {
+                println!("Host connection state: {diagnostic}");
+                previous = diagnostic;
+            }
+            live.selected == node
+                && live.transport.target() == node
+                && live.view.connected
+                && live.view.snapshot.as_ref().is_some_and(|snapshot| {
+                    snapshot.node == node
+                        && snapshot.sessions.iter().any(|value| value.id == session.id)
+                })
         })
         .await;
         cx.update(|window, cx| {
@@ -43,17 +64,21 @@ pub(super) async fn run(scenario: Scenario, shell: Entity<Shell>, cx: &mut Async
         })
         .unwrap();
         until(cx, "loaded conversation", |_, cx| {
-            shell
-                .read(cx)
-                .current_chat()
-                .is_some_and(|chat| chat.read(cx).loaded_turns() >= 20)
+            shell.read(cx).current_chat().is_some_and(|chat| {
+                let chat = chat.read(cx);
+                chat.binding().client.target() == node
+                    && chat.session() == Some(session.id)
+                    && chat.loaded_turns() >= 20
+            })
         })
         .await;
         let client = cx
             .update(|_, cx| {
-                Arc::new(Client::new(
-                    shell.read(cx).live.as_ref().unwrap().transport.clone(),
-                ))
+                let chat = shell.read(cx).current_chat().unwrap().read(cx);
+                let client = chat.binding().client;
+                assert_eq!(client.target(), node);
+                assert_eq!(chat.session(), Some(session.id));
+                client
             })
             .unwrap();
         for (index, (name, mode, width)) in [
@@ -78,7 +103,10 @@ pub(super) async fn run(scenario: Scenario, shell: Entity<Shell>, cx: &mut Async
             records.push(measure(cx, &shell, job, route, &format!("conversation-{name}")).await);
             until(cx, "completed conversation projection", |_, cx| {
                 shell.read(cx).current_chat().is_some_and(|chat| {
-                    chat.read(cx).completed_turns() == Some(24 + (index as u64 + 1) * 4)
+                    let chat = chat.read(cx);
+                    chat.binding().client.target() == node
+                        && chat.session() == Some(session.id)
+                        && chat.completed_turns() == Some(24 + (index as u64 + 1) * 4)
                 })
             })
             .await;

@@ -11,29 +11,53 @@ class LiveQueue extends StatefulWidget {
     required this.view,
     required this.session,
     required this.command,
+    this.mutate,
+    this.isPending,
+    this.check,
   });
   final ValueNotifier<Map<String, dynamic>> view;
   final String session;
   final ConversationCommand command;
+  final Future<bool> Function(String, Map<String, dynamic>)? mutate;
+  final bool Function()? isPending;
+  final Future<bool> Function()? check;
   @override
   State<LiveQueue> createState() => _LiveQueueState();
 }
 
 class _LiveQueueState extends State<LiveQueue> {
   bool _busy = false;
-  String? _error;
+
+  bool get _pending => widget.isPending?.call() == true;
+
+  Future<bool> _mutate(String kind, Map<String, dynamic> data) async {
+    if (widget.mutate != null) return widget.mutate!(kind, data);
+    await widget.command(kind, data);
+    return true;
+  }
 
   Future<void> _run(String kind, Map<String, dynamic> data) async {
     if (_busy) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
+    setState(() => _busy = true);
     try {
-      await widget.command(kind, data);
+      await _mutate(kind, data);
     } catch (error) {
       if (mounted) {
-        setState(() => _error = failureLabel(error, translate: context.tr));
+        showToast(context, failureLabel(error, translate: context.tr));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _check() async {
+    if (_busy || widget.check == null) return;
+    setState(() => _busy = true);
+    try {
+      await widget.check!();
+    } catch (error) {
+      if (mounted) {
+        showToast(context, failureLabel(error, translate: context.tr));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -61,6 +85,7 @@ class _LiveQueueState extends State<LiveQueue> {
               children: [
                 TextFormField(
                   initialValue: draft,
+                  enabled: !pending && !_pending,
                   onChanged: (value) => draft = value,
                   autofocus: true,
                   minLines: 3,
@@ -73,12 +98,17 @@ class _LiveQueueState extends State<LiveQueue> {
                       : () async {
                           update(() => pending = true);
                           try {
-                            await widget.command('edit_queued_turn', {
-                              'turn': item['turn'],
-                              'expected_revision': message['revision'],
-                              'message': {...input, 'text': draft},
-                            });
-                            if (context.mounted) Navigator.pop(context);
+                            final accepted = _pending
+                                ? await widget.check!()
+                                : await _mutate('edit_queued_turn', {
+                                    'turn': item['turn'],
+                                    'expected_revision': message['revision'],
+                                    'message': {...input, 'text': draft},
+                                  });
+                            if (context.mounted) {
+                              update(() => pending = false);
+                              if (accepted) Navigator.pop(context);
+                            }
                           } catch (error) {
                             if (context.mounted) {
                               update(() => pending = false);
@@ -89,7 +119,9 @@ class _LiveQueueState extends State<LiveQueue> {
                             }
                           }
                         },
-                  child: Text(context.tr('save')),
+                  child: Text(
+                    context.tr(_pending ? 'conversationCheckResult' : 'save'),
+                  ),
                 ),
               ],
             );
@@ -98,9 +130,10 @@ class _LiveQueueState extends State<LiveQueue> {
       );
     } catch (error) {
       if (mounted) {
-        setState(() => _error = failureLabel(error, translate: context.tr));
+        showToast(context, failureLabel(error, translate: context.tr));
       }
     }
+    if (mounted) setState(() {});
   }
 
   @override
@@ -109,15 +142,15 @@ class _LiveQueueState extends State<LiveQueue> {
     builder: (context, view, _) {
       final queue = object(object(object(view['snapshot'])['page'])['queue']);
       final items = objects(queue['items']);
-      final enabled = !_busy && view['connected'] == true;
+      final enabled = !_busy && !_pending && view['connected'] == true;
       return Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (_error != null)
-            Text(
-              _error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+          if (_pending && widget.check != null)
+            OutlinedButton(
+              onPressed: !_busy && view['connected'] == true ? _check : null,
+              child: Text(context.tr('conversationCheckResult')),
             ),
           if (items.isEmpty)
             EmptyState(icon: 'chat', message: context.tr('queueEmpty')),

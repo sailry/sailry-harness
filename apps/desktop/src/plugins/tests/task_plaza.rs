@@ -5,6 +5,7 @@ use sailry_protocol::{Output, plugin::Info};
 
 mod approvals;
 mod previews;
+#[cfg(feature = "design-capture")]
 pub(in crate::plugins) mod rendering;
 
 fn install(fixture: &Fixture) -> Info {
