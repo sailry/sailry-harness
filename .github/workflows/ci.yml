@@ -29,14 +29,27 @@ jobs:
     name: Source and services
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      backend: ${{ steps.scope.outputs.backend }}
+      desktop: ${{ steps.scope.outputs.desktop }}
+      mobile: ${{ steps.scope.outputs.mobile }}
+      android: ${{ steps.scope.outputs.android }}
+      services: ${{ steps.scope.outputs.services }}
+      services_result: ${{ steps.pairing.outcome }}
+      rust: ${{ steps.scope.outputs.rust }}
+      rust_matrix: ${{ steps.scope.outputs.rust_matrix }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
           submodules: recursive
+          fetch-depth: 0
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.12'
+      - name: Select affected checks
+        id: scope
+        run: python3 scripts/ci.py select
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '22.22.1'
@@ -61,6 +74,8 @@ jobs:
           git ls-files -z '*.sh' | xargs -0 -r -n 1 bash -n
           python3 -m compileall -q scripts
       - name: Pairing service
+        id: pairing
+        if: steps.scope.outputs.services == 'true'
         working-directory: services/pairing-relay
         run: |
           npm install --global pnpm@10.31.0
@@ -74,11 +89,12 @@ jobs:
     # GitHub runs only a few macOS jobs at once; extra jobs queue for hours.
     # Keep Checks to three macOS jobs: lint+backend, desktop, mobile+iOS.
     # Intel macOS is built and packaged by the release workflow.
+    needs: source
+    if: needs.source.outputs.rust == 'true'
     name: Rust ${{ matrix.kind }}
     strategy:
       fail-fast: false
-      matrix:
-        kind: [backend, desktop]
+      matrix: ${{ fromJSON(needs.source.outputs.rust_matrix) }}
     runs-on: macos-15
     timeout-minutes: 150
     env:
@@ -141,30 +157,26 @@ jobs:
           path: target/sherpa-onnx-prebuilt
           key: ${{ steps.speech-cache.outputs.cache-primary-key }}
       - name: Formatting
-        if: matrix.kind == 'backend'
         run: cargo fmt --all -- --check
-      - name: Strict lint
+      - name: Backend strict lint
         if: matrix.kind == 'backend'
-        run: cargo clippy --locked --workspace --all-targets --jobs "$BUILD_JOBS" -- -D warnings
-      - name: Backend test compilation
-        if: matrix.kind == 'backend'
-        run: cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --no-run --timings --jobs "$BUILD_JOBS"
+        run: cargo clippy --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host -p sailry-speech -p sailry-embedding -p sailry-model-assets -p sailry-ocr --all-targets --jobs "$BUILD_JOBS" -- -D warnings
+      - name: Desktop strict lint
+        if: matrix.kind == 'desktop'
+        run: cargo clippy --locked -p sailry-content -p sailry-desktop --all-targets --jobs "$BUILD_JOBS" -- -D warnings
       - name: Backend unit and local/remote integration
         if: matrix.kind == 'backend'
-        run: cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --build-jobs "$BUILD_JOBS" --profile ci --test-threads=4
+        run: cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --timings --build-jobs "$BUILD_JOBS" --profile ci --test-threads=4
       - name: Isolated database engines
         if: matrix.kind == 'backend'
         run: |
           brew install postgresql@17 mysql@8.4
           export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
           cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --build-jobs "$BUILD_JOBS" --profile databases --run-ignored only --filterset 'binary(databases)' --test-threads=1
-      - name: Desktop test compilation
-        if: matrix.kind == 'desktop'
-        run: cargo test --locked -p sailry-content -p sailry-desktop --lib --bin sailry-desktop --no-run --timings --jobs "$BUILD_JOBS"
       - name: Desktop behavior and Kit interactions
         if: matrix.kind == 'desktop'
         # Process isolation permits bounded concurrency without shared locale/UI state.
-        run: cargo nextest run --locked -p sailry-content -p sailry-desktop --lib --bin sailry-desktop --build-jobs "$BUILD_JOBS" --profile ci
+        run: cargo nextest run --locked -p sailry-content -p sailry-desktop --lib --bin sailry-desktop --timings --build-jobs "$BUILD_JOBS" --profile ci
       - name: Desktop and Host without test features
         if: matrix.kind == 'desktop'
         # Tests enable test-support features; type-check the shipped feature set.
@@ -190,6 +202,8 @@ jobs:
 
   mobile:
     name: Mobile, shared bridge and iOS
+    needs: source
+    if: needs.source.outputs.mobile == 'true'
     runs-on: macos-15
     timeout-minutes: 150
     env:
@@ -247,10 +261,12 @@ jobs:
           dart format --output=none --set-exit-if-changed lib preview test integration_test tool
           flutter analyze --no-pub
           flutter test --no-pub
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Mobile strict lint
+        run: cargo clippy --locked -p sailry-mobile-bridge --all-targets --jobs 1 -- -D warnings
       - name: Native shared bridge
         run: cargo build --locked -p sailry-mobile-bridge --lib
-      - name: Dart FFI test compilation
-        run: cargo test --locked -p sailry-mobile-bridge --test dart --no-run --timings
       - name: Dart FFI contract fixtures
         run: |
           brew install postgresql@17 mysql@8.4
@@ -259,7 +275,7 @@ jobs:
           dart pub get --enforce-lockfile
           dart analyze
           cd ../..
-          cargo test --locked -p sailry-mobile-bridge --test dart -- --ignored --skip mcp_peer::stdio_peer --test-threads=4 --nocapture
+          cargo test --locked -p sailry-mobile-bridge --test dart --timings -- --ignored --skip mcp_peer::stdio_peer --test-threads=4 --nocapture
       - name: Flutter controls a real remote Node
         run: cargo test --locked -p sailry-mobile-bridge --test flutter controls_remote_node -- --ignored --exact --nocapture
       - name: iOS Rust dependency boundary
@@ -279,6 +295,8 @@ jobs:
 
   android:
     name: Mobile Android
+    needs: source
+    if: needs.source.outputs.android == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -333,16 +351,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Require all results
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+      - name: Require selected results
         env:
           CHECK_RESULTS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PY'
-          import json, os
-          results = json.loads(os.environ['CHECK_RESULTS'])
-          for name, job in results.items():
-              print(f"{name}: {job['result']}")
-          if not results or any(job['result'] != 'success' for job in results.values()):
-              raise SystemExit('One or more required checks did not pass')
-          print('Checks passed')
-          PY
+        run: python3 scripts/ci.py report
