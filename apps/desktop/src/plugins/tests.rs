@@ -17,6 +17,8 @@ mod game;
 mod git;
 mod loading;
 mod navigation;
+#[cfg(unix)]
+mod newcode;
 mod preload;
 mod recovery;
 mod reminders;
