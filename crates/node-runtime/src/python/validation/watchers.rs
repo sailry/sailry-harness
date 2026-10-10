@@ -222,9 +222,6 @@ fn coverage(root: &Path, limit: usize) -> Option<Coverage> {
         result.push((path.clone(), integrity::Stamp::new(&metadata)));
         for entry in std::fs::read_dir(path).ok()? {
             let entry = entry.ok()?;
-            if entry.file_name() == "__pycache__" {
-                continue;
-            }
             let metadata = entry.path().symlink_metadata().ok()?;
             if metadata.is_dir() && !metadata.is_symlink() {
                 if result.len() + pending.len() >= limit {

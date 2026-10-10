@@ -30,7 +30,7 @@ for line in sys.stdin:
                             "annotations": {"readOnlyHint": True}}]}
     elif method == "tools/call":
         output = {"version": list(sys.version_info[:3]), "python": sys.executable,
-                  "path": os.environ["PATH"]}
+                  "path": os.environ["PATH"], "bytecode_disabled": sys.dont_write_bytecode}
         result = {"content": [{"type": "text", "text": json.dumps(output)}],
                   "structuredContent": output}
     elif method == "ping":

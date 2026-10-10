@@ -175,6 +175,39 @@ fn detects_corruption_and_missing_files() {
     assert!(!integrity::valid(&environment, &runtime, &key, &mut cache, &cancel).unwrap());
 }
 
+#[test]
+fn verifies_bytecode_inventory() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().canonicalize().unwrap();
+    let directory = root.join("__pycache__");
+    std::fs::create_dir(&directory).unwrap();
+    let cached = directory.join("package.cpython-312.pyc");
+    std::fs::write(&cached, "locked bytecode").unwrap();
+    let key = "a".repeat(64);
+    let cancel = CancellationToken::new();
+    integrity::seal(&root, &root, &key, &cancel).unwrap();
+    let valid = || {
+        integrity::valid(
+            &root,
+            &root,
+            &key,
+            &mut integrity::Cache::default(),
+            &cancel,
+        )
+        .unwrap()
+    };
+    assert!(valid());
+    std::fs::write(&cached, "changed bytecode").unwrap();
+    assert!(!valid());
+    std::fs::write(&cached, "locked bytecode").unwrap();
+    assert!(valid());
+    let added = directory.join("unlisted.cpython-312.pyc");
+    std::fs::write(&added, "unlisted bytecode").unwrap();
+    assert!(!valid());
+    std::fs::remove_file(added).unwrap();
+    assert!(valid());
+}
+
 #[cfg(unix)]
 #[test]
 fn confines_links_to_managed_environments() {

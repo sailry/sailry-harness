@@ -79,6 +79,7 @@ async fn launches_the_bundled_interpreter() {
             "MCP result: {}",
             returned[0]
         );
+        assert_eq!(output["bytecode_disabled"], true);
         let python = std::path::Path::new(output["python"].as_str().expect("interpreter returned"));
         assert!(python.starts_with(runtime.canonicalize().unwrap()));
         let path = output["path"].as_str().expect("MCP PATH returned");

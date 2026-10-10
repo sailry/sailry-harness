@@ -178,6 +178,7 @@ impl Resources {
                     .unwrap_or_else(|| Err(failure.clone().unwrap_or_else(unavailable)));
                 if let Ok(Launch::Stdio {
                     command,
+                    args,
                     env,
                     python,
                     ..
@@ -187,6 +188,8 @@ impl Resources {
                     match self.python_package(index, environment).await {
                         Ok(ready) => {
                             *command = ready.python.clone();
+                            args.insert(0, "-B".into());
+                            env.insert("PYTHONDONTWRITEBYTECODE".into(), "1".into());
                             let mut paths = vec![
                                 ready
                                     .python

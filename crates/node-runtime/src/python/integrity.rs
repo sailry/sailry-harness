@@ -240,6 +240,27 @@ pub(super) fn verify(
     Ok(true)
 }
 
+pub(super) fn caches(
+    root: &Path,
+    files: &[File],
+    cancel: &CancellationToken,
+) -> Result<bool, Fault> {
+    let listed = files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    // Disabling bytecode writes does not prevent Python from executing existing caches.
+    Ok(paths(root, cancel)?.iter().all(|path| {
+        let bytecode = path
+            .rsplit_once('.')
+            .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("pyc"))
+            || path
+                .split('/')
+                .any(|part| part.eq_ignore_ascii_case("__pycache__"));
+        !bytecode || listed.contains(path.as_str())
+    }))
+}
+
 fn paths(root: &Path, cancel: &CancellationToken) -> Result<Vec<String>, Fault> {
     fn visit(
         root: &Path,
@@ -251,7 +272,7 @@ fn paths(root: &Path, cancel: &CancellationToken) -> Result<Vec<String>, Fault> 
             check(cancel)?;
             let entry = entry.map_err(storage)?;
             let name = entry.file_name();
-            if name == MARKER || name == ".sailry-used" || name == "__pycache__" {
+            if name == MARKER || name == ".sailry-used" {
                 continue;
             }
             let path = relative.join(&name);

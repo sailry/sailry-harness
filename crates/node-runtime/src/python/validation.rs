@@ -139,7 +139,8 @@ impl Validation {
             if blake3::hash(&content).to_hex().as_str() != receipt {
                 return Ok(false);
             }
-            integrity::verify(root, root, files, cache, cancel)
+            Ok(integrity::verify(root, root, files, cache, cancel)?
+                && integrity::caches(root, files, cancel)?)
         })
     }
 
@@ -241,9 +242,6 @@ impl Validation {
                     && (matches!(event.kind, EventKind::Access(_))
                         || event.paths.iter().all(|path| {
                             path.file_name().is_some_and(|name| name == ".sailry-used")
-                                || path
-                                    .components()
-                                    .any(|part| part.as_os_str() == "__pycache__")
                         }))
                 {
                     return;

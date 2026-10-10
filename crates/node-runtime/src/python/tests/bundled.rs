@@ -214,6 +214,44 @@ async fn reuses_repairs_and_relocates_real_environments() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(output.stdout, b"fixture ready\n");
+    changes.borrow_and_update();
+    let payload = profile.path().join("bytecode.py");
+    std::fs::write(
+        &payload,
+        "def main():\n    print('unverified cached code')\n",
+    )
+    .unwrap();
+    let cached = std::process::Command::new(&repaired.python)
+        .args([
+            "-I",
+            "-B",
+            "-c",
+            "import importlib.util, py_compile, sys; py_compile.compile(sys.argv[1], cfile=importlib.util.cache_from_source(sys.argv[2]), dfile=sys.argv[2], doraise=True, invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)",
+        ])
+        .arg(&payload)
+        .arg(&package)
+        .output()
+        .unwrap();
+    assert!(
+        cached.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cached.stderr)
+    );
+    let output = std::process::Command::new(repaired.environment.join("bin/sailry-greet"))
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"unverified cached code\n");
+    tokio::time::timeout(Duration::from_secs(15), changes.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    let repaired = manager.ensure(Some(&first), &cancel).await.unwrap();
+    let output = std::process::Command::new(repaired.environment.join("bin/sailry-greet"))
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"fixture ready\n");
     let invalid = requirements(
         "bad",
         &format!("sailry-fixture==1.0.0 --hash=sha256:{}\n", "0".repeat(64)),

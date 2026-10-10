@@ -39,7 +39,7 @@ for name in sorted(entries):
         raise ValueError("console script name cannot be represented")
     final_dispatcher = destination / dispatcher.name
     if os.name == "nt":
-        values = [str(python), str(final_dispatcher), name]
+        values = [str(python), "-B", str(final_dispatcher), name]
         if any('"' in value or '\n' in value or '\r' in value for value in values):
             raise ValueError("console script path cannot be represented")
         quote = lambda value: '"' + value.replace("%", "%%") + '"'
@@ -58,7 +58,7 @@ for name in sorted(entries):
         writable(path)
         path.write_text(
             "#!/bin/sh\nexec "
-            + " ".join(shlex.quote(str(value)) for value in [python, final_dispatcher, name])
+            + " ".join(shlex.quote(str(value)) for value in [python, "-B", final_dispatcher, name])
             + ' "$@"\n',
             encoding="utf-8",
         )

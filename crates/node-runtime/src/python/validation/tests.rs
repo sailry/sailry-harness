@@ -67,6 +67,76 @@ async fn invalidates_on_nested_changes() {
     assert!(!fixture.valid());
 }
 
+#[tokio::test]
+async fn invalidates_changed_bytecode() {
+    let mut fixture = Fixture::new();
+    let directory = fixture.path.join("lib/package/__pycache__");
+    std::fs::create_dir_all(&directory).unwrap();
+    let cached = directory.join("module.cpython-312.pyc");
+    std::fs::write(&cached, "locked bytecode").unwrap();
+    integrity::seal(&fixture.path, &fixture.base, &fixture.key, &fixture.cancel).unwrap();
+    fixture.validation.backend = Backend::Limited(watchers::Watch::isolated(16, 2));
+    assert!(fixture.valid());
+    let mut changes = fixture.validation.subscribe();
+    std::fs::write(&cached, "changed bytecode").unwrap();
+    tokio::time::timeout(Duration::from_secs(15), changes.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!fixture.valid());
+}
+
+#[test]
+fn rejects_unlisted_runtime_bytecode() {
+    let mut fixture = Fixture::new();
+    let python = runtime::python(&fixture.path);
+    let relative = python
+        .strip_prefix(&fixture.path)
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let files = vec![integrity::File {
+        path: relative.replace('\\', "/"),
+        size: std::fs::metadata(&python).unwrap().len(),
+        sha256: integrity::hash(&python, &fixture.cancel).unwrap(),
+        link: None,
+    }];
+    let receipt = b"runtime receipt";
+    std::fs::write(fixture.path.join("python-runtime.json"), receipt).unwrap();
+    let identity = blake3::hash(receipt).to_hex().to_string();
+    assert!(
+        fixture
+            .validation
+            .runtime(&python, &identity, &files, &fixture.cancel)
+            .unwrap()
+    );
+    for relative in [
+        "__pycache__/package.cpython-312.pyc",
+        "package.pyc",
+        "package.PYC",
+        "__PYCACHE__/package.cpython-312.pyc",
+    ] {
+        let added = fixture.path.join(relative);
+        std::fs::create_dir_all(added.parent().unwrap()).unwrap();
+        std::fs::write(&added, "unlisted bytecode").unwrap();
+        fixture.validation.verified.as_mut().unwrap().checked = Instant::now() - INTERVAL;
+        assert!(
+            !fixture
+                .validation
+                .runtime(&python, &identity, &files, &fixture.cancel)
+                .unwrap(),
+            "{relative}"
+        );
+        std::fs::remove_file(added).unwrap();
+        assert!(
+            fixture
+                .validation
+                .runtime(&python, &identity, &files, &fixture.cancel)
+                .unwrap()
+        );
+    }
+}
+
 #[test]
 fn expires_without_waiting_for_events() {
     let mut fixture = Fixture::new();

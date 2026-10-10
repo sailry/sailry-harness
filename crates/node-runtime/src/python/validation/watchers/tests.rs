@@ -65,13 +65,13 @@ fn rejects_oversized_trees() {
 }
 
 #[test]
-fn ignores_bytecode_directories() {
+fn counts_bytecode_directories() {
     let root = fixture(0);
     std::fs::create_dir_all(root.path().join("__pycache__/nested")).unwrap();
-    let watch = Watch::isolated(1, 1);
+    let watch = Watch::isolated(3, 1);
     watch.watch(root.path(), |_| {});
     assert!(watch.active());
-    assert_eq!(watch.state.lock().unwrap().coverage.len(), 1);
+    assert_eq!(watch.state.lock().unwrap().coverage.len(), 3);
     assert!(watch.covers(root.path()));
 }
 
