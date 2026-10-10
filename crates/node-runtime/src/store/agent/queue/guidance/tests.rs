@@ -78,6 +78,58 @@ fn finish(
 }
 
 #[test]
+fn interrupts_before_callback_resumes() {
+    let mut fixture = Fixture::new();
+    let active = fixture.queued();
+    runs::start(&fixture.database.connection, active).unwrap();
+    runs::claim(&mut fixture.database, &fixture.events)
+        .unwrap()
+        .unwrap();
+    let controls = Controls::default();
+    let stop = CancellationToken::new();
+    controls.register(active, fixture.session, stop.clone());
+    let (reply, mut response) = oneshot::channel();
+    crate::store::agent::execute(
+        &mut fixture.database,
+        Operation::YieldGuidance {
+            recipient: active,
+            reply,
+        },
+        &fixture.events,
+        &controls,
+    );
+    // Admit guidance before the waiting callback receives its empty-queue result.
+    let source = fixture.queued();
+    let request = Request::new(
+        fixture.database.node,
+        Command::GuideQueuedTurn {
+            turn: source,
+            recipient: active,
+            expected_revision: 1,
+        },
+    );
+    select(
+        &fixture.database.connection,
+        fixture.database.node,
+        &request,
+        source,
+        active,
+        1,
+    )
+    .unwrap();
+    assert!(
+        controls
+            .interrupt_model(active, || {
+                yield_run(&mut fixture.database, active, &fixture.events)
+            })
+            .unwrap()
+    );
+    assert!(stop.is_cancelled() && controls.yielded(active));
+    assert!(!response.try_recv().unwrap().unwrap());
+    assert!(!controls.model_settled(active));
+}
+
+#[test]
 fn stop_wins_after_handoff() {
     let mut fixture = Fixture::new();
     let (active, source) = admitted(&mut fixture);

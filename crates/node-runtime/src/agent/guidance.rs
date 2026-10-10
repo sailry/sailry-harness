@@ -16,7 +16,6 @@ pub(super) fn bind(ingress: &Arc<Ingress>, recipient: TurnId) -> BeforeModelCall
             if yielded {
                 return Err(AdkError::agent("turn yielded to queued guidance"));
             }
-            ingress.agents.model_started(recipient);
             Ok(BeforeModelResult::Continue(request))
         })
     })

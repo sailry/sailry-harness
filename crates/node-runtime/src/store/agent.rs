@@ -644,6 +644,10 @@ pub(super) fn execute(
             };
             if matches!(result, Ok(true)) {
                 controls.yield_run(recipient);
+            } else if matches!(result, Ok(false)) && !controls.stopped.is_cancelled() {
+                // Publish the model phase before replying. A guidance command admitted
+                // next must interrupt even if the before-model callback has not resumed.
+                controls.model_started(recipient);
             }
             let _ = reply.send(result);
         }
