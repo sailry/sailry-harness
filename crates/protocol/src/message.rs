@@ -1081,6 +1081,9 @@ pub enum Command {
     StartCodeServer {
         startup: crate::code::Startup,
     },
+    StopCodeServer {
+        startup: crate::code::Startup,
+    },
     ReadFileLines {
         worktree: WorktreeId,
         path: String,

@@ -1,4 +1,4 @@
-settings_runtime: "Среда Python"
+settings_runtime: "Среда выполнения"
 settings_runtime_description: "Настройка этого узла"
 runtime_python: "Python"
 runtime_python_index: "Источник пакетов"

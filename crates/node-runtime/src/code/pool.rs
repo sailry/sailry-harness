@@ -416,6 +416,34 @@ impl Pool {
         Ok(result)
     }
 
+    pub(crate) async fn stop(&self, startup: &Startup, root: &Path) -> Result<code::Server, Fault> {
+        let mut state = self.state.lock().await;
+        let key = key(startup);
+        let slot = state.slots.get(&key).ok_or_else(|| {
+            Fault::new(ErrorCode::NotFound, "language server is no longer running")
+        })?;
+        if slot.server.plan.startup != *startup {
+            return Err(Fault::new(
+                ErrorCode::RevisionConflict,
+                "language server changed before stopping",
+            ));
+        }
+        if slot.server.plan.root != root {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "language server belongs to another registered worktree",
+            ));
+        }
+        // Keep startup and stop serialized until the owned process group has exited.
+        slot.server.rpc.shutdown().await;
+        let mut stopped = info(&slot.server).await?;
+        stopped.status = Status::Stopped;
+        stopped.progress = None;
+        state.slots.remove(&key);
+        state.failures.remove(&key);
+        Ok(stopped)
+    }
+
     pub(crate) async fn query(
         &self,
         worktree: WorktreeId,

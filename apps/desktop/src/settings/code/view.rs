@@ -120,11 +120,11 @@ impl Panel {
             )
             .child(
                 Row::new(
-                    "code_rules_revision",
+                    "code_rules_updated",
                     div().text_sm().whitespace_normal().child(
                         self.rules
                             .as_ref()
-                            .map(|rules| format!("{} · {}", rules.helix_commit, rules.mason_tag))
+                            .map(|rules| rules.retrieved.clone())
                             .unwrap_or_default(),
                     ),
                 )
@@ -140,16 +140,6 @@ impl Panel {
                 .iter()
                 .find(|current| candidate.startup.as_ref() == Some(&current.startup))
         });
-        let status = running.map_or_else(
-            || row.candidate.as_ref().map(|candidate| candidate.status),
-            |current| Some(current.status),
-        );
-        let status = row
-            .installation
-            .as_ref()
-            .filter(|installation| busy(installation.status))
-            .map(|installation| install_key(installation.status))
-            .unwrap_or_else(|| status.map(status_key).unwrap_or("code_stopped"));
         let owner = cx.entity();
         let details_row = row.clone();
         let details_id = format!("code-details-{server}");
@@ -166,8 +156,7 @@ impl Panel {
                         .gap_3()
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
-                        .child(div().truncate().child(row.languages.join(", ")))
-                        .child(div().flex_shrink_0().child(tr(status))),
+                        .child(div().truncate().child(row.languages.join(", "))),
                 )
                 .when_some(
                     row.installation
@@ -243,7 +232,32 @@ impl Panel {
                                 editor::open(owner.clone(), edit_server.clone(), window, cx)
                             }),
                     );
-                if let Some(startup) = &candidate.startup {
+                if let Some(current) = running.filter(|current| {
+                    matches!(
+                        current.status,
+                        code::Status::Starting | code::Status::Indexing | code::Status::Ready
+                    )
+                }) {
+                    let startup = current.startup.clone();
+                    let stop_id = format!("code-stop-{server}");
+                    entry = entry.action(
+                        Button::new(SharedString::from(stop_id.clone()))
+                            .debug_selector(move || stop_id.clone())
+                            .icon(Icon::new(IconName::Pause).text_color(cx.theme().success))
+                            .tooltip(tr("code_pause"))
+                            .accessibility_label(tr("code_pause"))
+                            .disabled(locked)
+                            .on_click(cx.listener(move |panel, _, window, cx| {
+                                panel.submit(
+                                    Command::StopCodeServer {
+                                        startup: startup.clone(),
+                                    },
+                                    window,
+                                    cx,
+                                )
+                            })),
+                    );
+                } else if let Some(startup) = &candidate.startup {
                     let startup = startup.clone();
                     let approved = candidate.startup_approved;
                     let owner = cx.entity();
@@ -257,15 +271,7 @@ impl Panel {
                             .disabled(
                                 locked
                                     || !self.draft.as_ref().is_some_and(|draft| draft.enabled)
-                                    || disabled
-                                    || running.is_some_and(|current| {
-                                        matches!(
-                                            current.status,
-                                            code::Status::Starting
-                                                | code::Status::Indexing
-                                                | code::Status::Ready
-                                        )
-                                    }),
+                                    || disabled,
                             )
                             .on_click(move |_, window, cx| {
                                 consent::startup(
@@ -339,26 +345,6 @@ impl Panel {
     }
 }
 
-pub(super) fn status_key(status: code::Status) -> &'static str {
-    match status {
-        code::Status::Starting => "code_starting",
-        code::Status::Indexing => "code_indexing",
-        code::Status::Ready => "code_ready",
-        code::Status::Failed => "code_status_failed",
-        code::Status::Stopped => "code_stopped",
-        code::Status::NotInstalled => "code_not_installed",
-    }
-}
-fn install_key(status: code::InstallStatus) -> &'static str {
-    match status {
-        code::InstallStatus::Preparing => "code_preparing",
-        code::InstallStatus::Downloading => "code_downloading",
-        code::InstallStatus::Installing => "code_installing",
-        code::InstallStatus::Ready => "code_ready",
-        code::InstallStatus::Failed => "code_status_failed",
-        code::InstallStatus::Cancelled => "code_cancelled",
-    }
-}
 fn busy(status: code::InstallStatus) -> bool {
     matches!(
         status,

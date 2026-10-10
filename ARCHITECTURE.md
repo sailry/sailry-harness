@@ -218,6 +218,8 @@ atomically. Disabling it cancels pending starts and queries, stops active server
 before command completion and omits language tools from subsequent turns.
 Installation remains available while disabled. Enabled services start on demand
 and stop after inactivity; installation alone does not launch a server.
+Controllers may stop one exact running server without changing its settings or
+startup grant; later use can start it on demand again.
 Native controllers configure ordered hook scripts per worktree. Admitted turns
 capture each script's order and enabled state; a phase has one durable launch
 receipt, and recovery never replays that group after a crash or cancellation.

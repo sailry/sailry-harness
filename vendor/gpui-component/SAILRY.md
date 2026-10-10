@@ -64,6 +64,14 @@ pinned List always draws it and exposes no override. Defaults are unchanged;
 Sailry hides it only for an empty conversation query. Search state, input,
 focus, keyboard navigation and result rendering remain owned by Kit.
 
+The pinned Select does not expose its native List's search-divider option or a
+search-header style slot. Its dropdown composition now uses
+`List::search_divider(false)` to omit the separator beneath searchable dropdown
+inputs. Other List separators retain their existing defaults. Desktop's shared
+select interaction test verifies the header height without the one-pixel border,
+popup insets, filtering, keyboard confirmation and dismissal. Retire this patch
+when upstream exposes an equivalent Select option.
+
 ## Chart
 
 Kit 0.7.0, revision `0c830f4d257e69fdd17200650533ab4ca9a40cc0`, adds

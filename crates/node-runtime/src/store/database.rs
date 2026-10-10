@@ -408,6 +408,7 @@ impl Database {
             Command::ExportBackup { .. }
                 | Command::RestoreBackup { .. }
                 | Command::StartCodeServer { .. }
+                | Command::StopCodeServer { .. }
                 | Command::InstallKnowledgeModel { .. }
                 | Command::InstallOcrModel { .. }
                 | Command::DeleteOcrModel { .. }

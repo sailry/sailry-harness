@@ -13,6 +13,8 @@ mod live;
 mod overlays;
 #[path = "code/sandbox.rs"]
 mod sandbox;
+#[path = "code/stopping.rs"]
+mod stopping;
 
 struct Fixture {
     directory: tempfile::TempDir,

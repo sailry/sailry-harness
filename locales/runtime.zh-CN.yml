@@ -1,4 +1,4 @@
-settings_runtime: "Python 运行时"
+settings_runtime: "运行时"
 settings_runtime_description: "配置当前节点"
 runtime_python: "Python"
 runtime_python_index: "软件包源"

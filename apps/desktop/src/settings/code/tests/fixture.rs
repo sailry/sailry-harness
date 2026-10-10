@@ -46,6 +46,7 @@ impl Transport for Observed {
                     | Command::CancelCodeInstall { .. }
                     | Command::UninstallCodeServer { .. }
                     | Command::StartCodeServer { .. }
+                    | Command::StopCodeServer { .. }
                     | Command::UpdateCodeRules
             );
             if tracked {

@@ -8,7 +8,10 @@ pub(crate) struct Assets;
 
 gpui_kit::assets::icon_assets!(ActivityAssets, [ListTodo]);
 gpui_kit::assets::icon_assets!(UsageAssets, [Gauge, DollarSign, MessagesSquare]);
-gpui_kit::assets::icon_assets!(SettingsAssets, [Download, Upload, Trash, Volume2, Square]);
+gpui_kit::assets::icon_assets!(
+    SettingsAssets,
+    [Download, Upload, Trash, Volume2, Square, Pause]
+);
 
 pub(crate) const DRAG_ICON: &str = "icons/reicon/move.svg";
 
@@ -443,6 +446,7 @@ mod tests {
             "icons/trash.svg",
             "icons/volume-2.svg",
             "icons/square.svg",
+            "icons/pause.svg",
         ] {
             let expected = SettingsAssets.load(path).unwrap().unwrap();
             assert_eq!(Assets.load(path).unwrap().unwrap(), expected);

@@ -506,3 +506,43 @@ async fn cancels_initialization_before_disable_completes() {
     assert!(pool.state.lock().await.prepared.is_empty());
     pool.shutdown().await;
 }
+
+#[tokio::test]
+async fn rejects_stop_after_registered_root_changes() {
+    let fixture = Fixture::new().await;
+    let pool = Pool::new(None, fixture.environment.clone(), CancellationToken::new());
+    let startup = pool
+        .prepare(
+            fixture.worktree,
+            fixture.root.clone(),
+            &Query::Diagnostics {
+                path: "main.rs".into(),
+                severity: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    pool.start(&startup, &fixture.root, &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        pool.stop(&startup, fixture.root.parent().unwrap())
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::PermissionDenied
+    );
+    let servers = pool.list(fixture.worktree).await.unwrap();
+    assert_eq!(servers.len(), 1);
+    assert!(matches!(
+        servers[0].status,
+        Status::Ready | Status::Indexing
+    ));
+    assert_eq!(
+        pool.stop(&startup, &fixture.root).await.unwrap().status,
+        Status::Stopped
+    );
+    assert!(pool.list(fixture.worktree).await.unwrap().is_empty());
+    pool.shutdown().await;
+}

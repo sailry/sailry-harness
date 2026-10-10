@@ -641,6 +641,7 @@ where
                                 .paddings(menu_paddings)
                                 .child(
                                     List::new(&self.state.list)
+                                        .search_divider(false)
                                         .when_some(
                                             self.state.search_placeholder.clone(),
                                             |this, placeholder| {

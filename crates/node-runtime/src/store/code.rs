@@ -47,6 +47,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
             Command::UninstallCodeServer { package, version } => {
                 crate::code::validate_package(package, version)
             }
+            Command::StopCodeServer { startup } => descriptor(database, startup),
             Command::UpdateCodeRules => Ok(()),
             _ => unreachable!("language lifecycle expected"),
         };
@@ -57,20 +58,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
     if !settings(&database.connection)?.enabled {
         return Err(crate::code::disabled());
     }
-    database.worktree_root(startup.worktree)?;
-    crate::files::path::components(&startup.root, true)?;
-    if startup.server.is_empty()
-        || startup.server.len() > 256
-        || startup.executable.is_empty()
-        || startup.executable.len() > 4096
-        || startup.revision.len() != 64
-        || !startup
-            .revision
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit())
-    {
-        return Err(Fault::invalid("invalid language startup descriptor"));
-    }
+    descriptor(database, startup)?;
     if let Some(context) = &request.plugin {
         let turn = context.turn.ok_or_else(|| {
             Fault::new(
@@ -121,11 +109,29 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
     grant(&database.connection, startup)
 }
 
+fn descriptor(database: &Database, startup: &Startup) -> Result<(), Fault> {
+    database.worktree_root(startup.worktree)?;
+    crate::files::path::components(&startup.root, true)?;
+    if startup.server.is_empty()
+        || startup.server.len() > 256
+        || startup.executable.is_empty()
+        || startup.executable.len() > 4096
+        || startup.revision.len() != 64
+        || !startup
+            .revision
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(Fault::invalid("invalid language startup descriptor"));
+    }
+    Ok(())
+}
+
 pub(super) fn controller(request: &Request) -> Result<(), Fault> {
     if request.plugin.is_some() {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
-            "language installation and rule updates require explicit controller consent",
+            "language lifecycle changes require explicit controller consent",
         ));
     }
     Ok(())
@@ -239,6 +245,10 @@ impl Ingress {
                     .start(startup, &root, stop)
                     .await
                     .map(Output::CodeServer)
+            }
+            Command::StopCodeServer { startup } => {
+                let root = self.worktree_root(startup.worktree).await?;
+                self.code.stop(startup, &root).await.map(Output::CodeServer)
             }
             Command::InstallCodeServer { install } => self
                 .code

@@ -28,6 +28,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
     if matches!(
         request.command,
         Command::StartCodeServer { .. }
+            | Command::StopCodeServer { .. }
             | Command::InstallCodeServer { .. }
             | Command::UninstallCodeServer { .. }
             | Command::UpdateCodeRules
@@ -153,6 +154,7 @@ impl Worker {
                         ingress.change_knowledge(&execution.request, &stop).await
                     }
                     Command::StartCodeServer { .. }
+                    | Command::StopCodeServer { .. }
                     | Command::InstallCodeServer { .. }
                     | Command::UninstallCodeServer { .. }
                     | Command::UpdateCodeRules => {

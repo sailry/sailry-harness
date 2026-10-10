@@ -1,4 +1,4 @@
-settings_runtime: "Python-Laufzeit"
+settings_runtime: "Laufzeit"
 settings_runtime_description: "Diesen Knoten konfigurieren"
 runtime_python: "Python"
 runtime_python_index: "Paketquelle"

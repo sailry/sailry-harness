@@ -120,6 +120,7 @@ impl Panel {
             Command::InstallCodeServer { .. } => "code_installed",
             Command::CancelCodeInstall { .. } => "code_cancel_requested",
             Command::StartCodeServer { .. } => "code_started",
+            Command::StopCodeServer { .. } => "code_stopped",
             Command::UninstallCodeServer { .. } => "code_uninstalled",
             _ => "code_saved",
         };

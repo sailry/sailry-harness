@@ -1,4 +1,4 @@
-settings_runtime: "Environnement Python"
+settings_runtime: "Environnement d’exécution"
 settings_runtime_description: "Configurer ce nœud"
 runtime_python: "Python"
 runtime_python_index: "Source des paquets"

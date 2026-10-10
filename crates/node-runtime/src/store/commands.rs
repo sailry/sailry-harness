@@ -149,6 +149,7 @@ pub(super) fn execute(
         Command::ReadCode { .. }
         | Command::ListCodeServers { .. }
         | Command::StartCodeServer { .. }
+        | Command::StopCodeServer { .. }
         | Command::ListCodePackages { .. }
         | Command::InstallCodeServer { .. }
         | Command::CancelCodeInstall { .. }

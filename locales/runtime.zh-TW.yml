@@ -1,4 +1,4 @@
-settings_runtime: "Python 執行環境"
+settings_runtime: "執行環境"
 settings_runtime_description: "設定目前節點"
 runtime_python: "Python"
 runtime_python_index: "套件來源"

@@ -486,7 +486,7 @@ fn select_surface_insets(cx: &mut TestAppContext) {
             let search = visual.debug_bounds("list-search").unwrap();
             // The selected Kit list adds 0.375rem above and below its 2rem input.
             let rem = visual.update(|window, _| window.rem_size());
-            assert_eq!(search.size.height, rem * 2.75 + px(1.));
+            assert_eq!(search.size.height, rem * 2.75);
             assert_eq!(search.top(), popup.top());
             assert_eq!(empty.top(), search.bottom());
         } else {

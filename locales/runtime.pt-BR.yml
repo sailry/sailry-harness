@@ -1,4 +1,4 @@
-settings_runtime: "Ambiente Python"
+settings_runtime: "Ambiente de execução"
 settings_runtime_description: "Configurar este nó"
 runtime_python: "Python"
 runtime_python_index: "Fonte de pacotes"

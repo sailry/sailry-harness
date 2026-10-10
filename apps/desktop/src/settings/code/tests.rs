@@ -43,7 +43,7 @@ fn scopes_service_switch_and_preserves_checks(cx: &mut TestAppContext) {
         assert!(cx.debug_bounds("plugin-settings-enabled").is_none());
         assert!(
             controls.contains(
-                &cx.debug_bounds("settings-row-code_rules_revision")
+                &cx.debug_bounds("settings-row-code_rules_updated")
                     .unwrap()
                     .center()
             )
@@ -316,6 +316,12 @@ fn follows_shell_project_selection(cx: &mut TestAppContext) {
             "<p>Reentered worktree</p>\n",
         )
         .unwrap();
+        // Plugin enablement opens the inventory, so return through the real settings rail.
+        tap(visual, "sidebar-settings");
+        assert_eq!(
+            visual.update(|_, cx| shell.read(cx).page),
+            crate::preview::Page::Settings
+        );
         tap(visual, "settings_appearance");
         tap(visual, "plugin-settings-code");
         wait(visual, |cx| {

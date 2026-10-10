@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_protocol::{Request, code::InstallStatus};
 
 use super::network::Network;
@@ -135,6 +136,56 @@ fn uses_captured_consent_through_lifecycle(cx: &mut TestAppContext) {
             })
             .count();
         assert_eq!(starts, 1);
+        assert!(cx.debug_bounds("code-stop-rust-analyzer").is_some());
+        assert!(cx.debug_bounds("code-start-rust-analyzer").is_none());
+        cx.update(|window, _| {
+            assert_eq!(
+                window.find("code-stop-rust-analyzer").label(),
+                Some(crate::tr("code_pause").as_ref())
+            );
+        });
+        let settings = fixture.settings();
+        fixture.transport.drop_next.store(true, Ordering::SeqCst);
+        tap(cx, "code-stop-rust-analyzer");
+        wait(cx, |cx| {
+            !panel.read(cx).pending && panel.read(cx).request.is_some()
+        });
+        let stopped = cx.update(|_, cx| panel.read(cx).request.clone().unwrap());
+        assert_eq!(stopped.target, fixture.node.id());
+        assert_eq!(
+            stopped.command,
+            Command::StopCodeServer {
+                startup: startup.clone()
+            }
+        );
+        tap(cx, "code-retry");
+        wait(cx, |cx| {
+            !panel.read(cx).pending && !panel.read(cx).loading && panel.read(cx).request.is_none()
+        });
+        assert_eq!(fixture.settings(), settings);
+        assert!(cx.debug_bounds("code-stop-rust-analyzer").is_none());
+        assert!(cx.debug_bounds("code-start-rust-analyzer").is_some());
+        let requests = fixture.transport.requests.lock().unwrap();
+        let repeated: Vec<_> = requests
+            .iter()
+            .filter(|request| request.id == stopped.id)
+            .collect();
+        assert_eq!(repeated.len(), 2);
+        assert_eq!(repeated[0], repeated[1]);
+        drop(requests);
+        tap(cx, "code-start-rust-analyzer");
+        wait(cx, |cx| {
+            !panel.read(cx).pending
+                && !panel.read(cx).loading
+                && panel
+                    .read(cx)
+                    .servers
+                    .iter()
+                    .any(|server| server.status == code::Status::Ready)
+        });
+        assert_eq!(fixture.settings(), settings);
+        assert!(cx.debug_bounds("code-stop-rust-analyzer").is_some());
+        assert!(cx.debug_bounds("code-start-rust-analyzer").is_none());
         fixture.bind(&owner, cx, false, Some(fixture.second));
         wait(cx, |cx| {
             selected(&owner, cx).read(cx).workspace.is_some()
