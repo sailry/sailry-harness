@@ -26,5 +26,7 @@ mod office;
 mod outcomes;
 #[path = "../sessions.rs"]
 mod sessions;
+#[path = "../snapshots.rs"]
+mod snapshots;
 #[path = "../unassigned.rs"]
 mod unassigned;

@@ -88,7 +88,7 @@ impl Transport for Remote {
                     let reply = tokio::select! {
                         biased;
                         _ = core.stop.cancelled() => None,
-                        reply = frame::read::<Reply>(&mut recv) => Some(reply),
+                        reply = frame::read_reply(&mut recv) => Some(reply),
                     };
                     let response = match reply {
                         Some(Ok(Reply::Completed(result))) => *result,
@@ -170,7 +170,7 @@ impl Subscription for Events {
             let reply: Reply = tokio::select! {
                 biased;
                 _ = self.core.stop.cancelled() => return Err(network("closed")),
-                reply = self.reader.read(&mut self.recv) => reply.map_err(|error| {
+                reply = self.reader.reply(&mut self.recv) => reply.map_err(|error| {
                     if matches!(self.connection.close_reason(), Some(ConnectionError::ApplicationClosed(close)) if close.error_code == 1u32.into()) {
                         Fault::new(ErrorCode::PermissionDenied, "peer revoked access")
                     } else { error }

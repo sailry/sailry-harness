@@ -1,8 +1,11 @@
 use iroh::endpoint::{RecvStream, SendStream};
 use sailry_protocol::{ErrorCode, Fault, MAX_FRAME_BYTES, Receipt, Request, Update};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use zeroize::Zeroize;
 
 use crate::Response;
+
+mod snapshots;
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
@@ -37,6 +40,21 @@ pub(super) enum Reply {
     Rejected(Fault),
     Completed(Box<Response>),
     Update(Box<Update>),
+    SnapshotStart(snapshots::Header),
+    SnapshotPage(snapshots::Page),
+}
+
+/// Snapshot paging preserves one complete service result and its captured cursor.
+pub(super) async fn write_reply(
+    core: &super::Core,
+    stream: &mut SendStream,
+    reply: &Reply,
+) -> Result<(), Fault> {
+    snapshots::write(core, stream, reply).await
+}
+
+pub(super) async fn read_reply(stream: &mut RecvStream) -> Result<Reply, Fault> {
+    Reader::default().reply(stream).await
 }
 
 pub(super) async fn write(stream: &mut SendStream, value: &impl Serialize) -> Result<(), Fault> {
@@ -75,11 +93,22 @@ pub(super) async fn read_limited<T: DeserializeOwned>(
 pub(super) struct Reader {
     prefix: [u8; 4],
     prefix_read: usize,
-    payload: Vec<u8>,
+    payload: zeroize::Zeroizing<Vec<u8>>,
     payload_read: usize,
+    snapshot: snapshots::Assembly,
 }
 
 impl Reader {
+    /// Keep page assembly here so cancelling next() cannot expose a partial snapshot.
+    pub(super) async fn reply(&mut self, stream: &mut RecvStream) -> Result<Reply, Fault> {
+        loop {
+            let reply = self.read(stream).await?;
+            if let Some(reply) = self.snapshot.accept(reply)? {
+                return Ok(reply);
+            }
+        }
+    }
+
     pub(super) async fn read<T: DeserializeOwned>(
         &mut self,
         stream: &mut RecvStream,
@@ -106,7 +135,7 @@ impl Reader {
         let value = serde_json::from_slice(&self.payload).map_err(invalid);
         self.prefix_read = 0;
         self.payload_read = 0;
-        self.payload.clear();
+        self.payload.zeroize();
         value
     }
 }

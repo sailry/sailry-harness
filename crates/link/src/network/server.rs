@@ -125,8 +125,8 @@ async fn request(
                             "Node completion is unavailable",
                         ))
                     });
-                    core.wait(frame::write(&mut send, &Reply::Completed(Box::new(output))))
-                        .await??;
+                    frame::write_reply(&core, &mut send, &Reply::Completed(Box::new(output)))
+                        .await?;
                 }
                 Err(error) => {
                     core.wait(frame::write(&mut send, &Reply::Rejected(error)))
@@ -197,8 +197,7 @@ async fn request(
                 if !core.trusted(peer) {
                     break;
                 }
-                core.wait(frame::write(&mut send, &Reply::Update(Box::new(update))))
-                    .await??;
+                frame::write_reply(&core, &mut send, &Reply::Update(Box::new(update))).await?;
             }
         }
     }
