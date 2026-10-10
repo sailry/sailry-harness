@@ -176,6 +176,9 @@ class _NewConversationPageState extends State<NewConversationPage> {
         if (error is CommandFailure && error.code == 'outcome_unknown') {
           _uncertain = true;
           _pendingRequest = error.request ?? _pendingRequest;
+        } else if (error is CommandFailure && error.rejected) {
+          _uncertain = false;
+          _pendingRequest = null;
         }
         showToast(context, failureLabel(error, translate: context.tr));
       }

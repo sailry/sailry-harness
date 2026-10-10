@@ -253,6 +253,9 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
         _pendingSend = null;
       });
     } catch (error) {
+      if (error is CommandFailure && error.rejected && mounted) {
+        setState(() => _pendingSend = null);
+      }
       _failure(error);
     } finally {
       if (mounted) setState(() => _sending = false);

@@ -445,6 +445,16 @@ class CommandFailure implements Exception {
   final String detail;
   // Retained only in memory, never logged, rendered or persisted in a UI cache.
   final String? request;
+
+  // Transport, cancellation and pairing failures do not resolve an older send.
+  bool get rejected => switch (code) {
+    'invalid_request' ||
+    'revision_conflict' ||
+    'conflict' ||
+    'not_found' ||
+    'not_configured' => true,
+    _ => false,
+  };
   @override
   String toString() => 'Command failed: $code';
 }
