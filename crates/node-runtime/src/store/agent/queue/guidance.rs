@@ -55,6 +55,8 @@ fn same_capture(db: &Connection, source: &Run, target: &Run) -> Result<bool, Fau
             == super::super::super::sessions::roles::read(db, target.session, target.revision)?
         && super::super::plugins::read(db, source.turn)?
             == super::super::plugins::read(db, target.turn)?
+        && super::super::super::hooks::frozen(db, source.turn)?
+            == super::super::super::hooks::frozen(db, target.turn)?
         && provider(source.turn)? == provider(target.turn)?)
 }
 

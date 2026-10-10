@@ -214,6 +214,86 @@ async fn interrupts_awaited_response() {
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[tokio::test]
+async fn retains_recipient_hooks() {
+    use sailry_protocol::hooks::{Script, Settings};
+
+    for remote in [false, true] {
+        for enabled in [false, true] {
+            let release = CancellationToken::new();
+            let server = Server::markdown_held("Natural answer".into(), release.clone()).await;
+            let fixture = Fixture::with_server(remote, server).await;
+            let Output::HookSettings(initial) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::SaveHooks {
+                    worktree: fixture.session.worktree,
+                    expected_revision: 0,
+                    settings: Settings {
+                        enabled,
+                        turn_end: Some(Script {
+                            command: "printf captured > guidance-hooks.txt".into(),
+                            timeout_ms: 5_000,
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("hook settings expected")
+            };
+            let active = fixture.push("Initial task").await;
+            fixture.server.wait_count(1).await;
+            fixture
+                .client
+                .execute(fixture.client.prepare(Command::SaveHooks {
+                    worktree: fixture.session.worktree,
+                    expected_revision: initial.settings.revision,
+                    settings: Settings {
+                        enabled: !enabled,
+                        turn_end: Some(Script {
+                            command: "printf changed > guidance-hooks.txt".into(),
+                            timeout_ms: 5_000,
+                            ..Default::default()
+                        }),
+                        ..initial.settings
+                    },
+                }))
+                .await
+                .unwrap();
+            let source = held(&fixture, "Change direction now".into()).await;
+            fixture.pause(true).await;
+            let Output::Queue(selected) = fixture
+                .client
+                .execute(guide(&fixture, source.id, active.id, 1))
+                .await
+                .unwrap()
+            else {
+                panic!("queue expected")
+            };
+            assert!(!selected.queue.paused);
+            let selected = selected.queue.items[0].turn;
+            assert_ne!(selected, source.id);
+            fixture.server.wait_count(2).await;
+            release.cancel();
+            let page = finished(&fixture.client, fixture.session.id, selected).await;
+            assert_eq!(status(&page, active.id), Status::Continued);
+            assert_eq!(status(&page, source.id), Status::Cancelled);
+            assert_eq!(status(&page, selected), Status::Completed);
+            let output = fixture.directory.path().join("project/guidance-hooks.txt");
+            if enabled {
+                assert_eq!(std::fs::read_to_string(output).unwrap(), "captured");
+            } else {
+                assert!(!output.exists());
+            }
+            assert_eq!(fixture.server.requests.lock().unwrap().len(), 2);
+            fixture.close().await;
+        }
+    }
+}
+
 #[tokio::test]
 async fn retains_streamed_text() {
     for remote in [false, true] {

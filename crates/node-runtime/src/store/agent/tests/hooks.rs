@@ -20,6 +20,130 @@ fn enabled() -> Settings {
 }
 
 #[test]
+fn retains_guidance_capture() {
+    for change in 0..3 {
+        let mut fixture = fixture::Fixture::new();
+        let session =
+            crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+        let mut initial = if change == 0 {
+            Settings::default()
+        } else {
+            enabled()
+        };
+        if change == 2 {
+            initial.additional = ["first", "second"]
+                .into_iter()
+                .map(|id| sailry_protocol::hooks::Entry {
+                    id: id.into(),
+                    phase: Phase::TurnEnd,
+                    script: Script {
+                        command: format!("printf {id}"),
+                        ..Default::default()
+                    },
+                })
+                .collect();
+        }
+        let initial =
+            hooks::save(&fixture.database.connection, session.worktree, &initial, 0).unwrap();
+        let active = fixture.queued();
+        runs::start(&fixture.database.connection, active).unwrap();
+        let recipient = runs::claim(&mut fixture.database, &fixture.events)
+            .unwrap()
+            .unwrap();
+        let mut changed = match change {
+            0 => Settings {
+                revision: initial.revision,
+                ..enabled()
+            },
+            1 => Settings {
+                enabled: false,
+                ..initial.clone()
+            },
+            _ => initial.clone(),
+        };
+        if change == 2 {
+            changed.additional.reverse();
+            changed.additional[0].script.enabled = false;
+            changed.turn_end.as_mut().unwrap().command = "printf changed".into();
+        }
+        let changed = hooks::save(
+            &fixture.database.connection,
+            session.worktree,
+            &changed,
+            initial.revision,
+        )
+        .unwrap();
+        let source = fixture.queued();
+        let input: Input = "Revised guidance".into();
+        command(
+            &mut fixture.database,
+            &fixture.events,
+            Command::EditQueuedTurn {
+                turn: source,
+                expected_revision: 1,
+                message: input.clone(),
+            },
+        );
+        let Output::Queue(selected) = command(
+            &mut fixture.database,
+            &fixture.events,
+            Command::GuideQueuedTurn {
+                turn: source,
+                recipient: active,
+                expected_revision: 2,
+            },
+        ) else {
+            panic!("queue expected")
+        };
+        let selected = selected.queue.items[0].turn;
+        assert_ne!(selected, source);
+        assert_eq!(
+            runs::get(&fixture.database.connection, source)
+                .unwrap()
+                .status,
+            Status::Cancelled
+        );
+        assert_eq!(
+            hooks::frozen(&fixture.database.connection, source).unwrap(),
+            changed
+        );
+        assert_eq!(
+            hooks::frozen(&fixture.database.connection, active).unwrap(),
+            initial
+        );
+        assert_eq!(
+            queue::message(&fixture.database.connection, selected)
+                .unwrap()
+                .message,
+            input
+        );
+        assert!(
+            queue::guidance::yield_run(&mut fixture.database, active, &fixture.events).unwrap()
+        );
+        runs::finish(
+            &mut fixture.database,
+            active,
+            Status::Continued,
+            None,
+            &fixture.events,
+        )
+        .unwrap();
+        let continuation = runs::claim(&mut fixture.database, &fixture.events)
+            .unwrap()
+            .unwrap();
+        assert_eq!(continuation.turn.id, selected);
+        assert_eq!(continuation.hooks, recipient.hooks);
+        assert_eq!(continuation.message, input);
+        let launch = hooks::claim(&fixture.database.connection, selected, Phase::TurnEnd, 0);
+        if initial.enabled {
+            launch.unwrap();
+        } else {
+            assert_eq!(launch.unwrap_err().code, ErrorCode::PermissionDenied);
+        }
+    }
+}
+
+#[test]
 fn keeps_uncertain_launch_receipts() {
     let mut fixture = fixture::Fixture::new();
     let session =

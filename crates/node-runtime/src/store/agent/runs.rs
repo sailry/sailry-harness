@@ -491,5 +491,5 @@ pub(in crate::store) fn recover(db: &Connection) -> Result<(), Fault> {
         ));
         put(db, &run)?;
     }
-    Ok(())
+    super::queue::recover(db)
 }

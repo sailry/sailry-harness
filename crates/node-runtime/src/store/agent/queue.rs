@@ -3,6 +3,8 @@ use super::*;
 
 mod commands;
 pub(in crate::store) mod guidance;
+#[cfg(test)]
+mod tests;
 pub(in crate::store) use commands::execute;
 
 const CAPACITY: i64 = 256;
@@ -101,11 +103,12 @@ pub(super) fn admit(db: &Connection, turn: &QueuedTurn, ready: bool) -> Result<(
     ).map_err(storage_error)?;
     bump(db, turn.session)?;
     if ready {
-        // Explicit input resumes an idle/stopping session; background completion never does.
+        // Fresh submitted input resumes the queue in the same admission transaction.
         db.execute(
-            "UPDATE agent_queues SET paused=0 WHERE session=?1 AND NOT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 AND json_extract(a.body,'$.status')='running')",
+            "UPDATE agent_queues SET paused=0 WHERE session=?1",
             [turn.session.to_string()],
-        ).map_err(storage_error)?;
+        )
+        .map_err(storage_error)?;
     }
     Ok(())
 }
@@ -123,6 +126,16 @@ pub(super) fn pause(db: &Connection, session: SessionId, paused: bool) -> Result
     db.execute(
         "UPDATE agent_queues SET paused=?2 WHERE session=?1",
         params![session.to_string(), paused],
+    )
+    .map_err(storage_error)?;
+    Ok(())
+}
+
+pub(super) fn recover(db: &Connection) -> Result<(), Fault> {
+    // Restart requires an explicit resume even when no worker claimed the input.
+    db.execute(
+        "UPDATE agent_queues SET paused=1,revision=revision+1 WHERE paused=0 AND EXISTS(SELECT 1 FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE t.session=agent_queues.session)",
+        [],
     )
     .map_err(storage_error)?;
     Ok(())

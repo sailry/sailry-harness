@@ -1,6 +1,148 @@
 use super::*;
 
 #[tokio::test]
+async fn restart_pauses_idle_input() {
+    for remote in [false, true] {
+        let fixture = Fixture::start(remote, false).await;
+        let input = "Preserve queued input 中文 🙂\n".repeat(100);
+        let Output::QueuedTurn(turn) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::QueueTurn {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                message: input.clone().into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("queued turn expected")
+        };
+        let queued = read(&fixture.client, turn.id).await;
+        let before = fixture.queue().await;
+        assert!(!before.paused);
+        assert!(!before.items[0].ready);
+        let fixture = fixture.restart().await;
+        let recovered = fixture.queue().await;
+        assert!(recovered.paused);
+        assert_eq!(recovered.revision, before.revision + 1);
+        assert_eq!(recovered.items, before.items);
+        assert_eq!(read(&fixture.client, turn.id).await, queued);
+        fixture
+            .client
+            .execute(
+                fixture
+                    .client
+                    .prepare(Command::StartQueuedTurn { turn: turn.id }),
+            )
+            .await
+            .unwrap();
+        assert!(fixture.queue().await.paused);
+        assert!(fixture.server.requests.lock().unwrap().is_empty());
+        let fresh = fixture.push("Resume with fresh input").await;
+        let page = finished(&fixture.client, fixture.session.id, fresh.id).await;
+        assert!(!page.queue.paused);
+        assert!(page.runs.iter().all(|run| run.status == Status::Completed));
+        let requests = fixture.server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(prompt(&requests[0]), input);
+        assert_eq!(prompt(&requests[1]), "Resume with fresh input");
+        drop(requests);
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
+async fn fresh_submission_resumes_active_queue() {
+    use sailry_link::CancellationToken;
+
+    for remote in [false, true] {
+        let release = CancellationToken::new();
+        let server = Server::markdown_held("Natural answer".into(), release.clone()).await;
+        let fixture = Fixture::with_server(remote, server).await;
+        let active = fixture.push("Active task").await;
+        fixture.server.wait_count(1).await;
+        fixture.pause(true).await;
+        let waiting = fixture.enqueue("Waiting input").await;
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::EditQueuedTurn {
+                turn: waiting.id,
+                expected_revision: 1,
+                message: "Edited waiting input".into(),
+            }))
+            .await
+            .unwrap();
+        let queue = fixture.queue().await;
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::MoveQueuedTurn {
+                session: fixture.session.id,
+                expected_revision: queue.revision,
+                turn: waiting.id,
+                before: None,
+            }))
+            .await
+            .unwrap();
+        assert!(fixture.queue().await.paused);
+        let request = fixture.client.prepare(Command::SubmitTurn {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            message: "Fresh input".into(),
+        });
+        let Output::QueuedTurn(fresh) = fixture.client.execute(request.clone()).await.unwrap()
+        else {
+            panic!("queued turn expected")
+        };
+        let resumed = fixture.queue().await;
+        assert!(!resumed.paused);
+        assert_eq!(
+            resumed
+                .items
+                .iter()
+                .map(|item| item.turn)
+                .collect::<Vec<_>>(),
+            [waiting.id, fresh.id]
+        );
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
+
+        // Replaying the old admission receipt must not resume a later pause.
+        fixture.pause(true).await;
+        assert_eq!(
+            fixture.client.execute(request).await.unwrap(),
+            Output::QueuedTurn(fresh.clone())
+        );
+        assert!(fixture.queue().await.paused);
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::SendQueuedTurn {
+                turn: fresh.id,
+                expected_revision: 1,
+            }))
+            .await
+            .unwrap();
+        fixture.server.wait_count(2).await;
+        assert!(!fixture.queue().await.paused);
+        release.cancel();
+        let page = finished(&fixture.client, fixture.session.id, waiting.id).await;
+        assert_eq!(
+            page.runs
+                .iter()
+                .find(|run| run.turn == active.id)
+                .unwrap()
+                .status,
+            Status::Cancelled
+        );
+        assert!(page.queue.items.is_empty());
+        let requests = fixture.server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(prompt(&requests[1]), "Fresh input");
+        assert_eq!(prompt(&requests[2]), "Edited waiting input");
+        drop(requests);
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
 async fn restores_execution_timestamps() {
     for remote in [false, true] {
         let fixture = Fixture::start(remote, false).await;

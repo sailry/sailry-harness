@@ -277,6 +277,7 @@ fn rechecks_queued_membership() {
 
 #[test]
 fn rechecks_after_rewind() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let mut fixture = Fixture::new();
     let (turn, write, id, worktree, root) = captured(&mut fixture);
     dispatch(&mut fixture, write.clone());
