@@ -97,6 +97,7 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
             ("backup_identity", String::new()),
             ("backup_secret", String::new()),
             ("backup_session_token", String::new()),
+            ("backup_passphrase", String::new()),
         ]
         .into_iter()
         .enumerate()
@@ -107,11 +108,15 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
                     InputState::new(window, cx)
                         .default_value(value)
                         .masked(index >= 4)
-                        .placeholder(tr(if index >= 4 && settings.credentials_configured {
-                            "backup_keep_secret"
-                        } else {
-                            key
-                        }))
+                        .placeholder(tr(
+                            if (index == 7 && settings.passphrase_configured)
+                                || ((4..7).contains(&index) && settings.credentials_configured)
+                            {
+                                "backup_keep_secret"
+                            } else {
+                                key
+                            },
+                        ))
                 }),
             )
         })
@@ -220,6 +225,11 @@ impl Editor {
                 credential(&values[6])
             } else {
                 SecretUpdate::Clear
+            },
+            passphrase: if !values[7].is_empty() {
+                SecretUpdate::Replace(Secret::new(values[7].clone()))
+            } else {
+                SecretUpdate::Keep
             },
         })
     }
@@ -356,6 +366,7 @@ impl Editor {
             // Explicit reload retains the user's destination and temporary credential draft.
             self.settings.revision = settings.revision;
             self.settings.credentials_configured = settings.credentials_configured;
+            self.settings.passphrase_configured = settings.passphrase_configured;
             self.conflict = false;
             self.error = None;
         } else {

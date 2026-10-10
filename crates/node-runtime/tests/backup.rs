@@ -59,6 +59,7 @@ async fn shares_private_configuration_and_receipts() {
             identity: SecretUpdate::Replace(Secret::new("fixture-user".into())),
             secret: SecretUpdate::Replace(Secret::new("fixture-password".into())),
             session_token: SecretUpdate::Clear,
+            passphrase: SecretUpdate::Replace(Secret::new("fixture-backup-passphrase".into())),
         }));
         let admission = writer.dispatch(request.clone()).await.unwrap();
         assert!(admission.receipt.durable);
@@ -68,6 +69,7 @@ async fn shares_private_configuration_and_receipts() {
         let public = serde_json::to_string(&saved).unwrap();
         assert!(!public.contains("fixture-user"));
         assert!(!public.contains("fixture-password"));
+        assert!(!public.contains("fixture-backup-passphrase"));
         assert_eq!(
             reader.outcome(&request).await.unwrap(),
             RequestOutcome::NotAdmitted
@@ -78,7 +80,10 @@ async fn shares_private_configuration_and_receipts() {
                     settings: previous,
                     identity: SecretUpdate::Keep,
                     secret: SecretUpdate::Keep,
-                    session_token: SecretUpdate::Keep
+                    session_token: SecretUpdate::Keep,
+                    passphrase: SecretUpdate::Replace(Secret::new(
+                        "fixture-backup-passphrase".into()
+                    )),
                 })))
                 .await
                 .unwrap_err()
@@ -97,6 +102,7 @@ async fn shares_private_configuration_and_receipts() {
         };
         let public = serde_json::to_string(&snapshot).unwrap();
         assert!(!public.contains("fixture-password"));
+        assert!(!public.contains("fixture-backup-passphrase"));
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }
@@ -230,6 +236,9 @@ async fn restores_new_profiles_without_external_mutation() {
                     identity: SecretUpdate::Replace(Secret::new("fixture-user".into())),
                     secret: SecretUpdate::Replace(Secret::new("fixture-password".into())),
                     session_token: SecretUpdate::Clear,
+                    passphrase: SecretUpdate::Replace(Secret::new(
+                        "fixture-backup-passphrase".into(),
+                    )),
                 }),
             )
             .await
@@ -265,6 +274,7 @@ async fn restores_new_profiles_without_external_mutation() {
             fs::write(busy.join("user.txt"), b"must remain").unwrap();
             let error = client
                 .execute(client.prepare(Command::RestoreBackup {
+                    passphrase: None,
                     id: record.id.clone(),
                     expected_revision: saved.revision,
                     target: busy.to_str().unwrap().into(),
@@ -274,7 +284,20 @@ async fn restores_new_profiles_without_external_mutation() {
             assert_eq!(error.code, ErrorCode::Conflict);
             assert_eq!(fs::read(busy.join("user.txt")).unwrap(), b"must remain");
             let target = root.join("restored");
+            let wrong_target = root.join("wrong-passphrase");
+            let error = client
+                .execute(client.prepare(Command::RestoreBackup {
+                    id: record.id.clone(),
+                    expected_revision: saved.revision,
+                    target: wrong_target.to_str().unwrap().into(),
+                    passphrase: Some(Secret::new("wrong-backup-passphrase".into())),
+                }))
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, ErrorCode::InvalidRequest);
+            assert!(!wrong_target.exists());
             let restore = client.prepare(Command::RestoreBackup {
+                passphrase: None,
                 id: record.id.clone(),
                 expected_revision: saved.revision,
                 target: target.to_str().unwrap().into(),
@@ -349,6 +372,7 @@ async fn restores_new_profiles_without_external_mutation() {
             let rejected = root.join("corrupt-restore");
             let error = client
                 .execute(client.prepare(Command::RestoreBackup {
+                    passphrase: None,
                     id: record.id.clone(),
                     expected_revision: saved.revision,
                     target: rejected.to_str().unwrap().into(),
@@ -499,6 +523,7 @@ async fn restores_independent_managed_git_checkouts() {
                 identity: SecretUpdate::Replace(Secret::new("fixture-user".into())),
                 secret: SecretUpdate::Replace(Secret::new("fixture-password".into())),
                 session_token: SecretUpdate::Keep,
+                passphrase: SecretUpdate::Replace(Secret::new("fixture-backup-passphrase".into())),
             }),
         )
         .await
@@ -519,6 +544,7 @@ async fn restores_independent_managed_git_checkouts() {
         execute(
             &client,
             Command::RestoreBackup {
+                passphrase: None,
                 id: record.id,
                 expected_revision: settings.revision,
                 target: target.to_str().unwrap().into(),

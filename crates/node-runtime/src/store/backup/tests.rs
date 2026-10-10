@@ -27,6 +27,7 @@ fn preserves_private_credentials_and_conflicts() {
         identity: SecretUpdate::Replace(Secret::new("private-user".into())),
         secret: SecretUpdate::Replace(Secret::new("private-password".into())),
         session_token: SecretUpdate::Clear,
+        passphrase: SecretUpdate::Replace(Secret::new("private-backup-passphrase".into())),
     };
     let request = Request::new(
         sailry_protocol::NodeId([1; 32]),
@@ -36,6 +37,7 @@ fn preserves_private_credentials_and_conflicts() {
     let public = serde_json::to_string(&(output.clone(), event)).unwrap();
     assert!(!public.contains("private-user"));
     assert!(!public.contains("private-password"));
+    assert!(!public.contains("private-backup-passphrase"));
     assert_eq!(
         read(&db).unwrap().auth.secret.unwrap().expose(),
         "private-password"
@@ -58,11 +60,17 @@ fn preserves_private_credentials_and_conflicts() {
             identity: SecretUpdate::Keep,
             secret: SecretUpdate::Keep,
             session_token: SecretUpdate::Keep,
+            passphrase: SecretUpdate::Keep,
         }),
     );
     execute(&db, &request).unwrap();
     assert!(!read(&db).unwrap().settings.credentials_configured);
     assert!(read(&db).unwrap().auth.secret.is_none());
+    assert!(read(&db).unwrap().settings.passphrase_configured);
+    assert_eq!(
+        read(&db).unwrap().auth.passphrase.unwrap().expose(),
+        "private-backup-passphrase"
+    );
 }
 
 #[test]

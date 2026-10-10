@@ -125,6 +125,13 @@ pub(crate) async fn export(
     id: String,
     cancel: &CancellationToken,
 ) -> Result<Record, Fault> {
+    cancelled(cancel)?;
+    let passphrase = super::encryption::passphrase(plan.auth.passphrase.as_ref())?.clone();
+    let stop = cancel.clone();
+    let packed =
+        tokio::task::spawn_blocking(move || super::encryption::seal(packed, &passphrase, &stop))
+            .await
+            .map_err(io)??;
     let op = plan.operator()?;
     // A request-derived directory is owned by this one export; no shared object is replaced.
     let directory = format!("{id}/");

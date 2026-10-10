@@ -79,6 +79,7 @@ fn autosaves_private_destination_on_selected_node(cx: &mut TestAppContext) {
                     (1, "profiles"),
                     (4, "fixture-user"),
                     (5, "fixture-password"),
+                    (7, "fixture-backup-passphrase"),
                 ] {
                     editor.fields[index].1.update(cx, |input, cx| {
                         input.set_value(value, window, cx);
@@ -96,6 +97,7 @@ fn autosaves_private_destination_on_selected_node(cx: &mut TestAppContext) {
                 && !panel.read(cx).pending
         });
         assert!(settings(&fixture).credentials_configured);
+        assert!(settings(&fixture).passphrase_configured);
         assert_eq!(
             settings(&fixture).destination.unwrap().endpoint,
             server.endpoint
@@ -109,6 +111,11 @@ fn autosaves_private_destination_on_selected_node(cx: &mut TestAppContext) {
             !serde_json::to_string(&settings(&fixture))
                 .unwrap()
                 .contains("fixture-password")
+        );
+        assert!(
+            !serde_json::to_string(&settings(&fixture))
+                .unwrap()
+                .contains("fixture-backup-passphrase")
         );
         let other = sailry_client::Client::new(fixture.other.local());
         let Output::BackupSettings(other_settings) = fixture
@@ -145,6 +152,7 @@ fn exports_and_restores_through_native_controls(cx: &mut TestAppContext) {
             identity: SecretUpdate::Replace(Secret::new("fixture-user".into())),
             secret: SecretUpdate::Replace(Secret::new("fixture-password".into())),
             session_token: SecretUpdate::Keep,
+            passphrase: SecretUpdate::Replace(Secret::new("fixture-backup-passphrase".into())),
         }));
         let (owner, visual) = fixture.mount(cx);
         let panel = open(&owner, visual);
@@ -221,6 +229,7 @@ fn preserves_conflicts_and_closes_stale_editors(cx: &mut TestAppContext) {
             identity: SecretUpdate::Keep,
             secret: SecretUpdate::Keep,
             session_token: SecretUpdate::Keep,
+            passphrase: SecretUpdate::Replace(Secret::new("fixture-backup-passphrase".into())),
         }));
         let (owner, visual) = fixture.mount(cx);
         let panel = open(&owner, visual);
@@ -240,6 +249,7 @@ fn preserves_conflicts_and_closes_stale_editors(cx: &mut TestAppContext) {
             identity: SecretUpdate::Keep,
             secret: SecretUpdate::Keep,
             session_token: SecretUpdate::Keep,
+            passphrase: SecretUpdate::Replace(Secret::new("fixture-backup-passphrase".into())),
         }));
         wait(visual, |cx| editor.read(cx).conflict);
         assert_eq!(

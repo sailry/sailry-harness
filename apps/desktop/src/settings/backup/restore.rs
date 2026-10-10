@@ -12,10 +12,16 @@ pub(super) struct Restore {
     owner: Entity<Panel>,
     record: Record,
     pub(super) target: Entity<InputState>,
+    pub(super) passphrase: Entity<InputState>,
     error: Option<&'static str>,
 }
 
 pub(super) fn open(owner: Entity<Panel>, record: Record, window: &mut Window, cx: &mut App) {
+    let configured = owner
+        .read(cx)
+        .settings
+        .as_ref()
+        .is_some_and(|settings| settings.passphrase_configured);
     let form = cx.new(|cx| {
         crate::feedback::observe(window, cx, |form: &Restore, _| {
             form.error.into_iter().collect()
@@ -24,6 +30,15 @@ pub(super) fn open(owner: Entity<Panel>, record: Record, window: &mut Window, cx
             owner,
             record,
             target: cx.new(|cx| InputState::new(window, cx).placeholder(tr("backup_target"))),
+            passphrase: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .masked(true)
+                    .placeholder(tr(if configured {
+                        "backup_keep_secret"
+                    } else {
+                        "backup_passphrase"
+                    }))
+            }),
             error: None,
         }
     });
@@ -78,12 +93,20 @@ impl Restore {
             return false;
         };
         let id = self.record.id.clone();
+        let passphrase = self.passphrase.read(cx).value().to_string();
+        if passphrase.is_empty() && !settings.passphrase_configured {
+            self.error = Some("backup_passphrase_required");
+            cx.notify();
+            return false;
+        }
         self.owner.update(cx, |panel, cx| {
             panel.submit(
                 Command::RestoreBackup {
                     id,
                     expected_revision: settings.revision,
                     target,
+                    passphrase: (!passphrase.is_empty())
+                        .then(|| sailry_protocol::Secret::new(passphrase)),
                 },
                 window,
                 cx,
@@ -96,6 +119,13 @@ impl Render for Restore {
         v_flex()
             .gap_4()
             .child(div().text_sm().child(tr("backup_restore_consequence")))
+            .child(
+                Field::new().label(tr("backup_passphrase")).child(
+                    div()
+                        .debug_selector(|| "backup-restore-passphrase".into())
+                        .child(Input::new(&self.passphrase).disabled(self.owner.read(cx).locked())),
+                ),
+            )
             .child(
                 Field::new().label(tr("backup_target")).child(
                     div()

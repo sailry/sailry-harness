@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 #[path = "tests/server.rs"]
 pub(crate) mod server;
 
-fn snapshot() -> (tempfile::TempDir, archive::Snapshot) {
+pub(super) fn snapshot() -> (tempfile::TempDir, archive::Snapshot) {
     let parent = tempfile::tempdir().unwrap();
     let profile = parent.path().canonicalize().unwrap().join("profile");
     crate::profile::private_directory(&profile).unwrap();
@@ -160,13 +160,14 @@ async fn roundtrips_segmented_storage_adapters() {
             .capture(&[workspace], &CancellationToken::new())
             .unwrap();
         let packed = snapshot.pack(&CancellationToken::new()).unwrap();
-        let expected = packed.sha256.clone();
+        let plaintext_hash = packed.sha256.clone();
         let id = uuid::Uuid::new_v4().to_string();
         let plan = plan(&server);
         let record = export(&plan, packed, id.clone(), &CancellationToken::new())
             .await
             .unwrap();
-        assert_eq!(record.sha256, expected);
+        assert_ne!(record.sha256, plaintext_hash);
+        let expected = record.sha256.clone();
         assert!(server.parts(&id) >= 2);
         assert!(server.maximum_put() <= 4 * 1024 * 1024);
         let page = list(&plan, &CancellationToken::new()).await.unwrap();
@@ -217,6 +218,9 @@ fn plan(server: &server::Server) -> Plan {
             identity: Some(sailry_protocol::Secret::new("fixture-user".into())),
             secret: Some(sailry_protocol::Secret::new("fixture-password".into())),
             session_token: None,
+            passphrase: Some(sailry_protocol::Secret::new(
+                "fixture-backup-passphrase".into(),
+            )),
         },
     }
 }

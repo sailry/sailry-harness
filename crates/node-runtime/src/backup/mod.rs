@@ -1,5 +1,6 @@
 //! Manual profile backups use the execution Node's storage and durable requests.
 pub(crate) mod archive;
+pub(crate) mod encryption;
 mod git;
 mod remote;
 #[cfg(test)]
@@ -19,6 +20,8 @@ pub(crate) struct Auth {
     pub identity: Option<Secret>,
     pub secret: Option<Secret>,
     pub session_token: Option<Secret>,
+    #[serde(default)]
+    pub passphrase: Option<Secret>,
 }
 
 #[derive(Clone)]

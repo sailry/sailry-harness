@@ -69,6 +69,8 @@ pub struct Settings {
     pub revision: u64,
     pub destination: Option<Destination>,
     pub credentials_configured: bool,
+    #[serde(default)]
+    pub passphrase_configured: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,6 +82,13 @@ pub struct Update {
     /// WebDAV password or S3 secret access key.
     pub secret: SecretUpdate,
     pub session_token: SecretUpdate,
+    /// Encryption passphrase stays on the execution Node and is never returned.
+    #[serde(default = "keep")]
+    pub passphrase: SecretUpdate,
+}
+
+fn keep() -> SecretUpdate {
+    SecretUpdate::Keep
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,6 +126,24 @@ pub struct Page {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn defaults_missing_passphrase_state() {
+        let settings: Settings = serde_json::from_value(serde_json::json!({
+            "revision": 0,
+            "destination": null,
+            "credentials_configured": false,
+        }))
+        .unwrap();
+        assert_eq!(settings, Settings::default());
+        let update: Update = serde_json::from_value(serde_json::json!({
+            "settings": settings,
+            "identity": {"kind":"keep"},
+            "secret": {"kind":"keep"},
+            "session_token": {"kind":"keep"},
+        }))
+        .unwrap();
+        assert_eq!(update.passphrase, SecretUpdate::Keep);
+    }
     #[test]
     fn validates_storage_targets() {
         let mut destination = Destination {

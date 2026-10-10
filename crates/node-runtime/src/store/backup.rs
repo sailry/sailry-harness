@@ -58,6 +58,7 @@ fn validate(stored: &Stored) -> Result<(), Fault> {
         &stored.auth.identity,
         &stored.auth.secret,
         &stored.auth.session_token,
+        &stored.auth.passphrase,
     ]
     .into_iter()
     .flatten()
@@ -72,6 +73,11 @@ fn validate(stored: &Stored) -> Result<(), Fault> {
     if stored.settings.credentials_configured != configured(&stored.auth) {
         return Err(Fault::invalid(
             "backup credential state differs from stored values",
+        ));
+    }
+    if stored.settings.passphrase_configured != stored.auth.passphrase.is_some() {
+        return Err(Fault::invalid(
+            "backup passphrase state differs from stored value",
         ));
     }
     Ok(())
@@ -94,6 +100,7 @@ pub(super) fn execute(
             identity,
             secret,
             session_token,
+            passphrase,
         }) => {
             super::commands::check_revision(stored.settings.revision, settings.revision)?;
             if stored
@@ -106,11 +113,15 @@ pub(super) fn execute(
                     .as_ref()
                     .map(|destination| destination.kind)
             {
-                stored.auth = Auth::default();
+                stored.auth = Auth {
+                    passphrase: stored.auth.passphrase.take(),
+                    ..Auth::default()
+                };
             }
             update(&mut stored.auth.identity, identity);
             update(&mut stored.auth.secret, secret);
             update(&mut stored.auth.session_token, session_token);
+            update(&mut stored.auth.passphrase, passphrase);
             stored.settings = settings.clone();
             stored.settings.revision = settings
                 .revision
@@ -118,6 +129,7 @@ pub(super) fn execute(
                 .filter(|revision| *revision <= i64::MAX as u64)
                 .ok_or_else(|| Fault::invalid("backup settings revision is exhausted"))?;
             stored.settings.credentials_configured = configured(&stored.auth);
+            stored.settings.passphrase_configured = stored.auth.passphrase.is_some();
             validate(&stored)?;
             db.execute("INSERT INTO backup_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [encode(&stored)?]).map_err(storage_error)?;
             Ok((
@@ -163,6 +175,7 @@ pub(super) fn capture(
 ) -> Result<Capture, Fault> {
     backup::cancelled(cancel)?;
     let plan = plan(&database.connection, Some(revision))?;
+    backup::encryption::passphrase(plan.auth.passphrase.as_ref())?;
     let profile = database
         .profile
         .as_deref()
@@ -254,7 +267,16 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
         } => *expected_revision,
         _ => return Err(Fault::invalid("backup operation expected")),
     };
-    plan(&database.connection, Some(revision))?;
+    let plan = plan(&database.connection, Some(revision))?;
+    match &request.command {
+        Command::ExportBackup { .. } => {
+            backup::encryption::passphrase(plan.auth.passphrase.as_ref())?;
+        }
+        Command::RestoreBackup { passphrase, .. } => {
+            backup::encryption::passphrase(passphrase.as_ref().or(plan.auth.passphrase.as_ref()))?;
+        }
+        _ => unreachable!(),
+    }
     if let Command::RestoreBackup { id, target, .. } = &request.command {
         if !uuid::Uuid::parse_str(id).is_ok_and(|value| value.to_string() == *id) {
             return Err(Fault::invalid("invalid backup identifier"));
@@ -324,8 +346,12 @@ impl Ingress {
                 id,
                 expected_revision,
                 target,
+                passphrase,
             } => {
-                let plan = self.backup_plan(Some(*expected_revision)).await?;
+                let mut plan = self.backup_plan(Some(*expected_revision)).await?;
+                if let Some(passphrase) = passphrase {
+                    plan.auth.passphrase = Some(passphrase.clone());
+                }
                 let profile = self.profile.as_deref().ok_or_else(|| {
                     Fault::new(ErrorCode::NotConfigured, "backup requires a Node profile")
                 })?;
@@ -334,7 +360,10 @@ impl Ingress {
                 let (record, archive) = backup::restore(&plan, id, &temporary, cancel).await?;
                 let stop = cancel.clone();
                 let restored = record.clone();
+                let passphrase =
+                    backup::encryption::passphrase(plan.auth.passphrase.as_ref())?.clone();
                 let path = tokio::task::spawn_blocking(move || {
+                    let archive = backup::encryption::open(&archive, &passphrase, &stop)?;
                     publish(archive, &target, &restored, &stop)
                 })
                 .await

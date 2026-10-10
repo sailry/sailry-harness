@@ -33,14 +33,31 @@ impl Render for Panel {
                     .debug_selector(|| "backup-export".into())
                     .icon(gpui_kit::assets::IconName::Upload)
                     .accessibility_label(tr("backup_export"))
-                    .tooltip(tr("backup_export"))
+                    .tooltip(tr(
+                        if self
+                            .settings
+                            .as_ref()
+                            .is_some_and(|settings| settings.passphrase_configured)
+                        {
+                            "backup_export"
+                        } else {
+                            "backup_passphrase_required"
+                        },
+                    ))
                     .loading(
                         self.pending
                             && self.request.as_ref().is_some_and(|request| {
                                 matches!(request.command, Command::ExportBackup { .. })
                             }),
                     )
-                    .disabled(locked || destination.is_none())
+                    .disabled(
+                        locked
+                            || destination.is_none()
+                            || !self
+                                .settings
+                                .as_ref()
+                                .is_some_and(|settings| settings.passphrase_configured),
+                    )
                     .on_click(cx.listener(|panel, _, window, cx| {
                         if let Some(settings) = &panel.settings {
                             panel.submit(

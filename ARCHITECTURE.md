@@ -89,11 +89,16 @@ uploaded attachments.
 Manual profile backups use the execution Node's consistent SQLite snapshot,
 referenced plugin packages and attachments, and registered managed workspaces.
 External project paths remain references. WebDAV and S3 exports publish verified
-segments before their manifest; uncertain operations keep their original request
-identity. Explicit restore validates the archive into a new empty profile,
+password-encrypted age segments before their manifest; uncertain operations keep
+their original request identity. Explicit restore validates the archive into a new empty profile,
 relocates only current profile-owned paths and preserves immutable history.
 Temporary files, model caches and derived indexes are excluded, and restored
-profiles do not start automatically.
+profiles do not start automatically. Export requires a user passphrase; keys and
+Node identity remain inside the authenticated encrypted archive. The passphrase
+stays in the execution Node's configuration and never appears in public snapshots.
+Restore accepts a separate passphrase for older backups and authenticates the
+entire stream before publishing any profile. A restored profile retains its Node
+identity; only one copy of that identity should run at a time.
 
 Knowledge collections, settings and explicit plugin grants remain in the primary
 Node database. `storage/knowledge.db` contains only derived chunks, full-text

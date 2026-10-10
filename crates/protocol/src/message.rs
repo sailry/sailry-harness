@@ -718,6 +718,8 @@ pub enum Command {
         id: String,
         expected_revision: u64,
         target: String,
+        #[serde(default)]
+        passphrase: Option<crate::Secret>,
     },
     ReadPythonSettings,
     SavePythonSettings(crate::python::Settings),
