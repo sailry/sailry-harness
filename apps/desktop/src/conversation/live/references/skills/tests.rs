@@ -343,7 +343,13 @@ fn plugin_mentions_select_capabilities(cx: &mut TestAppContext) {
                 .expect("native capability suggestion");
             let extension = info.extension.as_ref().unwrap();
             assert!(extension.tools.is_empty());
-            assert!(extension.instructions.is_none());
+            // Native capabilities carry package guidance without plugin tools.
+            assert!(
+                extension
+                    .instructions
+                    .as_ref()
+                    .is_some_and(|text| !text.is_empty())
+            );
             assert!(
                 !list
                     .rows

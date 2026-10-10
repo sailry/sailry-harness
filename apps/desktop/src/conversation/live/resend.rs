@@ -5,6 +5,14 @@ use gpui_kit::component::button::{Button, ButtonVariants};
 #[cfg(test)]
 mod tests;
 
+/// Turns that ended without an answer the user accepted can send their input again.
+pub(super) fn resendable(status: Status) -> bool {
+    matches!(
+        status,
+        Status::Failed | Status::Interrupted | Status::Cancelled
+    )
+}
+
 impl View {
     fn can_resend(&self, turn: TurnId) -> bool {
         if self.readonly() || !self.connected() || self.pending || self.editing.is_some() {
@@ -26,10 +34,10 @@ impl View {
                             Status::Queued | Status::Running | Status::Stopping
                         )
                     })
-                    && page.runs.iter().any(|run| {
-                        run.turn == turn
-                            && matches!(run.status, Status::Failed | Status::Interrupted)
-                    })
+                    && page
+                        .runs
+                        .iter()
+                        .any(|run| run.turn == turn && resendable(run.status))
                     && !messages::sent_input(page, turn).is_empty()
             })
     }

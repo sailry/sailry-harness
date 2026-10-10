@@ -912,6 +912,8 @@ chat_response_invalid: 无法解析模型响应
 chat_subscription_limit: ChatGPT 共享用量已达上限
 chat_subscription_unavailable: ChatGPT 共享用量暂不可用
 chat_model_failed: 模型请求失败
+chat_model_unauthorized: 模型凭据被拒绝
+chat_model_rate_limited: 模型请求已达速率上限
 chat_config_changed: 配置已变化，请重新发送
 chat_config_unavailable: 会话配置不可用，请检查供应商
 chat_retry: 重试
@@ -1150,7 +1152,6 @@ turn_failed: 处理失败
 turn_thinking: 正在思考
 turn_awaiting_response: 正在思考
 chat_reconnecting: 正在重连
-chat_error_details: 查看原因
 chat_model_reconnecting: 正在重试模型请求 %{attempt}/%{limit}
 chat_model_retried: 模型请求已重试 %{attempt}/%{limit}
 chat_status_unsynced: 状态未同步

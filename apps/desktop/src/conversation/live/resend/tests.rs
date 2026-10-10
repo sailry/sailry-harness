@@ -140,6 +140,14 @@ fn retries_original_input(cx: &mut TestAppContext) {
             view.update(visual, |view, cx| {
                 let snapshot = Arc::make_mut(view.history.snapshot.as_mut().unwrap());
                 let page = Arc::make_mut(&mut snapshot.page);
+                page.runs[0].status = Status::Cancelled;
+                assert!(view.can_resend(turn));
+                let page =
+                    Arc::make_mut(&mut Arc::make_mut(view.history.snapshot.as_mut().unwrap()).page);
+                page.runs[0].status = Status::Continued;
+                assert!(!view.can_resend(turn));
+                let page =
+                    Arc::make_mut(&mut Arc::make_mut(view.history.snapshot.as_mut().unwrap()).page);
                 page.runs[0].status = Status::Interrupted;
                 assert!(view.can_resend(turn));
                 view.history.connected = false;

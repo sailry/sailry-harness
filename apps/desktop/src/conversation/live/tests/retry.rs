@@ -123,6 +123,17 @@ fn cancels_backoff(cx: &mut TestAppContext) {
             view.read(cx).history.snapshot.as_ref().unwrap().page.runs[0].status
                 == Status::Cancelled
         });
+        // A stopped turn keeps its history actions and can send its input again.
+        for selector in [
+            format!("live-turn-more-{turn}"),
+            format!("live-turn-retry-{turn}"),
+        ] {
+            assert!(
+                visual
+                    .debug_bounds(Box::leak(selector.into_boxed_str()))
+                    .is_some()
+            );
+        }
         let requests = fixture.task_requests();
         std::thread::sleep(Duration::from_millis(600));
         assert_eq!(fixture.task_requests(), requests);

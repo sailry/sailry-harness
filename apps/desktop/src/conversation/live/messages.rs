@@ -420,18 +420,7 @@ impl View {
                 answer_from,
                 work_open,
                 cx,
-            ))
-            .when(
-                run.status == Status::Cancelled && copy.is_empty(),
-                |content| {
-                    content.child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(tr("turn_cancelled")),
-                    )
-                },
-            );
+            ));
         let content = content
             .when_some(phase, |content, phase| {
                 content.child(
@@ -482,7 +471,7 @@ impl View {
                             crate::conversation::disclosure::trigger(
                                 format!("live-turn-error-{turn}"),
                                 IconName::TriangleAlert,
-                                tr("chat_error_details"),
+                                tr(failure_key(error)),
                                 crate::conversation::disclosure::Detail::default()
                                     .state(None, true),
                                 open,
@@ -519,12 +508,6 @@ impl View {
         );
         let status_row = h_flex()
             .id(format!("turn-status-{turn}"))
-            .when_some(run.error.as_ref(), |row, error| {
-                let detail = tr(failure_key(error));
-                row.tooltip(move |window, cx| {
-                    gpui_kit::component::tooltip::Tooltip::new(detail.clone()).build(window, cx)
-                })
-            })
             .gap_2()
             .child(tr(status))
             .children(elapsed);
@@ -581,11 +564,9 @@ impl View {
                             }),
                     )
                 })
-                .when(run.status != Status::Cancelled && !self.readonly(), |row| {
-                    row.child(self.turn_menu(turn, cx))
-                })
+                .when(!self.readonly(), |row| row.child(self.turn_menu(turn, cx)))
                 .when(
-                    !self.readonly() && matches!(run.status, Status::Failed | Status::Interrupted),
+                    !self.readonly() && super::resend::resendable(run.status),
                     |row| row.child(self.resend_button(turn, cx)),
                 )
                 .when(!frame::active(run.status), |row| {
@@ -671,29 +652,38 @@ pub(super) fn failure_key(error: &sailry_protocol::Fault) -> &'static str {
         }
         _ => {}
     }
-    let diagnostic = error
-        .message
-        .split_once("; HTTP ")
-        .map_or(error.message.as_str(), |(message, _)| message);
-    if diagnostic
-        == "Agent execution failed (model.openai_responses.subscription_sharing_usage_limit_exceeded)"
-    {
-        "chat_subscription_limit"
-    } else if diagnostic
-        == "Agent execution failed (model.openai_responses.subscription_sharing_usage_unavailable)"
-    {
-        "chat_subscription_unavailable"
-    } else if diagnostic == "Agent execution failed (model.openai_responses.parse)" {
-        "chat_response_invalid"
-    } else if diagnostic == "Agent execution failed (model.response_timeout)" {
-        "chat_response_timeout"
-    } else if error.code == sailry_protocol::ErrorCode::Unavailable {
-        "chat_model_failed"
-    } else if error.code == sailry_protocol::ErrorCode::OutcomeUnknown {
-        "chat_execution_unknown"
-    } else {
-        super::actions::error_key(error)
+    let (code, category) = model_failure(&error.message).unwrap_or_default();
+    match code {
+        "model.openai_responses.subscription_sharing_usage_limit_exceeded" => {
+            return "chat_subscription_limit";
+        }
+        "model.openai_responses.subscription_sharing_usage_unavailable" => {
+            return "chat_subscription_unavailable";
+        }
+        "model.openai_responses.parse" => return "chat_response_invalid",
+        "model.response_timeout" => return "chat_response_timeout",
+        _ => {}
     }
+    match category {
+        Some("unauthorized" | "forbidden") => "chat_model_unauthorized",
+        Some("rate_limited") => "chat_model_rate_limited",
+        Some("timeout") => "chat_response_timeout",
+        _ if error.code == sailry_protocol::ErrorCode::Unavailable => "chat_model_failed",
+        _ if error.code == sailry_protocol::ErrorCode::OutcomeUnknown => "chat_execution_unknown",
+        _ => super::actions::error_key(error),
+    }
+}
+
+/// Splits Node's public model diagnostic into the ADK code and optional HTTP category.
+fn model_failure(message: &str) -> Option<(&str, Option<&str>)> {
+    let (code, rest) = message
+        .strip_prefix("Agent execution failed (")?
+        .split_once(')')?;
+    let category = rest
+        .strip_prefix("; HTTP ")
+        .and_then(|rest| rest.split_once("; "))
+        .map(|(_, category)| category);
+    Some((code, category))
 }
 
 #[cfg(test)]
@@ -731,6 +721,21 @@ mod tests {
             )),
             "chat_response_invalid"
         );
+        for (category, key) in [
+            ("unauthorized", "chat_model_unauthorized"),
+            ("forbidden", "chat_model_unauthorized"),
+            ("rate_limited", "chat_model_rate_limited"),
+            ("timeout", "chat_response_timeout"),
+            ("internal", "chat_model_failed"),
+        ] {
+            let message = format!(
+                "Agent execution failed (model.openai_compat.api_error); HTTP 400; {category}"
+            );
+            assert_eq!(
+                failure_key(&Fault::new(ErrorCode::Unavailable, message)),
+                key
+            );
+        }
         assert_eq!(
             failure_key(&Fault::new(ErrorCode::Unavailable, "unavailable")),
             "chat_model_failed"
