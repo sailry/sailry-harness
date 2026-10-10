@@ -8,6 +8,7 @@ import '../../../content/markdown.dart';
 import '../../../content/attachment.dart';
 import '../../../content/images.dart';
 import '../../../content/paths.dart';
+import '../../../content/visuals.dart';
 import '../../../ui/toast.dart';
 import '../../resources/file_navigation.dart';
 import '../../resources/file_page.dart';
@@ -26,6 +27,7 @@ import 'references.dart';
 import 'message_data.dart';
 import 'turn_actions.dart';
 import 'turn_changes.dart';
+import 'files.dart';
 
 /// Renders complete Rust Client projections. Call association and streaming
 /// replacement are owned by Client, never reconstructed by the mobile UI.
@@ -427,6 +429,14 @@ class _LiveTimelineState extends State<LiveTimeline> {
             answer: answerParts,
             phase: phase,
           ),
+          PublishedFiles(
+            key: ValueKey('files-${run['turn']}'),
+            files: publishedFiles(calls, run['turn'] as String),
+            host: host,
+            worktree: turnWorktree(page, session, run['turn']),
+            enabled: connected,
+            documents: _documents,
+          ),
           if (!active &&
               !widget.sending &&
               run ==
@@ -473,15 +483,18 @@ class _LiveTimelineState extends State<LiveTimeline> {
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (final run in runs)
-          KeyedSubtree(
-            key: turnKey?.call(run['turn'] as String) ?? ValueKey(run['turn']),
-            child: turn(run),
-          ),
-      ],
+    return VisualScope(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final run in runs)
+            KeyedSubtree(
+              key:
+                  turnKey?.call(run['turn'] as String) ?? ValueKey(run['turn']),
+              child: turn(run),
+            ),
+        ],
+      ),
     );
   }
 }

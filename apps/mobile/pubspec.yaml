@@ -80,3 +80,5 @@ flutter:
     - assets/icons/projects/
     - third_party_licenses/kenney-monsters.md
     - assets/backgrounds/technology.png
+    - assets/visuals/
+    - assets/visuals/licenses/

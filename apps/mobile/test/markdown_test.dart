@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:sailry_mobile/content/markdown.dart';
+import 'package:sailry_mobile/content/chart.dart';
 import 'package:sailry_mobile/features/conversations/live/timeline.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/ui/theme.dart';
@@ -28,6 +29,56 @@ let message = "A code example";
 ''';
 
 void main() {
+  testWidgets('renders chart fences and preserves artifact navigation', (
+    tester,
+  ) async {
+    const source = '''
+```chart
+{"type":"line","data":[{"label":"A","value":1},{"label":"B","value":2}]}
+```
+
+[Report](docs/report.pdf)
+
+[Website](https://example.com/report.pdf) [Folder](src/)
+
+`[Code](example.rs)`
+''';
+    final opened = <Uri>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: MarkdownContent(
+              source,
+              onOpenFile: (uri) async => opened.add(uri),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(SailryChart), findsOneWidget);
+    expect(find.byKey(const ValueKey('chart-line')), findsOneWidget);
+    expect(find.byType(Card), findsOneWidget);
+    expect(find.text('report.pdf'), findsOneWidget);
+    await tester.tap(find.text('Report'));
+    await tester.pump();
+    expect(opened, [Uri.parse('docs/report.pdf')]);
+    final body = tester.widget<MarkdownBody>(find.byType(MarkdownBody));
+    expect(body.data, source);
+    final html = md.markdownToHtml(
+      source,
+      inlineSyntaxes: body.inlineSyntaxes!,
+    );
+    expect(
+      html,
+      contains('<a href="https://example.com/report.pdf">Website</a>'),
+    );
+    expect(html, contains('<a href="src/">Folder</a>'));
+    expect(html, contains('<code>[Code](example.rs)</code>'));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('image links preserve normal links and code', (tester) async {
     const source = '''
 [Download](assets/image.png)

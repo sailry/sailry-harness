@@ -45,6 +45,24 @@ class ToolContent extends StatelessWidget {
     final diagnostics = objects(resolved['diagnostics']);
     final fault = output['error'];
     final hasFailure = resultFailed(output, resolved);
+    final items = objects(content['blocks']);
+    final failure = output['isError'] == true
+        ? output
+        : object(output['output']);
+    final failureTexts = objects(failure['content'])
+        .where((item) => item['type'] == 'text')
+        .map((item) => text(item['text']))
+        .where((value) => value.trim().isNotEmpty)
+        .toList();
+    final structured =
+        content.isNotEmpty &&
+        fault == null &&
+        diagnostics.isEmpty &&
+        (!hasFailure ||
+            (failureTexts.isEmpty &&
+                items.every(
+                  (block) => ['text', 'notice'].contains(block['kind']),
+                )));
     final paths = <String>{};
     final target = text(object(object(resolved['input'])['target'])['text']);
     if (target.isNotEmpty) paths.add(target);
@@ -83,22 +101,18 @@ class ToolContent extends StatelessWidget {
           ),
         );
       }
-    } else if (hasFailure) {
-      final failure = output['isError'] == true
-          ? output
-          : object(output['output']);
-      for (final item in objects(failure['content'])) {
-        if (item['type'] == 'text') {
-          blocks.add(
-            SelectableText(
-              text(item['text']),
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          );
-        }
+    } else if (hasFailure && !structured) {
+      for (final message in failureTexts) {
+        blocks.add(
+          SelectableText(
+            message,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        );
       }
     }
-    for (final (index, block) in objects(content['blocks']).indexed) {
+    for (final (index, block)
+        in (structured ? items : <Map<String, dynamic>>[]).indexed) {
       if (block['kind'] == 'diff') {
         blocks.add(DiffView(key: ValueKey('diff-$index'), diff: block));
       }
@@ -108,7 +122,9 @@ class ToolContent extends StatelessWidget {
             ? output
             : object(output['output']);
         final literal = contentValue(payload, text(block['path']));
-        if (literal is String) blocks.add(CodeBlock(literal));
+        if (literal is String && literal.isNotEmpty) {
+          blocks.add(CodeBlock(literal));
+        }
         for (final notice in objects(block['notices'])) {
           blocks.add(Text(capturedLabel(context, notice)));
         }
@@ -116,11 +132,11 @@ class ToolContent extends StatelessWidget {
       if (block['kind'] == 'notice') {
         blocks.add(Text(capturedLabel(context, block['message'])));
       }
-      if (block['kind'] == 'file') paths.add(text(block['path']));
+      // Published files remain below the answer when tool work collapses.
       // Authenticated result images are rendered once in the answer by LiveTimeline.
     }
     var projected = false;
-    if (content.isEmpty &&
+    if (!structured &&
         !hasFailure &&
         fault == null &&
         diagnostics.isEmpty &&
@@ -161,7 +177,7 @@ class ToolContent extends StatelessWidget {
         projected = true;
       }
     }
-    if (content.isEmpty && !projected && blocks.isEmpty) {
+    if (!structured && !projected && blocks.isEmpty) {
       if (output['kind'] == 'file_content') {
         blocks.add(
           CodeBlock(
@@ -235,6 +251,48 @@ class ToolContent extends StatelessWidget {
         blocks.add(Text(context.tr('resourcePartial')));
       }
     }
+    String? copy;
+    if (structured) {
+      final literal = items.every(
+        (block) => ['text', 'notice'].contains(block['kind']),
+      );
+      if (!literal) {
+        copy = rawText(value);
+      } else {
+        final payload = output.containsKey('sailry_content')
+            ? output
+            : object(output['output']);
+        final text = items
+            .where((block) => block['kind'] == 'text')
+            .map((block) => contentValue(payload, block['path'] as String))
+            .whereType<String>()
+            .where((value) => value.isNotEmpty)
+            .join('\n');
+        if (items.length > 1 ||
+            items.any((block) => block['kind'] == 'notice') ||
+            text.isEmpty) {
+          copy = text.isNotEmpty
+              ? text
+              : [
+                  for (final block in items)
+                    if (block['kind'] == 'notice')
+                      capturedLabel(context, block['message'])
+                    else
+                      for (final notice in objects(block['notices']))
+                        capturedLabel(context, notice),
+                ].join('\n');
+        }
+      }
+    } else if (projected && !hasFailure) {
+      if (object(projection['table']).isNotEmpty) {
+        copy = rawText(value);
+      } else if (text(projection['preview']).isEmpty &&
+          objects(projection['notices']).isNotEmpty) {
+        copy = objects(
+          projection['notices'],
+        ).map((notice) => capturedLabel(context, notice)).toSet().join('\n');
+      }
+    }
     return DefaultTextStyle.merge(
       style: muted,
       child: Column(
@@ -262,6 +320,11 @@ class ToolContent extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: block,
+            ),
+          if (copy != null && copy.isNotEmpty)
+            Align(
+              alignment: Alignment.centerRight,
+              child: CopyTextButton(copy),
             ),
         ],
       ),
