@@ -564,12 +564,12 @@ fn computer_routes(cx: &mut TestAppContext) {
         ready(&owner, visual);
         assert!(!package().enabled);
         menu(visual, "plugin-menu-computer", 0);
-        shown(visual, "plugin-config-content", true);
+        shown_settings(&owner, visual, "computer-permissions", true);
         assert_eq!(
             owner.read_with(visual, |owner, _| owner.section),
-            Section::Plugins
+            Section::Plugin
         );
-        tap(visual, "plugin-config-close");
+        visual.update(|window, cx| assert!(!window.has_active_dialog(cx)));
         select(&owner, visual, Section::Plugins);
         menu(visual, "plugin-menu-computer", 2);
         crate::prompts::tests::answer(visual, "plugins_uninstall");
@@ -648,7 +648,7 @@ fn registered_settings(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn native_configuration_stays_in_dialog(cx: &mut TestAppContext) {
+fn native_configuration_opens_panel(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
@@ -659,16 +659,24 @@ fn native_configuration_stays_in_dialog(cx: &mut TestAppContext) {
             ("code", "code-settings"),
         ] {
             visual.update(|window, cx| {
-                owner.update(cx, |owner, cx| owner.configure_plugin(name, window, cx))
+                owner.update(cx, |owner, cx| {
+                    owner.configure_plugin(name, window, cx);
+                    if name == "code" {
+                        owner.bind_code_scope(
+                            fixture.transport.clone(),
+                            fixture.runtime.clone(),
+                            "Selected Node".into(),
+                            cx,
+                        );
+                    }
+                })
             });
-            shown(visual, "plugin-config-content", true);
             shown(visual, selector, true);
             assert_eq!(
                 owner.read_with(visual, |owner, _| owner.section),
-                Section::Plugins
+                Section::Plugin
             );
-            tap(visual, "plugin-config-close");
-            shown(visual, "plugin-config-content", false);
+            visual.update(|window, cx| assert!(!window.has_active_dialog(cx)));
         }
         fixture.close(visual);
     }

@@ -99,9 +99,9 @@ impl Shell {
                                     .child(entry.label),
                             )
                             .on_click(cx.listener(
-                                move |this, _, window, cx| {
+                                move |this, _, _, cx| {
                                     this.settings.update(cx, |settings, cx| {
-                                        settings.configure_plugin(&entry.name, window, cx)
+                                        settings.open_plugin_settings(&entry.name, cx)
                                     });
                                     cx.notify();
                                 },

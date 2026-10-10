@@ -434,13 +434,15 @@ startup does not reset or delete user data. Third-party dependency versions, ord
 data revisions and event sequences are independent. Release compatibility remains
 a separate decision.
 
-Plugin configuration opens in captured-Node Kit dialogs from cards, details,
-plugin panels and settings navigation. Schema forms and contributed native or
-scripted settings share this modal boundary; MCP authorization remains in details.
+Plugin configuration follows its declared settings surface. Plugins with settings
+pages open their existing panels from configuration actions and
+settings navigation. Other configurable plugins use the shared schema form dialog,
+with the Node and package captured when opened. MCP authorization remains in details.
 Plugins without configuration fields or a settings surface have no configuration action.
 
 Conversation export reads canonical history through Client. Per-reply actions select
-one turn's final reply; session exports include user messages and final replies.
+one turn's user message and final reply; session exports include all user messages
+and final replies.
 Tool activity, reasoning and diagnostics are excluded. Markdown retains source syntax;
 HTML bundles offline formula, diagram and chart rendering. Desktop's existing native
 WebView boundary renders PNG in bounded tiles on macOS and Windows. Export captures

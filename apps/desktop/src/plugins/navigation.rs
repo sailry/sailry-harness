@@ -523,61 +523,17 @@ impl Shell {
             })
     }
 
-    pub(crate) fn open_settings_entry(
+    pub(crate) fn open_settings_panel(
         &mut self,
-        entry: SettingsEntry,
+        event: &crate::settings::extensions::modal::OpenPanel,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(state) = &self.extensions else {
-            return;
-        };
-        let desktop = state.desktop.read(cx);
-        let (client, metadata) = if entry.node == desktop.client.target() && desktop.connected {
-            (desktop.client.clone(), &desktop.metadata)
-        } else {
-            let Some(live) = self
-                .live
-                .as_ref()
-                .filter(|live| live.selected == entry.node && live.view.connected)
-            else {
-                return;
-            };
-            (
-                Arc::new(Client::new(live.transport.clone())),
-                &state.metadata,
-            )
-        };
-        let Some(info) = metadata
-            .read(cx)
-            .entries
-            .get(&entry.package.name)
-            .filter(|info| info.summary.reference() == entry.package)
-            .cloned()
-        else {
-            return;
-        };
-        let host = self
-            .live
-            .as_ref()
-            .map(|live| live.name(entry.node))
-            .unwrap_or_default();
-        let runtime = cx.global::<crate::backend::Services>().runtime.clone();
-        crate::settings::Workspace::configure_bound(
-            Binding {
-                client: client.clone(),
-                defaults: client,
-                runtime,
-                host,
-                project: None,
-                worktree: None,
-                project_name: "".into(),
-                branch: "".into(),
-            },
-            info,
-            window,
-            cx,
-        );
+        self.navigate(Page::Settings, window, cx);
+        self.settings_target = Some(event.node);
+        self.settings.update(cx, |settings, cx| {
+            settings.open_plugin_settings(&event.name, cx)
+        });
     }
 
     pub(crate) fn command_settings_entries(&self, cx: &App) -> Vec<SettingsEntry> {

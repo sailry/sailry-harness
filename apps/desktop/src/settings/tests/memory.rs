@@ -178,8 +178,7 @@ fn install(fixture: &Fixture, index: usize) {
     assert!(installed.issues.is_empty(), "{:?}", installed.issues);
 }
 
-fn edit(owner: &Entity<Workspace>, visual: &mut VisualTestContext, id: MemoryId) {
-    let selector = selector(format!("memory-edit-{id}"));
+fn activate(owner: &Entity<Workspace>, visual: &mut VisualTestContext, selector: &'static str) {
     ready(owner, visual, selector);
     let bounds = visual
         .debug_bounds(selector)
@@ -187,6 +186,15 @@ fn edit(owner: &Entity<Workspace>, visual: &mut VisualTestContext, id: MemoryId)
     visual.simulate_mouse_move(bounds.center(), None, Modifiers::default());
     visual.simulate_click(bounds.center(), Modifiers::default());
     draw(visual);
+}
+
+fn edit(owner: &Entity<Workspace>, visual: &mut VisualTestContext, id: MemoryId) {
+    activate(owner, visual, selector(format!("memory-edit-{id}")));
+}
+
+fn save(owner: &Entity<Workspace>, visual: &mut VisualTestContext) {
+    ready(owner, visual, "memory-create");
+    activate(owner, visual, "memory-save");
 }
 
 #[gpui::test]
@@ -214,12 +222,12 @@ fn entries_preserve_host_conflicts(cx: &mut TestAppContext) {
         owner = Some(shell.read(cx).settings.clone());
         Root::new(shell, window, cx)
     });
-    let workspace = owner.unwrap();
+    let owner = owner.unwrap();
     let handle = visual.update(|window, _| window.window_handle());
     visual.simulate_window_resize(handle, size(px(1280.), px(1100.)));
     let mut prior: Option<WeakEntity<crate::plugins::Panel>> = None;
     for index in 0..2 {
-        workspace.update(visual, |owner, cx| {
+        owner.update(visual, |owner, cx| {
             owner.bind_providers(
                 fixture.transports[index].clone(),
                 fixture.runtime.clone(),
@@ -229,13 +237,9 @@ fn entries_preserve_host_conflicts(cx: &mut TestAppContext) {
         });
         shown(visual, "plugin-settings-memory", true);
         tap(visual, "plugin-settings-memory");
-        let owner = visual.update(|_, cx| super::super::extensions::modal::workspace(cx));
-        assert_ne!(
-            workspace.read_with(visual, |settings, _| settings.section),
-            Section::Plugin
-        );
+        visual.update(|window, cx| assert!(!window.has_active_dialog(cx)));
         shown_settings(&owner, visual, "memory-settings", true);
-        assert!(visual.debug_bounds("plugin-config-content").is_some());
+        assert!(visual.debug_bounds("settings-description").is_some());
         owner.read_with(visual, |owner, cx| {
             let description = owner.plugin_description(cx);
             assert!(!description.trim().is_empty());
@@ -272,7 +276,7 @@ fn entries_preserve_host_conflicts(cx: &mut TestAppContext) {
         shown_settings(&owner, visual, "memory-editor", true);
         input(visual, "field-2", "Preference 中文");
         input(visual, "field-3", "Use concise summaries");
-        tap(visual, "memory-save");
+        save(&owner, visual);
         wait(visual, |_| entries(&fixture, index).len() == 1);
         shown_settings(&owner, visual, "memory-editor", false);
         let id = entries(&fixture, index)[0].id;
@@ -288,8 +292,12 @@ fn entries_preserve_host_conflicts(cx: &mut TestAppContext) {
         let mut changed = read(&fixture, index, id);
         changed.summary.title = "Changed elsewhere".into();
         put(&fixture, index, changed);
+        // Observe the external write before testing the stale editor revision.
+        // Its catalog refresh uses the same bounded request pool as saving.
+        shown_settings(&owner, visual, "Changed elsewhere", true);
+        ready(&owner, visual, "memory-create");
         visual.update(|window, cx| window.clear_notifications(cx));
-        tap(visual, "memory-save");
+        save(&owner, visual);
         crate::feedback::tests::shown(visual);
         assert_eq!(
             visual.update(crate::feedback::tests::summary),
@@ -327,8 +335,7 @@ fn entries_preserve_host_conflicts(cx: &mut TestAppContext) {
         edit(&owner, visual, id);
         shown(visual, "memory-merge-source", true);
         menu(visual, "memory-merge-source", 0);
-        ready(&owner, visual, "memory-save");
-        tap(visual, "memory-save");
+        save(&owner, visual);
         wait(visual, |_| {
             read(&fixture, index, source.summary.id).summary.archived
         });
@@ -350,7 +357,7 @@ fn entries_preserve_host_conflicts(cx: &mut TestAppContext) {
         shown(visual, "memory-archive", true);
         ready(&owner, visual, "memory-archive");
         tap(visual, "memory-archive");
-        tap(visual, "memory-save");
+        save(&owner, visual);
         wait(visual, |_| {
             !read(&fixture, index, source.summary.id).summary.archived
         });
@@ -361,12 +368,8 @@ fn entries_preserve_host_conflicts(cx: &mut TestAppContext) {
             selector(format!("memory-delete-{}", source.summary.id)),
             true,
         );
-        ready(
+        activate(
             &owner,
-            visual,
-            &format!("memory-delete-{}", source.summary.id),
-        );
-        tap(
             visual,
             selector(format!("memory-delete-{}", source.summary.id)),
         );
@@ -378,10 +381,9 @@ fn entries_preserve_host_conflicts(cx: &mut TestAppContext) {
         prior = Some(owner.read_with(visual, |owner, _| {
             owner.plugin_settings_panel().unwrap().downgrade()
         }));
-        tap(visual, "plugin-config-close");
         draw(visual);
     }
     visual.update(|window, _| window.remove_window());
-    drop(workspace);
+    drop(owner);
     fixture.close();
 }

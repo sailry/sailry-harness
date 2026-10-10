@@ -116,6 +116,14 @@ impl Shell {
         cx.subscribe_in(
             &settings,
             window,
+            |shell, _, event: &settings::extensions::modal::OpenPanel, window, cx| {
+                shell.open_settings_panel(event, window, cx);
+            },
+        )
+        .detach();
+        cx.subscribe_in(
+            &settings,
+            window,
             |shell, _, _: &settings::OpenPlugins, window, cx| {
                 if shell.page == Page::Plugins {
                     return;
@@ -625,6 +633,7 @@ impl Render for Shell {
             .text_sm()
             .on_action(cx.listener(Self::search))
             .on_action(cx.listener(Self::open_page))
+            .on_action(cx.listener(Self::open_settings_panel))
             .on_action(cx.listener(Self::refresh_host))
             .on_action(cx.listener(Self::close_active_terminal))
             .on_action(cx.listener(Self::find_conversation))

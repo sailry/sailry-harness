@@ -215,12 +215,11 @@ fn routes_pages_and_preserves_core_tabs(cx: &mut TestAppContext) {
         });
         click(visual, "browser-settings");
         wait(visual, |_| true);
-        assert!(visual.update(|window, cx| window.has_active_dialog(cx)));
-        assert_ne!(
+        assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+        assert_eq!(
             shell.read_with(visual, |shell, _| shell.page),
             crate::preview::Page::Settings
         );
-        click(visual, "plugin-config-close");
         visual.update(|window, cx| {
             shell.update(cx, |shell, cx| {
                 shell.navigate(crate::preview::Page::Conversation, window, cx)

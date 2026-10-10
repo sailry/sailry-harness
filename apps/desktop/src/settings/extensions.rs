@@ -69,13 +69,16 @@ impl Workspace {
         else {
             return;
         };
-        modal::open(
-            live.binding.clone(),
-            info,
-            self.usage_sources.clone(),
-            window,
-            cx,
-        );
+        if modal::has_panel(&info) {
+            let event = modal::OpenPanel {
+                node: live.binding.client.target(),
+                name: name.into(),
+            };
+            self.open_plugin_settings(name, cx);
+            cx.emit(event);
+        } else {
+            modal::open(live.binding.clone(), info, window, cx);
+        }
     }
 
     pub(crate) fn configure_bound(
@@ -91,7 +94,6 @@ impl Workspace {
                 label: binding.host,
             },
             info,
-            vec![],
             window,
             cx,
         );
@@ -338,7 +340,7 @@ impl Workspace {
             .gap_4()
             .child(
                 div()
-                    .h(px(560.).min(window.viewport_size().height * 0.6))
+                    .h(px(560.))
                     .w_full()
                     .children(self.extensions.panel.clone()),
             )

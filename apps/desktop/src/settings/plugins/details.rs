@@ -230,7 +230,7 @@ impl Details {
         let binding = self.binding.clone();
         self.stop.cancel();
         window.close_dialog(cx);
-        super::super::extensions::modal::open(binding, info, vec![], window, cx);
+        super::super::extensions::modal::open(binding, info, window, cx);
     }
 
     fn pending(&self, cx: &App) -> bool {

@@ -635,12 +635,10 @@ mod settings {
                 assert!(matches!(&groups[0].choices[1].target, Target::PluginSetting(entry) if entry == &desktop));
                 assert!(matches!(groups[0].choices[2].target, Target::Setting(Section::Appearance)));
                 assert!(!catalog::available(shell, scope, Folder::Settings, &Target::PluginSetting(host.clone()), cx));
-                let target = shell.settings_target;
-                let section = shell.settings.read(cx).section;
                 catalog::open(shell, scope, Folder::Settings, Target::PluginSetting(desktop.clone()), window, cx);
-                assert!(window.has_active_dialog(cx));
-                assert_eq!(shell.settings_target, target);
-                assert_eq!(shell.settings.read(cx).section, section);
+                assert!(!window.has_active_dialog(cx));
+                assert_eq!(shell.settings_target, Some(fixture.node.id()));
+                assert_eq!(shell.settings.read(cx).selected_plugin_settings(), Some(package.summary.name.as_str()));
                 assert_eq!(shell.live.as_ref().unwrap().selected, fixture.controller.id());
             });
         });
