@@ -127,8 +127,8 @@ pub(super) fn configure(colors: &mut ThemeConfigColors, dark: bool) {
     colors.switch = Some(if dark { "#ffffff1f" } else { "#0000001f" }.into());
     // Kit resolves an omitted thumb color from the active theme background.
     colors.switch_thumb = None;
-    colors.slider_thumb = Some(base.into());
-    colors.slider_bar = Some(foreground.into());
+    colors.slider_thumb = Some("#ffffff".into());
+    colors.slider_bar = Some(muted_foreground.into());
     colors.ring = Some(muted_foreground.into());
     // Table and list selection share the same light treatment as selected
     // buttons. Dark remains unchanged, including its keyboard selection edge.

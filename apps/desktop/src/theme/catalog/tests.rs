@@ -101,7 +101,9 @@ mod slider {
                 let expected = if mode.is_dark() { "#ddbc70" } else { "#b58128" };
                 assert_eq!(cx.theme().primary, Hsla::parse_hex(expected).unwrap());
                 assert_eq!(cx.theme().tokens.slider_bar, cx.theme().tokens.primary);
-                assert_eq!(cx.theme().tokens.slider_thumb.color, cx.theme().foreground);
+                assert_eq!(cx.theme().tokens.slider_thumb, original.1);
+                assert_eq!(cx.theme().tokens.slider_thumb.color.a, 1.);
+                assert!(cx.theme().tokens.slider_thumb.color.l > 0.9);
                 apply_colors(builtin.clone(), None, cx);
                 assert_eq!(cx.theme().tokens.slider_bar, original.0);
                 assert_eq!(cx.theme().tokens.slider_thumb, original.1);
