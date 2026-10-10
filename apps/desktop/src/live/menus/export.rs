@@ -144,7 +144,7 @@ fn start(
         selection,
         title,
         format,
-        path,
+        path.clone(),
         cancel.clone(),
     ));
     window
@@ -183,7 +183,14 @@ fn start(
                     window.close_dialog(cx);
                 }
                 match result {
-                    Ok(()) => crate::feedback::info("", &tr("conversation_exported"), window, cx),
+                    Ok(()) => {
+                        crate::feedback::info("", &tr("conversation_exported"), window, cx);
+                        crate::plugins::file_transfers::system::show(
+                            crate::plugins::file_transfers::system::Action::Reveal,
+                            &path,
+                            cx,
+                        );
+                    }
                     Err("files_download_cancelled") => (),
                     Err(key) => crate::feedback::error("", &tr(key), window, cx),
                 }

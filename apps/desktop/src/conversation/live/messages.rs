@@ -581,9 +581,6 @@ impl View {
                             }),
                     )
                 })
-                .when(!frame::active(run.status), |row| {
-                    row.child(self.export_menu(turn, cx))
-                })
                 .when(run.status != Status::Cancelled && !self.readonly(), |row| {
                     row.child(self.turn_menu(turn, cx))
                 })
@@ -591,6 +588,9 @@ impl View {
                     !self.readonly() && matches!(run.status, Status::Failed | Status::Interrupted),
                     |row| row.child(self.resend_button(turn, cx)),
                 )
+                .when(!frame::active(run.status), |row| {
+                    row.child(self.export_menu(turn, cx))
+                })
                 .when_some(frame::finished(run), |row, time| {
                     let full = frame::full_time(run).unwrap_or_else(|| time.clone());
                     row.child(

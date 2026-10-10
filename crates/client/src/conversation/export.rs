@@ -47,7 +47,7 @@ impl Client {
             .await
     }
 
-    /// Exports only the final reply belonging to the requested turn.
+    /// Exports the user message and final reply belonging to the requested turn.
     pub async fn export_reply(
         &self,
         session: SessionId,
@@ -100,10 +100,7 @@ impl Client {
             history.page.next_before = next;
         }
         if let Some(turn) = turn {
-            history
-                .page
-                .entries
-                .retain(|entry| entry.turn == turn && entry.author != "user");
+            history.page.entries.retain(|entry| entry.turn == turn);
             if history.page.entries.is_empty() {
                 return Err(Fault::invalid("Reply is unavailable"));
             }
@@ -150,6 +147,7 @@ fn render(page: &Page, title: &str, format: Format, assets: &str) -> Result<Docu
         ));
     }
     let mut markdown = String::new();
+    let mut messages = String::new();
     let mut attachments = BTreeMap::new();
     let mut images = BTreeMap::new();
     // Match the transcript's final reply boundary: work before the last tool,
@@ -201,23 +199,30 @@ fn render(page: &Page, title: &str, format: Format, assets: &str) -> Result<Docu
                 entry.author.replace(['#', '<', '>', '\n', '\r'], "")
             ));
         }
-        markdown.push_str(&body);
         for citation in &entry.citations {
             if safe_url(&citation.uri) {
-                markdown.push_str(&format!(
+                body.push_str(&format!(
                     "[{}](<{}>)\n\n",
                     label(citation.title.as_deref().unwrap_or(&citation.uri)),
                     citation.uri.replace(['<', '>'], "")
                 ));
             }
         }
-        if markdown.len() > MAX_BYTES {
+        markdown.push_str(&body);
+        if format == Format::Html {
+            messages.push_str(&format!(
+                "<section class=\"message {}\">{}</section>",
+                if user { "user" } else { "assistant" },
+                html_body(&body),
+            ));
+        }
+        if markdown.len() > MAX_BYTES || messages.len() > MAX_BYTES {
             return Err(Fault::invalid("conversation export exceeds 64 MiB"));
         }
     }
     let content = match format {
         Format::Markdown => markdown,
-        Format::Html => html(title, &markdown),
+        Format::Html => html(title, &messages),
     };
     if content.len() > MAX_BYTES {
         return Err(Fault::invalid("conversation export exceeds 64 MiB"));
@@ -270,7 +275,7 @@ fn safe_url(url: &str) -> bool {
             && url.password().is_none()
     })
 }
-fn html(title: &str, markdown: &str) -> String {
+fn html_body(markdown: &str) -> String {
     use pulldown_cmark::{Event, Options, Parser, Tag};
     let markdown = math_delimiters(markdown);
     let parser = Parser::new_ext(
@@ -326,13 +331,17 @@ fn html(title: &str, markdown: &str) -> String {
     });
     let mut body = String::new();
     pulldown_cmark::html::push_html(&mut body, parser);
+    body
+}
+
+fn html(title: &str, body: &str) -> String {
     let title = title
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;");
     format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{title}</title><style>body{{max-width:900px;margin:3rem auto;padding:0 1rem;font:16px/1.6 system-ui}}pre{{overflow:auto;padding:1rem;background:#f5f5f5}}img{{max-width:100%}}table{{border-collapse:collapse}}td,th{{padding:.5rem;border:1px solid #ccc}}blockquote{{margin-left:0;padding-left:1rem;border-left:3px solid #ccc}}</style></head><body>{body}</body></html>"
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{title}</title><style>body{{max-width:900px;margin:3rem auto;padding:0 1rem;font:16px/1.6 system-ui}}.message{{margin:24px 0;overflow-wrap:anywhere}}.user{{width:fit-content;max-width:85%;margin-left:auto;padding:10px 18px;border-radius:16px;background:#292929;color:#fff}}.user>:first-child{{margin-top:0}}.user>:last-child{{margin-bottom:0}}.user a{{color:inherit}}.user pre{{color:#20242b}}pre{{overflow:auto;padding:1rem;background:#f5f5f5}}img{{max-width:100%}}table{{border-collapse:collapse}}td,th{{padding:.5rem;border:1px solid #ccc}}blockquote{{margin-left:0;padding-left:1rem;border-left:3px solid #ccc}}</style></head><body>{body}</body></html>"
     )
 }
 

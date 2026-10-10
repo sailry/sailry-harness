@@ -271,6 +271,8 @@ fn captures_nodes_and_publishes_attachment_links(cx: &mut TestAppContext) {
                 Format::Html => assert!(
                     document.starts_with("<!doctype html>")
                         && document.contains("href=\"sailry-assets-")
+                        && document.contains("<section class=\"message user\">")
+                        && document.contains("<section class=\"message assistant\">")
                 ),
             }
             let asset = sailry_client::conversation::export::attachment_name(attachment);
@@ -467,7 +469,7 @@ fn preserves_changed_destinations_and_cleans_assets(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
-fn footer_exports_only_captured_reply(cx: &mut TestAppContext) {
+fn footer_exports_only_captured_turn(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     for index in 0..2 {
         seed(&fixture, index);
@@ -494,7 +496,7 @@ fn footer_exports_only_captured_reply(cx: &mut TestAppContext) {
             .unwrap()
             .content;
         assert!(!expected.is_empty());
-        assert!(!expected.contains("Captured export from Node"));
+        assert!(expected.contains(&format!("Captured export from Node {index}")));
         assert!(!expected.contains("ask_user"));
         select(&shell, visual, fixture.nodes[index].id(), &session);
         visual.update(|window, cx| {
@@ -523,9 +525,26 @@ fn footer_exports_only_captured_reply(cx: &mut TestAppContext) {
         wait(visual, |window, cx| {
             path.exists() && !window.has_active_dialog(cx)
         });
-        let actual = std::fs::read_to_string(path).unwrap();
-        assert!(actual.starts_with(&expected));
-        assert!(!actual.contains("Captured export from Node"));
+        let actual = std::fs::read_to_string(&path).unwrap();
+        let published = entries(output.path())
+            .into_iter()
+            .find(|path| {
+                path.is_dir() && actual.contains(path.file_name().unwrap().to_str().unwrap())
+            })
+            .unwrap();
+        let normalized = actual.replace(published.file_name().unwrap().to_str().unwrap(), "assets");
+        assert!(normalized.starts_with(&expected));
+        assert!(actual.contains(&format!("Captured export from Node {index}")));
+        assert!(!actual.contains(&format!("Captured export from Node {}", 1 - index)));
+        visual.update(|_, cx| {
+            assert_eq!(
+                crate::plugins::file_transfers::system::take(cx),
+                vec![(
+                    crate::plugins::file_transfers::system::Action::Reveal,
+                    path.clone()
+                )],
+            );
+        });
         assert!(!actual.contains("ask_user"));
         assert!(actual.contains("[Sailry](https://sailry.dev)"));
     }

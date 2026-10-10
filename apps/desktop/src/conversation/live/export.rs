@@ -31,7 +31,6 @@ impl View {
                     let selection = selection.clone();
                     menu = menu.item(
                         PopupMenuItem::new(tr(label))
-                            .icon(gpui_kit::assets::IconName::Download)
                             .disabled(
                                 format == Format::Image
                                     && !cfg!(any(target_os = "macos", target_os = "windows")),

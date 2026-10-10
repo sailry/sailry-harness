@@ -139,6 +139,19 @@ fn excludes_work_before_final_reply() {
     assert!(document.content.contains("Final **answer**"));
     assert!(!document.content.contains("Progress update"));
     assert!(!document.content.contains("Private reasoning"));
+    let document = render(&page, "Conversation", Format::Html, "assets").unwrap();
+    assert!(
+        document
+            .content
+            .contains("<section class=\"message user\"><p>Question</p>")
+    );
+    assert!(
+        document
+            .content
+            .contains("<section class=\"message assistant\"><p>Final <strong>answer</strong>")
+    );
+    assert!(!document.content.contains("Progress update"));
+    assert!(!document.content.contains("Private reasoning"));
 }
 
 #[test]
