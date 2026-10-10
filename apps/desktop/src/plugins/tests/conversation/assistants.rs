@@ -1,7 +1,7 @@
 use super::*;
 use sailry_protocol::plugin;
 
-fn mount<'a>(
+pub(super) fn mount<'a>(
     fixture: &Fixture,
     cx: &'a mut TestAppContext,
 ) -> (Entity<Panel>, &'a mut VisualTestContext) {

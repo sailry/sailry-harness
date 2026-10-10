@@ -3,6 +3,7 @@ use sailry_protocol::{Output, conversation::Status};
 
 mod assistants;
 mod goals;
+mod sessions;
 
 fn package(fixture: &Fixture, control: bool) -> sailry_protocol::plugin::Info {
     let root = fixture.directory.path().join("project/package");

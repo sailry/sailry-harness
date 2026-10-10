@@ -66,6 +66,8 @@ Keys are nonempty UTF-8 strings up to 128 bytes, without NUL. Values are JSON up
 
 Use GPUI Kit controls and its native `transition` API for interpolated position, size and opacity. Plugin scripts sequence game events with `cx.sleep()` and `cx.notify()`; they do not need a per-frame rendering loop. Keep game rules and animation sequencing in the plugin.
 
+The pinned script Button does not expose composed accessibility names. `ComposedButton.new(id, { label, tooltip, size })` from `sailry/ui` reuses Kit's native ghost button for image targets. Optional `size` sets a square in pixels; activation arrives through `nextCardEvent()`.
+
 Navigation and resource entries use `desktop.navigation` and `desktop.panel`. Scripted surfaces declare their JavaScript entry and resources. The host resolves entries from the captured Node inventory and immutable package; packages do not gain native privileges by choosing a familiar name. Standard conversation controls remain host-owned.
 
 Workspace pages declare `desktop.navigation_options.retention` as `{ "mode": "none" }` (default), `{ "mode": "always" }`, or `{ "mode": "idle", "seconds": 300 }`. Idle seconds must be a positive integer. The host releases `none` views on navigation, retains `always` views until window close, and starts idle expiry when a page is hidden. Returning cancels expiry and runs the normal entry refresh. Package/settings changes, removal, and disconnected scopes still invalidate views. Plugins do not implement their own retention timers; releasing a view cancels its UI runtime, not already admitted Node tasks.
@@ -93,6 +95,8 @@ Optional `guides: true` adds dashed hierarchy guides to resource rows, following
 ## Conversation component
 
 `Conversation.new("chat")` embeds a resource panel's captured session and Node with independent focus and draft state. Declare both `conversation.read` and `conversation.control`. The native message list, composer, approvals, questions, model selection and history are shared with database and SSH assistants.
+
+`Conversation.new("detail", { session: id, active: open })` embeds an existing, non-archived session from the panel's captured Node. It resolves the session's project and worktree from the canonical snapshot and uses the same native controls. `session` cannot be combined with `assistant` or `resource`. Set `active: false` to release the mounted conversation when a dialog closes; this does not stop admitted work. Reactivating the component can select another session. Changing session props while active cannot retarget its mounted chat.
 
 A plugin can also declare assistants under `desktop.conversations` and mount one from its workspace or resource panel:
 

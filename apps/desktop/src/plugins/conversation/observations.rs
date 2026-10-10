@@ -16,6 +16,11 @@ impl Default for Observations {
 }
 
 impl Observations {
+    pub fn remove(&self, id: &str) {
+        self.0
+            .send_if_modified(|values| values.remove(id).is_some());
+    }
+
     pub fn attach(&self, id: String, package: &str, chat: &Entity<Chat>, cx: &mut App) {
         let prefix = format!(
             "plugin_{}_",

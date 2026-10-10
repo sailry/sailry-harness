@@ -3,9 +3,11 @@ use crate::conversation::live::{Binding, ComposerOptions, Event, Mentions, View 
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{component::*, *};
 use gpui_shell::{HostModule, HostValue};
-use sailry_protocol::{Session, connection::Resource, plugin};
+use sailry_protocol::{Session, SessionId, connection::Resource, plugin};
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 mod observations;
+mod sessions;
+use sessions::{forward, options};
 
 pub(super) struct Scope {
     pub owner: WeakEntity<super::Panel>,
@@ -20,6 +22,7 @@ pub(super) struct Scope {
 struct Request {
     assistant: Option<String>,
     resource: Option<Resource>,
+    session: Option<SessionId>,
 }
 
 impl Request {
@@ -39,12 +42,19 @@ impl Request {
                 })
             }
         };
-        if resource.is_some() && assistant.is_none() {
+        let session = match props.get("session") {
+            None => None,
+            Some(value) => Some(value.as_str()?.parse().ok()?),
+        };
+        if (resource.is_some() && assistant.is_none())
+            || (session.is_some() && (assistant.is_some() || resource.is_some()))
+        {
             return None;
         }
         Some(Self {
             assistant,
             resource,
+            session,
         })
     }
 }
@@ -143,6 +153,11 @@ impl Conversations {
             if stop.is_cancelled() {
                 return unavailable(cx);
             }
+            if args.props().get("active").and_then(HostValue::as_bool) == Some(false) {
+                mounted.0.borrow_mut().remove(args.id());
+                observations.remove(args.id());
+                return div().into_any_element();
+            }
             let Some(request) = Request::parse(args.props()) else {
                 return unavailable(cx);
             };
@@ -153,7 +168,24 @@ impl Conversations {
                 }
                 chat
             } else {
-                let chat = if request.assistant.is_some() {
+                let chat = if let Some(session) = request.session {
+                    let Some((binding, session)) =
+                        scope.as_ref().and_then(|scope| scope.session(session))
+                    else {
+                        return unavailable(cx);
+                    };
+                    let chat = cx.new(|cx| {
+                        Chat::embedded(
+                            binding,
+                            Some(session.clone()),
+                            options(&session),
+                            window,
+                            cx,
+                        )
+                    });
+                    forward(&chat, scope.as_ref().unwrap().owner.clone(), cx);
+                    chat
+                } else if request.assistant.is_some() {
                     let Some((binding, session, assistant)) =
                         scope.as_ref().and_then(|scope| scope.resolve(&request))
                     else {
@@ -169,52 +201,20 @@ impl Conversations {
                             cx,
                         )
                     });
-                    let owner = scope.as_ref().unwrap().owner.clone();
-                    cx.subscribe(&chat, move |source, event: &Event, cx| {
-                        if matches!(
-                            event,
-                            Event::PluginMounted(_)
-                                | Event::Settings(_)
-                                | Event::DictationSettings
-                                | Event::Link(_)
-                                | Event::File(_)
-                                | Event::FileAt(_, _)
-                                | Event::DirectoryAt(_, _)
-                                | Event::Artifact(_, _)
-                                | Event::ArtifactExternal(_, _)
-                                | Event::GitFile(_, _)
-                                | Event::UndoChanges(_, _)
-                                | Event::Subagent(_)
-                                | Event::Session(_)
-                                | Event::HostPage(_)
-                                | Event::ProjectPage(_, _)
-                                | Event::Forked(_)
-                        ) {
-                            let _ = owner.update(cx, |_, cx| {
-                                cx.emit(super::ConversationEvent {
-                                    source: source.clone(),
-                                    action: event.clone(),
-                                })
-                            });
-                        }
-                    })
-                    .detach();
+                    forward(&chat, scope.as_ref().unwrap().owner.clone(), cx);
                     chat
                 } else {
                     let Some((binding, session, source)) = capture.as_ref() else {
                         return unavailable(cx);
                     };
-                    let options = match session.config.resource {
-                        Some(Resource::Database(_)) => {
-                            ComposerOptions::connection(Mentions::Database)
-                        }
-                        Some(Resource::Ssh(_)) => {
-                            ComposerOptions::connection(Mentions::Attachments)
-                        }
-                        None => ComposerOptions::default(),
-                    };
                     let chat = cx.new(|cx| {
-                        Chat::embedded(binding.clone(), Some(session.clone()), options, window, cx)
+                        Chat::embedded(
+                            binding.clone(),
+                            Some(session.clone()),
+                            options(session),
+                            window,
+                            cx,
+                        )
                     });
                     let source = source.clone();
                     cx.subscribe(&chat, move |_, event: &Event, cx| {

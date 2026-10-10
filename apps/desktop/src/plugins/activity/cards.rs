@@ -20,7 +20,7 @@ pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule 
         module.declared().unwrap_or_default(),
         r#"
         export const CardButton:{new(id:string,props:{label:string;tooltip:string}):import('gpui-kit').Element};
-        export const ComposedButton:{new(id:string,props:{label:string}):import('gpui-kit').Element};
+        export const ComposedButton:{new(id:string,props:{label:string;tooltip?:string;size?:number}):import('gpui-kit').Element};
         export function nextCardEvent():Promise<string>;
         export const ClampedText:{new(id:string,props:{text:string;lines?:number;danger?:boolean}):import('gpui-kit').Element};
         /** Kit's group hover is not exposed to scripts; children are default and hovered content. */
@@ -58,10 +58,15 @@ pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule 
         .component("ComposedButton", move |mut args, _, _| {
             let id = args.id().to_owned();
             let label = string(args.props(), "label");
+            let tooltip = string(args.props(), "tooltip");
+            let size = args.props().get("size").and_then(HostValue::as_number)
+                .filter(|size| size.is_finite() && *size > 0. && *size <= f32::MAX as f64);
             let events = composed.clone();
             Button::new(SharedString::from(id.clone()))
                 .debug_selector({let id=id.clone();move ||id.clone()})
                 .accessibility_label(label).ghost().w_full().h_8().px_1()
+                .when_some(size, |button,size| button.size(px(size as f32)).p_0())
+                .when(!tooltip.is_empty(), |button| button.tooltip(tooltip))
                 .children(args.take_children())
                 .on_click(move |_, _, _| {let _=events.try_send(id.clone());})
                 .into_any_element()
