@@ -54,6 +54,20 @@ async fn shares_private_configuration_and_receipts() {
         let previous = settings(writer).await;
         let mut desired = previous.clone();
         desired.destination = Some(server.destination());
+        for phrase in ["a", "1234567", "密码太短", "validlength\n"] {
+            let error = writer
+                .execute(writer.prepare(Command::SaveBackupSettings(Update {
+                    settings: desired.clone(),
+                    identity: SecretUpdate::Keep,
+                    secret: SecretUpdate::Keep,
+                    session_token: SecretUpdate::Keep,
+                    passphrase: SecretUpdate::Replace(Secret::new(phrase.into())),
+                })))
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, ErrorCode::InvalidRequest);
+            assert_eq!(settings(reader).await, previous);
+        }
         let request = writer.prepare(Command::SaveBackupSettings(Update {
             settings: desired,
             identity: SecretUpdate::Replace(Secret::new("fixture-user".into())),

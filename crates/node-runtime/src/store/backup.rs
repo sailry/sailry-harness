@@ -103,6 +103,9 @@ pub(super) fn execute(
             passphrase,
         }) => {
             super::commands::check_revision(stored.settings.revision, settings.revision)?;
+            if let SecretUpdate::Replace(value) = passphrase {
+                sailry_protocol::backup::validate_passphrase(value.expose())?;
+            }
             if stored
                 .settings
                 .destination

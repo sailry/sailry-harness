@@ -2,6 +2,16 @@
 use crate::{Fault, NodeId, plugin::settings::SecretUpdate};
 use serde::{Deserialize, Serialize};
 
+/// Validate a newly chosen passphrase without restricting existing archive recovery.
+pub fn validate_passphrase(value: &str) -> Result<(), Fault> {
+    if value.chars().count() < 8 || value.len() > 8192 || value.chars().any(char::is_control) {
+        return Err(Fault::invalid(
+            "backup passphrase requires at least 8 characters without control characters",
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {

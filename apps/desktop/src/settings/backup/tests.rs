@@ -72,6 +72,39 @@ fn autosaves_private_destination_on_selected_node(cx: &mut TestAppContext) {
         tap(visual, "backup-configure");
         let editor =
             visual.update(|_, cx| panel.read(cx).editor.as_ref().unwrap().upgrade().unwrap());
+        for (phrase, confirmation, error) in [
+            ("short", "short", "backup_passphrase_invalid"),
+            (
+                "fixture-backup-passphrase",
+                "mistyped",
+                "backup_passphrase_mismatch",
+            ),
+        ] {
+            visual.update(|window, cx| {
+                editor.update(cx, |editor, cx| {
+                    for (index, value) in [
+                        (0, server.endpoint.as_str()),
+                        (7, phrase),
+                        (8, confirmation),
+                    ] {
+                        editor.fields[index].1.update(cx, |input, cx| {
+                            input.set_value(value, window, cx);
+                            cx.emit(input::InputEvent::Change);
+                        });
+                    }
+                });
+            });
+            tap(visual, "backup-editor-close");
+            assert!(visual.update(|window, cx| window.has_active_dialog(cx)));
+            assert_eq!(settings(&fixture), Settings::default());
+            toast(visual, error);
+            visual.update(|_, cx| {
+                assert_eq!(
+                    editor.read(cx).fields[7].1.read(cx).value().as_str(),
+                    phrase
+                )
+            });
+        }
         visual.update(|window, cx| {
             editor.update(cx, |editor, cx| {
                 for (index, value) in [
@@ -80,6 +113,7 @@ fn autosaves_private_destination_on_selected_node(cx: &mut TestAppContext) {
                     (4, "fixture-user"),
                     (5, "fixture-password"),
                     (7, "fixture-backup-passphrase"),
+                    (8, "fixture-backup-passphrase"),
                 ] {
                     editor.fields[index].1.update(cx, |input, cx| {
                         input.set_value(value, window, cx);

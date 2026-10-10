@@ -96,6 +96,8 @@ Temporary files, model caches and derived indexes are excluded, and restored
 profiles do not start automatically. Export requires a user passphrase; keys and
 Node identity remain inside the authenticated encrypted archive. The passphrase
 stays in the execution Node's configuration and never appears in public snapshots.
+New passphrases require at least eight characters; Desktop confirms a replacement
+before autosaving it. Existing passphrases remain usable to recover older archives.
 Restore accepts a separate passphrase for older backups and authenticates the
 entire stream before publishing any profile. A restored profile retains its Node
 identity; only one copy of that identity should run at a time.

@@ -98,6 +98,7 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
             ("backup_secret", String::new()),
             ("backup_session_token", String::new()),
             ("backup_passphrase", String::new()),
+            ("backup_confirm_passphrase", String::new()),
         ]
         .into_iter()
         .enumerate()
@@ -192,6 +193,13 @@ impl Editor {
     }
     fn update(&self, cx: &App) -> Result<Update, &'static str> {
         let values = self.values(cx);
+        if !values[7].is_empty() || !values[8].is_empty() {
+            sailry_protocol::backup::validate_passphrase(&values[7])
+                .map_err(|_| "backup_passphrase_invalid")?;
+            if values[7] != values[8] {
+                return Err("backup_passphrase_mismatch");
+            }
+        }
         let kind = self
             .kind
             .read(cx)
