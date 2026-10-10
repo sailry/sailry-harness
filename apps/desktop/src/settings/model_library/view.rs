@@ -1,8 +1,5 @@
 use super::*;
-use crate::settings::{
-    entry::Entry,
-    group::{Group, Row},
-};
+use crate::settings::{entry::Entry, group::Group};
 use gpui_kit::{
     component::{
         button::{Button, ButtonVariants},
@@ -59,12 +56,12 @@ impl Render for Library {
             .empty(IconName::Search, "model_library_empty");
         for (index, item) in self.items.iter().enumerate() {
             let repository = item.source.repository.clone();
+            let owner = cx.entity();
             let status = self.target.source_status(&item.source, cx);
             let installed = matches!(status, ModelStatus::Installed);
             let installing = matches!(status, ModelStatus::Downloading(_) | ModelStatus::Checking)
                 || (self.installing.as_ref() == Some(&item.source)
                     && (self.loading || self.target.busy(cx)));
-            let selected = self.repository.as_ref() == Some(&repository);
             results = results.child(
                 Entry::new(
                     format!("model-library-result-{index}"),
@@ -78,15 +75,15 @@ impl Render for Library {
                         ),
                 )
                 .action(
-                    Button::new(format!("model-library-versions-{index}"))
-                        .icon(IconName::Settings2)
-                        .accessibility_label(tr("model_library_versions"))
-                        .tooltip(tr("model_library_versions"))
-                        .disabled(locked || selected)
-                        .debug_selector(move || format!("model-library-versions-{index}"))
-                        .on_click(cx.listener(move |library, _, window, cx| {
-                            library.versions(repository.clone(), window, cx)
-                        })),
+                    Button::new(format!("model-library-details-{index}"))
+                        .icon(IconName::Info)
+                        .accessibility_label(tr("knowledge_model_details"))
+                        .tooltip(tr("knowledge_model_details"))
+                        .disabled(locked)
+                        .debug_selector(move || format!("model-library-details-{index}"))
+                        .on_click(move |_, window, cx| {
+                            super::details::open(owner.clone(), index, window, cx)
+                        }),
                 )
                 .action(
                     Button::new(format!("model-library-install-{index}"))
@@ -144,104 +141,6 @@ impl Render for Library {
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
                         .child(tr("model_library_partial")),
-                )
-            })
-            .when(self.repository.is_some(), |view| {
-                view.child(
-                    Row::new(
-                        "model_library_version",
-                        Select::new(&self.version).w_full().disabled(locked),
-                    )
-                    .wide(),
-                )
-            })
-            .when_some(self.definition.as_ref(), |view, definition| {
-                let status = self
-                    .target
-                    .model_status(self.draft(cx).as_ref().unwrap_or(definition), cx);
-                let installed = matches!(status, ModelStatus::Installed);
-                let installing =
-                    matches!(status, ModelStatus::Downloading(_) | ModelStatus::Checking);
-                view.when(definition.format.kind() == Kind::Embedding, |view| {
-                    view.child(
-                        Row::new(
-                            "model_library_query_prefix",
-                            div()
-                                .w_full()
-                                .debug_selector(|| "model-library-query-prefix".into())
-                                .child(
-                                    Input::new(&self.query_prefix)
-                                        .id("model-library-query-prefix")
-                                        .w_full()
-                                        .disabled(downloading),
-                                ),
-                        )
-                        .wide(),
-                    )
-                    .child(
-                        Row::new(
-                            "model_library_document_prefix",
-                            div()
-                                .w_full()
-                                .debug_selector(|| "model-library-document-prefix".into())
-                                .child(
-                                    Input::new(&self.document_prefix)
-                                        .id("model-library-document-prefix")
-                                        .w_full()
-                                        .disabled(downloading),
-                                ),
-                        )
-                        .wide(),
-                    )
-                })
-                .child(
-                    Entry::new(
-                        "model-library-definition",
-                        v_flex()
-                            .gap_1()
-                            .child(div().font_medium().child(definition.name.clone()))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!(
-                                        "{} · {}",
-                                        definition.source.repository, definition.source.revision
-                                    )),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!(
-                                        "{} · {:.1} MiB",
-                                        definition.license,
-                                        definition
-                                            .assets
-                                            .iter()
-                                            .map(|asset| asset.bytes)
-                                            .sum::<u64>()
-                                            as f64
-                                            / 1024.
-                                            / 1024.
-                                    )),
-                            ),
-                    )
-                    .action(
-                        Button::new("model-library-download")
-                            .primary()
-                            .label(tr(if installed {
-                                "knowledge_installed"
-                            } else {
-                                "dictation_download_model"
-                            }))
-                            .loading(installing)
-                            .disabled(downloading || installed || installing)
-                            .debug_selector(|| "model-library-download".into())
-                            .on_click(
-                                cx.listener(|library, _, window, cx| library.download(window, cx)),
-                            ),
-                    ),
                 )
             })
     }

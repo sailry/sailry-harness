@@ -39,6 +39,70 @@ fn definition() -> Definition {
 }
 
 #[gpui::test]
+fn fits_content_and_scrolls_long_results(cx: &mut TestAppContext) {
+    init(cx);
+    let fixture = Fixture::new(false);
+    *fixture.transport.catalog.lock().unwrap() = Some(definition());
+    let (owner, visual) = fixture.mount(cx);
+    let panel = visual.update(|_, cx| selected(&owner, cx).unwrap());
+    tap(visual, "knowledge-model-library");
+    let library =
+        visual.update(|_, cx| panel.read(cx).library.as_ref().unwrap().upgrade().unwrap());
+    wait(visual, |cx| {
+        library.read(cx).items.len() == 1 && !library.read(cx).loading
+    });
+    let compact = visual.debug_bounds("dialog-0").unwrap();
+    let results = visual
+        .debug_bounds("settings-group-model_library_results")
+        .unwrap();
+    assert!(
+        compact.bottom() - results.bottom() < px(64.),
+        "{compact:?} {results:?}"
+    );
+    let item = visual.update(|_, cx| library.read(cx).items[0].clone());
+    visual.update(|_, cx| {
+        library.update(cx, |library, cx| {
+            library.items = vec![item; 40];
+            cx.notify();
+        })
+    });
+    draw(visual);
+    let expanded = visual.debug_bounds("dialog-0").unwrap();
+    assert!(expanded.size.height > compact.size.height);
+    assert!(expanded.bottom() <= px(1100.));
+    let before = visual.debug_bounds("model-library-install-39").unwrap();
+    assert!(before.bottom() > expanded.bottom());
+    visual.simulate_event(ScrollWheelEvent {
+        position: expanded.center(),
+        delta: ScrollDelta::Pixels(point(px(0.), px(-10000.))),
+        touch_phase: TouchPhase::Moved,
+        modifiers: Modifiers::default(),
+    });
+    draw(visual);
+    let after = visual.debug_bounds("model-library-install-39").unwrap();
+    assert!(after.top() < before.top());
+    assert!(after.top() >= expanded.top() && after.bottom() <= expanded.bottom());
+    visual.update(|_, cx| {
+        library.update(cx, |library, cx| {
+            library.items.clear();
+            library.loading = true;
+            cx.notify();
+        })
+    });
+    draw(visual);
+    let empty = visual.debug_bounds("dialog-0").unwrap();
+    let results = visual
+        .debug_bounds("settings-group-model_library_results")
+        .unwrap();
+    assert!(empty.size.height < expanded.size.height);
+    assert!(
+        empty.bottom() - results.bottom() < px(64.),
+        "{empty:?} {results:?}"
+    );
+    fixture.close(visual);
+}
+
+#[gpui::test]
 fn registers_on_each_selected_node(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
@@ -61,7 +125,7 @@ fn registers_on_each_selected_node(cx: &mut TestAppContext) {
         wait(visual, |cx| {
             library.read(cx).items.len() == 1 && !library.read(cx).loading
         });
-        tap(visual, "model-library-versions-0");
+        tap(visual, "model-library-details-0");
         wait(visual, |cx| {
             library.read(cx).definition.as_ref() == Some(&candidate) && !library.read(cx).loading
         });
@@ -79,6 +143,14 @@ fn registers_on_each_selected_node(cx: &mut TestAppContext) {
         input(visual, "model-library-document-prefix", "passage: ");
         candidate.query_prefix = Some("query: ".into());
         candidate.document_prefix = Some("passage: ".into());
+        let catalog = visual.debug_bounds("dialog-0").unwrap();
+        let details = visual.debug_bounds("dialog-1").unwrap();
+        let cancel = visual.debug_bounds("model-library-details-close").unwrap();
+        let download = visual.debug_bounds("model-library-download").unwrap();
+        assert!(cancel.right() < download.left());
+        assert!(details.right() - download.right() < px(64.));
+        assert!(download.bottom() <= details.bottom());
+        assert!(catalog.size.height < px(640.));
         tap(visual, "model-library-download");
         wait(visual, |cx| {
             panel.read(cx).locked()
@@ -129,6 +201,18 @@ fn registers_on_each_selected_node(cx: &mut TestAppContext) {
             panel.update(cx, |panel, cx| panel.cancel(model, window, cx));
         });
         wait(visual, |cx| !panel.read(cx).locked());
+        assert!(visual.debug_bounds("dialog-1").is_none());
+        tap(visual, "model-library-details-0");
+        wait(visual, |cx| {
+            library.read(cx).definition.is_some() && !library.read(cx).loading
+        });
+        std::thread::sleep(*gpui_kit::component::dialog::ANIMATION_DURATION);
+        draw(visual);
+        let close = visual.debug_bounds("model-library-details-close").unwrap();
+        visual.simulate_click(close.center(), Modifiers::default());
+        draw(visual);
+        assert!(visual.debug_bounds("dialog-1").is_none());
+        assert!(visual.debug_bounds("dialog-0").is_some());
         fixture.close(visual);
     }
 }

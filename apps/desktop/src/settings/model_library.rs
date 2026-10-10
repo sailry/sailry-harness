@@ -1,4 +1,5 @@
 //! Public model catalog composition shared by the two model-library entry points.
+mod details;
 mod managed;
 mod requests;
 #[cfg(test)]
@@ -361,7 +362,6 @@ pub(super) fn open(
                 Kind::Ocr => "model_library_ocr",
             }))
             .w((window.viewport_size().width - px(48.)).min(px(680.)))
-            .h((window.viewport_size().height - px(96.)).min(px(640.)))
             .overlay_closable(false)
             .on_ok(|_, _, _| false)
             .on_close(move |_, _, cx| {
