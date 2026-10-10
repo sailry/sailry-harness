@@ -1,9 +1,9 @@
 [package]
 name = "gpui-pre"
-version = "0.3.7"
+version = "0.3.8"
 edition = { workspace = true }
 authors = ["Nathan Sobo <nathan@zed.dev>"]
-description = "Zed's GPU-accelerated UI framework (gpui-pre snapshot of zed@1a28cff)"
+description = "Zed's GPU-accelerated UI framework (gpui-pre snapshot of zed@279fe07)"
 repository = "https://github.com/zed-industries/zed"
 publish = true
 license = "Apache-2.0"
@@ -19,7 +19,7 @@ ignored-paths = ["src/_ownership_and_data_flow.rs"]
 [package.metadata.gpui-pre]
 zed-crate = "gpui"
 zed-version = "0.2.2"
-zed-rev = "1a28cff4b409169bac058bca40dfbfeb7621d19b"
+zed-rev = "279fe070bb389b79652e52065b2f001edcc0b11b"
 
 [lib]
 path = "src/gpui.rs"
@@ -28,7 +28,6 @@ name = "gpui"
 [features]
 default = ["font-kit", "wayland", "x11", "windows-manifest"]
 test-support = [
-    "leak-detection",
     "collections/test-support",
     "http_client/test-support",
     "wayland",
@@ -38,7 +37,7 @@ test-support = [
 bench-support = ["profiler", "dep:criterion", "dep:bench_metrics"]
 bench = ["bench-support"]
 inspector = ["gpui_macros/inspector"]
-leak-detection = ["backtrace"]
+leak-detection = []
 wayland = []
 x11 = ["scap?/x11"]
 screen-capture = ["scap"]
@@ -50,7 +49,7 @@ stacker = ["dep:stacksafe"]
 accesskit = { workspace = true }
 anyhow = { workspace = true }
 async-task = { workspace = true }
-backtrace = { workspace = true, optional = true }
+backtrace = { workspace = true }
 bitflags = { workspace = true }
 collections = { workspace = true }
 bench_metrics = { workspace = true, optional = true }
@@ -119,8 +118,10 @@ async-channel = { workspace = true }
 getrandom = { version = "0.3.4", features = ["wasm_js"] }
 uuid = { workspace = true, features = ["js"] }
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 core-video = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
 objc2-core-foundation = { workspace = true }
 objc2-core-video = { workspace = true }
 font-kit = { git = "https://github.com/zed-industries/font-kit", rev = "94b0f28166665e8fd2f53ff6d268a14955c82269", package = "zed-font-kit", version = "0.14.1-zed", optional = true }
@@ -134,8 +135,17 @@ bindgen = "0.72"
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows"))'.dependencies]
 scap = { workspace = true, optional = true }
 
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+libc = { workspace = true }
+
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { workspace = true, features = ["Win32_Foundation", "Win32_System_Power"] }
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Power",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
+] }
 
 [lints]
 workspace = true
@@ -231,3 +241,7 @@ path = "examples/a11y.rs"
 [[example]]
 name = "view_example"
 path = "examples/view_example/view_example_main.rs"
+
+[[example]]
+name = "toggle_headless"
+path = "examples/toggle_headless.rs"

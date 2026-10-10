@@ -138,3 +138,11 @@ existing line height and internal padding. Desktop Kit interaction tests cover
 the standard sizes, rem scaling, placeholders, prefixes and suffixes, pointer
 and keyboard editing, and multiline geometry. Retire this patch when upstream
 provides fitting single-line geometry for the same sizes.
+
+## GPUI snapshot
+
+The exact GPUI dependency family is updated from 0.3.7 to 0.3.8, retaining
+the Kit 0.7.0 source revision and the patches above. This follows the dependency
+selection in upstream Kit revision `87d10ae5e1299d1be18670a37570c5402f952e34`
+without taking its unrelated component changes. The Component public API
+and presentation patches are unchanged.

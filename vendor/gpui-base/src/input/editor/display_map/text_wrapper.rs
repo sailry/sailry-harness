@@ -326,13 +326,19 @@ impl TextWrapper {
                 }
                 if fragments.is_empty() {
                     return line_wrapper
-                        .wrap_line(&[LineFragment::text(line_str)], wrap_width)
+                        .wrap_line(
+                            &[LineFragment::text(line_str)],
+                            wrap_width,
+                            gpui::IndentAdjustment::SameIndent,
+                        )
                         .collect();
                 }
                 if offset < line_str.len() {
                     fragments.push(LineFragment::text(&line_str[offset..]));
                 }
-                line_wrapper.wrap_line(&fragments, wrap_width).collect()
+                line_wrapper
+                    .wrap_line(&fragments, wrap_width, gpui::IndentAdjustment::SameIndent)
+                    .collect()
             },
         );
     }

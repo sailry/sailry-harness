@@ -18,8 +18,12 @@ Helix: https://github.com/helix-editor/helix at ba40e547426b0f9896c8bdc699a4ab11
 Mason: https://github.com/mason-org/mason-registry at 2026-10-08-head-mirror, 73f39fa4b90654e88737aedf72e44b14ff92c5e5 (Apache-2.0)
 Original snapshots, checksums, provenance and license copies: crates/node-runtime/src/code/upstream/
 
-GPUI Kit editor overlays
+GPUI Kit integrations and editor overlays
 Vendored gpui-base sources originate from https://github.com/longbridge/gpui-kit
 at 0c830f4d257e69fdd17200650533ab4ca9a40cc0 (Apache-2.0). Sailry consumes handled
 completion and code-action menu keys before later bindings can edit the document.
-The upstream license remains in vendor/gpui-base/LICENSE-APACHE.
+Thin Kit integration packages retain the same source revision and select GPUI
+0.3.8 alongside the existing Base and Component patches. Provenance and upstream
+licenses remain in vendor/gpui-kit/, vendor/gpui-base/ and vendor/gpui-component/.
+The renderer patches use the published GPUI 0.3.8 snapshot of Zed at
+279fe070bb389b79652e52065b2f001edcc0b11b, with notices in vendor/gpui-renderer/.

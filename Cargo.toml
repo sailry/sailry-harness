@@ -1,6 +1,6 @@
 [workspace]
 members = ["apps/desktop", "apps/host", "crates/node-runtime", "crates/protocol", "crates/link", "crates/client", "crates/mobile-bridge", "crates/speech", "crates/content", "crates/embedding", "crates/model-assets", "crates/ocr"]
-exclude = ["vendor/rmcp", "vendor/portable-pty", "vendor/gpui-base", "vendor/gpui-component", "vendor/gpui-renderer/gpui", "vendor/gpui-renderer/apple", "vendor/gpui-renderer/wgpu", "vendor/gpui-renderer/windows", "vendor/rquickjs-compat", "vendor/block", "vendor/libghostty-vt-sys", "vendor/adk-model", "vendor/adk-gemini"]
+exclude = ["vendor/rmcp", "vendor/portable-pty", "vendor/gpui-base", "vendor/gpui-component", "vendor/gpui-kit/kit", "vendor/gpui-kit/shell", "vendor/gpui-kit/assets", "vendor/gpui-kit/component-shell", "vendor/gpui-kit/webview", "vendor/gpui-kit/fps", "vendor/gpui-renderer/gpui", "vendor/gpui-renderer/apple", "vendor/gpui-renderer/wgpu", "vendor/gpui-renderer/windows", "vendor/rquickjs-compat", "vendor/block", "vendor/libghostty-vt-sys", "vendor/adk-model", "vendor/adk-gemini"]
 resolver = "2"
 
 [workspace.package]
@@ -169,7 +169,7 @@ libghostty-vt-sys = { path = "vendor/libghostty-vt-sys" }
 
 [patch.crates-io]
 rquickjs = { path = "vendor/rquickjs-compat" }
-# Preserve approved materials on Kit 0.7.0's exact GPUI snapshot.
+# Preserve approved materials on GPUI 0.3.8 with Kit 0.7.0's UI.
 gpui-pre = { path = "vendor/gpui-renderer/gpui" }
 gpui-pre-apple = { path = "vendor/gpui-renderer/apple" }
 gpui-pre-wgpu = { path = "vendor/gpui-renderer/wgpu" }
@@ -181,6 +181,12 @@ portable-pty = { path = "vendor/portable-pty" }
 [patch."https://github.com/longbridge/gpui-kit"]
 gpui-base = { path = "vendor/gpui-base" }
 gpui-component = { path = "vendor/gpui-component" }
+gpui-kit = { path = "vendor/gpui-kit/kit" }
+gpui-shell = { path = "vendor/gpui-kit/shell" }
+gpui-kit-assets = { path = "vendor/gpui-kit/assets" }
+gpui-component-shell = { path = "vendor/gpui-kit/component-shell" }
+gpui-wry = { path = "vendor/gpui-kit/webview" }
+gpui-fps = { path = "vendor/gpui-kit/fps" }
 
 # Keep development code and unwind metadata small without disabling unwinding.
 [profile.dev]

@@ -1,5 +1,6 @@
 //! Shader and record-layout checks do not require a platform window or font fixtures.
 use gpui::BackdropBlur;
+use gpui_wgpu::wgpu::naga;
 
 const STORAGE: &str = concat!(
     include_str!("../src/shaders.wgsl"),

@@ -51,3 +51,11 @@ input history remain upstream-owned. The existing `DropTarget::new` constructor
 is public so application Dock interaction tests can construct a native target;
 the upstream constructor was crate-private. This visibility-only change does
 not alter drag handling or introduce another target representation.
+
+## GPUI snapshot
+
+The exact GPUI dependency family is updated from 0.3.7 to 0.3.8, retaining
+the Kit 0.7.0 source revision and the patches above. This follows the dependency
+selection in upstream Kit revision `87d10ae5e1299d1be18670a37570c5402f952e34`
+without taking its unrelated component changes. Line-wrapper calls explicitly
+retain `IndentAdjustment::SameIndent`, including Sailry's extra wrap paths.

@@ -37,8 +37,8 @@ aho-corasick = "1.1.3"
 chrono = "0.4.38"
 data-url = "0.3"
 futures = "0.3"
-gpui = { package = "gpui-pre", version = "=0.3.7" }
-gpui_macros = { package = "gpui-pre-macros", version = "=0.3.7" }
+gpui = { package = "gpui-pre", version = "=0.3.8" }
+gpui_macros = { package = "gpui-pre-macros", version = "=0.3.8" }
 instant = { version = "0.1", features = ["wasm-bindgen"] }
 itertools = "0.13.0"
 lsp-types = { version = "0.97.0", features = ["proposed"] }
@@ -53,7 +53,7 @@ schemars = "1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1"
 smallvec = "1"
-sum-tree = { package = "gpui-pre-sum-tree", version = "=0.3.7" }
+sum-tree = { package = "gpui-pre-sum-tree", version = "=0.3.8" }
 tracing = "0.1.41"
 unicode-segmentation = "1.12.0"
 web-time = "1"
@@ -81,10 +81,10 @@ ashpd = { version = "0.13", default-features = false, features = ["async-io", "s
 
 [dev-dependencies]
 criterion = "0.5"
-gpui = { package = "gpui-pre", version = "=0.3.7", features = ["test-support", "bench-support"] }
-gpui_platform = { package = "gpui-pre-platform", version = "=0.3.7", features = ["font-kit", "x11", "wayland", "runtime_shaders", "bench-support"] }
+gpui = { package = "gpui-pre", version = "=0.3.8", features = ["test-support", "bench-support"] }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit", "x11", "wayland", "runtime_shaders", "bench-support"] }
 indoc = "2"
-reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.7" }
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.8" }
 
 
 [lints.clippy]

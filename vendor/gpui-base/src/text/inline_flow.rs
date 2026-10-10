@@ -1413,7 +1413,11 @@ fn line_ranges(
         }
 
         let boundaries = wrapper
-            .wrap_line(&wrap_fragments, wrap_width)
+            .wrap_line(
+                &wrap_fragments,
+                wrap_width,
+                gpui::IndentAdjustment::SameIndent,
+            )
             .map(|boundary| hard_line.start + boundary.ix.min(hard_line.len()))
             .collect::<Vec<_>>();
         let mut start = hard_line.start;
