@@ -12,12 +12,10 @@ pub(super) struct Message {
     pub attachments: Vec<attachments::images::ImageSource>,
     /// Sent while a turn runs; the queue tray shows it instead of the transcript.
     pub queued: bool,
-    /// Guide the running task instead of waiting for it to finish.
-    pub guide: bool,
 }
 
 impl View {
-    pub(super) fn show_outgoing(&mut self, input: Input, guide: bool, cx: &mut Context<Self>) {
+    pub(super) fn show_outgoing(&mut self, input: Input, cx: &mut Context<Self>) {
         let queued = self.active().is_some();
         self.outgoing = Some(Message {
             row: TurnId::new(),
@@ -27,7 +25,6 @@ impl View {
             worktree: self.binding.worktree,
             attachments: self.attachment_previews(),
             queued,
-            guide: guide && self.guidable().is_some(),
         });
         self.sync_rows(cx);
         self.scroller

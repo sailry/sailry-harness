@@ -312,9 +312,9 @@ fn edits_reorders_and_sends(cx: &mut TestAppContext) {
         assert!(visual.debug_bounds("composer-activity").is_none());
         let tray = visual.debug_bounds("queue-tray").unwrap();
         let surface = visual.debug_bounds("composer-surface").unwrap();
-        // The tray sits inset behind the composer's top edge.
+        // The tray rests inset on the composer's top edge without reaching under it.
         assert!(tray.origin.y < surface.origin.y);
-        assert!(tray.bottom() > surface.origin.y);
+        assert!((tray.bottom() - surface.origin.y).abs() < px(1.));
         assert!(tray.origin.x > surface.origin.x);
         assert!(tray.right() < surface.right());
         let row = visual.debug_bounds(selector("row", first)).unwrap();

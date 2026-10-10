@@ -111,9 +111,7 @@ impl View {
                                 })
                                 .tooltip(tr("chat_enqueue"))
                                 .accessibility_label(tr("chat_enqueue"))
-                                .on_click(
-                                    cx.listener(|view, _, window, cx| view.enqueue(window, cx)),
-                                ),
+                                .on_click(cx.listener(|view, _, window, cx| view.send(window, cx))),
                         )
                     })
                     .child(self.dictation_controls(cx))

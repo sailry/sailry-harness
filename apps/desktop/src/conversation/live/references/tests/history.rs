@@ -175,7 +175,7 @@ fn sent_paths_keep_the_original_worktree(cx: &mut TestAppContext) {
         });
         visual.update(|window, cx| {
             view.update(cx, |view, cx| {
-                view.show_outgoing("@Notes".into(), false, cx);
+                view.show_outgoing("@Notes".into(), cx);
                 let row = view.outgoing.as_ref().unwrap().row;
                 view.open_reference(
                     Reference {

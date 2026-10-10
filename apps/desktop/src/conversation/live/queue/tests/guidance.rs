@@ -132,7 +132,7 @@ fn guide_interrupts_response(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn enter_guides_running_task(cx: &mut TestAppContext) {
+fn enter_queues_until_guided(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let mut fixture = Fixture::new(remote);
@@ -166,9 +166,30 @@ fn enter_guides_running_task(cx: &mut TestAppContext) {
         click(visual, "live-chat-input");
         visual.simulate_input("Prefer the smaller fix");
         visual.simulate_keystrokes("enter");
+        // Enter only queues; the running task continues untouched.
         wait(visual, |cx| {
             !view.read(cx).pending
                 && view.read(cx).outgoing.is_none()
+                && panel.read(cx).queue.items.len() == 1
+        });
+        let (guided, guidance) = panel.read_with(visual, |panel, _| {
+            (panel.queue.items[0].turn, panel.queue.items[0].guidance)
+        });
+        assert_eq!(guidance, None);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds(selector("guided", guided)).is_none());
+        assert!(visual.debug_bounds("live-outgoing-message").is_none());
+        assert_eq!(
+            view.read_with(visual, |view, cx| view.input.read(cx).value()),
+            ""
+        );
+        assert_eq!(
+            visual.update(|_, cx| status(&view, active.id, cx)),
+            Some(Status::Running)
+        );
+        click(visual, selector("guide", guided));
+        wait(visual, |cx| {
+            !panel.read(cx).pending
                 && panel
                     .read(cx)
                     .queue
@@ -176,15 +197,9 @@ fn enter_guides_running_task(cx: &mut TestAppContext) {
                     .first()
                     .is_some_and(|item| item.guidance == Some(active.id))
         });
-        let guided = panel.read_with(visual, |panel, _| panel.queue.items[0].turn);
         visual.update(|window, cx| window.draw(cx).clear(cx));
         assert!(visual.debug_bounds(selector("guided", guided)).is_some());
         assert!(visual.debug_bounds(selector("guide", guided)).is_none());
-        assert!(visual.debug_bounds("live-outgoing-message").is_none());
-        assert_eq!(
-            view.read_with(visual, |view, cx| view.input.read(cx).value()),
-            ""
-        );
         let question = view.read_with(visual, |view, _| {
             view.history.snapshot.as_ref().unwrap().page.questions[0].id
         });
