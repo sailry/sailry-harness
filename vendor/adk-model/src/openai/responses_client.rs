@@ -12,6 +12,8 @@ use futures::StreamExt;
 
 #[path = "responses_errors.rs"]
 mod errors;
+#[path = "responses_lines.rs"]
+mod lines;
 #[path = "responses_stream.rs"]
 mod stream;
 
@@ -279,24 +281,29 @@ fn with_transport(
         let adapter = adapter.clone();
         let observer = observer.clone();
         async move {
+            let streaming = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let requested_streaming = streaming.clone();
             let original = factory.clone();
             let rewritten = HttpRequestFactory::new(move || {
                 let original = original.clone();
                 let adapter = adapter.clone();
+                let streaming = requested_streaming.clone();
                 async move {
                     let mut request = original.build().await?;
-                    if (uses_max_reasoning || adapter.is_some())
-                        && request.url().path().ends_with("/responses")
-                    {
+                    if request.url().path().ends_with("/responses") {
                         let body =
-                            request.body().and_then(|body| body.as_bytes()).ok_or_else(|| {
-                                OpenAIError::InvalidArgument(
-                                    "Responses request body was not replayable".to_string(),
-                                )
-                            })?;
+                            request
+                                .body()
+                                .and_then(|body| body.as_bytes())
+                                .ok_or_else(|| {
+                                    OpenAIError::InvalidArgument(
+                                        "Responses request body was not replayable".to_string(),
+                                    )
+                                })?;
                         let body_text = String::from_utf8_lossy(body).into_owned();
                         let mut value: serde_json::Value = serde_json::from_slice(body)
                             .map_err(|error| OpenAIError::JSONDeserialize(error, body_text))?;
+                        let customized = uses_max_reasoning || adapter.is_some();
                         if uses_max_reasoning {
                             set_max_reasoning_effort(&mut value)?;
                         }
@@ -307,13 +314,21 @@ fn with_transport(
                                 )
                             })?;
                         }
-                        let encoded = serde_json::to_vec(&value).map_err(|error| {
-                            OpenAIError::InvalidArgument(format!(
-                                "failed to serialize max-reasoning request: {error}"
-                            ))
-                        })?;
-                        *request.body_mut() = Some(encoded.into());
-                        request.headers_mut().remove(reqwest_openai::header::CONTENT_LENGTH);
+                        streaming.store(
+                            value.get("stream").and_then(serde_json::Value::as_bool) == Some(true),
+                            std::sync::atomic::Ordering::Relaxed,
+                        );
+                        if customized {
+                            let encoded = serde_json::to_vec(&value).map_err(|error| {
+                                OpenAIError::InvalidArgument(format!(
+                                    "failed to serialize Responses request: {error}"
+                                ))
+                            })?;
+                            *request.body_mut() = Some(encoded.into());
+                            request
+                                .headers_mut()
+                                .remove(reqwest_openai::header::CONTENT_LENGTH);
+                        }
                     }
                     Ok(request)
                 }
@@ -324,7 +339,13 @@ fn with_transport(
             {
                 observer(response.headers());
             }
-            normalize_responses_response(response, uses_max_reasoning, open_responses_mode).await
+            normalize_responses_response(
+                response,
+                uses_max_reasoning,
+                open_responses_mode,
+                streaming.load(std::sync::atomic::Ordering::Relaxed),
+            )
+            .await
         }
     });
 
@@ -335,6 +356,7 @@ async fn normalize_responses_response(
     response: reqwest_openai::Response,
     uses_max_reasoning: bool,
     open_responses_mode: bool,
+    requested_streaming: bool,
 ) -> Result<reqwest_openai::Response, async_openai::error::OpenAIError> {
     use reqwest_openai::ResponseBuilderExt;
 
@@ -347,11 +369,14 @@ async fn normalize_responses_response(
         return Ok(response);
     }
 
-    let is_event_stream = response
-        .headers()
-        .get(reqwest_openai::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.starts_with("text/event-stream"));
+    // Codex can omit Content-Type while sending SSE. The captured request's
+    // stream flag must keep that body incremental instead of reading it to EOF.
+    let is_event_stream = requested_streaming
+        || response
+            .headers()
+            .get(reqwest_openai::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("text/event-stream"));
     if !is_event_stream && !uses_max_reasoning && !open_responses_mode {
         return Ok(response);
     }
@@ -364,14 +389,12 @@ async fn normalize_responses_response(
     let body = if is_event_stream {
         let mut upstream = response.bytes_stream();
         let normalized = async_stream::stream! {
-            let mut pending = Vec::new();
+            let mut lines = lines::Lines::default();
             let mut stream_state = OpenResponsesStreamState::default();
             while let Some(chunk) = upstream.next().await {
                 match chunk {
                     Ok(chunk) => {
-                        pending.extend_from_slice(&chunk);
-                        while let Some(line_end) = pending.iter().position(|byte| *byte == b'\n') {
-                            let line: Vec<u8> = pending.drain(..=line_end).collect();
+                        for line in lines.push(&chunk) {
                             let normalized = stream_state.normalize_line(
                                 &line,
                                 uses_max_reasoning,
@@ -390,7 +413,7 @@ async fn normalize_responses_response(
                     }
                 }
             }
-            if !pending.is_empty() {
+            if let Some(pending) = lines.finish() {
                 yield stream_state.normalize_line(
                     &pending,
                     uses_max_reasoning,

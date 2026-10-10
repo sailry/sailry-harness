@@ -19,6 +19,11 @@ pub enum Reply {
     Json(Value),
     Hold,
     Raw(String),
+    Staged {
+        initial: String,
+        release: Arc<tokio::sync::Notify>,
+        remaining: String,
+    },
     Delayed(Arc<tokio::sync::Notify>, Value),
 }
 
@@ -188,6 +193,16 @@ async fn respond(
         }
         Reply::Raw(value) => {
             stream.write_all(value.as_bytes()).await?;
+            stream.shutdown().await?;
+        }
+        Reply::Staged {
+            initial,
+            release,
+            remaining,
+        } => {
+            stream.write_all(initial.as_bytes()).await?;
+            release.notified().await;
+            stream.write_all(remaining.as_bytes()).await?;
             stream.shutdown().await?;
         }
         Reply::Json(value) => write_json(&mut stream, value).await?,

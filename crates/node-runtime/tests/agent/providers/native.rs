@@ -30,6 +30,8 @@ mod search_packages;
 mod search_selection;
 #[path = "native/server.rs"]
 mod server;
+#[path = "native/streaming.rs"]
+mod streaming;
 #[path = "native/tool_images.rs"]
 mod tool_images;
 #[path = "native/usage.rs"]

@@ -1,7 +1,7 @@
 use super::*;
 use serde_json::{Value, json};
 
-fn response(page: &Page) -> String {
+pub(super) fn response(page: &Page) -> String {
     page.entries
         .iter()
         .filter(|entry| entry.author != "user")

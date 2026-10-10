@@ -16,6 +16,7 @@ pub mod compaction;
 mod delegation;
 mod goals;
 pub mod phases;
+pub mod streaming;
 mod terminal;
 pub mod web_search;
 mod workload;
@@ -85,6 +86,7 @@ enum Reply {
     Held(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>),
     Delegation(Option<String>),
     Staged(Arc<Vec<Arc<tokio::sync::Notify>>>),
+    ResponsesStaged(streaming::Reply),
 }
 
 impl Server {
@@ -112,6 +114,19 @@ impl Server {
 
     pub async fn staged(gates: Vec<Arc<tokio::sync::Notify>>) -> Self {
         Self::serve(Reply::Staged(Arc::new(gates))).await
+    }
+
+    pub async fn staged_responses(
+        gates: Vec<Arc<tokio::sync::Notify>>,
+        content_type: Option<&str>,
+        ending: &'static str,
+    ) -> Self {
+        Self::serve(Reply::ResponsesStaged(streaming::Reply {
+            gates: Arc::new(gates),
+            content_type: content_type.map(str::to_owned),
+            ending,
+        }))
+        .await
     }
 
     pub async fn markdown(text: String) -> Self {
@@ -491,6 +506,10 @@ async fn respond(
         return terminal::respond(stream, &body, responses).await;
     }
     if responses {
+        if let Reply::ResponsesStaged(reply) = reply {
+            records.lock().unwrap().push(body.clone());
+            return streaming::respond(stream, &body, reply).await;
+        }
         if matches!(reply, Reply::EmptyAfterTool) {
             records.lock().unwrap().push(body.clone());
             return phases::respond_empty(stream, &body).await;

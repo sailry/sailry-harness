@@ -13,6 +13,8 @@ mod media;
 mod search;
 #[path = "codex/server.rs"]
 mod server;
+#[path = "codex/streaming.rs"]
+mod streaming;
 
 const CLIENT: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 pub(super) const ACCESS: &str = "isolated-codex-access";

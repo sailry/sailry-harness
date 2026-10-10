@@ -1,5 +1,7 @@
 use super::*;
 
+mod live;
+
 #[test]
 fn uses_stateless_streaming() {
     let mut body = json!({

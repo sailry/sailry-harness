@@ -27,3 +27,9 @@ Selected TLS dependencies defer the process crypto provider to the application
 instead of forcing AWS-LC through Reqwest or async-openai. No request, retry or
 conversion behavior changes. Sailry does not enable the upstream Bedrock or
 Vertex SDK features.
+
+Responses transport uses the request's streaming flag when framing successful
+SSE bodies, including Codex responses without a Content-Type header. Normalization
+preserves incremental delivery with LF, CRLF and CR line endings across split
+HTTP chunks. Explicit nonstreaming requests retain JSON response normalization.
+Remove this patch when the pinned upstream transport preserves these contracts.

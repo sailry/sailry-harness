@@ -10,78 +10,119 @@ fn renders_partial_deltas(cx: &mut TestAppContext) {
         let fixture = fixture::Fixture::with_server(remote, |runtime| {
             runtime.block_on(support::Server::staged(gates.clone()))
         });
-        let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
-        fixture.start();
-        for (index, expected) in ["First", "First second", "First second third"]
-            .iter()
-            .enumerate()
-        {
-            wait(visual, |cx| {
-                view.read(cx)
-                    .history
-                    .snapshot
-                    .as_ref()
-                    .is_some_and(|snapshot| {
-                        snapshot.drafts.iter().any(|draft| {
-                            draft
-                                .parts
-                                .iter()
-                                .any(|part| matches!(part, Part::Text(text) if text == expected))
-                        })
-                    })
+        fragments(cx, fixture, &gates);
+    }
+}
+
+#[gpui::test]
+fn renders_responses_without_type(cx: &mut TestAppContext) {
+    fixture::init(cx);
+    for remote in [false, true] {
+        for (content_type, ending) in [(None, "\n"), (Some("application/json"), "\r")] {
+            let gates: Vec<_> = (0..3)
+                .map(|_| Arc::new(tokio::sync::Notify::new()))
+                .collect();
+            let fixture = fixture::Fixture::with_server(remote, |runtime| {
+                runtime.block_on(support::Server::staged_responses(
+                    gates.clone(),
+                    content_type,
+                    ending,
+                ))
             });
-            let deadline = Instant::now() + Duration::from_secs(10);
-            loop {
-                visual.run_until_parked();
-                let texts = view.read_with(visual, |view, _| {
-                    view.texts.borrow().values().cloned().collect::<Vec<_>>()
-                });
-                let rendered = texts.iter().any(|state| {
-                    state.update(visual, |state, cx| {
-                        state.select_all(cx);
-                        state.selected_text().contains(expected)
-                    })
-                });
-                if rendered {
-                    break;
-                }
-                assert!(
-                    Instant::now() < deadline,
-                    "streamed Markdown render deadline"
-                );
-                visual.update(|window, cx| {
-                    window.draw(cx).clear(cx);
-                });
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            assert!(view.read_with(visual, |view, _| {
-                view.history
-                    .snapshot
-                    .as_ref()
-                    .unwrap()
-                    .page
-                    .runs
-                    .iter()
-                    .all(|run| run.status != Status::Completed)
-            }));
-            gates[index].notify_one();
+            let Output::Snapshot(snapshot) = fixture.execute(Command::Snapshot) else {
+                panic!("snapshot expected")
+            };
+            let mut provider = snapshot
+                .providers
+                .into_iter()
+                .find(|provider| provider.id == fixture.session.config.provider)
+                .unwrap();
+            provider.api = ModelApi::Responses;
+            fixture.execute(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            });
+            fragments(cx, fixture, &gates);
         }
+    }
+}
+
+fn fragments(
+    cx: &mut TestAppContext,
+    fixture: fixture::Fixture,
+    gates: &[Arc<tokio::sync::Notify>],
+) {
+    let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
+    fixture.start();
+    for (index, expected) in ["First", "First second", "First second third"]
+        .iter()
+        .enumerate()
+    {
         wait(visual, |cx| {
             view.read(cx)
                 .history
                 .snapshot
                 .as_ref()
                 .is_some_and(|snapshot| {
-                    snapshot
-                        .page
-                        .runs
-                        .iter()
-                        .any(|run| run.status == Status::Completed)
+                    snapshot.drafts.iter().any(|draft| {
+                        draft
+                            .parts
+                            .iter()
+                            .any(|part| matches!(part, Part::Text(text) if text == expected))
+                    })
                 })
         });
-        visual.update(|window, _| window.remove_window());
-        fixture.close();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            visual.run_until_parked();
+            let texts = view.read_with(visual, |view, _| {
+                view.texts.borrow().values().cloned().collect::<Vec<_>>()
+            });
+            let rendered = texts.iter().any(|state| {
+                state.update(visual, |state, cx| {
+                    state.select_all(cx);
+                    state.selected_text().contains(expected)
+                })
+            });
+            if rendered {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "streamed Markdown render deadline"
+            );
+            visual.update(|window, cx| {
+                window.draw(cx).clear(cx);
+            });
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(view.read_with(visual, |view, _| {
+            view.history
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .page
+                .runs
+                .iter()
+                .all(|run| run.status != Status::Completed)
+        }));
+        gates[index].notify_one();
     }
+    wait(visual, |cx| {
+        view.read(cx)
+            .history
+            .snapshot
+            .as_ref()
+            .is_some_and(|snapshot| {
+                snapshot
+                    .page
+                    .runs
+                    .iter()
+                    .any(|run| run.status == Status::Completed)
+            })
+    });
+    visual.update(|window, _| window.remove_window());
+    fixture.close();
 }
 
 #[gpui::test]
