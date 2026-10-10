@@ -193,8 +193,24 @@ fn uses_captured_consent_through_lifecycle(cx: &mut TestAppContext) {
         });
         tap(cx, "code-tab-installed");
         assert!(cx.debug_bounds("code-server-rust-analyzer").is_some());
-        assert!(cx.debug_bounds("code-edit-rust-analyzer").is_none());
-        assert!(cx.debug_bounds("code-start-rust-analyzer").is_none());
+        assert!(cx.debug_bounds("code-edit-rust-analyzer").is_some());
+        assert!(cx.debug_bounds("code-start-rust-analyzer").is_some());
+        cx.update(|window, cx| {
+            let rows = selected(&owner, cx).read(cx).rows();
+            let row = rows
+                .iter()
+                .find(|row| row.server == "rust-analyzer")
+                .unwrap();
+            assert_eq!(row.languages, ["rust"]);
+            assert!(row.candidate.as_ref().unwrap().startup.is_none());
+            assert_eq!(
+                window.find("code-start-rust-analyzer").label(),
+                Some(crate::tr("code_start_unavailable").as_ref())
+            );
+        });
+        let before = fixture.transport.requests.lock().unwrap().len();
+        tap(cx, "code-start-rust-analyzer");
+        assert_eq!(fixture.transport.requests.lock().unwrap().len(), before);
         tap(cx, "code-details-rust-analyzer");
         assert!(cx.debug_bounds("code-detail-package").is_some());
         tap(cx, "code-details-uninstall");

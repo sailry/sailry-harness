@@ -127,11 +127,85 @@ impl Pool {
                 servers,
             });
         }
+        append_installed(
+            &mut languages,
+            &rules,
+            &settings,
+            &self.installations()?,
+            &self.list(worktree).await?,
+            &self.environment,
+        );
         Ok(code::Workspace {
             worktree,
             languages,
             truncated,
         })
+    }
+}
+
+fn append_installed(
+    languages: &mut Vec<code::Language>,
+    rules: &rules::Rules,
+    settings: &code::Settings,
+    installations: &[code::Installation],
+    running: &[code::Server],
+    environment: &crate::process::Environment,
+) {
+    for language in &rules.languages {
+        for name in settings
+            .languages
+            .get(&language.name)
+            .unwrap_or(&language.servers)
+        {
+            if languages.iter().any(|current| {
+                current.name == language.name
+                    && current.servers.iter().any(|server| server.server == *name)
+            }) {
+                continue;
+            }
+            let custom = settings.servers.get(name);
+            let command = custom
+                .and_then(|custom| custom.command.as_deref())
+                .or_else(|| {
+                    rules
+                        .servers
+                        .get(name)
+                        .map(|server| server.command.as_str())
+                });
+            let Some((command, package)) = command
+                .and_then(|command| rules.package(command).map(|package| (command, package)))
+            else {
+                continue;
+            };
+            if !installations
+                .iter()
+                .any(|installed| installed.package == package.name && installed.receipt.is_some())
+            {
+                continue;
+            }
+            let current = running.iter().find(|server| server.startup.server == *name);
+            let candidate = code::Candidate {
+                server: name.clone(),
+                command: command.into(),
+                disabled: custom.is_some_and(|custom| custom.disabled),
+                status: current.map_or(code::Status::Stopped, |server| server.status),
+                package: Some(install::package(package, environment)),
+                startup: current.map(|server| server.startup.clone()),
+                startup_approved: false,
+            };
+            if let Some(current) = languages
+                .iter_mut()
+                .find(|current| current.name == language.name)
+            {
+                current.servers.push(candidate);
+            } else {
+                languages.push(code::Language {
+                    name: language.name.clone(),
+                    id: language.id.clone(),
+                    servers: vec![candidate],
+                });
+            }
+        }
     }
 }
 

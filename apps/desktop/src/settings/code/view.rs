@@ -283,6 +283,16 @@ impl Panel {
                                 )
                             }),
                     );
+                } else {
+                    let start_id = format!("code-start-{server}");
+                    entry = entry.action(
+                        Button::new(SharedString::from(start_id.clone()))
+                            .debug_selector(move || start_id.clone())
+                            .icon(IconName::Play)
+                            .tooltip(tr("code_start_unavailable"))
+                            .accessibility_label(tr("code_start_unavailable"))
+                            .disabled(true),
+                    );
                 }
             }
         } else if let Some(installation) = row
