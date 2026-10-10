@@ -1,5 +1,7 @@
 use super::*;
 
+mod rendering;
+
 #[test]
 fn accepts_each_supported_shape() {
     for kind in ["line", "bar", "area", "pie", "radar"] {

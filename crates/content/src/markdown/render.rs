@@ -848,7 +848,7 @@ fn block_element(
             language: Some(language),
             code,
         } if language == "chart" && overlay.visuals.is_some() => {
-            super::charts::render(&code.text, overlay.block, theme).unwrap_or_else(|| {
+            super::charts::render(&code.text, overlay.block, theme, cx).unwrap_or_else(|| {
                 code_block(
                     Some(language),
                     &code.text,

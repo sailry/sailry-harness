@@ -234,9 +234,7 @@ impl Map {
         let mut row = 0;
         let mut column = 0;
         let mut cell = None;
-        for (event, range) in
-            Parser::new_ext(source, crate::markdown::parse::OPTIONS).into_offset_iter()
-        {
+        for (event, range) in crate::markdown::parse::events(source) {
             match &event {
                 Event::Start(Tag::Table(_)) | Event::Start(Tag::TableHead) => {
                     row = 0;
@@ -479,9 +477,7 @@ impl Map {
         if old_end > first
             && let (Some(old), Some(new)) = (before.blocks.get(first), after.blocks.get(first))
         {
-            for (event, range) in
-                Parser::new_ext(source, crate::markdown::parse::OPTIONS).into_offset_iter()
-            {
+            for (event, range) in crate::markdown::parse::events(source) {
                 let Event::Start(Tag::BlockQuote(Some(kind))) = event else {
                     continue;
                 };

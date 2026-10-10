@@ -10,7 +10,10 @@ use pulldown_cmark::{
 };
 use std::ops::Range;
 
+mod math;
 mod strong;
+
+pub(crate) use math::events;
 
 use crate::markdown::doc::{
     Align, Block, BlockKind, Container, Doc, Form, Mark, MarkSpan, QuoteKind, Text,

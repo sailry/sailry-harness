@@ -1,12 +1,18 @@
 use super::{Chart, Data};
 use crate::markdown::style::Theme;
 use gpui_kit::component::{
+    ActiveTheme,
     chart::{AreaChart, BarChart, CandlestickChart, LineChart, PieChart, RadarChart, SankeyChart},
     plot::shape::SankeyLink,
 };
-use gpui_kit::{AnyElement, IntoElement, SharedString, div, prelude::*, px};
+use gpui_kit::{AnyElement, App, IntoElement, SharedString, div, prelude::*, px};
 
-pub(in crate::markdown) fn render(source: &str, block: usize, theme: &Theme) -> Option<AnyElement> {
+pub(in crate::markdown) fn render(
+    source: &str,
+    block: usize,
+    theme: &Theme,
+    cx: &App,
+) -> Option<AnyElement> {
     let chart = Chart::parse(source)?;
     let id = format!("markdown-chart-{block}");
     let title = chart.title.clone();
@@ -16,42 +22,30 @@ pub(in crate::markdown) fn render(source: &str, block: usize, theme: &Theme) -> 
             .id(id)
             .x(|point| SharedString::from(point.label.clone()))
             .y(|point| point.value)
-            .stroke(theme.accent)
             .into_any_element(),
-        Data::Bar { data } => {
-            let accent = theme.accent;
-            BarChart::new(data)
-                .id(id)
-                .band(|point| SharedString::from(point.label.clone()))
-                .value(|point| point.value)
-                .fill(move |_, _, _, _| accent)
-                .into_any_element()
-        }
+        Data::Bar { data } => BarChart::new(data)
+            .id(id)
+            .band(|point| SharedString::from(point.label.clone()))
+            .value(|point| point.value)
+            .into_any_element(),
         Data::Area { data } => AreaChart::new(data)
             .id(id)
             .x(|point| SharedString::from(point.label.clone()))
             .y(|point| point.value)
-            .stroke(theme.accent)
-            .fill(theme.accent.opacity(0.18))
             .into_any_element(),
         Data::Pie { data } => {
             let colors = [
-                theme.accent,
-                theme.success,
-                theme.warning,
-                theme.danger,
-                theme.busy,
+                cx.theme().chart_1,
+                cx.theme().chart_2,
+                cx.theme().chart_3,
+                cx.theme().chart_4,
+                cx.theme().chart_5,
             ];
-            let colors: std::collections::HashMap<_, _> = data
-                .iter()
-                .enumerate()
-                .map(|(index, point)| (point.label.clone(), colors[index % colors.len()]))
-                .collect();
-            PieChart::new(data)
+            PieChart::new(data.into_iter().enumerate())
                 .id(id)
-                .value(|point| point.value as f32)
-                .label(|point| point.label.clone().into())
-                .color(move |point| colors[&point.label])
+                .value(|(_, point)| point.value as f32)
+                .label(|(_, point)| point.label.clone().into())
+                .color(move |(index, _)| colors[index % colors.len()])
                 .label_color(theme.text)
                 .into_any_element()
         }
@@ -59,8 +53,6 @@ pub(in crate::markdown) fn render(source: &str, block: usize, theme: &Theme) -> 
             .id(id)
             .value(|point| point.value)
             .label(|point| point.label.clone())
-            .stroke(theme.accent)
-            .fill(theme.accent.opacity(0.18))
             .label_color(theme.text)
             .into_any_element(),
         Data::Candlestick { data } => CandlestickChart::new(data)
@@ -70,8 +62,6 @@ pub(in crate::markdown) fn render(source: &str, block: usize, theme: &Theme) -> 
             .high(|point| point.high)
             .low(|point| point.low)
             .close(|point| point.close)
-            .bullish(theme.success)
-            .bearish(theme.danger)
             .into_any_element(),
         Data::Sankey { nodes, links } => {
             let ids: std::collections::HashMap<_, _> = nodes
@@ -83,11 +73,9 @@ pub(in crate::markdown) fn render(source: &str, block: usize, theme: &Theme) -> 
                 .iter()
                 .map(|link| SankeyLink::new(ids[&link.source], ids[&link.target], link.value))
                 .collect::<Vec<_>>();
-            let accent = theme.accent;
             SankeyChart::new(nodes, links)
                 .id(id)
                 .node_label(|node| node.label.clone().into())
-                .node_color(move |_| accent)
                 .into_any_element()
         }
     };

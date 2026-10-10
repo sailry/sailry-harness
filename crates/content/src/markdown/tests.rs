@@ -191,12 +191,16 @@ fn prepares_once_and_replaces_changed_source(cx: &mut TestAppContext) {
         recorded.borrow_mut().push((request.kind,request.source));
         gpui_kit::Task::ready(Ok(Svg{source:r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><path d="M0 0L20 20"/></svg>"#.into(),width:20.0,height:20.0,baseline:Some(15.0)}))
     }))));
-    let source = "One $x^2$\n\n```mermaid\nflowchart LR\nA-->B\n```\n";
+    let source = "One \\(x^2\\)\n\n\\[\nP(A\\mid B)=\\frac{P(B\\mid A)P(A)}{P(B)}\n\\]\n\n```mermaid\nflowchart LR\nA-->B\n```\n";
     let (state, visual) = setup(cx, source);
     visual.run_until_parked();
     visual.update(|window, cx| window.draw(cx).clear(cx));
-    assert_eq!(calls.borrow().len(), 2);
+    assert_eq!(calls.borrow().len(), 3);
     assert!(calls.borrow().contains(&(Kind::InlineMath, "x^2".into())));
+    assert!(calls.borrow().contains(&(
+        Kind::DisplayMath,
+        r"P(A\mid B)=\frac{P(B\mid A)P(A)}{P(B)}".into()
+    )));
     assert!(
         calls
             .borrow()
@@ -206,7 +210,7 @@ fn prepares_once_and_replaces_changed_source(cx: &mut TestAppContext) {
         visual.update(|window, cx| window.draw(cx).clear(cx));
         visual.run_until_parked();
     }
-    assert_eq!(calls.borrow().len(), 2);
+    assert_eq!(calls.borrow().len(), 3);
     visual.update(|_, cx| state.update(cx, |state, cx| state.set_source("Next $y^3$", cx)));
     visual.run_until_parked();
     visual.update(|window, cx| window.draw(cx).clear(cx));

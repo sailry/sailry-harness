@@ -30,17 +30,35 @@ fn preserves_unchanged_bytes() {
 
 #[test]
 fn preserves_formula_delimiters_and_unrelated_bytes() {
-    for (source, part, offset) in [
-        ("Before $x^2$ after\r\n\r\nKeep **this**\r\n", Part::Body, 8),
-        ("$$\r\nx^2\r\n$$\r\n\r\nKeep **this**\r\n", Part::Code, 1),
+    for (source, part, offset, formula) in [
+        (
+            "Before $x^2$ after\r\n\r\nKeep **this**\r\n",
+            Part::Body,
+            8,
+            "$xy^2$",
+        ),
+        (
+            "$$\r\nx^2\r\n$$\r\n\r\nKeep **this**\r\n",
+            Part::Code,
+            1,
+            "$$\r\nxy^2\r\n$$",
+        ),
+        (
+            "Before \\(x^2\\) after\r\n\r\nKeep **this**\r\n",
+            Part::Body,
+            8,
+            r"\(xy^2\)",
+        ),
+        (
+            "\\[\r\nx^2\r\n\\]\r\n\r\nKeep **this**\r\n",
+            Part::Code,
+            1,
+            "\\[\r\nxy^2\r\n\\]",
+        ),
     ] {
         let (result, expected) = insert(source, Cursor::new(0, part, offset), "y");
         assert_eq!(parse(&result), expected);
-        assert!(result.contains(if part == Part::Code {
-            "$$\r\nxy^2\r\n$$"
-        } else {
-            "$xy^2$"
-        }));
+        assert!(result.contains(formula));
         assert!(result.ends_with("\r\n\r\nKeep **this**\r\n"));
     }
 }

@@ -11,7 +11,17 @@ use sailry_content::markdown::{
 use std::{cell::RefCell, path::Path, time::Instant};
 use wry::WebViewExtMacOS;
 
-const SOURCE: &str = "```mermaid\nflowchart LR\nA[Alpha] --> B[Beta]\n```\n\nInline $x^2 + \\alpha$ formula\n\n$$\n\\frac{1}{2}+\\sum_{n=1}^{3}n\n$$\n";
+const SOURCE: &str = r"```mermaid
+flowchart LR
+A[Alpha] --> B[Beta]
+```
+
+Inline \(f_X(x)=\frac{1}{\sigma\sqrt{2\pi}}\exp\left(-\frac{(x-\mu)^2}{2\sigma^2}\right)\) formula
+
+\[
+P(A\mid B)=\frac{P(B\mid A)P(A)}{P(B)}
+\]
+";
 const INVALID: &str = "flowchart !!! broken";
 
 struct Record {

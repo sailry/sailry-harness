@@ -1,8 +1,8 @@
 //! Preserve source-only link titles and hard-break spelling in local rewrites.
 //! These annotations belong to the original bytes, not the presentation model.
 use super::{Map, Patch, change};
-use crate::markdown::{BlockKind, Doc, Mark, Part, parse::OPTIONS};
-use pulldown_cmark::{Event, Parser, Tag};
+use crate::markdown::{BlockKind, Doc, Mark, Part, parse::events};
+use pulldown_cmark::{Event, Tag};
 use std::ops::Range;
 
 struct Layout {
@@ -93,12 +93,10 @@ pub(super) fn preserve(
     let mut candidate = source.to_owned();
     candidate.replace_range(patch.range.clone(), &patch.text);
     let mapped = Map::new(&candidate, after);
-    let events: Vec<_> = Parser::new_ext(&candidate, OPTIONS)
-        .into_offset_iter()
-        .collect();
+    let events: Vec<_> = events(&candidate).collect();
     let mut edits = Vec::<(Range<usize>, String)>::new();
 
-    for (event, raw) in Parser::new_ext(source, OPTIONS).into_offset_iter() {
+    for (event, raw) in crate::markdown::parse::events(source) {
         let title = match &event {
             Event::Start(Tag::Link {
                 dest_url, title, ..

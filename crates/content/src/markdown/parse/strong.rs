@@ -1,11 +1,11 @@
 //! Recover paired literal strong markers in prose without rewriting stored source.
-use pulldown_cmark::{CowStr, Event, Parser, Tag, TagEnd};
+use pulldown_cmark::{CowStr, Event, Tag, TagEnd};
 use std::ops::Range;
 
 pub(super) fn parse<'a>(source: &'a str, mut emit: impl FnMut(Event<'a>, Range<usize>)) {
     let mut pending = Vec::new();
     let mut code = false;
-    for (event, range) in Parser::new_ext(source, super::OPTIONS).into_offset_iter() {
+    for (event, range) in super::events(source) {
         if matches!(event, Event::Start(Tag::CodeBlock(_))) {
             code = true;
         }
