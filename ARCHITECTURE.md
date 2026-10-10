@@ -144,6 +144,10 @@ commands and skills without requirements. Dependency preparation runs outside
 the shared file mutation queue, with one installer per environment; ready
 environments bypass installation. Clients observe transient preparation stages
 through the same local and remote subscription boundary.
+Linux validation retains at most 2,048 directory subscriptions and 16 native
+watchers across the process, evicting the least recently used environments.
+Unwatched or oversized environments use full integrity validation on each access;
+watched environments also revalidate periodically.
 
 OCR is an optional Node-owned CPU service using the packaged ONNX Runtime.
 Explicitly installed PaddleOCR definitions retain their selected profile and

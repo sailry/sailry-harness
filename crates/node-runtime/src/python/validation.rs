@@ -1,5 +1,7 @@
 use super::{check, integrity, runtime};
-use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::EventKind;
+#[cfg(not(target_os = "linux"))]
+use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use sailry_link::CancellationToken;
 use sailry_protocol::Fault;
 use std::{
@@ -15,6 +17,77 @@ use std::{
 // events; an unavailable watcher uses full validation on each access instead.
 const INTERVAL: Duration = Duration::from_secs(5 * 60);
 
+#[cfg(any(target_os = "linux", test))]
+mod watchers;
+
+enum Backend {
+    #[cfg(not(target_os = "linux"))]
+    Native(Option<RecommendedWatcher>),
+    #[cfg(any(target_os = "linux", test))]
+    Limited(watchers::Watch),
+}
+
+impl Backend {
+    fn new() -> Self {
+        #[cfg(target_os = "linux")]
+        {
+            Self::Limited(watchers::Watch::new())
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Self::Native(None)
+        }
+    }
+
+    fn active(&self) -> bool {
+        match self {
+            #[cfg(not(target_os = "linux"))]
+            Self::Native(watcher) => watcher.is_some(),
+            #[cfg(any(target_os = "linux", test))]
+            Self::Limited(watcher) => watcher.active(),
+        }
+    }
+
+    fn covers(&self, root: &Path) -> bool {
+        #[cfg(not(any(target_os = "linux", test)))]
+        let _ = root;
+        match self {
+            #[cfg(not(target_os = "linux"))]
+            Self::Native(watcher) => watcher.is_some(),
+            #[cfg(any(target_os = "linux", test))]
+            Self::Limited(watcher) => watcher.covers(root),
+        }
+    }
+
+    fn rebuilds_on_change(&self) -> bool {
+        match self {
+            #[cfg(not(target_os = "linux"))]
+            Self::Native(_) => false,
+            #[cfg(any(target_os = "linux", test))]
+            Self::Limited(_) => true,
+        }
+    }
+
+    fn watch(&mut self, root: &Path, handler: impl notify::EventHandler) {
+        match self {
+            #[cfg(not(target_os = "linux"))]
+            Self::Native(backend) => {
+                *backend = None;
+                let Ok(mut watcher) =
+                    RecommendedWatcher::new(handler, Config::default().with_follow_symlinks(false))
+                else {
+                    return;
+                };
+                if watcher.watch(root, RecursiveMode::Recursive).is_ok() {
+                    *backend = Some(watcher);
+                }
+            }
+            #[cfg(any(target_os = "linux", test))]
+            Self::Limited(watcher) => watcher.watch(root, handler),
+        }
+    }
+}
+
 struct Verified {
     stamp: Vec<integrity::Stamp>,
     epoch: u64,
@@ -23,7 +96,7 @@ struct Verified {
 
 pub(super) struct Validation {
     root: PathBuf,
-    backend: Option<RecommendedWatcher>,
+    backend: Backend,
     epoch: Arc<AtomicU64>,
     failed: Arc<AtomicBool>,
     #[cfg(test)]
@@ -36,7 +109,7 @@ impl Validation {
     pub(super) fn new(root: PathBuf) -> Self {
         Self {
             root,
-            backend: None,
+            backend: Backend::new(),
             epoch: Arc::default(),
             failed: Arc::default(),
             #[cfg(test)]
@@ -99,7 +172,8 @@ impl Validation {
         check(cancel)?;
         let stamp = self.stamp(paths);
         let epoch = self.epoch.load(Ordering::Acquire);
-        if self.backend.is_some()
+        let watched = self.backend.active();
+        if watched
             && !self.failed.load(Ordering::Acquire)
             && let Some(verified) = &self.verified
             && verified.checked.elapsed() < INTERVAL
@@ -108,12 +182,13 @@ impl Validation {
         {
             return Ok(true);
         }
-        if self.backend.is_none()
+        if !watched
             || self.failed.swap(false, Ordering::AcqRel)
-            || self
-                .verified
-                .as_ref()
-                .is_some_and(|verified| stamp.as_ref() != Some(&verified.stamp))
+            || (self.verified.is_none() && self.backend.rebuilds_on_change())
+            || self.verified.as_ref().is_some_and(|verified| {
+                stamp.as_ref() != Some(&verified.stamp)
+                    || (self.backend.rebuilds_on_change() && verified.epoch != epoch)
+            })
         {
             self.watch();
         }
@@ -126,6 +201,7 @@ impl Validation {
         // An event arriving during validation prevents this entry staying hot.
         if let Some(current) = self.stamp(paths)
             && stamp.as_ref() == Some(&current)
+            && self.backend.covers(&self.root)
         {
             self.verified = Some(Verified {
                 stamp: current,
@@ -154,13 +230,12 @@ impl Validation {
     }
 
     fn watch(&mut self) {
-        self.backend = None;
         let epoch = self.epoch.clone();
         let failed = self.failed.clone();
         #[cfg(test)]
         let changes = self.changes.clone();
-        let mut watcher = match RecommendedWatcher::new(
-            move |event: notify::Result<notify::Event>| {
+        self.backend
+            .watch(&self.root, move |event: notify::Result<notify::Event>| {
                 if let Ok(event) = &event
                     && !event.need_rescan()
                     && (matches!(event.kind, EventKind::Access(_))
@@ -179,15 +254,7 @@ impl Validation {
                 epoch.fetch_add(1, Ordering::AcqRel);
                 #[cfg(test)]
                 changes.send_replace(());
-            },
-            Config::default().with_follow_symlinks(false),
-        ) {
-            Ok(watcher) => watcher,
-            Err(_) => return,
-        };
-        if watcher.watch(&self.root, RecursiveMode::Recursive).is_ok() {
-            self.backend = Some(watcher);
-        }
+            });
     }
 }
 

@@ -45,7 +45,7 @@ impl Fixture {
 fn reuses_verified_manifest() {
     let mut fixture = Fixture::new();
     assert!(fixture.valid());
-    assert!(fixture.validation.backend.is_some());
+    assert!(fixture.validation.backend.active());
     let checked = fixture.validation.verified.as_ref().unwrap().checked;
     assert!(fixture.valid());
     assert_eq!(
@@ -109,4 +109,76 @@ fn rejects_linked_root_on_hot_access() {
     std::fs::rename(&fixture.path, &replaced).unwrap();
     std::os::unix::fs::symlink(&replaced, &fixture.path).unwrap();
     assert!(!fixture.valid());
+}
+
+#[test]
+fn validates_without_watch_capacity() {
+    let mut fixture = Fixture::new();
+    fixture.validation.backend = Backend::Limited(watchers::Watch::isolated(1, 1));
+    assert!(fixture.valid());
+    assert!(!fixture.validation.backend.active());
+    assert!(fixture.validation.verified.is_none());
+    assert!(fixture.valid());
+    std::fs::write(fixture.path.join("package.py"), "modified").unwrap();
+    assert!(!fixture.valid());
+}
+
+#[test]
+fn revalidates_evicted_entries() {
+    let watch = watchers::Watch::isolated(16, 1);
+    let mut first = Fixture::new();
+    let mut second = Fixture::new();
+    first.validation.backend = Backend::Limited(watch.peer());
+    second.validation.backend = Backend::Limited(watch);
+    assert!(first.valid());
+    let epoch = first.validation.verified.as_ref().unwrap().epoch;
+    assert!(second.valid());
+    assert!(!first.validation.backend.active());
+    std::fs::write(first.path.join("package.py"), "modified").unwrap();
+    first.validation.epoch.store(epoch, Ordering::Release);
+    assert!(!first.valid());
+}
+
+#[tokio::test]
+async fn watches_new_nested_directories() {
+    let mut fixture = Fixture::new();
+    fixture.validation.backend = Backend::Limited(watchers::Watch::isolated(16, 2));
+    assert!(fixture.valid());
+    let nested = fixture.path.join("lib/package");
+    std::fs::create_dir_all(&nested).unwrap();
+    let file = nested.join("module.py");
+    std::fs::write(&file, "original").unwrap();
+    integrity::seal(&fixture.path, &fixture.base, &fixture.key, &fixture.cancel).unwrap();
+    assert!(fixture.valid());
+    let mut changes = fixture.validation.subscribe();
+    std::fs::write(file, "modified").unwrap();
+    tokio::time::timeout(Duration::from_secs(15), changes.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!fixture.valid());
+}
+
+#[test]
+fn discards_incomplete_watch_coverage() {
+    let mut fixture = Fixture::new();
+    fixture.validation.backend = Backend::Limited(watchers::Watch::isolated(16, 2));
+    let directory = fixture.path.join("lib");
+    std::fs::create_dir(&directory).unwrap();
+    let paths = [
+        fixture.path.join(integrity::MARKER),
+        runtime::python(&fixture.path),
+    ];
+    assert!(
+        fixture
+            .validation
+            .validate(&paths, &fixture.cancel, |_, _| {
+                std::fs::create_dir(directory.join("new")).unwrap();
+                Ok(true)
+            })
+            .unwrap()
+    );
+    assert!(fixture.validation.verified.is_none());
+    assert!(fixture.valid());
+    assert!(fixture.validation.verified.is_some());
 }
