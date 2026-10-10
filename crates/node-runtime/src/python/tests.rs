@@ -267,49 +267,6 @@ fn preserves_cancellation_during_verification() {
     );
 }
 
-#[test]
-fn removes_only_the_owned_session_directory() {
-    let fixture = tempfile::tempdir().unwrap();
-    let profile = fixture.path().canonicalize().unwrap();
-    let removed = sailry_protocol::SessionId::new();
-    let retained = sailry_protocol::SessionId::new();
-    for id in [removed, retained] {
-        let path = crate::workspaces::session(&profile, id);
-        std::fs::create_dir_all(&path).unwrap();
-        std::fs::write(path.join("task.py"), "saved task").unwrap();
-    }
-    std::fs::write(profile.join("database.fixture"), "primary data").unwrap();
-    remove_session(&profile, removed).unwrap();
-    remove_session(&profile, removed).unwrap();
-    assert!(!crate::workspaces::session(&profile, removed).exists());
-    assert_eq!(
-        std::fs::read(crate::workspaces::session(&profile, retained).join("task.py")).unwrap(),
-        b"saved task"
-    );
-    assert_eq!(
-        std::fs::read(profile.join("database.fixture")).unwrap(),
-        b"primary data"
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn refuses_linked_session_parents() {
-    let fixture = tempfile::tempdir().unwrap();
-    let profile = fixture.path().join("profile");
-    let outside = fixture.path().join("outside");
-    let id = sailry_protocol::SessionId::new();
-    std::fs::create_dir_all(profile.join("workspaces")).unwrap();
-    std::fs::create_dir_all(outside.join(id.to_string())).unwrap();
-    std::fs::write(outside.join(id.to_string()).join("keep.py"), "keep").unwrap();
-    std::os::unix::fs::symlink(&outside, profile.join("workspaces/sessions")).unwrap();
-    assert!(remove_session(&profile.canonicalize().unwrap(), id).is_err());
-    assert_eq!(
-        std::fs::read(outside.join(id.to_string()).join("keep.py")).unwrap(),
-        b"keep"
-    );
-}
-
 #[cfg(unix)]
 #[path = "tests/bundled.rs"]
 mod bundled;

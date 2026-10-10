@@ -84,23 +84,3 @@ fn directory(profile: &Path, session: SessionId) -> Result<PathBuf, Fault> {
     }
     Ok(crate::workspaces::session(profile, session))
 }
-
-pub(crate) fn remove_session(profile: &Path, session: SessionId) -> Result<(), Fault> {
-    let parent = crate::files::path::root(profile)?
-        .open_dir_nofollow("workspaces")
-        .and_then(|root| root.open_dir_nofollow("sessions"));
-    let parent = match parent {
-        Ok(parent) => parent,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(storage(error)),
-    };
-    let name = session.to_string();
-    match parent.symlink_metadata(&name) {
-        Ok(metadata) if metadata.is_dir() && !metadata.is_symlink() => {
-            parent.remove_dir_all(name).map_err(storage)
-        }
-        Ok(_) => parent.remove_file(name).map_err(storage),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(storage(error)),
-    }
-}

@@ -139,14 +139,18 @@ async fn local_and_remote_lifecycle() {
             panic!("Git status expected")
         };
         assert_eq!(status.kind, RepositoryKind::Directory);
-        client
-            .execute(client.prepare(Command::RemoveSession {
-                session: session.id,
-                expected_revision: session.revision,
-            }))
-            .await
-            .unwrap();
+        let removal = client.prepare(Command::RemoveSession {
+            session: session.id,
+            expected_revision: session.revision,
+        });
+        let removed = client.execute(removal.clone()).await.unwrap();
+        assert_eq!(removed, Output::SessionsRemoved(vec![session.id]));
         assert!(workspace.join("output/note.txt").is_file());
+        assert_eq!(client.execute(removal.clone()).await.unwrap(), removed);
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("output/note.txt")).unwrap(),
+            "Keep this generated file"
+        );
         assert_eq!(
             snapshot(&client).await.sessions.as_slice(),
             std::slice::from_ref(&second)
@@ -162,7 +166,12 @@ async fn local_and_remote_lifecycle() {
         });
         assert_eq!(snapshot(&client).await.sessions, [second]);
         assert_eq!(client.execute(request).await.unwrap(), first);
+        assert_eq!(client.execute(removal).await.unwrap(), removed);
         assert!(workspace.join("output/note.txt").is_file());
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("output/note.txt")).unwrap(),
+            "Keep this generated file"
+        );
         assert!(!second_workspace.exists());
         assert!(snapshot(&client).await.projects.is_empty());
         node.shutdown().await.unwrap();

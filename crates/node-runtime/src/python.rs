@@ -17,7 +17,6 @@ mod tests;
 use std::path::Path;
 
 pub(crate) use execution::Execution;
-pub(crate) use execution::remove_session;
 pub(crate) use requirements::Requirements;
 pub(crate) use runtime::Runtime;
 

@@ -110,6 +110,49 @@ mod tests {
     use super::*;
 
     #[test]
+    fn removes_only_unreferenced_owner() {
+        let profile = tempfile::tempdir().unwrap();
+        let root = profile.path().canonicalize().unwrap();
+        let removed = SessionId::new();
+        let retained = SessionId::new();
+        let id = ArtifactId::new();
+        write(&root, removed, id, 1, "removed").unwrap();
+        let digest = write(&root, retained, id, 1, "retained").unwrap();
+        let workspace = crate::workspaces::session(&root, removed);
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::write(workspace.join("output.txt"), "durable output").unwrap();
+        remove(&root, removed).unwrap();
+        remove(&root, removed).unwrap();
+        assert!(!root.join("artifacts").join(removed.to_string()).exists());
+        assert_eq!(
+            read(&root, retained, id, 1, 8, &digest).unwrap(),
+            "retained"
+        );
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("output.txt")).unwrap(),
+            "durable output"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_linked_cleanup() {
+        let profile = tempfile::tempdir().unwrap();
+        let root = profile.path().canonicalize().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let session = SessionId::new();
+        let directory = outside.path().join(session.to_string());
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::write(directory.join("keep.html"), "retained").unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("artifacts")).unwrap();
+        assert!(remove(&root, session).is_err());
+        assert_eq!(
+            std::fs::read_to_string(directory.join("keep.html")).unwrap(),
+            "retained"
+        );
+    }
+
+    #[test]
     fn replaces_unreferenced_publication() {
         let profile = tempfile::tempdir().unwrap();
         let root = profile.path().canonicalize().unwrap();

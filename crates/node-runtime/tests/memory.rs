@@ -187,13 +187,27 @@ async fn restores_scoped_revisions() {
             ErrorCode::InvalidRequest
         );
         let committed = snapshot(&client).await;
+        let mut values_changed = false;
+        let mut recall_changed = false;
         tokio::time::timeout(Duration::from_secs(5), async {
             while projection.snapshot().unwrap().cursor < committed.cursor {
                 let update = updates.next().await.unwrap();
-                assert!(matches!(&update, Update::Event(envelope) if envelope.event == Event::PluginValuesChanged { name: "memory".into() }));
-                projection.apply(1, update).unwrap();
+                match &update {
+                    Update::Event(envelope) => match &envelope.event {
+                        Event::PluginValuesChanged { name } if name == "memory" => {
+                            values_changed = true;
+                        }
+                        Event::KnowledgeCollectionsChanged => recall_changed = true,
+                        event => panic!("unexpected memory invalidation: {event:?}"),
+                    },
+                    _ => panic!("memory event expected"),
+                }
+                assert_eq!(projection.apply(1, update).unwrap(), Apply::Applied);
             }
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
+        assert!(values_changed && recall_changed);
         assert_eq!(projection.snapshot().unwrap(), &committed);
         assert_eq!(
             support::read(&observer, changed.summary.id).await.unwrap(),
