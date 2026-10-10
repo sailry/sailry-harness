@@ -803,5 +803,11 @@
   "settingsUsageOutput": "Вывод",
   "settingsUsageDaily": "Ежедневно",
   "settingsUsageWeekly": "Еженедельно",
-  "settingsUtc": "UTC"
+  "settingsUtc": "UTC",
+  "artifactContents": "Содержание",
+  "artifactZoomIn": "Увеличить",
+  "artifactZoomOut": "Уменьшить",
+  "artifactVersions": "Версии",
+  "artifactFormRequired": "Заполните обязательные поля",
+  "artifactReply": "Ответ к «{title}» v{revision} ({id}/{form})"
 }

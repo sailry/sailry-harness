@@ -2060,6 +2060,26 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsUtc => 'UTC';
+
+  @override
+  String get artifactContents => '目录';
+
+  @override
+  String get artifactZoomIn => '放大';
+
+  @override
+  String get artifactZoomOut => '缩小';
+
+  @override
+  String get artifactVersions => '版本';
+
+  @override
+  String get artifactFormRequired => '请填写必填项';
+
+  @override
+  String artifactReply(String id, String revision, String title, String form) {
+    return '关于「$title」v$revision（$id/$form）的回复';
+  }
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4118,4 +4138,24 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get settingsUtc => 'UTC';
+
+  @override
+  String get artifactContents => '目錄';
+
+  @override
+  String get artifactZoomIn => '放大';
+
+  @override
+  String get artifactZoomOut => '縮小';
+
+  @override
+  String get artifactVersions => '版本';
+
+  @override
+  String get artifactFormRequired => '請填寫必填項';
+
+  @override
+  String artifactReply(String id, String revision, String title, String form) {
+    return '關於「$title」v$revision（$id/$form）的回覆';
+  }
 }

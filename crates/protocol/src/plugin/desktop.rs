@@ -359,7 +359,7 @@ impl Bundle {
     }
 }
 
-pub(super) fn valid_paths<'a>(paths: impl Iterator<Item = &'a str>) -> bool {
+pub(crate) fn valid_paths<'a>(paths: impl Iterator<Item = &'a str>) -> bool {
     let mut names = std::collections::BTreeSet::new();
     for path in paths {
         if names.len() >= MAX_FILES

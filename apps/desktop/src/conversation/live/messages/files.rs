@@ -4,6 +4,7 @@ use sailry_protocol::tool::Block;
 impl View {
     pub(super) fn published_files(&self, turn: TurnId, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let mut paths = std::collections::HashSet::new();
+        let mut documents = std::collections::HashSet::new();
         let mut cards = Vec::new();
         for call in self
             .history
@@ -16,6 +17,12 @@ impl View {
                 continue;
             };
             for (index, block) in content.blocks.iter().enumerate() {
+                if let Block::Artifact(artifact) = block {
+                    if documents.insert(artifact.id) {
+                        cards.push(self.document_card(artifact.clone(), cx));
+                    }
+                    continue;
+                }
                 let Block::File(file) = block else {
                     continue;
                 };

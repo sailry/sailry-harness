@@ -18,6 +18,7 @@ impl Render for Panel {
             });
         }
         self.sync_preview(window, cx);
+        self.sync_document(window, cx);
         self.restore(window, cx);
         let viewport = window.viewport_size();
         if self.viewport != Some(viewport) {
@@ -72,6 +73,7 @@ impl Render for Panel {
                             && self.pane.is_none()
                             && self.browser_view().is_none()
                             && self.artifact.is_none()
+                            && self.document.is_none()
                             && !self.is_document_page(cx),
                         |view| {
                             let catalog = self.metadata.read(cx);

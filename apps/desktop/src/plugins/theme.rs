@@ -46,7 +46,7 @@ pub(super) fn snapshot(cx: &App) -> HostValue {
         .into()
 }
 
-fn rgba(color: Hsla) -> String {
+pub(super) fn rgba(color: Hsla) -> String {
     let color = Rgba::from(color);
     let byte = |value: f32| (value.clamp(0., 1.) * 255.).round() as u8;
     format!(

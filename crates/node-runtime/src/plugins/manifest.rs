@@ -100,6 +100,7 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                             })
                             && sailry_protocol::plugin::model_tools::valid(&parsed.model_tools)
                             && parsed.host.as_ref().is_none_or(|host| host.valid())
+                            && parsed.artifact_view.as_ref().is_none_or(|view| view.valid() && parsed.actions.contains(&sailry_protocol::plugin::Action::ReadArtifacts) && parsed.actions.contains(&sailry_protocol::plugin::Action::WriteArtifacts))
                             && parsed.display.as_ref().is_none_or(
                                 sailry_protocol::plugin::desktop::Navigation::valid,
                             )

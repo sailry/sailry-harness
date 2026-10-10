@@ -6,6 +6,7 @@ use sailry_protocol::{ErrorCode, Fault};
 pub(super) enum Action {
     Create(Input),
     Send(Input),
+    Document(tokio::sync::watch::Sender<Option<bool>>),
     Resend(TurnId),
     Configure,
     Move(WorktreeId),
@@ -28,7 +29,7 @@ impl Attempt {
     pub(super) fn is_submission(&self) -> bool {
         matches!(
             self.action,
-            Action::Send(_) | Action::Resend(_) | Action::Replace
+            Action::Send(_) | Action::Document(..) | Action::Resend(_) | Action::Replace
         )
     }
 
@@ -202,7 +203,7 @@ impl View {
             self.binding.client.clone()
         };
         let request = client.prepare(command);
-        if matches!(&action, Action::Send(_))
+        if matches!(&action, Action::Send(_) | Action::Document(..))
             && let Some(outgoing) = &mut self.outgoing
         {
             outgoing.request = Some(request.id);
@@ -240,6 +241,30 @@ impl View {
             let result = job.await;
             let _ = view.update_in(cx, |view, window, cx| {
                 view.pending = false;
+                if let Action::Document(status) = &attempt.action {
+                    let definite = match &result {
+                        Ok(Ok(Output::QueuedTurn(turn)))
+                            if turn.request == request_id
+                                && Some(turn.session) == view.session() =>
+                        {
+                            Some(true)
+                        }
+                        Ok(Err(error))
+                            if !matches!(
+                                error.code,
+                                ErrorCode::OutcomeUnknown
+                                    | ErrorCode::Unavailable
+                                    | ErrorCode::Busy
+                            ) =>
+                        {
+                            Some(false)
+                        }
+                        _ => None,
+                    };
+                    if let Some(accepted) = definite {
+                        status.send_replace(Some(accepted));
+                    }
+                }
                 match result {
                     Ok(Ok(Output::TurnReplaced { history, .. }))
                         if matches!(attempt.action, Action::Replace) =>
@@ -462,7 +487,10 @@ impl View {
                             ))
                         {
                             view.retry = None;
-                            if matches!(attempt.action, Action::Send(_) | Action::Create(_)) {
+                            if matches!(
+                                attempt.action,
+                                Action::Send(_) | Action::Create(_) | Action::Document(..)
+                            ) {
                                 view.outgoing = None;
                             }
                         }

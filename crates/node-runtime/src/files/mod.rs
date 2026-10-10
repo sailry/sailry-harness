@@ -1,3 +1,4 @@
+pub(crate) mod artifacts;
 pub(crate) mod attachments;
 pub(crate) mod browser;
 pub(crate) mod checkpoints;

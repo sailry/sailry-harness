@@ -17,6 +17,7 @@ pub struct Projection {
     generation: u64,
     snapshot: Option<Snapshot>,
     recovery: bool,
+    artifact_cursor: u64,
 }
 
 impl Projection {
@@ -27,11 +28,16 @@ impl Projection {
             generation,
             snapshot: None,
             recovery: true,
+            artifact_cursor: 0,
         }
     }
 
     pub fn snapshot(&self) -> Option<&Snapshot> {
         self.snapshot.as_ref()
+    }
+
+    pub fn artifact_cursor(&self) -> u64 {
+        self.artifact_cursor
     }
 
     pub fn reconnect(&mut self, generation: u64) -> Result<(), Fault> {
@@ -126,6 +132,32 @@ impl Projection {
                 for draft in &snapshot.drafts {
                     validate_draft(&snapshot.page, draft)?;
                 }
+                if snapshot.artifacts.items.len() > usize::from(artifact::MAX_PAGE_LIMIT)
+                    || snapshot
+                        .artifacts
+                        .items
+                        .iter()
+                        .any(|value| !value.valid() || value.session != self.session)
+                    || snapshot
+                        .artifacts
+                        .items
+                        .iter()
+                        .enumerate()
+                        .any(|(index, value)| {
+                            snapshot.artifacts.items[..index]
+                                .iter()
+                                .any(|previous| previous.id == value.id)
+                        })
+                    || snapshot.artifacts.next_after.is_some_and(|id| {
+                        snapshot.artifacts.items.last().map(|value| value.id) != Some(id)
+                    })
+                {
+                    return Err(Fault::invalid("invalid conversation artifact page"));
+                }
+                self.artifact_cursor = self
+                    .artifact_cursor
+                    .checked_add(1)
+                    .ok_or_else(|| Fault::invalid("artifact cursor exhausted"))?;
                 self.snapshot = Some(snapshot);
                 self.recovery = false;
                 Ok(Apply::Applied)
@@ -143,6 +175,40 @@ impl Projection {
                     return Ok(Apply::Recover);
                 }
                 match frame.change {
+                    Change::Artifact(value) => {
+                        if !value.valid() || value.session != self.session {
+                            return Err(Fault::invalid("artifact belongs to another conversation"));
+                        }
+                        if let Some(previous) = snapshot
+                            .artifacts
+                            .items
+                            .iter_mut()
+                            .find(|previous| previous.id == value.id)
+                        {
+                            if value.created_at != previous.created_at
+                                || value.revision <= previous.revision
+                            {
+                                return Err(Fault::invalid("artifact revision did not advance"));
+                            }
+                            *previous = value;
+                        } else if value.revision == 1 {
+                            snapshot.artifacts.items.insert(0, value);
+                            if snapshot.artifacts.items.len()
+                                > usize::from(artifact::MAX_PAGE_LIMIT)
+                            {
+                                snapshot
+                                    .artifacts
+                                    .items
+                                    .truncate(usize::from(artifact::MAX_PAGE_LIMIT));
+                                snapshot.artifacts.next_after =
+                                    snapshot.artifacts.items.last().map(|value| value.id);
+                            }
+                        }
+                        self.artifact_cursor = self
+                            .artifact_cursor
+                            .checked_add(1)
+                            .ok_or_else(|| Fault::invalid("artifact cursor exhausted"))?;
+                    }
                     Change::Statistics(statistics) => snapshot.statistics = statistics,
                     Change::Entry(entry) => {
                         let page = Arc::make_mut(&mut snapshot.page);

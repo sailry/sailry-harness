@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
 import '../../../l10n/strings.dart';
@@ -28,6 +29,8 @@ import 'message_data.dart';
 import 'turn_actions.dart';
 import 'turn_changes.dart';
 import 'files.dart';
+import 'artifacts.dart';
+import '../../resources/artifact/submission.dart';
 
 /// Renders complete Rust Client projections. Call association and streaming
 /// replacement are owned by Client, never reconstructed by the mobile UI.
@@ -44,6 +47,8 @@ class LiveTimeline extends StatefulWidget {
     this.canRestore,
     this.canChangeHistory = true,
     this.sending = false,
+    this.artifactActions,
+    this.artifactChanges,
   });
   final Map<String, dynamic> view;
   final Map<String, dynamic> session;
@@ -55,6 +60,8 @@ class LiveTimeline extends StatefulWidget {
   final bool Function()? canRestore;
   final bool canChangeHistory;
   final bool sending;
+  final ArtifactActions? artifactActions;
+  final ValueListenable<Map<String, dynamic>>? artifactChanges;
 
   @override
   State<LiveTimeline> createState() => _LiveTimelineState();
@@ -436,6 +443,20 @@ class _LiveTimelineState extends State<LiveTimeline> {
             worktree: turnWorktree(page, session, run['turn']),
             enabled: connected,
             documents: _documents,
+          ),
+          PublishedArtifacts(
+            key: ValueKey('artifacts-${run['turn']}'),
+            artifacts: publishedArtifacts(
+              calls,
+              run['turn'] as String,
+              session['id'] as String,
+              origin: run['origin'] as String?,
+            ),
+            host: host,
+            enabled: connected,
+            session: session['id'] as String,
+            actions: widget.artifactActions,
+            changes: widget.artifactChanges,
           ),
           if (!active &&
               !widget.sending &&

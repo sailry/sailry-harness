@@ -1,5 +1,6 @@
 //! Node-owned extensions rendered in Desktop with the pinned Kit bindings.
 mod activity;
+mod artifact;
 mod browser;
 mod cache;
 mod charts;
@@ -63,4 +64,31 @@ pub(crate) fn init(cx: &mut gpui_kit::App) {
     gpui_shell::init(cx);
     contributions::native::init(cx);
     native_context::init(cx);
+}
+
+#[cfg(all(feature = "workload-tests", target_os = "macos"))]
+pub(crate) fn verify_document(output: &std::path::Path) {
+    artifact::native_check::run(output);
+}
+
+#[cfg(all(feature = "workload-tests", target_os = "macos"))]
+pub(crate) async fn prepare_document(
+    root: &std::path::Path,
+) -> (
+    sailry_node_runtime::Node,
+    std::sync::Arc<crate::agent_fixture::Server>,
+    [(sailry_protocol::NodeId, sailry_protocol::Session); 2],
+) {
+    artifact::native_flow::prepare(root).await
+}
+
+#[cfg(all(feature = "workload-tests", target_os = "macos"))]
+pub(crate) async fn verify_document_flow(
+    output: &std::path::Path,
+    sessions: [(sailry_protocol::NodeId, sailry_protocol::Session); 2],
+    server: std::sync::Arc<crate::agent_fixture::Server>,
+    shell: gpui_kit::Entity<crate::shell::Shell>,
+    cx: &mut gpui_kit::AsyncWindowContext,
+) {
+    artifact::native_flow::verify(output, sessions, server, shell, cx).await;
 }

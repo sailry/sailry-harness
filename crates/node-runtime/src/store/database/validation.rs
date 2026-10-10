@@ -7,6 +7,17 @@ use sailry_protocol::{
 use serde::de::DeserializeOwned;
 
 pub(super) fn stored(db: &Connection) -> Result<(), Error> {
+    records::<sailry_protocol::artifact::Summary>(
+        db,
+        "artifacts.body",
+        "SELECT body FROM artifacts",
+    )?;
+    records::<sailry_protocol::artifact::Summary>(
+        db,
+        "artifact_revisions.body",
+        "SELECT body FROM artifact_revisions",
+    )?;
+    crate::store::artifacts::validate_stored(db).map_err(|error| Error::Worker(error.message))?;
     records::<crate::store::backup::Stored>(
         db,
         "backup_settings.body",

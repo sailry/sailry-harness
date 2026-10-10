@@ -11,6 +11,7 @@ pub(super) fn release_removed(
     profile: Option<std::path::PathBuf>,
     runtime: &tokio::runtime::Handle,
     reply: oneshot::Sender<Result<Admission, Fault>>,
+    cleanup: oneshot::Receiver<Result<Vec<sailry_protocol::SessionId>, Fault>>,
 ) -> oneshot::Sender<Result<Admission, Fault>> {
     let (send, received) = oneshot::channel::<Result<Admission, Fault>>();
     runtime.spawn(async move {
@@ -23,14 +24,27 @@ pub(super) fn release_removed(
                 let _ = reply.send(Ok(admission));
                 if let Ok(result) = original.await {
                     if let Ok(sailry_protocol::Output::SessionsRemoved(sessions)) = &result {
+                        let mut owners = match cleanup.await {
+                            Ok(Ok(owners)) => owners,
+                            Ok(Err(error)) => {
+                                eprintln!("removed artifact cleanup plan failed: {error}");
+                                Vec::new()
+                            }
+                            Err(error) => {
+                                eprintln!("removed artifact cleanup plan unavailable: {error}");
+                                Vec::new()
+                            }
+                        };
                         for session in sessions {
                             computer.finish(*session).await;
                             commands.close_session(*session).await;
                             if let Some(profile) = &profile {
                                 let profile = profile.clone();
                                 let session = *session;
+                                let artifacts = owners.contains(&session);
+                                owners.retain(|owner| *owner != session);
                                 match tokio::task::spawn_blocking(move || {
-                                    crate::python::remove_session(&profile, session)
+                                    remove_files(&profile, session, artifacts)
                                 })
                                 .await
                                 {
@@ -41,6 +55,27 @@ pub(super) fn release_removed(
                                     Err(error) => {
                                         eprintln!("removed session cleanup worker failed: {error}")
                                     }
+                                }
+                            }
+                        }
+                        if let Some(profile) = &profile {
+                            let profile = profile.clone();
+                            match tokio::task::spawn_blocking(move || {
+                                let mut result = Ok(());
+                                for owner in owners {
+                                    let cleanup = crate::files::artifacts::remove(&profile, owner);
+                                    result = result.and(cleanup);
+                                }
+                                result
+                            })
+                            .await
+                            {
+                                Ok(Ok(())) => {}
+                                Ok(Err(error)) => {
+                                    eprintln!("removed artifact directory cleanup failed: {error}")
+                                }
+                                Err(error) => {
+                                    eprintln!("removed artifact cleanup worker failed: {error}")
                                 }
                             }
                         }
@@ -55,6 +90,20 @@ pub(super) fn release_removed(
         }
     });
     send
+}
+
+fn remove_files(
+    profile: &std::path::Path,
+    session: sailry_protocol::SessionId,
+    remove_artifacts: bool,
+) -> Result<(), Fault> {
+    let workspace = crate::python::remove_session(profile, session);
+    let artifacts = if remove_artifacts {
+        crate::files::artifacts::remove(profile, session)
+    } else {
+        Ok(())
+    };
+    workspace.and(artifacts)
 }
 
 impl Ingress {
@@ -160,6 +209,12 @@ impl Ingress {
             }
             if matches!(request.command, sailry_protocol::Command::ListBackups) {
                 return self.read_backup(request).await;
+            }
+            if matches!(
+                request.command,
+                sailry_protocol::Command::ReadArtifact { .. }
+            ) {
+                return self.read_artifact(caller, request, internal).await;
             }
             if matches!(
                 request.command,
@@ -462,5 +517,29 @@ impl Ingress {
                 }
             })
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cleans_artifacts_after_workspace_failure() {
+        let profile = tempfile::tempdir().unwrap();
+        let root = profile.path().canonicalize().unwrap();
+        let session = sailry_protocol::SessionId::new();
+        let artifact = sailry_protocol::ArtifactId::new();
+        crate::files::artifacts::write(&root, session, artifact, 1, "saved").unwrap();
+        std::fs::create_dir(root.join("workspaces")).unwrap();
+        std::fs::write(root.join("workspaces/sessions"), "obstruction").unwrap();
+        let expected = crate::python::remove_session(&root, session).unwrap_err();
+        let error = remove_files(&root, session, true).unwrap_err();
+        assert_eq!(error, expected);
+        assert!(!root.join("artifacts").join(session.to_string()).exists());
+        assert_eq!(
+            std::fs::read_to_string(root.join("workspaces/sessions")).unwrap(),
+            "obstruction"
+        );
     }
 }

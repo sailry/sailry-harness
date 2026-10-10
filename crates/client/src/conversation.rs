@@ -29,10 +29,12 @@ pub struct View {
     pub error: Option<Fault>,
     pub loading_older: bool,
     pub older_error: Option<Fault>,
+    /// Advances for artifact commits and snapshot recovery, never text deltas.
+    pub artifact_cursor: u64,
 }
 
 impl View {
-    fn replace(&mut self, snapshot: Arc<Snapshot>) {
+    fn replace(&mut self, snapshot: Arc<Snapshot>, artifact_cursor: u64) {
         if self
             .snapshot
             .as_ref()
@@ -41,6 +43,7 @@ impl View {
             self.calls = Arc::new(tools::collect(&snapshot.page));
         }
         self.snapshot = Some(snapshot);
+        self.artifact_cursor = artifact_cursor;
         self.connected = true;
         self.error = None;
     }

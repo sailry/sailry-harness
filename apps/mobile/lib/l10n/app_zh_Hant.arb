@@ -803,5 +803,11 @@
   "failureDenied": "沒有操作許可權",
   "failureUnavailable": "主機未連線",
   "failureBusy": "服務正忙，請稍後重試",
-  "failureGeneric": "操作失敗"
+  "failureGeneric": "操作失敗",
+  "artifactContents": "目錄",
+  "artifactZoomIn": "放大",
+  "artifactZoomOut": "縮小",
+  "artifactVersions": "版本",
+  "artifactFormRequired": "請填寫必填項",
+  "artifactReply": "關於「{title}」v{revision}（{id}/{form}）的回覆"
 }

@@ -1,5 +1,102 @@
 use super::*;
 
+fn streaming() -> (Feeds, NodeId, SessionId, Draft) {
+    let node = NodeId([74; 32]);
+    let session = SessionId::new();
+    let turn = TurnId::new();
+    let feeds = Feeds::default();
+    feeds.0.lock().unwrap().insert(
+        session,
+        Feed {
+            active: Some(turn),
+            ..Default::default()
+        },
+    );
+    let draft = Draft {
+        id: "answer".into(),
+        turn,
+        author: "assistant".into(),
+        branch: String::new(),
+        parts: vec![Part::Text("x".into())],
+    };
+    (feeds, node, session, draft)
+}
+
+#[test]
+fn normalizes_first_delta() {
+    let (feeds, node, session, mut draft) = streaming();
+    draft.parts = vec![
+        Part::Text("A".into()),
+        Part::Text("\\\n".into()),
+        Part::Thinking("B".into()),
+        Part::Thinking("C".into()),
+        Part::Text("D".into()),
+    ];
+    feeds.delta(node, session, draft).unwrap();
+    let expected = [
+        Part::Text("A\\\n".into()),
+        Part::Thinking("BC".into()),
+        Part::Text("D".into()),
+    ];
+    {
+        let feed = &feeds.0.lock().unwrap()[&session];
+        assert_eq!(feed.drafts[0].parts, expected);
+        assert_eq!(feed.bytes, expected.iter().map(part_bytes).sum::<usize>());
+    }
+    feeds.publish(node, session, Change::Queue(Default::default()));
+    let feed = &feeds.0.lock().unwrap()[&session];
+    assert_eq!(feed.bytes, expected.iter().map(part_bytes).sum::<usize>());
+}
+
+#[test]
+fn counts_merged_payload_once() {
+    let (feeds, node, session, mut draft) = streaming();
+    for _ in 0..70_000 {
+        feeds.delta(node, session, draft.clone()).unwrap();
+    }
+    draft.parts = vec![
+        Part::Text("\n\"\\🦀".into()),
+        Part::Thinking("Reasoning".into()),
+        Part::Thinking("\nMore".into()),
+    ];
+    feeds.delta(node, session, draft).unwrap();
+    let feeds = feeds.0.lock().unwrap();
+    let feed = &feeds[&session];
+    assert_eq!(
+        feed.drafts[0].parts,
+        [
+            Part::Text(format!("{}\n\"\\🦀", "x".repeat(70_000))),
+            Part::Thinking("Reasoning\nMore".into())
+        ]
+    );
+    // Escaped payload, two Part envelopes, and no per-token envelope charge.
+    assert_eq!(feed.bytes, 70_000 + 10 + 9 + 6 + 2 * PART_OVERHEAD);
+}
+
+#[test]
+fn rejects_overflow_without_losing_drafts() {
+    let (feeds, node, session, mut draft) = streaming();
+    draft.parts = vec![Part::Text("x".repeat(2 * 1024 * 1024 - PART_OVERHEAD))];
+    feeds.delta(node, session, draft.clone()).unwrap();
+    let sequence = feeds.sequence(session);
+    draft.parts = vec![Part::Text("x".into())];
+    assert!(feeds.delta(node, session, draft.clone()).is_err());
+    draft.parts = vec![Part::Thinking(String::new())];
+    assert!(feeds.delta(node, session, draft).is_err());
+    assert_eq!(feeds.sequence(session), sequence);
+    let feed = &feeds.0.lock().unwrap()[&session];
+    assert_eq!(feed.bytes, 2 * 1024 * 1024);
+    assert_eq!(feed.drafts[0].parts.len(), 1);
+    assert!(
+        matches!(&feed.drafts[0].parts[0],Part::Text(text) if text.len() == 2 * 1024 * 1024 - PART_OVERHEAD)
+    );
+
+    let (feeds, node, session, mut draft) = streaming();
+    draft.parts = vec![Part::Text("\n".repeat(1024 * 1024))];
+    assert!(feeds.delta(node, session, draft).is_err());
+    assert!(feeds.0.lock().unwrap()[&session].drafts.is_empty());
+}
+
 #[tokio::test]
 async fn recovers_overflow() {
     let node = NodeId([71; 32]);
@@ -36,8 +133,13 @@ async fn recovers_overflow() {
         page,
         missing: Vec::new(),
     };
-    let mut subscription =
-        feeds.subscribe(node, history.clone(), Default::default(), closed.clone());
+    let mut subscription = feeds.subscribe(
+        node,
+        history.clone(),
+        Default::default(),
+        Default::default(),
+        closed.clone(),
+    );
     assert!(matches!(
         subscription.next().await.unwrap(),
         Update::ConversationSnapshot(_)
@@ -59,7 +161,13 @@ async fn recovers_overflow() {
     }
     assert_eq!(subscription.next().await.unwrap(), Update::ResetRequired);
     drop(subscription);
-    let mut resumed = feeds.subscribe(node, history, Default::default(), closed.clone());
+    let mut resumed = feeds.subscribe(
+        node,
+        history,
+        Default::default(),
+        Default::default(),
+        closed.clone(),
+    );
     let Update::ConversationSnapshot(snapshot) = resumed.next().await.unwrap() else {
         panic!("snapshot expected")
     };

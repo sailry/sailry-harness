@@ -803,5 +803,11 @@
   "settingsUsageOutput": "出力",
   "settingsUsageDaily": "デイリー",
   "settingsUsageWeekly": "週間",
-  "settingsUtc": "UTC"
+  "settingsUtc": "UTC",
+  "artifactContents": "目次",
+  "artifactZoomIn": "拡大",
+  "artifactZoomOut": "縮小",
+  "artifactVersions": "バージョン",
+  "artifactFormRequired": "必須項目を入力してください",
+  "artifactReply": "「{title}」v{revision}（{id}/{form}）への回答"
 }

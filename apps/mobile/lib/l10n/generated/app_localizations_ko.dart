@@ -2070,4 +2070,24 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get settingsUtc => 'UTC';
+
+  @override
+  String get artifactContents => '목차';
+
+  @override
+  String get artifactZoomIn => '확대';
+
+  @override
+  String get artifactZoomOut => '축소';
+
+  @override
+  String get artifactVersions => '버전';
+
+  @override
+  String get artifactFormRequired => '필수 항목을 입력하세요';
+
+  @override
+  String artifactReply(String id, String revision, String title, String form) {
+    return '“$title” v$revision ($id/$form)에 대한 답변';
+  }
 }

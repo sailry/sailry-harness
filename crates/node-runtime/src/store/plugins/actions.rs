@@ -77,6 +77,25 @@ impl Database {
             (Some(action), None, None)
         } else {
             match &request.command {
+                Command::WriteArtifact(_) => (
+                    Some(Action::WriteArtifacts),
+                    context.worktree,
+                    context.session,
+                ),
+                Command::ListArtifacts { session, .. } => {
+                    (Some(Action::ReadArtifacts), None, Some(*session))
+                }
+                Command::ReadArtifact { id, session, .. }
+                | Command::ListArtifactRevisions { id, session, .. } => (
+                    Some(Action::ReadArtifacts),
+                    None,
+                    Some(super::super::artifacts::scope(
+                        &self.connection,
+                        request,
+                        *id,
+                        *session,
+                    )?),
+                ),
                 Command::QueryKnowledge(_)
                 | Command::ReadKnowledgeCitation(_)
                 | Command::ListKnowledgeCollections => (

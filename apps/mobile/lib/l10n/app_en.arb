@@ -803,5 +803,27 @@
   "settingsUsageOutput": "Output",
   "settingsUsageDaily": "Daily",
   "settingsUsageWeekly": "Weekly",
-  "settingsUtc": "UTC"
+  "settingsUtc": "UTC",
+  "artifactContents": "Contents",
+  "artifactZoomIn": "Zoom in",
+  "artifactZoomOut": "Zoom out",
+  "artifactVersions": "Versions",
+  "artifactFormRequired": "Complete required fields",
+  "artifactReply": "Reply to “{title}” v{revision} ({id}/{form})",
+  "@artifactReply": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      },
+      "revision": {
+        "type": "String"
+      },
+      "title": {
+        "type": "String"
+      },
+      "form": {
+        "type": "String"
+      }
+    }
+  }
 }

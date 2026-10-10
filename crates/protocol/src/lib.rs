@@ -1,7 +1,9 @@
 pub mod activity;
+pub mod artifact;
 pub mod attachment;
 pub mod backup;
 pub mod browser;
+pub mod chart;
 pub mod code;
 pub mod computer;
 mod config;

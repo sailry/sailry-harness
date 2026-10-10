@@ -1,0 +1,6 @@
+artifact_contents: "目录"
+artifact_form_reply: "回复「%{title}」（版本 %{revision}，表单 %{form}） [%{id}]"
+artifact_form_invalid: "表单无效"
+artifact_form_required: "请填写必填项"
+artifact_export_failed: "导出失败"
+artifact_close: "关闭"

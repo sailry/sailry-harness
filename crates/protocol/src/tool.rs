@@ -87,6 +87,14 @@ pub struct Flow {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub enum Operation {
+    #[serde(rename = "artifacts.read")]
+    ReadArtifact,
+    #[serde(rename = "artifacts.list")]
+    ListArtifacts,
+    #[serde(rename = "artifacts.revisions")]
+    ListArtifactRevisions,
+    #[serde(rename = "artifacts.write")]
+    WriteArtifact,
     #[serde(rename = "code.packages")]
     CodePackages,
     #[serde(rename = "code.install")]
@@ -229,6 +237,10 @@ impl Operation {
     pub fn action(self) -> Option<crate::plugin::Action> {
         use crate::plugin::Action;
         match self {
+            Self::ReadArtifact | Self::ListArtifacts | Self::ListArtifactRevisions => {
+                Some(Action::ReadArtifacts)
+            }
+            Self::WriteArtifact => Some(Action::WriteArtifacts),
             Self::InstallCodeServer | Self::UninstallCodeServer => Some(Action::ManageCode),
             Self::CodePackages
             | Self::CodeDiagnostics
@@ -298,6 +310,7 @@ impl Operation {
         !matches!(
             self,
             Self::InstallCodeServer
+                | Self::WriteArtifact
                 | Self::UninstallCodeServer
                 | Self::DelegateAgent
                 | Self::GuideAgent

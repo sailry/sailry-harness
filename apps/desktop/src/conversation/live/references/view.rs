@@ -1,7 +1,9 @@
 use super::*;
 use gpui_kit::component::{
+    Sizable,
     button::{Button, ButtonVariants},
     list::{List, ListDelegate, ListItem},
+    spinner::Spinner,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 
@@ -291,11 +293,7 @@ impl View {
                 body.child(div().h(px(height)).child(List::new(&state.list).h_full()))
             })
             .when(state.loading, |body| {
-                body.child(div().p_1().text_sm().child(tr(if commands {
-                    "plugins_loading"
-                } else {
-                    "files_loading"
-                })))
+                body.child(div().p_1().child(Spinner::new().small()))
             })
             .when(state.error || state.next.is_some(), |body| {
                 body.child(

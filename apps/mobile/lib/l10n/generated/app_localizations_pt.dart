@@ -2108,9 +2108,49 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get settingsUtc => 'UTC';
+
+  @override
+  String get artifactContents => 'Conteúdo';
+
+  @override
+  String get artifactZoomIn => 'Ampliar';
+
+  @override
+  String get artifactZoomOut => 'Reduzir';
+
+  @override
+  String get artifactVersions => 'Versões';
+
+  @override
+  String get artifactFormRequired => 'Preencha os campos obrigatórios';
+
+  @override
+  String artifactReply(String id, String revision, String title, String form) {
+    return 'Resposta a “$title” v$revision ($id/$form)';
+  }
 }
 
 /// The translations for Portuguese, as used in Brazil (`pt_BR`).
 class AppLocalizationsPtBr extends AppLocalizationsPt {
   AppLocalizationsPtBr() : super('pt_BR');
+
+  @override
+  String get artifactContents => 'Conteúdo';
+
+  @override
+  String get artifactZoomIn => 'Ampliar';
+
+  @override
+  String get artifactZoomOut => 'Reduzir';
+
+  @override
+  String get artifactVersions => 'Versões';
+
+  @override
+  String get artifactFormRequired => 'Preencha os campos obrigatórios';
+
+  @override
+  String artifactReply(String id, String revision, String title, String form) {
+    return 'Resposta a “$title” v$revision ($id/$form)';
+  }
 }

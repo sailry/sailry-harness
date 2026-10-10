@@ -1,0 +1,6 @@
+artifact_contents: "목차"
+artifact_form_reply: "%{title}에 답변 (버전 %{revision}, 양식 %{form}) [%{id}]"
+artifact_form_invalid: "유효하지 않은 양식"
+artifact_form_required: "필수 항목을 입력하세요"
+artifact_export_failed: "내보내기 실패"
+artifact_close: "닫기"

@@ -803,5 +803,11 @@
   "failureDenied": "没有操作权限",
   "failureUnavailable": "主机未连接",
   "failureBusy": "服务正忙，请稍后重试",
-  "failureGeneric": "操作失败"
+  "failureGeneric": "操作失败",
+  "artifactContents": "目录",
+  "artifactZoomIn": "放大",
+  "artifactZoomOut": "缩小",
+  "artifactVersions": "版本",
+  "artifactFormRequired": "请填写必填项",
+  "artifactReply": "关于「{title}」v{revision}（{id}/{form}）的回复"
 }

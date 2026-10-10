@@ -27,6 +27,7 @@ pub enum Block {
     },
     Diff(Diff),
     File(File),
+    Artifact(crate::artifact::Summary),
 }
 
 /// Literal output references avoid a second copy of streams in canonical history.
@@ -137,6 +138,7 @@ impl Content {
                 }
                 Block::Image { index } => images.insert(*index),
                 Block::File(file) => file.valid(),
+                Block::Artifact(artifact) => artifact.valid(),
                 Block::Diff(diff) => {
                     !diff.path.is_empty()
                         && diff.path.len() <= 4096

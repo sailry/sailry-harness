@@ -1,7 +1,7 @@
 use super::*;
 
-pub(super) struct Native {
-    pub(super) page: wry::WebView,
+pub(crate) struct Native {
+    pub(crate) page: wry::WebView,
     pub(super) frame: Cell<Option<(Bounds<Pixels>, Bounds<Pixels>)>>,
     visible: Cell<bool>,
     #[cfg(target_os = "macos")]
@@ -17,7 +17,7 @@ impl Native {
         )
     }
 
-    pub(super) fn build(builder: wry::WebViewBuilder<'_>, window: &Window) -> Result<Self, ()> {
+    pub(crate) fn build(builder: wry::WebViewBuilder<'_>, window: &Window) -> Result<Self, ()> {
         #[cfg(all(feature = "workload-tests", target_os = "macos"))]
         let builder = super::check::prepare(builder);
         let handle = HasWindowHandle::window_handle(window).map_err(|_| ())?;
@@ -64,7 +64,7 @@ impl Drop for Mount {
     }
 }
 
-pub(super) fn render(native: Rc<Native>, window: &mut Window, cx: &mut App) -> AnyElement {
+pub(crate) fn render(native: Rc<Native>, window: &mut Window, cx: &mut App) -> AnyElement {
     let mounted = native.clone();
     // Kit element state lasts through cached frames and is released on unmount,
     // even when the owning session retains its preview entity in the background.

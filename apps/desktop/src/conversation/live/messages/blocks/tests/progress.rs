@@ -116,6 +116,7 @@ fn updates_preserve_failures() {
             missing: vec![],
             drafts: vec![],
             statistics: Default::default(),
+            artifacts: Default::default(),
             page: Arc::new(page),
         })),
         ..Default::default()

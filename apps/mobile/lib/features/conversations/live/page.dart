@@ -26,6 +26,7 @@ import 'message_data.dart';
 import 'message_editor.dart';
 import 'search.dart';
 import 'turn_frame.dart';
+import '../../resources/artifact/submission.dart';
 
 part 'history_actions.dart';
 
@@ -67,8 +68,28 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
   final _edits = <String, String>{};
   final _turnKeys = <String, GlobalKey>{};
   ({String turn, int revision})? _reveal;
-  ({String request, String text, List<PickedAttachment> attachments})?
+  ({
+    String request,
+    String text,
+    List<PickedAttachment> attachments,
+    bool composer,
+  })?
   _pendingSend;
+  late final _artifactActions = ArtifactActions(
+    submit: _sendArtifact,
+    check: _checkSend,
+    writable: () =>
+        mounted &&
+        widget.host.connected &&
+        _view.value['connected'] == true &&
+        !_historyBusy &&
+        _historyPending == null &&
+        !_sending &&
+        _pendingSend == null &&
+        _session['archived'] != true &&
+        _session['delegation'] == null,
+    pending: () => _pendingSend != null,
+  );
   Object? _error;
   bool _watching = false;
 
@@ -123,6 +144,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
             !_scroll.hasClients || _scroll.position.extentBefore < 60;
         _error = null;
         _view.value = value;
+        _artifactActions.changed();
         _turnKeys.removeWhere(
           (turn, _) =>
               !objects(_page['runs']).any((run) => run['turn'] == turn),
@@ -156,7 +178,10 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
     }
   }
 
-  void _rebuild() => setState(() {});
+  void _rebuild() {
+    setState(() {});
+    _artifactActions.changed();
+  }
 
   void _retry() {
     if (!widget.host.connected && widget.host.error != null) {
@@ -174,6 +199,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
     if (updates != null) unawaited(updates.close());
     _draft.dispose();
     _scroll.dispose();
+    _artifactActions.dispose();
     _view.dispose();
     super.dispose();
   }
@@ -203,6 +229,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
     }
     final attachments = List<PickedAttachment>.of(_attachments);
     setState(() => _sending = true);
+    _artifactActions.changed();
     try {
       await _command('submit_turn', {
         'session': widget.sessionId,
@@ -230,35 +257,78 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
             request: error.request!,
             text: text,
             attachments: attachments,
+            composer: true,
           ),
         );
       }
       _failure(error);
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) {
+        setState(() => _sending = false);
+        _artifactActions.changed();
+      }
     }
   }
 
-  Future<void> _checkSend() async {
+  Future<bool> _checkSend() async {
     final pending = _pendingSend;
-    if (pending == null || _sending) return;
+    if (pending == null || _sending) return false;
     setState(() => _sending = true);
+    _artifactActions.changed();
     try {
       // Explicit reconciliation keeps the original durable request identity.
       await widget.host.execute(pending.request);
-      if (!mounted) return;
-      if (_draft.text == pending.text) _draft.clear();
+      if (!mounted) return false;
+      if (pending.composer && _draft.text == pending.text) _draft.clear();
       setState(() {
         _attachments.removeWhere(pending.attachments.contains);
         _pendingSend = null;
       });
+      return true;
     } catch (error) {
       if (error is CommandFailure && error.rejected && mounted) {
         setState(() => _pendingSend = null);
       }
       _failure(error);
+      return false;
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) {
+        setState(() => _sending = false);
+        _artifactActions.changed();
+      }
+    }
+  }
+
+  Future<void> _sendArtifact(String message) async {
+    if (!_artifactActions.writable()) throw const CommandFailure('unavailable');
+    setState(() => _sending = true);
+    _artifactActions.changed();
+    try {
+      await _command('submit_turn', {
+        'session': widget.sessionId,
+        'expected_revision': _session['revision'],
+        'message': {'text': message, 'attachments': <String>[]},
+      });
+    } catch (error) {
+      if (error is CommandFailure &&
+          error.code == 'outcome_unknown' &&
+          error.request != null &&
+          mounted) {
+        setState(
+          () => _pendingSend = (
+            request: error.request!,
+            text: message,
+            attachments: <PickedAttachment>[],
+            composer: false,
+          ),
+        );
+      }
+      rethrow;
+    } finally {
+      if (mounted) {
+        setState(() => _sending = false);
+        _artifactActions.changed();
+      }
     }
   }
 
@@ -593,6 +663,8 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                                     : null,
                                 canChangeHistory: _canChangeHistory,
                                 sending: _sending || _pendingSend != null,
+                                artifactActions: _artifactActions,
+                                artifactChanges: _view,
                                 canRestore: () => _canChangeHistory,
                                 turnKey: (turn) =>
                                     _turnKeys.putIfAbsent(turn, GlobalKey.new),

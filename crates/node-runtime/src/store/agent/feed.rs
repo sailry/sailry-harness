@@ -13,6 +13,8 @@ mod tests;
 pub(in crate::store) struct Feeds(Arc<Mutex<BTreeMap<SessionId, Feed>>>);
 
 const MAX_FINALIZED: usize = 4096;
+// Per retained Part, including the serialized string's enclosing quotes.
+const PART_OVERHEAD: usize = 34;
 
 struct Feed {
     sequence: u64,
@@ -124,6 +126,7 @@ impl Feeds {
             | Change::Question(_)
             | Change::Child(_)
             | Change::Statistics(_) => {}
+            Change::Artifact(_) => {}
         }
         feed.bytes = feed
             .drafts
@@ -155,30 +158,52 @@ impl Feeds {
         if draft.parts.is_empty() {
             return Ok(());
         }
-        let bytes: usize = draft.parts.iter().map(part_bytes).sum();
-        if feed.bytes + bytes > 2 * 1024 * 1024 {
+        let current = feed
+            .drafts
+            .iter()
+            .find(|current| current.id == draft.id && current.turn == draft.turn);
+        let mut previous = current.and_then(|current| current.parts.last());
+        let mut bytes = 0;
+        for part in &draft.parts {
+            let merged = matches!(
+                (previous, part),
+                (Some(Part::Text(_)), Part::Text(_)) | (Some(Part::Thinking(_)), Part::Thinking(_))
+            );
+            // Adjacent chunks share one retained Part and one pair of JSON quotes.
+            // Escaped text payload remains additive when the strings are joined.
+            bytes += part_bytes(part) - if merged { PART_OVERHEAD } else { 0 };
+            previous = Some(part);
+        }
+        let Some(total) = feed
+            .bytes
+            .checked_add(bytes)
+            .filter(|total| *total <= 2 * 1024 * 1024)
+        else {
             return Err(sailry_protocol::Fault::invalid(
                 "streaming output exceeds its buffer limit",
             ));
-        }
-        if let Some(current) = feed
+        };
+        let index = if let Some(index) = feed
             .drafts
-            .iter_mut()
-            .find(|current| current.id == draft.id && current.turn == draft.turn)
+            .iter()
+            .position(|current| current.id == draft.id && current.turn == draft.turn)
         {
-            for part in &draft.parts {
-                match (current.parts.last_mut(), part) {
-                    (Some(Part::Text(current)), Part::Text(text))
-                    | (Some(Part::Thinking(current)), Part::Thinking(text)) => {
-                        current.push_str(text)
-                    }
-                    _ => current.parts.push(part.clone()),
-                }
-            }
+            index
         } else {
-            feed.drafts.push(draft.clone());
+            let mut retained = draft.clone();
+            retained.parts.clear();
+            feed.drafts.push(retained);
+            feed.drafts.len() - 1
+        };
+        let current = &mut feed.drafts[index];
+        for part in &draft.parts {
+            match (current.parts.last_mut(), part) {
+                (Some(Part::Text(current)), Part::Text(text))
+                | (Some(Part::Thinking(current)), Part::Thinking(text)) => current.push_str(text),
+                _ => current.parts.push(part.clone()),
+            }
         }
-        feed.bytes += bytes;
+        feed.bytes = total;
         feed.send(node, session, Change::Delta(draft));
         Ok(())
     }
@@ -188,6 +213,7 @@ impl Feeds {
         node: NodeId,
         history: History,
         statistics: Statistics,
+        artifacts: sailry_protocol::artifact::Page,
         closed: CancellationToken,
     ) -> Box<dyn Subscription> {
         let mut feeds = self.0.lock().unwrap();
@@ -202,11 +228,15 @@ impl Feeds {
         let drafts_size = serde_json::to_vec(&feed.drafts)
             .expect("drafts are serializable")
             .len();
+        let resources_size = serde_json::to_vec(&(&artifacts, &statistics))
+            .expect("conversation resources are serializable")
+            .len();
         while !page.entries.is_empty()
             && serde_json::to_vec(&page)
                 .expect("conversation is serializable")
                 .len()
                 + drafts_size
+                + resources_size
                 > MAX_FRAME_BYTES - 64 * 1024
         {
             let turn = page.entries.remove(0).turn;
@@ -224,6 +254,7 @@ impl Feeds {
                     missing,
                     drafts: feed.drafts.clone(),
                     statistics,
+                    artifacts,
                 },
             )),
             updates: feed.updates.subscribe(),
@@ -238,7 +269,8 @@ fn part_bytes(part: &Part) -> usize {
             serde_json::to_vec(text)
                 .expect("text is serializable")
                 .len()
-                + 32
+                + PART_OVERHEAD
+                - 2
         }
         _ => 0,
     }
@@ -292,6 +324,14 @@ pub(in crate::store) fn package(database: &mut Database, name: &str) {
 }
 
 pub(in crate::store) fn command(database: &mut Database, output: &Output) {
+    if let Output::ArtifactWritten { artifact, .. } = output {
+        database.feeds.publish(
+            database.node,
+            artifact.session,
+            Change::Artifact(artifact.clone()),
+        );
+        return;
+    }
     if let Output::PluginTransaction(outputs) = output {
         for output in outputs {
             command(database, output);

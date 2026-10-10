@@ -1,3 +1,9 @@
 {
-  "@@locale": "pt_BR"
+  "@@locale": "pt_BR",
+  "artifactContents": "Conteúdo",
+  "artifactZoomIn": "Ampliar",
+  "artifactZoomOut": "Reduzir",
+  "artifactVersions": "Versões",
+  "artifactFormRequired": "Preencha os campos obrigatórios",
+  "artifactReply": "Resposta a “{title}” v{revision} ({id}/{form})"
 }

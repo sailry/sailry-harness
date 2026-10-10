@@ -7,6 +7,9 @@ mod activity;
 mod agent_support;
 #[path = "agent/approvals.rs"]
 mod approvals;
+#[cfg(unix)]
+#[path = "agent/artifacts.rs"]
+mod artifacts;
 #[path = "agent/browser.rs"]
 mod browser;
 #[path = "agent/checkpoints.rs"]

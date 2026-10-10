@@ -162,7 +162,10 @@ impl Client {
                                         ));
                                     }
                                     updates.send_modify(|view| {
-                                        view.replace(Arc::new(snapshot.clone()));
+                                        view.replace(
+                                            Arc::new(snapshot.clone()),
+                                            projection.artifact_cursor(),
+                                        );
                                         view.loading_older = load.is_some();
                                     });
                                 }

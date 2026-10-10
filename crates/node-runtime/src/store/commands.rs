@@ -11,6 +11,10 @@ pub(super) fn execute(
     request: &Request,
 ) -> Result<(Output, Option<Event>), Fault> {
     match &request.command {
+        Command::WriteArtifact(_)
+        | Command::ReadArtifact { .. }
+        | Command::ListArtifacts { .. }
+        | Command::ListArtifactRevisions { .. } => super::artifacts::execute(db, profile, request),
         Command::ReadKnowledgeSettings => super::knowledge::settings(db, request)
             .map(|settings| (Output::KnowledgeSettings(settings), None)),
         Command::ListKnowledgeCollections => super::knowledge::list(db, request)

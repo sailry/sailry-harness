@@ -1,0 +1,6 @@
+artifact_contents: "Contents"
+artifact_form_reply: "Reply to %{title} (version %{revision}, form %{form}) [%{id}]"
+artifact_form_invalid: "Invalid form"
+artifact_form_required: "Complete the required fields"
+artifact_export_failed: "Could not export"
+artifact_close: "Close"

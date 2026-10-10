@@ -46,6 +46,20 @@ CREATE TABLE IF NOT EXISTS session_attention (
     revision INTEGER NOT NULL,
     unread INTEGER NOT NULL CHECK(unread IN (0,1))
 );
+CREATE TABLE IF NOT EXISTS artifacts (
+    id TEXT PRIMARY KEY,
+    session TEXT NOT NULL REFERENCES sessions(id),
+    body BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS artifact_session ON artifacts(session);
+CREATE TABLE IF NOT EXISTS artifact_revisions (
+    artifact TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL CHECK(revision>0),
+    body BLOB NOT NULL,
+    digest TEXT NOT NULL,
+    warnings BLOB NOT NULL,
+    PRIMARY KEY(artifact,revision)
+);
 CREATE TABLE IF NOT EXISTS worktrees (
     id TEXT PRIMARY KEY,
     project TEXT REFERENCES projects(id),

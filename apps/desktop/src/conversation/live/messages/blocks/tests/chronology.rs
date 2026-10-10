@@ -108,6 +108,7 @@ fn history() -> (TurnId, View) {
             missing: vec![],
             drafts: vec![],
             statistics: Default::default(),
+            artifacts: Default::default(),
             page: Arc::new(Page {
                 session,
                 revision: 1,

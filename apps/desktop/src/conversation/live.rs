@@ -29,6 +29,7 @@ mod connection;
 mod context;
 mod contributions;
 mod controls;
+mod documents;
 mod draft;
 mod export;
 mod forks;
@@ -87,6 +88,7 @@ pub(crate) enum Event {
     FileAt(WorktreeId, String),
     DirectoryAt(WorktreeId, String),
     Artifact(WorktreeId, sailry_protocol::tool::File),
+    Document(sailry_protocol::artifact::Summary),
     ArtifactExternal(WorktreeId, String),
     Settings(NodeId),
     DictationSettings,

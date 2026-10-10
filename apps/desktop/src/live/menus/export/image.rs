@@ -8,7 +8,7 @@ pub(crate) mod check;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod native;
 
-pub(super) fn assets(directory: &std::path::Path) -> Result<(), &'static str> {
+pub(crate) fn assets(directory: &std::path::Path) -> Result<(), &'static str> {
     for (name, source) in [
         (
             "config.js",
@@ -99,7 +99,7 @@ pub(super) fn decorate(html: &str, assets: &str) -> String {
     html.replace("</head>", &format!("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; font-src data:; connect-src 'none'; frame-src 'self'; base-uri 'none'; object-src 'none'\"><style>html{{background:#fff;color:#20242b}}body{{max-width:900px;margin:0 auto;padding:32px;font:18px/1.7 system-ui}}pre{{white-space:pre-wrap;overflow-wrap:anywhere}}table{{width:100%;font-size:15px}}.export-visual{{max-width:100%;height:auto}}mjx-container{{max-width:100%;overflow:auto}}</style>{scripts}</head>"))
 }
 
-pub(super) fn render(
+pub(crate) fn render(
     html: String,
     assets: String,
     directory: PathBuf,

@@ -685,5 +685,16 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'settingsUsageDaily' => strings.settingsUsageDaily,
   'settingsUsageWeekly' => strings.settingsUsageWeekly,
   'settingsUtc' => strings.settingsUtc,
+  'artifactContents' => strings.artifactContents,
+  'artifactZoomIn' => strings.artifactZoomIn,
+  'artifactZoomOut' => strings.artifactZoomOut,
+  'artifactVersions' => strings.artifactVersions,
+  'artifactFormRequired' => strings.artifactFormRequired,
+  'artifactReply' => strings.artifactReply(
+    '{id}',
+    '{revision}',
+    '{title}',
+    '{form}',
+  ),
   _ => null,
 };

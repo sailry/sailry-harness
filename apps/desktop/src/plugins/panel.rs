@@ -17,6 +17,7 @@ pub(crate) struct Panel {
     pub(crate) documents: Option<Entity<super::documents::Controller>>,
     pub(crate) pending_document: Option<super::documents::routes::OpenTarget>,
     pub(crate) artifact: Option<super::previews::Resource>,
+    pub(super) document: Option<super::artifact::Resource>,
     pub(super) pane: Option<super::panes::Resource>,
     pub(super) pane_events: super::panes::Events,
     pub(super) pane_focus: bool,
@@ -265,6 +266,7 @@ impl Panel {
             documents: None,
             pending_document: None,
             artifact: None,
+            document: None,
             pane: None,
             pane_events: Default::default(),
             pane_focus: false,
@@ -696,6 +698,7 @@ impl Panel {
                                     .contains(&sailry_protocol::plugin::Action::WriteFiles),
                             },
                             artifact: panel.artifact.clone(),
+                            document: panel.document.clone(),
                             usage_sources: panel.usage_sources.clone(),
                             activity_sources: panel.activity_sources.clone(),
                             file_transfers: super::file_transfers::Scope {

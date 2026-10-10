@@ -1,5 +1,6 @@
 mod admission;
 pub(crate) mod agent;
+mod artifacts;
 mod attachments;
 mod backup;
 mod code;
@@ -1067,10 +1068,11 @@ impl Store {
                             request,
                             reply,
                         } => {
-                            let reply = if matches!(request.command, sailry_protocol::Command::RemoveSession { .. }) {
-                                admission::release_removed(computer.clone(), cleanup_commands.clone(), attachment_profile.clone(), &cleanup_runtime, reply)
+                            let (reply, artifact_cleanup) = if matches!(request.command, sailry_protocol::Command::RemoveSession { .. }) {
+                                let (send, cleanup) = oneshot::channel();
+                                (admission::release_removed(computer.clone(), cleanup_commands.clone(), attachment_profile.clone(), &cleanup_runtime, reply, cleanup), Some(send))
                             } else {
-                                reply
+                                (reply, None)
                             };
                             let code_settings = code::configures(&request.command);
                             let (reply, code_completion) = if code_settings {
@@ -1183,6 +1185,9 @@ impl Store {
                                     );
                                     let _ = reply.send(result);
                                 }
+                            }
+                            if let Some(cleanup) = artifact_cleanup {
+                                let _ = cleanup.send(artifacts::cleanup(&database.connection));
                             }
                             if let Some((reply, completion)) = code_completion {
                                 let result = completion.blocking_recv().unwrap_or_else(|_| Err(unavailable()));

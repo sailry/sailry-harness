@@ -67,6 +67,8 @@ tokio = { workspace = true, features = ["fs", "process"] }
 thiserror.workspace = true
 dirs.workspace = true
 sailry-protocol.workspace = true
+ammonia.workspace = true
+html5ever.workspace = true
 sailry-embedding.workspace = true
 sailry-ocr.workspace = true
 hayro.workspace = true

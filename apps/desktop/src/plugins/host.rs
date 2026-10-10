@@ -1,5 +1,6 @@
 //! A view's request drafts use the existing Client and Node admission ledger.
 pub(crate) mod activity;
+mod artifacts;
 mod changes;
 pub(super) mod sdk;
 mod settings;

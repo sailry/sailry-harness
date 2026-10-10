@@ -136,3 +136,25 @@ fn permits_reads_and_rejects_resource_writes() {
         check_action(db, coding, &command, Some(&action)).unwrap();
     }
 }
+
+#[test]
+fn permits_only_the_captured_artifact_effect() {
+    let (fixture, turn, _) = fixture();
+    let command = Command::WriteArtifact(sailry_protocol::artifact::Write {
+        id: None,
+        expected_revision: None,
+        title: "Options".into(),
+        summary: String::new(),
+        html: "<h1>Options</h1>".into(),
+    });
+    let db = &fixture.database.connection;
+    check_action(db, turn, &command, Some(&Action::WriteArtifacts)).unwrap();
+    for action in [None, Some(Action::WriteStorage), Some(Action::WriteFiles)] {
+        assert_eq!(
+            check_action(db, turn, &command, action.as_ref())
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+    }
+}

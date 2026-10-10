@@ -2107,4 +2107,24 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get settingsUtc => 'UTC';
+
+  @override
+  String get artifactContents => 'Содержание';
+
+  @override
+  String get artifactZoomIn => 'Увеличить';
+
+  @override
+  String get artifactZoomOut => 'Уменьшить';
+
+  @override
+  String get artifactVersions => 'Версии';
+
+  @override
+  String get artifactFormRequired => 'Заполните обязательные поля';
+
+  @override
+  String artifactReply(String id, String revision, String title, String form) {
+    return 'Ответ к «$title» v$revision ($id/$form)';
+  }
 }

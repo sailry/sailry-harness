@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub enum Action {
+    #[serde(rename = "artifacts.read")]
+    ReadArtifacts,
+    #[serde(rename = "artifacts.write")]
+    WriteArtifacts,
     #[serde(rename = "code.read")]
     ReadCode,
     #[serde(rename = "code.manage")]
@@ -115,6 +119,7 @@ impl Action {
         matches!(
             self,
             Self::ReadCode
+                | Self::ReadArtifacts
                 | Self::ReadCodeSettings
                 | Self::ReadSearchSettings
                 | Self::ReadActivity

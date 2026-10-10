@@ -441,11 +441,14 @@ pub struct Snapshot {
     pub missing: Vec<TurnId>,
     pub drafts: Vec<Draft>,
     pub statistics: Statistics,
+    #[serde(default)]
+    pub artifacts: crate::artifact::Page,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Change {
+    Artifact(crate::artifact::Summary),
     /// Published only after the canonical event transaction commits.
     Entry(Entry),
     Statistics(Statistics),

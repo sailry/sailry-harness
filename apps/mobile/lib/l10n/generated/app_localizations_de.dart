@@ -2116,4 +2116,24 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get settingsUtc => 'UTC';
+
+  @override
+  String get artifactContents => 'Inhalt';
+
+  @override
+  String get artifactZoomIn => 'Vergrößern';
+
+  @override
+  String get artifactZoomOut => 'Verkleinern';
+
+  @override
+  String get artifactVersions => 'Versionen';
+
+  @override
+  String get artifactFormRequired => 'Pflichtfelder ausfüllen';
+
+  @override
+  String artifactReply(String id, String revision, String title, String form) {
+    return 'Antwort zu „$title“ v$revision ($id/$form)';
+  }
 }

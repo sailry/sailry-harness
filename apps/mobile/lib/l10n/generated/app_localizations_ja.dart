@@ -2068,4 +2068,24 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get settingsUtc => 'UTC';
+
+  @override
+  String get artifactContents => '目次';
+
+  @override
+  String get artifactZoomIn => '拡大';
+
+  @override
+  String get artifactZoomOut => '縮小';
+
+  @override
+  String get artifactVersions => 'バージョン';
+
+  @override
+  String get artifactFormRequired => '必須項目を入力してください';
+
+  @override
+  String artifactReply(String id, String revision, String title, String form) {
+    return '「$title」v$revision（$id/$form）への回答';
+  }
 }

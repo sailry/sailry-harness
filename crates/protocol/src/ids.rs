@@ -57,6 +57,7 @@ identifier!(
     TerminalId,
     StreamId,
     AttachmentId,
+    ArtifactId,
     CredentialId,
     RoleId,
     SshId,

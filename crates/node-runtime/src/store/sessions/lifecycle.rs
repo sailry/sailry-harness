@@ -63,6 +63,7 @@ pub(in crate::store) fn remove(
         )
         .map_err(storage_error)?;
     }
+    crate::store::artifacts::prune(db)?;
     Ok((
         Output::SessionsRemoved(ids.clone()),
         Some(Event::SessionsRemoved(ids)),

@@ -1,0 +1,6 @@
+artifact_contents: "Содержание"
+artifact_form_reply: "Ответ на %{title} (версия %{revision}, форма %{form}) [%{id}]"
+artifact_form_invalid: "Недопустимая форма"
+artifact_form_required: "Заполните обязательные поля"
+artifact_export_failed: "Не удалось экспортировать"
+artifact_close: "Закрыть"

@@ -14,6 +14,20 @@ pub(in crate::conversation::live) struct Actions {
 }
 
 impl Actions {
+    #[cfg(test)]
+    pub(in crate::conversation::live) fn pending_children(&self) -> usize {
+        self.children
+            .values()
+            .filter(|child| {
+                child.history.calls.iter().any(|call| {
+                    call.approval
+                        .as_ref()
+                        .is_some_and(|approval| approval.state == ApprovalState::Pending)
+                })
+            })
+            .count()
+    }
+
     pub(in crate::conversation::live) fn observe(&mut self, history: &History) {
         let pending: Vec<_> = history
             .snapshot

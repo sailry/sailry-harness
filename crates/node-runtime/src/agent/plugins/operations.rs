@@ -7,6 +7,7 @@ use sailry_link::{Local, Transport};
 use sailry_protocol::{Command, Request, plugin, tool::Operation};
 use serde_json::{Value, json};
 
+mod artifacts;
 mod commands;
 mod connections;
 mod files;
@@ -41,7 +42,8 @@ pub(super) fn bind(
                 )
                 || (invocation.connections.bound.is_some()
                     && invocation.turn.config.assistant.is_none()
-                    && declaration.contexts.is_empty())
+                    && declaration.contexts.is_empty()
+                    && !artifacts::handles(operation))
                 || !declaration.available_on(std::env::consts::OS)
                 || !declaration.available_in(invocation.project, invocation.connections.bound)
                 || !available(ingress, invocation, operation)
@@ -90,7 +92,10 @@ pub(super) fn bind(
             };
             let mut registration = if matches!(
                 operation,
-                Operation::DelegateAgent | Operation::GuideAgent | Operation::WaitAgent
+                Operation::DelegateAgent
+                    | Operation::GuideAgent
+                    | Operation::WaitAgent
+                    | Operation::WriteArtifact
             ) {
                 ToolRegistration::managed(tool)
             } else {
@@ -111,6 +116,7 @@ pub(super) fn bind(
 
 pub(super) fn available(ingress: &Ingress, invocation: &Invocation, operation: Operation) -> bool {
     match operation {
+        Operation::WriteArtifact => invocation.child.is_none(),
         operation
             if crate::code::handles(operation) || crate::code::management::handles(operation) =>
         {
@@ -375,6 +381,7 @@ impl HostOperation {
             let mut value = serde_json::to_value(&output)
                 .map_err(|error| Fault::new(ErrorCode::Internal, error.to_string()))?;
             commands::annotate(&output, &mut value, workspace);
+            artifacts::annotate(&output, &mut value);
             if self.ingress.code.after_edit()
                 && matches!(self.operation, Operation::WriteFile | Operation::EditFile)
                 && let sailry_protocol::Output::FileWritten(written) = &output
@@ -490,6 +497,23 @@ impl HostOperation {
                 })??;
             }
             if !self.is_read_only() {
+                if self.operation == Operation::WriteArtifact {
+                    self.ingress
+                        .confirm(
+                            self.turn,
+                            adk_core::ToolConfirmationRequest {
+                                tool_name: self.name.clone(),
+                                function_call_id: Some(context.function_call_id().into()),
+                                args: authorized_arguments.clone(),
+                            },
+                            Some(crate::store::agent::ApprovalBinding {
+                                owner: self.context.package.clone(),
+                                tool: self.name.clone(),
+                                operation: Some(self.operation),
+                            }),
+                        )
+                        .await?;
+                }
                 let id = self
                     .authorize(
                         context.as_ref(),

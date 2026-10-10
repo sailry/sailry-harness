@@ -5,7 +5,8 @@ use std::sync::OnceLock;
 use tokio::sync::{Semaphore, mpsc, watch};
 
 pub(in crate::plugins::host) struct Subscription {
-    receiver: OnceLock<watch::Receiver<sailry_client::conversation::View>>,
+    pub(in crate::plugins::host) receiver:
+        OnceLock<watch::Receiver<sailry_client::conversation::View>>,
     pending: Arc<Semaphore>,
 }
 

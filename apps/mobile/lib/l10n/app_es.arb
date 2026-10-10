@@ -803,5 +803,11 @@
   "settingsUsageOutput": "Salida",
   "settingsUsageDaily": "Diariamente",
   "settingsUsageWeekly": "Semanal",
-  "settingsUtc": "UTC"
+  "settingsUtc": "UTC",
+  "artifactContents": "Contenido",
+  "artifactZoomIn": "Acercar",
+  "artifactZoomOut": "Alejar",
+  "artifactVersions": "Versiones",
+  "artifactFormRequired": "Completa los campos obligatorios",
+  "artifactReply": "Respuesta a «{title}» v{revision} ({id}/{form})"
 }

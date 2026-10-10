@@ -19,13 +19,26 @@ pub(super) fn source(
     request: &ToolConfirmationRequest,
 ) -> Result<ApprovalSource, Fault> {
     let config = config(db, turn)?;
+    let operation = super::plugins::operation(db, turn, &request.tool_name)?;
+    if operation == Some(sailry_protocol::tool::Operation::WriteArtifact) {
+        let run = super::calls::active(db, turn)?;
+        if super::super::commands::session(db, run.session)?
+            .delegation
+            .is_some()
+        {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "delegated sessions cannot write artifacts",
+            ));
+        }
+        return Ok(ApprovalSource::Storage);
+    }
     if config.mode == sailry_protocol::WorkMode::Plan {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
             "planning turns cannot authorize tools with side effects",
         ));
     }
-    let operation = super::plugins::operation(db, turn, &request.tool_name)?;
     if operation == Some(sailry_protocol::tool::Operation::RunCommand) {
         let access = super::super::sandbox::effective(db, &request.args)?;
         return Ok(

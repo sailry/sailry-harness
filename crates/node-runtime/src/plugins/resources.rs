@@ -6,6 +6,7 @@ use sailry_protocol::plugin::{Reference, Skill};
 use std::{collections::BTreeMap, sync::Arc};
 use tokio::sync::OnceCell;
 
+mod artifacts;
 mod desktop;
 mod host;
 pub(crate) mod mcp;

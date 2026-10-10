@@ -12,7 +12,7 @@ mod documents;
 #[path = "preview/pointer.rs"]
 mod pointer;
 #[path = "preview/surface.rs"]
-mod surface;
+pub(crate) mod surface;
 #[cfg(test)]
 #[path = "preview/tests.rs"]
 mod tests;

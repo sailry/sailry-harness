@@ -2,6 +2,9 @@
 use super::*;
 
 pub(super) fn description(operation: Operation) -> &'static str {
+    if artifacts::handles(operation) {
+        return "Access versioned HTML artifacts owned by this conversation";
+    }
     if crate::code::management::handles(operation) {
         return crate::code::management::description(operation);
     }
@@ -12,6 +15,10 @@ pub(super) fn description(operation: Operation) -> &'static str {
         return knowledge::description(operation);
     }
     match operation {
+        Operation::WriteArtifact
+        | Operation::ReadArtifact
+        | Operation::ListArtifacts
+        | Operation::ListArtifactRevisions => unreachable!("artifact operation handled above"),
         Operation::KnowledgeQuery
         | Operation::KnowledgeRead
         | Operation::KnowledgeCollections
@@ -99,6 +106,9 @@ pub(super) fn description(operation: Operation) -> &'static str {
 }
 
 pub(super) fn parameters(operation: Operation) -> Value {
+    if artifacts::handles(operation) {
+        return artifacts::parameters(operation);
+    }
     if crate::code::management::handles(operation) {
         return crate::code::management::parameters(operation);
     }
@@ -134,6 +144,10 @@ pub(super) fn parameters(operation: Operation) -> Value {
     let key = json!({"type":"string", "minLength":1, "maxLength":plugin::storage::MAX_KEY_BYTES});
     let revision = json!({"type":"integer", "minimum":0});
     let (properties, required) = match operation {
+        Operation::WriteArtifact
+        | Operation::ReadArtifact
+        | Operation::ListArtifacts
+        | Operation::ListArtifactRevisions => unreachable!("artifact operation handled above"),
         Operation::KnowledgeQuery
         | Operation::KnowledgeRead
         | Operation::KnowledgeCollections
@@ -271,6 +285,9 @@ pub(super) fn command(
     arguments: Value,
     context: &plugin::Context,
 ) -> Result<Command, Fault> {
+    if artifacts::handles(operation) {
+        return artifacts::command(operation, arguments, context);
+    }
     if crate::code::management::handles(operation) {
         return crate::code::management::command(operation, arguments, context);
     }
@@ -576,6 +593,10 @@ pub(super) fn command(
         | Operation::WriteCommand
         | Operation::ReadExternalBrowser
         | Operation::ControlExternalBrowser
+        | Operation::ReadArtifact
+        | Operation::ListArtifacts
+        | Operation::ListArtifactRevisions
+        | Operation::WriteArtifact
         | Operation::ReadBrowser
         | Operation::ControlBrowser => unreachable!(),
     };

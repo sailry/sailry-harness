@@ -17,6 +17,7 @@ mod blocks;
 pub(super) mod changes;
 mod citations;
 mod compaction;
+mod document;
 mod files;
 mod frame;
 mod grounding;

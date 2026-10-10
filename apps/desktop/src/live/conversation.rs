@@ -9,6 +9,7 @@ use crate::{
 #[cfg(test)]
 use gpui_kit::component::*;
 use sailry_protocol::{Session, SessionId};
+mod artifact;
 mod children;
 mod draft;
 mod references;
@@ -280,6 +281,10 @@ impl Shell {
                 Event::Artifact(worktree, file) => {
                     shell.focus_chat_pane(view, window, cx);
                     shell.open_artifact(view.clone(), *worktree, file.clone(), window, cx);
+                }
+                Event::Document(artifact) => {
+                    shell.focus_chat_pane(view, window, cx);
+                    shell.open_session_document(view.clone(), artifact.clone(), window, cx);
                 }
                 Event::ArtifactExternal(worktree, path) => {
                     let binding = view.read(cx).binding();

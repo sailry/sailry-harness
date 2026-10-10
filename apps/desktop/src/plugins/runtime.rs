@@ -29,6 +29,7 @@ pub(super) struct Scopes {
     pub resource: Option<Entity<super::resource::State>>,
     pub documents: super::documents::Scope,
     pub artifact: Option<super::previews::Resource>,
+    pub document: Option<super::artifact::Resource>,
     pub usage_sources: super::usage::Sources,
     pub activity_sources: super::host::activity::Sources,
     pub file_transfers: super::file_transfers::Scope,
@@ -76,6 +77,7 @@ impl Mounted {
             resource,
             documents,
             artifact,
+            document,
             usage_sources,
             activity_sources,
             file_transfers,
@@ -224,6 +226,7 @@ impl Mounted {
         let ssh_transfers = super::ssh_transfers::module(owner.clone(), host.clone(), drops, cx);
         let file_transfers = super::file_transfers::module(file_transfers, host.clone(), cx);
         let documents = super::documents::module(documents, host.clone(), cx);
+        let artifacts = super::artifact::module(document, host.clone(), window);
         let (ui, composer) = super::composer::extend(ui, composer, host.clone(), window, cx);
         let (ui, location) =
             super::location::extend(ui, location, owner.clone(), host.clone(), window, cx);
@@ -242,6 +245,7 @@ impl Mounted {
             .with_host_module(super::credentials::module(credentials))?
             .with_host_module(file_transfers)?
             .with_host_module(documents)?
+            .with_host_module(artifacts)?
             .with_host_module(super::forms::module())?
             .with_host_module(super::panes::module(ui, owner, host.clone(), pane))?;
         #[cfg(test)]

@@ -15,6 +15,8 @@ pub(in crate::store) fn check_action(
         return Ok(());
     }
     let allowed = action.is_some_and(Action::read_only)
+        || (matches!(command, Command::WriteArtifact(_))
+            && action == Some(&Action::WriteArtifacts))
         || matches!(
             command,
             Command::ReadPluginSettings { .. }

@@ -204,6 +204,21 @@ pub(super) fn capture(
     drop(destination);
     snapshot.database(cancel)?;
     let mut roots = vec!["link.key".into()];
+    let mut artifacts = database
+        .connection
+        .prepare("SELECT session,id FROM artifacts ORDER BY session,id")
+        .map_err(storage_error)?;
+    for row in artifacts
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(storage_error)?
+    {
+        let (session, id) = row.map_err(storage_error)?;
+        crate::files::path::components(&session, false)?;
+        crate::files::path::components(&id, false)?;
+        roots.push(format!("artifacts/{session}/{id}"));
+    }
     for (query, prefix) in [
         (
             "SELECT digest FROM plugin_packages ORDER BY digest",

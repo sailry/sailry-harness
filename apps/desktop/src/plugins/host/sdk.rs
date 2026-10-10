@@ -237,7 +237,7 @@ impl Host {
         Ok(HostValue::from(id.to_string()))
     }
 
-    pub(super) fn read_public(
+    pub(in crate::plugins::host) fn read_public(
         self: &Arc<Self>,
         command: Command,
     ) -> Result<

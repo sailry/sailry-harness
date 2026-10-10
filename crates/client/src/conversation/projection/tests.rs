@@ -2,6 +2,7 @@ use super::*;
 use sailry_protocol::conversation::{Entry, Frame, Run};
 
 mod approvals;
+mod artifacts;
 mod children;
 mod forks;
 mod history;
@@ -26,6 +27,7 @@ fn fixture() -> (Projection, Snapshot, Run, Draft) {
         origin: None,
     };
     let snapshot = Snapshot {
+        artifacts: Default::default(),
         node,
         sequence: 10,
         missing: Vec::new(),

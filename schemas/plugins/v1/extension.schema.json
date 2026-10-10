@@ -4,6 +4,8 @@
       "oneOf": [
         {
           "enum": [
+            "artifacts.read",
+            "artifacts.write",
             "code.read",
             "code.manage",
             "code.settings.read",
@@ -787,6 +789,14 @@
       ],
       "type": "string"
     },
+    "Library": {
+      "enum": [
+        "mermaid",
+        "echarts",
+        "mathjax"
+      ],
+      "type": "string"
+    },
     "Manifest": {
       "additionalProperties": false,
       "properties": {
@@ -1030,6 +1040,10 @@
     },
     "Operation": {
       "enum": [
+        "artifacts.read",
+        "artifacts.list",
+        "artifacts.revisions",
+        "artifacts.write",
         "code.packages",
         "code.install",
         "code.uninstall",
@@ -1782,6 +1796,39 @@
         "initialize"
       ],
       "type": "object"
+    },
+    "View": {
+      "additionalProperties": false,
+      "properties": {
+        "libraries": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Library"
+          },
+          "type": "array"
+        },
+        "scripts": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "styles": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "template": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "template"
+      ],
+      "type": "object"
     }
   },
   "$id": "urn:sailry:schema:extension:v1",
@@ -1798,6 +1845,17 @@
     "api_version": {
       "const": "v1",
       "type": "string"
+    },
+    "artifact_view": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/View"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Shared HTML resource surfaces load this package-owned presentation."
     },
     "credential_source": {
       "anyOf": [

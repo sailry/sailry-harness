@@ -20,9 +20,15 @@ pub(crate) struct Scenario {
     sessions: [(NodeId, Session); 2],
     browser: bool,
     capture: bool,
+    document: Option<Arc<crate::agent_fixture::Server>>,
 }
 
 pub(super) fn run(output: &Path) {
+    #[cfg(target_os = "macos")]
+    if std::env::var("SAILRY_WORKLOAD_CASE").is_ok_and(|value| value == "html-brief") {
+        crate::plugins::verify_document(output);
+        return;
+    }
     #[cfg(target_os = "macos")]
     if std::env::var("SAILRY_WORKLOAD_CASE")
         .is_ok_and(|value| matches!(value.as_str(), "native-menus" | "native-menu-actions"))
@@ -55,6 +61,21 @@ pub(super) fn run(output: &Path) {
             .unwrap(),
     );
     let case = std::env::var("SAILRY_WORKLOAD_CASE").unwrap_or_default();
+    #[cfg(target_os = "macos")]
+    if case == "html-brief-flow" {
+        let (remote, server, sessions) =
+            runtime.block_on(crate::plugins::prepare_document(directory.path()));
+        crate::run(Scenario {
+            profile: directory.path().join("local"),
+            output: output.to_owned(),
+            sessions,
+            browser: false,
+            capture: false,
+            document: Some(server),
+        });
+        runtime.block_on(remote.shutdown()).unwrap();
+        return;
+    }
     let browser = matches!(case.as_str(), "browser" | "browser-interactions");
     let capture = case == "browser";
     let page = browser.then(|| runtime.block_on(browser::Page::start()));
@@ -69,6 +90,7 @@ pub(super) fn run(output: &Path) {
         sessions,
         browser,
         capture,
+        document: None,
     });
     runtime.block_on(remote.shutdown()).unwrap();
     drop(server);
@@ -82,6 +104,19 @@ pub(crate) fn attach(
 ) {
     window
         .spawn(cx, async move |cx| {
+            #[cfg(target_os = "macos")]
+            if let Some(server) = scenario.document.clone() {
+                crate::plugins::verify_document_flow(
+                    &scenario.output,
+                    scenario.sessions,
+                    server,
+                    shell,
+                    cx,
+                )
+                .await;
+                cx.update(|_, cx| cx.quit()).unwrap();
+                return;
+            }
             if scenario.browser {
                 browser::run(scenario, shell, cx).await;
             } else {

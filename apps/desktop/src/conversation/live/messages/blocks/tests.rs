@@ -58,6 +58,7 @@ fn preserves_image_message_boundaries() {
             missing: vec![],
             drafts: vec![],
             statistics: Default::default(),
+            artifacts: Default::default(),
             page: Arc::new(Page {
                 session: SessionId::new(),
                 revision: 1,
@@ -126,6 +127,7 @@ fn retains_text_boundaries() {
             missing: Vec::new(),
             drafts: Vec::new(),
             statistics: Default::default(),
+            artifacts: Default::default(),
             page: Arc::new(Page {
                 session: SessionId::new(),
                 revision: 1,

@@ -146,11 +146,56 @@ Conversation components are available in workspace and resource panels, includin
 
 Declare `ui` entries in `extensions.dev.sailry.platform`: a slot (`composer`, `context`, `statistics`), kind, localized label, icon, order and named handler. An optional `desktop.ui_entry` runs the state/event module. Publish state through `publishContributions` and consume actions through `nextContributionEvent`; responses include the event sequence in `reply_to`. Actions stay disabled until their matching reply, while searches can supersede earlier searches. The host renders normal and compact controls from the same declarations. Controls with `overflow: "menu"` appear in composer settings, including context controls; embedded conversations also place their context controls there. Metric details join the shared statistics popover.
 
-Tools can bind public operations (`progress.update`, `storage.get/list/set/delete`, `settings.read`, `http.request`) without an MCP server. Declare each operation's required action. Node owns approval, planning restrictions, cancellation and durable outcomes; a desktop JavaScript callback is not an Agent tool implementation.
+Tools can bind public operations (`progress.update`, `storage.get/list/set/delete`, `settings.read`, `http.request`, `artifacts.write/read/list`) without an MCP server. Declare each operation's required action. Node owns approval, planning restrictions, cancellation and durable outcomes; a desktop JavaScript callback is not an Agent tool implementation.
 
 The delegation package binds `agents.delegate`, `agents.guide` and `agents.wait` with the `agents.delegate` action. Delegation is synchronous unless `background: true` is requested. Background admission returns the child session and turn; guidance takes that session and a message, and waiting observes its canonical outcome. Guidance and waiting are native tools, not callback flow steps. Only the running main session can control its children. Children keep their captured permissions and configuration, and approval remains required where that capture requires it. Main guidance can interrupt a wait at the settled tool-batch boundary without cancelling background children; explicit Stop cancels them.
 
 `requestHttp` runs on the captured Node and returns a durable request ID. It accepts UTF-8 text, a maximum 1 MiB body and a 1–60000 ms timeout (default 30000). Response headers preserve repeated values. Redirects and retries are disabled. A named credential comes from a secret schema field with `origin`, `header` and optional `prefix`; only Node injects it into that origin. An interrupted or oversized response reports an unknown outcome, and retrying the original ID never resends the request.
+
+## Session HTML documents
+
+Declare `artifact_view` in `extensions.dev.sailry.platform` with a package-relative
+`template`, ordered `styles` and `scripts` paths, and optional `libraries` containing
+`mermaid`, `echarts` or `mathjax`. All resources must be declared in the package.
+The Node freezes these assets with each revision. The built-in Brief package owns
+its prompts, HTML examples, preview controls and export menu; the host dispatches
+by the captured declaration rather than a package name.
+
+Native tools bind `artifacts.write`, `artifacts.read` or `artifacts.list` and declare
+`artifacts.write` or `artifacts.read` actions. Write accepts `title`, `summary` and
+`html`; updates also require `id` and `expected_revision`. Fragments allow headings,
+text, tables, bounded forms, diagram/math source and validated chart JSON, up to
+512 KiB. Scripts, remote assets and executable attributes are removed. The receipt
+contains a typed document card and sanitization warnings, never the renderer assets.
+Only a running main session may write; Plan mode permits this exact native operation
+into profile-owned document storage, without broader write permission.
+
+The controller `sailry/artifacts` module is scoped to an opened document card.
+`artifactResource()` returns its ID, captured conversation and an optional inherited
+revision. `readArtifact(id, revision?)` reads
+the latest or an exact immutable revision; `listArtifactRevisions(id, before?)`
+returns bounded pages. `nextArtifactChange(cursor?)` observes coalesced canonical
+changes and connection state. `ArtifactSurface.new(id, {artifact, revision?, labels?})`
+mounts the frozen package renderer; omitting revision follows the latest, while an
+explicit revision pins it. `nextArtifactEvent()` delivers editing events so package
+controls can pin a draft too. Older revisions cannot submit forms.
+
+Inherited cards retain the original document owner. The captured destination
+conversation can read only revisions with exact receipts in its visible history;
+its revision list and latest revision use that same scope. Inherited surfaces pin
+their published revision and cannot submit forms. Owner reads retain the document
+inventory across conversation rewinds. Removing the original session preserves
+documents while another live conversation retains their receipts, including in
+profile backups, and removing the last reference releases them.
+
+The renderer exposes `window.sailryDocument.mount`, `retheme`, `setWritable`,
+`submitted` and `readonlyExport`. Form events carry the captured document, revision,
+session and named fields; the native controller validates them and submits ordinary
+conversation messages. Unknown outcomes retain the original request and answers.
+`exportArtifact({artifact, revision, format: "html" | "png"})` captures the live view
+when available, renders charts and formulas offline, removes scripts and forms,
+adds branding, and uses the native save picker. Cancellation returns false; a
+successful save opens the containing directory.
 
 ## Tool message content
 

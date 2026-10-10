@@ -1,0 +1,6 @@
+artifact_contents: "目錄"
+artifact_form_reply: "回覆「%{title}」（版本 %{revision}，表單 %{form}） [%{id}]"
+artifact_form_invalid: "表單無效"
+artifact_form_required: "請填寫必填項"
+artifact_export_failed: "匯出失敗"
+artifact_close: "關閉"

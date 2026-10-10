@@ -1,0 +1,6 @@
+artifact_contents: "Sommaire"
+artifact_form_reply: "Réponse à %{title} (version %{revision}, formulaire %{form}) [%{id}]"
+artifact_form_invalid: "Formulaire invalide"
+artifact_form_required: "Remplissez les champs obligatoires"
+artifact_export_failed: "Échec de l’export"
+artifact_close: "Fermer"

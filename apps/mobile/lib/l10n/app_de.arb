@@ -803,5 +803,11 @@
   "settingsUsageOutput": "Ausgabe",
   "settingsUsageDaily": "Täglich",
   "settingsUsageWeekly": "Wöchentlich",
-  "settingsUtc": "UTC"
+  "settingsUtc": "UTC",
+  "artifactContents": "Inhalt",
+  "artifactZoomIn": "Vergrößern",
+  "artifactZoomOut": "Verkleinern",
+  "artifactVersions": "Versionen",
+  "artifactFormRequired": "Pflichtfelder ausfüllen",
+  "artifactReply": "Antwort zu „{title}“ v{revision} ({id}/{form})"
 }

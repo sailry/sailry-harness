@@ -4,6 +4,7 @@
 //! service assemblers and transport implementations are not imported by this stage.
 
 mod agent;
+mod artifacts;
 mod backup;
 mod browser;
 mod code;

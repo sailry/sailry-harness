@@ -1,0 +1,6 @@
+artifact_contents: "Inhalt"
+artifact_form_reply: "Antwort auf %{title} (Version %{revision}, Formular %{form}) [%{id}]"
+artifact_form_invalid: "Ungültiges Formular"
+artifact_form_required: "Pflichtfelder ausfüllen"
+artifact_export_failed: "Export fehlgeschlagen"
+artifact_close: "Schließen"

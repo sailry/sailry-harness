@@ -12,6 +12,9 @@ license = "Apache-2.0"
 opendal = { version = "=0.57.0", default-features = false, features = ["services-s3", "services-webdav", "reqwest-rustls-no-provider-tls"] }
 age = { version = "=0.11.3", default-features = false }
 anyhow = "=1.0.104"
+ammonia = "=4.1.4"
+html5ever = "=0.39.0"
+html5gum = "=0.8.4"
 ropey = "=2.0.0-beta.1"
 percent-encoding = "=2.3.2"
 embed-resource = "=3.0.11"

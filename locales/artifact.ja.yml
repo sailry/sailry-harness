@@ -1,0 +1,6 @@
+artifact_contents: "目次"
+artifact_form_reply: "%{title}への回答（バージョン %{revision}、フォーム %{form}） [%{id}]"
+artifact_form_invalid: "無効なフォーム"
+artifact_form_required: "必須項目を入力してください"
+artifact_export_failed: "エクスポートできませんでした"
+artifact_close: "閉じる"

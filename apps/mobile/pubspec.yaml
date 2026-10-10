@@ -75,6 +75,7 @@ flutter:
   generate: true
   uses-material-design: true
   assets:
+    - assets/branding/
     - assets/icons/
     - assets/icons/monsters/
     - assets/icons/projects/

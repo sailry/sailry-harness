@@ -13,6 +13,7 @@ pub(crate) const DEFAULTS: &[(&str, bool)] = &[
     ("browser", true),
     ("computer", false),
     ("media", true),
+    ("brief", true),
     ("memory", true),
     ("files", true),
     ("code", true),

@@ -74,6 +74,24 @@ pub struct Worktree {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Command {
+    WriteArtifact(crate::artifact::Write),
+    ReadArtifact {
+        id: crate::ArtifactId,
+        revision: Option<u32>,
+        /// A live conversation retaining the publication; absent for owner reads.
+        session: Option<SessionId>,
+    },
+    ListArtifacts {
+        session: SessionId,
+        after: Option<crate::ArtifactId>,
+        limit: u16,
+    },
+    ListArtifactRevisions {
+        id: crate::ArtifactId,
+        before: Option<u32>,
+        limit: u16,
+        session: Option<SessionId>,
+    },
     PluginTransaction {
         operations: Vec<crate::plugin::transaction::Operation>,
     },
@@ -1358,6 +1376,9 @@ impl Command {
                 ..
             } | Self::CompleteBrowser { .. }
                 | Self::Snapshot
+                | Self::ReadArtifact { .. }
+                | Self::ListArtifacts { .. }
+                | Self::ListArtifactRevisions { .. }
                 | Self::ReadProjectCatalog
                 | Self::ReadActivityCatalog
                 | Self::ReadWorktreeCatalog { .. }
@@ -1557,6 +1578,13 @@ pub struct Snapshot {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Output {
+    Artifact(crate::artifact::Content),
+    ArtifactWritten {
+        artifact: crate::artifact::Summary,
+        warnings: Vec<String>,
+    },
+    Artifacts(crate::artifact::Page),
+    ArtifactRevisions(crate::artifact::RevisionPage),
     ModelSearch(crate::models::Page),
     ModelVersions(Vec<crate::models::Version>),
     ModelDefinition(crate::models::Definition),

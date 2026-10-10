@@ -52,7 +52,7 @@ Production dependency direction is acyclic:
 
 ```text
 desktop       → client + node-runtime + content + GPUI Kit
-content       → GPUI Kit
+content       → protocol + GPUI Kit
 host          → client + node-runtime
 mobile-bridge → client
 client        → protocol + link
@@ -87,7 +87,7 @@ at registered paths; profiles contain Node storage, plugin packages/data and
 uploaded attachments.
 
 Manual profile backups use the execution Node's consistent SQLite snapshot,
-referenced plugin packages and attachments, and registered managed workspaces.
+referenced plugin packages, attachments and session HTML documents, and registered managed workspaces.
 External project paths remain references. WebDAV and S3 exports publish verified
 password-encrypted age segments before their manifest; uncertain operations keep
 their original request identity. Explicit restore validates the archive into a new empty profile,
@@ -200,6 +200,33 @@ Client owns reduction, deduplication and snapshot recovery; Node owns admission
 and outcomes. Transport receipt is not business success. Uncertain effects remain
 uncertain and are not replayed automatically with a new identity. Conflicts require
 fresh inspection, not silent overwrites.
+
+### Session HTML documents
+
+The Node stores validated HTML fragments as immutable revisions under its profile,
+with their owning session, turn and captured plugin reference. Each revision freezes
+the package's declared template, styles and scripts; later package updates do not
+change saved documents. Revision-checked writes are available only to captured
+native tools in running main sessions. Plans permit this contained document write
+without granting project writes or arbitrary plugin callbacks.
+
+Forks and rewind backups preserve canonical document receipts with their original
+write owner. Reads captured to another live conversation expose only revisions
+whose exact receipts remain in its visible history; inherited previews start at
+the published revision and cannot submit forms. Rewinding the owner changes
+conversation history without rolling back its document inventory. Removing an
+owner retains referenced documents until the last live conversation reference is
+removed; backups preserve those retained files and their immutable package assets.
+
+Client projects document receipts into persistent conversation cards. Controllers
+read content through the same authenticated local or remote commands and reuse
+the conversation subscription for coalesced document invalidation. The package
+owns its preview layout and controls; Desktop and Mobile provide native offline
+surfaces with semantic theme tokens and pinned chart, diagram and math libraries.
+Historical revisions are read-only. Editing a form pins its revision so publication
+cannot replace a draft. Form answers enter the normal durable message queue with
+a stable request ID and never approve a plan. Exports capture rendered content and
+answers, remove scripts and interactive forms, and include Sailry branding.
 
 ### Agent turns and tools
 

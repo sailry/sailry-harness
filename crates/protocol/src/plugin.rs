@@ -84,6 +84,9 @@ pub struct Extension {
     /// Package-owned instructions supplied once with its available tools.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
+    /// Shared HTML resource surfaces load this package-owned presentation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_view: Option<crate::artifact::View>,
     /// Localized catalog name, independent of optional UI entry points.
     pub display: Option<desktop::Navigation>,
     /// Package-relative PNG used by controller catalogs.
@@ -148,6 +151,7 @@ impl Extension {
                 .is_some_and(|suffix| !suffix.is_empty())
         };
         self.icon.as_deref().is_none_or(contains)
+            && self.artifact_view.as_ref().is_none_or(|view| view.valid())
             && self.settings_schema.as_deref().is_none_or(contains)
             && self
                 .settings_page

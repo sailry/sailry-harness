@@ -30,7 +30,7 @@ impl View {
                         .into_any_element()
                 }
                 // Published files remain visible below the answer when tool work collapses.
-                Block::File(_) => continue,
+                Block::File(_) | Block::Artifact(_) => continue,
                 Block::Table(data) => v_flex()
                     .min_w_0()
                     .child(table::Table {

@@ -309,6 +309,7 @@ impl Manifest {
                 || file.path == "storage/node.sqlite3"
                 || file.path.starts_with("plugins/packages/")
                 || file.path.starts_with("attachments/")
+                || file.path.starts_with("artifacts/")
                 || Path::new(&file.path).ancestors().skip(1).any(|parent| {
                     crate::workspaces::managed(
                         &self.original_profile.join(parent),

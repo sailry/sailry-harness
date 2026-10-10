@@ -261,6 +261,9 @@ fn allowed(command: &Command) -> bool {
     matches!(
         command,
         Command::PluginTransaction { .. }
+            | Command::ReadArtifact { .. }
+            | Command::ListArtifacts { .. }
+            | Command::ListArtifactRevisions { .. }
             | Command::ReadSession { .. }
             | Command::ReadConversation { .. }
             | Command::ReadTurn { .. }

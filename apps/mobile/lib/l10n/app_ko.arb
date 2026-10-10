@@ -803,5 +803,11 @@
   "settingsUsageOutput": "출력",
   "settingsUsageDaily": "매일",
   "settingsUsageWeekly": "주간",
-  "settingsUtc": "UTC"
+  "settingsUtc": "UTC",
+  "artifactContents": "목차",
+  "artifactZoomIn": "확대",
+  "artifactZoomOut": "축소",
+  "artifactVersions": "버전",
+  "artifactFormRequired": "필수 항목을 입력하세요",
+  "artifactReply": "“{title}” v{revision} ({id}/{form})에 대한 답변"
 }

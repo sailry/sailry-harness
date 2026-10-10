@@ -20,7 +20,7 @@ pub(crate) use panel::Panel;
 pub(crate) use reference::from_link;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 #[path = "preview.rs"]
-mod html;
+pub(crate) mod html;
 
 fn download(binding: &Binding, file: &File, window: &mut Window, cx: &mut App) {
     if let Some(worktree) = binding.worktree {

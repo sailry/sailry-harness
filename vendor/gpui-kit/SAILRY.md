@@ -20,3 +20,9 @@ The separately vendored `rquickjs-compat` facade remains the product's shared
 binding adapter. It is not duplicated inside Shell. Upstream tests are retained;
 some reference examples, Story or other checkout fixtures outside these copied
 packages and are not standalone product acceptance tests.
+
+Native Assets enables RustEmbed's `debug-embed` feature. Debug application bundles
+must retain their icon resources independently of the source checkout, matching
+release bundles. Filesystem loading blocked the first native frame when macOS
+could not access the external source volume before presenting a permission prompt.
+The asset paths and public API are unchanged.

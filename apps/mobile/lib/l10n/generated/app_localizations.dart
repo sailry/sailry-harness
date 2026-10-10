@@ -4151,6 +4151,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'UTC'**
   String get settingsUtc;
+
+  /// No description provided for @artifactContents.
+  ///
+  /// In en, this message translates to:
+  /// **'Contents'**
+  String get artifactContents;
+
+  /// No description provided for @artifactZoomIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Zoom in'**
+  String get artifactZoomIn;
+
+  /// No description provided for @artifactZoomOut.
+  ///
+  /// In en, this message translates to:
+  /// **'Zoom out'**
+  String get artifactZoomOut;
+
+  /// No description provided for @artifactVersions.
+  ///
+  /// In en, this message translates to:
+  /// **'Versions'**
+  String get artifactVersions;
+
+  /// No description provided for @artifactFormRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Complete required fields'**
+  String get artifactFormRequired;
+
+  /// No description provided for @artifactReply.
+  ///
+  /// In en, this message translates to:
+  /// **'Reply to “{title}” v{revision} ({id}/{form})'**
+  String artifactReply(String id, String revision, String title, String form);
 }
 
 class _AppLocalizationsDelegate
