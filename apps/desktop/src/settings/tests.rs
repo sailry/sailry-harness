@@ -1,11 +1,14 @@
 use super::*;
 use core::prelude::v1::test;
 
+mod code;
 mod configuration;
 mod conversation;
 mod delegation;
 mod media;
 mod memory;
+mod packages;
+mod search;
 mod statistics;
 
 #[gpui::test]

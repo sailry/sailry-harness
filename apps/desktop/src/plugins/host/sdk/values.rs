@@ -145,9 +145,9 @@ mod tests {
         fn recognizes_native_call_prefixes() {
             for (method, code) in [
                 ("resolveModel", "configure"),
-                ("modelChoice", "invalidResponse"),
+                ("completeRequest", "invalidResponse"),
                 ("completeRequest", "unconfirmed"),
-                ("prepareModel", "failed"),
+                ("prepareRequest", "failed"),
                 ("completeRequest", "timedOut"),
             ] {
                 assert_eq!(error_code(&format!("`sailry/sdk.{method}`: {code}")), code);

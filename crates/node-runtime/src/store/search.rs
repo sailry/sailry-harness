@@ -120,7 +120,11 @@ pub(super) fn save(
     request: &Request,
     update: &search::Update,
 ) -> Result<(Output, Option<Event>), Fault> {
-    if request.plugin.is_some() {
+    if request
+        .plugin
+        .as_ref()
+        .is_some_and(|context| !context.controller_settings())
+    {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
             "search settings require a controller",
@@ -214,7 +218,11 @@ impl Ingress {
                 )
             }
             Command::TestSearchDriver { driver } => {
-                if request.plugin.is_some() {
+                if request
+                    .plugin
+                    .as_ref()
+                    .is_some_and(|context| !context.controller_settings())
+                {
                     return Err(Fault::new(
                         ErrorCode::PermissionDenied,
                         "search driver tests require a controller",

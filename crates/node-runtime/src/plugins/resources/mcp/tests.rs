@@ -259,26 +259,35 @@ async fn confines_cli_bindings_and_resolves_private_headers() {
         headers,
         github: Some(binding),
         ..
-    } = prepare(
-        &host,
-        &package,
-        "github",
-        "github",
-        config.clone(),
-        info.settings.as_ref(),
-        &settings,
-    )
-    .unwrap()
+    } = prepare(&host, &package, &info, "github", config.clone(), &settings).unwrap()
     else {
         panic!("bound HTTP launch expected")
     };
     assert_eq!(headers["Authorization"], "Bearer transient-cli-token");
     assert_eq!(binding.identity.login, "fixture-user");
     assert_eq!(binding.fingerprint, blake3::hash(b"transient-cli-token"));
-    for (name, server, url) in [
-        ("other", "github", "https://api.githubcopilot.com/mcp/"),
-        ("github", "other", "https://api.githubcopilot.com/mcp/"),
-        ("github", "github", "https://changed.invalid/mcp/"),
+    let mut renamed = info.clone();
+    renamed.summary.name = "repository-tools".into();
+    assert!(matches!(
+        prepare(
+            &host,
+            &package,
+            &renamed,
+            "github",
+            config.clone(),
+            &settings,
+        )
+        .unwrap(),
+        Launch::Http {
+            github: Some(_),
+            ..
+        }
+    ));
+    renamed.extension.as_mut().unwrap().credential_source = None;
+    for (declaration, server, url) in [
+        (&renamed, "github", "https://api.githubcopilot.com/mcp/"),
+        (&info, "other", "https://api.githubcopilot.com/mcp/"),
+        (&info, "github", "https://changed.invalid/mcp/"),
     ] {
         let mut changed = config.clone();
         let Server::Http { url: target, .. } = &mut changed else {
@@ -286,18 +295,10 @@ async fn confines_cli_bindings_and_resolves_private_headers() {
         };
         *target = url.into();
         assert_eq!(
-            prepare(
-                &host,
-                &package,
-                name,
-                server,
-                changed,
-                info.settings.as_ref(),
-                &settings
-            )
-            .err()
-            .unwrap()
-            .code,
+            prepare(&host, &package, declaration, server, changed, &settings)
+                .err()
+                .unwrap()
+                .code,
             ErrorCode::PermissionDenied
         );
     }

@@ -206,7 +206,7 @@ export default class Settings extends View {
         });
         let mut panel = None;
         let (_, visual) = cx.add_window_view(|window, cx| {
-            let view = cx.new(|cx| Panel::settings(fixture.binding.clone(), cx));
+            let view = cx.new(|cx| Panel::settings(fixture.binding.clone(), false, cx));
             panel = Some(view.clone());
             Root::new(view, window, cx)
         });

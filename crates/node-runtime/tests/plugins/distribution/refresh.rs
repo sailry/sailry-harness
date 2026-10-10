@@ -19,10 +19,12 @@ async fn previous(
     };
     let mut manifest: serde_json::Value = serde_json::from_slice(bytes).unwrap();
     manifest["version"] = json!(version);
-    manifest["extensions"]["dev.sailry.platform"]
+    let extension = manifest["extensions"]["dev.sailry.platform"]
         .as_object_mut()
-        .unwrap()
-        .remove("settings_page");
+        .unwrap();
+    extension.remove("settings_page");
+    extension.remove("desktop");
+    extension.remove("enabled_service");
     let path = format!("previous-{name}");
     let source = directory.join("source").join(&path);
     fs::create_dir_all(&source).unwrap();
@@ -202,10 +204,13 @@ async fn adds_missing_language_settings_on_each_path() {
         );
         assert_eq!(code.origin, Some(plugin::Origin::Bundled));
         let page = code.extension.unwrap().settings_page.unwrap();
-        assert_eq!(page.native, Some(plugin::desktop::NativeSettings::Code));
+        assert_eq!(
+            page.entry.as_deref(),
+            Some("dev.sailry.platform/desktop/settings.js")
+        );
         assert_eq!(page.navigation.label("en"), "Language services");
         assert_eq!(page.placement.group, plugin::desktop::SettingsGroup::Tools);
-        assert!(page.entry.is_none());
+        assert!(page.entry.is_some());
         assert_eq!(
             info(
                 execute(
@@ -425,14 +430,7 @@ async fn retains_disabled_configuration_on_each_path() {
             node.local()
         });
         let mut refreshed = Vec::new();
-        for (previous, native, version) in [
-            (&previous[0], plugin::desktop::NativeSettings::Code, "0.1.1"),
-            (
-                &previous[1],
-                plugin::desktop::NativeSettings::Search,
-                "0.2.1",
-            ),
-        ] {
+        for (previous, version) in [(&previous[0], "0.1.3"), (&previous[1], "0.2.2")] {
             let current = info(
                 execute(
                     &client,
@@ -455,9 +453,12 @@ async fn retains_disabled_configuration_on_each_path() {
                 .settings_page
                 .as_ref()
                 .unwrap();
-            assert_eq!(page.native, Some(native));
+            assert_eq!(
+                page.entry.as_deref(),
+                Some("dev.sailry.platform/desktop/settings.js")
+            );
             assert!(page.enabled_control);
-            assert!(page.entry.is_none());
+            assert!(page.entry.is_some());
             let captured = info(
                 execute(
                     &client,
@@ -566,6 +567,7 @@ async fn retains_browser_configuration_on_each_path() {
             )
             .await,
         );
+        let version = current.summary.version.clone();
         let mut previous = disable(&client, current).await;
         previous.summary.version = Some("0.1.1".into());
         let profile = directory.path().join("node");
@@ -590,7 +592,7 @@ async fn retains_browser_configuration_on_each_path() {
             )
             .await,
         );
-        assert_eq!(current.summary.version.as_deref(), Some("0.1.2"));
+        assert_eq!(current.summary.version, version);
         assert_eq!(current.origin, Some(plugin::Origin::Bundled));
         assert_eq!(current.summary.revision, previous.summary.revision + 1);
         assert_eq!(

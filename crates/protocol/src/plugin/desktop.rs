@@ -13,7 +13,7 @@ pub const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct Manifest {
-    /// A bundled JavaScript module; native registrations have no script entry.
+    /// An optional bundled JavaScript workspace module.
     #[schemars(transform = super::schema::resource_path)]
     pub entry: Option<String>,
     /// Optional module implementing declarative controller contributions.
@@ -184,7 +184,7 @@ impl Navigation {
     }
 }
 
-/// Shared contribution for native and packaged settings pages.
+/// Package-owned settings page or a shared schema form.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct Settings {
@@ -195,20 +195,9 @@ pub struct Settings {
     #[serde(default)]
     pub placement: SettingsPlacement,
     pub navigation: Navigation,
-    /// A built-in host settings renderer; cannot be combined with a script entry.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub native: Option<NativeSettings>,
-    /// Absent for native renderers or a schema-generated configuration page.
+    /// Absent for a schema-generated configuration page.
     #[schemars(transform = super::schema::resource_path)]
     pub entry: Option<String>,
-}
-
-/// Fixed host adapters for the corresponding bundled feature packages.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum NativeSettings {
-    Code,
-    Search,
 }
 
 #[derive(

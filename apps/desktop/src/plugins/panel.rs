@@ -170,9 +170,10 @@ impl Panel {
         panel
     }
 
-    pub(crate) fn settings(binding: Binding, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn settings(binding: Binding, content_sized: bool, cx: &mut Context<Self>) -> Self {
         let mut panel = Self::standalone(binding, cx);
         panel.surface = sailry_protocol::plugin::desktop::Surface::Settings;
+        panel.content_sized = content_sized;
         panel
     }
 
@@ -297,6 +298,9 @@ impl Panel {
     }
 
     fn accept(&mut self, view: View, cx: &mut Context<Self>) {
+        if self.stop.is_cancelled() {
+            return;
+        }
         let cursor = view.snapshot.as_ref().map_or(0, |snapshot| snapshot.cursor);
         self.connected = view.connected;
         self.source_error = view.error;
@@ -444,6 +448,16 @@ impl Panel {
         self.load = None;
         self.mounted = None;
         self.loading = false;
+    }
+
+    pub(crate) fn close(&mut self, cx: &mut Context<Self>) {
+        self.stop.cancel();
+        self.release();
+        self.prepared = None;
+        self.selected = None;
+        self.reload = false;
+        self.connected = false;
+        cx.notify();
     }
 
     #[cfg(test)]

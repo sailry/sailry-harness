@@ -134,7 +134,6 @@ impl Mounted {
                     None => gpui_kit::div().into_any_element(),
                 }
             });
-        let module = super::browser::surface(module, &browser, host.clone());
         #[cfg(test)]
         let anchors = gpui_shell::HostModule::new("sailry/test")
             .component("Anchor", |mut args, _, _| {
@@ -163,6 +162,7 @@ impl Mounted {
             owner.clone(),
             host.clone(),
         );
+        let browser_surface = browser.clone();
         let ui = super::browser::module(
             super::workspace::module(
                 super::controls::module(ui, host.stop_token(), tabs, cx),
@@ -174,6 +174,7 @@ impl Mounted {
             window,
             cx,
         );
+        let module = super::browser::surface(module, &browser_surface, host.clone(), cx);
         let ui = super::previews::module(ui, artifact, host.clone(), cx);
         let ui = super::native_context::module(ui, host.stop_token(), cx);
         let drops = super::tree::drops::Drops::new(host.stop_token());
@@ -195,6 +196,7 @@ impl Mounted {
         let credentials = cx.new(|_| super::credentials::Store::default());
         let connections = host.connections_module(credentials.clone());
         let settings = host.settings_module(credentials.clone());
+        let search = host.search_module(credentials.clone());
         let ssh_transfers = super::ssh_transfers::module(owner.clone(), host.clone(), drops, cx);
         let file_transfers = super::file_transfers::module(file_transfers, host.clone(), cx);
         let documents = super::documents::module(documents, host.clone(), cx);
@@ -211,6 +213,7 @@ impl Mounted {
             .with_host_module(sdk)?
             .with_host_module(connections)?
             .with_host_module(settings)?
+            .with_host_module(search)?
             .with_host_module(ssh_transfers)?
             .with_host_module(super::credentials::module(credentials))?
             .with_host_module(file_transfers)?

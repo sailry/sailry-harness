@@ -84,6 +84,14 @@
 - Put optional explanation and technical diagnostics behind an appropriate help or details entry when needed. Keep accessible names meaningful. Do not shorten user content, code, raw tool output, or requested Agent answers merely to satisfy UI-copy brevity.
 - Keep product copy in i18n resources with stable keys, and preserve meaning across locales. Review new and touched copy with each feature; do not restyle approved layouts or perform unrelated bulk rewrites to enforce this rule.
 
+## Plugin ownership boundaries
+
+- A plugin owns its pages, panels, dialogs, view state, feature workflows, tool orchestration, and product-specific validation. Keep these implementations in that plugin's package, including bundled plugins. Contributing navigation metadata while rendering the feature in Desktop does not satisfy this boundary.
+- Core provides reusable, scoped services through Protocol, Client, and the public plugin SDK. Process execution, LSP transport and package installation, persistence, search drivers, credentials, permissions, and durable admission remain service responsibilities. Plugins decide when and how to compose those services; core must not implement a plugin's workflow behind a package-specific adapter.
+- Do not dispatch plugin UI or behavior by a bundled package name, or add native settings renderer selectors for individual plugins. Express shared lifecycle bindings through validated declarations and enforce them in the existing host owner. Defaults and package installation inventories may identify packages; they must not carry feature logic.
+- Reuse Kit controls and the common schema configuration form. Native bridges are limited to reusable platform or framework gaps, such as terminal rendering, editor integration, and protected credential inputs. Keep them free of plugin-specific page composition and document the verified gap.
+- Review every affected package's entry points, settings, tools, state, and lifecycle together with its core call sites. A migration must remove the old core implementation, preserve the accepted interactions and data, and verify both local and remote service paths. Adding an SDK facade around a core-owned feature page is not a migration.
+
 ## Mandatory GPUI Kit reuse
 
 - Preserve the approved Sailry information architecture and three-column layout. Compose that layout with GPUI Kit components; do not reproduce the old Flutter widget implementation or its separate styling system.

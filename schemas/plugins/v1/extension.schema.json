@@ -6,6 +6,10 @@
           "enum": [
             "code.read",
             "code.manage",
+            "code.settings.read",
+            "code.settings.write",
+            "web.settings.read",
+            "web.settings.write",
             "activity.read",
             "usage.read",
             "databases.read",
@@ -353,6 +357,13 @@
         "label"
       ],
       "type": "object"
+    },
+    "CredentialSource": {
+      "description": "Protected native account sources; never expose plaintext to package scripts.",
+      "enum": [
+        "github_cli"
+      ],
+      "type": "string"
     },
     "Declaration": {
       "additionalProperties": false,
@@ -788,7 +799,7 @@
           "type": "array"
         },
         "entry": {
-          "description": "A bundled JavaScript module; native registrations have no script entry.",
+          "description": "An optional bundled JavaScript workspace module.",
           "pattern": "^(\\./)?dev\\.sailry\\.platform/",
           "type": [
             "string",
@@ -922,14 +933,6 @@
         "handlers"
       ],
       "type": "object"
-    },
-    "NativeSettings": {
-      "description": "Fixed host adapters for the corresponding bundled feature packages.",
-      "enum": [
-        "code",
-        "search"
-      ],
-      "type": "string"
     },
     "Navigation": {
       "additionalProperties": false,
@@ -1428,16 +1431,23 @@
       ],
       "type": "string"
     },
+    "Service": {
+      "description": "A service binding grants no command capabilities by itself.",
+      "enum": [
+        "language"
+      ],
+      "type": "string"
+    },
     "Settings": {
       "additionalProperties": false,
-      "description": "Shared contribution for native and packaged settings pages.",
+      "description": "Package-owned settings page or a shared schema form.",
       "properties": {
         "enabled_control": {
           "default": false,
           "type": "boolean"
         },
         "entry": {
-          "description": "Absent for native renderers or a schema-generated configuration page.",
+          "description": "Absent for a schema-generated configuration page.",
           "pattern": "^(\\./)?dev\\.sailry\\.platform/",
           "type": [
             "string",
@@ -1447,17 +1457,6 @@
         "full_width": {
           "default": false,
           "type": "boolean"
-        },
-        "native": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/NativeSettings"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "A built-in host settings renderer; cannot be combined with a script entry."
         },
         "navigation": {
           "$ref": "#/$defs/Navigation"
@@ -1800,6 +1799,17 @@
       "const": "v1",
       "type": "string"
     },
+    "credential_source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CredentialSource"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional protected account source exposed by the shared settings form."
+    },
     "description": {
       "anyOf": [
         {
@@ -1830,6 +1840,17 @@
         }
       ],
       "description": "Localized catalog name, independent of optional UI entry points."
+    },
+    "enabled_service": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Service"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional exclusive binding between package enablement and a Node service."
     },
     "host": {
       "anyOf": [

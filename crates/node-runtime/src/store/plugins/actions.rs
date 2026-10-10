@@ -36,9 +36,10 @@ impl Database {
                 | Command::UseMedia { .. }
                 | Command::InstallCodeServer { .. }
                 | Command::UninstallCodeServer { .. }
-        ) && !super::required(&self.connection, &context.package.name)?
-            .summary
-            .enabled
+        ) && !context.controller_settings()
+            && !super::required(&self.connection, &context.package.name)?
+                .summary
+                .enabled
         {
             return Err(Fault::new(ErrorCode::NotConfigured, "plugin is disabled"));
         }
@@ -289,6 +290,31 @@ impl Database {
                 | Command::CancelWebFetch { .. }
                 | Command::SearchWeb(_)
                 | Command::CancelWebSearch { .. } => (Some(Action::ReadWeb), None, None),
+                Command::ReadCodeSettings | Command::ReadCodeCatalog | Command::ReadCodeRules
+                    if context.controller_settings() =>
+                {
+                    (Some(Action::ReadCodeSettings), None, None)
+                }
+                Command::SaveCodeSettings { .. }
+                | Command::UpdateCodeRules
+                | Command::CancelCodeInstall { .. }
+                    if context.controller_settings() =>
+                {
+                    (Some(Action::SaveCodeSettings), None, None)
+                }
+                Command::InstallCodeServer { .. } | Command::UninstallCodeServer { .. }
+                    if context.controller_settings() =>
+                {
+                    (Some(Action::ManageCode), None, None)
+                }
+                Command::ReadSearchSettings if context.controller_settings() => {
+                    (Some(Action::ReadSearchSettings), None, None)
+                }
+                Command::SaveSearchSettings(_) | Command::TestSearchDriver { .. }
+                    if context.controller_settings() =>
+                {
+                    (Some(Action::SaveSearchSettings), None, None)
+                }
                 Command::ListCodeInstallations => (Some(Action::ReadCode), None, None),
                 Command::ReadCode { worktree, .. }
                 | Command::ListCodeServers { worktree }
@@ -604,6 +630,18 @@ impl Database {
                     | Command::RemovePluginValue { .. }
                     | Command::PluginTransaction { .. }
                     | Command::SavePluginSettings { .. }
+                    | Command::ReadCodeSettings
+                    | Command::ReadCodeCatalog
+                    | Command::ReadCodeRules
+                    | Command::ListCodeInstallations
+                    | Command::SaveCodeSettings { .. }
+                    | Command::UpdateCodeRules
+                    | Command::CancelCodeInstall { .. }
+                    | Command::InstallCodeServer { .. }
+                    | Command::UninstallCodeServer { .. }
+                    | Command::ReadSearchSettings
+                    | Command::SaveSearchSettings(_)
+                    | Command::TestSearchDriver { .. }
                     | Command::ReadMediaSettings
                     | Command::ListMediaModels
                     | Command::SaveMediaSettings(_)

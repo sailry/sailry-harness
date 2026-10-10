@@ -1,7 +1,6 @@
 mod appearance;
 mod backup;
 mod catalog;
-mod code;
 mod connections;
 mod conversation;
 mod dictation;
@@ -22,7 +21,6 @@ pub(crate) use providers::channel;
 pub(crate) use providers::{Channel, Model, ModelCategory};
 mod roles;
 mod runtime;
-mod search;
 pub(crate) use roles::Role;
 pub(crate) mod extensions;
 mod shortcuts;
@@ -195,8 +193,6 @@ pub struct Workspace {
     providers: providers::Store,
     provider_link: Option<providers::Live>,
     terminal: terminal::State,
-    code: code::State,
-    search: search::State,
     knowledge: knowledge::State,
     runtime: runtime::State,
     backup: backup::State,
@@ -295,8 +291,6 @@ impl Workspace {
             providers: providers::Store::default(),
             provider_link: None,
             terminal,
-            code: code::State::default(),
-            search: search::State::new(window, cx),
             knowledge: knowledge::State::default(),
             runtime: runtime::State::default(),
             backup: backup::State::default(),
@@ -356,12 +350,10 @@ impl Workspace {
         self.clear_knowledge(cx);
         self.clear_runtime(cx);
         self.clear_backup(cx);
-        self.clear_code(cx);
-        self.clear_search(cx);
         self.clear_hooks(cx);
         self.permissions
             .update(cx, |panel, cx| panel.activate(false, cx));
-        self.extensions.release();
+        self.extensions.release(cx);
         self.shortcuts.update(cx, |panel, cx| panel.cancel(cx));
         self.connections
             .update(cx, |connections, cx| connections.close(cx));
@@ -371,13 +363,6 @@ impl Workspace {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.warm_settings(cx);
-        let native = self.native_settings(cx);
-        if native != Some(sailry_protocol::plugin::desktop::NativeSettings::Code) {
-            self.clear_code(cx);
-        }
-        if native != Some(sailry_protocol::plugin::desktop::NativeSettings::Search) {
-            self.clear_search(cx);
-        }
         let content = match self.section {
             Section::Connections => self.connections.clone().into_any_element(),
             Section::Providers => self.providers(cx),

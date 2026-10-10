@@ -330,8 +330,7 @@ The application lives in `sailry-harness`; official plugin source lives only in
 `sailry-plugins`. The `plugins/` Git submodule pins a reviewed plugin commit.
 Builds embed that snapshot as ordinary package assets for offline use; new Node
 profiles install the selected defaults once, without resurrecting removed packages.
-Startup refreshes already installed bundled search, language-service, browser,
-files, Office, command and plugin-builder packages when their shipped versions
+Startup refreshes already installed bundled packages when their shipped versions
 increase, preserving their enable choices and settings.
 Removed packages and packages from other sources are not changed by this refresh.
 The online official marketplace reads the plugin repository's `catalog.json`;
@@ -345,12 +344,19 @@ Packages use the Agent Plugins manifest and Sailry's v1 extension contract.
 Node owns validation, immutable resources, grants, private KV, callbacks,
 tools and dispatch. Updates affect new admission; admitted work retains its
 captured package and settings revision.
-Search and language-service packages contribute their settings navigation and
-enable controls through the shared plugin contract. Their declared native pages
-reuse Desktop's Kit composition and the same Client commands for local and remote
-Nodes. Core operations remain Node-owned; the pages do not grant Agent scripts
-access to controller-only configuration commands. Knowledge retrieval has no
-standalone package or conversation entry; feature plugins use its shared service.
+All packages own their pages, panels, dialogs, view state, workflows and model
+prompts. Search and language-service settings are packaged Kit scripts using the
+same captured Client commands for local and remote Nodes. Schema-only plugins
+use the shared configuration form. Core never selects a feature page by package
+name or a package-specific native renderer ID. It owns reusable execution,
+persistence, transport and protected credential services; native UI adapters
+cover documented Kit or platform gaps, without plugin business workflows.
+Controller settings actions require a declared settings surface and capability;
+Agent calls retain their existing tool approvals. An optional `enabled_service`
+binds one installed package's switch to a Node service. The binding is exclusive,
+grants no capabilities, and keeps service shutdown atomic with enablement changes.
+Knowledge retrieval has no standalone package or conversation entry; feature
+plugins use its shared service.
 
 Headless JavaScript callbacks use a bounded Node-owned QuickJS runtime. Desktop
 entries use GPUI Kit script bindings and host-owned SDKs. Desktop and headless
@@ -371,8 +377,11 @@ rendering failures retain the original selectable text. The native adapter suppo
 macOS and Windows; Linux retains that source fallback.
 
 Browser element annotations retain the selected page, tab and controller view.
-Their text and viewport image enter the captured composer's draft through its
-existing Client attachment upload; navigation or view changes cancel selection.
+The browser package owns annotation review, note drafts and submission feedback.
+Scoped native services capture the page and image, validate the selection token,
+and transfer approved text and the protected viewport image to the captured
+composer through its existing Client attachment upload. Navigation or view
+changes cancel selection.
 System voice reading and global selection shortcuts remain controller-local.
 Selection insertion rechecks the captured Node, worktree and conversation before
 changing a draft; neither reading nor selection starts an Agent turn.

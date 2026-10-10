@@ -43,8 +43,10 @@ impl State {
         }
     }
 
-    pub(super) fn release(&mut self) {
-        self.panel = None;
+    pub(super) fn release(&mut self, cx: &mut App) {
+        if let Some(panel) = self.panel.take() {
+            panel.update(cx, |panel, cx| panel.close(cx));
+        }
         self.form = None;
     }
 
@@ -188,21 +190,6 @@ impl Workspace {
         );
     }
 
-    pub(super) fn native_settings(&self, cx: &App) -> Option<desktop::NativeSettings> {
-        let name = self.selected_plugin_settings()?;
-        self.plugin_catalog
-            .metadata
-            .as_ref()?
-            .read(cx)
-            .entries
-            .get(name)?
-            .extension
-            .as_ref()?
-            .settings_page
-            .as_ref()?
-            .native
-    }
-
     #[cfg(test)]
     pub(crate) fn plugin_settings_panel(&self) -> Option<Entity<Panel>> {
         self.extensions.panel.clone()
@@ -328,12 +315,6 @@ impl Workspace {
                 .child(tr("plugins_view_unavailable"))
                 .into_any_element();
         };
-        if let Some(native) = page.native {
-            return match native {
-                desktop::NativeSettings::Code => self.code(window, cx),
-                desktop::NativeSettings::Search => self.search(window, cx),
-            };
-        }
         if page.entry.is_none() {
             if info.settings.is_none() {
                 return v_flex()
@@ -382,7 +363,7 @@ impl Workspace {
                 });
             }
             let panel = cx.new(|cx| {
-                let panel = Panel::settings(binding, cx).with_prepared(prepared);
+                let panel = Panel::settings(binding, !page.full_width, cx).with_prepared(prepared);
                 panel.usage_sources.set(sources);
                 panel
             });
@@ -429,12 +410,7 @@ impl Workspace {
         }
         v_flex()
             .gap_4()
-            .child(
-                div()
-                    .h(px(560.))
-                    .w_full()
-                    .children(self.extensions.panel.clone()),
-            )
+            .child(div().w_full().children(self.extensions.panel.clone()))
             .into_any_element()
     }
 

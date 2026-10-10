@@ -1,16 +1,15 @@
-//! A controller-owned page reference; the composer publishes the selected screenshot.
+//! Native selection and attachment transfer retain the captured page and controller.
 use super::*;
 use sailry_link::CancellationToken;
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, sync::Arc};
 
-mod modal;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod native;
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Element {
     pub url: String,
@@ -43,6 +42,14 @@ pub(super) struct State {
     target: Option<Target>,
     task: Option<Task<()>>,
     captured: bool,
+    capture: Option<Capture>,
+    pub(super) error: Option<&'static str>,
+}
+
+struct Capture {
+    element: Element,
+    image: Arc<[u8]>,
+    preview: Arc<Image>,
 }
 
 impl State {
@@ -58,6 +65,8 @@ impl State {
         }
         self.task = None;
         self.captured = false;
+        self.capture = None;
+        self.error = None;
     }
 }
 
@@ -104,19 +113,91 @@ impl Element {
             && self.bounds[0] + self.bounds[2] > 0.0
             && self.bounds[1] + self.bounds[3] > 0.0
     }
+}
 
-    fn reference(&self, note: &str) -> Result<String, &'static str> {
-        if !self.validate() || note.len() > 4096 || note.contains('\0') {
-            return Err("browser_annotation_invalid");
-        }
-        serde_json::to_string_pretty(&serde_json::json!({
-            "page_element": self, "annotation": note,
-        }))
-        .map_err(|_| "browser_annotation_invalid")
+pub(crate) struct Submit {
+    pub token: String,
+    pub reference: String,
+    pub stop: CancellationToken,
+    pub reply: RefCell<Option<tokio::sync::oneshot::Sender<Result<(), &'static str>>>>,
+}
+impl EventEmitter<Submit> for Browser {}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Reference {
+    page_element: Element,
+    annotation: String,
+}
+
+impl Reference {
+    fn matches(value: &str, element: &Element) -> bool {
+        element.validate()
+            && value.len() <= 256 * 1024
+            && serde_json::from_str::<Self>(value).is_ok_and(|reference| {
+                reference.page_element == *element
+                    && reference.annotation.len() <= 4096
+                    && !reference.annotation.contains('\0')
+            })
     }
 }
 
 impl Browser {
+    pub(crate) fn annotation_snapshot(&self) -> Option<serde_json::Value> {
+        let target = self.annotation.target.as_ref()?;
+        let capture = self.annotation.capture.as_ref()?;
+        self.annotation_matches(target)
+            .then(|| serde_json::json!({"token":target.token,"element":capture.element}))
+    }
+
+    pub(crate) fn annotation_preview(&self, token: &str) -> Option<Arc<Image>> {
+        let target = self.annotation.target.as_ref()?;
+        (target.token == token && self.annotation_matches(target))
+            .then(|| {
+                self.annotation
+                    .capture
+                    .as_ref()
+                    .map(|capture| capture.preview.clone())
+            })
+            .flatten()
+    }
+
+    pub(crate) fn submit_annotation(&self, request: &Submit, cx: &mut Context<Self>) {
+        let Some(reply) = request.reply.borrow_mut().take() else {
+            return;
+        };
+        let target = self.annotation.target.as_ref().filter(|target| {
+            !request.stop.is_cancelled()
+                && target.token == request.token
+                && self.annotation_matches(target)
+        });
+        let Some((target, capture)) = target.zip(self.annotation.capture.as_ref()) else {
+            let _ = reply.send(Err("browser_annotation_stale"));
+            return;
+        };
+        if !Reference::matches(&request.reference, &capture.element) {
+            let _ = reply.send(Err("browser_annotation_invalid"));
+            return;
+        }
+        cx.emit(Transfer {
+            reference: request.reference.clone(),
+            image: capture.image.clone(),
+            stop: target.stop.clone(),
+            reply: RefCell::new(Some(reply)),
+        });
+    }
+
+    pub(super) fn cancel_captured_annotation(&mut self, token: &str, cx: &mut Context<Self>) {
+        if self
+            .annotation
+            .target
+            .as_ref()
+            .is_some_and(|target| target.token == token)
+        {
+            self.cancel_annotation(cx);
+            self.changed(cx);
+        }
+    }
     fn annotation_matches(&self, target: &Target) -> bool {
         !target.stop.is_cancelled()
             && self.mounted

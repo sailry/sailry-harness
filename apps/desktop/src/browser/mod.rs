@@ -51,6 +51,7 @@ pub(crate) struct Browser {
     cursor: u64,
     pub(crate) lease: u64,
     mounted: bool,
+    covered: bool,
     preview: bool,
     annotation: annotation::State,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -62,6 +63,14 @@ impl EventEmitter<DismissEvent> for Browser {}
 impl EventEmitter<annotation::Transfer> for Browser {}
 
 impl Browser {
+    pub(crate) fn acquire_lease(&mut self, cx: &mut Context<Self>) -> u64 {
+        self.lease += 1;
+        self.covered = false;
+        self.cancel_annotation(cx);
+        self.changed(cx);
+        self.lease
+    }
+
     pub(crate) fn close_all(&mut self) {
         self.annotation.clear();
         self.tabs.clear();
@@ -85,6 +94,10 @@ impl Browser {
                 }
             },
         )
+        .detach();
+        cx.subscribe(&cx.entity(), |this, _, request: &annotation::Submit, cx| {
+            this.submit_annotation(request, cx);
+        })
         .detach();
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         let (events, mut receiver) = tokio::sync::mpsc::unbounded_channel();
@@ -140,6 +153,7 @@ impl Browser {
             cursor: 0,
             lease: 0,
             mounted: true,
+            covered: false,
             preview,
             annotation: annotation::State::default(),
             #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -231,7 +245,7 @@ impl Browser {
         self.mounted = mounted;
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
-            let visible = mounted && !window.has_active_dialog(cx);
+            let visible = self.surface_visible() && !window.has_active_dialog(cx);
             for (index, tab) in self.tabs.iter().enumerate() {
                 if let Some(page) = &tab.page {
                     page.update(cx, |page, _| {
@@ -251,6 +265,26 @@ impl Browser {
                 }
             }
         }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    pub(crate) fn surface_visible(&self) -> bool {
+        self.mounted && !self.covered
+    }
+
+    pub(crate) fn cover(
+        &mut self,
+        lease: u64,
+        covered: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.lease != lease || self.covered == covered {
+            return;
+        }
+        self.covered = covered;
+        self.visibility(self.mounted, window, cx);
+        cx.notify();
     }
 
     fn navigate(&mut self, value: &str, window: &mut Window, cx: &mut Context<Self>) {

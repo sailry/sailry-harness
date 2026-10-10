@@ -88,7 +88,7 @@ fn validates_navigation_retention_offline() {
 }
 
 #[test]
-fn validates_host_settings_adapters_offline() {
+fn validates_packaged_settings_offline() {
     let validator = validator();
     for bytes in [
         include_bytes!("../../../../../plugins/code/plugin.json").as_slice(),
@@ -97,7 +97,8 @@ fn validates_host_settings_adapters_offline() {
         let mut manifest: Value = serde_json::from_slice(bytes).unwrap();
         assert!(validator.is_valid(&manifest), "{}", manifest["name"]);
         assert!(parse(bytes).unwrap().issues.is_empty());
-        manifest["extensions"]["dev.sailry.platform"]["settings_page"]["native"] = json!("unknown");
+        manifest["extensions"]["dev.sailry.platform"]["settings_page"]["entry"] =
+            json!("../missing.js");
         assert!(!validator.is_valid(&manifest));
         assert!(
             parse(&serde_json::to_vec(&manifest).unwrap())

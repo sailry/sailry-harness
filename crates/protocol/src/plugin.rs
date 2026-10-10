@@ -57,6 +57,17 @@ pub struct Context {
     pub session: Option<crate::SessionId>,
 }
 
+impl Context {
+    /// A controller's Node-wide settings surface, never an Agent or callback scope.
+    pub fn controller_settings(&self) -> bool {
+        self.surface == desktop::Surface::Settings
+            && self.invocation.is_none()
+            && self.turn.is_none()
+            && self.session.is_none()
+            && self.worktree.is_none()
+    }
+}
+
 /// One tool-free model response; credentials remain on the execution Node.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Text {
@@ -85,6 +96,12 @@ pub struct Extension {
     pub scope: Scope,
     #[serde(default)]
     pub actions: Vec<Action>,
+    /// Optional exclusive binding between package enablement and a Node service.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled_service: Option<Service>,
+    /// Optional protected account source exposed by the shared settings form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_source: Option<CredentialSource>,
     pub desktop: Option<desktop::Manifest>,
     pub host: Option<host::Manifest>,
     #[schemars(transform = schema::resource_path)]
@@ -105,6 +122,20 @@ pub struct Extension {
     /// Controller-rendered entries with state and named action handlers.
     #[serde(default)]
     pub ui: Vec<ui::Contribution>,
+}
+
+/// Protected native account sources; never expose plaintext to package scripts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialSource {
+    GithubCli,
+}
+
+/// A service binding grants no command capabilities by itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Service {
+    Language,
 }
 
 impl Extension {

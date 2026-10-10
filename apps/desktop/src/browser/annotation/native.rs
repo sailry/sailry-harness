@@ -29,6 +29,7 @@ impl Browser {
             .raw()
             .evaluate_script(&script)
             .map_err(|_| "browser_annotation_unavailable")?;
+        self.annotation.error = None;
         self.annotation.target = Some(target.clone());
         self.annotation.task = Some(cx.spawn_in(window, async move |browser, cx| {
             cx.background_executor()
@@ -70,37 +71,35 @@ impl Browser {
             {
                 if element.url != target.url || !element.validate() {
                     self.cancel_annotation(cx);
+                    self.annotation.error = Some("browser_annotation_invalid");
                     self.changed(cx);
-                    crate::feedback::error(
-                        "",
-                        &crate::tr("browser_annotation_invalid"),
-                        window,
-                        cx,
-                    );
                     return;
                 }
                 self.annotation.captured = true;
                 let capture = self.screenshot(id as u64, window, cx);
                 self.annotation.task = Some(cx.spawn_in(window, async move |browser, cx| {
                     let result = capture.await.and_then(image);
-                    let _ = browser.update_in(cx, |browser, window, cx| {
+                    let _ = browser.update_in(cx, |browser, _, cx| {
                         if !browser.annotation_matches(&target) {
                             return;
                         }
                         browser.annotation.task = None;
                         match result {
                             Ok(bytes) => {
-                                modal::open(cx.entity(), target, element, bytes, window, cx)
+                                browser.annotation.capture = Some(Capture {
+                                    element,
+                                    preview: Arc::new(Image::from_bytes(
+                                        ImageFormat::Jpeg,
+                                        bytes.to_vec(),
+                                    )),
+                                    image: bytes,
+                                });
+                                browser.changed(cx);
                             }
                             Err(_) => {
                                 browser.cancel_annotation(cx);
+                                browser.annotation.error = Some("browser_annotation_unavailable");
                                 browser.changed(cx);
-                                crate::feedback::error(
-                                    "",
-                                    &crate::tr("browser_annotation_unavailable"),
-                                    window,
-                                    cx,
-                                );
                             }
                         }
                     });

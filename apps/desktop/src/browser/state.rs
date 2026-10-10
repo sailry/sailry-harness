@@ -16,6 +16,7 @@ pub(crate) enum Action {
     Reload {},
     Stop {},
     Annotate {},
+    CancelAnnotation { token: String },
 }
 
 pub(crate) struct Request {
@@ -41,6 +42,8 @@ impl Browser {
             "history": history,
             "supported": cfg!(any(target_os="macos",target_os="windows")) && !self.preview,
             "annotating": self.annotation.active(),
+            "annotation": self.annotation_snapshot(),
+            "annotation_error": self.annotation.error,
         })
     }
 
@@ -63,6 +66,7 @@ impl Browser {
     ) -> Result<(), String> {
         match action {
             Action::Annotate {} => self.annotate(window, cx)?,
+            Action::CancelAnnotation { token } => self.cancel_captured_annotation(&token, cx),
             Action::Add {} => self.add(window, cx),
             Action::Select { id } | Action::Close { id } => {
                 let index = self

@@ -648,7 +648,7 @@ fn registered_settings(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn native_configuration_opens_panel(cx: &mut TestAppContext) {
+fn scripted_configuration_opens_panel(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
@@ -661,17 +661,9 @@ fn native_configuration_opens_panel(cx: &mut TestAppContext) {
             visual.update(|window, cx| {
                 owner.update(cx, |owner, cx| {
                     owner.configure_plugin(name, window, cx);
-                    if name == "code" {
-                        owner.bind_code_scope(
-                            fixture.transport.clone(),
-                            fixture.runtime.clone(),
-                            "Selected Node".into(),
-                            cx,
-                        );
-                    }
                 })
             });
-            shown(visual, selector, true);
+            crate::settings::plugins::test_support::shown_settings(&owner, visual, selector, true);
             assert_eq!(
                 owner.read_with(visual, |owner, _| owner.section),
                 Section::Plugin

@@ -2,14 +2,22 @@
 use super::*;
 use crate::plugins::github::login::Identity;
 
+pub(super) fn declared(info: &Info) -> bool {
+    info.extension.as_ref().is_some_and(|extension| {
+        extension.credential_source == Some(plugin::CredentialSource::GithubCli)
+    })
+}
+
 pub(in crate::store) fn prepare(
     db: &Connection,
     host: &crate::plugins::Host,
     package: &plugin::Reference,
 ) -> Result<Option<Identity>, Fault> {
     let info = settings::current(db, package)?;
-    if package.name != "github" {
-        return Err(Fault::invalid("GitHub login requires the GitHub plugin"));
+    if !declared(&info) {
+        return Err(Fault::invalid(
+            "package does not declare GitHub CLI credentials",
+        ));
     }
     let binding = info
         .settings
@@ -58,7 +66,7 @@ pub(in crate::store) fn save(
     identity: Identity,
 ) -> Result<(Output, Option<Event>), Fault> {
     prepare(db, host, package)?;
-    let mut info = required(db, "github")?;
+    let mut info = required(db, &package.name)?;
     let mut saved = settings::stored(db, &info)?;
     saved.schema = info.settings.clone();
     saved.slots.remove("token");

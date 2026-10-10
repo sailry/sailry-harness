@@ -1,6 +1,5 @@
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Model = { model: string; kind: "provider"; effort?: Json };
-export type Turn = { instructions: string; state: Json; choices: ({ id: number } & Record<string, Json>)[] };
 export type Entry = { key: string; revision: string; value: Json; present: boolean };
 /** Immutable resource and package binding for this view. */
 export function context(): { package: {name: string; digest: string; settings_revision: string}; worktree: string | null; session: string | null; turn: string | null; invocation: string | null };
@@ -23,9 +22,6 @@ export function listModels(): Promise<{ models: Json[] }>;
 /** Read-only resolution on the captured execution Node; credentials remain opaque references. */
 export function resolveSessionModel(model:string, effort?:Json|null, config?:Json|null):Promise<Json>;
 export function resolveModel(settings: Json, catalog: Json, field: string): Model;
-export function modelCommand(player: Model, turn: Turn): Json;
-export function modelChoice(result: Json, player: Model, moves: Json[]): { move: Json; tokens: number };
-export function prepareModel(player: Model, turn: Turn): string;
 export function prepareRequest(command: Json): string;
 /** Up to 64 private KV, dispatch mutation, or notification operations, committed atomically. */
 export function prepareTransaction(operations: Json[]): string;
@@ -226,3 +222,5 @@ export function nextUsageChange(cursor:string):Promise<{cursor:string;all:boolea
 export function refreshUsage():void;
 
 export function nextUsageSources(seen:{node:string;label:string}[]):Promise<{node:string;label:string}[]>;
+/** Next captured-Node language installation snapshot; one pending call per view. */
+export function nextCodeInstallations():Promise<Json[]>;

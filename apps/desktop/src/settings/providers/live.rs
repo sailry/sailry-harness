@@ -74,8 +74,7 @@ impl Workspace {
         }
         self.clear_knowledge(cx);
         self.clear_backup(cx);
-        self.forget_code_scope(cx);
-        self.clear_search(cx);
+        self.extensions.release(cx);
         self.provider_link = None;
         self.providers.channels.clear();
         self.roles.clear();

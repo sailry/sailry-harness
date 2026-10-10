@@ -151,6 +151,11 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                             && parsed.actions.iter().enumerate().all(|(index, action)| {
                                 !parsed.actions[..index].contains(action)
                             })
+                            && parsed.credential_source.is_none_or(|_| parsed.scope == sailry_protocol::plugin::Scope::Host && parsed.settings_schema.is_some())
+                            && parsed.enabled_service.is_none_or(|service| match service {
+                                sailry_protocol::plugin::Service::Language => parsed.scope == sailry_protocol::plugin::Scope::Host
+                                    && parsed.actions.contains(&sailry_protocol::plugin::Action::SaveCodeSettings),
+                            })
                             && parsed.desktop.as_ref().is_none_or(|desktop| {
                                 desktop.valid()
                                     && (desktop.navigation_options.surface != sailry_protocol::plugin::desktop::Surface::Settings || parsed.settings_page.as_ref().is_some_and(|page|page.entry.is_some()))
@@ -182,15 +187,6 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                     {
                         if let Some(page) = &parsed.settings_page {
                             let valid = page.navigation.valid()
-                                && page.native.is_none_or(|native| {
-                                    use sailry_protocol::plugin::desktop::NativeSettings;
-                                    page.entry.is_none()
-                                        && matches!(
-                                            (name, native),
-                                            ("code", NativeSettings::Code)
-                                                | ("web-search", NativeSettings::Search)
-                                        )
-                                })
                                 && page.entry.as_ref().is_none_or(|entry| {
                                     (entry.ends_with(".js") || entry.ends_with(".mjs"))
                                         && parsed.desktop.as_ref().is_some_and(|desktop| {
@@ -274,7 +270,7 @@ pub(crate) fn validate_name(name: &str) -> Result<(), Fault> {
 mod authoring;
 
 #[cfg(test)]
-mod native;
+mod settings;
 
 #[cfg(test)]
 mod tests {

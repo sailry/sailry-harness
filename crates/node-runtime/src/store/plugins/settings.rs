@@ -143,7 +143,7 @@ fn project(_db: &Connection, info: &Info, stored: &Stored) -> Result<State, Faul
             configured.push(name.clone());
         }
     }
-    if info.summary.name == "github"
+    if super::github::declared(info)
         && stored.github.is_some()
         && same_binding(stored, schema, "token")
         && !configured.iter().any(|name| name == "token")
@@ -333,7 +333,10 @@ pub(in crate::store) fn save(
         oauth = None;
     }
     for (name, update) in updates {
-        if package.name == "github" && name == "token" && !matches!(update, SecretUpdate::Keep) {
+        if super::github::declared(&info)
+            && name == "token"
+            && !matches!(update, SecretUpdate::Keep)
+        {
             github = None;
             edit_revisions(db, &package.name, |saved| saved.github = None)?;
         }
@@ -451,7 +454,7 @@ pub(in crate::store) fn resolve(db: &Connection, info: &Info) -> Result<Resolved
         secrets,
         authorizations: authorizations(&saved),
         mcp: saved.mcp,
-        github: if info.summary.name == "github" {
+        github: if super::github::declared(info) {
             saved.github
         } else {
             None

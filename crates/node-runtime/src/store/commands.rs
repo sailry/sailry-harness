@@ -168,7 +168,11 @@ pub(super) fn execute(
             expected_revision,
         } => {
             let saved = super::code::save(db, settings, *expected_revision)?;
-            let changed = super::plugins::synchronize(db, "code", saved.enabled)?;
+            let changed = super::plugins::services::synchronize(
+                db,
+                sailry_protocol::plugin::Service::Language,
+                saved.enabled,
+            )?;
             Ok((
                 Output::CodeSettings(saved),
                 changed.map(Event::PluginChanged),

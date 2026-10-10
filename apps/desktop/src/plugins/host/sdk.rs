@@ -1,4 +1,5 @@
 //! Public plugin conveniences reuse the same scoped Host and durable requests.
+mod code;
 mod computer;
 mod connections;
 pub(super) mod conversation;
@@ -8,6 +9,7 @@ mod knowledge;
 mod media;
 mod models;
 mod roles;
+mod search;
 mod terminals;
 #[cfg(test)]
 mod tests;
@@ -46,7 +48,6 @@ impl Host {
         let prepare = self.clone();
         let complete = self.clone();
         let forget = self.clone();
-        let model = self.clone();
         let publish = self.clone();
         let events = self.clone();
         let http = self.clone();
@@ -132,24 +133,6 @@ impl Host {
                     args.string(2)?,
                 )
             })
-            .function("modelCommand", |args| {
-                models::command(decode(args.value(0)?)?, decode(args.value(1)?)?).and_then(encode)
-            })
-            .function("modelChoice", |args| {
-                models::select(
-                    decode(args.value(0)?)?,
-                    decode(args.value(1)?)?,
-                    decode(args.value(2)?)?,
-                )
-                .and_then(encode)
-            })
-            .function("prepareModel", move |args| {
-                let value = models::command(decode(args.value(0)?)?, decode(args.value(1)?)?)?;
-                model.prepare_public(
-                    serde_json::from_value(value)
-                        .map_err(|error| HostError::new(error.to_string()))?,
-                )
-            })
             .function("prepareRequest", move |args| {
                 prepare.prepare_public(values::command(decode(args.value(0)?)?)?)
             })
@@ -223,7 +206,7 @@ impl Host {
         let module =
             self.session_model_module(self.worktree_module(self.usage_module(module, sources)));
         let module = self.knowledge_module(module);
-        let module = self.web_module(module);
+        let module = self.code_module(self.web_module(module));
         self.change_module(self.roles_module(self.media_module(self.computer_module(
             self.file_module(
                 self.terminal_module(self.git_module(self.conversation_module(module))),

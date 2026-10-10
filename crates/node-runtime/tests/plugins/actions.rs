@@ -24,6 +24,8 @@ mod models;
 mod recovery;
 #[path = "actions/scopes.rs"]
 mod scopes;
+#[path = "actions/settings.rs"]
+mod settings;
 #[path = "actions/terminals.rs"]
 mod terminals;
 #[path = "actions/usage.rs"]

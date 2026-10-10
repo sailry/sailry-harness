@@ -56,8 +56,13 @@ fn adds_missing_defaults_without_reinstalling_records() {
     assert_eq!(crate::store::code::settings(&db).unwrap(), settings);
     assert_eq!(code.summary.revision, 1);
     assert_eq!(
-        code.extension.unwrap().settings_page.unwrap().native,
-        Some(plugin::desktop::NativeSettings::Code)
+        code.extension
+            .unwrap()
+            .settings_page
+            .unwrap()
+            .entry
+            .as_deref(),
+        Some("dev.sailry.platform/desktop/settings.js")
     );
     assert_eq!(required(&db, "memory").unwrap(), memory);
     assert!(get(&db, "web-search").unwrap().is_none());
@@ -116,8 +121,14 @@ fn refresh_preserves_configuration_and_private_records() {
         crate::plugins::Host::bundled_version("code").unwrap()
     );
     assert_eq!(
-        after.extension.unwrap().settings_page.unwrap().native,
-        Some(plugin::desktop::NativeSettings::Code)
+        after
+            .extension
+            .unwrap()
+            .settings_page
+            .unwrap()
+            .entry
+            .as_deref(),
+        Some("dev.sailry.platform/desktop/settings.js")
     );
     let saved: Vec<u8> = db
         .query_row(
@@ -147,6 +158,7 @@ fn skips_custom_newer_unchanged_and_removed_packages() {
         "files",
         "office",
         "commands",
+        "memory",
     ] {
         let original = required(&db, name).unwrap();
         for origin in [
@@ -202,9 +214,6 @@ fn skips_custom_newer_unchanged_and_removed_packages() {
             .unwrap();
         assert_eq!(retained, encode(&removed).unwrap());
     }
-    let memory = older(&db, "memory");
-    install(&mut db, &host).unwrap();
-    assert_eq!(required(&db, "memory").unwrap(), memory);
     assert!(get(&db, "plugin-builder").unwrap().is_none());
 }
 
@@ -281,4 +290,32 @@ fn failure_rolls_back_inventory_and_initialization_marker() {
     install(&mut db, &host).unwrap();
     assert_eq!(state(&db), (true, count, count));
     assert!(!required(&db, "external-browser").unwrap().summary.enabled);
+}
+
+#[test]
+fn binds_services_without_package_names() {
+    let (_directory, _host, db) = fixture();
+    let mut code = required(&db, "code").unwrap();
+    let mut custom = code.clone();
+    custom.summary.name = "language-tools".into();
+    assert!(services::check(&db, &custom).is_err());
+    code.extension.as_mut().unwrap().enabled_service = None;
+    save(&db, &code, true).unwrap();
+    services::check(&db, &custom).unwrap();
+    save(&db, &custom, true).unwrap();
+    services::apply(&db, &custom, false).unwrap();
+    assert!(!crate::store::code::settings(&db).unwrap().enabled);
+    let changed = services::synchronize(&db, plugin::Service::Language, false)
+        .unwrap()
+        .unwrap();
+    assert_eq!(changed.name, "language-tools");
+    assert!(required(&db, "code").unwrap().summary.enabled);
+    assert!(!required(&db, "language-tools").unwrap().summary.enabled);
+    save(&db, &custom, false).unwrap();
+    assert_eq!(
+        services::synchronize(&db, plugin::Service::Language, true)
+            .unwrap_err()
+            .code,
+        ErrorCode::NotConfigured
+    );
 }

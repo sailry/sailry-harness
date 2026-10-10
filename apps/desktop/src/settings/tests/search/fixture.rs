@@ -1,4 +1,4 @@
-use super::super::*;
+use super::*;
 use crate::discovery_fixture::{Reply, Server};
 use sailry_client::Client;
 use sailry_link::{Admission, Link, NetworkScope, Pending, Subscription, Transport};
@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub(in crate::settings::search) struct Observed {
+pub(super) struct Observed {
     inner: Arc<dyn Transport>,
     pub requests: Mutex<Vec<Request>>,
     pub lose_reply: AtomicBool,
@@ -61,7 +61,7 @@ impl Transport for Observed {
     }
 }
 
-pub(in crate::settings::search) struct Fixture {
+pub(super) struct Fixture {
     directory: tempfile::TempDir,
     pub runtime: Arc<tokio::runtime::Runtime>,
     pub node: Node,
@@ -105,6 +105,12 @@ impl Fixture {
             lose_reply: AtomicBool::new(false),
             lose_inspect: AtomicBool::new(false),
         });
+        let client = Client::new(transport.clone());
+        runtime.block_on(crate::settings::tests::packages::install(
+            &client,
+            directory.path(),
+            "web-search",
+        ));
         let server = runtime.block_on(Server::start_with_request(ModelApi::Anthropic, |_| Reply::Json(serde_json::json!({"results":[{"title":"Source","url":"https://example.com/source","text":"Result","content":"Result"}]}))));
         node.set_search_fixture(Driver::Exa, &server.endpoint);
         node.set_search_fixture(Driver::Searxng, &server.endpoint);
@@ -161,8 +167,7 @@ impl Fixture {
         let handle = visual.update(|window, _| window.window_handle());
         visual.simulate_window_resize(handle, size(px(960.), px(1100.)));
         wait(visual, |cx| {
-            selected(&owner, cx)
-                .is_some_and(|panel| panel.read(cx).saved.is_some() && !panel.read(cx).pending)
+            ready(&owner, cx)
                 && owner.read(cx).provider_link.as_ref().unwrap().connected
                 && !owner.read(cx).plugin_catalog.busy()
         });
@@ -175,6 +180,7 @@ impl Fixture {
         } else {
             self.transport.clone()
         };
+        let node = transport.target();
         visual.update(|_, cx| {
             owner.update(cx, |workspace, cx| {
                 workspace.bind_providers(
@@ -186,8 +192,12 @@ impl Fixture {
             })
         });
         wait(visual, |cx| {
-            selected(owner, cx)
-                .is_some_and(|panel| panel.read(cx).saved.is_some() && !panel.read(cx).pending)
+            owner
+                .read(cx)
+                .provider_link
+                .as_ref()
+                .is_some_and(|live| live.connected && live.binding.client.target() == node)
+                && ready(owner, cx)
         });
     }
 
@@ -199,7 +209,7 @@ impl Fixture {
     }
 }
 
-pub(in crate::settings::search) fn init(cx: &mut TestAppContext) {
+pub(super) fn init(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     rust_i18n::set_locale("en");
     cx.update(|cx| {
@@ -209,16 +219,15 @@ pub(in crate::settings::search) fn init(cx: &mut TestAppContext) {
     });
 }
 
-pub(in crate::settings::search) fn selected(
-    owner: &Entity<Workspace>,
-    cx: &App,
-) -> Option<Entity<Panel>> {
-    let workspace = owner.read(cx);
-    let node = workspace.provider_link.as_ref()?.binding.client.target();
-    workspace.search.panels.get(&node).cloned()
+pub(super) fn ready(owner: &Entity<Workspace>, cx: &App) -> bool {
+    owner.read(cx).plugin_settings_panel().is_some_and(|panel| {
+        crate::plugins::diagnostics(&panel, cx).lines().any(|line| {
+            line.contains("search-default-driver") && line.contains("(\"disabled\", Bool(false))")
+        })
+    })
 }
 
-pub(in crate::settings::search) fn draw(cx: &mut VisualTestContext) {
+pub(super) fn draw(cx: &mut VisualTestContext) {
     cx.run_until_parked();
     cx.update(|window, cx| {
         window.refresh();
@@ -226,7 +235,7 @@ pub(in crate::settings::search) fn draw(cx: &mut VisualTestContext) {
     });
 }
 
-pub(in crate::settings::search) fn wait(cx: &mut VisualTestContext, ready: impl Fn(&App) -> bool) {
+pub(super) fn wait(cx: &mut VisualTestContext, ready: impl Fn(&App) -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         draw(cx);
@@ -238,31 +247,30 @@ pub(in crate::settings::search) fn wait(cx: &mut VisualTestContext, ready: impl 
     }
 }
 
-pub(in crate::settings::search) fn tap(cx: &mut VisualTestContext, selector: &'static str) {
-    if cx.update(|window, cx| window.has_active_dialog(cx)) {
-        std::thread::sleep(*dialog::ANIMATION_DURATION);
-    }
-    draw(cx);
-    let bounds = cx
-        .debug_bounds(selector)
-        .unwrap_or_else(|| panic!("missing {selector}"));
+pub(super) fn tap(cx: &mut VisualTestContext, selector: &'static str) {
+    std::thread::sleep(*dialog::ANIMATION_DURATION);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let bounds = loop {
+        draw(cx);
+        if let Some(bounds) = cx.debug_bounds(selector) {
+            break bounds;
+        }
+        assert!(Instant::now() < deadline, "missing {selector}");
+        std::thread::sleep(Duration::from_millis(10));
+    };
     cx.simulate_mouse_move(bounds.center(), None, Modifiers::default());
     cx.simulate_click(bounds.center(), Modifiers::default());
     draw(cx);
 }
 
-pub(in crate::settings::search) fn input(
-    cx: &mut VisualTestContext,
-    selector: &'static str,
-    value: &str,
-) {
+pub(super) fn input(cx: &mut VisualTestContext, selector: &'static str, value: &str) {
     tap(cx, selector);
     cx.simulate_keystrokes("secondary-a");
     cx.simulate_input(value);
     draw(cx);
 }
 
-pub(in crate::settings::search) fn toast(cx: &mut VisualTestContext, key: &str) {
+pub(super) fn toast(cx: &mut VisualTestContext, key: &str) {
     let expected = crate::tr(key);
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {

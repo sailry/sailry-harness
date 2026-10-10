@@ -149,6 +149,60 @@ fn rolls_back_both_switches_on_failure() {
 }
 
 #[test]
+fn initializes_declared_service_owner() {
+    let mut fixture = Fixture::new();
+    let mut package = fixture.package();
+    let mut owner = package.clone();
+    owner.summary.name = "language-tools".into();
+    owner.summary.enabled = false;
+    package.extension.as_mut().unwrap().enabled_service = None;
+    fixture
+        .database
+        .connection
+        .execute(
+            "UPDATE plugins SET body=?1 WHERE name=?2",
+            params![encode(&package).unwrap(), package.summary.name],
+        )
+        .unwrap();
+    fixture
+        .database
+        .connection
+        .execute(
+            "INSERT INTO plugins(name,revision,installed,body) VALUES(?1,?2,1,?3)",
+            params![
+                owner.summary.name,
+                owner.summary.revision as i64,
+                encode(&owner).unwrap()
+            ],
+        )
+        .unwrap();
+    let initialized = initialize(&mut fixture.database.connection).unwrap();
+    assert!(!initialized.enabled);
+    assert_eq!(fixture.package(), package);
+    assert_eq!(
+        initialize(&mut fixture.database.connection).unwrap(),
+        initialized
+    );
+    owner.summary.enabled = true;
+    package.summary.enabled = false;
+    for updated in [&owner, &package] {
+        fixture
+            .database
+            .connection
+            .execute(
+                "UPDATE plugins SET body=?1 WHERE name=?2",
+                params![encode(updated).unwrap(), updated.summary.name],
+            )
+            .unwrap();
+    }
+    assert!(
+        initialize(&mut fixture.database.connection)
+            .unwrap()
+            .enabled
+    );
+}
+
+#[test]
 fn preserves_removed_package_choice_at_startup() {
     let mut fixture = Fixture::new();
     let original = fixture.package();

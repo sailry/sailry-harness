@@ -18,7 +18,15 @@ impl Drop for Login {
 
 impl Editor {
     pub(super) fn read_github(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.expected.name != "github" {
+        if !self
+            .info
+            .as_ref()
+            .and_then(|info| info.extension.as_ref())
+            .is_some_and(|extension| {
+                extension.credential_source
+                    == Some(sailry_protocol::plugin::CredentialSource::GithubCli)
+            })
+        {
             self.github = None;
             return;
         }

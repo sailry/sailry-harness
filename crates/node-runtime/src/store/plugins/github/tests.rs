@@ -165,3 +165,24 @@ fn keeps_links_and_preserves_explicit_manual_tokens() {
     assert!(resolved.github.is_none());
     assert_eq!(resolved.secrets["token"].expose(), "manual-token");
 }
+
+#[test]
+fn requires_declaration_without_name_dispatch() {
+    let (_directory, host, db, mut info) = fixture();
+    info.summary.name = "repository-tools".into();
+    // Keep an explicit configuration so the captured package need not be acquired again.
+    let configuration = host
+        .mcp_configuration(
+            &required(&db, "github").unwrap().summary.reference(),
+            sailry_link::CancellationToken::new(),
+        )
+        .unwrap();
+    super::super::save(&db, &info, true).unwrap();
+    let mut stored = settings::stored(&db, &info).unwrap();
+    stored.mcp = Some(configuration);
+    settings::persist(&db, &mut info, &stored).unwrap();
+    assert!(prepare(&db, &host, &info.summary.reference()).is_ok());
+    info.extension.as_mut().unwrap().credential_source = None;
+    super::super::save(&db, &info, true).unwrap();
+    assert!(prepare(&db, &host, &info.summary.reference()).is_err());
+}

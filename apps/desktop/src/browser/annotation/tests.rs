@@ -13,18 +13,25 @@ fn element() -> Element {
 }
 
 #[test]
-fn retains_exact_context_and_optional_note() {
-    let element = element();
-    let value: serde_json::Value =
-        serde_json::from_str(&element.reference("Replace this heading").unwrap()).unwrap();
-    assert_eq!(value["page_element"]["selector"], "#heading");
-    assert_eq!(value["page_element"]["text"], "Visible heading");
-    assert_eq!(
-        value["page_element"]["bounds"],
-        serde_json::json!([10., 20., 180., 30.])
-    );
-    assert_eq!(value["annotation"], "Replace this heading");
-    assert!(element.reference("").is_ok());
+fn accepts_only_original_context_and_bounded_note() {
+    let item = element();
+    let value = serde_json::json!({"page_element":item,"annotation":"Replace this heading"});
+    assert!(Reference::matches(&value.to_string(), &item));
+    let mut changed = value.clone();
+    changed["page_element"]["url"] = "https://other.example/".into();
+    assert!(!Reference::matches(&changed.to_string(), &item));
+    changed = value.clone();
+    changed["page_element"]["text"] = "Forged heading".into();
+    assert!(!Reference::matches(&changed.to_string(), &item));
+    changed = value.clone();
+    changed["annotation"] = "x".repeat(4097).into();
+    assert!(!Reference::matches(&changed.to_string(), &item));
+    changed["annotation"] = "\0".into();
+    assert!(!Reference::matches(&changed.to_string(), &item));
+    changed["annotation"] = "".into();
+    assert!(Reference::matches(&changed.to_string(), &item));
+    changed["extra"] = true.into();
+    assert!(!Reference::matches(&changed.to_string(), &item));
 }
 
 #[test]
@@ -44,23 +51,19 @@ fn rejects_unbounded_or_unusable_context() {
     item = element();
     item.selector.clear();
     assert!(!item.validate());
-    assert!(element().reference(&"x".repeat(4097)).is_err());
 }
 
 #[test]
 fn cancels_pending_selection_when_released() {
     let stop = CancellationToken::new();
-    let state = State {
-        target: Some(Target {
-            token: "selected".into(),
-            tab: 0,
-            url: element().url,
-            lease: 0,
-            stop: stop.clone(),
-        }),
-        task: None,
-        captured: false,
-    };
+    let mut state = State::default();
+    state.target = Some(Target {
+        token: "selected".into(),
+        tab: 0,
+        url: element().url,
+        lease: 0,
+        stop: stop.clone(),
+    });
     drop(state);
     assert!(stop.is_cancelled());
 }
@@ -162,6 +165,160 @@ fn ignores_other_documents_and_selection_tokens(cx: &mut TestAppContext) {
                 window,
                 cx,
             );
+            assert!(!browser.annotation.active());
+        });
+    });
+}
+
+impl Browser {
+    pub(crate) fn capture_fixture(&mut self, cx: &mut Context<Self>) -> String {
+        let mut bytes = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut bytes)
+            .encode_image(&image::DynamicImage::new_rgb8(12, 8))
+            .unwrap();
+        self.cancel_annotation(cx);
+        let item = element();
+        self.tabs[self.selected].url = item.url.clone();
+        let token = sailry_protocol::RequestId::new().to_string();
+        self.annotation.target = Some(Target {
+            token: token.clone(),
+            tab: self.tabs[self.selected].id,
+            url: item.url.clone(),
+            lease: self.lease,
+            stop: CancellationToken::new(),
+        });
+        self.annotation.captured = true;
+        self.annotation.capture = Some(Capture {
+            element: item,
+            preview: Arc::new(Image::from_bytes(ImageFormat::Jpeg, bytes.clone())),
+            image: bytes.into(),
+        });
+        self.changed(cx);
+        token
+    }
+}
+
+#[gpui_kit::test]
+fn transfers_exact_capture_and_rejects_stale_targets(cx: &mut TestAppContext) {
+    use std::{cell::Cell, rc::Rc};
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+    });
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let browser = cx.new(|cx| Browser::new(true, window, cx));
+        Root::new(browser, window, cx)
+    });
+    let count = Rc::new(Cell::new(0));
+    let (browser, token) = visual.update(|window, cx| {
+        let browser = cx.new(|cx| Browser::new(true, window, cx));
+        let token = browser.update(cx, |browser, cx| browser.capture_fixture(cx));
+        let total = count.clone();
+        cx.subscribe(&browser, move |_, request: &Transfer, _| {
+            total.set(total.get() + 1);
+            assert!(!request.image.is_empty());
+            if let Some(reply) = request.reply.borrow_mut().take() {
+                let _ = reply.send(Ok(()));
+            }
+        })
+        .detach();
+        (browser, token)
+    });
+    let reference =
+        serde_json::json!({"page_element":element(),"annotation":"Keep annotation"}).to_string();
+    for (selected, value, expected) in [
+        (
+            "other".to_owned(),
+            reference.clone(),
+            Err("browser_annotation_stale"),
+        ),
+        (
+            token.clone(),
+            "{}".into(),
+            Err("browser_annotation_invalid"),
+        ),
+        (token.clone(), reference.clone(), Ok(())),
+    ] {
+        let mut receive = visual.update(|_, cx| {
+            let (reply, receive) = tokio::sync::oneshot::channel();
+            browser.update(cx, |browser, cx| {
+                browser.submit_annotation(
+                    &Submit {
+                        token: selected,
+                        reference: value,
+                        stop: CancellationToken::new(),
+                        reply: RefCell::new(Some(reply)),
+                    },
+                    cx,
+                )
+            });
+            receive
+        });
+        visual.run_until_parked();
+        assert_eq!(receive.try_recv().unwrap(), expected);
+    }
+    assert_eq!(count.get(), 1);
+    visual.update(|_, cx| {
+        browser.update(cx, |browser, cx| {
+            browser.cancel_captured_annotation("other", cx);
+            assert!(browser.annotation.active());
+            browser.acquire_lease(cx);
+            assert!(!browser.annotation.active());
+            assert!(browser.annotation_snapshot().is_none());
+        })
+    });
+    let mut receive = visual.update(|_, cx| {
+        let (reply, receive) = tokio::sync::oneshot::channel();
+        browser.update(cx, |browser, cx| {
+            browser.submit_annotation(
+                &Submit {
+                    token,
+                    reference,
+                    stop: CancellationToken::new(),
+                    reply: RefCell::new(Some(reply)),
+                },
+                cx,
+            )
+        });
+        receive
+    });
+    visual.run_until_parked();
+    assert_eq!(receive.try_recv().unwrap(), Err("browser_annotation_stale"));
+    assert_eq!(count.get(), 1);
+}
+
+#[gpui_kit::test]
+fn covered_surface_preserves_capture_and_checks_lease(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+    });
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let browser = cx.new(|cx| Browser::new(true, window, cx));
+        Root::new(browser, window, cx)
+    });
+    visual.update(|window, cx| {
+        let browser = cx.new(|cx| Browser::new(true, window, cx));
+        browser.update(cx, |browser, cx| {
+            let token = browser.capture_fixture(cx);
+            let lease = browser.lease;
+            browser.cover(lease, true, window, cx);
+            assert!(browser.annotation.active());
+            assert_eq!(browser.annotation_snapshot().unwrap()["token"], token);
+            assert!(browser.annotation_preview(&token).is_some());
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            assert!(!browser.surface_visible());
+            browser.cover(lease + 1, false, window, cx);
+            assert!(browser.covered);
+            browser.cover(lease, false, window, cx);
+            assert!(browser.annotation.active());
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            assert!(browser.surface_visible());
+            browser.cover(lease, true, window, cx);
+            browser.acquire_lease(cx);
+            assert!(!browser.covered);
+            browser.cover(lease, true, window, cx);
+            assert!(!browser.covered);
             assert!(!browser.annotation.active());
         });
     });

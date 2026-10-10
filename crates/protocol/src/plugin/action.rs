@@ -7,6 +7,14 @@ pub enum Action {
     ReadCode,
     #[serde(rename = "code.manage")]
     ManageCode,
+    #[serde(rename = "code.settings.read")]
+    ReadCodeSettings,
+    #[serde(rename = "code.settings.write")]
+    SaveCodeSettings,
+    #[serde(rename = "web.settings.read")]
+    ReadSearchSettings,
+    #[serde(rename = "web.settings.write")]
+    SaveSearchSettings,
     #[serde(rename = "activity.read")]
     ReadActivity,
     #[serde(rename = "usage.read")]
@@ -107,6 +115,8 @@ impl Action {
         matches!(
             self,
             Self::ReadCode
+                | Self::ReadCodeSettings
+                | Self::ReadSearchSettings
                 | Self::ReadActivity
                 | Self::ReadUsage
                 | Self::ReadDatabases

@@ -16,6 +16,7 @@ pub(super) mod models;
 pub(in crate::store) mod oauth;
 mod repository;
 mod script;
+pub(super) mod services;
 pub(super) mod settings;
 mod skills;
 pub(in crate::store) mod storage;
@@ -183,9 +184,7 @@ pub(super) fn finish(
             return Err(storage_error("prepared plugin identity changed"));
         }
         let info = enable(db, current, true)?;
-        if name == "code" {
-            super::code::enable(db, true)?;
-        }
+        services::apply(db, &info, true)?;
         let event = Event::PluginChanged(info.summary.clone());
         *result = Ok(Output::Plugin(info));
         return Ok(Some(event));
@@ -324,13 +323,24 @@ fn finish_package(
         .map_or(0, |info| info.summary.settings_revision);
     info.summary.enabled = match current.as_ref() {
         Some(current) => current.summary.enabled,
-        None if name == "code" && info.summary.revision == 1 => super::code::settings(db)?.enabled,
+        None if info.summary.revision == 1 => services::initial(db, info)?.unwrap_or(true),
         None => true,
     };
-    save(db, info, true)?;
-    if name == "code" {
-        super::code::enable(db, info.summary.enabled)?;
+    services::check(db, info)?;
+    if let Some(previous) = &current
+        && previous
+            .extension
+            .as_ref()
+            .and_then(|extension| extension.enabled_service)
+            != info
+                .extension
+                .as_ref()
+                .and_then(|extension| extension.enabled_service)
+    {
+        services::apply(db, previous, false)?;
     }
+    save(db, info, true)?;
+    services::apply(db, info, info.summary.enabled)?;
     super::agent::continuation::invalidate(db, name)?;
     if let Command::InstallMcp {
         definition,
@@ -418,9 +428,7 @@ pub(super) fn execute(
             let info = required(db, name)?;
             super::commands::check_revision(info.summary.revision, *expected_revision)?;
             let info = enable(db, info, *enabled)?;
-            if name == "code" {
-                super::code::enable(db, *enabled)?;
-            }
+            services::apply(db, &info, *enabled)?;
             Ok((
                 Output::Plugin(info.clone()),
                 Some(Event::PluginChanged(info.summary)),
@@ -435,9 +443,7 @@ pub(super) fn execute(
             info.summary.revision = next(db, name)?;
             info.summary.enabled = false;
             save(db, &info, false)?;
-            if name == "code" {
-                super::code::enable(db, false)?;
-            }
+            services::apply(db, &info, false)?;
             super::agent::continuation::invalidate(db, name)?;
             Ok((
                 Output::Plugins(list(db)?),

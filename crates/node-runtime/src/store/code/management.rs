@@ -6,6 +6,10 @@ pub(super) fn authorize(database: &Database, request: &Request) -> Result<(), Fa
     let Some(context) = &request.plugin else {
         return Ok(());
     };
+    if context.controller_settings() {
+        // The shared action gate has already checked the captured package and grant.
+        return Ok(());
+    }
     let denied = || {
         Fault::new(
             ErrorCode::PermissionDenied,

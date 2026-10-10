@@ -115,7 +115,7 @@ impl Resources {
                 let directory = self.directory(index).await?;
                 let host = self.host.clone();
                 let name = package.summary.name.clone();
-                let schema = package.settings.clone();
+                let info = package.clone();
                 let settings = self.settings.get(&name).cloned().unwrap_or_else(|| {
                     if package
                         .extension
@@ -157,15 +157,8 @@ impl Resources {
                         servers
                             .into_iter()
                             .map(|(server, config)| {
-                                let launch = prepare(
-                                    &host,
-                                    &directory,
-                                    &name,
-                                    &server,
-                                    config,
-                                    schema.as_ref(),
-                                    &settings,
-                                );
+                                let launch =
+                                    prepare(&host, &directory, &info, &server, config, &settings);
                                 (server, launch)
                             })
                             .collect::<BTreeMap<_, _>>(),
@@ -300,18 +293,21 @@ impl Host {
 fn prepare(
     host: &Host,
     package: &Directory,
-    name: &str,
+    info: &Info,
     server_name: &str,
     server: Server,
-    schema: Option<&sailry_protocol::plugin::settings::Schema>,
     settings: &crate::plugins::settings::Resolved,
 ) -> Result<Launch, Fault> {
+    let name = info.summary.name.as_str();
+    let schema = info.settings.as_ref();
     let sse = matches!(&server, Server::Sse { .. });
     match server {
         Server::Http { url, mut headers } | Server::Sse { url, mut headers } => {
             let github = if let Some(identity) = &settings.github {
-                if name != "github"
-                    || server_name != "github"
+                if !info.extension.as_ref().is_some_and(|extension| {
+                    extension.credential_source
+                        == Some(sailry_protocol::plugin::CredentialSource::GithubCli)
+                }) || server_name != "github"
                     || sse
                     || url != "https://api.githubcopilot.com/mcp/"
                 {

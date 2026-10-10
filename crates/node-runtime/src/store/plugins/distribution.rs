@@ -20,12 +20,9 @@ pub(in crate::store) fn install(
         if recorded {
             continue;
         }
-        let enabled = if name == "code" {
-            super::super::code::settings(&transaction)?.enabled
-        } else {
-            enabled
-        };
-        let mut result = Ok(Output::Plugin(host.install_bundled(name)?));
+        let info = host.install_bundled(name)?;
+        let enabled = services::initial(&transaction, &info)?.unwrap_or(enabled);
+        let mut result = Ok(Output::Plugin(info));
         let mut event = finish(
             &transaction,
             &Command::InstallBundledPlugin {
@@ -55,22 +52,19 @@ pub(in crate::store) fn install(
 }
 
 fn refresh(db: &Connection, host: &crate::plugins::Host) -> Result<(), Fault> {
-    for name in [
-        "code",
-        "web-search",
-        "browser",
-        "files",
-        "office",
-        "commands",
-        "plugin-builder",
-    ] {
+    for summary in list(db)? {
+        let name = summary.name.as_str();
         let Some(current) = get(db, name)? else {
             continue;
         };
         if current.origin != Some(plugin::Origin::Bundled) {
             continue;
         }
-        let bundled = crate::plugins::Host::bundled_version(name)?;
+        let bundled = match crate::plugins::Host::bundled_version(name) {
+            Ok(version) => version,
+            Err(error) if error.code == ErrorCode::NotFound => continue,
+            Err(error) => return Err(error),
+        };
         let versions = current
             .summary
             .version

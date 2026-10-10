@@ -163,6 +163,16 @@ impl Fixture {
                 path: root.to_str().unwrap().into(),
             })))
             .unwrap();
+        runtime.block_on(crate::settings::tests::packages::install(
+            &client,
+            directory.path(),
+            "code",
+        ));
+        runtime.block_on(crate::settings::tests::packages::install(
+            &sailry_client::Client::new(other.local()),
+            &directory.path().join("other-fixtures"),
+            "code",
+        ));
         let second_root = directory
             .path()
             .canonicalize()
@@ -243,12 +253,6 @@ impl Fixture {
                     cx,
                 );
                 settings.open_plugin_settings("code", cx);
-                settings.bind_code_scope(
-                    self.transport.clone(),
-                    self.runtime.clone(),
-                    "Fixture Node".into(),
-                    cx,
-                );
             });
             owner = Some(settings.clone());
             Root::new(settings, window, cx)
@@ -281,12 +285,6 @@ impl Fixture {
                     "Selected Node".into(),
                     cx,
                 );
-                settings.bind_code_scope(
-                    transport,
-                    self.runtime.clone(),
-                    "Selected Node".into(),
-                    cx,
-                )
             })
         });
         wait(cx, |cx| bound(owner, cx, node));
@@ -310,71 +308,26 @@ pub(super) fn init(cx: &mut TestAppContext) {
         crate::shell::init(cx);
     });
 }
-pub(super) fn selected(owner: &Entity<Workspace>, cx: &App) -> Entity<Panel> {
-    let state = &owner.read(cx).code;
-    state.panels[&state.selected.unwrap()].clone()
+pub(super) fn selected(owner: &Entity<Workspace>, cx: &App) -> Entity<crate::plugins::Panel> {
+    owner.read(cx).plugin_settings_panel().unwrap()
 }
 fn bound(owner: &Entity<Workspace>, cx: &App, node: NodeId) -> bool {
-    let workspace = owner.read(cx);
-    workspace
+    owner
+        .read(cx)
         .provider_link
         .as_ref()
         .is_some_and(|live| live.connected && live.binding.client.target() == node)
-        && !workspace.plugin_catalog.busy()
-        && workspace
-            .plugin_catalog
-            .metadata
-            .as_ref()
-            .is_some_and(|metadata| {
-                let metadata = metadata.read(cx);
-                metadata.settled()
-                    && metadata.entries.get("code").is_some_and(|info| {
-                        info.extension
-                            .as_ref()
-                            .and_then(|extension| extension.settings_page.as_ref())
-                            .is_some_and(|page| {
-                                page.native
-                                    == Some(sailry_protocol::plugin::desktop::NativeSettings::Code)
-                            })
-                    })
-            })
-        && workspace.code.selected == Some(node)
-        && {
-            let panel = selected(owner, cx);
-            panel.read(cx).saved.is_some() && !panel.read(cx).loading
-        }
+        && ready(owner, cx, "code-update-rules")
 }
-pub(super) fn toggle(owner: &Entity<Workspace>, cx: &mut VisualTestContext, enabled: bool) {
-    owner.update(cx, |owner, cx| {
-        owner.select(crate::settings::Section::Plugins, cx)
-    });
-    crate::settings::plugins::test_support::tap(cx, "plugin-toggle-code");
-    wait(cx, |cx| {
-        let workspace = owner.read(cx);
-        !workspace.plugin_catalog.busy()
-            && workspace
-                .plugin_catalog
-                .packages
-                .iter()
-                .any(|plugin| plugin.name == "code" && plugin.enabled == enabled)
-    });
-    owner.update(cx, |owner, cx| owner.open_plugin_settings("code", cx));
-    wait(cx, |cx| {
-        let workspace = owner.read(cx);
-        workspace.code.selected.is_some()
-            && !workspace.plugin_catalog.busy()
-            && workspace
-                .plugin_catalog
-                .packages
-                .iter()
-                .any(|plugin| plugin.name == "code" && plugin.enabled == enabled)
-            && !selected(owner, cx).read(cx).loading
-            && selected(owner, cx)
-                .read(cx)
-                .saved
-                .as_ref()
-                .is_some_and(|settings| settings.enabled == enabled)
-    });
+
+pub(super) fn ready(owner: &Entity<Workspace>, cx: &App, selector: &str) -> bool {
+    owner.read(cx).plugin_settings_panel().is_some_and(|panel| {
+        crate::plugins::diagnostics(&panel, cx).lines().any(|line| {
+            line.contains(selector)
+                && (line.contains("(\"disabled\", Bool(false))")
+                    || line.contains(":disabled[Bool(false)]"))
+        })
+    })
 }
 #[track_caller]
 pub(super) fn wait(cx: &mut VisualTestContext, predicate: impl Fn(&App) -> bool) {
@@ -400,12 +353,18 @@ pub(super) fn lookup(cx: &mut VisualTestContext, selector: &str) -> Option<Bound
     cx.debug_bounds(Box::leak(selector.to_owned().into_boxed_str()))
 }
 pub(super) fn tap(cx: &mut VisualTestContext, selector: &str) {
-    if cx.update(|window, cx| window.has_active_dialog(cx)) {
-        std::thread::sleep(*dialog::ANIMATION_DURATION);
-    }
-    draw(cx);
-    reveal(cx, selector);
-    let bounds = lookup(cx, selector).unwrap_or_else(|| panic!("missing {selector}"));
+    std::thread::sleep(*dialog::ANIMATION_DURATION);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let bounds = loop {
+        draw(cx);
+        reveal(cx, selector);
+        if let Some(bounds) = lookup(cx, selector) {
+            break bounds;
+        }
+        assert!(Instant::now() < deadline, "missing {selector}");
+        cx.executor().advance_clock(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(10));
+    };
     cx.simulate_mouse_move(bounds.center(), None, Modifiers::default());
     cx.simulate_click(bounds.center(), Modifiers::default());
     draw(cx);

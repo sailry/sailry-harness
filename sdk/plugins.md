@@ -8,7 +8,7 @@ The desktop TypeScript contract is [api.d.ts](../apps/desktop/src/plugins/host/s
 | --- | --- |
 | Public configuration and scope | `readSettings()`, `context()` |
 | Model catalog and selection | `listModels()`, `resolveModel(settings, catalog, field)` |
-| Model decision | `prepareModel(player, turn)`, `modelChoice(result, player, choices)` |
+| Model request | `prepareRequest(command)`, `completeRequest(id)` |
 | Durable requests | `prepareRequest(command)`, `completeRequest(id)`, `forgetRequest(id)` |
 | Atomic Node mutations | `prepareTransaction(operations)`, `prepareNotification(content)` |
 | Coalesced invalidation | `nextChange(cursor?)` |
@@ -20,17 +20,18 @@ The desktop TypeScript contract is [api.d.ts](../apps/desktop/src/plugins/host/s
 | Declarative UI | `publishContributions(states)`, `nextContributionEvent()` |
 | Low-level context, resources and UI | Existing `sailry` exports: `context`, `theme`, `Header`, `Image`, `Conversation`, `header_action`, `next_change` |
 
-`modelCommand` is available when a plugin needs to inspect a prepared model command. Most plugins should use `prepareModel` directly. The `turn` object contains `instructions`, JSON `state`, and legal `choices` whose integer `id` equals its array index. Provider and decision models use the same selection API. Credentials remain on the execution Node.
+Model prompts and response parsing belong to the package. `resolveModel` validates the selected model and reasoning effort against the Node catalog; credentials remain on that Node.
 
 ```js
-import { readSettings, listModels, resolveModel, prepareModel,
-  completeRequest, modelChoice, forgetRequest } from "sailry/sdk";
-
-const player = resolveModel(await readSettings(), await listModels(), "ai_model");
-const id = prepareModel(player, turn);
+import {readSettings, listModels, resolveModel, prepareRequest,
+  completeRequest, forgetRequest} from "sailry/sdk";
+const model = resolveModel(await readSettings(), await listModels(), "ai_model");
+const id = prepareRequest({kind: "generate_plugin_text", data: {
+  model: model.model, effort: model.effort, prompt: "Your package-owned prompt"
+}});
 const result = await completeRequest(id);
-forgetRequest(id);
-const { move } = modelChoice(result, player, moves);
+// Validate the response and keep uncertain requests for an explicit retry.
+if (!result.Err || result.Err.code !== "outcome_unknown") forgetRequest(id);
 ```
 
 Use `errorCode(error.message)` for model and configuration failures. It accounts for the native bridge's diagnostic prefix and returns a stable code for plugin localization.
@@ -71,7 +72,17 @@ Workspace pages declare `desktop.navigation_options.retention` as `{ "mode": "no
 
 Settings ignore workspace retention: entering settings can preload bounded immutable resources without running scripts or reading business data. Opening a settings page creates its view and reads current data; switching releases that view, and leaving the settings area releases all preloaded files.
 
-`settings_page` contributes settings navigation, placement and an optional shared enable control. A script page supplies `entry`; a schema-generated page omits it. The bundled `code` and `web-search` packages can instead declare `native: "code"` or `native: "search"`, respectively, with no script entry. These fixed renderers reuse the existing Kit pages and captured Client connection. Other packages cannot select them, and declaring a native page adds no SDK permissions. Search and language operations still execute on Node; controller-only settings commands are not available to Agent scripts.
+`settings_page` contributes settings navigation, placement and an optional shared enable control. A script page supplies `entry`; a schema-generated page omits it. Feature pages and workflows belong in the package, including bundled language-service and search settings. The host provides Kit composition and scoped service APIs, never package-specific native page selectors.
+
+`code.settings.read` allows reading Node-wide language settings, catalog and registry metadata. `code.settings.write` allows saving settings, updating rules and cancelling installation. `code.manage` allows exact-descriptor installation/removal; `code.read` observes installations. `web.settings.read` and `web.settings.write` allow search settings and driver checks. These settings operations require the captured settings surface, without a worktree, session, turn or callback invocation. Agent lifecycle tools still require their original approval. Disabled packages can configure their own settings surface.
+
+`nextCodeInstallations()` observes installation updates on the captured Node and closes with the view. Use `sailry/search.prepareSettings` with opaque `sailry/credentials` field handles to prepare credential updates; plaintext credentials never enter JavaScript. Complete and recover these requests through the ordinary SDK request API.
+
+A package can declare `enabled_service: "language"` with Host scope and `code.settings.write` to bind its switch to the Node language service. Only one installed package may own a service binding. Omitting it creates no service coupling. The host validates and applies the lifecycle atomically; the field grants no actions.
+
+Game prompts, legal-move selection and response validation belong in each game package. Use `prepareRequest` with `generate_plugin_text`, then `completeRequest` and `forgetRequest`; the core model API does not construct game prompts or interpret moves.
+
+The browser package owns annotation review and note drafts. `readBrowser()` and `nextBrowserChange()` expose the current `{token, element}` capture and capture error; `BrowserAnnotationImage` displays its protected screenshot without exposing image bytes to JavaScript. Compose the review with Kit controls, then call `submitBrowserAnnotation(token, reference)` with the JSON reference through `sailry/ui`, or cancel with `browserAction({kind: "cancel_annotation", token})`. The shared service verifies the captured element, token and note bounds before transferring the image and text to the original composer's draft; navigation or view changes invalidate that capture. `BrowserSurface.new(id, {covered: true})` hides the OS child view behind package overlays without unmounting or cancelling capture; coverage defaults to false. Surface and preview components bind the mounted view lease, so older panels cannot change coverage after remounting.
 
 Knowledge retrieval is a shared Node service rather than a bundled feature plugin. Notes, reminders and other feature packages organize their own collections and expose their own settings and conversation tools using the storage and knowledge operations in the v1 contract. The built-in knowledge settings configure vector models only.
 
@@ -159,3 +170,5 @@ The runnable [tool-content MCP example](../plugins/examples/tool-content) return
 Plugin commands retain the existing declaration, exact installed-package, Node, worktree and session checks. File/Git/conversation operations use the existing scoped protocol through `prepareRequest`; HTTP uses the declared Node service; the SDK grants no raw process or OS access. UI and game rules stay in plugins. Persistence, credentials, model execution and durable receipts stay in Rust.
 
 The current development schema remains v1. Startup fills missing schema objects and storage fields with their defaults, validates the update on an isolated snapshot, saves a private backup and applies it transactionally. Invalid updates preserve the existing profile; startup never resets or deletes user data.
+
+`credential_source: "github_cli"` opts a schema form into the protected GitHub CLI account source. The execution Node verifies the token field, Bearer header and official GitHub MCP endpoint before linking; changing the package name grants no access. The shared native credential form keeps account secrets outside plugin JavaScript.

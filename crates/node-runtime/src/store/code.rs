@@ -14,14 +14,14 @@ pub(super) fn approved(db: &Connection, startup: &Startup) -> Result<bool, Fault
 pub(super) fn configures(command: &Command) -> bool {
     match command {
         Command::SaveCodeSettings { .. } => true,
-        Command::SetPluginEnabled { name, .. }
-        | Command::RemovePlugin { name, .. }
-        | Command::InstallPlugin { name, .. }
-        | Command::InstallPluginUpload { name, .. }
-        | Command::InstallPluginSource { name, .. }
-        | Command::InstallBundledPlugin { name, .. }
-        | Command::InstallSkill { name, .. }
-        | Command::InstallMcp { name, .. } => name == "code",
+        Command::SetPluginEnabled { .. }
+        | Command::RemovePlugin { .. }
+        | Command::InstallPlugin { .. }
+        | Command::InstallPluginUpload { .. }
+        | Command::InstallPluginSource { .. }
+        | Command::InstallBundledPlugin { .. }
+        | Command::InstallSkill { .. }
+        | Command::InstallMcp { .. } => true,
         _ => false,
     }
 }
@@ -135,7 +135,11 @@ fn descriptor(database: &Database, startup: &Startup) -> Result<(), Fault> {
 }
 
 pub(super) fn controller(request: &Request) -> Result<(), Fault> {
-    if request.plugin.is_some() {
+    if request
+        .plugin
+        .as_ref()
+        .is_some_and(|context| !context.controller_settings())
+    {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
             "language lifecycle changes require explicit controller consent",
@@ -292,16 +296,10 @@ pub(super) fn settings(db: &Connection) -> Result<sailry_protocol::code::Setting
 
 pub(super) fn initialize(db: &mut Connection) -> Result<sailry_protocol::code::Settings, Fault> {
     let transaction = db.transaction().map_err(storage_error)?;
-    let package: Option<Vec<u8>> = transaction
-        .query_row("SELECT body FROM plugins WHERE name='code'", [], |row| {
-            row.get(0)
-        })
-        .optional()
-        .map_err(storage_error)?;
-    if let Some(body) = package {
-        let info: sailry_protocol::plugin::Info =
-            serde_json::from_slice(&body).map_err(storage_error)?;
-        enable(&transaction, info.summary.enabled)?;
+    if let Some(enabled) =
+        super::plugins::services::enabled(&transaction, sailry_protocol::plugin::Service::Language)?
+    {
+        enable(&transaction, enabled)?;
     }
     let settings = settings(&transaction)?;
     transaction.commit().map_err(storage_error)?;

@@ -25,7 +25,7 @@ pub(crate) fn configurable(info: &Info) -> bool {
             .extension
             .as_ref()
             .and_then(|extension| extension.settings_page.as_ref())
-            .is_some_and(|page| page.entry.is_some() || page.native.is_some())
+            .is_some_and(|page| page.entry.is_some())
 }
 
 pub(in crate::settings) fn open(binding: Binding, info: Info, window: &mut Window, cx: &mut App) {
