@@ -14,7 +14,10 @@ const LABELS: [&str; 4] = [
 ];
 
 pub(super) fn slider(state: &Entity<SliderState>, cx: &App) -> AnyElement {
-    let value = state.read(cx).percentage().end;
+    // Kit keeps the raw pointer fraction for smooth sliders. Position the fill
+    // and thumb from the stepped value so dragging moves between the four stops.
+    let size = state.read(cx).value().start().clamp(12., 18.);
+    let value = (size - 12.) / 6.;
     let bar = cx.theme().tokens.slider_bar;
     let thumb = cx.theme().tokens.slider_thumb;
     let ring = cx.theme().ring;

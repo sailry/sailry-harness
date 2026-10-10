@@ -159,3 +159,56 @@ fn persists_message_display(cx: &mut TestAppContext) {
         );
     }
 }
+
+#[gpui::test]
+fn snaps_text_size_thumb_to_stops(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("preferences.json");
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+        cx.set_global(Preferences::open(path.clone()));
+    });
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|cx| Workspace::new(window, cx));
+        view.update(cx, |view, cx| view.select(Section::Conversation, cx));
+        Root::new(view, window, cx)
+    });
+    let handle = visual.update(|window, _| window.window_handle());
+    visual.simulate_window_resize(handle, size(px(960.), px(820.)));
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let slider = visual.debug_bounds("message-text-size-slider").unwrap();
+    let inset = px(12.);
+    let at = |fraction: f32| {
+        point(
+            slider.left() + inset + (slider.size.width - inset * 2.) * fraction,
+            slider.center().y,
+        )
+    };
+    let thumb = |visual: &mut VisualTestContext| {
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual
+            .debug_bounds("message-text-size-thumb")
+            .unwrap()
+            .center()
+            .x
+    };
+    let tick = |visual: &mut VisualTestContext, size: u8| {
+        let selector = Box::leak(format!("message-text-size-tick-{size}").into_boxed_str());
+        visual.debug_bounds(selector).unwrap().center().x
+    };
+    visual.simulate_mouse_down(at(1. / 3.), MouseButton::Left, Modifiers::none());
+    // Points between stops keep the thumb on the nearest stop while dragging.
+    for (fraction, size) in [(0.45, 14), (0.6, 16), (0.9, 18)] {
+        visual.simulate_mouse_move(at(fraction), MouseButton::Left, Modifiers::none());
+        visual.run_until_parked();
+        let position = thumb(visual);
+        assert!((position - tick(visual, size)).abs() <= px(1.));
+    }
+    visual.simulate_mouse_move(at(0.55), MouseButton::Left, Modifiers::none());
+    visual.simulate_mouse_up(at(0.55), MouseButton::Left, Modifiers::none());
+    visual.run_until_parked();
+    let position = thumb(visual);
+    assert!((position - tick(visual, 16)).abs() <= px(1.));
+    assert_eq!(Preferences::open(path).data.message_text_size(), 16);
+}
