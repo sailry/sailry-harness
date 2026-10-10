@@ -760,3 +760,6 @@ async fn observed(
 mod evaluation;
 #[path = "agent/live.rs"]
 mod live;
+
+#[path = "agent/smoke.rs"]
+mod smoke;

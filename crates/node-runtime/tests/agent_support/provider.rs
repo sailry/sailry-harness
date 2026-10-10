@@ -3,6 +3,39 @@ use sailry_protocol::{Secret, conversation::Provider};
 
 /// Explicit selection from an inactive profile, without creating WAL sidecars.
 pub(crate) fn load_selected(model: &str, id: sailry_protocol::ProviderId) -> (Provider, Secret) {
+    let (provider, stored) = selected(model, id);
+    assert_eq!(
+        provider.authentication,
+        sailry_protocol::Authentication::ApiKey,
+        "API key acceptance required"
+    );
+    let secret = key(&provider, &stored);
+    (provider, secret)
+}
+
+/// Seed only one selected provider into an already initialized, stopped test profile.
+pub(crate) fn seed(
+    model: &str,
+    id: sailry_protocol::ProviderId,
+    profile: &std::path::Path,
+    node: sailry_protocol::NodeId,
+) -> Provider {
+    let (mut provider, mut stored) = selected(model, id);
+    if let Some(credential) = &mut provider.credential {
+        credential.node = node;
+    }
+    stored["provider"] = serde_json::to_value(&provider).unwrap();
+    stored["quota"] = serde_json::Value::Null;
+    let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+    db.execute(
+        "INSERT INTO providers(id,body) VALUES(?1,?2)",
+        rusqlite::params![id.to_string(), serde_json::to_vec(&stored).unwrap()],
+    )
+    .unwrap();
+    provider
+}
+
+fn selected(model: &str, id: sailry_protocol::ProviderId) -> (Provider, serde_json::Value) {
     let profile = std::env::var_os("SAILRY_ACCEPTANCE_PROFILE").expect("source profile required");
     let path = std::fs::canonicalize(std::path::Path::new(&profile).join("storage/node.sqlite3"))
         .expect("source profile database required");
@@ -27,13 +60,7 @@ pub(crate) fn load_selected(model: &str, id: sailry_protocol::ProviderId) -> (Pr
         provider.enabled && provider.models.iter().any(|value| value.id == model),
         "enabled selected model required"
     );
-    assert_eq!(
-        provider.authentication,
-        sailry_protocol::Authentication::ApiKey,
-        "API key acceptance required"
-    );
-    let secret = key(&provider, &stored);
-    (provider, secret)
+    (provider, stored)
 }
 
 pub(crate) fn load(model: &str) -> (Provider, Secret) {

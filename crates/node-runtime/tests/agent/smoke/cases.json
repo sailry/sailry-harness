@@ -1,0 +1,17 @@
+[
+  {
+    "name": "files",
+    "prompt": "Copy input.txt to output.txt, preserving its exact bytes. Do not change other files. Reply briefly after verifying the copy.",
+    "files": {"input.txt": "Sailry smoke fixture\nExact whitespace:  a  b\n"}
+  },
+  {
+    "name": "chart",
+    "prompt": "Read sales.csv and display a native bar chart of the sales. Use the native chart format, and keep your answer under 150 words.",
+    "files": {"sales.csv": "month,sales\nJan,12\nFeb,18\nMar,15\n"}
+  },
+  {
+    "name": "math",
+    "prompt": "Write the Pythagorean theorem once as inline math and once as display math. Keep the answer under 40 words.",
+    "files": {}
+  }
+]
