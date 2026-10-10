@@ -54,7 +54,7 @@ fn speak(id: String, markdown: &str, cx: &mut App) -> Result<(), tts::Error> {
     }
     let service = cx.global_mut::<Service>();
     if service.engine.is_none() {
-        service.engine = Some(tts::Tts::default()?);
+        service.engine = Some(engine()?);
     }
     let engine = service
         .engine
@@ -92,6 +92,18 @@ fn speak(id: String, markdown: &str, cx: &mut App) -> Result<(), tts::Error> {
     Ok(())
 }
 
+fn engine() -> Result<tts::Tts, tts::Error> {
+    // Sailry requires macOS 13; avoid tts 0.26.3 parsing a localized OS version string.
+    #[cfg(target_os = "macos")]
+    {
+        tts::Tts::new(tts::Backends::AvFoundation)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        tts::Tts::default()
+    }
+}
+
 fn text(markdown: &str) -> String {
     use pulldown_cmark::{Event, Parser, TagEnd};
     let mut text = String::new();
@@ -122,12 +134,71 @@ mod tests {
         assert!(spoken.contains("value"));
         assert!(!spoken.contains("https://") && !spoken.contains("**"));
     }
+    struct Controls;
+
+    impl Render for Controls {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            use gpui_kit::component::button::{Button, ButtonVariants};
+            div().children(["first", "second"].map(|id| {
+                Button::new(id)
+                    .debug_selector(move || format!("reader-{id}"))
+                    .ghost()
+                    .label(id)
+                    .on_click(move |_, window, cx| {
+                        toggle(id.into(), "Sailry system voice", window, cx)
+                    })
+            }))
+        }
+    }
+
     #[gpui::test]
     #[ignore = "requires the native controller system voice"]
-    fn initializes_native_system_voice(_: &mut TestAppContext) {
-        let mut engine = tts::Tts::default().expect("native system voice");
-        engine.set_volume(0.0).unwrap();
-        engine.speak("Sailry system voice", true).unwrap();
-        engine.stop().unwrap();
+    fn native_start_stop_and_replace(cx: &mut TestAppContext) {
+        use gpui_kit::component::Root;
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::init(cx);
+            let mut engine = engine().expect("native system voice");
+            engine.set_volume(0.0).unwrap();
+            cx.set_global(Service {
+                engine: Some(engine),
+                current: None,
+                monitor: None,
+            });
+        });
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let controls = cx.new(|_| Controls);
+            Root::new(controls, window, cx)
+        });
+        fn click(cx: &mut VisualTestContext, selector: &'static str) {
+            cx.update(|window, cx| {
+                window.refresh();
+                _ = window.draw(cx);
+            });
+            let bounds = cx.debug_bounds(selector).expect("reader control");
+            cx.simulate_click(bounds.center(), Modifiers::default());
+        }
+        for _ in 0..3 {
+            click(visual, "reader-first");
+            assert!(visual.update(|_, cx| active("first", cx)));
+            click(visual, "reader-first");
+            visual.update(|_, cx| {
+                assert!(!active("first", cx));
+                assert!(cx.global::<Service>().monitor.is_none());
+            });
+        }
+        click(visual, "reader-first");
+        click(visual, "reader-second");
+        visual.update(|_, cx| {
+            assert!(!active("first", cx));
+            assert!(active("second", cx));
+        });
+        click(visual, "reader-second");
+        visual.update(|window, cx| {
+            assert!(!active("second", cx));
+            assert!(cx.global::<Service>().monitor.is_none());
+            _ = window.draw(cx);
+            window.remove_window();
+        });
     }
 }
