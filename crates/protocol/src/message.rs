@@ -1058,6 +1058,7 @@ pub enum Command {
     CancelCodeQuery {
         request: RequestId,
     },
+    ReadCodeCatalog,
     ListCodeInstallations,
     UninstallCodeServer {
         package: String,
@@ -1464,6 +1465,7 @@ impl Command {
                 | Self::TestSearchDriver { .. }
                 | Self::ListCodeServers { .. }
                 | Self::ListCodePackages { .. }
+                | Self::ReadCodeCatalog
                 | Self::ListCodeInstallations
                 | Self::CancelCodeInstall { .. }
                 | Self::CancelCodeQuery { .. }
@@ -1576,6 +1578,7 @@ pub enum Output {
     CodeServer(crate::code::Server),
     CodeServers(Vec<crate::code::Server>),
     CodePackages(crate::code::Workspace),
+    CodeCatalog(Vec<crate::code::Language>),
     CodeInstallation(crate::code::Installation),
     CodeInstallations(Vec<crate::code::Installation>),
     CodeUninstalled {
@@ -1942,6 +1945,10 @@ pub struct EventEnvelope {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Update {
+    CodeInstallations {
+        node: NodeId,
+        installations: Vec<crate::code::Installation>,
+    },
     Python {
         node: NodeId,
         preparations: Vec<crate::python::Preparation>,
@@ -1981,6 +1988,7 @@ pub enum Update {
 pub enum Topic {
     Python,
     CodeServers(WorktreeId),
+    CodeInstallations,
     Commands(SessionId),
     Browser,
     McpLogin(RequestId),

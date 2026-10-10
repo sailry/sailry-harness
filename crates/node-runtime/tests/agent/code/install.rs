@@ -3,11 +3,12 @@ use sailry_node_runtime::CodeServerFixture;
 use sha2::{Digest, Sha256};
 use std::sync::{
     Arc,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub(super) struct Sources {
+    pub held: Arc<AtomicBool>,
     endpoint: String,
     requests: Arc<AtomicUsize>,
     stop: sailry_link::CancellationToken,
@@ -21,6 +22,8 @@ impl Sources {
         let cancelled = stop.clone();
         let requests = Arc::new(AtomicUsize::new(0));
         let count = requests.clone();
+        let held = Arc::new(AtomicBool::new(false));
+        let hold = held.clone();
         let fixture = CodeServerFixture::new();
         let bytes = CodeServerFixture::archive(CodeServerFixture::python());
         let digest = format!("{:x}", Sha256::digest(&bytes));
@@ -32,6 +35,7 @@ impl Sources {
             loop {
                 let result = tokio::select! {biased;_ = cancelled.cancelled()=>break,result=listener.accept()=>result};
                 let (mut stream, _) = result.unwrap();
+                let hold = hold.clone();
                 let routes = routes.clone();
                 let count = count.clone();
                 let stop = cancelled.clone();
@@ -51,6 +55,9 @@ impl Sources {
                             .nth(1)
                             .unwrap()
                             .to_owned();
+                        while hold.load(Ordering::SeqCst) {
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                        }
                         let bytes = routes.get(&path);
                         let status = if bytes.is_some() {
                             "200 OK"
@@ -66,6 +73,7 @@ impl Sources {
             }
         });
         Self {
+            held,
             endpoint,
             requests,
             stop,

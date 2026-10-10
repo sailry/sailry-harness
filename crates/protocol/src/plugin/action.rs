@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 pub enum Action {
     #[serde(rename = "code.read")]
     ReadCode,
+    #[serde(rename = "code.manage")]
+    ManageCode,
     #[serde(rename = "activity.read")]
     ReadActivity,
     #[serde(rename = "usage.read")]

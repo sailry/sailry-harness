@@ -18,7 +18,7 @@ use sailry_protocol::Command;
 
 impl Render for Panel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.workspace.is_none() {
+        if self.catalog.is_none() {
             return v_flex()
                 .gap_6()
                 .when(!self.loading, |view| {
@@ -85,12 +85,6 @@ impl Render for Panel {
                         })),
                 )
             })
-            .when(
-                self.workspace
-                    .as_ref()
-                    .is_some_and(|workspace| workspace.truncated),
-                |view| view.child(div().text_sm().child(tr("code_languages_partial"))),
-            )
             .child(
                 v_flex()
                     .gap_4()
@@ -135,11 +129,6 @@ impl Panel {
     fn row(&self, row: rows::ServerRow, cx: &mut Context<Self>) -> Entry {
         let locked = self.locked();
         let server = row.server.clone();
-        let running = row.candidate.as_ref().and_then(|candidate| {
-            self.servers
-                .iter()
-                .find(|current| candidate.startup.as_ref() == Some(&current.startup))
-        });
         let owner = cx.entity();
         let details_row = row.clone();
         let details_id = format!("code-details-{server}");
@@ -232,68 +221,6 @@ impl Panel {
                                 editor::open(owner.clone(), edit_server.clone(), window, cx)
                             }),
                     );
-                if let Some(current) = running.filter(|current| {
-                    matches!(
-                        current.status,
-                        code::Status::Starting | code::Status::Indexing | code::Status::Ready
-                    )
-                }) {
-                    let startup = current.startup.clone();
-                    let stop_id = format!("code-stop-{server}");
-                    entry = entry.action(
-                        Button::new(SharedString::from(stop_id.clone()))
-                            .debug_selector(move || stop_id.clone())
-                            .icon(Icon::new(IconName::Pause).text_color(cx.theme().success))
-                            .tooltip(tr("code_pause"))
-                            .accessibility_label(tr("code_pause"))
-                            .disabled(locked)
-                            .on_click(cx.listener(move |panel, _, window, cx| {
-                                panel.submit(
-                                    Command::StopCodeServer {
-                                        startup: startup.clone(),
-                                    },
-                                    window,
-                                    cx,
-                                )
-                            })),
-                    );
-                } else if let Some(startup) = &candidate.startup {
-                    let startup = startup.clone();
-                    let approved = candidate.startup_approved;
-                    let owner = cx.entity();
-                    let start_id = format!("code-start-{server}");
-                    entry = entry.action(
-                        Button::new(SharedString::from(start_id.clone()))
-                            .debug_selector(move || start_id.clone())
-                            .icon(IconName::Play)
-                            .tooltip(tr("code_start"))
-                            .accessibility_label(tr("code_start"))
-                            .disabled(
-                                locked
-                                    || !self.draft.as_ref().is_some_and(|draft| draft.enabled)
-                                    || disabled,
-                            )
-                            .on_click(move |_, window, cx| {
-                                consent::startup(
-                                    owner.clone(),
-                                    startup.clone(),
-                                    approved,
-                                    window,
-                                    cx,
-                                )
-                            }),
-                    );
-                } else {
-                    let start_id = format!("code-start-{server}");
-                    entry = entry.action(
-                        Button::new(SharedString::from(start_id.clone()))
-                            .debug_selector(move || start_id.clone())
-                            .icon(IconName::Play)
-                            .tooltip(tr("code_start_unavailable"))
-                            .accessibility_label(tr("code_start_unavailable"))
-                            .disabled(true),
-                    );
-                }
             }
         } else if let Some(installation) = row
             .installation

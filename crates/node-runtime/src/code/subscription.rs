@@ -7,7 +7,7 @@ impl Pool {
     pub(crate) fn subscribe(
         self: &Arc<Self>,
         node: NodeId,
-        worktree: WorktreeId,
+        worktree: Option<WorktreeId>,
         closed: CancellationToken,
     ) -> Box<dyn Subscription> {
         Box::new(Events {
@@ -22,7 +22,7 @@ impl Pool {
 struct Events {
     pool: Arc<Pool>,
     node: NodeId,
-    worktree: WorktreeId,
+    worktree: Option<WorktreeId>,
     closed: CancellationToken,
     previous: Option<Update>,
 }
@@ -36,11 +36,18 @@ impl Subscription for Events {
                         "code subscription has closed",
                     ));
                 }
-                let update = Update::CodeServers {
-                    node: self.node,
-                    worktree: self.worktree,
-                    servers: self.pool.list(self.worktree).await?,
-                    installations: self.pool.install.list()?,
+                let installations = self.pool.install.list()?;
+                let update = match self.worktree {
+                    Some(worktree) => Update::CodeServers {
+                        node: self.node,
+                        worktree,
+                        servers: self.pool.list(worktree).await?,
+                        installations,
+                    },
+                    None => Update::CodeInstallations {
+                        node: self.node,
+                        installations,
+                    },
                 };
                 if self.previous.as_ref() != Some(&update) {
                     self.previous = Some(update.clone());

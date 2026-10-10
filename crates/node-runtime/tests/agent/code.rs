@@ -3,12 +3,16 @@ use super::*;
 use sailry_protocol::code::{self, Content, Query};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, path::PathBuf};
+#[path = "code/catalog.rs"]
+mod catalog;
 #[path = "code/enabled.rs"]
 mod enabled;
 #[path = "code/install.rs"]
 mod install;
 #[path = "code/live.rs"]
 mod live;
+#[path = "code/management.rs"]
+mod management;
 #[path = "code/overlays.rs"]
 mod overlays;
 #[path = "code/sandbox.rs"]

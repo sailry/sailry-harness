@@ -226,6 +226,13 @@ Installation remains available while disabled. Enabled services start on demand
 and stop after inactivity; installation alone does not launch a server.
 Controllers may stop one exact running server without changing its settings or
 startup grant; later use can start it on demand again.
+Language service settings are Node-wide: catalog, installation and server overrides do not
+require a selected project. Disabling a server stops its instances across worktrees.
+Execution remains worktree-scoped, with approved on-demand startup and idle shutdown.
+The language plugin exposes package discovery, installation and removal to conversations.
+Lifecycle tools reuse exact Node registry descriptors, conversation approvals and durable
+resource admission; Plan turns cannot install or remove software. Removing a package stops
+its instances across worktrees.
 Native controllers configure ordered hook scripts per worktree. Admitted turns
 capture each script's order and enabled state; a phase has one durable launch
 receipt, and recovery never replays that group after a crash or cancellation.

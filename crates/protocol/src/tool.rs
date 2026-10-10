@@ -87,6 +87,12 @@ pub struct Flow {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub enum Operation {
+    #[serde(rename = "code.packages")]
+    CodePackages,
+    #[serde(rename = "code.install")]
+    InstallCodeServer,
+    #[serde(rename = "code.uninstall")]
+    UninstallCodeServer,
     #[serde(rename = "code.diagnostics")]
     CodeDiagnostics,
     #[serde(rename = "code.definition")]
@@ -223,7 +229,9 @@ impl Operation {
     pub fn action(self) -> Option<crate::plugin::Action> {
         use crate::plugin::Action;
         match self {
-            Self::CodeDiagnostics
+            Self::InstallCodeServer | Self::UninstallCodeServer => Some(Action::ManageCode),
+            Self::CodePackages
+            | Self::CodeDiagnostics
             | Self::CodeDefinition
             | Self::CodeReferences
             | Self::CodeHover
@@ -289,7 +297,9 @@ impl Operation {
     pub fn read_only(self) -> bool {
         !matches!(
             self,
-            Self::DelegateAgent
+            Self::InstallCodeServer
+                | Self::UninstallCodeServer
+                | Self::DelegateAgent
                 | Self::GuideAgent
                 | Self::CreateManagedWorktree
                 | Self::RegisterWorktree

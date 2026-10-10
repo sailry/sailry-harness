@@ -1,5 +1,4 @@
 use super::*;
-use gpui_kit::test::TestWindowExt as _;
 use sailry_protocol::{Request, code::InstallStatus};
 
 use super::network::Network;
@@ -25,7 +24,15 @@ fn uses_captured_consent_through_lifecycle(cx: &mut TestAppContext) {
         let (owner, cx) = fixture.mount(cx);
         let panel = cx.update(|_, cx| selected(&owner, cx));
         let consent = cx.update(|_, cx| {
-            panel.read(cx).workspace.as_ref().unwrap().languages[0].servers[0]
+            panel
+                .read(cx)
+                .catalog
+                .as_ref()
+                .unwrap()
+                .iter()
+                .find(|language| language.id == "rust")
+                .unwrap()
+                .servers[0]
                 .package
                 .as_ref()
                 .unwrap()
@@ -76,141 +83,23 @@ fn uses_captured_consent_through_lifecycle(cx: &mut TestAppContext) {
         assert!(cx.debug_bounds("code-details-uninstall").is_some());
         assert!(cx.debug_bounds("code-detail-version").is_some());
         tap(cx, "code-details-close");
-        fixture.transport.drop_next.store(true, Ordering::SeqCst);
-        tap(cx, "code-start-rust-analyzer");
-        assert!(cx.update(|window, cx| window.has_active_dialog(cx)));
-        let startup = cx.update(|_, cx| {
-            panel.read(cx).workspace.as_ref().unwrap().languages[0].servers[0]
-                .startup
-                .clone()
-                .unwrap()
-        });
-        tap(cx, "code-consent-submit");
-        wait(cx, |cx| {
-            !panel.read(cx).pending
-                && panel.read(cx).request.is_some()
-                && panel
-                    .read(cx)
-                    .servers
+        for tree in [Some(fixture.second), None] {
+            fixture.bind(&owner, cx, false, tree);
+            assert_eq!(cx.update(|_, cx| selected(&owner, cx)), panel);
+            assert!(cx.debug_bounds("code-server-rust-analyzer").is_some());
+            assert!(cx.debug_bounds("code-edit-rust-analyzer").is_some());
+            assert!(cx.debug_bounds("code-start-rust-analyzer").is_none());
+            assert!(cx.debug_bounds("code-stop-rust-analyzer").is_none());
+            cx.update(|_, cx| {
+                let rows = panel.read(cx).rows();
+                let row = rows
                     .iter()
-                    .any(|server| server.status == code::Status::Ready)
-        });
-        let original = cx.update(|_, cx| panel.read(cx).request.clone().unwrap());
-        tap(cx, "code-retry");
-        wait(cx, |cx| {
-            !panel.read(cx).pending && !panel.read(cx).loading && panel.read(cx).request.is_none()
-        });
-        let requests = fixture.transport.requests.lock().unwrap();
-        let repeats: Vec<_> = requests
-            .iter()
-            .filter(|request| request.id == original.id)
-            .collect();
-        assert_eq!(repeats.len(), 2);
-        assert_eq!(repeats[0], repeats[1]);
-        drop(requests);
-        assert!(
-            fixture
-                .transport
-                .requests
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|request| request.command
-                    == Command::StartCodeServer {
-                        startup: startup.clone()
-                    })
-        );
-        let Output::CodeServers(servers) = fixture.execute(Command::ListCodeServers {
-            worktree: fixture.worktree,
-        }) else {
-            panic!("servers expected")
-        };
-        assert_eq!(servers[0].startup, startup);
-        assert_eq!(servers[0].status, code::Status::Ready);
-        let log = fixture.root.join("messages");
-        let messages = std::fs::read_to_string(log).unwrap();
-        let starts = messages
-            .lines()
-            .filter(|line| {
-                serde_json::from_str::<serde_json::Value>(line).unwrap()["method"] == "initialize"
-            })
-            .count();
-        assert_eq!(starts, 1);
-        assert!(cx.debug_bounds("code-stop-rust-analyzer").is_some());
-        assert!(cx.debug_bounds("code-start-rust-analyzer").is_none());
-        cx.update(|window, _| {
-            assert_eq!(
-                window.find("code-stop-rust-analyzer").label(),
-                Some(crate::tr("code_pause").as_ref())
-            );
-        });
-        let settings = fixture.settings();
-        fixture.transport.drop_next.store(true, Ordering::SeqCst);
-        tap(cx, "code-stop-rust-analyzer");
-        wait(cx, |cx| {
-            !panel.read(cx).pending && panel.read(cx).request.is_some()
-        });
-        let stopped = cx.update(|_, cx| panel.read(cx).request.clone().unwrap());
-        assert_eq!(stopped.target, fixture.node.id());
-        assert_eq!(
-            stopped.command,
-            Command::StopCodeServer {
-                startup: startup.clone()
-            }
-        );
-        tap(cx, "code-retry");
-        wait(cx, |cx| {
-            !panel.read(cx).pending && !panel.read(cx).loading && panel.read(cx).request.is_none()
-        });
-        assert_eq!(fixture.settings(), settings);
-        assert!(cx.debug_bounds("code-stop-rust-analyzer").is_none());
-        assert!(cx.debug_bounds("code-start-rust-analyzer").is_some());
-        let requests = fixture.transport.requests.lock().unwrap();
-        let repeated: Vec<_> = requests
-            .iter()
-            .filter(|request| request.id == stopped.id)
-            .collect();
-        assert_eq!(repeated.len(), 2);
-        assert_eq!(repeated[0], repeated[1]);
-        drop(requests);
-        tap(cx, "code-start-rust-analyzer");
-        wait(cx, |cx| {
-            !panel.read(cx).pending
-                && !panel.read(cx).loading
-                && panel
-                    .read(cx)
-                    .servers
-                    .iter()
-                    .any(|server| server.status == code::Status::Ready)
-        });
-        assert_eq!(fixture.settings(), settings);
-        assert!(cx.debug_bounds("code-stop-rust-analyzer").is_some());
-        assert!(cx.debug_bounds("code-start-rust-analyzer").is_none());
-        fixture.bind(&owner, cx, false, Some(fixture.second));
-        wait(cx, |cx| {
-            selected(&owner, cx).read(cx).workspace.is_some()
-                && !selected(&owner, cx).read(cx).loading
-        });
-        tap(cx, "code-tab-installed");
-        assert!(cx.debug_bounds("code-server-rust-analyzer").is_some());
-        assert!(cx.debug_bounds("code-edit-rust-analyzer").is_some());
-        assert!(cx.debug_bounds("code-start-rust-analyzer").is_some());
-        cx.update(|window, cx| {
-            let rows = selected(&owner, cx).read(cx).rows();
-            let row = rows
-                .iter()
-                .find(|row| row.server == "rust-analyzer")
-                .unwrap();
-            assert_eq!(row.languages, ["rust"]);
-            assert!(row.candidate.as_ref().unwrap().startup.is_none());
-            assert_eq!(
-                window.find("code-start-rust-analyzer").label(),
-                Some(crate::tr("code_start_unavailable").as_ref())
-            );
-        });
-        let before = fixture.transport.requests.lock().unwrap().len();
-        tap(cx, "code-start-rust-analyzer");
-        assert_eq!(fixture.transport.requests.lock().unwrap().len(), before);
+                    .find(|row| row.server == "rust-analyzer")
+                    .unwrap();
+                assert_eq!(row.languages, ["rust"]);
+                assert!(row.candidate.as_ref().unwrap().startup.is_none());
+            });
+        }
         tap(cx, "code-details-rust-analyzer");
         assert!(cx.debug_bounds("code-detail-package").is_some());
         tap(cx, "code-details-uninstall");

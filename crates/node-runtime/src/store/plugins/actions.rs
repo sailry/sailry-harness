@@ -34,6 +34,8 @@ impl Database {
                 | Command::UseExternalBrowser { .. }
                 | Command::UseComputer { .. }
                 | Command::UseMedia { .. }
+                | Command::InstallCodeServer { .. }
+                | Command::UninstallCodeServer { .. }
         ) && !super::required(&self.connection, &context.package.name)?
             .summary
             .enabled
@@ -287,8 +289,16 @@ impl Database {
                 | Command::CancelWebFetch { .. }
                 | Command::SearchWeb(_)
                 | Command::CancelWebSearch { .. } => (Some(Action::ReadWeb), None, None),
-                Command::ReadCode { worktree, .. } | Command::ListCodeServers { worktree } => {
+                Command::ListCodeInstallations => (Some(Action::ReadCode), None, None),
+                Command::ReadCode { worktree, .. }
+                | Command::ListCodeServers { worktree }
+                | Command::ListCodePackages { worktree } => {
                     (Some(Action::ReadCode), Some(*worktree), None)
+                }
+                Command::InstallCodeServer { .. } | Command::UninstallCodeServer { .. }
+                    if context.turn.is_some() && context.invocation.is_none() =>
+                {
+                    (Some(Action::ManageCode), context.worktree, context.session)
                 }
                 Command::StartCodeServer { startup } if context.turn.is_some() => (
                     Some(Action::ReadCode),

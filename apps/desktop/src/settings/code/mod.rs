@@ -11,13 +11,13 @@ mod watch;
 use super::{Workspace, providers::Binding};
 use gpui_kit::{component::*, *};
 use sailry_link::{CancellationToken, Transport};
-use sailry_protocol::{NodeId, Request, WorktreeId, code};
+use sailry_protocol::{NodeId, Request, code};
 use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Default)]
 pub(super) struct State {
-    panels: BTreeMap<(NodeId, WorktreeId), Entity<Panel>>,
-    selected: Option<(NodeId, WorktreeId)>,
+    panels: BTreeMap<NodeId, Entity<Panel>>,
+    selected: Option<NodeId>,
     scope: Option<Scope>,
 }
 
@@ -26,21 +26,18 @@ struct Scope {
     transport: Arc<dyn Transport>,
     runtime: Arc<tokio::runtime::Runtime>,
     label: SharedString,
-    worktree: Option<WorktreeId>,
 }
 
 pub(super) struct Panel {
     binding: Binding,
     transport: Arc<dyn Transport>,
-    worktree: WorktreeId,
     active: bool,
     saved: Option<code::Settings>,
     draft: Option<code::Settings>,
-    workspace: Option<code::Workspace>,
+    catalog: Option<Vec<code::Language>>,
     installations: Vec<code::Installation>,
     rules: Option<code::Rules>,
     tab: usize,
-    servers: Vec<code::Server>,
     loading: bool,
     pending: bool,
     cancelling: Option<String>,
@@ -65,7 +62,6 @@ impl Panel {
     fn new(
         binding: Binding,
         transport: Arc<dyn Transport>,
-        worktree: WorktreeId,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -75,15 +71,13 @@ impl Panel {
         Self {
             binding,
             transport,
-            worktree,
             active: false,
             saved: None,
             draft: None,
-            workspace: None,
+            catalog: None,
             installations: Vec::new(),
             rules: None,
             tab: 1,
-            servers: Vec::new(),
             loading: false,
             pending: false,
             cancelling: None,
@@ -112,12 +106,13 @@ impl Workspace {
         transport: Arc<dyn Transport>,
         runtime: Arc<tokio::runtime::Runtime>,
         label: SharedString,
-        worktree: Option<WorktreeId>,
         cx: &mut Context<Self>,
     ) {
-        let changed = self.code.scope.as_ref().is_none_or(|scope| {
-            scope.transport.target() != transport.target() || scope.worktree != worktree
-        });
+        let changed = self
+            .code
+            .scope
+            .as_ref()
+            .is_none_or(|scope| scope.transport.target() != transport.target());
         if changed {
             self.clear_code(cx);
         }
@@ -125,7 +120,6 @@ impl Workspace {
             transport,
             runtime,
             label,
-            worktree,
         });
     }
 
@@ -140,14 +134,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         if let Some(scope) = self.code.scope.clone() {
-            self.bind_code(
-                scope.transport,
-                scope.runtime,
-                scope.label,
-                scope.worktree,
-                window,
-                cx,
-            );
+            self.bind_code(scope.transport, scope.runtime, scope.label, window, cx);
         }
         if let Some(key) = self.code.selected
             && let Some(panel) = self.code.panels.get(&key)
@@ -178,7 +165,7 @@ impl Workspace {
                 .child(panel.clone())
                 .into_any_element()
         } else {
-            self.code.render(window, cx)
+            div().into_any_element()
         }
     }
 
@@ -187,16 +174,14 @@ impl Workspace {
         transport: Arc<dyn Transport>,
         runtime: Arc<tokio::runtime::Runtime>,
         label: SharedString,
-        worktree: Option<WorktreeId>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let selected = worktree.map(|worktree| (transport.target(), worktree));
-        if self.code.selected == selected {
+        let key = transport.target();
+        if self.code.selected == Some(key) {
             return;
         }
         self.clear_code(cx);
-        let Some(key) = selected else { return };
         let panel = self
             .code
             .panels
@@ -207,7 +192,7 @@ impl Workspace {
                     runtime,
                     label,
                 };
-                let panel = cx.new(|cx| Panel::new(binding, transport, key.1, window, cx));
+                let panel = cx.new(|cx| Panel::new(binding, transport, window, cx));
                 cx.observe(&panel, |_, _, cx| cx.notify()).detach();
                 panel
             })
@@ -232,17 +217,6 @@ impl Workspace {
                 }
                 cx.notify();
             });
-        }
-    }
-}
-
-impl State {
-    pub(super) fn render(&self, _: &mut Window, _: &mut Context<Workspace>) -> AnyElement {
-        match self.selected.and_then(|key| self.panels.get(&key)) {
-            Some(panel) => panel.clone().into_any_element(),
-            None => crate::settings::group::Group::new("code_languages")
-                .empty(IconName::Cpu, "code_project_required")
-                .into_any_element(),
         }
     }
 }

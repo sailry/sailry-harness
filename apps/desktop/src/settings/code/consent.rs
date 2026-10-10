@@ -39,38 +39,6 @@ pub(super) fn install(
     );
 }
 
-pub(super) fn startup(
-    owner: Entity<Panel>,
-    startup: code::Startup,
-    approved: bool,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    if approved {
-        owner.update(cx, |panel, cx| {
-            panel.submit(Command::StartCodeServer { startup }, window, cx)
-        });
-        return;
-    }
-    let details = vec![
-        ("code_server", startup.server.clone()),
-        (
-            "code_worktree",
-            format!("{} · {}", startup.worktree, startup.root),
-        ),
-        ("code_command", startup.executable.clone()),
-    ];
-    open(
-        owner,
-        "code_start",
-        "code_start",
-        details,
-        Command::StartCodeServer { startup },
-        window,
-        cx,
-    );
-}
-
 pub(super) fn uninstall(
     owner: Entity<Panel>,
     package: String,

@@ -154,6 +154,7 @@ pub(super) fn execute(
         | Command::InstallCodeServer { .. }
         | Command::CancelCodeInstall { .. }
         | Command::CancelCodeQuery { .. }
+        | Command::ReadCodeCatalog
         | Command::ListCodeInstallations
         | Command::UninstallCodeServer { .. }
         | Command::ReadCodeRules

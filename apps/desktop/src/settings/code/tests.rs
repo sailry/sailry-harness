@@ -96,14 +96,15 @@ fn scopes_languages_and_saves_controls(cx: &mut TestAppContext) {
         tap(cx, "code-tab-installed");
         let panel = cx.update(|_, cx| selected(&owner, cx));
         cx.update(|_, cx| {
-            let languages = &panel.read(cx).workspace.as_ref().unwrap().languages;
-            assert_eq!(
-                languages
+            let languages = &panel.read(cx).catalog.as_ref().unwrap();
+            assert!(languages.iter().any(|language| language.id == "rust"));
+            assert!(languages.iter().any(|language| language.id == "html"));
+            assert!(languages.iter().all(|language| {
+                language
+                    .servers
                     .iter()
-                    .map(|language| language.id.as_str())
-                    .collect::<Vec<_>>(),
-                vec!["rust", "toml"]
-            );
+                    .all(|candidate| candidate.startup.is_none())
+            }));
         });
         toggle(&owner, cx, false);
         assert!(!fixture.settings().enabled);
@@ -133,22 +134,10 @@ fn scopes_languages_and_saves_controls(cx: &mut TestAppContext) {
         assert!(custom.disabled);
         assert!(saved.languages.is_empty());
         fixture.bind(&owner, cx, false, Some(fixture.second));
-        wait(cx, |cx| selected(&owner, cx).read(cx).workspace.is_some());
-        cx.update(|_, cx| {
-            assert!(
-                selected(&owner, cx)
-                    .read(cx)
-                    .workspace
-                    .as_ref()
-                    .unwrap()
-                    .languages
-                    .is_empty()
-            )
-        });
+        assert_eq!(cx.update(|_, cx| selected(&owner, cx)), panel);
         fixture.bind(&owner, cx, false, None);
-        draw(cx);
-        assert!(cx.debug_bounds("empty-code_project_required").is_some());
-        assert!(cx.debug_bounds("code-settings").is_none());
+        assert_eq!(cx.update(|_, cx| selected(&owner, cx)), panel);
+        assert!(cx.debug_bounds("code-settings").is_some());
         fixture.close(cx);
     }
 }
@@ -213,20 +202,6 @@ fn refuses_stale_consent_targets(cx: &mut TestAppContext) {
         let (owner, cx) = fixture.mount(cx);
         tap(cx, "code-install-rust-analyzer");
         assert!(cx.update(|window, cx| window.has_active_dialog(cx)));
-        fixture.bind(&owner, cx, false, Some(fixture.second));
-        tap(cx, "code-consent-submit");
-        assert!(
-            !fixture
-                .transport
-                .requests
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|request| matches!(request.command, Command::InstallCodeServer { .. }))
-        );
-        fixture.bind(&owner, cx, false, Some(fixture.worktree));
-        wait(cx, |cx| !selected(&owner, cx).read(cx).loading);
-        tap(cx, "code-install-rust-analyzer");
         fixture.bind(&owner, cx, true, None);
         tap(cx, "code-consent-submit");
         assert!(
@@ -238,13 +213,13 @@ fn refuses_stale_consent_targets(cx: &mut TestAppContext) {
                 .iter()
                 .any(|request| matches!(request.command, Command::InstallCodeServer { .. }))
         );
-        assert!(cx.debug_bounds("empty-code_project_required").is_some());
+        assert!(cx.update(|_, cx| owner.read(cx).code.selected == Some(fixture.other.id())));
         fixture.close(cx);
     }
 }
 
 #[gpui::test]
-fn follows_shell_project_selection(cx: &mut TestAppContext) {
+fn manages_services_without_a_selected_project(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
@@ -282,7 +257,13 @@ fn follows_shell_project_selection(cx: &mut TestAppContext) {
         assert!(visual.debug_bounds("settings_code").is_none());
         assert!(visual.debug_bounds("settings_search").is_none());
         tap(visual, "plugin-settings-code");
-        assert!(visual.debug_bounds("empty-code_project_required").is_some());
+        let settings = visual.update(|_, cx| shell.read(cx).settings.clone());
+        wait(visual, |cx| {
+            settings.read(cx).code.selected == Some(fixture.node.id())
+                && selected(&settings, cx).read(cx).catalog.is_some()
+        });
+        let panel = visual.update(|_, cx| selected(&settings, cx));
+        assert!(visual.debug_bounds("code-settings").is_some());
         let Output::Snapshot(snapshot) = fixture.execute(Command::Snapshot) else {
             panic!("snapshot expected")
         };
@@ -305,7 +286,7 @@ fn follows_shell_project_selection(cx: &mut TestAppContext) {
         });
         let settings = visual.update(|_, cx| shell.read(cx).settings.clone());
         wait(visual, |cx| {
-            settings.read(cx).code.selected == Some((fixture.node.id(), fixture.worktree))
+            settings.read(cx).code.selected == Some(fixture.node.id())
                 && selected(&settings, cx).read(cx).saved.is_some()
         });
         assert!(visual.debug_bounds("code-server-rust-analyzer").is_some());
@@ -327,14 +308,9 @@ fn follows_shell_project_selection(cx: &mut TestAppContext) {
         wait(visual, |cx| {
             selected(&settings, cx)
                 .read(cx)
-                .workspace
+                .catalog
                 .as_ref()
-                .is_some_and(|workspace| {
-                    workspace
-                        .languages
-                        .iter()
-                        .any(|language| language.id == "html")
-                })
+                .is_some_and(|workspace| workspace.iter().any(|language| language.id == "html"))
                 && !selected(&settings, cx).read(cx).loading
         });
         assert!(
@@ -361,10 +337,17 @@ fn follows_shell_project_selection(cx: &mut TestAppContext) {
             })
         });
         wait(visual, |cx| {
-            settings.read(cx).code.selected == Some((fixture.node.id(), fixture.second))
-                && selected(&settings, cx).read(cx).workspace.is_some()
+            settings.read(cx).code.selected == Some(fixture.node.id())
+                && selected(&settings, cx).read(cx).catalog.is_some()
         });
-        assert!(visual.debug_bounds("empty-code_languages_empty").is_some());
+        assert_eq!(visual.update(|_, cx| selected(&settings, cx)), panel);
+        assert!(visual.update(|_, cx| {
+            selected(&settings, cx)
+                .read(cx)
+                .rows()
+                .iter()
+                .any(|row| row.server == "rust-analyzer")
+        }));
         fixture.close(visual);
         visual
             .cx

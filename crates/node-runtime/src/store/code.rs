@@ -33,7 +33,14 @@ pub(super) fn grant(db: &Connection, startup: &Startup) -> Result<(), Fault> {
 
 pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Fault> {
     if !matches!(request.command, Command::StartCodeServer { .. }) {
-        controller(request)?;
+        if matches!(
+            request.command,
+            Command::InstallCodeServer { .. } | Command::UninstallCodeServer { .. }
+        ) {
+            management::authorize(database, request)?;
+        } else {
+            controller(request)?;
+        }
         return match &request.command {
             Command::InstallCodeServer { install } => {
                 if install.package.is_empty()
@@ -211,6 +218,7 @@ impl Ingress {
                 }
                 Output::CodePackages(workspace)
             }
+            Command::ReadCodeCatalog => Output::CodeCatalog(self.code.catalog().await?),
             Command::ListCodeInstallations => Output::CodeInstallations(self.code.installations()?),
             Command::CancelCodeInstall { package } => {
                 Output::CodeInstallation(self.code.cancel_install(package)?)
@@ -439,5 +447,6 @@ pub(super) fn observe(
     }
 }
 
+mod management;
 #[cfg(test)]
 mod tests;

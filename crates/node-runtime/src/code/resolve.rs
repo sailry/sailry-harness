@@ -274,6 +274,22 @@ pub(super) fn executable(
         .and_then(|path| selected(path, None))
 }
 
+// A global catalog must not resolve relative commands or PATH entries against a project.
+pub(super) fn global_executable(command: &str, environment: &crate::process::Environment) -> bool {
+    let command = Path::new(command);
+    if command.is_absolute() {
+        return installed(command.to_owned()).is_some();
+    }
+    if command.components().count() != 1 {
+        return false;
+    }
+    environment.path().is_some_and(|path| {
+        std::env::split_paths(path)
+            .filter(|directory| directory.is_absolute())
+            .any(|directory| installed(directory.join(command)).is_some())
+    })
+}
+
 fn selected(path: PathBuf, directory: Option<&Path>) -> Option<Executable> {
     let resolved = path.canonicalize().ok()?;
     let dependency = match directory {

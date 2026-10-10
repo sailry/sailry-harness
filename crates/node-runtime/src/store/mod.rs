@@ -1392,11 +1392,14 @@ impl Handler for Ingress {
             if let sailry_protocol::Topic::Conversation(id) = topic {
                 return self.conversation(id).await;
             }
+            if matches!(topic, sailry_protocol::Topic::CodeInstallations) {
+                return Ok(self.code.subscribe(self.node, None, self.closed.clone()));
+            }
             if let sailry_protocol::Topic::CodeServers(worktree) = topic {
                 self.worktree_root(worktree).await?;
                 return Ok(self
                     .code
-                    .subscribe(self.node, worktree, self.closed.clone()));
+                    .subscribe(self.node, Some(worktree), self.closed.clone()));
             }
             if let sailry_protocol::Topic::Files(worktree) = topic {
                 let root = self.worktree_root(worktree).await?;

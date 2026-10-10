@@ -9,7 +9,6 @@ impl Panel {
         self.loading = true;
         self.error = None;
         let binding = self.binding.clone();
-        let worktree = self.worktree;
         let job = binding.runtime.spawn(async move {
             let settings = binding
                 .client
@@ -17,11 +16,7 @@ impl Panel {
                 .await?;
             let packages = binding
                 .client
-                .execute(
-                    binding
-                        .client
-                        .prepare(Command::ListCodePackages { worktree }),
-                )
+                .execute(binding.client.prepare(Command::ReadCodeCatalog))
                 .await?;
             let installs = binding
                 .client
@@ -40,10 +35,10 @@ impl Panel {
                 match result {
                     Ok(Ok((
                         Output::CodeSettings(settings),
-                        Output::CodePackages(workspace),
+                        Output::CodeCatalog(catalog),
                         Output::CodeInstallations(installs),
                         Output::CodeRules(rules),
-                    ))) if workspace.worktree == panel.worktree => {
+                    ))) => {
                         if panel.dirty()
                             && panel
                                 .saved
@@ -55,7 +50,7 @@ impl Panel {
                             panel.saved = Some(settings.clone());
                             panel.draft = Some(settings);
                         }
-                        panel.workspace = Some(workspace);
+                        panel.catalog = Some(catalog);
                         if panel.stop.is_none() {
                             panel.installations = installs;
                         }
@@ -119,8 +114,6 @@ impl Panel {
         let notice = match &request.command {
             Command::InstallCodeServer { .. } => "code_installed",
             Command::CancelCodeInstall { .. } => "code_cancel_requested",
-            Command::StartCodeServer { .. } => "code_started",
-            Command::StopCodeServer { .. } => "code_stopped",
             Command::UninstallCodeServer { .. } => "code_uninstalled",
             _ => "code_saved",
         };
@@ -156,12 +149,6 @@ impl Panel {
                             }
                             Output::CodeInstallation(installation) => {
                                 panel.accept_install(installation)
-                            }
-                            Output::CodeServer(server) => {
-                                panel.servers.retain(|current| {
-                                    current.startup.server != server.startup.server
-                                });
-                                panel.servers.push(server);
                             }
                             Output::CodeRules(rules) => panel.rules = Some(rules),
                             _ => {}

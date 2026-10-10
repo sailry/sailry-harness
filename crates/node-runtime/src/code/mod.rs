@@ -1,4 +1,5 @@
 //! Language services are shared execution-Node resources, never a UI runner.
+mod catalog;
 mod codec;
 mod completion;
 #[cfg(any(test, feature = "test-support"))]
@@ -9,6 +10,7 @@ mod diagnostics;
 mod documents;
 mod identity;
 mod install;
+pub(crate) mod management;
 mod network;
 mod operations;
 mod pool;

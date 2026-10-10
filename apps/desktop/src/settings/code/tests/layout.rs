@@ -21,7 +21,8 @@ fn aligns_flat_servers_and_keeps_icon_actions(cx: &mut TestAppContext) {
                 .filter(|row| row.server == "typescript-language-server")
                 .collect::<Vec<_>>();
             assert_eq!(typescript.len(), 1);
-            assert_eq!(typescript[0].languages, ["javascript", "typescript"]);
+            assert!(typescript[0].languages.contains(&"javascript".into()));
+            assert!(typescript[0].languages.contains(&"typescript".into()));
         });
         let handle = cx.update(|window, _| window.window_handle());
         for width in [560., 1100.] {
@@ -29,6 +30,7 @@ fn aligns_flat_servers_and_keeps_icon_actions(cx: &mut TestAppContext) {
             draw(cx);
             assert!(cx.debug_bounds("code-language-0").is_none());
             assert!(cx.debug_bounds("code-refresh").is_none());
+            reveal(cx, "code-tab-installed");
             let toolbar = bounds(cx, "code-server-toolbar".into());
             let installed = bounds(cx, "code-tab-installed".into());
             let available = bounds(cx, "code-tab-available".into());
@@ -37,12 +39,14 @@ fn aligns_flat_servers_and_keeps_icon_actions(cx: &mut TestAppContext) {
             assert!(toolbar.contains(&available.center()));
             assert!(available.right() < toolbar.right());
             assert!(list.top() >= toolbar.bottom());
+            reveal(cx, "code-server-superhtml");
             let first_actions = bounds(cx, "code-server-superhtml-actions".into());
             for server in [
                 "superhtml",
                 "vscode-html-language-server",
                 "typescript-language-server",
             ] {
+                reveal(cx, &format!("code-server-{server}"));
                 let entry = bounds(cx, format!("code-server-{server}"));
                 let content = bounds(cx, format!("code-server-{server}-content"));
                 let actions = bounds(cx, format!("code-server-{server}-actions"));

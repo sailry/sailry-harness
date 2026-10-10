@@ -2,6 +2,9 @@
 use super::*;
 
 pub(super) fn description(operation: Operation) -> &'static str {
+    if crate::code::management::handles(operation) {
+        return crate::code::management::description(operation);
+    }
     if crate::code::handles(operation) {
         return crate::code::description(operation);
     }
@@ -15,6 +18,9 @@ pub(super) fn description(operation: Operation) -> &'static str {
         | Operation::KnowledgeCreate
         | Operation::KnowledgeRebuild
         | Operation::KnowledgeRemove => unreachable!("knowledge operation handled above"),
+        Operation::CodePackages | Operation::InstallCodeServer | Operation::UninstallCodeServer => {
+            unreachable!("language management handled above")
+        }
         Operation::CodeDiagnostics
         | Operation::CodeDefinition
         | Operation::CodeReferences
@@ -93,6 +99,9 @@ pub(super) fn description(operation: Operation) -> &'static str {
 }
 
 pub(super) fn parameters(operation: Operation) -> Value {
+    if crate::code::management::handles(operation) {
+        return crate::code::management::parameters(operation);
+    }
     if crate::code::handles(operation) {
         return crate::code::parameters(operation);
     }
@@ -131,6 +140,9 @@ pub(super) fn parameters(operation: Operation) -> Value {
         | Operation::KnowledgeCreate
         | Operation::KnowledgeRebuild
         | Operation::KnowledgeRemove => unreachable!("knowledge operation handled above"),
+        Operation::CodePackages | Operation::InstallCodeServer | Operation::UninstallCodeServer => {
+            unreachable!("language management handled above")
+        }
         Operation::CodeDiagnostics
         | Operation::CodeDefinition
         | Operation::CodeReferences
@@ -259,6 +271,9 @@ pub(super) fn command(
     arguments: Value,
     context: &plugin::Context,
 ) -> Result<Command, Fault> {
+    if crate::code::management::handles(operation) {
+        return crate::code::management::command(operation, arguments, context);
+    }
     if crate::code::handles(operation) {
         return crate::code::command(operation, arguments, context);
     }
@@ -468,6 +483,9 @@ pub(super) fn command(
         | Operation::KnowledgeCreate
         | Operation::KnowledgeRebuild
         | Operation::KnowledgeRemove => unreachable!("knowledge operation handled above"),
+        Operation::CodePackages | Operation::InstallCodeServer | Operation::UninstallCodeServer => {
+            unreachable!("language management handled above")
+        }
         Operation::CodeDiagnostics
         | Operation::CodeDefinition
         | Operation::CodeReferences

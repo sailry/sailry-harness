@@ -279,7 +279,7 @@ async fn publishes_diagnostic_changes_without_query_feedback() {
         .unwrap();
     let mut events = pool.subscribe(
         sailry_protocol::NodeId([1; 32]),
-        fixture.worktree,
+        Some(fixture.worktree),
         closed.clone(),
     );
     let sailry_protocol::Update::CodeServers { servers, .. } = events.next().await.unwrap() else {

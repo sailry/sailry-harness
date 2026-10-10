@@ -247,7 +247,6 @@ impl Fixture {
                     self.transport.clone(),
                     self.runtime.clone(),
                     "Fixture Node".into(),
-                    Some(self.worktree),
                     cx,
                 );
             });
@@ -257,9 +256,7 @@ impl Fixture {
         let owner = owner.unwrap();
         let handle = visual.update(|window, _| window.window_handle());
         visual.simulate_window_resize(handle, size(px(1100.), px(1100.)));
-        wait(visual, |cx| {
-            bound(&owner, cx, self.transport.target(), Some(self.worktree))
-        });
+        wait(visual, |cx| bound(&owner, cx, self.transport.target()));
         (owner, visual)
     }
 
@@ -268,7 +265,7 @@ impl Fixture {
         owner: &Entity<Workspace>,
         cx: &mut VisualTestContext,
         other: bool,
-        tree: Option<WorktreeId>,
+        _tree: Option<WorktreeId>,
     ) {
         let transport: Arc<dyn Transport> = if other {
             self.other.local()
@@ -288,12 +285,11 @@ impl Fixture {
                     transport,
                     self.runtime.clone(),
                     "Selected Node".into(),
-                    tree,
                     cx,
                 )
             })
         });
-        wait(cx, |cx| bound(owner, cx, node, tree));
+        wait(cx, |cx| bound(owner, cx, node));
         draw(cx);
     }
 
@@ -318,7 +314,7 @@ pub(super) fn selected(owner: &Entity<Workspace>, cx: &App) -> Entity<Panel> {
     let state = &owner.read(cx).code;
     state.panels[&state.selected.unwrap()].clone()
 }
-fn bound(owner: &Entity<Workspace>, cx: &App, node: NodeId, tree: Option<WorktreeId>) -> bool {
+fn bound(owner: &Entity<Workspace>, cx: &App, node: NodeId) -> bool {
     let workspace = owner.read(cx);
     workspace
         .provider_link
@@ -342,11 +338,11 @@ fn bound(owner: &Entity<Workspace>, cx: &App, node: NodeId, tree: Option<Worktre
                             })
                     })
             })
-        && workspace.code.selected == tree.map(|tree| (node, tree))
-        && tree.is_none_or(|_| {
+        && workspace.code.selected == Some(node)
+        && {
             let panel = selected(owner, cx);
             panel.read(cx).saved.is_some() && !panel.read(cx).loading
-        })
+        }
 }
 pub(super) fn toggle(owner: &Entity<Workspace>, cx: &mut VisualTestContext, enabled: bool) {
     owner.update(cx, |owner, cx| {
@@ -408,6 +404,7 @@ pub(super) fn tap(cx: &mut VisualTestContext, selector: &str) {
         std::thread::sleep(*dialog::ANIMATION_DURATION);
     }
     draw(cx);
+    reveal(cx, selector);
     let bounds = lookup(cx, selector).unwrap_or_else(|| panic!("missing {selector}"));
     cx.simulate_mouse_move(bounds.center(), None, Modifiers::default());
     cx.simulate_click(bounds.center(), Modifiers::default());
@@ -417,5 +414,33 @@ pub(super) fn input(cx: &mut VisualTestContext, selector: &str, value: &str) {
     tap(cx, selector);
     cx.simulate_keystrokes("secondary-a");
     cx.simulate_input(value);
+    draw(cx);
+}
+
+pub(super) fn reveal(cx: &mut VisualTestContext, selector: &str) {
+    if cx.update(|window, cx| window.has_active_dialog(cx)) {
+        return;
+    }
+    for _ in 0..8 {
+        draw(cx);
+        let Some(row) = lookup(cx, selector) else {
+            return;
+        };
+        let Some(mut viewport) = lookup(cx, "settings-viewport") else {
+            return;
+        };
+        // The selector belongs to Kit's scroll content; use the visible window height.
+        viewport.origin.y = px(48.);
+        viewport.size.height = cx.update(|window, _| window.viewport_size().height) - px(72.);
+        if row.center().y > viewport.top() + px(24.) && row.center().y < viewport.bottom() - px(24.)
+        {
+            return;
+        }
+        cx.simulate_event(ScrollWheelEvent {
+            position: viewport.center(),
+            delta: ScrollDelta::Pixels(point(px(0.), viewport.center().y - row.center().y)),
+            ..Default::default()
+        });
+    }
     draw(cx);
 }

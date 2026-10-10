@@ -151,7 +151,6 @@ impl Ingress {
                 if !self.recorded(caller, &request, internal).await? {
                     self.check_request(caller, request.clone(), internal)
                         .await?;
-                    super::code::controller(&request)?;
                     self.code.validate_install(install)?;
                 }
             }
@@ -214,6 +213,7 @@ impl Ingress {
                 sailry_protocol::Command::ReadCode { .. }
                     | sailry_protocol::Command::ListCodeServers { .. }
                     | sailry_protocol::Command::ListCodePackages { .. }
+                    | sailry_protocol::Command::ReadCodeCatalog
                     | sailry_protocol::Command::ListCodeInstallations
                     | sailry_protocol::Command::CancelCodeInstall { .. }
                     | sailry_protocol::Command::CancelCodeQuery { .. }

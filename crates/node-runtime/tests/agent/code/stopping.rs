@@ -253,3 +253,123 @@ async fn rejects_stale_and_plugin_descriptors() {
         fixture.controller.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn disabling_service_stops_all_worktrees() {
+    for remote in [false, true] {
+        let server = Server::tools(vec![]).await;
+        let fixture = Fixture::new(remote, &server).await;
+        fixture.settings(Vec::new(), false).await;
+        let other_root = fixture.directory.path().join("other");
+        std::fs::create_dir(&other_root).unwrap();
+        for file in ["Cargo.toml", "main.rs"] {
+            std::fs::copy(fixture.root.join(file), other_root.join(file)).unwrap();
+        }
+        let Output::Project(project) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::RegisterProject {
+                name: "Other worktree".into(),
+                path: other_root.to_str().unwrap().into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("project expected")
+        };
+        let Output::Session(other) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::CreateSession {
+                project: Some(project.id),
+                worktree: None,
+                config: Some(fixture.session.config.clone()),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected")
+        };
+        let startups = [
+            start(&fixture.client, fixture.session.worktree).await,
+            start(&fixture.client, other.worktree).await,
+        ];
+        let pids = [&fixture.root, &other_root]
+            .map(|root| std::fs::read_to_string(root.join("pid")).unwrap());
+        assert!(pids.iter().all(|pid| running(pid)));
+        let Output::CodeSettings(mut settings) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ReadCodeSettings))
+            .await
+            .unwrap()
+        else {
+            panic!("settings expected")
+        };
+        settings.servers.get_mut("rust-analyzer").unwrap().disabled = true;
+        let Output::CodeSettings(mut settings) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SaveCodeSettings {
+                expected_revision: settings.revision,
+                settings,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("settings expected")
+        };
+        assert!(settings.enabled);
+        assert!(
+            pids.iter().all(|pid| !running(pid)),
+            "completion waits for every owned instance to stop"
+        );
+        for startup in &startups {
+            let Output::CodeServers(servers) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::ListCodeServers {
+                    worktree: startup.worktree,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("servers expected")
+            };
+            assert!(servers.is_empty());
+            assert!(
+                fixture
+                    .client
+                    .execute(fixture.client.prepare(Command::StartCodeServer {
+                        startup: startup.clone()
+                    }))
+                    .await
+                    .is_err()
+            );
+            let Output::Code(result) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::ReadCode {
+                    worktree: startup.worktree,
+                    query: query(),
+                    overlay: None,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("code expected")
+            };
+            assert!(result.startup.is_none());
+        }
+        settings.servers.get_mut("rust-analyzer").unwrap().disabled = false;
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::SaveCodeSettings {
+                expected_revision: settings.revision,
+                settings,
+            }))
+            .await
+            .unwrap();
+        // Re-enabling changes eligibility, without eagerly launching either project.
+        assert!(pids.iter().all(|pid| !running(pid)));
+        for startup in startups {
+            assert_eq!(start(&fixture.client, startup.worktree).await, startup);
+        }
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}

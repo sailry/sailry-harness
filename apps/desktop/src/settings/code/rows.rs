@@ -23,8 +23,8 @@ impl ServerRow {
 impl Panel {
     pub(super) fn rows(&self) -> Vec<ServerRow> {
         let mut rows = BTreeMap::<String, ServerRow>::new();
-        if let Some(workspace) = &self.workspace {
-            for language in &workspace.languages {
+        if let Some(catalog) = &self.catalog {
+            for language in catalog {
                 for candidate in &language.servers {
                     let row =
                         rows.entry(candidate.server.clone())
@@ -44,15 +44,6 @@ impl Panel {
                             });
                     if !row.languages.contains(&language.name) {
                         row.languages.push(language.name.clone());
-                    }
-                    // Keep a launchable candidate when one service supports several languages.
-                    if row
-                        .candidate
-                        .as_ref()
-                        .is_some_and(|candidate| candidate.startup.is_none())
-                        && candidate.startup.is_some()
-                    {
-                        row.candidate = Some(candidate.clone());
                     }
                 }
             }

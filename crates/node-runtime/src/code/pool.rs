@@ -161,6 +161,12 @@ impl Pool {
 
     pub(crate) async fn configure(&self, settings: code::Settings) {
         let enabled = settings.enabled;
+        let disabled: std::collections::BTreeSet<_> = settings
+            .servers
+            .iter()
+            .filter(|(_, value)| value.disabled)
+            .map(|(name, _)| name.clone())
+            .collect();
         {
             let mut configuration = self
                 .configuration
@@ -173,13 +179,40 @@ impl Pool {
             }
             configuration.settings = settings;
         }
-        if !enabled {
-            let mut state = self.state.lock().await;
-            state.prepared.clear();
-            state.failures.clear();
-            for slot in std::mem::take(&mut state.slots).into_values() {
+        let mut state = self.state.lock().await;
+        state
+            .prepared
+            .retain(|_, plan| enabled && !disabled.contains(&plan.startup.server));
+        state
+            .failures
+            .retain(|(_, _, server), _| enabled && !disabled.contains(server));
+        let keys: Vec<_> = state
+            .slots
+            .keys()
+            .filter(|(_, _, server)| !enabled || disabled.contains(server))
+            .cloned()
+            .collect();
+        for key in keys {
+            if let Some(slot) = state.slots.remove(&key) {
                 slot.server.rpc.shutdown().await;
             }
+        }
+    }
+    fn available(&self, server: &str) -> Result<(), Fault> {
+        let configuration = self
+            .configuration
+            .read()
+            .expect("code settings lock is healthy");
+        if !configuration.settings.enabled
+            || configuration
+                .settings
+                .servers
+                .get(server)
+                .is_some_and(|value| value.disabled)
+        {
+            Err(disabled())
+        } else {
+            Ok(())
         }
     }
     pub(super) fn settings(&self) -> code::Settings {
@@ -267,6 +300,7 @@ impl Pool {
         let startup = plan.startup.clone();
         let mut state = self.state.lock().await;
         self.current(&active)?;
+        self.available(&startup.server)?;
         state.cache(plan)?;
         let key = key(&startup);
         let warm = if let Some(slot) = state.slots.get(&key) {
@@ -327,9 +361,11 @@ impl Pool {
         stop: &CancellationToken,
     ) -> Result<code::Server, Fault> {
         let (_, active) = self.capture()?;
+        self.available(&startup.server)?;
         self.validate(startup, root).await?;
         let mut state = self.state.lock().await;
         self.current(&active)?;
+        self.available(&startup.server)?;
         let key = key(startup);
         let mut restarts = state
             .failures
@@ -402,13 +438,19 @@ impl Pool {
                 return Err(error);
             }
         };
-        if let Err(error) = self.current(&active) {
+        if let Err(error) = self
+            .current(&active)
+            .and_then(|()| self.available(&startup.server))
+        {
             server.rpc.shutdown().await;
             return Err(error);
         }
         state.failures.remove(&key);
         let result = info(&server).await?;
-        if let Err(error) = self.current(&active) {
+        if let Err(error) = self
+            .current(&active)
+            .and_then(|()| self.available(&startup.server))
+        {
             server.rpc.shutdown().await;
             return Err(error);
         }
@@ -482,6 +524,7 @@ impl Pool {
             .as_ref()
             .and_then(|candidate| candidate.plan.as_ref())
         {
+            self.available(&plan.startup.server)?;
             state.cache(plan.clone())?;
         }
         let server = if let Some(candidate) = &candidate {
@@ -519,6 +562,7 @@ impl Pool {
             }
             return Ok(result);
         };
+        self.available(&server.plan.startup.server)?;
         let status = server.rpc.state.lock().await.status;
         self.current(&active)?;
         if !matches!(status, Status::Ready | Status::Indexing) {

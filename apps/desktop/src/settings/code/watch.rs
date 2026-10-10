@@ -12,14 +12,13 @@ impl Panel {
         let stop = CancellationToken::new();
         self.stop = Some(stop.clone());
         let transport = self.transport.clone();
-        let worktree = self.worktree;
         let node = self.binding.client.target();
         let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
         self.binding.runtime.spawn(async move {
             loop {
                 let stream = tokio::select! {
                     _ = stop.cancelled() => break,
-                    stream = transport.subscribe(Topic::CodeServers(worktree)) => stream,
+                    stream = transport.subscribe(Topic::CodeInstallations) => stream,
                 };
                 if let Ok(mut stream) = stream {
                     loop {
@@ -28,13 +27,11 @@ impl Panel {
                             update = stream.next() => update,
                         };
                         match update {
-                            Ok(Update::CodeServers {
+                            Ok(Update::CodeInstallations {
                                 node: target,
-                                worktree: tree,
-                                servers,
                                 installations,
-                            }) if target == node && tree == worktree => {
-                                if sender.send(Some((servers, installations))).await.is_err() {
+                            }) if target == node => {
+                                if sender.send(Some(installations)).await.is_err() {
                                     return;
                                 }
                             }
@@ -59,8 +56,7 @@ impl Panel {
                         if !panel.active || panel.generation != generation {
                             return;
                         }
-                        if let Some((servers, installations)) = update {
-                            panel.servers = servers;
+                        if let Some(installations) = update {
                             for installation in &installations {
                                 let previous = panel
                                     .installations
@@ -87,7 +83,10 @@ impl Panel {
                                     }
                                 }
                             }
+                            let changed = installations.iter().map(|item| (&item.package, &item.receipt)).collect::<Vec<_>>()
+                                != panel.installations.iter().map(|item| (&item.package, &item.receipt)).collect::<Vec<_>>();
                             panel.installations = installations;
+                            if changed { panel.load(window, cx); }
                         } else {
                             panel.error = Some("code_sync_failed");
                         }
