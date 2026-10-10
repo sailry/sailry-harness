@@ -2,6 +2,78 @@ use super::*;
 
 #[tokio::test]
 #[cfg(unix)]
+async fn missing_python_preserves_skills_and_ordinary_commands() {
+    for remote in [false, true] {
+        let idle = Server::start(false).await;
+        let (directory, node, controller, client, session) = fixture(remote, &idle).await;
+        node.set_python_runtime_fixture(&directory.path().join("missing-python"))
+            .unwrap();
+        let author = Server::tools(vec![
+            ("load_skill".into(), json!({"skill":"example:analysis"})),
+            (plugin_tool("commands", "run_command"), json!({"command":"printf '%s' \"${SAILRY_PYTHON-unset}:${SAILRY_SESSION_DIR-unset}\"", "access":"unrestricted"})),
+        ]).await;
+        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
+            panic!("snapshot expected");
+        };
+        let mut provider = snapshot.providers[0].clone();
+        let revision = provider.revision;
+        provider.endpoint = author.endpoint.clone();
+        execute(
+            &client,
+            Command::PutProvider {
+                provider,
+                expected_revision: revision,
+            },
+        )
+        .await;
+        let Output::QueuedTurn(turn) = execute(
+            &client,
+            Command::SubmitTurn {
+                session: session.id,
+                expected_revision: session.revision,
+                message: "Load the review skill and run a shell command without managed Python"
+                    .into(),
+            },
+        )
+        .await
+        else {
+            panic!("turn expected");
+        };
+        let (_, approval) = approvals::pending(&client, session.id).await;
+        execute(
+            &client,
+            Command::ResolveApproval {
+                session: session.id,
+                approval: approval.id,
+                decision: Decision::Approve,
+            },
+        )
+        .await;
+        let page = finished(&client, session.id, turn.id).await;
+        assert_eq!(page.runs[0].status, Status::Completed);
+        let loaded = results(&page);
+        assert!(
+            loaded[0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("Complete end")
+        );
+        assert!(loaded[0]["python"].is_null());
+        let commands = process::results(&page);
+        assert_eq!(commands.len(), 1);
+        assert_eq!(
+            commands[0].outcome,
+            sailry_protocol::process::Outcome::Exited(0)
+        );
+        assert_eq!(commands[0].stdout.text, "unset:unset");
+        drop(client);
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+#[cfg(unix)]
 #[ignore = "requires SAILRY_TEST_PYTHON_RUNTIME pointing at verified bundled Python"]
 async fn runs_in_the_managed_session_scope() {
     let runtime = std::path::PathBuf::from(

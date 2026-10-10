@@ -5,9 +5,13 @@ mod integrity;
 mod process;
 mod requirements;
 mod runtime;
+mod validation;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+use std::path::Path;
 
 pub(crate) use execution::Execution;
 pub(crate) use execution::remove_session;
@@ -19,7 +23,7 @@ use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Mutex, Weak},
     time::{Duration, SystemTime},
 };
@@ -36,6 +40,7 @@ pub(crate) enum Stage {
     Failed,
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Progress {
     pub package: String,
@@ -63,20 +68,48 @@ pub(crate) struct Manager {
     root: PathBuf,
     environment: Arc<Environment>,
     index: Mutex<Option<String>>,
-    installer: Semaphore,
+    environments: Mutex<BTreeMap<String, Arc<Prepared>>>,
     checked: OnceCell<()>,
+    #[cfg(test)]
     progress: watch::Sender<Option<Progress>>,
-    integrity: Arc<Mutex<integrity::Cache>>,
-    leases: Mutex<BTreeMap<String, Weak<()>>>,
+    preparations: Arc<watch::Sender<Vec<sailry_protocol::python::Preparation>>>,
+    active: Mutex<BTreeMap<String, Active>>,
+    leases: Arc<Mutex<BTreeMap<String, Weak<()>>>>,
     references: Mutex<Option<BTreeSet<String>>>,
     collected: Mutex<Option<SystemTime>>,
 }
 
+struct Prepared {
+    installer: Semaphore,
+    validation: Mutex<validation::Validation>,
+}
+
+#[derive(Default)]
+struct Active {
+    stage: Option<sailry_protocol::python::Stage>,
+    packages: BTreeMap<String, usize>,
+}
+
 impl Manager {
+    #[cfg(test)]
     pub(crate) fn new(
         profile: PathBuf,
         runtime: Runtime,
         environment: Arc<Environment>,
+    ) -> Result<Self, Fault> {
+        Self::with_progress(
+            profile,
+            runtime,
+            environment,
+            Arc::new(watch::channel(Vec::new()).0),
+        )
+    }
+
+    pub(crate) fn with_progress(
+        profile: PathBuf,
+        runtime: Runtime,
+        environment: Arc<Environment>,
+        preparations: Arc<watch::Sender<Vec<sailry_protocol::python::Preparation>>>,
     ) -> Result<Self, Fault> {
         let profile = profile.canonicalize().map_err(storage)?;
         let root = profile.join("python");
@@ -88,17 +121,18 @@ impl Manager {
         ] {
             crate::profile::private_directory(path).map_err(storage)?;
         }
-        let (progress, _) = watch::channel(None);
         Ok(Self {
             runtime,
             root,
             environment,
             index: Mutex::new(None),
-            installer: Semaphore::new(1),
+            environments: Mutex::default(),
             checked: OnceCell::new(),
-            progress,
-            integrity: Arc::default(),
-            leases: Mutex::default(),
+            #[cfg(test)]
+            progress: watch::channel(None).0,
+            preparations,
+            active: Mutex::default(),
+            leases: Arc::default(),
             references: Mutex::new(None),
             collected: Mutex::new(None),
         })
@@ -138,11 +172,7 @@ impl Manager {
         requirements: Option<&Requirements>,
         cancel: &CancellationToken,
     ) -> Result<Ready, Fault> {
-        let _permit = tokio::select! {
-            biased;
-            _ = cancel.cancelled() => return Err(cancelled()),
-            permit = self.installer.acquire() => permit.map_err(|_| unavailable())?,
-        };
+        check(cancel)?;
         let runtime = self.runtime.clone();
         let stop = cancel.clone();
         tokio::task::spawn_blocking(move || runtime.verify(&stop))
@@ -162,21 +192,56 @@ impl Manager {
             });
         };
         let key = requirements.key(&self.runtime.identity);
+        let _requester = self.request(requirements);
         let path = self.root.join("environments").join(&key);
-        if !self.valid(&path, &key, cancel).await? {
-            let result = self.prepare(requirements, &key, &path, cancel).await;
-            if result.is_err() {
-                self.report(requirements, Stage::Failed);
-            }
-            result?;
-        }
-        check(cancel)?;
         let lease = {
             let mut leases = self.leases.lock().expect("Python lease lock is valid");
             let lease = leases.get(&key).and_then(Weak::upgrade).unwrap_or_default();
             leases.insert(key.clone(), Arc::downgrade(&lease));
             lease
         };
+        let prepared = {
+            let mut environments = self
+                .environments
+                .lock()
+                .expect("Python environments lock is valid");
+            environments
+                .entry(key.clone())
+                .or_insert_with(|| {
+                    Arc::new(Prepared {
+                        installer: Semaphore::new(1),
+                        validation: Mutex::new(validation::Validation::new(path.clone())),
+                    })
+                })
+                .clone()
+        };
+        if !self.valid(&prepared, &key, cancel).await? {
+            let _permit = tokio::select! {
+                biased;
+                _ = cancel.cancelled() => return Err(cancelled()),
+                permit = prepared.installer.acquire() => permit.map_err(|_| unavailable())?,
+            };
+            // Another caller may have prepared this same lock while we waited.
+            if !self.valid(&prepared, &key, cancel).await? {
+                let _progress = Preparing {
+                    manager: self,
+                    requirements,
+                };
+                let result = self.prepare(requirements, &key, &path, cancel).await;
+                if result.is_err() {
+                    self.report(requirements, Stage::Failed);
+                }
+                result?;
+                if !self.valid(&prepared, &key, cancel).await? {
+                    self.report(requirements, Stage::Failed);
+                    return Err(Fault::new(
+                        ErrorCode::Unavailable,
+                        "prepared Python environment failed validation",
+                    ));
+                }
+            }
+        }
+        check(cancel)?;
         std::fs::write(path.join(".sailry-used"), b"").map_err(storage)?;
         if let Err(error) = self.collect(&key).await {
             eprintln!("Python environment cleanup failed: {error}");
@@ -201,28 +266,114 @@ impl Manager {
 
     async fn valid(
         &self,
-        path: &Path,
+        prepared: &Arc<Prepared>,
         key: &str,
         cancel: &CancellationToken,
     ) -> Result<bool, Fault> {
-        let path = path.to_owned();
         let runtime = self.runtime.root.clone();
         let key = key.to_owned();
-        let cache = self.integrity.clone();
+        let prepared = prepared.clone();
         let cancel = cancel.clone();
         tokio::task::spawn_blocking(move || {
-            let mut cache = cache.lock().expect("Python integrity lock is valid");
-            integrity::valid(&path, &runtime, &key, &mut cache, &cancel)
+            let mut validation = prepared
+                .validation
+                .lock()
+                .expect("Python integrity lock is valid");
+            validation.environment(&runtime, &key, &cancel)
         })
         .await
         .map_err(|_| unavailable())?
     }
 
     fn report(&self, requirements: &Requirements, stage: Stage) {
+        #[cfg(test)]
         self.progress.send_replace(Some(Progress {
             package: requirements.package.name.clone(),
-            stage,
+            stage: stage.clone(),
         }));
+        let key = requirements.key(&self.runtime.identity);
+        let mut active = self.active.lock().expect("Python progress lock is valid");
+        use sailry_protocol::python;
+        let stage = match stage {
+            Stage::Creating => Some(python::Stage::Creating),
+            Stage::Installing => Some(python::Stage::Installing),
+            Stage::Validating => Some(python::Stage::Validating),
+            Stage::Ready | Stage::Failed => None,
+        };
+        let entry = active.entry(key.clone()).or_default();
+        entry.stage = stage;
+        if stage.is_none() && entry.packages.is_empty() {
+            active.remove(&key);
+        }
+        self.publish(&active);
+    }
+
+    fn finish(&self, requirements: &Requirements) {
+        let key = requirements.key(&self.runtime.identity);
+        let mut active = self.active.lock().expect("Python progress lock is valid");
+        if let Some(entry) = active.get_mut(&key) {
+            entry.stage = None;
+            if entry.packages.is_empty() {
+                active.remove(&key);
+            }
+            self.publish(&active);
+        }
+    }
+
+    fn request<'a>(&'a self, requirements: &'a Requirements) -> Requester<'a> {
+        let key = requirements.key(&self.runtime.identity);
+        let mut active = self.active.lock().expect("Python progress lock is valid");
+        *active
+            .entry(key)
+            .or_default()
+            .packages
+            .entry(requirements.package.name.clone())
+            .or_default() += 1;
+        self.publish(&active);
+        Requester {
+            manager: self,
+            requirements,
+        }
+    }
+
+    fn release(&self, requirements: &Requirements) {
+        let key = requirements.key(&self.runtime.identity);
+        let mut active = self.active.lock().expect("Python progress lock is valid");
+        if let Some(entry) = active.get_mut(&key) {
+            if let Some(count) = entry.packages.get_mut(&requirements.package.name) {
+                *count -= 1;
+                if *count == 0 {
+                    entry.packages.remove(&requirements.package.name);
+                }
+            }
+            if entry.stage.is_none() && entry.packages.is_empty() {
+                active.remove(&key);
+            }
+            self.publish(&active);
+        }
+    }
+
+    fn publish(&self, active: &BTreeMap<String, Active>) {
+        self.preparations.send_if_modified(|snapshot| {
+            let current = active
+                .values()
+                .flat_map(|entry| {
+                    entry.packages.keys().filter_map(|package| {
+                        entry
+                            .stage
+                            .map(|stage| sailry_protocol::python::Preparation {
+                                package: package.clone(),
+                                stage,
+                            })
+                    })
+                })
+                .collect::<Vec<_>>();
+            if *snapshot == current {
+                return false;
+            }
+            *snapshot = current;
+            true
+        });
     }
 
     pub(crate) fn collection_due(&self) -> bool {
@@ -257,24 +408,17 @@ impl Manager {
             }
             *collected = Some(now);
         }
-        let leases = self
-            .leases
-            .lock()
-            .expect("Python lease lock is valid")
-            .clone();
+        let leases = self.leases.clone();
         let root = self.root.clone();
         let current = current.to_owned();
-        tokio::task::spawn_blocking(move || {
+        let removed = tokio::task::spawn_blocking(move || {
+            let mut removed = Vec::new();
             for entry in std::fs::read_dir(root.join("environments")).map_err(storage)? {
                 let entry = entry.map_err(storage)?;
                 let Some(key) = entry.file_name().to_str().map(str::to_owned) else {
                     continue;
                 };
-                if key == current
-                    || references.contains(&key)
-                    || !integrity::key(&key)
-                    || leases.get(&key).and_then(Weak::upgrade).is_some()
-                {
+                if key == current || references.contains(&key) || !integrity::key(&key) {
                     continue;
                 }
                 let path = entry.path();
@@ -291,13 +435,58 @@ impl Manager {
                 if used
                     .is_some_and(|used| now.duration_since(used).is_ok_and(|age| age >= RETENTION))
                 {
+                    // Taking the lease lock through deletion prevents a newly
+                    // admitted use racing this environment's idle cleanup.
+                    let mut leases = leases.lock().expect("Python lease lock is valid");
+                    if leases.get(&key).and_then(Weak::upgrade).is_some() {
+                        continue;
+                    }
                     std::fs::remove_dir_all(path).map_err(storage)?;
+                    leases.remove(&key);
+                    removed.push(key);
                 }
             }
-            Ok(())
+            Ok::<_, Fault>(removed)
         })
         .await
-        .map_err(|_| unavailable())?
+        .map_err(|_| unavailable())??;
+        let mut environments = self
+            .environments
+            .lock()
+            .expect("Python environments lock is valid");
+        for key in removed {
+            // A caller may have begun recreating this entry after collection.
+            // Its retained state remains authoritative through preparation.
+            if environments
+                .get(&key)
+                .is_some_and(|prepared| Arc::strong_count(prepared) == 1)
+            {
+                environments.remove(&key);
+            }
+        }
+        Ok(())
+    }
+}
+
+struct Preparing<'a> {
+    manager: &'a Manager,
+    requirements: &'a Requirements,
+}
+
+impl Drop for Preparing<'_> {
+    fn drop(&mut self) {
+        self.manager.finish(self.requirements);
+    }
+}
+
+struct Requester<'a> {
+    manager: &'a Manager,
+    requirements: &'a Requirements,
+}
+
+impl Drop for Requester<'_> {
+    fn drop(&mut self) {
+        self.manager.release(self.requirements);
     }
 }
 

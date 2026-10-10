@@ -11,6 +11,12 @@ struct Index {
     downloads: Arc<AtomicUsize>,
     stopped: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
+    pause: Arc<Mutex<Option<Paused>>>,
+}
+
+struct Paused {
+    entered: tokio::sync::oneshot::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
 }
 
 impl Index {
@@ -21,6 +27,8 @@ impl Index {
         let stopped = Arc::new(AtomicBool::new(false));
         let count = downloads.clone();
         let stop = stopped.clone();
+        let pause: Arc<Mutex<Option<Paused>>> = Arc::default();
+        let delayed = pause.clone();
         let thread = std::thread::spawn(move || {
             while !stop.load(Ordering::SeqCst) {
                 let (mut socket, _) = listener.accept().unwrap();
@@ -51,6 +59,13 @@ impl Index {
                     .unwrap();
                 let (content_type, bytes) = if path.ends_with(".whl") {
                     count.fetch_add(1, Ordering::SeqCst);
+                    if let Some(paused) = delayed.lock().unwrap().take() {
+                        let _ = paused.entered.send(());
+                        paused
+                            .release
+                            .recv_timeout(Duration::from_secs(30))
+                            .unwrap();
+                    }
                     ("application/octet-stream", wheel.clone())
                 } else {
                     (
@@ -72,7 +87,23 @@ impl Index {
             downloads,
             stopped,
             thread: Some(thread),
+            pause,
         }
+    }
+
+    fn pause(
+        &self,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        std::sync::mpsc::Sender<()>,
+    ) {
+        let (entered, observed) = tokio::sync::oneshot::channel();
+        let (release, wait) = std::sync::mpsc::channel();
+        *self.pause.lock().unwrap() = Some(Paused {
+            entered,
+            release: wait,
+        });
+        (observed, release)
     }
 }
 
@@ -158,7 +189,21 @@ async fn reuses_repairs_and_relocates_real_environments() {
     let package = ready
         .environment
         .join("lib/python3.12/site-packages/sailry_fixture/__init__.py");
+    let mut changes = manager
+        .environments
+        .lock()
+        .unwrap()
+        .get(&first.key(&manager.runtime.identity))
+        .unwrap()
+        .validation
+        .lock()
+        .unwrap()
+        .subscribe();
     std::fs::write(&package, "raise RuntimeError('corrupted')\n").unwrap();
+    tokio::time::timeout(Duration::from_secs(15), changes.changed())
+        .await
+        .unwrap()
+        .unwrap();
     let repaired = manager.ensure(Some(&first), &cancel).await.unwrap();
     let output = std::process::Command::new(repaired.environment.join("bin/sailry-greet"))
         .output()
@@ -198,4 +243,77 @@ async fn reuses_repairs_and_relocates_real_environments() {
         manager.ensure(None, &cancel).await.unwrap().python,
         manager.python()
     );
+}
+
+#[tokio::test]
+#[ignore = "requires SAILRY_TEST_PYTHON_RUNTIME pointing at verified bundled Python"]
+async fn ready_access_does_not_wait_for_installation() {
+    use sha2::Digest;
+    let runtime = Runtime::open(&PathBuf::from(
+        std::env::var("SAILRY_TEST_PYTHON_RUNTIME")
+            .expect("SAILRY_TEST_PYTHON_RUNTIME is required"),
+    ))
+    .unwrap();
+    let profile = tempfile::tempdir().unwrap();
+    let manager = Manager::new(
+        profile.path().canonicalize().unwrap(),
+        runtime,
+        Arc::new(Environment::ambient()),
+    )
+    .unwrap();
+    let wheel = wheel();
+    let hash = format!("{:x}", sha2::Sha256::digest(&wheel));
+    let server = Index::start(wheel);
+    manager.configure(Some(server.url.clone())).unwrap();
+    let first = requirements(
+        "first",
+        &format!("sailry-fixture==1.0.0 --hash=sha256:{hash}\n"),
+    );
+    let second = requirements("second", &format!("{}# separate lock\n", first.content));
+    let third = requirements("third", &second.content);
+    let cancel = CancellationToken::new();
+    let ready = manager.ensure(Some(&first), &cancel).await.unwrap();
+    manager.ensure(Some(&first), &cancel).await.unwrap();
+    // Force the second environment's wheel through the controlled server rather
+    // than pip's cache, so this proves independence during an actual download.
+    std::fs::remove_dir_all(manager.root.join("cache")).unwrap();
+    std::fs::create_dir(manager.root.join("cache")).unwrap();
+    let (entered, release) = server.pause();
+    let checks = async {
+        tokio::time::timeout(Duration::from_secs(30), entered)
+            .await
+            .unwrap()
+            .unwrap();
+        let snapshot = manager.preparations.borrow().clone();
+        assert_eq!(snapshot.len(), 2);
+        assert!(snapshot.iter().any(|item| item.package == "second"));
+        assert!(snapshot.iter().any(|item| item.package == "third"));
+        assert!(
+            snapshot
+                .iter()
+                .all(|item| item.stage == sailry_protocol::python::Stage::Installing)
+        );
+        let base = tokio::time::timeout(Duration::from_secs(3), manager.ensure(None, &cancel))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(base.python, manager.python());
+        let reused = tokio::time::timeout(
+            Duration::from_secs(3),
+            manager.ensure(Some(&first), &cancel),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(reused.environment, ready.environment);
+        release.send(()).unwrap();
+    };
+    let (second, third, ()) = tokio::join!(
+        manager.ensure(Some(&second), &cancel),
+        manager.ensure(Some(&third), &cancel),
+        checks
+    );
+    assert_eq!(second.unwrap().environment, third.unwrap().environment);
+    assert_eq!(server.downloads.load(Ordering::SeqCst), 2);
+    assert!(manager.preparations.borrow().is_empty());
 }

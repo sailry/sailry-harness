@@ -9,6 +9,7 @@ pub(super) mod distribution;
 pub(in crate::store) mod github;
 pub(in crate::store) mod grants;
 mod http;
+pub(in crate::store) mod installing;
 pub(super) mod invocations;
 pub(in crate::store) mod mcp;
 pub(super) mod models;

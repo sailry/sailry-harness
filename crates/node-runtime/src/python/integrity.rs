@@ -10,7 +10,7 @@ use std::{
     time::SystemTime,
 };
 
-const MARKER: &str = ".sailry-ready.json";
+pub(super) const MARKER: &str = ".sailry-ready.json";
 const MAX_FILES: usize = 100_000;
 const MAX_BYTES: u64 = 1024 * 1024 * 1024;
 
@@ -18,7 +18,7 @@ const MAX_BYTES: u64 = 1024 * 1024 * 1024;
 pub(super) struct Cache(BTreeMap<PathBuf, (Stamp, String)>);
 
 #[derive(Clone, PartialEq, Eq)]
-struct Stamp {
+pub(super) struct Stamp {
     size: u64,
     modified: Option<SystemTime>,
     created: Option<SystemTime>,
@@ -27,7 +27,7 @@ struct Stamp {
 }
 
 impl Stamp {
-    fn new(metadata: &std::fs::Metadata) -> Self {
+    pub(super) fn new(metadata: &std::fs::Metadata) -> Self {
         Self {
             size: metadata.len(),
             modified: metadata.modified().ok(),

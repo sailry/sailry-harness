@@ -61,7 +61,7 @@ impl Tool for Skills {
         if self.resource {
             "Read complete UTF-8 text from a file relative to an available skill's directory. Use package:skill and a normalized relative path. Binary or oversized resources report an error, not a partial file."
         } else {
-            "Load the complete SKILL.md for an available package:skill. The execution Node prepares its managed Python environment and returns python beside directory. Run scripts with the quoted returned Python and absolute script paths. Read referenced documents with read_skill_resource. Skill loading grants no command permission."
+            "Load the complete SKILL.md for an available package:skill. The execution Node prepares required Python dependencies and returns python beside directory when available, otherwise null. Run Python scripts with the quoted returned interpreter and absolute script paths. Read referenced documents with read_skill_resource. Skill loading grants no command permission."
         }
     }
     fn is_read_only(&self) -> bool {
@@ -107,11 +107,13 @@ impl Tool for Skills {
                         .python(&key, &self.ingress.environment)
                         .await
                         .map_err(|error| AdkError::tool(error.to_string()))?;
-                    self.ingress
-                        .agents
-                        .bind_python(self.turn, ready.clone(), text.directory.clone().into())
-                        .map_err(|error| AdkError::tool(error.to_string()))?;
-                    json!({"skill": key, "path": path, "content": text.content, "directory": text.directory,"python":ready.python})
+                    if let Some(ready) = &ready {
+                        self.ingress
+                            .agents
+                            .bind_python(self.turn, ready.clone(), text.directory.clone().into())
+                            .map_err(|error| AdkError::tool(error.to_string()))?;
+                    }
+                    json!({"skill": key, "path": path, "content": text.content, "directory": text.directory,"python":ready.map(|ready| ready.python)})
                 }
             }
             Err(error) => json!({"error": error}),

@@ -2,6 +2,22 @@
 use crate::Fault;
 use serde::{Deserialize, Serialize};
 
+/// Transient dependency preparation exposes only the package and current stage.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Preparation {
+    pub package: String,
+    pub stage: Stage,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage {
+    Creating,
+    Installing,
+    Validating,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {

@@ -137,7 +137,11 @@ captured, hash-locked requirements using prebuilt wheels. Immutable packages sha
 environments by runtime and requirements identity. Skills and MCP receive the
 owning interpreter; task scripts and additional environments use the private
 session directory through ordinary command permissions. The Node's PyPI setting
-is independent from model download sources.
+is independent from model download sources. Python is optional for ordinary
+commands and skills without requirements. Dependency preparation runs outside
+the shared file mutation queue, with one installer per environment; ready
+environments bypass installation. Clients observe transient preparation stages
+through the same local and remote subscription boundary.
 
 OCR is an optional Node-owned CPU service using the packaged ONNX Runtime.
 Explicitly installed PaddleOCR definitions retain their selected profile and

@@ -4,6 +4,7 @@ use sailry_protocol::{Command, ErrorCode, Fault, Output, Request, Snapshot, plug
 
 #[derive(Default)]
 pub(in crate::settings) struct Catalog {
+    pub(super) python: sailry_client::python::View,
     pub packages: Vec<Summary>,
     pub(super) market: Option<Entity<super::market::Market>>,
     pub metadata: Option<Entity<Metadata>>,

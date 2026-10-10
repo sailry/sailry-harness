@@ -13,6 +13,106 @@ fn requirements(name: &str, content: &str) -> Requirements {
     .unwrap()
 }
 
+fn manager() -> (tempfile::TempDir, Manager) {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = directory.path().canonicalize().unwrap();
+    let root = profile.join("runtime");
+    let relative = if cfg!(windows) {
+        "python.exe"
+    } else {
+        "bin/python3.12"
+    };
+    let python = root.join(relative);
+    std::fs::create_dir_all(python.parent().unwrap()).unwrap();
+    std::fs::write(&python, b"fixture interpreter").unwrap();
+    let marker = root.join(if cfg!(windows) {
+        "Lib/EXTERNALLY-MANAGED"
+    } else {
+        "lib/python3.12/EXTERNALLY-MANAGED"
+    });
+    std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
+    std::fs::write(marker, b"managed").unwrap();
+    std::fs::write(
+        root.join("python-runtime.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "version":1,
+            "python_version":VERSION,
+            "target":"fixture",
+            "source":{"url":"https://example.test/python.tar.gz","sha256":"a".repeat(64)},
+            "files":[{"path":relative,"size":19,"sha256":integrity::hash(&python,&CancellationToken::new()).unwrap()}]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let runtime = Runtime::open(&root).unwrap();
+    let manager = Manager::new(profile, runtime, Arc::new(Environment::ambient())).unwrap();
+    (directory, manager)
+}
+
+#[test]
+fn reports_concurrent_preparations_without_paths() {
+    let (_directory, manager) = manager();
+    let first = requirements("first", "example==1.0 --hash=sha256:abcd\n");
+    let second = requirements("second", "other==1.0 --hash=sha256:abcd\n");
+    let _first = manager.request(&first);
+    let _second = manager.request(&second);
+    manager.report(&first, Stage::Creating);
+    manager.report(&second, Stage::Installing);
+    let snapshot = manager.preparations.borrow().clone();
+    assert_eq!(snapshot.len(), 2);
+    assert!(snapshot.iter().any(|item| item.package == "first"));
+    assert!(snapshot.iter().any(|item| item.package == "second"));
+    let json = serde_json::to_string(&snapshot).unwrap();
+    assert!(!json.contains(manager.root.to_str().unwrap()));
+    assert!(!json.contains(&first.package.digest));
+    manager.report(&first, Stage::Ready);
+    assert_eq!(manager.preparations.borrow().len(), 1);
+    manager.report(&second, Stage::Failed);
+    assert!(manager.preparations.borrow().is_empty());
+}
+
+#[test]
+fn clears_progress_when_preparation_is_dropped() {
+    let (_directory, manager) = manager();
+    let requirements = requirements("fixture", "example==1.0 --hash=sha256:abcd\n");
+    let requester = manager.request(&requirements);
+    manager.report(&requirements, Stage::Creating);
+    {
+        let _preparing = Preparing {
+            manager: &manager,
+            requirements: &requirements,
+        };
+        assert_eq!(manager.preparations.borrow().len(), 1);
+    }
+    assert!(manager.preparations.borrow().is_empty());
+    drop(requester);
+    assert!(manager.active.lock().unwrap().is_empty());
+}
+
+#[test]
+fn includes_waiters_sharing_one_environment() {
+    let (_directory, manager) = manager();
+    let first = requirements("first", "example==1.0 --hash=sha256:abcd\n");
+    let second = requirements("second", &first.content);
+    let first_request = manager.request(&first);
+    manager.report(&first, Stage::Installing);
+    let second_request = manager.request(&second);
+    assert_eq!(manager.preparations.borrow().len(), 2);
+    assert!(
+        manager
+            .preparations
+            .borrow()
+            .iter()
+            .any(|item| item.package == "second")
+    );
+    drop(second_request);
+    assert_eq!(manager.preparations.borrow().len(), 1);
+    manager.finish(&first);
+    drop(first_request);
+    assert!(manager.preparations.borrow().is_empty());
+    assert!(manager.active.lock().unwrap().is_empty());
+}
+
 #[test]
 fn shares_identical_dependency_locks() {
     let first = requirements("first", "example==1.0 --hash=sha256:abcd\n");

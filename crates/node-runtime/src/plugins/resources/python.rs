@@ -21,14 +21,24 @@ impl Resources {
         &self,
         key: &str,
         environment: &Environment,
-    ) -> Result<Ready, Fault> {
+    ) -> Result<Option<Ready>, Fault> {
         let (package, _) = skill(&self.packages, key)?;
         let index = self
             .packages
             .iter()
             .position(|entry| entry.summary.name == package.summary.name)
             .expect("skill belongs to its captured package");
-        self.python_package(index, environment).await
+        let required = if package.skill.is_some() {
+            false
+        } else {
+            let directory = self.directory(index).await?;
+            requirements(&directory, package.summary.reference())?.is_some()
+        };
+        match self.python_package(index, environment).await {
+            Ok(ready) => Ok(Some(ready)),
+            Err(error) if required || error.code == ErrorCode::Cancelled => Err(error),
+            Err(_) => Ok(None),
+        }
     }
 
     pub(super) async fn python_package(
@@ -125,3 +135,6 @@ impl Host {
         manager.ensure(Some(&requirements), stop).await.map(Some)
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1939,6 +1939,10 @@ pub struct EventEnvelope {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Update {
+    Python {
+        node: NodeId,
+        preparations: Vec<crate::python::Preparation>,
+    },
     CodeServers {
         node: NodeId,
         worktree: WorktreeId,
@@ -1972,6 +1976,7 @@ pub enum Update {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Topic {
+    Python,
     CodeServers(WorktreeId),
     Commands(SessionId),
     Browser,

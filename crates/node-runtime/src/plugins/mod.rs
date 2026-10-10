@@ -44,6 +44,8 @@ pub(crate) struct Host {
     github: github::Github,
     python: std::sync::Arc<tokio::sync::OnceCell<std::sync::Arc<crate::python::Manager>>>,
     python_index: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    python_progress:
+        std::sync::Arc<tokio::sync::watch::Sender<Vec<sailry_protocol::python::Preparation>>>,
     python_packages: std::sync::Arc<std::sync::Mutex<Vec<Info>>>,
     #[cfg(any(test, feature = "test-support"))]
     python_runtime: std::sync::Arc<std::sync::Mutex<Option<PathBuf>>>,
@@ -59,6 +61,7 @@ impl Host {
             github: Default::default(),
             python: Default::default(),
             python_index: Default::default(),
+            python_progress: std::sync::Arc::new(tokio::sync::watch::channel(Vec::new()).0),
             python_packages: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             python_runtime: Default::default(),
@@ -76,6 +79,12 @@ impl Host {
         }
         *current = index;
         Ok(())
+    }
+
+    pub(crate) fn python_progress(
+        &self,
+    ) -> tokio::sync::watch::Receiver<Vec<sailry_protocol::python::Preparation>> {
+        self.python_progress.subscribe()
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -109,6 +118,7 @@ impl Host {
                     Fault::new(ErrorCode::NotConfigured, "Python requires a Node profile")
                 })?;
                 let environment = std::sync::Arc::new(environment.clone());
+                let progress = self.python_progress.clone();
                 #[cfg(any(test, feature = "test-support"))]
                 let fixture = self
                     .python_runtime
@@ -123,7 +133,7 @@ impl Host {
                     }?;
                     #[cfg(not(any(test, feature = "test-support")))]
                     let runtime = crate::python::Runtime::bundled()?;
-                    crate::python::Manager::new(profile, runtime, environment)
+                    crate::python::Manager::with_progress(profile, runtime, environment, progress)
                 })
                 .await
                 .map_err(|_| {

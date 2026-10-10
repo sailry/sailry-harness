@@ -34,6 +34,7 @@ pub(in crate::settings) struct Live {
     pub catalog: super::catalog::State,
     stop: CancellationToken,
     _task: Task<()>,
+    _python: Task<()>,
     quota_reset: Option<u64>,
     quota_clock: Option<Task<()>>,
 }
@@ -81,6 +82,7 @@ impl Workspace {
         cx.observe(&metadata, |_, _, cx| cx.notify()).detach();
         self.plugin_catalog.metadata = Some(metadata);
         let stop = CancellationToken::new();
+        let python = super::super::plugins::preparation::watch(&binding, &stop, cx);
         let (sender, mut receiver) = tokio::sync::watch::channel(View::default());
         let client = binding.client.clone();
         let cancellation = stop.clone();
@@ -114,6 +116,7 @@ impl Workspace {
             catalog: Default::default(),
             stop,
             _task: task,
+            _python: python,
             quota_reset: None,
             quota_clock: None,
         });

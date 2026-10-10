@@ -20,6 +20,9 @@ impl Host {
         commit: Option<&str>,
         stop: CancellationToken,
     ) -> Result<(File, Resolved), Fault> {
+        if stop.is_cancelled() {
+            return Err(cancelled());
+        }
         #[cfg(any(test, feature = "test-support"))]
         if self.github.endpoint.is_some() {
             // Existing HTTP fixtures replace acquisition explicitly; production never falls back.

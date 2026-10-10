@@ -46,7 +46,8 @@ impl Projection {
             return Ok(Apply::Ignored);
         }
         match update {
-            Update::CodeServers { .. }
+            Update::Python { .. }
+            | Update::CodeServers { .. }
             | Update::Commands { .. }
             | Update::BrowserCall(_)
             | Update::ProviderLogin(_)

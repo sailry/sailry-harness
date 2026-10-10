@@ -15,6 +15,9 @@ pub(super) fn acquire(
     commit: Option<&str>,
     stop: &CancellationToken,
 ) -> Result<(File, Resolved), Fault> {
+    if stop.is_cancelled() {
+        return Err(cancelled());
+    }
     let temporary = tempfile::tempdir().map_err(io_error)?;
     let repository = Repository::init_bare(temporary.path()).map_err(failure)?;
     let deadline = Instant::now() + Duration::from_secs(120);
@@ -214,4 +217,24 @@ fn failure(error: git2::Error) -> Fault {
         },
         "Git source could not be read",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancelled_acquisition_never_connects() {
+        let selected = source::Selection {
+            repository: "https://example.invalid/repo.git".into(),
+            git_ref: "HEAD".into(),
+            path: String::new(),
+        };
+        let stop = CancellationToken::new();
+        stop.cancel();
+        assert_eq!(
+            acquire(&selected, None, &stop).unwrap_err().code,
+            ErrorCode::Cancelled
+        );
+    }
 }

@@ -1,5 +1,39 @@
 use super::*;
 
+pub(super) fn python(
+    binding: &Binding,
+    stop: &CancellationToken,
+    cx: &mut Context<View>,
+) -> Task<()> {
+    let client = binding.client.clone();
+    let node = client.target();
+    let stop = stop.clone();
+    let (updates, mut receiver) =
+        tokio::sync::watch::channel(sailry_client::python::View::default());
+    binding.runtime.spawn(async move {
+        let _ = client.watch_python(updates, stop).await;
+    });
+    cx.spawn(async move |view, cx| {
+        loop {
+            let next = receiver.borrow_and_update().clone();
+            if view
+                .update(cx, |view, cx| {
+                    if view.binding.client.target() == node {
+                        view.python = next;
+                        cx.notify();
+                    }
+                })
+                .is_err()
+            {
+                break;
+            }
+            if receiver.changed().await.is_err() {
+                break;
+            }
+        }
+    })
+}
+
 impl View {
     pub(super) fn refresh_clock(&mut self, cx: &mut Context<Self>) {
         let active = self.history.connected

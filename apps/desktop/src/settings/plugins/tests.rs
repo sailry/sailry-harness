@@ -16,6 +16,8 @@ mod market;
 mod metadata_cache;
 #[path = "tests/office.rs"]
 mod office;
+#[path = "tests/preparation.rs"]
+mod preparation;
 #[path = "tests/receipts.rs"]
 mod receipts;
 #[path = "tests/updates.rs"]

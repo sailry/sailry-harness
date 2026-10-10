@@ -10,6 +10,9 @@ Use Rust 1.98.0, Git, Python 3.12 or newer, Zig 0.16.0, `just`, and your platfor
 native build tools. The Ghostty binding builds native code with Zig. macOS Desktop
 requires Xcode Command Line Tools. Use committed lockfiles and `--locked` for Rust
 commands; do not replace pinned dependencies with absolute local paths.
+Linux Desktop also requires Speech Dispatcher headers and libraries plus libclang
+(`libspeechd-dev` and `libclang-dev` on Debian or Ubuntu). Host does not require
+these desktop speech dependencies.
 Python recipes select an available Python 3.12 or newer without changing `PATH`.
 Set `SAILRY_PYTHON` to an explicit executable when needed; an unsupported explicit
 interpreter fails rather than silently selecting another one.
@@ -27,8 +30,8 @@ cargo build --locked -p sailry-host
 just desktop
 ```
 
-`just desktop` builds an application bundle on macOS without bundling Python or
-document script libraries. It uses the same `~/.sailry` profile as the installed
+`just desktop` builds an application bundle on macOS with the pinned Python
+runtime. Plugin dependencies are prepared lazily. It uses the same `~/.sailry` profile as the installed
 app. `SAILRY_DESKTOP_DATA_DIR` or an explicit recipe argument selects another
 profile; the argument takes precedence.
 An available Apple Development signing identity
@@ -45,8 +48,9 @@ a profile. Close the installed app before running `just desktop` with that profi
 Profiles contain Node configuration and plaintext credentials, plugin packages,
 plugin data, and attachments. Credentials stay out of public events, logs and UI
 caches. Projects remain at their registered paths. Remote
-execution data stays on the execution Node. Incompatible development profiles are
-reported without conversion, reset, or deletion.
+execution data stays on the execution Node. Startup restores missing schema
+objects and storage defaults after validating an isolated snapshot and saving a
+private backup. Incompatible definitions fail without resetting or deleting data.
 
 Host is a long-running headless service, not an interactive agent CLI. Desktop or
 Mobile controls it through the shared protocol. See [Host deployment](ARCHITECTURE.md#deployment-and-operations)

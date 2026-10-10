@@ -41,6 +41,7 @@ impl Host {
         source: &Resolved,
         path: &str,
         name: &str,
+        stop: CancellationToken,
     ) -> Result<Info, Fault> {
         let selected = source::Selection::resolved(source, path)?;
         if name != source::name(&source.repository, path) {
@@ -48,7 +49,6 @@ impl Host {
                 "skill identity does not match its source",
             ));
         }
-        let stop = CancellationToken::new();
         let (file, _) = self
             .source_archive(&selected, Some(&source.commit), stop.clone())
             .await?;

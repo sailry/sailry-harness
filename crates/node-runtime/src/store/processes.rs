@@ -179,7 +179,13 @@ impl Worker {
                 let watch = tokio::spawn(async move { closing.cancelled().await; stopping.cancel(); });
                 let prepared = plugins.command_python(&environment, execution.launch.session, &agents.python(turn), &preparing).await;
                 watch.abort();
-                execution.launch.launch.python = prepared?;
+                execution.launch.launch.python = match prepared {
+                    Ok(python) => python,
+                    Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
+                    // Managed Python is optional for ordinary shell commands.
+                    // A command explicitly using it still reports its own failure.
+                    Err(_) => None,
+                };
                 if execution.launch.background {
                     if stop.is_cancelled() || closed.is_cancelled() {
                         return Ok(Output::CommandResult(process::cancelled()));

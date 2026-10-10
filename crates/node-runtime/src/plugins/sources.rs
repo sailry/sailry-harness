@@ -50,9 +50,9 @@ impl Host {
         source: &Resolved,
         path: &str,
         name: &str,
+        stop: CancellationToken,
     ) -> Result<Info, Fault> {
         let selected = source::Selection::resolved(source, path)?;
-        let stop = CancellationToken::new();
         let (archive, _) = self
             .source_archive(&selected, Some(&source.commit), stop.clone())
             .await?;

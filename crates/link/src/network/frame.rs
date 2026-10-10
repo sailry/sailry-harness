@@ -15,6 +15,7 @@ pub(super) enum Call {
     WatchCodeServers(sailry_protocol::WorktreeId),
     WatchTerminal(sailry_protocol::TerminalId),
     WatchBrowser,
+    WatchPython,
     WatchCommands(sailry_protocol::SessionId),
     WatchConversation(sailry_protocol::SessionId),
     WatchProviderLogin(sailry_protocol::RequestId),

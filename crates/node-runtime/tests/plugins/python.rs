@@ -11,17 +11,33 @@ struct Index {
     address: std::net::SocketAddr,
     downloads: Arc<AtomicUsize>,
     stopped: Arc<AtomicBool>,
+    gate: Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Index {
     fn start(wheel: Vec<u8>) -> Self {
+        Self::with_gate(wheel, false)
+    }
+
+    fn blocked(wheel: Vec<u8>) -> Self {
+        Self::with_gate(wheel, true)
+    }
+
+    fn release(&self) {
+        *self.gate.0.lock().unwrap() = false;
+        self.gate.1.notify_all();
+    }
+
+    fn with_gate(wheel: Vec<u8>, blocked: bool) -> Self {
         let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = server.local_addr().unwrap();
         let stopped = Arc::new(AtomicBool::new(false));
         let downloads = Arc::new(AtomicUsize::new(0));
         let stop = stopped.clone();
         let count = downloads.clone();
+        let gate = Arc::new((std::sync::Mutex::new(blocked), std::sync::Condvar::new()));
+        let waiting = gate.clone();
         let worker = std::thread::spawn(move || {
             for stream in server.incoming() {
                 if stop.load(Ordering::SeqCst) {
@@ -45,6 +61,10 @@ impl Index {
                     .is_some_and(|line| line.contains(".whl"));
                 let bytes = if is_wheel {
                     count.fetch_add(1, Ordering::SeqCst);
+                    let mut blocked = waiting.0.lock().unwrap();
+                    while *blocked {
+                        blocked = waiting.1.wait(blocked).unwrap();
+                    }
                     wheel.clone()
                 } else {
                     b"<a href='/sailry_fixture-1.0.0-py3-none-any.whl'>fixture</a>".to_vec()
@@ -58,14 +78,16 @@ impl Index {
                     },
                     bytes.len()
                 );
-                socket.write_all(header.as_bytes()).unwrap();
-                socket.write_all(&bytes).unwrap();
+                if socket.write_all(header.as_bytes()).is_ok() {
+                    let _ = socket.write_all(&bytes);
+                }
             }
         });
         Self {
             address,
             stopped,
             downloads,
+            gate,
             worker: Some(worker),
         }
     }
@@ -73,6 +95,7 @@ impl Index {
 
 impl Drop for Index {
     fn drop(&mut self) {
+        self.release();
         self.stopped.store(true, Ordering::SeqCst);
         let _ = std::net::TcpStream::connect(self.address);
         self.worker.take().unwrap().join().unwrap();
@@ -221,6 +244,131 @@ async fn prepares_before_install_and_enable() {
             enabled
         );
         fs::write(&lock, stored).unwrap();
+        drop(client);
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires SAILRY_TEST_PYTHON_RUNTIME pointing at verified bundled Python"]
+async fn keeps_file_operations_responsive_during_installation() {
+    use sha2::Digest;
+    let runtime = std::path::PathBuf::from(
+        std::env::var_os("SAILRY_TEST_PYTHON_RUNTIME")
+            .expect("SAILRY_TEST_PYTHON_RUNTIME is required"),
+    );
+    for remote in [false, true] {
+        let bytes = wheel();
+        let requirements = format!(
+            "sailry-fixture==1.0.0 --hash=sha256:{:x}\n",
+            sha2::Sha256::digest(&bytes)
+        );
+        let index = Index::blocked(bytes);
+        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        node.set_python_runtime_fixture(&runtime).unwrap();
+        let client = Arc::new(client);
+        let stop = sailry_link::CancellationToken::new();
+        let (updates, mut progress) =
+            tokio::sync::watch::channel(sailry_client::python::View::default());
+        let watching = client.clone();
+        let closing = stop.clone();
+        let watcher = tokio::spawn(async move { watching.watch_python(updates, closing).await });
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while !progress.borrow_and_update().connected {
+                progress.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        assert!(progress.borrow().preparations.is_empty());
+        assert!(!node.profile().join("python/environments").exists());
+        execute(
+            &client,
+            Command::SavePythonSettings(sailry_protocol::python::Settings {
+                revision: 0,
+                index: Some(format!("http://localhost:{}/simple", index.address.port())),
+            }),
+        )
+        .await;
+        fs::write(
+            directory.path().join("source/package/requirements.txt"),
+            requirements,
+        )
+        .unwrap();
+        let admitted = client
+            .dispatch(client.prepare(install(worktree, 0)))
+            .await
+            .unwrap();
+        assert!(admitted.receipt.durable);
+        let mut completion = admitted.completion;
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while index.downloads.load(Ordering::SeqCst) == 0 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            while !progress
+                .borrow_and_update()
+                .package("example")
+                .is_some_and(|item| item.stage == sailry_protocol::python::Stage::Installing)
+            {
+                progress.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        assert!(matches!(
+            completion.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
+        let Output::Plugins(installed) = execute(&client, Command::ListPlugins).await else {
+            panic!("plugin inventory expected");
+        };
+        assert!(installed.iter().all(|package| package.name != "example"));
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            execute(
+                &client,
+                Command::CreateDirectory {
+                    worktree,
+                    path: "while-python-installs".into(),
+                },
+            ),
+        )
+        .await
+        .expect("file operations must not wait for pip");
+        assert!(
+            directory
+                .path()
+                .join("source/while-python-installs")
+                .is_dir()
+        );
+        assert!(matches!(
+            completion.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
+        index.release();
+        let installed = info(
+            tokio::time::timeout(Duration::from_secs(60), completion)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+        );
+        assert!(installed.summary.enabled);
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while progress.borrow_and_update().package("example").is_some() {
+                progress.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        assert!(
+            fs::read_dir(node.profile().join("python/environments"))
+                .unwrap()
+                .all(|entry| { entry.unwrap().path().join(".sailry-ready.json").is_file() })
+        );
+        stop.cancel();
+        watcher.await.unwrap().unwrap();
         drop(client);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();

@@ -92,3 +92,45 @@ pub(super) fn observe(ingress: &Ingress, mut admission: Admission) -> Admission 
     });
     admission
 }
+
+pub(super) fn subscribe(
+    node: sailry_protocol::NodeId,
+    progress: tokio::sync::watch::Receiver<Vec<sailry_protocol::python::Preparation>>,
+    closed: sailry_link::CancellationToken,
+) -> Box<dyn sailry_link::Subscription> {
+    Box::new(Updates {
+        node,
+        progress,
+        closed,
+        initial: true,
+    })
+}
+
+struct Updates {
+    node: sailry_protocol::NodeId,
+    progress: tokio::sync::watch::Receiver<Vec<sailry_protocol::python::Preparation>>,
+    closed: sailry_link::CancellationToken,
+    initial: bool,
+}
+
+impl sailry_link::Subscription for Updates {
+    fn next(&mut self) -> sailry_link::Pending<'_, Result<sailry_protocol::Update, Fault>> {
+        Box::pin(async move {
+            if self.closed.is_cancelled() {
+                return Err(unavailable());
+            }
+            if !self.initial {
+                tokio::select! {
+                    biased;
+                    _ = self.closed.cancelled() => return Err(unavailable()),
+                    changed = self.progress.changed() => changed.map_err(|_| unavailable())?,
+                }
+            }
+            self.initial = false;
+            Ok(sailry_protocol::Update::Python {
+                node: self.node,
+                preparations: self.progress.borrow_and_update().clone(),
+            })
+        })
+    }
+}

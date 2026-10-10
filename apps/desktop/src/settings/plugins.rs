@@ -9,6 +9,7 @@ mod download;
 mod editor;
 pub(super) mod live;
 mod market;
+pub(in crate::settings) mod preparation;
 #[cfg(test)]
 #[path = "plugins/tests/fixture.rs"]
 pub(super) mod test_support;

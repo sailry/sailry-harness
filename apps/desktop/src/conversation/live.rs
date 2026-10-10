@@ -119,6 +119,7 @@ pub(crate) struct View {
     node: NodeView,
     defaults: NodeView,
     history: History,
+    python: sailry_client::python::View,
     config: Option<SessionConfig>,
     config_owner: NodeId,
     input: Entity<TextareaState>,
@@ -163,6 +164,7 @@ pub(crate) struct View {
     paging_requested: bool,
     older: Option<tokio::sync::mpsc::Sender<sailry_client::conversation::HistoryRequest>>,
     _node: Task<()>,
+    _python: Task<()>,
     defaults_stop: CancellationToken,
     _defaults: Option<Task<()>>,
     _input_events: Subscription,
@@ -251,6 +253,7 @@ impl View {
         .detach();
         let stop = CancellationToken::new();
         let node = watch::node(&binding, false, &stop, cx);
+        let python = watch::python(&binding, &stop, cx);
         let defaults_stop = stop.child_token();
         let defaults = (session.is_none() && binding.defaults.target() != binding.client.target())
             .then(|| watch::node(&binding, true, &defaults_stop, cx));
@@ -351,6 +354,7 @@ impl View {
             node: NodeView::default(),
             defaults: NodeView::default(),
             history: History::default(),
+            python: sailry_client::python::View::default(),
             input,
             restored_input: None,
             references,
@@ -395,6 +399,7 @@ impl View {
             older,
             paging_requested: false,
             _node: node,
+            _python: python,
             defaults_stop,
             _defaults: defaults,
             _input_events: input_events,

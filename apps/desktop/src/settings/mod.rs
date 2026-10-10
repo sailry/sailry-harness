@@ -14,6 +14,7 @@ mod mcp;
 mod model_library;
 mod plugins;
 pub(crate) use plugins::open_bound as open_plugin_details;
+pub(crate) use plugins::preparation::label as python_stage;
 mod preferences;
 mod providers;
 mod resource_card;

@@ -142,6 +142,7 @@ async fn request(
         | Call::WatchCodeServers(_)
         | Call::WatchTerminal(_)
         | Call::WatchBrowser
+        | Call::WatchPython
         | Call::WatchCommands(_)
         | Call::WatchConversation(_)) => {
             let Ok(_permit) = subscriptions.try_acquire_owned() else {
@@ -156,6 +157,7 @@ async fn request(
                 return send.finish().map_err(network);
             };
             let topic = match subscription {
+                Call::WatchPython => sailry_protocol::Topic::Python,
                 Call::WatchProviderLogin(id) => sailry_protocol::Topic::ProviderLogin(id),
                 Call::WatchMcpLogin(id) => sailry_protocol::Topic::McpLogin(id),
                 Call::WatchPluginLogin(id) => sailry_protocol::Topic::PluginLogin(id),

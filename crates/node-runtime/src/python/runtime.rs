@@ -1,4 +1,4 @@
-use super::{VERSION, integrity, process, storage};
+use super::{VERSION, integrity, process, storage, validation::Validation};
 use crate::process::Environment;
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault};
@@ -29,7 +29,7 @@ struct Source {
 struct Verification {
     identity: String,
     files: Vec<integrity::File>,
-    cache: Mutex<integrity::Cache>,
+    cache: Mutex<Validation>,
 }
 
 // Repeated isolated Nodes can share read-only asset verification. Entries carry
@@ -119,7 +119,7 @@ impl Runtime {
                     let verification = Arc::new(Verification {
                         identity: identity.clone(),
                         files: receipt.files,
-                        cache: Mutex::default(),
+                        cache: Mutex::new(Validation::new(root.clone())),
                     });
                     if verified.len() >= 8 {
                         verified.pop_first();
@@ -170,11 +170,10 @@ impl Runtime {
             .cache
             .lock()
             .expect("bundled Python integrity lock is valid");
-        if !integrity::verify(
-            &self.root,
-            &self.root,
+        if !cache.runtime(
+            &self.python,
+            &self.verification.identity,
             &self.verification.files,
-            &mut cache,
             cancel,
         )? {
             return Err(Fault::new(

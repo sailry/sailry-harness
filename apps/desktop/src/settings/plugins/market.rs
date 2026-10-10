@@ -338,6 +338,10 @@ impl Render for Market {
                             let description = info
                                 .and_then(metadata::description)
                                 .or_else(|| entry.description(&rust_i18n::locale()).map(str::to_owned));
+                            let description = owner.as_ref()
+                                .and_then(|owner| owner.read(cx).plugin_catalog.python.package(&entry.name))
+                                .map(|preparation| preparation::label(preparation.stage).to_string())
+                                .or(description);
                             let action_label = tr(if known.is_some() { "plugins_already_installed" } else { "plugins_install" });
                             let summary = resource_card::summary(
                                 format!("market-details-{}", entry.id),

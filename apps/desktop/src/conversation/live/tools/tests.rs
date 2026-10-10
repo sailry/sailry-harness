@@ -4,6 +4,7 @@ use core::prelude::v1::test;
 use serde_json::json;
 
 mod commands;
+mod preparation;
 mod status;
 
 fn redraw(visual: &mut VisualTestContext) {

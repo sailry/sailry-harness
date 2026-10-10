@@ -78,6 +78,33 @@ impl Workspace {
                         ),
                 )
             })
+            .when(catalog.python.connected, |view| {
+                view.child(
+                    v_flex().gap_2().children(
+                        catalog
+                            .python
+                            .preparations
+                            .iter()
+                            .filter(|preparation| {
+                                !plugins
+                                    .iter()
+                                    .any(|plugin| plugin.name == preparation.package)
+                            })
+                            .map(|preparation| {
+                                let selector = format!("plugin-preparing-{}", preparation.package);
+                                h_flex()
+                                    .min_w_0()
+                                    .gap_2()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .debug_selector(move || selector.clone())
+                                    .child(spinner::Spinner::new().small())
+                                    .child(preparation.package.clone())
+                                    .child(preparation::label(preparation.stage))
+                            }),
+                    ),
+                )
+            })
             .when(plugins.is_empty() && live.connected, |view| {
                 view.child(
                     Group::new("plugins_installed")
@@ -109,6 +136,12 @@ impl Workspace {
         let description = info
             .and_then(metadata::description)
             .or_else(|| plugin.description.clone());
+        let description = self
+            .plugin_catalog
+            .python
+            .package(&plugin.name)
+            .map(|preparation| preparation::label(preparation.stage).to_string())
+            .or(description);
         let has_mcp = info.is_some_and(|info| !info.mcp.is_empty());
         let configured = has_mcp
             || info.is_some_and(|info| {

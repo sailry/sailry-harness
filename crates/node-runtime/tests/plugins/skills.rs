@@ -2,6 +2,8 @@ use super::*;
 #[path = "../support/skills.rs"]
 mod github;
 use std::sync::atomic::Ordering;
+#[path = "skills/cancellation.rs"]
+mod cancellation;
 #[path = "skills/git.rs"]
 mod git;
 

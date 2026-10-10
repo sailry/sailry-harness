@@ -169,6 +169,10 @@ enum Job {
     },
     Shutdown,
     Completed(Box<external::Completed>),
+    Installed {
+        completed: Box<external::Completed>,
+        release: oneshot::Sender<()>,
+    },
     Transferred(Box<external::Completed>),
     Executed(Box<external::Completed>),
     Resources(Box<external::Completed>),
@@ -454,6 +458,7 @@ impl Store {
             &ingress,
         );
         let mut plugin_work = plugins::execution::Worker::new(ingress.clone());
+        let mut installations = plugins::installing::Worker::new(ingress.clone());
         let mut resource_work = resources::Worker::new(ingress.clone());
         let mut logins = login::Worker::new(authorization, &ingress, events.clone());
         let mut ssh = ssh::worker::Worker::new(
@@ -470,9 +475,6 @@ impl Store {
         );
         let code_pool = ingress.code.clone();
         let searcher = ingress.search.clone();
-        let python_closed = ingress.closed.clone();
-        let python_agents = ingress.agents.clone();
-        let python_environment = ingress.environment.clone();
         let worker = std::thread::Builder::new()
             .name("sailry-store".into())
             .spawn(move || {
@@ -498,34 +500,6 @@ impl Store {
                 let mut mutations =
                     match mutations::Worker::start(completed, move |caller, roots, request| {
                         let root = &roots.target;
-                        let installed = match &request.command {
-                            sailry_protocol::Command::InstallPluginUpload { stream, name, .. } => Some(transfers.install_plugin(caller, *stream, name, &plugins)),
-                            sailry_protocol::Command::InstallPlugin { path, name, .. } => Some(plugins.install(root, path, name)),
-                            sailry_protocol::Command::InstallPluginSource { source, path, name, .. } => Some(process_runtime.block_on(plugins.install_source(source, path, name))),
-                            sailry_protocol::Command::InstallBundledPlugin { name, .. } => Some(plugins.install_bundled(name)),
-                            sailry_protocol::Command::InstallSkill { source, path, name, .. } => Some(process_runtime.block_on(plugins.install_skill(source, path, name))),
-                            sailry_protocol::Command::InstallMcp { name, definition, .. } => Some(plugins.install_mcp(name, definition)),
-                            sailry_protocol::Command::SetPluginEnabled { name, expected_revision, enabled: true } => {
-                                let (reply, response) = oneshot::channel();
-                                validation.blocking_send(Job::PluginPreparation { name: name.clone(), revision: *expected_revision, reply }).map_err(|_| unavailable())?;
-                                Some(response.blocking_recv().map_err(|_| unavailable())?)
-                            }
-                            _ => None,
-                        };
-                        if let Some(info) = installed {
-                            let info = info?;
-                            let stop = if let Some(turn) = request.plugin.as_ref().and_then(|context| context.turn) {
-                                python_agents.python_stop(turn).ok_or_else(|| Fault::new(ErrorCode::Cancelled, "plugin preparation turn is no longer active"))?
-                            } else { python_closed.child_token() };
-                            let stop = stop.child_token();
-                            let preparing = stop.clone();
-                            let closed = python_closed.clone();
-                            let closing = process_runtime.spawn(async move { closed.cancelled().await; preparing.cancel(); });
-                            let result = process_runtime.block_on(plugins.prepare_python(&info, &python_environment, &stop));
-                            closing.abort();
-                            result?;
-                            return Ok(sailry_protocol::Output::Plugin(info));
-                        }
                         match &request.command {
                             sailry_protocol::Command::SavePluginMcp {
                                 package,
@@ -716,7 +690,7 @@ impl Store {
                 }
                 while let Some(job) = receiver.blocking_recv() {
                     let package_change = match &job {
-                        Job::Completed(_) => true,
+                        Job::Completed(_) | Job::Installed { .. } => true,
                         Job::Request { request, .. } => matches!(request.command,
                             sailry_protocol::Command::SetPluginEnabled { .. } | sailry_protocol::Command::RemovePlugin { .. }),
                         _ => false,
@@ -839,6 +813,23 @@ impl Store {
                             }
                             let _ = completed.reply.send(result);
                             mutations.pending -= 1;
+                        }
+                        Job::Installed { completed, release } => {
+                            let mut result = database.finish_external(
+                                completed.caller,
+                                &completed.request,
+                                completed.result,
+                                &events,
+                            );
+                            if result.is_ok() && code::configures(&completed.request.command) {
+                                match code::settings(&database.connection) {
+                                    Ok(settings) => cleanup_runtime.block_on(code_pool.configure(settings)),
+                                    Err(error) => result = Err(error),
+                                }
+                            }
+                            let _ = completed.reply.send(result);
+                            installations.pending -= 1;
+                            let _ = release.send(());
                         }
                         Job::Transferred(completed) => {
                             let result = database.finish_external(
@@ -1143,7 +1134,12 @@ impl Store {
                                         })
                                     }
                                     external::Work::Mutation(mutation) => {
-                                        mutations.submit(mutation).err().map(|mutation| {
+                                        let result = if plugins::installing::handles(&mutation.request.command) {
+                                            installations.submit(mutation)
+                                        } else {
+                                            mutations.submit(mutation)
+                                        };
+                                        result.err().map(|mutation| {
                                             (mutation.caller, mutation.request, mutation.reply)
                                         })
                                     }
@@ -1210,6 +1206,7 @@ impl Store {
                             + forwarder.pending
                             + processes.pending
                             + plugin_work.pending
+                            + installations.pending
                             + resource_work.pending
                             + logins.pending
                             + ssh.pending
@@ -1364,6 +1361,13 @@ impl Handler for Ingress {
                 return Ok(self
                     .commands
                     .subscribe(self.node, session, self.closed.clone()));
+            }
+            if matches!(topic, sailry_protocol::Topic::Python) {
+                return Ok(python::subscribe(
+                    self.node,
+                    self.plugins.python_progress(),
+                    self.closed.clone(),
+                ));
             }
             if matches!(topic, sailry_protocol::Topic::Browser) {
                 return self.browsers.subscribe(caller);

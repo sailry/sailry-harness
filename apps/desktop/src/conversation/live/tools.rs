@@ -61,7 +61,9 @@ impl View {
             return content.into_any_element();
         }
         let page = &self.history.snapshot.as_ref().unwrap().page;
-        let summary = group_summary(calls, page).continuing(continuing);
+        let summary = self
+            .preparing_summary(group_summary(calls, page), calls, page)
+            .continuing(continuing);
         let turn = first.turn;
         let key = format!("tool-sequence-{}", first.source.key());
         let content_id = format!("live-{turn}-{key}-content");
@@ -103,7 +105,9 @@ impl View {
         let grouped = projection::group(self, calls, page, cx);
         let turn = first.turn;
         let key = format!("tool-group-{}", first.source.key());
-        let summary = group_summary(calls, page).continuing(continuing);
+        let summary = self
+            .preparing_summary(group_summary(calls, page), calls, page)
+            .continuing(continuing);
         let open = self
             .expanded
             .get(&(turn, key.clone()))
@@ -167,7 +171,9 @@ impl View {
                 if call.progress.is_some() {
                     return self.tool(call, page, continuing, cx);
                 }
-                let summary = summary(call, page).continuing(continuing);
+                let summary = self
+                    .preparing_summary(summary(call, page), &[call], page)
+                    .continuing(continuing);
                 if !has_content(call, page) {
                     return disclosure::summary(
                         format!("live-{turn}-{key}"),
@@ -327,6 +333,13 @@ impl View {
             .debug_selector(move || selector.clone())
             .child(surface::copy(format!("{key}-copy"), text))
             .into_any_element()
+    }
+
+    fn preparing_summary(&self, mut summary: Summary, calls: &[&Call], page: &Page) -> Summary {
+        if let Some(stage) = preparation(calls, page, &self.python) {
+            summary.detail.state = Some(crate::settings::python_stage(stage));
+        }
+        summary
     }
 
     fn path_link(
@@ -556,6 +569,21 @@ fn group_summary(calls: &[&Call], page: &Page) -> Summary {
         latest.detail.state = Some(tr("tool_failed"));
     }
     latest
+}
+
+fn preparation(
+    calls: &[&Call],
+    page: &Page,
+    python: &sailry_client::python::View,
+) -> Option<sailry_protocol::python::Stage> {
+    calls.iter().rev().find_map(|call| {
+        if call.name != "load_skill" || call.state != State::Running {
+            return None;
+        }
+        let skill = call.arguments(page)?.get("skill")?.as_str()?;
+        let (package, _) = skill.split_once(':')?;
+        python.package(package).map(|progress| progress.stage)
+    })
 }
 
 #[cfg(test)]
