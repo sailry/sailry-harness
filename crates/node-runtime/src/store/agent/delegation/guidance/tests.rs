@@ -296,8 +296,12 @@ fn validates_recipient_and_parent() {
     let parent = start(&mut fixture);
     let child = invoke(&mut fixture, parent, json!({"role":null,"task":"Inspect"})).unwrap();
     let message: Input = "Guide".into();
+    let stale = runs::get(&fixture.database.connection, parent)
+        .unwrap()
+        .revision
+        + 1;
     for (recipient, revision, expected) in [
-        (parent, 1, ErrorCode::PermissionDenied),
+        (parent, stale, ErrorCode::RevisionConflict),
         (
             child.turn.id,
             child.turn.revision + 1,

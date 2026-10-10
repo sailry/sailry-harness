@@ -481,6 +481,26 @@ impl View {
         self.search.update(cx, |search, cx| search.open(window, cx));
     }
 
+    /// The running task that accepts guidance at its next model boundary.
+    fn recipient(&self) -> Option<&sailry_protocol::conversation::Run> {
+        self.history
+            .snapshot
+            .as_ref()?
+            .page
+            .runs
+            .iter()
+            .find(|run| {
+                run.status == Status::Running
+                    && run.kind == sailry_protocol::conversation::RunKind::Task
+            })
+    }
+
+    /// Guidance keeps the recipient's settings, so it applies only while they are current.
+    fn guidable(&self) -> Option<&sailry_protocol::conversation::Run> {
+        let revision = self.session.as_ref()?.revision;
+        self.recipient().filter(|run| run.revision == revision)
+    }
+
     fn active(&self) -> Option<TurnId> {
         self.history
             .snapshot

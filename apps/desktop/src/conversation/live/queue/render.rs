@@ -3,61 +3,22 @@ use crate::conversation::queue::presentation;
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
     clipboard::Clipboard,
-    popover::Popover,
     scroll::ScrollableElement,
+    tag::Tag,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 
 impl View {
-    pub(in crate::conversation::live) fn queue_bar(
+    pub(in crate::conversation::live) fn queue_tray(
         &self,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         self.queue.update(cx, |panel, cx| panel.sync(self, cx));
         let panel = self.queue.read(cx);
-        if panel.queue.items.is_empty()
-            && panel.editing.is_none()
-            && panel.retry.is_none()
-            && panel.error.is_none()
-        {
+        if panel.queue.items.is_empty() && panel.editing.is_none() && panel.outgoing.is_none() {
             return None;
         }
-        let paused = panel.queue.paused;
-        let panel = self.queue.clone();
-        Some(
-            Popover::new("live-queue-popover")
-                .anchor(Anchor::BottomLeft)
-                .bottom_2()
-                .p_2()
-                .trigger(
-                    Button::new("live-queue")
-                        .outline()
-                        .small()
-                        .rounded_full()
-                        .icon(IconName::Menu)
-                        .font_normal()
-                        .text_color(cx.theme().muted_foreground)
-                        .label(
-                            rust_i18n::t!(
-                                if paused {
-                                    "queue_paused_count"
-                                } else {
-                                    "queue_count"
-                                },
-                                count = self.queue.read(cx).queue.items.len()
-                            )
-                            .to_string(),
-                        )
-                        .when(paused, |button| button.tooltip(tr("queue_paused")))
-                        .debug_selector(|| "live-queue".into()),
-                )
-                .content(move |_, _, cx| {
-                    let popover = cx.entity().downgrade();
-                    panel.update(cx, |panel, _| panel.popover = Some(popover));
-                    panel.clone()
-                })
-                .into_any_element(),
-        )
+        Some(self.queue.clone().into_any_element())
     }
 }
 
@@ -120,15 +81,20 @@ impl Panel {
             .recipient
             .filter(|_| !self.child && item.kind == sailry_protocol::conversation::RunKind::Task)
             .map(|recipient| {
+                if item.guidance == Some(recipient) {
+                    return div()
+                        .flex_shrink_0()
+                        .debug_selector(move || format!("queue-guided-{turn}"))
+                        .child(Tag::primary().small().child(tr("queue_guided")))
+                        .into_any_element();
+                }
                 Button::new(format!("live-queue-guide-{turn}"))
                     .rounded_full()
                     .ghost()
                     .small()
-                    .icon(IconName::ArrowRight)
-                    .disabled(self.blocked() || item.guidance == Some(recipient))
+                    .label(tr("chat_queue_guide"))
+                    .disabled(self.blocked())
                     .debug_selector(move || format!("queue-guide-{turn}"))
-                    .tooltip(tr("chat_queue_guide"))
-                    .accessibility_label(tr("chat_queue_guide"))
                     .on_click(cx.listener(move |panel, _, window, cx| {
                         cx.stop_propagation();
                         panel.execute(
@@ -193,7 +159,7 @@ impl Panel {
 }
 
 impl Render for Panel {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let changed = self
             .editing
             .as_ref()
@@ -320,43 +286,63 @@ impl Render for Panel {
                 }
             })
         });
-        presentation::panel(window)
+        presentation::tray(cx)
             .when(
                 self.queue.paused && !self.child && !self.queue.items.is_empty(),
-                |panel| {
+                |tray| {
                     let session = self.session.unwrap();
                     let revision = self.queue.revision;
-                    panel.child(
-                        Button::new("queue-resume")
-                            .outline()
-                            .small()
-                            .rounded_full()
-                            .label(tr("queue_resume"))
-                            .debug_selector(|| "queue-resume".into())
-                            .disabled(self.blocked())
-                            .on_click(cx.listener(move |panel, _, window, cx| {
-                                panel.execute(
-                                    Command::SetQueuePaused {
-                                        session,
-                                        expected_revision: revision,
-                                        paused: false,
-                                    },
-                                    window,
-                                    cx,
-                                );
-                            })),
+                    tray.child(
+                        h_flex()
+                            .px_2()
+                            .gap_2()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(div().flex_1().child(tr("queue_paused")))
+                            .child(
+                                Button::new("queue-resume")
+                                    .ghost()
+                                    .small()
+                                    .rounded_full()
+                                    .label(tr("queue_resume"))
+                                    .debug_selector(|| "queue-resume".into())
+                                    .disabled(self.blocked())
+                                    .on_click(cx.listener(move |panel, _, window, cx| {
+                                        panel.execute(
+                                            Command::SetQueuePaused {
+                                                session,
+                                                expected_revision: revision,
+                                                paused: false,
+                                            },
+                                            window,
+                                            cx,
+                                        );
+                                    })),
+                            ),
                     )
                 },
             )
-            .when_some(editor, |panel, editor| panel.child(editor))
-            .when(self.editing.is_none(), |panel| {
-                panel.child(
+            .when_some(editor, |tray, editor| tray.child(editor))
+            .when(self.editing.is_none(), |tray| {
+                tray.child(
                     v_flex()
                         .id("queue-list")
-                        .flex_grow(1.)
-                        .p_1()
+                        .max_h(px(132.))
                         .overflow_y_scrollbar()
-                        .children(self.queue.items.iter().map(|item| self.row(item, cx))),
+                        .children(self.queue.items.iter().map(|item| self.row(item, cx)))
+                        .children(self.outgoing.clone().map(|text| {
+                            presentation::row(
+                                "live-queue-outgoing",
+                                "outgoing".into(),
+                                text,
+                                false,
+                                false,
+                                [],
+                                cx,
+                            )
+                            .opacity(0.6)
+                            .debug_selector(|| "queue-outgoing".into())
+                        })),
                 )
             })
     }

@@ -111,7 +111,9 @@ impl View {
                                 })
                                 .tooltip(tr("chat_enqueue"))
                                 .accessibility_label(tr("chat_enqueue"))
-                                .on_click(cx.listener(|view, _, window, cx| view.send(window, cx))),
+                                .on_click(
+                                    cx.listener(|view, _, window, cx| view.enqueue(window, cx)),
+                                ),
                         )
                     })
                     .child(self.dictation_controls(cx))
@@ -148,6 +150,7 @@ impl View {
             );
         let input = self.input_field("live-chat-input", cx);
         let context = (!self.sidebar).then(|| self.context_bar(cx));
+        let tray = self.queue_tray(cx);
         super::super::layout::composer(
             self.notices(cx),
             v_flex()
@@ -168,6 +171,7 @@ impl View {
                 .child(input)
                 .child(toolbar)
                 .into_any_element(),
+            tray,
             context,
             Some(self.reference_picker(cx)),
             self.sidebar,

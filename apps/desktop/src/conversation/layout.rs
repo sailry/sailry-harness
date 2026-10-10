@@ -6,6 +6,7 @@ pub(crate) const USER_MESSAGE_WIDTH: f32 = 440.;
 pub(super) fn composer(
     notices: impl IntoIterator<Item = AnyElement>,
     content: AnyElement,
+    tray: Option<AnyElement>,
     context: Option<AnyElement>,
     menu: Option<AnyElement>,
     sidebar: bool,
@@ -29,6 +30,7 @@ pub(super) fn composer(
                 .relative()
                 .w_full()
                 .children(menu)
+                .children(tray)
                 .child(
                     input_surface(cx)
                         .debug_selector(|| "composer-surface".into())

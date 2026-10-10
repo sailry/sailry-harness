@@ -10,10 +10,15 @@ pub(super) struct Message {
     pub input: Input,
     pub worktree: Option<WorktreeId>,
     pub attachments: Vec<attachments::images::ImageSource>,
+    /// Sent while a turn runs; the queue tray shows it instead of the transcript.
+    pub queued: bool,
+    /// Guide the running task instead of waiting for it to finish.
+    pub guide: bool,
 }
 
 impl View {
-    pub(super) fn show_outgoing(&mut self, input: Input, cx: &mut Context<Self>) {
+    pub(super) fn show_outgoing(&mut self, input: Input, guide: bool, cx: &mut Context<Self>) {
+        let queued = self.active().is_some();
         self.outgoing = Some(Message {
             row: TurnId::new(),
             request: None,
@@ -21,6 +26,8 @@ impl View {
             input,
             worktree: self.binding.worktree,
             attachments: self.attachment_previews(),
+            queued,
+            guide: guide && self.guidable().is_some(),
         });
         self.sync_rows(cx);
         self.scroller
@@ -71,8 +78,36 @@ impl View {
         }
     }
 
+    /// Input waiting for admission while another turn runs.
+    pub(super) fn queued_outgoing(&self) -> Option<SharedString> {
+        let message = self.outgoing.as_ref().filter(|message| message.queued)?;
+        let admitted = message.turn.is_some_and(|turn| {
+            self.history.snapshot.as_ref().is_some_and(|snapshot| {
+                snapshot
+                    .page
+                    .queue
+                    .items
+                    .iter()
+                    .any(|item| item.turn == turn)
+            })
+        });
+        if admitted {
+            return None;
+        }
+        Some(if message.input.text.trim().is_empty() {
+            rust_i18n::t!(
+                "chat_attachment_count",
+                count = message.input.attachments.len()
+            )
+            .to_string()
+            .into()
+        } else {
+            message.input.text.trim().to_owned().into()
+        })
+    }
+
     pub(super) fn outgoing_message(&self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(message) = &self.outgoing else {
+        let Some(message) = self.outgoing.as_ref().filter(|message| !message.queued) else {
             return div().into_any_element();
         };
         div()

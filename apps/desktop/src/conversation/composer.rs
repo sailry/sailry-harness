@@ -180,6 +180,7 @@ impl Shell {
         super::layout::composer(
             notices,
             content.into_any_element(),
+            None,
             Some(self.composer_context(cx).into_any_element()),
             Some(self.composer_references(cx).into_any_element()),
             false,

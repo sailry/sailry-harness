@@ -188,7 +188,6 @@ fn queue_lifecycle(cx: &mut TestAppContext) {
             let pending = view.read_with(visual, |_, cx| page(&view, cx).queue.items[0].clone());
             assert_eq!(pending.kind, RunKind::Compaction);
             assert!(!view.read_with(visual, |view, _| view.can_compact()));
-            click(visual, "live-queue");
             assert!(
                 visual
                     .debug_bounds(Box::leak(

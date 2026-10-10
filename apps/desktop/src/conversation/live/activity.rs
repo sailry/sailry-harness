@@ -34,14 +34,12 @@ impl View {
         let commands = self.command_activity(cx);
         let approval = self.pending_approvals(cx);
         let question = self.pending_question(cx);
-        let queue = self.queue_bar(cx);
         if progress.is_none()
             && children.is_none()
             && commands.is_none()
             && badges.is_empty()
             && approval.is_none()
             && question.is_none()
-            && queue.is_none()
         {
             return None;
         }
@@ -92,7 +90,6 @@ impl View {
                 })
                 .children(commands)
                 .children(children)
-                .children(queue)
                 .child(div().flex_1())
                 .children(approval)
                 .children(question)

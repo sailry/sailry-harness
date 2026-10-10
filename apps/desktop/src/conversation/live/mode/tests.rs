@@ -203,7 +203,6 @@ fn preserves_queue_and_focus(cx: &mut TestAppContext) {
                 .len()
                 == 1
         });
-        tap(visual, "live-queue");
         tap(visual, &format!("queue-send-{}", turn.id));
         crate::conversation::live::tests::continue_plan(&view, visual);
         wait(visual, |cx| {

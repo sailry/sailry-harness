@@ -74,14 +74,7 @@ impl Panel {
                             .detach();
                         }
                         cx.observe(&input, |_, _, cx| cx.notify()).detach();
-                        if panel
-                            .popover
-                            .as_ref()
-                            .and_then(WeakEntity::upgrade)
-                            .is_some_and(|popover| popover.read(cx).is_open())
-                        {
-                            input.update(cx, |input, cx| input.focus(window, cx));
-                        }
+                        input.update(cx, |input, cx| input.focus(window, cx));
                         panel.editing = Some(Editing {
                             turn: message.turn.id,
                             revision: message.revision,

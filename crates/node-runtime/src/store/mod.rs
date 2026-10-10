@@ -1092,6 +1092,7 @@ impl Store {
                                     | sailry_protocol::Command::StartQueuedTurn { .. }
                                     | sailry_protocol::Command::SendQueuedTurn { .. }
                                     | sailry_protocol::Command::GuideQueuedTurn { .. }
+                                    | sailry_protocol::Command::GuideTurn { .. }
                                     | sailry_protocol::Command::SetQueuePaused { .. }
                             );
                             let sending = match request.command {

@@ -1,6 +1,5 @@
 //! Queue editing drafts and command attempts; scheduling stays on the Node.
 use super::*;
-use gpui_kit::component::popover::PopoverState;
 use sailry_protocol::{
     ErrorCode,
     conversation::{Pending, Queue},
@@ -25,7 +24,8 @@ pub(super) struct Panel {
     retry: Option<actions::Attempt>,
     error: Option<&'static str>,
     action: Option<Task<()>>,
-    popover: Option<WeakEntity<PopoverState>>,
+    /// Input sent while a turn runs, shown here until the Node admits it.
+    outgoing: Option<SharedString>,
 }
 
 struct Editing {
@@ -81,14 +81,7 @@ impl Panel {
                             toast.dismiss(window, cx);
                             let owner = owner.clone();
                             window.defer(cx, move |window, cx| {
-                                _ = owner.update(cx, |panel, cx| {
-                                    if let Some(popover) =
-                                        panel.popover.as_ref().and_then(WeakEntity::upgrade)
-                                    {
-                                        popover.update(cx, |popover, cx| popover.show(window, cx));
-                                    }
-                                    panel.retry(window, cx);
-                                });
+                                _ = owner.update(cx, |panel, cx| panel.retry(window, cx));
                             });
                         }))
                 })
@@ -108,7 +101,7 @@ impl Panel {
             retry: None,
             error: None,
             action: None,
-            popover: None,
+            outgoing: None,
         }
     }
 
@@ -119,23 +112,16 @@ impl Panel {
             .as_ref()
             .map(|snapshot| &snapshot.page.queue);
         let connected = view.connected();
-        let recipient = view.history.snapshot.as_ref().and_then(|snapshot| {
-            snapshot
-                .page
-                .runs
-                .iter()
-                .find(|run| {
-                    run.status == Status::Running
-                        && run.kind == sailry_protocol::conversation::RunKind::Task
-                })
-                .map(|run| run.turn)
-        });
+        let recipient = view.recipient().map(|run| run.turn);
+        let outgoing = view.queued_outgoing();
         if self.session != view.session()
             || self.recipient != recipient
             || self.child != view.readonly()
             || self.connected != connected
+            || self.outgoing != outgoing
             || queue.is_some_and(|queue| *queue != self.queue)
         {
+            self.outgoing = outgoing;
             self.session = view.session();
             self.recipient = recipient;
             self.child = view.readonly();
@@ -178,10 +164,8 @@ impl Panel {
     }
 
     fn restore_focus(&self, window: &mut Window, cx: &mut App) {
-        if let Some(popover) = self.popover.as_ref().and_then(WeakEntity::upgrade)
-            && popover.read(cx).is_open()
-        {
-            popover.read(cx).focus_handle(cx).focus(window, cx);
-        }
+        _ = self.owner.update(cx, |view, cx| {
+            view.input.update(cx, |input, cx| input.focus(window, cx))
+        });
     }
 }

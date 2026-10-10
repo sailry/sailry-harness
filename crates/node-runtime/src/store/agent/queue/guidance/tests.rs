@@ -377,3 +377,65 @@ fn recovers_unfinished_handoff() {
             .is_none()
     );
 }
+
+mod controller {
+    use super::*;
+
+    fn guide(fixture: &mut Fixture, active: TurnId, text: &str) -> TurnId {
+        let revision = runs::get(&fixture.database.connection, active)
+            .unwrap()
+            .revision;
+        let Output::QueuedTurn(turn) = crate::store::agent::tests::command(
+            &mut fixture.database,
+            &fixture.events,
+            Command::GuideTurn {
+                recipient: active,
+                expected_revision: revision,
+                message: text.into(),
+            },
+        ) else {
+            panic!("turn expected")
+        };
+        turn.id
+    }
+
+    #[test]
+    fn hands_off_at_boundary() {
+        let mut fixture = Fixture::new();
+        let active = fixture.queued();
+        runs::start(&fixture.database.connection, active).unwrap();
+        runs::claim(&mut fixture.database, &fixture.events)
+            .unwrap()
+            .unwrap();
+        let waiting = fixture.queued();
+        let first = guide(&mut fixture, active, "Use the second file");
+        let second = guide(&mut fixture, active, "Keep the tests");
+        let order: Vec<_> = read(&fixture.database.connection, fixture.session)
+            .unwrap()
+            .items
+            .iter()
+            .map(|item| (item.turn, item.guidance))
+            .collect();
+        assert_eq!(
+            order,
+            [(first, Some(active)), (second, None), (waiting, None)]
+        );
+        let controls = handoff(&mut fixture, active);
+        assert_eq!(
+            finish(
+                &mut fixture,
+                &controls,
+                active,
+                Status::Completed,
+                None,
+                None
+            ),
+            Status::Continued
+        );
+        let next = runs::claim(&mut fixture.database, &fixture.events)
+            .unwrap()
+            .unwrap();
+        assert_eq!(next.turn.id, first);
+        assert_eq!(next.message.text, "Use the second file");
+    }
+}

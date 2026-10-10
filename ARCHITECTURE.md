@@ -296,6 +296,8 @@ batch settles, before the next model request. A new ADK invocation continues the
 same session history; it does not inject into an in-flight model stream. If a
 queued input has a different capture, explicit guidance admits a replacement
 using the recipient's capture without modifying the original sent-turn record.
+A controller may also guide the running main-session task directly; that input
+waits behind any guidance already selected for the same boundary.
 Natural completion advances the queue automatically. Explicit
 Stop and restart preserve unconsumed input, references and attachments in a paused
 queue without automatic replay.

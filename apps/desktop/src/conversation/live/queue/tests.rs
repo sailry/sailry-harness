@@ -215,7 +215,6 @@ fn saves_without_text(cx: &mut TestAppContext) {
                 && view.read(cx).configured()
                 && view.read(cx).contributions.read(cx).ready(cx)
         });
-        click(visual, "live-queue");
         click(visual, selector("edit", turn));
         wait(visual, |cx| panel.read(cx).editing.is_some());
         let original = panel.read_with(visual, |panel, cx| {
@@ -310,12 +309,17 @@ fn edits_reorders_and_sends(cx: &mut TestAppContext) {
                 && view.read(cx).contributions.read(cx).ready(cx)
         });
         assert!(view.read_with(visual, |view, _| view.rows.is_empty()));
-        let activity = visual.debug_bounds("composer-activity").unwrap();
-        let queue = visual.debug_bounds("live-queue").unwrap();
-        assert_eq!(activity.origin.y, queue.origin.y);
-        assert!(queue.size.width < activity.size.width / 2.);
+        assert!(visual.debug_bounds("composer-activity").is_none());
+        let tray = visual.debug_bounds("queue-tray").unwrap();
+        let surface = visual.debug_bounds("composer-surface").unwrap();
+        // The tray sits inset behind the composer's top edge.
+        assert!(tray.origin.y < surface.origin.y);
+        assert!(tray.bottom() > surface.origin.y);
+        assert!(tray.origin.x > surface.origin.x);
+        assert!(tray.right() < surface.right());
+        let row = visual.debug_bounds(selector("row", first)).unwrap();
+        assert!(row.bottom() <= surface.origin.y);
 
-        click(visual, "live-queue");
         assert!(visual.debug_bounds("queue-pause").is_none());
         let drag = visual.debug_bounds(selector("drag", first)).unwrap();
         let edit = visual.debug_bounds(selector("edit", first)).unwrap();
@@ -342,7 +346,6 @@ fn edits_reorders_and_sends(cx: &mut TestAppContext) {
         visual.simulate_keystrokes("shift-enter");
         visual.simulate_input("second line");
         visual.simulate_keystrokes("escape");
-        click(visual, "live-queue");
         panel.read_with(visual, |panel, cx| {
             assert_eq!(
                 panel.editing.as_ref().unwrap().input.read(cx).value(),
@@ -460,7 +463,6 @@ fn retains_conflicting_drafts(cx: &mut TestAppContext) {
                 && view.read(cx).configured()
                 && view.read(cx).contributions.read(cx).ready(cx)
         });
-        click(visual, "live-queue");
         click(visual, selector("edit", turn));
         wait(visual, |cx| panel.read(cx).editing.is_some());
         visual.simulate_keystrokes("secondary-a");
@@ -497,7 +499,6 @@ fn retains_conflicting_drafts(cx: &mut TestAppContext) {
         });
         wait(visual, |cx| panel.read(cx).queue.items.is_empty());
         visual.simulate_keystrokes("escape");
-        click(visual, "live-queue");
         panel.read_with(visual, |panel, cx| {
             assert_eq!(
                 panel.editing.as_ref().unwrap().input.read(cx).value(),

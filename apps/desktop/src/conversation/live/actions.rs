@@ -49,7 +49,17 @@ impl Attempt {
 }
 
 impl View {
+    /// Sends input, guiding a running task at its next model boundary.
     pub(super) fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.dispatch(true, window, cx)
+    }
+
+    /// Queues input to start after the running turn finishes.
+    pub(super) fn enqueue(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.dispatch(false, window, cx)
+    }
+
+    fn dispatch(&mut self, guide: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.input.update(cx, |input, cx| {
             input.marked_text_range(window, cx).is_some()
         }) {
@@ -85,7 +95,7 @@ impl View {
             return;
         }
         self.references.dismiss();
-        self.show_outgoing(message.clone(), cx);
+        self.show_outgoing(message.clone(), guide, cx);
         if (self.session.is_none() && self.binding.worktree.is_none())
             || !self.prepare_attachments(message.clone(), window, cx)
         {
@@ -95,16 +105,24 @@ impl View {
 
     pub(super) fn submit(&mut self, message: Input, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(session) = &self.session {
-            self.execute(
-                Command::SubmitTurn {
+            let input = self.normalized_input(message.clone());
+            let command = match self.guidable().filter(|_| {
+                self.outgoing
+                    .as_ref()
+                    .is_some_and(|outgoing| outgoing.guide)
+            }) {
+                Some(run) => Command::GuideTurn {
+                    recipient: run.turn,
+                    expected_revision: run.revision,
+                    message: input,
+                },
+                None => Command::SubmitTurn {
                     session: session.id,
                     expected_revision: session.revision,
-                    message: self.normalized_input(message.clone()),
+                    message: input,
                 },
-                Action::Send(message),
-                window,
-                cx,
-            );
+            };
+            self.execute(command, Action::Send(message), window, cx);
         } else {
             self.create_session(Action::Create(message), window, cx);
         }
@@ -231,6 +249,7 @@ impl View {
         }
         self.error = None;
         let request_id = attempt.request.id;
+        let guiding = matches!(attempt.request.command, Command::GuideTurn { .. });
         let job = self
             .binding
             .runtime
@@ -416,6 +435,22 @@ impl View {
                                 view.contribution_intent(intent, true.into(), window, cx)
                                     .detach();
                             }
+                        }
+                    }
+                    Ok(Err(error))
+                        if guiding
+                            && matches!(
+                                error.code,
+                                ErrorCode::Conflict | ErrorCode::RevisionConflict
+                            ) =>
+                    {
+                        // The task ended before admission; the input becomes an ordinary turn.
+                        view.retry = None;
+                        if let Action::Send(message) = attempt.action {
+                            if let Some(outgoing) = &mut view.outgoing {
+                                outgoing.guide = false;
+                            }
+                            view.submit(message, window, cx);
                         }
                     }
                     Ok(Err(error)) => {

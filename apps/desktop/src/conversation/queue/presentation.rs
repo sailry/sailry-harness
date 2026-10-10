@@ -110,6 +110,25 @@ pub(in crate::conversation) fn panel(window: &Window) -> Div {
         .gap_2()
 }
 
+/// Queued input sits in a tray tucked behind the composer's top edge.
+pub(in crate::conversation) fn tray(cx: &App) -> Div {
+    let radius = cx.theme().radius_2xl();
+    v_flex()
+        .debug_selector(|| "queue-tray".into())
+        .mx_3()
+        .mb(-radius)
+        .pb(radius)
+        .pt_1()
+        .px_1()
+        .gap_1()
+        .rounded_tl(radius)
+        .rounded_tr(radius)
+        .border_1()
+        .border_b_0()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().background)
+}
+
 pub(in crate::conversation) fn drag(text: SharedString, cx: &App) -> ListItem {
     ListItem::new("queue-drag-preview")
         .selected(true)

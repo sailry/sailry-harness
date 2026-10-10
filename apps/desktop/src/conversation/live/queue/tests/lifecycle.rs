@@ -20,7 +20,6 @@ fn resumes_paused_queue(cx: &mut TestAppContext) {
         });
         click(visual, "live-chat-input");
         visual.simulate_input("Keep the unsent draft");
-        click(visual, "live-queue");
         assert!(visual.debug_bounds("queue-resume").is_some());
         click(visual, "queue-resume");
         wait(visual, |cx| {
@@ -112,7 +111,6 @@ fn retry_preserves_typing(cx: &mut TestAppContext) {
                 && view.read(cx).configured()
                 && view.read(cx).contributions.read(cx).ready(cx)
         });
-        click(visual, "live-queue");
         click(visual, selector("edit", turn));
         wait(visual, |cx| panel.read(cx).editing.is_some());
         visual.update(|window, cx| {
@@ -145,7 +143,6 @@ fn retry_preserves_typing(cx: &mut TestAppContext) {
         visual.simulate_keystrokes("escape");
         transport.release.add_permits(1);
         wait(visual, |cx| panel.read(cx).error.is_some());
-        click(visual, "live-queue");
         click(visual, "queue-retry");
         wait(visual, |cx| {
             !panel.read(cx).pending && panel.read(cx).retry.is_none()
@@ -240,7 +237,10 @@ fn sends_during_execution(cx: &mut TestAppContext) {
                 panel.read(cx).queue.items.len() == index + 1 && !view.read(cx).pending
             });
         }
-        click(visual, "live-queue");
+        // Changed settings queue new turns instead of guiding the running task.
+        assert!(panel.read_with(visual, |panel, _| {
+            panel.queue.items.iter().all(|item| item.guidance.is_none())
+        }));
         assert!(visual.debug_bounds("queue-pause").is_none());
         fixture.execute(Command::SetQueuePaused {
             session: fixture.session.id,

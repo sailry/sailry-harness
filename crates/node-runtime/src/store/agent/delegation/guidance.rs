@@ -17,12 +17,9 @@ pub(in crate::store) fn guide(
         unreachable!()
     };
     let run = queue::guidance::recipient(db, *recipient, Some(*expected_revision))?;
-    let origin = origin(db, run.turn)?.ok_or_else(|| {
-        Fault::new(
-            ErrorCode::PermissionDenied,
-            "guidance requires a delegated child",
-        )
-    })?;
+    let Some(origin) = origin(db, run.turn)? else {
+        return queue::guidance::guide(db, caller, request, run);
+    };
     if let Some(context) = &request.plugin {
         let parent = context.turn.ok_or_else(|| {
             Fault::new(
@@ -57,30 +54,7 @@ pub(in crate::store) fn guide(
             "child already has pending guidance",
         ));
     }
-    queue::validate(message)?;
-    let mut session = super::super::super::commands::session(db, run.session)?;
-    session.config = super::super::permissions::config(db, run.turn)?;
-    session.roles = super::super::super::sessions::roles::read(db, run.session, run.revision)?;
-    let plugins = super::super::plugins::read(db, run.turn)?;
-    super::super::references::validate(db, &session, message, Some(&plugins))?;
-    let turn = QueuedTurn {
-        id: TurnId::new(),
-        kind: RunKind::Task,
-        session: run.session,
-        request: request.id,
-        revision: run.revision,
-        config: session.config,
-        roles: session.roles,
-        plugins,
-    };
-    db.execute(
-        "INSERT INTO turns(id,kind,session,revision,request,caller,plugins) VALUES(?1,'task',?2,?3,?4,?5,?6)",
-        params![turn.id.to_string(), turn.session.to_string(), turn.revision as i64,
-            request.id.to_string(), &caller.0[..], encode(&turn.plugins)?],
-    ).map_err(storage_error)?;
-    super::super::super::attachments::turns::bind(db, turn.id, &message.attachments)?;
-    runs::inherit(db, &turn, run.turn, Status::Queued, true)?;
-    queue::admit(db, &turn, true)?;
+    let turn = queue::guidance::inherit(db, caller, request, &run, message)?;
     follow(db, run.turn, turn.id)?;
     queue::guidance::tag(db, turn.id, run.turn)?;
     Ok((

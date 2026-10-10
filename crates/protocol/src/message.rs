@@ -601,7 +601,7 @@ pub enum Command {
         expected_revision: Option<u64>,
         message: crate::conversation::Input,
     },
-    /// Guides an active child at its next model boundary using its frozen capture.
+    /// Guides an active task at its next model boundary using its frozen capture.
     GuideTurn {
         recipient: crate::TurnId,
         expected_revision: u64,
