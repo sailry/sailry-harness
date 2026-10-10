@@ -237,21 +237,34 @@ fn compare(
 
 fn column(table: &str, name: &str, declaration: &str) -> String {
     let normalized = normalize(declaration);
-    let Some(value) = upgrades::column(table, name) else {
+    if upgrades::column(table, name).is_none() {
+        return normalized;
+    }
+    let Some((definition, literal)) = normalized.rsplit_once("DEFAULT X'") else {
         return normalized;
     };
-    let suffix = normalize(&format!(
-        "DEFAULT X'{}'",
-        value
-            .iter()
-            .map(|byte| format!("{byte:02X}"))
-            .collect::<String>()
-    ));
-    normalized
-        .strip_suffix(&suffix)
-        .unwrap_or(&normalized)
-        .trim_end()
-        .to_owned()
+    let Some(hex) = literal.strip_suffix('\'') else {
+        return normalized;
+    };
+    if !hex.len().is_multiple_of(2) || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return normalized;
+    }
+    let value = hex
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            u8::from_str_radix(
+                std::str::from_utf8(pair).expect("hexadecimal bytes are ASCII"),
+                16,
+            )
+            .expect("hexadecimal bytes decode")
+        })
+        .collect::<Vec<_>>();
+    if upgrades::matches(table, name, &value) {
+        definition.trim_end().to_owned()
+    } else {
+        normalized
+    }
 }
 
 fn objects(connection: &Connection) -> Result<BTreeMap<(String, String), String>, Error> {

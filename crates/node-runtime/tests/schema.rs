@@ -228,7 +228,7 @@ async fn rejects_changes_without_rewriting_profile() {
 
 #[tokio::test]
 async fn upgrades_resources_on_both_paths() {
-    for remote in [false, true] {
+    for (remote, added_default) in [(false, false), (true, false), (false, true), (true, true)] {
         let directory = tempfile::tempdir().unwrap();
         let profile = directory.path().join("node");
         let source = directory.path().join("project");
@@ -394,6 +394,28 @@ async fn upgrades_resources_on_both_paths() {
                 .unwrap();
         }
         database.execute_batch("ALTER TABLE agent_approvals DROP COLUMN binding; ALTER TABLE agent_runs DROP COLUMN hooks").unwrap();
+        let captured = if added_default {
+            let value = br#"{"revision":0,"enabled":false,"before_tool":null,"after_tool":null,"turn_end":null}"#;
+            let encoded = value
+                .iter()
+                .map(|byte| format!("{byte:02X}"))
+                .collect::<String>();
+            database
+                .execute_batch(&format!(
+                    "ALTER TABLE agent_runs ADD COLUMN hooks BLOB NOT NULL DEFAULT X'{encoded}'"
+                ))
+                .unwrap();
+            let frozen = br#"{"revision":7,"enabled":false,"before_tool":{"command":"printf captured","timeout_ms":1000},"after_tool":null,"turn_end":null}"#;
+            database
+                .execute("UPDATE agent_runs SET hooks=?1", [frozen.as_slice()])
+                .unwrap();
+            Some(rows(
+                &database,
+                "SELECT turn,hooks FROM agent_runs ORDER BY turn",
+            ))
+        } else {
+            None
+        };
         database
             .pragma_update(None, "journal_mode", "DELETE")
             .unwrap();
@@ -464,10 +486,23 @@ async fn upgrades_resources_on_both_paths() {
         let hooks: Vec<u8> = database
             .query_row("SELECT hooks FROM agent_runs", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(
-            serde_json::from_slice::<hooks::Settings>(&hooks).unwrap(),
-            hooks::Settings::default()
-        );
+        let settings = serde_json::from_slice::<hooks::Settings>(&hooks).unwrap();
+        if let Some(captured) = &captured {
+            assert_eq!(
+                rows(&database, "SELECT turn,hooks FROM agent_runs ORDER BY turn"),
+                *captured
+            );
+            assert_eq!(settings.revision, 7);
+            assert!(!settings.enabled);
+            let script = settings.before_tool.as_ref().unwrap();
+            assert_eq!(script.command, "printf captured");
+            assert_eq!(script.timeout_ms, 1000);
+            assert!(script.enabled);
+            assert!(script.name.is_empty());
+            assert!(settings.additional.is_empty());
+        } else {
+            assert_eq!(settings, hooks::Settings::default());
+        }
         drop(database);
         let saved = backups(&profile);
         assert_eq!(saved.len(), 1);
@@ -513,6 +548,12 @@ async fn upgrades_resources_on_both_paths() {
             ),
             events
         );
+        if let Some(captured) = &captured {
+            assert_eq!(
+                rows(&backup, "SELECT turn,hooks FROM agent_runs ORDER BY turn"),
+                *captured
+            );
+        }
         let upgraded = open(&path);
         for (table, order) in [
             ("projects", "id"),
@@ -561,6 +602,15 @@ async fn upgrades_resources_on_both_paths() {
             node.local()
         });
         assert_eq!(read_history(&client, session.id).await, history);
+        if let Some(captured) = &captured {
+            assert_eq!(
+                rows(
+                    &open(&path),
+                    "SELECT turn,hooks FROM agent_runs ORDER BY turn"
+                ),
+                *captured
+            );
+        }
         let Output::QueuedTurn(turn) = execute(
             &client,
             Command::SubmitTurn {
@@ -585,6 +635,14 @@ async fn upgrades_resources_on_both_paths() {
                 .iter()
                 .all(|value| value.as_deref() == Some("Bearer schema-fixture-credential"))
         );
+        if let Some(captured) = &captured {
+            let resumed = rows(
+                &open(&path),
+                "SELECT turn,hooks FROM agent_runs ORDER BY turn",
+            );
+            assert_eq!(resumed.len(), captured.len() + 1);
+            assert!(captured.iter().all(|row| resumed.contains(row)));
+        }
         drop(client);
         node.shutdown().await.unwrap();
         assert_eq!(backups(&profile), saved);

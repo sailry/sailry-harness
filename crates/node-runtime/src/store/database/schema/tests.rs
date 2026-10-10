@@ -16,6 +16,29 @@ mod comparison {
     }
 
     #[test]
+    fn accepts_typed_hook_defaults() {
+        let current = "CREATE TABLE agent_runs(hooks BLOB NOT NULL)";
+        for value in [
+            br#"{"revision":0,"enabled":false,"before_tool":null,"after_tool":null,"turn_end":null}"#.to_vec(),
+            serde_json::to_vec(&sailry_protocol::hooks::Settings::default()).unwrap(),
+        ] {
+            let connection = Connection::open_in_memory().unwrap();
+            let encoded = value
+                .iter()
+                .map(|byte| format!("{byte:02X}"))
+                .collect::<String>();
+            connection
+                .execute_batch(&format!(
+                    "CREATE TABLE agent_runs(hooks BLOB NOT NULL DEFAULT X'{encoded}')"
+                ))
+                .unwrap();
+            let before = objects(&connection).unwrap();
+            verify(&connection, Path::new("fixture"), current).unwrap();
+            assert_eq!(objects(&connection).unwrap(), before);
+        }
+    }
+
+    #[test]
     fn rejects_missing_objects() {
         for sql in [
             "",
@@ -261,6 +284,64 @@ mod startup {
                     .prepare(&format!("SELECT {column} FROM {table}"))
                     .is_ok()
             );
+        }
+    }
+
+    #[test]
+    fn preserves_typed_hook_default_in_backup() {
+        let value = br#"{"revision":0,"enabled":false,"before_tool":null,"after_tool":null,"turn_end":null}"#;
+        let encoded = value
+            .iter()
+            .map(|byte| format!("{byte:02X}"))
+            .collect::<String>();
+        let (directory, path, node) = fixture(&format!(
+            "ALTER TABLE agent_runs DROP COLUMN hooks; ALTER TABLE agent_runs ADD COLUMN hooks BLOB NOT NULL DEFAULT X'{encoded}'; DROP TABLE code_settings"
+        ));
+        let original = objects(&Connection::open(&path).unwrap()).unwrap();
+        let connection = upgraded(directory.path(), &path, node);
+        assert_eq!(
+            objects(&connection)
+                .unwrap()
+                .get(&("table".into(), "agent_runs".into())),
+            original.get(&("table".into(), "agent_runs".into()))
+        );
+        let backups = directory.path().join("backups");
+        let previous = Connection::open_with_flags(
+            backups.join(&entries(&backups)[0]),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        assert_eq!(objects(&previous).unwrap(), original);
+    }
+
+    #[test]
+    fn rejects_changed_hook_defaults_without_writing() {
+        let default = br#"{"revision":0,"enabled":false,"before_tool":null,"after_tool":null,"turn_end":null}"#;
+        for (declaration, value) in [
+            (
+                "hooks BLOB NOT NULL",
+                br#"{"revision":0,"enabled":true,"before_tool":null,"after_tool":null,"turn_end":null}"#.as_slice(),
+            ),
+            ("hooks BLOB NOT NULL", b"{".as_slice()),
+            (
+                "hooks BLOB NOT NULL",
+                br#"{"revision":0,"enabled":false,"before_tool":null,"after_tool":null,"turn_end":null,"foreign":false}"#.as_slice(),
+            ),
+            ("hooks TEXT NOT NULL", default.as_slice()),
+            ("hooks BLOB", default.as_slice()),
+            (
+                "hooks BLOB NOT NULL CHECK(json_valid(hooks))",
+                default.as_slice(),
+            ),
+        ] {
+            let encoded = value
+                .iter()
+                .map(|byte| format!("{byte:02X}"))
+                .collect::<String>();
+            let (directory, path, node) = fixture(&format!(
+                "ALTER TABLE agent_runs DROP COLUMN hooks; ALTER TABLE agent_runs ADD COLUMN {declaration} DEFAULT X'{encoded}'; DROP TABLE code_settings"
+            ));
+            rejected(directory.path(), &path, node, "agent_runs.hooks");
         }
     }
 
