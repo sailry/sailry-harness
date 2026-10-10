@@ -7,6 +7,7 @@ use crate::{
 use core::prelude::v1::test;
 use gpui_kit::{
     component::{Root, WindowExt},
+    test::TestWindowExt as _,
     *,
 };
 use sailry_client::Client;
@@ -161,6 +162,9 @@ fn wait(visual: &mut VisualTestContext, ready: impl Fn(&mut Window, &mut App) ->
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         visual.executor().advance_clock(Duration::from_millis(10));
+        visual
+            .background_executor
+            .advance_clock(Duration::from_millis(10));
         visual.run_until_parked();
         if visual.update(|window, cx| {
             window.draw(cx).clear(cx);
@@ -204,6 +208,10 @@ fn entries(path: &Path) -> Vec<std::path::PathBuf> {
         .collect();
     entries.sort();
     entries
+}
+
+fn loading(window: &mut Window) -> bool {
+    window.try_find("conversation-export-cancel").is_some()
 }
 
 #[gpui_kit::test]
@@ -256,6 +264,7 @@ fn captures_nodes_and_publishes_attachment_links(cx: &mut TestAppContext) {
             wait(visual, |window, cx| {
                 crate::feedback::tests::count(window, &crate::tr("conversation_exported"), cx)
                     == before + 1
+                    && !loading(window)
                     && !window.has_active_dialog(cx)
             });
             let document = std::fs::read_to_string(&destination).unwrap();
@@ -392,14 +401,22 @@ fn cancels_without_publishing_files(cx: &mut TestAppContext) {
         choose_export(visual);
         visual.simulate_new_path_selection(|_| Some(destination.clone()));
         wait(visual, |window, cx| {
-            held.entered.is_cancelled() && window.has_active_dialog(cx)
+            held.entered.is_cancelled() && loading(window) && !window.has_active_dialog(cx)
         });
+        crate::feedback::tests::settle(visual);
+        assert!(
+            visual
+                .debug_bounds("conversation-export-progress")
+                .is_some()
+        );
         assert!(
             !entries(output.path()).is_empty(),
             "prepared export staging expected"
         );
         crate::live::file_tests::click(visual, "conversation-export-cancel");
-        wait(visual, |window, cx| !window.has_active_dialog(cx));
+        wait(visual, |window, cx| {
+            !loading(window) && !window.has_active_dialog(cx)
+        });
         held.release.cancel();
         wait(visual, |_, _| {
             held.completed.load(Ordering::SeqCst) == 1 && entries(output.path()).is_empty()
@@ -444,12 +461,15 @@ fn preserves_changed_destinations_and_cleans_assets(cx: &mut TestAppContext) {
             )
         });
         visual.simulate_new_path_selection(|_| Some(destination.clone()));
-        wait(visual, |_, _| held.entered.is_cancelled());
+        wait(visual, |window, cx| {
+            held.entered.is_cancelled() && loading(window) && !window.has_active_dialog(cx)
+        });
         std::fs::write(&destination, "External destination change").unwrap();
         held.release.cancel();
         wait(visual, |window, cx| {
             crate::feedback::tests::count(window, &crate::tr("files_download_conflict"), cx)
                 == before + 1
+                && !loading(window)
                 && !window.has_active_dialog(cx)
         });
         assert_eq!(
@@ -505,10 +525,7 @@ fn footer_exports_only_captured_turn(cx: &mut TestAppContext) {
             })
         });
         let selector: &'static str = Box::leak(format!("reply-export-{turn}").into_boxed_str());
-        wait(visual, |window, _| {
-            use gpui_kit::test::TestWindowExt as _;
-            window.try_find(selector).is_some()
-        });
+        wait(visual, |window, _| window.try_find(selector).is_some());
         crate::live::file_tests::click(visual, selector);
         visual.simulate_mouse_move(point(px(-100.), px(-100.)), None, Modifiers::default());
         visual.simulate_keystrokes("down enter");
@@ -521,9 +538,15 @@ fn footer_exports_only_captured_turn(cx: &mut TestAppContext) {
             &fixture.sessions[1 - index],
         );
         let path = output.path().join(format!("reply-{index}.md"));
+        let before = visual.update(|window, cx| {
+            crate::feedback::tests::count(window, &crate::tr("conversation_exported"), cx)
+        });
         visual.simulate_new_path_selection(|_| Some(path.clone()));
         wait(visual, |window, cx| {
-            path.exists() && !window.has_active_dialog(cx)
+            crate::feedback::tests::count(window, &crate::tr("conversation_exported"), cx)
+                == before + 1
+                && !loading(window)
+                && !window.has_active_dialog(cx)
         });
         let actual = std::fs::read_to_string(&path).unwrap();
         let published = entries(output.path())

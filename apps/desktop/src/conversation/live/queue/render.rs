@@ -92,7 +92,9 @@ impl Panel {
                     .rounded_full()
                     .ghost()
                     .small()
-                    .label(tr("chat_queue_guide"))
+                    .icon(IconName::Redo2)
+                    .tooltip(tr("chat_queue_guide"))
+                    .accessibility_label(tr("chat_queue_guide"))
                     .disabled(self.blocked())
                     .debug_selector(move || format!("queue-guide-{turn}"))
                     .on_click(cx.listener(move |panel, _, window, cx| {
@@ -287,41 +289,6 @@ impl Render for Panel {
             })
         });
         presentation::tray(cx)
-            .when(
-                self.queue.paused && !self.child && !self.queue.items.is_empty(),
-                |tray| {
-                    let session = self.session.unwrap();
-                    let revision = self.queue.revision;
-                    tray.child(
-                        h_flex()
-                            .px_2()
-                            .gap_2()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(div().flex_1().child(tr("queue_paused")))
-                            .child(
-                                Button::new("queue-resume")
-                                    .ghost()
-                                    .small()
-                                    .rounded_full()
-                                    .label(tr("queue_resume"))
-                                    .debug_selector(|| "queue-resume".into())
-                                    .disabled(self.blocked())
-                                    .on_click(cx.listener(move |panel, _, window, cx| {
-                                        panel.execute(
-                                            Command::SetQueuePaused {
-                                                session,
-                                                expected_revision: revision,
-                                                paused: false,
-                                            },
-                                            window,
-                                            cx,
-                                        );
-                                    })),
-                            ),
-                    )
-                },
-            )
             .when_some(editor, |tray, editor| tray.child(editor))
             .when(self.editing.is_none(), |tray| {
                 tray.child(

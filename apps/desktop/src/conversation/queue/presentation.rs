@@ -49,10 +49,11 @@ pub(in crate::conversation) fn row(
     cx: &App,
 ) -> ListItem {
     ListItem::new(id)
-        .h_10()
+        .h_8()
+        .py_0()
         .px_2()
         .gap_2()
-        .rounded(cx.theme().radius)
+        .rounded(cx.theme().radius_2xl())
         .child(
             h_flex()
                 .w_full()
@@ -128,7 +129,8 @@ pub(in crate::conversation) fn drag(text: SharedString, cx: &App) -> ListItem {
     ListItem::new("queue-drag-preview")
         .selected(true)
         .w_64()
-        .h_10()
-        .rounded(cx.theme().radius)
+        .h_8()
+        .py_0()
+        .rounded(cx.theme().radius_2xl())
         .child(div().truncate().child(text))
 }

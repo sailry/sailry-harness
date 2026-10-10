@@ -319,6 +319,7 @@ fn edits_reorders_and_sends(cx: &mut TestAppContext) {
         assert!(tray.right() < surface.right());
         let row = visual.debug_bounds(selector("row", first)).unwrap();
         assert!(row.bottom() <= surface.origin.y);
+        assert_eq!(row.size.height, px(32.));
 
         assert!(visual.debug_bounds("queue-pause").is_none());
         let drag = visual.debug_bounds(selector("drag", first)).unwrap();

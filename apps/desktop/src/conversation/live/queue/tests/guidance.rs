@@ -104,6 +104,8 @@ fn guide_interrupts_response(cx: &mut TestAppContext) {
         click(visual, "live-chat-input");
         visual.simulate_input("Keep this composer draft");
         assert!(visual.debug_bounds(selector("send", selected)).is_some());
+        let guide = visual.debug_bounds(selector("guide", selected)).unwrap();
+        assert!(guide.size.width <= px(32.));
         click(visual, selector("guide", selected));
         // The awaited response yields at once; guidance replaces the selected input.
         wait(visual, |cx| {

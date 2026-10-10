@@ -1,6 +1,10 @@
 use super::*;
-use crate::{downloads::destination::Destination, theme::DialogStyle as _};
-use gpui_kit::component::{button::Button, dialog::DialogFooter, spinner::Spinner};
+use crate::downloads::destination::Destination;
+use gpui_kit::component::{
+    button::{Button, ButtonVariants},
+    notification::Notification,
+    spinner::Spinner,
+};
 use sailry_client::conversation::export::{Format as DocumentFormat, attachment_name};
 use sailry_link::CancellationToken;
 use sailry_protocol::{Output, Session, TurnId};
@@ -102,7 +106,11 @@ impl Drop for Progress {
 }
 impl Render for Progress {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div().py_4().child(Spinner::new())
+        h_flex()
+            .debug_selector(|| "conversation-export-progress".into())
+            .gap_2()
+            .child(Spinner::new().small())
+            .child(tr("conversation_export"))
     }
 }
 
@@ -119,25 +127,31 @@ fn start(
     let form = cx.new(|_| Progress {
         cancel: cancel.clone(),
     });
+    let progress = ("conversation-export", form.entity_id());
     let closing = cancel.clone();
-    window.open_dialog(cx, move |dialog, _, _| {
-        let cancel = closing.clone();
-        dialog
-            .form_title(tr("conversation_export"))
-            .w(px(360.))
-            .overlay_closable(false)
-            .on_close(move |_, _, _| cancel.cancel())
-            .child(form.clone())
-            .footer(
-                DialogFooter::new().child(
-                    Button::new("conversation-export-cancel")
-                        .label(tr("settings_cancel"))
-                        .debug_selector(|| "conversation-export-cancel".to_owned())
-                        .on_click(|_, window, cx| window.close_dialog(cx)),
-                ),
-            )
-    });
-    let closing = cancel.clone();
+    let stopping = cancel.clone();
+    crate::feedback::toast(
+        window,
+        tr("conversation_export"),
+        Notification::new()
+            .id1::<Progress>(progress)
+            .autohide(false)
+            .content(move |_, _, _| div().child(form.clone()).into_any_element())
+            .action(move |_, _, cx| {
+                let cancel = stopping.clone();
+                Button::new("conversation-export-cancel")
+                    .label(tr("settings_cancel"))
+                    .debug_selector(|| "conversation-export-cancel".to_owned())
+                    .ghost()
+                    .on_click(cx.listener(move |toast, _, window, cx| {
+                        cx.stop_propagation();
+                        cancel.cancel();
+                        toast.dismiss(window, cx);
+                    }))
+            })
+            .on_close(move |_, _| closing.cancel()),
+        cx,
+    );
     let title = crate::activity::title(&selection.session).to_string();
     let job = runtime.spawn(prepare(
         client,
@@ -179,9 +193,7 @@ fn start(
                 Err(_) => Err("conversation_export_failed"),
             };
             _ = cx.update(|window, cx| {
-                if !closing.is_cancelled() {
-                    window.close_dialog(cx);
-                }
+                window.remove_notification1::<Progress>(progress, cx);
                 match result {
                     Ok(()) => {
                         crate::feedback::info("", &tr("conversation_exported"), window, cx);

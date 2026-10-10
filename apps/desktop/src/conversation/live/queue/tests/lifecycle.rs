@@ -5,7 +5,7 @@ fn resumes_paused_queue(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
-        fixture.enqueue("First queued message");
+        let first = fixture.enqueue("First queued message");
         fixture.enqueue("Second queued message");
         let (view, visual) = super::super::super::tests::fixture::open(
             cx,
@@ -20,8 +20,8 @@ fn resumes_paused_queue(cx: &mut TestAppContext) {
         });
         click(visual, "live-chat-input");
         visual.simulate_input("Keep the unsent draft");
-        assert!(visual.debug_bounds("queue-resume").is_some());
-        click(visual, "queue-resume");
+        assert!(visual.debug_bounds("queue-resume").is_none());
+        click(visual, selector("send", first));
         wait(visual, |cx| {
             !panel.read(cx).pending
                 && panel.read(cx).queue.items.is_empty()
@@ -255,7 +255,7 @@ fn sends_during_execution(cx: &mut TestAppContext) {
             view.read_with(visual, |view, _| view.active()),
             Some(active.id)
         );
-        assert!(visual.debug_bounds("queue-resume").is_some());
+        assert!(visual.debug_bounds("queue-resume").is_none());
         let (first, turn) = panel.read_with(visual, |panel, _| {
             (panel.queue.items[0].turn, panel.queue.items[1].turn)
         });
