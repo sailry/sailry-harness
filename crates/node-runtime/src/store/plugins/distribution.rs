@@ -1,4 +1,4 @@
-//! Initial distribution and bundled settings refresh reuse ordinary installation.
+//! Missing defaults and bundled settings refresh reuse ordinary installation.
 use super::*;
 
 #[cfg(test)]
@@ -8,30 +8,23 @@ pub(in crate::store) fn install(
     db: &mut Connection,
     host: &crate::plugins::Host,
 ) -> Result<(), Fault> {
-    let initialized: bool = db
-        .query_row(
-            "SELECT plugin_defaults FROM node WHERE singleton=1",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
-    if initialized {
-        let transaction = db.transaction().map_err(storage_error)?;
-        refresh(&transaction, host)?;
-        return transaction.commit().map_err(storage_error);
-    }
     let transaction = db.transaction().map_err(storage_error)?;
-    let populated: bool = transaction
-        .query_row("SELECT EXISTS(SELECT 1 FROM plugins)", [], |row| row.get(0))
-        .map_err(storage_error)?;
-    if populated {
-        transaction
-            .execute("UPDATE node SET plugin_defaults=1 WHERE singleton=1", [])
-            .map_err(storage_error)?;
-        refresh(&transaction, host)?;
-        return transaction.commit().map_err(storage_error);
-    }
     for &(name, enabled) in crate::plugins::DEFAULTS {
+        let recorded: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM plugins WHERE name=?1)",
+                [name],
+                |row| row.get(0),
+            )
+            .map_err(storage_error)?;
+        if recorded {
+            continue;
+        }
+        let enabled = if name == "code" {
+            super::super::code::settings(&transaction)?.enabled
+        } else {
+            enabled
+        };
         let mut result = Ok(Output::Plugin(host.install_bundled(name)?));
         let mut event = finish(
             &transaction,
@@ -54,6 +47,7 @@ pub(in crate::store) fn install(
                 .map_err(storage_error)?;
         }
     }
+    refresh(&transaction, host)?;
     transaction
         .execute("UPDATE node SET plugin_defaults=1 WHERE singleton=1", [])
         .map_err(storage_error)?;

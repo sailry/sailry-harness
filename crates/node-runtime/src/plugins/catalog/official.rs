@@ -32,7 +32,10 @@ struct Package {
 pub(super) async fn entries(host: &Host, stop: &CancellationToken) -> Result<Vec<Entry>, Fault> {
     match fetch(host, stop).await {
         Ok(entries) => Ok(entries),
-        Err(error) if unavailable(&error) => bundled::entries(),
+        // Listings can use shipped packages without trusting invalid online manifests.
+        Err(error) if unavailable(&error) || error.code == ErrorCode::InvalidRequest => {
+            bundled::entries()
+        }
         Err(error) => Err(error),
     }
 }

@@ -107,6 +107,148 @@ async fn disable(client: &Client, installed: Info) -> Info {
     )
 }
 
+#[tokio::test]
+async fn adds_missing_language_settings_on_each_path() {
+    for remote in [false, true] {
+        let (directory, node, controller, client, _) = fixture(remote).await;
+        let memory = info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: "memory".into(),
+                },
+            )
+            .await,
+        );
+        let memory = disable(&client, memory).await;
+        let search = info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: "web-search".into(),
+                },
+            )
+            .await,
+        );
+        execute(
+            &client,
+            Command::RemovePlugin {
+                name: "web-search".into(),
+                expected_revision: search.summary.revision,
+            },
+        )
+        .await;
+        let Output::CodeSettings(mut settings) = execute(&client, Command::ReadCodeSettings).await
+        else {
+            panic!("language settings expected")
+        };
+        settings.enabled = false;
+        settings.after_edit = false;
+        let Output::CodeSettings(settings) = execute(
+            &client,
+            Command::SaveCodeSettings {
+                expected_revision: settings.revision,
+                settings,
+            },
+        )
+        .await
+        else {
+            panic!("language settings expected")
+        };
+        let Output::Plugins(mut before) = execute(&client, Command::ListPlugins).await else {
+            panic!("inventory expected")
+        };
+        before.retain(|summary| summary.name != "code");
+        let profile = directory.path().join("node");
+        let path = profile.join("storage/node.sqlite3");
+        node.shutdown().await.unwrap();
+        let db = Connection::open(&path).unwrap();
+        assert!(
+            db.query_row("SELECT plugin_defaults FROM node", [], |row| row
+                .get::<_, bool>(0))
+                .unwrap()
+        );
+        db.execute("DELETE FROM plugins WHERE name='code'", [])
+            .unwrap();
+        let removed: Vec<u8> = db
+            .query_row(
+                "SELECT body FROM plugins WHERE name='web-search' AND installed=0",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(db);
+        let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        let code = info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: "code".into(),
+                },
+            )
+            .await,
+        );
+        assert!(!code.summary.enabled);
+        assert_eq!(
+            execute(&client, Command::ReadCodeSettings).await,
+            Output::CodeSettings(settings)
+        );
+        assert_eq!(code.origin, Some(plugin::Origin::Bundled));
+        let page = code.extension.unwrap().settings_page.unwrap();
+        assert_eq!(page.native, Some(plugin::desktop::NativeSettings::Code));
+        assert_eq!(page.navigation.label("en"), "Language services");
+        assert_eq!(page.placement.group, plugin::desktop::SettingsGroup::Tools);
+        assert!(page.entry.is_none());
+        assert_eq!(
+            info(
+                execute(
+                    &client,
+                    Command::ReadPlugin {
+                        name: "memory".into()
+                    }
+                )
+                .await
+            ),
+            memory
+        );
+        assert_eq!(
+            client
+                .execute(client.prepare(Command::ReadPlugin {
+                    name: "web-search".into()
+                }))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotFound
+        );
+        let Output::Plugins(mut after) = execute(&client, Command::ListPlugins).await else {
+            panic!("inventory expected")
+        };
+        after.retain(|summary| summary.name != "code");
+        assert_eq!(after, before);
+        let db =
+            Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let retained: Vec<u8> = db
+            .query_row(
+                "SELECT body FROM plugins WHERE name='web-search' AND installed=0",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(retained, removed);
+        drop(db);
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
 async fn capture(client: &Client, worktree: WorktreeId) -> (Session, TurnId) {
     let model = completion::configure(client, "http://127.0.0.1:9/".into()).await;
     let Output::Snapshot(snapshot) = execute(client, Command::Snapshot).await else {

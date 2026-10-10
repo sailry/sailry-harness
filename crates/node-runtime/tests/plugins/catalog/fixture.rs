@@ -19,6 +19,7 @@ pub(super) struct Catalog {
     pub updated: Arc<AtomicBool>,
     pub status: Arc<AtomicU16>,
     pub invalid: Arc<AtomicBool>,
+    pub obsolete: Arc<AtomicBool>,
     pub requests: Arc<Mutex<Vec<String>>>,
     pub version: Arc<Mutex<Option<String>>>,
     worker: tokio::task::JoinHandle<()>,
@@ -46,6 +47,8 @@ impl Catalog {
         let response_status = status.clone();
         let invalid = Arc::new(AtomicBool::new(false));
         let malformed = invalid.clone();
+        let obsolete = Arc::new(AtomicBool::new(false));
+        let incompatible = obsolete.clone();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let captured = requests.clone();
         let version = Arc::new(Mutex::new(None::<String>));
@@ -82,6 +85,7 @@ impl Catalog {
                             index(
                                 current.load(Ordering::SeqCst),
                                 selected_version.lock().unwrap().as_deref(),
+                                incompatible.load(Ordering::SeqCst),
                             )
                         },
                     ),
@@ -116,6 +120,7 @@ impl Catalog {
             updated,
             status,
             invalid,
+            obsolete,
             requests,
             version,
             worker,
@@ -136,7 +141,7 @@ fn manifest(version: &str) -> serde_json::Value {
     })
 }
 
-fn index(updated: bool, version: Option<&str>) -> Vec<u8> {
+fn index(updated: bool, version: Option<&str>, obsolete: bool) -> Vec<u8> {
     let mut index: serde_json::Value =
         serde_json::from_str(include_str!("../../../../../plugins/catalog.json")).unwrap();
     index["packages"]
@@ -154,6 +159,16 @@ fn index(updated: bool, version: Option<&str>) -> Vec<u8> {
     package["manifest"]["version"] = version
         .unwrap_or(if updated { "0.2.0" } else { "0.1.0" })
         .into();
+    if obsolete {
+        let package = index["packages"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|package| package["id"] == "files")
+            .unwrap();
+        package["manifest"]["extensions"]["dev.sailry.platform"]["tools"][0]["operation"] =
+            "office.export".into();
+    }
     serde_json::to_vec(&index).unwrap()
 }
 

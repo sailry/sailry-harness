@@ -435,6 +435,13 @@ async fn removed_default(name: &str, enabled: bool) {
             .await,
         );
         assert!(reinstalled.summary.enabled);
+        if name == "code" {
+            let Output::CodeSettings(settings) = execute(&client, Command::ReadCodeSettings).await
+            else {
+                panic!("language settings expected")
+            };
+            assert!(settings.enabled);
+        }
         assert_eq!(reinstalled.origin, Some(plugin::Origin::Bundled));
         assert_eq!(reinstalled.summary.revision, 5);
         assert_eq!(reinstalled.summary.digest, installed.summary.digest);

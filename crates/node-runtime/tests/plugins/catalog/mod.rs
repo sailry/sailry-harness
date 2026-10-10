@@ -250,9 +250,18 @@ async fn offline_and_invalid_indexes() {
         assert_eq!(details.summary.name, "city-trader");
         catalog.status.store(200, Ordering::SeqCst);
         catalog.invalid.store(true, Ordering::SeqCst);
+        let Output::PluginCatalog(page) = execute(&client, search("Dream City")).await else {
+            panic!("catalog expected");
+        };
+        assert_eq!(page.entries.len(), 1);
+        assert_eq!(page.entries[0].name, "city-trader");
+        assert!(page.entries[0].bundled);
         assert_eq!(
             client
-                .execute(client.prepare(search("")))
+                .execute(client.prepare(Command::ReadCatalogPlugin {
+                    source: plugin::catalog::Source::Official,
+                    id: "city-trader".into(),
+                }))
                 .await
                 .unwrap_err()
                 .code,
@@ -282,6 +291,63 @@ async fn offline_and_invalid_indexes() {
                 .code,
             ErrorCode::InvalidRequest
         );
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn obsolete_manifests_use_bundled_listings() {
+    for remote in [false, true] {
+        let catalog = Catalog::start().await;
+        catalog.obsolete.store(true, Ordering::SeqCst);
+        let (_directory, node, controller, client) = connection(remote, &catalog).await;
+        let before = execute(&client, Command::ListPlugins).await;
+        let Output::PluginCatalog(page) = execute(&client, search("")).await else {
+            panic!("catalog expected");
+        };
+        assert!(!page.unavailable);
+        assert!(page.entries.iter().all(|entry| entry.bundled));
+        assert!(!page.entries.iter().any(|entry| entry.id == "official-new"));
+        let entry = page
+            .entries
+            .iter()
+            .find(|entry| entry.id == "files")
+            .unwrap();
+        let details = info(
+            execute(
+                &client,
+                Command::ReadCatalogPluginInfo {
+                    source: plugin::catalog::Source::Official,
+                    id: "files".into(),
+                    bundled: true,
+                },
+            )
+            .await,
+        );
+        assert_eq!(details.summary.version, entry.version);
+        assert!(details.issues.is_empty());
+        for command in [
+            Command::ReadCatalogPlugin {
+                source: plugin::catalog::Source::Official,
+                id: "files".into(),
+            },
+            Command::ReadCatalogPluginInfo {
+                source: plugin::catalog::Source::Official,
+                id: "files".into(),
+                bundled: false,
+            },
+        ] {
+            assert_eq!(
+                client
+                    .execute(client.prepare(command))
+                    .await
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidRequest
+            );
+        }
+        assert_eq!(execute(&client, Command::ListPlugins).await, before);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

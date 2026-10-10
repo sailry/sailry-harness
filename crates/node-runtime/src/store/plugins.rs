@@ -322,9 +322,11 @@ fn finish_package(
     info.summary.settings_revision = current
         .as_ref()
         .map_or(0, |info| info.summary.settings_revision);
-    info.summary.enabled = current
-        .as_ref()
-        .is_none_or(|current| current.summary.enabled);
+    info.summary.enabled = match current.as_ref() {
+        Some(current) => current.summary.enabled,
+        None if name == "code" && info.summary.revision == 1 => super::code::settings(db)?.enabled,
+        None => true,
+    };
     save(db, info, true)?;
     if name == "code" {
         super::code::enable(db, info.summary.enabled)?;

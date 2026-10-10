@@ -23,6 +23,67 @@ fn older(db: &Connection, name: &str) -> Info {
 }
 
 #[test]
+fn adds_missing_defaults_without_reinstalling_records() {
+    let (_directory, host, mut db) = fixture();
+    let mut memory = required(&db, "memory").unwrap();
+    memory.summary.enabled = false;
+    save(&db, &memory, true).unwrap();
+    let search = required(&db, "web-search").unwrap();
+    save(&db, &search, false).unwrap();
+    db.execute("DELETE FROM plugins WHERE name='code'", [])
+        .unwrap();
+    let mut settings = crate::store::code::settings(&db).unwrap();
+    settings.enabled = false;
+    settings.after_edit = false;
+    let settings = crate::store::code::save(&db, &settings, settings.revision).unwrap();
+    let before = list(&db).unwrap();
+    let events: i64 = db
+        .query_row("SELECT count(*) FROM events", [], |row| row.get(0))
+        .unwrap();
+    db.execute_batch("CREATE TEMP TRIGGER fail_default BEFORE INSERT ON plugins WHEN NEW.name='code' BEGIN SELECT RAISE(ABORT,'fixture failure'); END;").unwrap();
+    assert!(install(&mut db, &host).is_err());
+    assert_eq!(list(&db).unwrap(), before);
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM events", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        events
+    );
+    db.execute_batch("DROP TRIGGER fail_default").unwrap();
+    install(&mut db, &host).unwrap();
+    let code = required(&db, "code").unwrap();
+    assert!(!code.summary.enabled);
+    assert_eq!(crate::store::code::settings(&db).unwrap(), settings);
+    assert_eq!(code.summary.revision, 1);
+    assert_eq!(
+        code.extension.unwrap().settings_page.unwrap().native,
+        Some(plugin::desktop::NativeSettings::Code)
+    );
+    assert_eq!(required(&db, "memory").unwrap(), memory);
+    assert!(get(&db, "web-search").unwrap().is_none());
+    let mut after = list(&db).unwrap();
+    after.retain(|summary| summary.name != "code");
+    assert_eq!(after, before);
+    let recorded: Vec<u8> = db
+        .query_row(
+            "SELECT body FROM plugins WHERE name='web-search'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(recorded, encode(&search).unwrap());
+    let installed = list(&db).unwrap();
+    install(&mut db, &host).unwrap();
+    assert_eq!(list(&db).unwrap(), installed);
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM events", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        events + 1
+    );
+}
+
+#[test]
 fn refresh_preserves_configuration_and_private_records() {
     let (_directory, host, mut db) = fixture();
     let mut before = older(&db, "code");
