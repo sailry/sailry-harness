@@ -348,7 +348,20 @@ fn bound(owner: &Entity<Workspace>, cx: &App, node: NodeId, tree: Option<Worktre
         })
 }
 pub(super) fn toggle(owner: &Entity<Workspace>, cx: &mut VisualTestContext, enabled: bool) {
-    tap(cx, "plugin-settings-enabled");
+    owner.update(cx, |owner, cx| {
+        owner.select(crate::settings::Section::Plugins, cx)
+    });
+    crate::settings::plugins::test_support::tap(cx, "plugin-toggle-code");
+    wait(cx, |cx| {
+        let workspace = owner.read(cx);
+        !workspace.plugin_catalog.busy()
+            && workspace
+                .plugin_catalog
+                .packages
+                .iter()
+                .any(|plugin| plugin.name == "code" && plugin.enabled == enabled)
+    });
+    owner.update(cx, |owner, cx| owner.open_plugin_settings("code", cx));
     wait(cx, |cx| {
         let workspace = owner.read(cx);
         workspace.code.selected.is_some()

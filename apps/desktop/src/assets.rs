@@ -8,6 +8,7 @@ pub(crate) struct Assets;
 
 gpui_kit::assets::icon_assets!(ActivityAssets, [ListTodo]);
 gpui_kit::assets::icon_assets!(UsageAssets, [Gauge, DollarSign, MessagesSquare]);
+gpui_kit::assets::icon_assets!(SettingsAssets, [Download, Upload, Trash, Volume2, Square]);
 
 pub(crate) const DRAG_ICON: &str = "icons/reicon/move.svg";
 
@@ -387,6 +388,9 @@ impl AssetSource for Assets {
         if let Some(bytes) = UsageAssets.load(path)? {
             return Ok(Some(bytes));
         }
+        if let Some(bytes) = SettingsAssets.load(path)? {
+            return Ok(Some(bytes));
+        }
         gpui_kit::assets::Assets.load(path)
     }
 
@@ -394,6 +398,7 @@ impl AssetSource for Assets {
         let mut names = gpui_kit::assets::Assets.list(path)?;
         names.extend(ActivityAssets.list(path)?);
         names.extend(UsageAssets.list(path)?);
+        names.extend(SettingsAssets.list(path)?);
         names.extend(
             ICONS
                 .iter()
@@ -424,6 +429,22 @@ mod tests {
             "icons/messages-square.svg",
         ] {
             let expected = UsageAssets.load(path).unwrap().unwrap();
+            assert_eq!(Assets.load(path).unwrap().unwrap(), expected);
+            assert!(names.iter().any(|name| name.as_ref() == path));
+        }
+    }
+
+    #[test]
+    fn settings_icons() {
+        let names = Assets.list("icons/").unwrap();
+        for path in [
+            "icons/download.svg",
+            "icons/upload.svg",
+            "icons/trash.svg",
+            "icons/volume-2.svg",
+            "icons/square.svg",
+        ] {
+            let expected = SettingsAssets.load(path).unwrap().unwrap();
             assert_eq!(Assets.load(path).unwrap().unwrap(), expected);
             assert!(names.iter().any(|name| name.as_ref() == path));
         }

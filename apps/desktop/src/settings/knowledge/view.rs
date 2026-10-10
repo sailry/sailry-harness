@@ -4,11 +4,10 @@ use crate::{
     tr,
 };
 use gpui_kit::component::{
-    button::Button,
+    button::{Button, ButtonVariants},
     select::Select,
     tab::{Tab, TabBar},
 };
-use gpui_kit::prelude::FluentBuilder as _;
 
 impl Render for Panel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -25,6 +24,8 @@ impl Render for Panel {
             .wide(),
         );
         let tabs = TabBar::new("knowledge-model-tabs")
+            .segmented()
+            .menu(false)
             .selected_index(self.tab)
             .child(
                 Tab::new()
@@ -40,23 +41,37 @@ impl Render for Panel {
                 panel.tab = *tab;
                 cx.notify();
             }));
-        let models = Group::new("knowledge_models")
-            .action(
-                Button::new("knowledge-model-library")
-                    .icon(gpui_kit::assets::IconName::Download)
-                    .accessibility_label(tr("model_library_manage"))
-                    .debug_selector(|| "knowledge-model-library".into())
-                    .disabled(locked)
-                    .on_click(cx.listener(|panel, _, window, cx| panel.library(window, cx))),
+        let models = v_flex()
+            .w_full()
+            .min_w_0()
+            .gap_4()
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .justify_between()
+                    .flex_wrap()
+                    .gap_3()
+                    .debug_selector(|| "knowledge-model-toolbar".into())
+                    .child(tabs)
+                    .child(
+                        Button::new("knowledge-model-library")
+                            .ghost()
+                            .small()
+                            .icon(gpui_kit::assets::IconName::Download)
+                            .accessibility_label(tr("model_library_manage"))
+                            .debug_selector(|| "knowledge-model-library".into())
+                            .disabled(locked)
+                            .on_click(
+                                cx.listener(|panel, _, window, cx| panel.library(window, cx)),
+                            ),
+                    ),
             )
-            .child(tabs)
-            .children(self.model_rows(cx.entity(), false, cx));
-        v_flex()
-            .gap_6()
-            .child(controls)
-            .child(models)
-            .when(self.loading, |view| {
-                view.child(gpui_kit::component::spinner::Spinner::new())
-            })
+            .child(
+                Group::new("knowledge_model_list")
+                    .heading(false)
+                    .children(self.model_rows(cx.entity(), false, cx)),
+            );
+        v_flex().gap_6().child(controls).child(models)
     }
 }

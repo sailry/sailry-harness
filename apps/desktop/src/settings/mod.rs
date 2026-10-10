@@ -45,6 +45,7 @@ pub enum Section {
     Terminal,
     Knowledge,
     Runtime,
+    Ocr,
     Backup,
     Hooks,
     Plugin,
@@ -69,13 +70,14 @@ impl Section {
 
     // Sailry Code 67ae9fa0: app/sailry_code_app/lib/settings/settings_models.dart.
     #[cfg(test)]
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::General,
         Self::Appearance,
         Self::Conversation,
         Self::Terminal,
         Self::Knowledge,
         Self::Runtime,
+        Self::Ocr,
         Self::Backup,
         Self::Hooks,
         Self::Plugins,
@@ -109,6 +111,7 @@ impl Section {
                 Self::Connections,
                 Self::Hooks,
                 Self::Runtime,
+                Self::Ocr,
             ],
         ),
         (
@@ -128,6 +131,7 @@ impl Section {
             Self::Hooks => 500,
             Self::Dictation => 500,
             Self::Runtime => 600,
+            Self::Ocr => 700,
             _ => 10_000,
         }
     }
@@ -140,6 +144,7 @@ impl Section {
             Self::Terminal => "settings_terminal",
             Self::Knowledge => "settings_knowledge",
             Self::Runtime => "settings_runtime",
+            Self::Ocr => "settings_ocr",
             Self::Backup => "settings_backup",
             Self::Hooks => "hooks_settings",
             Self::Plugin => "plugins_settings_title",
@@ -164,6 +169,7 @@ impl Section {
             Self::Terminal => IconName::SquareTerminal,
             Self::Knowledge => IconName::BookOpen,
             Self::Runtime => IconName::Cpu,
+            Self::Ocr => IconName::ALargeSmall,
             Self::Backup => return gpui_kit::assets::IconName::Upload.into(),
             Self::Hooks => IconName::Settings2,
             Self::Plugin => IconName::Settings2,
@@ -371,7 +377,7 @@ impl Render for Workspace {
             Section::Conversation => self.conversation(window, cx),
             Section::Terminal => self.terminal(window, cx),
             Section::Knowledge => self.knowledge(window, cx),
-            Section::Runtime => self.runtime(window, cx),
+            Section::Runtime | Section::Ocr => self.runtime(window, cx),
             Section::Backup => self.backup(window, cx),
             Section::Hooks => self.hooks.render(window, cx),
             Section::Shortcuts => self.shortcuts.clone().into_any_element(),

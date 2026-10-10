@@ -166,24 +166,19 @@ impl Workspace {
                 }
             });
         }
-        let enabled = self.plugin_enabled_row("code", cx);
         if let Some(panel) = self
             .code
             .selected
             .and_then(|key| self.code.panels.get(&key))
         {
-            let controls = panel.update(cx, |panel, cx| panel.controls(enabled, cx));
+            let controls = panel.update(cx, |panel, cx| panel.controls(cx));
             v_flex()
                 .gap_6()
                 .child(controls)
                 .child(panel.clone())
                 .into_any_element()
         } else {
-            v_flex()
-                .gap_6()
-                .child(crate::settings::group::Group::new("code_settings").child(enabled))
-                .child(self.code.render(window, cx))
-                .into_any_element()
+            self.code.render(window, cx)
         }
     }
 

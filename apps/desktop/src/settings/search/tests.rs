@@ -43,13 +43,17 @@ fn switches_plugin_without_changing_driver_settings(cx: &mut TestAppContext) {
                 Some(sailry_protocol::plugin::desktop::NativeSettings::Search)
             );
         });
+        assert!(visual.debug_bounds("plugin-settings-enabled").is_none());
+        owner.update(visual, |workspace, cx| {
+            workspace.select(crate::settings::Section::Plugins, cx)
+        });
         for enabled in [!initial.summary.enabled, initial.summary.enabled] {
             let Output::Plugin(previous) = fixture.execute(Command::ReadPlugin {
                 name: "web-search".into(),
             }) else {
                 panic!("plugin expected")
             };
-            tap(visual, "plugin-settings-enabled");
+            crate::settings::plugins::test_support::tap(visual, "plugin-toggle-web-search");
             wait(visual, |cx| {
                 let workspace = owner.read(cx);
                 !workspace.plugin_catalog.busy()
@@ -72,6 +76,13 @@ fn switches_plugin_without_changing_driver_settings(cx: &mut TestAppContext) {
             );
         }
         assert_eq!(fixture.transport.requests.lock().unwrap().len(), 2);
+        owner.update(visual, |workspace, cx| {
+            workspace.open_plugin_settings("web-search", cx)
+        });
+        wait(visual, |cx| {
+            selected(&owner, cx).is_some_and(|panel| panel.read(cx).saved.is_some())
+        });
+        assert!(visual.debug_bounds("plugin-settings-enabled").is_none());
         assert_eq!(fixture.settings(), settings);
         assert_eq!(
             fixture

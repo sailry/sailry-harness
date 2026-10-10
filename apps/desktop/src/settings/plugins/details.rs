@@ -125,6 +125,7 @@ fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) ->
     window.open_dialog(cx, move |dialog, window, cx| {
         let close = details.clone();
         let action = details.clone();
+        let configure = details.clone();
         let state = details.read(cx);
         let installed = matches!(&state.target, Target::Installed(_));
         let pending = state.pending(cx);
@@ -168,6 +169,27 @@ fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) ->
                             .label(tr("settings_cancel"))
                             .debug_selector(|| "plugin-details-cancel".into())
                     }))
+                    .when(
+                        installed
+                            && state.info.as_ref().is_some_and(|info| {
+                                info.settings
+                                    .as_ref()
+                                    .is_some_and(|schema| !schema.properties.is_empty())
+                            }),
+                        |footer| {
+                            footer.child(
+                                Button::new("plugin-details-configure")
+                                    .label(tr("plugins_configure"))
+                                    .debug_selector(|| "plugin-details-configure".into())
+                                    .disabled(state.error.is_some() || pending)
+                                    .on_click(move |_, window, cx| {
+                                        configure.update(cx, |details, cx| {
+                                            details.configure(window, cx)
+                                        });
+                                    }),
+                            )
+                        },
+                    )
                     .child(
                         Button::new(action_id)
                             .primary()
@@ -189,6 +211,27 @@ fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) ->
 }
 
 impl Details {
+    fn configure(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.stop.is_cancelled() || self.error.is_some() || self.pending(cx) {
+            return;
+        }
+        let Target::Installed(expected) = &self.target else {
+            return;
+        };
+        if !self.info.as_ref().is_some_and(|info| {
+            info.settings
+                .as_ref()
+                .is_some_and(|schema| !schema.properties.is_empty())
+        }) {
+            return;
+        }
+        let binding = self.binding.clone();
+        let expected = expected.clone();
+        self.stop.cancel();
+        window.close_dialog(cx);
+        configuration::mount(binding, expected, window, cx);
+    }
+
     fn pending(&self, cx: &App) -> bool {
         self.removal
             .as_ref()
@@ -324,23 +367,6 @@ impl Render for Details {
         let pending = self.pending(cx);
         if let Some(info) = &self.info {
             let installed = matches!(&self.target, Target::Installed(_));
-            let configurable = info
-                .settings
-                .as_ref()
-                .is_some_and(|schema| !schema.properties.is_empty());
-            if installed && configurable {
-                let binding = self.binding.clone();
-                let expected = info.summary.clone();
-                body = body.child(
-                    Button::new("plugin-details-configure")
-                        .label(tr("plugins_settings_title"))
-                        .disabled(pending)
-                        .debug_selector(|| "plugin-details-configure".into())
-                        .on_click(move |_, window, cx| {
-                            configuration::mount(binding.clone(), expected.clone(), window, cx);
-                        }),
-                );
-            }
             body = body.child(crate::plugins::emblem::render(
                 &info.summary.name,
                 crate::plugins::emblem::glyph(info),

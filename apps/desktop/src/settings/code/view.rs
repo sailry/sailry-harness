@@ -21,9 +21,6 @@ impl Render for Panel {
         if self.workspace.is_none() {
             return v_flex()
                 .gap_6()
-                .when(self.loading, |view| {
-                    view.child(gpui_kit::component::spinner::Spinner::new())
-                })
                 .when(!self.loading, |view| {
                     view.child(
                         Button::new("code-reload")
@@ -35,6 +32,7 @@ impl Render for Panel {
                 .into_any_element();
         }
         let tabs = TabBar::new("code-server-tabs")
+            .segmented()
             .selected_index(self.tab)
             .child(
                 Tab::new()
@@ -93,13 +91,23 @@ impl Render for Panel {
                     .is_some_and(|workspace| workspace.truncated),
                 |view| view.child(div().text_sm().child(tr("code_languages_partial"))),
             )
-            .child(v_flex().gap_4().child(tabs).child(servers))
+            .child(
+                v_flex()
+                    .gap_4()
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .debug_selector(|| "code-server-toolbar".into())
+                            .child(tabs),
+                    )
+                    .child(servers),
+            )
             .into_any_element()
     }
 }
 
 impl Panel {
-    pub(super) fn controls(&self, enabled: Row, cx: &mut Context<Self>) -> Group {
+    pub(super) fn controls(&self, cx: &mut Context<Self>) -> Group {
         Group::new("code_settings")
             .action(
                 Button::new("code-update-rules")
@@ -110,7 +118,6 @@ impl Panel {
                         panel.submit(Command::UpdateCodeRules, window, cx)
                     })),
             )
-            .child(enabled)
             .child(
                 Row::new(
                     "code_rules_revision",

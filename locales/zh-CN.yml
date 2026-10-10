@@ -520,9 +520,9 @@ plugins_installed_success: 插件已安装
 plugins_updated_success: 插件已更新
 plugins_enabled: 启用插件
 plugins_revision: "软件包修订 %{revision} · 配置 / 授权修订 1 · 示例"
-plugins_configure: 配置界面
-plugins_uninstall: 卸载插件
-plugins_install: 安装插件
+plugins_configure: 配置
+plugins_uninstall: 卸载
+plugins_install: 安装
 plugins_choose_package: 选择安装包或目录
 plugins_preparing_package: 正在准备安装包
 plugins_package_mismatch: 安装包名称与当前插件不符

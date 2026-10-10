@@ -100,19 +100,7 @@ impl Panel {
                         Output::OcrSettings(settings),
                         Output::OcrModels(models),
                     ))) => {
-                        let draft = panel.python.as_ref().is_some_and(|saved| {
-                            panel.index.read(cx).value().trim()
-                                != saved.index.as_deref().unwrap_or("")
-                        });
-                        if !draft {
-                            panel.index.update(cx, |state, cx| {
-                                state.set_value(
-                                    python.index.clone().unwrap_or_default(),
-                                    window,
-                                    cx,
-                                )
-                            });
-                        }
+                        panel.accept_index(&python, window, cx);
                         panel.python = Some(python);
                         panel.settings = Some(settings);
                         panel.models = models;

@@ -257,7 +257,6 @@ impl Render for Panel {
             .gap_6()
             .child(Group::new("hooks_settings").child(Row::new("hooks_enabled", toggle)))
             .child(list)
-            .when(self.loading, |view| view.child(spinner::Spinner::new()))
             .when(self.request.is_some() && !self.pending, |view| {
                 view.child(
                     Button::new("hooks-retry")

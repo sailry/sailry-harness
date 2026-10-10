@@ -40,12 +40,14 @@ fn scopes_service_switch_and_preserves_checks(cx: &mut TestAppContext) {
                 .is_none()
         );
         let controls = cx.debug_bounds("settings-group-code_settings").unwrap();
-        for selector in [
-            "plugin-settings-enabled",
-            "settings-row-code_rules_revision",
-        ] {
-            assert!(controls.contains(&cx.debug_bounds(selector).unwrap().center()));
-        }
+        assert!(cx.debug_bounds("plugin-settings-enabled").is_none());
+        assert!(
+            controls.contains(
+                &cx.debug_bounds("settings-row-code_rules_revision")
+                    .unwrap()
+                    .center()
+            )
+        );
         for enabled in [false, true] {
             let Output::Plugin(plugin) = fixture.execute(Command::ReadPlugin {
                 name: "code".into(),

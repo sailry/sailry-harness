@@ -387,6 +387,5 @@ impl Render for Editor {
                             ),
                     ),
             )
-            .when(self.loading, |view| view.child(spinner::Spinner::new()))
     }
 }

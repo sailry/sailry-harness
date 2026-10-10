@@ -35,7 +35,7 @@ fn explicit_requests_and_status_refresh(cx: &mut TestAppContext) {
     );
     shown_settings(&owner, visual, "settings-icon-computer_accessibility", true);
     shown(visual, "settings-group-computer_device", false);
-    shown(visual, "plugin-settings-enabled", true);
+    shown(visual, "plugin-settings-enabled", false);
     assert!(
         !fixture
             .public_packages(false)
@@ -162,7 +162,9 @@ fn wrong_device_recovery(cx: &mut TestAppContext) {
             })
         });
         wait(visual, |_| original.upgrade().is_none());
-        tap(visual, "plugin-settings-enabled");
+        shown(visual, "plugin-settings-enabled", false);
+        owner.update(visual, |owner, cx| owner.select(Section::Plugins, cx));
+        tap(visual, "plugin-toggle-computer");
         wait(visual, |_| {
             fixture
                 .public_packages(true)

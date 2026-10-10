@@ -1,3 +1,4 @@
+mod index;
 mod requests;
 #[cfg(test)]
 mod tests;
@@ -18,6 +19,7 @@ use gpui_kit::{
     },
     *,
 };
+use index::Index;
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     Command, NodeId, Request,
@@ -34,10 +36,12 @@ pub(super) struct State {
 
 pub(super) struct Panel {
     binding: Binding,
+    page: Page,
     active: bool,
     settings: Option<Settings>,
     python: Option<sailry_protocol::python::Settings>,
     index: Entity<InputState>,
+    source: Entity<SelectState<Vec<Index>>>,
     model: Entity<SelectState<Vec<Choice>>>,
     models: Vec<Model>,
     tab: usize,
@@ -48,6 +52,12 @@ pub(super) struct Panel {
     stop: Option<CancellationToken>,
     generation: u64,
     error: Option<&'static str>,
+}
+
+#[derive(Clone, Copy)]
+enum Page {
+    Python,
+    Ocr,
 }
 
 #[derive(Clone)]
@@ -101,7 +111,9 @@ impl Panel {
         let index =
             cx.new(|cx| InputState::new(window, cx).placeholder("https://pypi.org/simple/"));
         cx.subscribe_in(&index, window, |panel: &mut Self, _, event, window, cx| {
-            if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) && !panel.locked()
+            if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. })
+                && !panel.locked()
+                && panel.custom_index(cx)
             {
                 let Some(mut settings) = panel.python.clone() else {
                     return;
@@ -115,6 +127,7 @@ impl Panel {
             }
         })
         .detach();
+        let source = Self::index_selector(window, cx);
         let model = cx.new(|cx| {
             SelectState::new(
                 vec![Choice {
@@ -141,10 +154,12 @@ impl Panel {
         .detach();
         Self {
             binding,
+            page: Page::Python,
             active: false,
             settings: None,
             python: None,
             index,
+            source,
             model,
             models: vec![],
             tab: 0,
@@ -331,7 +346,13 @@ impl Workspace {
             .entry(binding.client.target())
             .or_insert_with(|| cx.new(|cx| Panel::new(binding, window, cx)))
             .clone();
+        let page = if self.section == super::Section::Ocr {
+            Page::Ocr
+        } else {
+            Page::Python
+        };
         panel.update(cx, |panel, cx| {
+            panel.page = page;
             if !panel.active {
                 panel.active = true;
                 panel.watch(window, cx);

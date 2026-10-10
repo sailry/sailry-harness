@@ -1,4 +1,4 @@
-use super::super::knowledge::tests::fixture::{Fixture, draw, init, tap, wait};
+use super::super::knowledge::tests::fixture::{Fixture, draw, init, input, tap, wait};
 use super::*;
 use core::prelude::v1::test;
 use gpui_kit::test::TestWindowExt;
@@ -9,6 +9,12 @@ fn autosaves_runtime_settings_on_the_selected_node(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
+        fixture.execute(Command::SavePythonSettings(
+            sailry_protocol::python::Settings {
+                index: Some("https://pypi.initial.test/simple/".into()),
+                ..Default::default()
+            },
+        ));
         let (owner, visual) = fixture.mount(cx);
         visual.update(|_, cx| {
             owner.update(cx, |workspace, cx| {
@@ -34,7 +40,18 @@ fn autosaves_runtime_settings_on_the_selected_node(cx: &mut TestAppContext) {
                 .clone()
         });
         draw(visual);
-        assert!(visual.debug_bounds("runtime-python-index").is_some());
+        let index = visual.debug_bounds("runtime-python-index").unwrap();
+        let control = visual
+            .debug_bounds("settings-control-runtime_python_custom_url")
+            .unwrap();
+        assert!(index.size.width > px(200.));
+        assert_eq!(index.size.width, control.size.width);
+        visual.update(|window, _| {
+            let input = window.find("runtime-python-index-input");
+            assert_eq!(input.value(), Some("https://pypi.initial.test/simple/"));
+            assert_eq!(input.bounds().size.width, index.size.width);
+        });
+        assert!(visual.debug_bounds("runtime-tab-installed").is_none());
         assert!(visual.debug_bounds("runtime-settings-save").is_none());
         assert!(visual.debug_bounds("runtime-refresh").is_none());
         visual.update(|window, cx| {
@@ -49,7 +66,7 @@ fn autosaves_runtime_settings_on_the_selected_node(cx: &mut TestAppContext) {
                 .read(cx)
                 .python
                 .as_ref()
-                .is_some_and(|settings| settings.revision == 1)
+                .is_some_and(|settings| settings.revision == 2)
                 && !panel.read(cx).pending
         });
         let Output::PythonSettings(settings) = fixture.execute(Command::ReadPythonSettings) else {
@@ -59,6 +76,15 @@ fn autosaves_runtime_settings_on_the_selected_node(cx: &mut TestAppContext) {
             settings.index.as_deref(),
             Some("https://pypi.example.test/simple/")
         );
+        visual.update(|_, cx| {
+            owner.update(cx, |workspace, cx| {
+                workspace.select(super::super::Section::Ocr, cx)
+            })
+        });
+        wait(visual, |cx| {
+            panel.read(cx).active && !panel.read(cx).loading
+        });
+        assert!(visual.debug_bounds("runtime-python-index").is_none());
         tap(visual, "runtime-ocr-enable");
         wait(visual, |cx| {
             panel
@@ -73,6 +99,225 @@ fn autosaves_runtime_settings_on_the_selected_node(cx: &mut TestAppContext) {
         };
         assert!(!settings.enabled);
         assert_eq!(settings.revision, 1);
+        visual.update(|_, cx| {
+            owner.update(cx, |workspace, cx| {
+                workspace.select(super::super::Section::Runtime, cx)
+            })
+        });
+        wait(visual, |cx| {
+            panel.read(cx).active && !panel.read(cx).loading
+        });
+        let Output::PythonSettings(mut settings) = fixture.execute(Command::ReadPythonSettings)
+        else {
+            panic!("Python settings expected")
+        };
+        settings.index = None;
+        fixture.execute(Command::SavePythonSettings(settings));
+        wait(visual, |cx| {
+            panel
+                .read(cx)
+                .python
+                .as_ref()
+                .is_some_and(|settings| settings.revision == 3 && settings.index.is_none())
+                && !panel.read(cx).loading
+        });
+        visual.update(|_, cx| {
+            assert_eq!(owner.read(cx).runtime.panels.len(), 1);
+            assert_eq!(
+                panel.read(cx).source.read(cx).selected_value(),
+                Some(&Index::Official)
+            );
+        });
+        assert!(visual.debug_bounds("runtime-python-index").is_none());
+        assert!(
+            visual
+                .debug_bounds("runtime-python-source")
+                .unwrap()
+                .size
+                .width
+                > px(200.)
+        );
+        fixture.close(visual);
+    }
+}
+
+#[gpui::test]
+fn autosaves_index_presets_and_custom_value(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let (owner, visual) = fixture.mount(cx);
+        visual.update(|_, cx| {
+            owner.update(cx, |workspace, cx| {
+                workspace.select(super::super::Section::Runtime, cx)
+            })
+        });
+        wait(visual, |cx| {
+            owner
+                .read(cx)
+                .runtime
+                .panels
+                .values()
+                .any(|panel| panel.read(cx).python.is_some() && !panel.read(cx).loading)
+        });
+        let panel = visual.update(|_, cx| {
+            owner
+                .read(cx)
+                .runtime
+                .panels
+                .values()
+                .next()
+                .unwrap()
+                .clone()
+        });
+        visual.update(|window, _| {
+            assert_eq!(
+                window.find("runtime-python-source").value(),
+                Some("pypi.org")
+            );
+        });
+        assert!(visual.debug_bounds("runtime-python-index").is_none());
+        for (position, index) in [Index::Ali, Index::Tencent, Index::Tsinghua]
+            .into_iter()
+            .enumerate()
+        {
+            tap(visual, "runtime-python-source");
+            visual.simulate_mouse_move(point(px(1.), px(1.)), None, Modifiers::default());
+            visual.simulate_keystrokes("down enter");
+            wait(visual, |cx| {
+                panel.read(cx).python.as_ref().is_some_and(|settings| {
+                    settings.revision == position as u64 + 1
+                        && settings.index.as_deref() == index.url()
+                }) && !panel.read(cx).pending
+                    && !panel.read(cx).loading
+            });
+            let Output::PythonSettings(settings) = fixture.execute(Command::ReadPythonSettings)
+            else {
+                panic!("Python settings expected")
+            };
+            assert_eq!(settings.index.as_deref(), index.url());
+            visual.update(|window, _| {
+                assert_eq!(
+                    window.find("runtime-python-source").value(),
+                    Some(index.title().as_ref())
+                );
+            });
+            assert!(visual.debug_bounds("runtime-python-index").is_none());
+        }
+        tap(visual, "runtime-python-source");
+        visual.simulate_mouse_move(point(px(1.), px(1.)), None, Modifiers::default());
+        visual.simulate_keystrokes("down enter");
+        draw(visual);
+        assert!(visual.debug_bounds("runtime-python-index").is_some());
+        assert_eq!(
+            visual.update(|_, cx| panel.read(cx).python.as_ref().unwrap().revision),
+            3
+        );
+        input(
+            visual,
+            "runtime-python-index-input",
+            "https://packages.example.test/simple/",
+        );
+        visual.simulate_keystrokes("enter");
+        wait(visual, |cx| {
+            panel.read(cx).python.as_ref().is_some_and(|settings| {
+                settings.revision == 4
+                    && settings.index.as_deref() == Some("https://packages.example.test/simple/")
+            }) && !panel.read(cx).pending
+                && !panel.read(cx).loading
+        });
+        tap(visual, "runtime-python-source");
+        visual.simulate_mouse_move(point(px(1.), px(1.)), None, Modifiers::default());
+        visual.simulate_keystrokes("up up up up enter");
+        wait(visual, |cx| {
+            panel
+                .read(cx)
+                .python
+                .as_ref()
+                .is_some_and(|settings| settings.revision == 5 && settings.index.is_none())
+                && !panel.read(cx).pending
+                && !panel.read(cx).loading
+        });
+        assert!(visual.debug_bounds("runtime-python-index").is_none());
+        let Output::PythonSettings(settings) = fixture.execute(Command::ReadPythonSettings) else {
+            panic!("Python settings expected")
+        };
+        assert_eq!(settings.index, None);
+        fixture.close(visual);
+    }
+}
+
+#[gpui::test]
+fn switches_compact_tabs_and_shows_empty_models(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let (owner, visual) = fixture.mount(cx);
+        visual.update(|_, cx| {
+            owner.update(cx, |workspace, cx| {
+                workspace.select(super::super::Section::Ocr, cx)
+            })
+        });
+        wait(visual, |cx| {
+            owner
+                .read(cx)
+                .runtime
+                .panels
+                .values()
+                .any(|panel| panel.read(cx).models.len() == 3 && !panel.read(cx).loading)
+        });
+        let panel = visual.update(|_, cx| {
+            owner
+                .read(cx)
+                .runtime
+                .panels
+                .values()
+                .next()
+                .unwrap()
+                .clone()
+        });
+        draw(visual);
+        let installed = visual.debug_bounds("runtime-tab-installed").unwrap();
+        let available = visual.debug_bounds("runtime-tab-available").unwrap();
+        let list = visual
+            .debug_bounds("settings-surface-runtime_ocr_list")
+            .unwrap();
+        assert!(available.right() - installed.left() < list.size.width / 2.);
+        assert!(list.top() > available.bottom());
+        assert!(visual.debug_bounds("empty-runtime_ocr_empty").is_some());
+        let toolbar = visual.debug_bounds("runtime-model-toolbar").unwrap();
+        let library = visual.debug_bounds("runtime-model-library").unwrap();
+        assert_eq!(library.size, size(px(24.), px(24.)));
+        assert_eq!(library.right(), toolbar.right());
+        // Group's surface is inside the Kit card's one-pixel border.
+        assert_eq!(list.right() + px(1.), toolbar.right());
+        assert!((library.center().y - available.center().y).abs() < px(1.));
+        assert!(installed.left() - list.left() < px(8.));
+        assert!(
+            visual
+                .debug_bounds("settings-title-runtime_ocr_models")
+                .is_none()
+        );
+        assert!(visual.debug_bounds("runtime-python-index").is_none());
+        visual.simulate_click(available.center(), Modifiers::default());
+        draw(visual);
+        assert_eq!(visual.update(|_, cx| panel.read(cx).tab), 1);
+        assert!(visual.debug_bounds("empty-runtime_ocr_empty").is_none());
+        let models = visual.update(|_, cx| panel.read(cx).models.clone());
+        visual.update(|window, _| {
+            for model in models {
+                assert!(
+                    window
+                        .try_find(SharedString::from(format!("ocr-install-{}", model.id)))
+                        .is_some()
+                );
+            }
+        });
+        let installed = visual.debug_bounds("runtime-tab-installed").unwrap();
+        visual.simulate_click(installed.center(), Modifiers::default());
+        draw(visual);
+        assert_eq!(visual.update(|_, cx| panel.read(cx).tab), 0);
+        assert!(visual.debug_bounds("empty-runtime_ocr_empty").is_some());
         fixture.close(visual);
     }
 }
@@ -85,7 +330,7 @@ fn uses_shared_model_rows_and_installed_choices(cx: &mut TestAppContext) {
         let (owner, visual) = fixture.mount(cx);
         visual.update(|_, cx| {
             owner.update(cx, |workspace, cx| {
-                workspace.select(super::super::Section::Runtime, cx)
+                workspace.select(super::super::Section::Ocr, cx)
             })
         });
         wait(visual, |cx| {
@@ -147,7 +392,7 @@ fn recognizes_only_pinned_catalog_sources(cx: &mut TestAppContext) {
         let (owner, visual) = fixture.mount(cx);
         visual.update(|_, cx| {
             owner.update(cx, |workspace, cx| {
-                workspace.select(super::super::Section::Runtime, cx)
+                workspace.select(super::super::Section::Ocr, cx)
             })
         });
         wait(visual, |cx| {

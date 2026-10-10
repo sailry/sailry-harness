@@ -135,6 +135,7 @@ fn keeps_application_permissions_compact(cx: &mut TestAppContext) {
                     let action = window.find(id);
                     assert_eq!(action.role(), Some(Role::Button));
                     assert_eq!(action.label(), Some(tr(key).as_ref()));
+                    assert_eq!(action.bounds().size, size(px(24.), px(24.)));
                     assert!(action.bounds().left() >= row.left());
                     assert!(action.bounds().right() <= row.right());
                     assert!(action.bounds().top() >= row.top());
@@ -162,6 +163,79 @@ fn keeps_application_permissions_compact(cx: &mut TestAppContext) {
         }
     }
     rust_i18n::set_locale(&before);
+}
+
+#[gpui::test]
+fn granted_actions_keep_settings_available(cx: &mut TestAppContext) {
+    for (resource, request, check, settings, status) in [
+        (
+            Resource::FullDisk,
+            "permission_full_disk-request",
+            "permission_full_disk-check",
+            "permission_full_disk-settings",
+            "permission_full_disk-permission_granted",
+        ),
+        (
+            Resource::Microphone,
+            "permission_microphone-request",
+            "permission_microphone-check",
+            "permission_microphone-settings",
+            "permission_microphone-permission_granted",
+        ),
+    ] {
+        let mut app = cx.new_app();
+        let visual = mount(&mut app);
+        let mock = Mock::new(Status::Granted);
+        let mut card = mock.card(resource);
+        card.settings = Some("sailry-fixture://settings");
+        let chrome = Mock::new(Status::Required);
+        let completed = present(
+            visual,
+            vec![card, chrome.card(Resource::Chrome)],
+            CancellationToken::new(),
+        );
+        assert!(visual.debug_bounds(status).is_some());
+        visual.update(|window, _| {
+            let action = window.find(resource.key());
+            assert_eq!(action.role(), Some(Role::Button));
+            assert_eq!(action.focused(), None);
+            assert_eq!(action.label(), Some(tr("permission_granted").as_ref()));
+            assert_eq!(action.bounds().size, size(px(24.), px(24.)));
+            for id in [check, settings] {
+                let action = window.find(id);
+                assert_eq!(action.role(), Some(Role::Button));
+                assert!(action.focused().is_some());
+                assert_eq!(action.bounds().size, size(px(24.), px(24.)));
+            }
+        });
+        assert!(visual.opened_url().is_none(), "initial URL state");
+        tap(visual, request);
+        assert_eq!(mock.calls.load(Ordering::SeqCst), 0);
+        assert!(visual.opened_url().is_none(), "disabled pointer action");
+        assert!(completed.borrow().is_empty());
+        for key in ["enter", "space"] {
+            visual.simulate_keystrokes(key);
+            draw(visual);
+            assert_eq!(mock.calls.load(Ordering::SeqCst), 0, "{key}");
+            assert!(
+                visual.opened_url().is_none(),
+                "disabled keyboard action: {key}"
+            );
+            assert!(completed.borrow().is_empty(), "{key}");
+        }
+        tap(visual, check);
+        assert_eq!(mock.calls.load(Ordering::SeqCst), 0);
+        tap(visual, settings);
+        assert_eq!(
+            visual.opened_url().as_deref(),
+            Some("sailry-fixture://settings")
+        );
+        assert!(completed.borrow().is_empty());
+        tap(visual, "permissions-cancel");
+        assert_eq!(&*completed.borrow(), &[false]);
+        visual.update(|window, _| window.remove_window());
+        app.quit();
+    }
 }
 
 #[gpui::test]

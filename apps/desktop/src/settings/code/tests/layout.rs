@@ -29,6 +29,14 @@ fn aligns_flat_servers_and_keeps_icon_actions(cx: &mut TestAppContext) {
             draw(cx);
             assert!(cx.debug_bounds("code-language-0").is_none());
             assert!(cx.debug_bounds("code-refresh").is_none());
+            let toolbar = bounds(cx, "code-server-toolbar".into());
+            let installed = bounds(cx, "code-tab-installed".into());
+            let available = bounds(cx, "code-tab-available".into());
+            let list = bounds(cx, "settings-surface-code_languages".into());
+            assert!(toolbar.contains(&installed.center()));
+            assert!(toolbar.contains(&available.center()));
+            assert!(available.right() < toolbar.right());
+            assert!(list.top() >= toolbar.bottom());
             let first_actions = bounds(cx, "code-server-superhtml-actions".into());
             for server in [
                 "superhtml",

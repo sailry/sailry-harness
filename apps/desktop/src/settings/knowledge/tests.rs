@@ -7,6 +7,86 @@ pub(in crate::settings) mod fixture;
 use fixture::{Fixture, draw, init, selected, tap, toast, wait};
 
 #[gpui::test]
+fn tabs_filter_models_and_show_empty_lists(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let (owner, visual) = fixture.mount(cx);
+        let panel = visual.update(|_, cx| selected(&owner, cx).unwrap());
+        let installed = visual.debug_bounds("knowledge-tab-installed").unwrap();
+        let available = visual.debug_bounds("knowledge-tab-available").unwrap();
+        let toolbar = visual.debug_bounds("knowledge-model-toolbar").unwrap();
+        let library = visual.debug_bounds("knowledge-model-library").unwrap();
+        let list = visual
+            .debug_bounds("settings-surface-knowledge_model_list")
+            .unwrap();
+        assert!(
+            visual
+                .debug_bounds("settings-heading-knowledge_models")
+                .is_none()
+        );
+        assert!((installed.center().y - library.center().y).abs() <= px(1.));
+        assert!(installed.left() - toolbar.left() <= px(4.));
+        assert!((toolbar.right() - library.right()).abs() <= px(1.));
+        assert!(list.top() > installed.bottom());
+        assert!(installed.size.width + available.size.width < list.size.width);
+        assert!(visual.debug_bounds("empty-settings_empty").is_some());
+        assert!(
+            visual
+                .debug_bounds("knowledge-model-granite-multi")
+                .is_none()
+        );
+
+        let available = visual.debug_bounds("knowledge-tab-available").unwrap();
+        visual.simulate_click(available.center(), Modifiers::default());
+        draw(visual);
+        assert_eq!(visual.update(|_, cx| panel.read(cx).tab), 1);
+        assert!(visual.debug_bounds("empty-settings_empty").is_none());
+        assert!(
+            visual
+                .debug_bounds("knowledge-model-granite-multi")
+                .is_some()
+        );
+        assert!(
+            visual
+                .debug_bounds("knowledge-install-granite-multi")
+                .is_some()
+        );
+
+        visual.update(|_, cx| {
+            fixture::set_state(
+                &panel,
+                Model::BgeSmallZh,
+                knowledge::ModelState::Installed,
+                cx,
+            )
+        });
+        draw(visual);
+        assert!(
+            visual
+                .debug_bounds("knowledge-model-bge-small-zh")
+                .is_none()
+        );
+        let installed = visual.debug_bounds("knowledge-tab-installed").unwrap();
+        visual.simulate_click(installed.center(), Modifiers::default());
+        draw(visual);
+        assert_eq!(visual.update(|_, cx| panel.read(cx).tab), 0);
+        assert!(
+            visual
+                .debug_bounds("knowledge-model-bge-small-zh")
+                .is_some()
+        );
+        assert!(
+            visual
+                .debug_bounds("knowledge-model-granite-multi")
+                .is_none()
+        );
+        assert!(visual.debug_bounds("empty-settings_empty").is_none());
+        fixture.close(visual);
+    }
+}
+
+#[gpui::test]
 fn saves_and_observes_selected_host(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {

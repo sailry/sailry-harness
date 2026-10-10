@@ -96,7 +96,7 @@ impl ParentElement for DialogClose {
 
 impl RenderOnce for DialogClose {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        div().size_full().child(self.base)
+        div().flex_none().child(self.base)
     }
 }
 
@@ -123,7 +123,7 @@ impl RenderOnce for DialogAction {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let anchor = DialogDispatchAnchor::new("dialog-action-anchor", window, cx);
         div()
-            .size_full()
+            .flex_none()
             .id("dialog-action")
             .child(anchor.element())
             .on_click(move |_, window, cx| {

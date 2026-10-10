@@ -427,7 +427,7 @@ fn external_browser_settings_follow_host(cx: &mut TestAppContext) {
                 .any(|entry| entry.name == "external-browser")
         }));
         menu(visual, "plugin-menu-external-browser", 0);
-        shown(visual, "plugin-settings-enabled", true);
+        shown(visual, "plugin-settings-enabled", false);
         shown(visual, "plugin-settings-node", true);
         owner.read_with(visual, |owner, _| {
             assert_eq!(owner.selected_plugin_settings(), Some("external-browser"));
@@ -438,12 +438,16 @@ fn external_browser_settings_follow_host(cx: &mut TestAppContext) {
 
         // Delay completion after admission, then select a different execution Node.
         fixture.transport.mode.store(2, Ordering::SeqCst);
-        tap(visual, "plugin-settings-enabled");
+        select(&owner, visual, Section::Plugins);
+        tap(visual, "plugin-toggle-external-browser");
         wait(visual, |_| fixture.transport.entered.is_cancelled());
         assert!(package(false).enabled);
+        owner.update(visual, |owner, cx| {
+            owner.open_plugin_settings("external-browser", cx)
+        });
         fixture.bind(&owner, visual, true);
         ready(&owner, visual);
-        shown(visual, "plugin-settings-enabled", true);
+        shown(visual, "plugin-settings-enabled", false);
         shown(visual, "plugin-settings-node", true);
         fixture.transport.release.cancel();
         owner.read_with(visual, |owner, _| {
@@ -461,7 +465,8 @@ fn external_browser_settings_follow_host(cx: &mut TestAppContext) {
             assert_eq!(package.revision, 1);
         });
         for (enabled, revision) in [(true, 2), (false, 3)] {
-            tap(visual, "plugin-settings-enabled");
+            select(&owner, visual, Section::Plugins);
+            tap(visual, "plugin-toggle-external-browser");
             wait(visual, |cx| {
                 owner
                     .read(cx)
@@ -476,6 +481,11 @@ fn external_browser_settings_follow_host(cx: &mut TestAppContext) {
             });
             assert_eq!(package(true).enabled, enabled);
             assert!(package(false).enabled);
+            owner.update(visual, |owner, cx| {
+                owner.open_plugin_settings("external-browser", cx)
+            });
+            shown(visual, "plugin-settings-enabled", false);
+            shown(visual, "plugin-settings-node", true);
         }
         fixture.bind(&owner, visual, false);
         ready(&owner, visual);
@@ -532,9 +542,13 @@ fn computer_routes(cx: &mut TestAppContext) {
             owner.open_plugin_settings("computer", cx)
         });
         shown_settings(&owner, visual, "computer-permissions", true);
-        shown(visual, "plugin-settings-enabled", true);
-        tap(visual, "plugin-settings-enabled");
+        shown(visual, "plugin-settings-enabled", false);
+        select(&owner, visual, Section::Plugins);
+        tap(visual, "plugin-toggle-computer");
         wait(visual, |_| !package().enabled);
+        owner.update(visual, |owner, cx| {
+            owner.open_plugin_settings("computer", cx)
+        });
         shown_settings(&owner, visual, "computer-permissions", true);
         select(&owner, visual, Section::Plugins);
         let revision = package().revision;

@@ -86,6 +86,14 @@ Desktop tests retain centered and top-aligned full-height Empty card variants.
 
 ## Root and approved surfaces
 
+Kit 0.7.0's `DialogClose` and `DialogAction` wrappers impose full width and
+height, stretching footer controls despite `DialogFooter`'s native end alignment.
+The wrappers now keep their intrinsic content size. Base still owns cancel
+activation, and the existing dispatch anchor still owns confirmation; keyboard,
+focus, accessibility and footer spacing are unchanged. Desktop's shared dialog
+interaction tests cover intrinsic widths, right alignment, cancellation and
+confirmation. Retire this patch when upstream removes the full-size wrappers.
+
 Kit 0.7's Base Root registers and renders Component's dialog, sheet and toast
 plugins automatically. Sailry no longer adds those layers in application views.
 The opt-in `WindowExt::set_notification_insets` retains the workspace toast

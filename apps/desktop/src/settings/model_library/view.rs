@@ -20,6 +20,7 @@ impl Render for Library {
             .w_full()
             .items_center()
             .gap_3()
+            .debug_selector(|| "model-library-controls".into())
             .child(
                 div()
                     .debug_selector(|| "model-library-source".into())
@@ -41,7 +42,11 @@ impl Render for Library {
             )
             .child(
                 Button::new("model-library-search")
-                    .label(tr("model_library_search"))
+                    .ghost()
+                    .small()
+                    .icon(IconName::Search)
+                    .accessibility_label(tr("model_library_search"))
+                    .tooltip(tr("model_library_search"))
                     .loading(self.loading && self.repository.is_none())
                     .debug_selector(|| "model-library-search".into())
                     .disabled(locked)
@@ -237,13 +242,6 @@ impl Render for Library {
                                 cx.listener(|library, _, window, cx| library.download(window, cx)),
                             ),
                     ),
-                )
-            })
-            .when(self.loading, |view| {
-                view.child(
-                    div()
-                        .debug_selector(|| "model-library-loading".into())
-                        .child(spinner::Spinner::new()),
                 )
             })
     }

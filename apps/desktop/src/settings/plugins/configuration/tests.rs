@@ -99,9 +99,25 @@ fn details_keep_the_captured_node(cx: &mut TestAppContext) {
         visual
             .update(|window, cx| super::super::details::open(owner.clone(), expected, window, cx));
         shown(visual, "plugin-details-configure", true);
+        let [cancel, configure, uninstall] = [
+            "plugin-details-cancel",
+            "plugin-details-configure",
+            "plugin-details-uninstall",
+        ]
+        .map(|selector| visual.debug_bounds(selector).unwrap());
+        assert_eq!(cancel.center().y, configure.center().y);
+        assert_eq!(configure.center().y, uninstall.center().y);
+        assert!(cancel.right() < configure.left());
+        assert!(configure.right() < uninstall.left());
+        let dialog = visual.debug_bounds("dialog-0").unwrap();
+        assert!(cancel.size.width < dialog.size.width / 3.);
+        assert!(uninstall.right() <= dialog.right());
+        assert!(visual.debug_bounds("dialog-1").is_none());
         fixture.bind(&owner, visual, true);
         tap(visual, "plugin-details-configure");
         shown(visual, "plugin-setting-label", true);
+        shown(visual, "plugin-live-details", false);
+        assert!(visual.debug_bounds("dialog-1").is_none());
         input(visual, "plugin-setting-label", "Captured node");
         next(visual, "plugin-intent-token");
         input(visual, "plugin-secret-token", "fixture-private-token");

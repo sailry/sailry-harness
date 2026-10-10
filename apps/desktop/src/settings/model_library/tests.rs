@@ -191,6 +191,7 @@ fn loads_defaults_and_pages_online_results(cx: &mut TestAppContext) {
             let search = window.find("model-library-search").bounds();
             assert!((source.center().y - query.center().y).abs() <= px(1.));
             assert!((source.center().y - search.center().y).abs() <= px(1.));
+            assert!(search.size.width <= search.size.height + px(1.));
         });
         tap(visual, "model-library-more");
         wait(visual, |cx| {

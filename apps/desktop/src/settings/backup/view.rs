@@ -110,21 +110,16 @@ impl Render for Panel {
                 );
             }
         }
-        v_flex()
-            .gap_6()
-            .child(configuration)
-            .child(records)
-            .when(
-                self.page.as_ref().is_some_and(|page| page.partial),
-                |view| {
-                    view.child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(tr("backup_partial")),
-                    )
-                },
-            )
-            .when(self.loading, |view| view.child(spinner::Spinner::new()))
+        v_flex().gap_6().child(configuration).child(records).when(
+            self.page.as_ref().is_some_and(|page| page.partial),
+            |view| {
+                view.child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(tr("backup_partial")),
+                )
+            },
+        )
     }
 }

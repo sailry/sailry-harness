@@ -1,7 +1,7 @@
 use super::*;
 use gpui_kit::component::{
     Root, WindowExt,
-    dialog::{ANIMATION_DURATION, DialogAction, DialogFooter},
+    dialog::{ANIMATION_DURATION, DialogAction, DialogClose, DialogFooter},
 };
 use gpui_kit::{FocusHandle, Modifiers};
 
@@ -18,6 +18,27 @@ fn body() -> impl IntoElement {
         .w_full()
         .h(px(48.))
         .child("Dialog content")
+}
+
+fn footer() -> impl IntoElement {
+    div()
+        .debug_selector(|| "material-dialog-footer".into())
+        .w_full()
+        .child(
+            DialogFooter::new()
+                .child(DialogClose::new().trigger(|button| {
+                    button
+                        .debug_selector(|| "material-dialog-cancel".into())
+                        .label("Cancel")
+                }))
+                .child(
+                    DialogAction::new().child(
+                        Button::new("material-dialog-confirm")
+                            .debug_selector(|| "material-dialog-confirm".into())
+                            .label("Confirm"),
+                    ),
+                ),
+        )
 }
 
 impl Render for Frame {
@@ -41,23 +62,17 @@ impl Render for Frame {
                                 })
                                 .title("Confirm")
                                 .child(body())
-                                .footer(
-                                    DialogFooter::new().child(
-                                        DialogAction::new().child(
-                                            Button::new("material-dialog-confirm")
-                                                .debug_selector(|| "material-dialog-confirm".into())
-                                                .label("Confirm"),
-                                        ),
-                                    ),
-                                )
+                                .footer(footer())
                                 .on_ok(move |_, _, _| {
                                     accepted.set(accepted.get() + 1);
                                     true
                                 })
                         });
                     } else {
+                        let accepted = accepted.clone();
                         let cancelled = cancelled.clone();
                         window.open_dialog(cx, move |dialog, _, _| {
+                            let accepted = accepted.clone();
                             let cancelled = cancelled.clone();
                             dialog
                                 .width(px(320.))
@@ -66,6 +81,11 @@ impl Render for Frame {
                                 })
                                 .title("Dialog")
                                 .child(body())
+                                .footer(footer())
+                                .on_ok(move |_, _, _| {
+                                    accepted.set(accepted.get() + 1);
+                                    true
+                                })
                                 .on_cancel(move |_, _, _| {
                                     cancelled.set(cancelled.get() + 1);
                                     true
@@ -132,6 +152,49 @@ fn finish_close(cx: &mut VisualTestContext, trigger: &FocusHandle) {
     assert!(cx.debug_bounds("dialog-layer").is_none());
     assert!(cx.debug_bounds("material-dialog-surface").is_none());
     assert!(cx.update(|window, _| trigger.is_focused(window)));
+}
+
+#[gpui::test]
+fn footer_actions_keep_intrinsic_widths(cx: &mut TestAppContext) {
+    renderer(cx);
+    cx.update(|cx| cx.set_reduce_motion(true));
+    for alert in [false, true] {
+        let accepted = Rc::new(Cell::new(0));
+        let (_, visual) = cx.add_window_view({
+            let accepted = accepted.clone();
+            move |window, cx| {
+                let frame = cx.new(|_| Frame {
+                    alert,
+                    refined: false,
+                    accepted,
+                    cancelled: Rc::new(Cell::new(0)),
+                });
+                Root::new(frame, window, cx)
+            }
+        });
+        let trigger = open(visual);
+        draw(visual);
+        let footer = visual.debug_bounds("material-dialog-footer").unwrap();
+        let cancel = visual.debug_bounds("material-dialog-cancel").unwrap();
+        let confirm = visual.debug_bounds("material-dialog-confirm").unwrap();
+        assert_eq!(cancel.center().y, confirm.center().y);
+        assert_eq!(confirm.right(), footer.right());
+        assert!(cancel.left() > footer.left());
+        assert!(cancel.right() < confirm.left());
+        assert!(cancel.size.width < footer.size.width / 2.);
+        assert!(confirm.size.width < footer.size.width / 2.);
+        visual.simulate_click(cancel.center(), Modifiers::default());
+        finish_close(visual, &trigger);
+        assert_eq!(accepted.get(), 0);
+
+        let trigger = open(visual);
+        draw(visual);
+        let confirm = visual.debug_bounds("material-dialog-confirm").unwrap();
+        visual.simulate_click(confirm.center(), Modifiers::default());
+        finish_close(visual, &trigger);
+        assert_eq!(accepted.get(), 1);
+        visual.update(|window, _| window.remove_window());
+    }
 }
 
 #[gpui::test]

@@ -1,8 +1,5 @@
 use super::*;
-use gpui_kit::component::{
-    group_box::{GroupBox, GroupBoxVariants},
-    spinner::Spinner,
-};
+use gpui_kit::component::group_box::{GroupBox, GroupBoxVariants};
 
 impl Render for Panel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -24,12 +21,20 @@ impl Render for Panel {
                     .map(|card| {
                         let resource = card.resource;
                         let status = card.status;
+                        let granted = matches!(status, Status::Granted | Status::NotNeeded);
+                        let opens_settings = resource == Resource::FullDisk
+                            || matches!(status, Status::Denied | Status::Restricted)
+                                && card.settings.is_some();
+                        let action = if granted {
+                            status.key()
+                        } else if opens_settings {
+                            "permission_settings"
+                        } else {
+                            "permission_request"
+                        };
                         let pending = self.pending == Some(resource);
                         let unavailable = matches!(status, Status::Remote | Status::Unavailable);
-                        let disabled = busy
-                            || unavailable
-                            || card.request.is_none()
-                            || matches!(status, Status::Granted | Status::NotNeeded);
+                        let disabled = busy || unavailable || card.request.is_none() || granted;
                         GroupBox::new()
                             .outline()
                             .content_style(StyleRefinement::default().p_3().gap_0())
@@ -81,7 +86,9 @@ impl Render for Panel {
                                                     ))
                                                     .ghost()
                                                     .small()
-                                                    .label(tr("permission_check"))
+                                                    .icon(IconName::RefreshCw)
+                                                    .tooltip(tr("permission_check"))
+                                                    .accessibility_label(tr("permission_check"))
                                                     .disabled(busy || unavailable)
                                                     .debug_selector(move || {
                                                         format!("{}-check", resource.key())
@@ -95,7 +102,7 @@ impl Render for Panel {
                                             })
                                             .when(
                                                 card.settings.is_some()
-                                                    && resource != Resource::FullDisk
+                                                    && (resource != Resource::FullDisk || granted)
                                                     && !matches!(
                                                         status,
                                                         Status::Denied | Status::Restricted
@@ -109,48 +116,64 @@ impl Render for Panel {
                                                         ))
                                                         .ghost()
                                                         .small()
-                                                        .label(tr("permission_settings"))
+                                                        .icon(IconName::Settings2)
+                                                        .tooltip(tr("permission_settings"))
+                                                        .accessibility_label(tr(
+                                                            "permission_settings",
+                                                        ))
                                                         .disabled(busy || unavailable)
                                                         .debug_selector(move || {
                                                             format!("{}-settings", resource.key())
                                                         })
-                                                        .on_click(move |_, _, cx| cx.open_url(url)),
+                                                        .on_click(cx.listener(
+                                                            move |panel, _, window, cx| {
+                                                                if resource == Resource::FullDisk {
+                                                                    panel.disk_settings(window, cx);
+                                                                } else {
+                                                                    cx.open_url(url);
+                                                                }
+                                                            },
+                                                        )),
                                                     )
                                                 },
                                             )
                                             .child(
                                                 Button::new(resource.key())
+                                                    .ghost()
                                                     .small()
-                                                    .label(tr(
-                                                        if resource == Resource::FullDisk
-                                                            || matches!(
-                                                                status,
-                                                                Status::Denied | Status::Restricted
-                                                            ) && card.settings.is_some()
-                                                        {
-                                                            "permission_settings"
-                                                        } else {
-                                                            "permission_request"
-                                                        },
-                                                    ))
-                                                    .when(pending, |button| {
-                                                        button.icon(Spinner::new())
-                                                    })
-                                                    .loading(pending)
-                                                    .disabled(if resource == Resource::FullDisk {
-                                                        busy || unavailable
-                                                            || card.settings.is_none()
+                                                    .icon(if opens_settings {
+                                                        Icon::new(IconName::Settings2)
                                                     } else {
-                                                        if matches!(
-                                                            status,
-                                                            Status::Denied | Status::Restricted
-                                                        ) {
-                                                            busy || unavailable
-                                                                || card.settings.is_none()
-                                                        } else {
-                                                            disabled
-                                                        }
+                                                        Icon::default()
+                                                            .path("icons/reicon/shield.svg")
                                                     })
+                                                    .when(granted, |button| {
+                                                        button.warning().icon(
+                                                            Icon::new(IconName::Check)
+                                                                .text_color(cx.theme().warning),
+                                                        )
+                                                    })
+                                                    .tooltip(tr(action))
+                                                    .accessibility_label(tr(action))
+                                                    .loading(pending)
+                                                    .disabled(
+                                                        granted
+                                                            || if resource == Resource::FullDisk {
+                                                                busy || unavailable
+                                                                    || card.settings.is_none()
+                                                            } else {
+                                                                if matches!(
+                                                                    status,
+                                                                    Status::Denied
+                                                                        | Status::Restricted
+                                                                ) {
+                                                                    busy || unavailable
+                                                                        || card.settings.is_none()
+                                                                } else {
+                                                                    disabled
+                                                                }
+                                                            },
+                                                    )
                                                     .debug_selector(move || {
                                                         format!("{}-request", resource.key())
                                                     })
@@ -186,7 +209,9 @@ impl Render for Panel {
                                 Button::new("permissions-show-app")
                                     .ghost()
                                     .small()
-                                    .label(tr("permission_show_app"))
+                                    .icon(IconName::FolderOpen)
+                                    .tooltip(tr("permission_show_app"))
+                                    .accessibility_label(tr("permission_show_app"))
                                     .disabled(busy)
                                     .debug_selector(|| "permissions-show-app".into())
                                     .on_click(|_, window, cx| {
