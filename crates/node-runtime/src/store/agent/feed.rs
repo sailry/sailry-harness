@@ -1,18 +1,25 @@
-//! Ephemeral output and bounded subscriptions, owned by the storage worker.
+//! One shared ephemeral feed; canonical history stays on the storage worker.
 use super::*;
 use sailry_link::{CancellationToken, Pending, Subscription};
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Mutex,
+};
 
 #[cfg(test)]
 mod tests;
 
-#[derive(Default)]
-pub(in crate::store) struct Feeds(BTreeMap<SessionId, Feed>);
+#[derive(Clone, Default)]
+pub(in crate::store) struct Feeds(Arc<Mutex<BTreeMap<SessionId, Feed>>>);
+
+const MAX_FINALIZED: usize = 4096;
 
 struct Feed {
     sequence: u64,
     active: Option<TurnId>,
     drafts: Vec<Draft>,
+    // Saturation stops transient publication for this run, never evicts a seal.
+    finalized: Option<BTreeSet<String>>,
     bytes: usize,
     updates: broadcast::Sender<Update>,
 }
@@ -23,6 +30,7 @@ impl Default for Feed {
             sequence: 0,
             active: None,
             drafts: Vec::new(),
+            finalized: Some(BTreeSet::new()),
             bytes: 0,
             updates: broadcast::channel(64).0,
         }
@@ -30,8 +38,8 @@ impl Default for Feed {
 }
 
 impl Feeds {
-    fn reset(&mut self, session: SessionId) {
-        if let Some(feed) = self.0.get_mut(&session) {
+    fn reset(&self, session: SessionId) {
+        if let Some(feed) = self.0.lock().unwrap().get_mut(&session) {
             feed.sequence += 1;
             feed.drafts.clear();
             feed.bytes = 0;
@@ -40,25 +48,36 @@ impl Feeds {
     }
 
     pub(in crate::store) fn sequence(&self, session: SessionId) -> u64 {
-        self.0.get(&session).map_or(0, |feed| feed.sequence)
-    }
-
-    fn prune(&mut self) {
         self.0
-            .retain(|_, feed| feed.active.is_some() || feed.updates.receiver_count() > 0);
+            .lock()
+            .unwrap()
+            .get(&session)
+            .map_or(0, |feed| feed.sequence)
     }
 
-    pub(in crate::store) fn publish(&mut self, node: NodeId, session: SessionId, change: Change) {
-        self.prune();
+    fn prune(feeds: &mut BTreeMap<SessionId, Feed>) {
+        feeds.retain(|_, feed| feed.active.is_some() || feed.updates.receiver_count() > 0);
+    }
+
+    pub(in crate::store) fn publish(&self, node: NodeId, session: SessionId, change: Change) {
+        let mut feeds = self.0.lock().unwrap();
+        Self::prune(&mut feeds);
         let starts = matches!(&change, Change::Run(run) if run.status == Status::Running);
-        if !starts && !self.0.contains_key(&session) {
+        if !starts && !feeds.contains_key(&session) {
             return;
         }
-        let feed = self.0.entry(session).or_default();
+        let feed = feeds.entry(session).or_default();
         match &change {
             Change::Run(run) => {
                 if run.status == Status::Running {
+                    if feed.active != Some(run.turn) {
+                        feed.finalized = Some(BTreeSet::new());
+                    }
                     feed.active = Some(run.turn);
+                }
+                if run.status == Status::Stopping && feed.active == Some(run.turn) {
+                    // Stop publication precedes controller cancellation on the storage worker.
+                    feed.finalized = None;
                 }
                 if !matches!(
                     run.status,
@@ -67,12 +86,22 @@ impl Feeds {
                     feed.drafts.retain(|draft| draft.turn != run.turn);
                     if feed.active == Some(run.turn) {
                         feed.active = None;
+                        feed.finalized = Some(BTreeSet::new());
                     }
                 }
             }
-            Change::Entry(entry) => feed
-                .drafts
-                .retain(|draft| draft.turn != entry.turn || draft.id != entry.id),
+            Change::Entry(entry) => {
+                feed.drafts
+                    .retain(|draft| draft.turn != entry.turn || draft.id != entry.id);
+                if feed.active == Some(entry.turn)
+                    && let Some(finalized) = &mut feed.finalized
+                {
+                    finalized.insert(entry.id.clone());
+                    if finalized.len() > MAX_FINALIZED {
+                        feed.finalized = None;
+                    }
+                }
+            }
             Change::Delta(_) => unreachable!("partial events use the bounded delta path"),
             Change::Queue(_)
             | Change::Approval(_)
@@ -90,15 +119,21 @@ impl Feeds {
     }
 
     pub(super) fn delta(
-        &mut self,
+        &self,
         node: NodeId,
         session: SessionId,
         draft: Draft,
     ) -> Result<(), Fault> {
-        let Some(feed) = self.0.get_mut(&session) else {
+        let mut feeds = self.0.lock().unwrap();
+        let Some(feed) = feeds.get_mut(&session) else {
             return Ok(());
         };
-        if feed.active != Some(draft.turn) {
+        if feed.active != Some(draft.turn)
+            || feed
+                .finalized
+                .as_ref()
+                .is_none_or(|finalized| finalized.contains(&draft.id))
+        {
             return Ok(());
         }
         if draft.parts.is_empty() {
@@ -133,19 +168,20 @@ impl Feeds {
     }
 
     pub(super) fn subscribe(
-        &mut self,
+        &self,
         node: NodeId,
         history: History,
         statistics: Statistics,
         closed: CancellationToken,
     ) -> Box<dyn Subscription> {
-        self.prune();
+        let mut feeds = self.0.lock().unwrap();
+        Self::prune(&mut feeds);
         let History {
             mut page,
             mut missing,
             ..
         } = history;
-        let feed = self.0.entry(page.session).or_default();
+        let feed = feeds.entry(page.session).or_default();
         // Leave room for temporary output in the same bounded transport frame.
         let drafts_size = serde_json::to_vec(&feed.drafts)
             .expect("drafts are serializable")

@@ -63,6 +63,29 @@ impl Controls {
         self.active.lock().unwrap().get(&turn)?.media.clone()
     }
 
+    pub(crate) fn stream(
+        &self,
+        turn: TurnId,
+        session: SessionId,
+        publish: impl FnOnce() -> Result<(), Fault>,
+    ) -> Result<(), Fault> {
+        let runs = self.active.lock().unwrap();
+        let Some(active) = runs.get(&turn) else {
+            return Ok(());
+        };
+        if active.session != session {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "stream belongs to another session",
+            ));
+        }
+        if active.finishing || active.stop.is_cancelled() || self.stopped.is_cancelled() {
+            return Ok(());
+        }
+        // Serialize cancellation with publication; the feed checks its active turn again.
+        publish()
+    }
+
     pub(crate) fn bind_python(
         &self,
         turn: TurnId,
@@ -259,6 +282,91 @@ impl Controls {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn streams_only_active_owned_runs() {
+        let controls = Controls::default();
+        let session = SessionId::new();
+        let turn = TurnId::new();
+        let calls = std::cell::Cell::new(0);
+        let publish = || {
+            calls.set(calls.get() + 1);
+            Ok(())
+        };
+        controls.register(turn, session, CancellationToken::new());
+        controls.stream(turn, session, publish).unwrap();
+        assert_eq!(calls.get(), 1);
+        assert_eq!(
+            controls
+                .stream(turn, SessionId::new(), publish)
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+        controls.cancel(turn);
+        controls.stream(turn, session, publish).unwrap();
+        controls.finish(turn);
+        controls.stream(turn, session, publish).unwrap();
+
+        let draining = TurnId::new();
+        controls.register(draining, session, CancellationToken::new());
+        controls.drain(draining).await;
+        controls.stream(draining, session, publish).unwrap();
+
+        let shutdown = TurnId::new();
+        controls.register(shutdown, session, CancellationToken::new());
+        controls.stop();
+        controls.stream(shutdown, session, publish).unwrap();
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn serializes_publication_with_cancellation() {
+        use std::{sync::mpsc, time::Duration};
+
+        let controls = Arc::new(Controls::default());
+        let turn = TurnId::new();
+        let session = SessionId::new();
+        let stop = CancellationToken::new();
+        controls.register(turn, session, stop.clone());
+        let (entered, entering) = mpsc::channel();
+        let (release, releasing) = mpsc::channel();
+        let producer = controls.clone();
+        let publishing = std::thread::spawn(move || {
+            producer
+                .stream(turn, session, || {
+                    entered.send(()).unwrap();
+                    releasing.recv_timeout(Duration::from_secs(2)).unwrap();
+                    Ok(())
+                })
+                .unwrap();
+        });
+        entering.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(controls.active.try_lock().is_err());
+
+        let (attempted, attempting) = mpsc::channel();
+        let (finished, finishing) = mpsc::channel();
+        let cancelling = controls.clone();
+        let cancellation = std::thread::spawn(move || {
+            attempted.send(()).unwrap();
+            cancelling.cancel(turn);
+            finished.send(()).unwrap();
+        });
+        attempting.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(
+            finishing.recv_timeout(Duration::from_millis(20)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        );
+        assert!(!stop.is_cancelled());
+        release.send(()).unwrap();
+        publishing.join().unwrap();
+        finishing.recv_timeout(Duration::from_secs(2)).unwrap();
+        cancellation.join().unwrap();
+        assert!(stop.is_cancelled());
+        controls
+            .stream(turn, session, || panic!("cancelled stream was published"))
+            .unwrap();
+    }
 
     #[test]
     fn reuses_scoped_scratch_until_last_lease() {

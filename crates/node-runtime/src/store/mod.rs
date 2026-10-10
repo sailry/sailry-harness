@@ -57,6 +57,11 @@ use database::Database;
 const CAPACITY: usize = 64;
 
 enum Job {
+    #[cfg(test)]
+    Barrier {
+        entered: mpsc::UnboundedSender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    },
     BackupPlan {
         expected: Option<u64>,
         reply: oneshot::Sender<Result<crate::backup::Plan, Fault>>,
@@ -303,6 +308,7 @@ pub(crate) struct Ingress {
     accepting: Arc<AtomicBool>,
     closing: Arc<AtomicBool>,
     pub(crate) agents: Arc<crate::agent::Controls>,
+    feeds: agent::Feeds,
     pub(crate) dispatch: Arc<crate::dispatch::Controls>,
     pub(crate) plugins: crate::plugins::Host,
     pub(crate) oauth: Arc<crate::plugins::oauth::Service>,
@@ -428,6 +434,7 @@ impl Store {
             accepting: accepting.clone(),
             closing: closing.clone(),
             agents: agents.clone(),
+            feeds: Default::default(),
             plugins: crate::plugins::Host::new(profile.clone()).with_github(skills),
             closed,
             dispatch: Arc::new(crate::dispatch::Controls::default()),
@@ -475,6 +482,7 @@ impl Store {
         );
         let code_pool = ingress.code.clone();
         let searcher = ingress.search.clone();
+        let feeds = ingress.feeds.clone();
         let worker = std::thread::Builder::new()
             .name("sailry-store".into())
             .spawn(move || {
@@ -485,6 +493,7 @@ impl Store {
                         return Ok(());
                     }
                 };
+                database.feeds = feeds;
                 match search::read(&database.connection) { Ok(settings) => searcher.configure(settings), Err(error) => {let _=ready.send(Err(crate::Error::from(error)));return Ok(());} }
                 if database.profile.is_some()
                     && let Err(error) =
@@ -696,6 +705,11 @@ impl Store {
                         _ => false,
                     };
                     match job {
+                        #[cfg(test)]
+                        Job::Barrier { entered, release } => {
+                            entered.send(()).unwrap();
+                            release.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+                        }
                         Job::BackupPlan { expected, reply } => { let _ = reply.send(backup::plan(&database.connection, expected)); }
                         Job::BackupSnapshot { revision, cancel, reply } => { let _ = reply.send(backup::capture(&database, revision, &cancel)); }
                         Job::OcrCatalog { reply } => { let _ = reply.send(ocr::read(&database.connection)); }

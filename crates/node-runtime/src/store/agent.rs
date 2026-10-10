@@ -159,12 +159,6 @@ pub(super) enum Operation {
         session: SessionId,
         reply: oneshot::Sender<Result<Option<ContextUsage>, Fault>>,
     },
-    Delta {
-        session: SessionId,
-        turn: TurnId,
-        event: AdkEvent,
-        reply: oneshot::Sender<Result<(), Fault>>,
-    },
     Get {
         turn: TurnId,
         request: GetRequest,
@@ -310,17 +304,37 @@ impl Ingress {
         turn: TurnId,
         event: AdkEvent,
     ) -> Result<(), Fault> {
-        let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::Delta {
+        if self.closed.is_cancelled() {
+            return Err(super::unavailable());
+        }
+        if !event.llm_response.partial || event.id.is_empty() || event.id.len() > 256 {
+            return Err(Fault::invalid("invalid streaming event"));
+        }
+        let references = references::project(&event)?;
+        let parts = event
+            .content()
+            .into_iter()
+            .flat_map(|content| &content.parts)
+            .skip(usize::from(!references.is_empty()))
+            .filter_map(|part| match part {
+                adk_core::Part::Text { text } => Some(Part::Text(text.clone())),
+                adk_core::Part::Thinking { thinking, .. } => Some(Part::Thinking(thinking.clone())),
+                _ => None,
+            })
+            .collect();
+        self.agents.stream(turn, session, || {
+            self.feeds.delta(
+                self.node,
                 session,
-                turn,
-                event,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::unavailable())?;
-        response.await.map_err(|_| super::unavailable())?
+                Draft {
+                    id: event.id,
+                    turn,
+                    author: event.author,
+                    branch: event.branch,
+                    parts,
+                },
+            )
+        })
     }
     pub(crate) fn sessions(self: &Arc<Self>, turn: TurnId) -> Arc<Sessions> {
         Arc::new(Sessions::new(self.clone(), turn))
@@ -594,33 +608,6 @@ pub(super) fn execute(
         Operation::ContextUsage { session, reply } => {
             let result = check_session(&database.connection, session)
                 .and_then(|_| statistics::context_usage(&database.connection, session));
-            let _ = reply.send(result);
-        }
-        Operation::Delta {
-            session,
-            turn,
-            event,
-            reply,
-        } => {
-            let result =
-                history::project(&database.connection, 0, turn, &event).and_then(|entry| {
-                    let parts = entry
-                        .parts
-                        .into_iter()
-                        .filter(|part| matches!(part, Part::Text(_) | Part::Thinking(_)))
-                        .collect();
-                    database.feeds.delta(
-                        database.node,
-                        session,
-                        Draft {
-                            id: entry.id,
-                            turn,
-                            author: entry.author,
-                            branch: entry.branch,
-                            parts,
-                        },
-                    )
-                });
             let _ = reply.send(result);
         }
         Operation::Get {
