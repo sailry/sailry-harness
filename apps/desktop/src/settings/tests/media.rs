@@ -89,12 +89,12 @@ fn saves_clears_and_isolates_hosts(cx: &mut TestAppContext) {
         owner = Some(shell.read(cx).settings.clone());
         Root::new(shell, window, cx)
     });
-    let owner = owner.unwrap();
+    let workspace = owner.unwrap();
     let handle = visual.update(|window, _| window.window_handle());
     visual.simulate_window_resize(handle, size(px(1280.), px(1050.)));
     let mut prior: Option<WeakEntity<crate::plugins::Panel>> = None;
     for index in 0..2 {
-        owner.update(visual, |owner, cx| {
+        workspace.update(visual, |owner, cx| {
             owner.bind_providers(
                 fixture.transports[index].clone(),
                 fixture.runtime.clone(),
@@ -108,6 +108,11 @@ fn saves_clears_and_isolates_hosts(cx: &mut TestAppContext) {
         let delegation = visual.debug_bounds("plugin-settings-delegation").unwrap();
         assert!(providers.bottom() <= media.top() && media.bottom() <= delegation.top());
         tap(visual, "plugin-settings-media");
+        let owner = visual.update(|_, cx| super::super::extensions::modal::workspace(cx));
+        assert_ne!(
+            workspace.read_with(visual, |settings, _| settings.section),
+            Section::Plugin
+        );
         shown_settings(&owner, visual, "media-settings", true);
         for selector in [
             "settings-control-media_image_understanding",
@@ -309,6 +314,9 @@ fn saves_clears_and_isolates_hosts(cx: &mut TestAppContext) {
         prior = Some(owner.read_with(visual, |owner, _| {
             owner.plugin_settings_panel().unwrap().downgrade()
         }));
+        if index == 0 {
+            tap(visual, "plugin-config-close");
+        }
         draw(visual);
     }
     let Output::Plugins(packages) = execute(&fixture, 1, Command::ListPlugins) else {
@@ -335,6 +343,6 @@ fn saves_clears_and_isolates_hosts(cx: &mut TestAppContext) {
             .is_none_or(|panel| !panel.read(cx).resource_active())
     });
     visual.update(|window, _| window.remove_window());
-    drop(owner);
+    drop(workspace);
     fixture.close();
 }

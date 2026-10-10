@@ -1,4 +1,5 @@
 //! Manifest-contributed settings share navigation and captured Node ownership.
+pub(crate) mod modal;
 use super::{
     Section, Workspace,
     group::{Group, Row},
@@ -47,6 +48,55 @@ impl State {
 }
 
 impl Workspace {
+    pub(crate) fn configure_plugin(
+        &mut self,
+        name: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(live) = &self.provider_link else {
+            return;
+        };
+        if !live.connected {
+            return;
+        }
+        let Some(info) = self
+            .plugin_catalog
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.read(cx).entries.get(name))
+            .cloned()
+        else {
+            return;
+        };
+        modal::open(
+            live.binding.clone(),
+            info,
+            self.usage_sources.clone(),
+            window,
+            cx,
+        );
+    }
+
+    pub(crate) fn configure_bound(
+        binding: crate::conversation::live::Binding,
+        info: Info,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        modal::open(
+            super::providers::Binding {
+                client: binding.client,
+                runtime: binding.runtime,
+                label: binding.host,
+            },
+            info,
+            vec![],
+            window,
+            cx,
+        );
+    }
+
     pub(super) fn native_settings(&self, cx: &App) -> Option<desktop::NativeSettings> {
         let name = self.selected_plugin_settings()?;
         self.plugin_catalog
@@ -65,24 +115,6 @@ impl Workspace {
     #[cfg(test)]
     pub(crate) fn plugin_settings_panel(&self) -> Option<Entity<Panel>> {
         self.extensions.panel.clone()
-    }
-
-    pub(crate) fn configure_panel(
-        binding: crate::conversation::live::Binding,
-        expected: sailry_protocol::plugin::Summary,
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        super::plugins::configuration::panel(
-            super::providers::Binding {
-                client: binding.client,
-                runtime: binding.runtime,
-                label: binding.host,
-            },
-            expected,
-            window,
-            cx,
-        );
     }
 
     pub(crate) fn header(
@@ -107,6 +139,7 @@ impl Workspace {
                 .read(cx)
                 .entries
                 .values()
+                .filter(|info| modal::configurable(info))
                 .filter_map(|info| {
                     let page = info.extension.as_ref()?.settings_page.as_ref()?;
                     Some(NavigationEntry::new(info.summary.name.clone(), page))
@@ -305,7 +338,7 @@ impl Workspace {
             .gap_4()
             .child(
                 div()
-                    .h(px(560.))
+                    .h(px(560.).min(window.viewport_size().height * 0.6))
                     .w_full()
                     .children(self.extensions.panel.clone()),
             )

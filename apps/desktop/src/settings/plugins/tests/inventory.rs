@@ -47,7 +47,7 @@ fn shows_current_components(cx: &mut TestAppContext) {
         assert!(visual.debug_bounds("mcp-standalone-tab").is_none());
         shown(visual, "plugin-component-example:native", false);
         select(&owner, visual, Section::Plugins);
-        menu(visual, "plugin-menu-example", 0);
+        tap(visual, "plugin-details-example");
         shown(visual, "plugin-skill-analysis", true);
         shown(visual, "plugin-server-native", true);
         assert!(
@@ -152,7 +152,7 @@ fn shows_supported_sse_servers(cx: &mut TestAppContext) {
         select(&owner, visual, Section::Mcp);
         shown(visual, "mcp-card-example", true);
         select(&owner, visual, Section::Plugins);
-        menu(visual, "plugin-menu-example", 0);
+        tap(visual, "plugin-details-example");
         shown(visual, "plugin-server-legacy", true);
         shown(visual, "plugin-authorize-legacy", true);
         shown(visual, "plugin-details-cancel", true);
@@ -424,9 +424,11 @@ fn external_browser_settings_follow_host(cx: &mut TestAppContext) {
             owner
                 .plugin_settings_entries(cx)
                 .iter()
-                .any(|entry| entry.name == "external-browser")
+                .all(|entry| entry.name != "external-browser")
         }));
-        menu(visual, "plugin-menu-external-browser", 0);
+        owner.update(visual, |owner, cx| {
+            owner.open_plugin_settings("external-browser", cx)
+        });
         shown(visual, "plugin-settings-enabled", false);
         shown(visual, "plugin-settings-node", true);
         owner.read_with(visual, |owner, _| {
@@ -562,7 +564,12 @@ fn computer_routes(cx: &mut TestAppContext) {
         ready(&owner, visual);
         assert!(!package().enabled);
         menu(visual, "plugin-menu-computer", 0);
-        shown_settings(&owner, visual, "computer-permissions", true);
+        shown(visual, "plugin-config-content", true);
+        assert_eq!(
+            owner.read_with(visual, |owner, _| owner.section),
+            Section::Plugins
+        );
+        tap(visual, "plugin-config-close");
         select(&owner, visual, Section::Plugins);
         menu(visual, "plugin-menu-computer", 2);
         crate::prompts::tests::answer(visual, "plugins_uninstall");
@@ -636,6 +643,33 @@ fn registered_settings(cx: &mut TestAppContext) {
         };
         assert!(info.extension.as_ref().unwrap().settings_page.is_none());
         assert_ne!(crate::plugins::metadata::title(&info), "files");
+        fixture.close(visual);
+    }
+}
+
+#[gpui::test]
+fn native_configuration_stays_in_dialog(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let (owner, visual) = fixture.mount(cx);
+        ready(&owner, visual);
+        for (name, selector) in [
+            ("web-search", "search-prefer-native"),
+            ("code", "code-settings"),
+        ] {
+            visual.update(|window, cx| {
+                owner.update(cx, |owner, cx| owner.configure_plugin(name, window, cx))
+            });
+            shown(visual, "plugin-config-content", true);
+            shown(visual, selector, true);
+            assert_eq!(
+                owner.read_with(visual, |owner, _| owner.section),
+                Section::Plugins
+            );
+            tap(visual, "plugin-config-close");
+            shown(visual, "plugin-config-content", false);
+        }
         fixture.close(visual);
     }
 }

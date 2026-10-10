@@ -45,40 +45,6 @@ impl Drop for Editor {
     }
 }
 
-pub(in crate::settings) fn open(
-    owner: Entity<Workspace>,
-    expected: Summary,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    if !owner
-        .read(cx)
-        .plugin_catalog
-        .metadata
-        .as_ref()
-        .is_some_and(|metadata| {
-            metadata
-                .read(cx)
-                .entries
-                .get(&expected.name)
-                .is_some_and(|info| {
-                    info.settings
-                        .as_ref()
-                        .is_some_and(|schema| !schema.properties.is_empty())
-                })
-        })
-    {
-        return;
-    }
-    let Some(live) = &owner.read(cx).provider_link else {
-        return;
-    };
-    if !live.connected {
-        return;
-    }
-    mount(live.binding.clone(), expected, window, cx);
-}
-
 pub(in crate::settings) fn mount(
     binding: Binding,
     expected: Summary,

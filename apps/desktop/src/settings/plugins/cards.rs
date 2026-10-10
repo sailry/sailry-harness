@@ -142,22 +142,7 @@ impl Workspace {
             .package(&plugin.name)
             .map(|preparation| preparation::label(preparation.stage).to_string())
             .or(description);
-        let has_mcp = info.is_some_and(|info| !info.mcp.is_empty());
-        let configured = has_mcp
-            || info.is_some_and(|info| {
-                info.extension
-                    .as_ref()
-                    .is_some_and(|ext| ext.settings_page.is_some())
-                    || info
-                        .settings
-                        .as_ref()
-                        .is_some_and(|schema| !schema.properties.is_empty())
-            });
-        let contributed = info.is_some_and(|info| {
-            info.extension
-                .as_ref()
-                .is_some_and(|ext| ext.settings_page.is_some())
-        });
+        let configured = info.is_some_and(super::super::extensions::modal::configurable);
         let update_ready = info.is_some_and(|info| info.summary == *plugin);
         let online = info.is_some_and(|info| {
             matches!(
@@ -237,72 +222,61 @@ impl Workspace {
                     .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
                         let owner = menu_owner.clone();
                         let plugin = menu_plugin.clone();
-                        let menu = menu.item(
-                            PopupMenuItem::new(tr("plugins_settings_title"))
-                                .icon(IconName::Settings2)
-                                .disabled(busy || !configured)
-                                .on_click(move |_, window, cx| {
-                                    if has_mcp {
-                                        details::open(owner.clone(), plugin.clone(), window, cx);
-                                    } else if contributed {
+                        let menu = menu.when(configured, |menu| {
+                            menu.item(
+                                PopupMenuItem::new(tr("plugins_settings_title"))
+                                    .icon(IconName::Settings2)
+                                    .disabled(busy)
+                                    .on_click(move |_, window, cx| {
                                         owner.update(cx, |owner, cx| {
-                                            owner.open_plugin_settings(&plugin.name, cx)
+                                            owner.configure_plugin(&plugin.name, window, cx)
                                         });
-                                    } else {
-                                        configuration::open(
-                                            owner.clone(),
-                                            plugin.clone(),
-                                            window,
-                                            cx,
-                                        );
-                                    }
-                                }),
-                        );
+                                    }),
+                            )
+                            .separator()
+                        });
                         let owner = menu_owner.clone();
                         let plugin = menu_plugin.clone();
                         let remove_owner = menu_owner.clone();
                         let remove = menu_plugin.clone();
-                        menu.separator()
-                            .item(
-                                PopupMenuItem::new(tr(if online {
-                                    "plugins_check_updates"
+                        menu.item(
+                            PopupMenuItem::new(tr(if online {
+                                "plugins_check_updates"
+                            } else {
+                                "plugins_update"
+                            }))
+                            .icon(IconName::Redo)
+                            .disabled(busy || !update_ready)
+                            .on_click(move |_, window, cx| {
+                                if online {
+                                    owner.update(cx, |owner, cx| {
+                                        owner.check_plugin_updates(window, cx)
+                                    });
                                 } else {
-                                    "plugins_update"
-                                }))
-                                .icon(IconName::Redo)
-                                .disabled(busy || !update_ready)
-                                .on_click(
-                                    move |_, window, cx| {
-                                        if online {
-                                            owner.update(cx, |owner, cx| {
-                                                owner.check_plugin_updates(window, cx)
-                                            });
-                                        } else {
-                                            dialog::open(
-                                                owner.clone(),
-                                                Some(plugin.clone()),
-                                                false,
-                                                window,
-                                                cx,
-                                            )
-                                        }
-                                    },
-                                ),
-                            )
-                            .item(
-                                PopupMenuItem::new(tr("plugins_uninstall"))
-                                    .icon(IconName::CircleX)
-                                    .disabled(busy)
-                                    .on_click(move |_, window, cx| {
-                                        dialog::open(
-                                            remove_owner.clone(),
-                                            Some(remove.clone()),
-                                            true,
-                                            window,
-                                            cx,
-                                        )
-                                    }),
-                            )
+                                    dialog::open(
+                                        owner.clone(),
+                                        Some(plugin.clone()),
+                                        false,
+                                        window,
+                                        cx,
+                                    )
+                                }
+                            }),
+                        )
+                        .item(
+                            PopupMenuItem::new(tr("plugins_uninstall"))
+                                .icon(IconName::CircleX)
+                                .disabled(busy)
+                                .on_click(move |_, window, cx| {
+                                    dialog::open(
+                                        remove_owner.clone(),
+                                        Some(remove.clone()),
+                                        true,
+                                        window,
+                                        cx,
+                                    )
+                                }),
+                        )
                     }),
             )
             .child(

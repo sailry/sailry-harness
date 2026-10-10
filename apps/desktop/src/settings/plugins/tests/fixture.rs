@@ -516,12 +516,22 @@ pub(in crate::settings) fn tap(cx: &mut VisualTestContext, selector: &'static st
             .debug_bounds(selector)
             .unwrap_or_else(|| panic!("missing {selector}"));
         let viewport = cx.update(|window, _| window.viewport_size());
-        if bounds.center().y >= px(64.) && bounds.center().y < viewport.height - px(16.) {
+        let catalog = (selector.starts_with("memory-edit-")
+            || selector.starts_with("memory-delete-")
+                && !matches!(selector, "memory-delete-confirm" | "memory-delete-cancel"))
+        .then(|| cx.debug_bounds("plugin-panel"))
+        .flatten();
+        let top = catalog.map_or(px(64.), |bounds| bounds.top() + px(16.));
+        let bottom = catalog.map_or(viewport.height - px(16.), |bounds| {
+            bounds.bottom() - px(16.)
+        });
+        if bounds.center().y >= top && bounds.center().y < bottom {
             break;
         }
+        let middle = (top + bottom) / 2.;
         cx.simulate_event(ScrollWheelEvent {
-            position: point(bounds.center().x, viewport.height / 2.),
-            delta: ScrollDelta::Pixels(point(px(0.), viewport.height / 2. - bounds.center().y)),
+            position: point(bounds.center().x, middle),
+            delta: ScrollDelta::Pixels(point(px(0.), middle - bounds.center().y)),
             touch_phase: TouchPhase::Moved,
             modifiers: Modifiers::default(),
         });
@@ -537,6 +547,8 @@ pub(in crate::settings) fn tap(cx: &mut VisualTestContext, selector: &'static st
 
 pub(in crate::settings) fn menu(cx: &mut VisualTestContext, selector: &'static str, index: usize) {
     tap(cx, selector);
+    cx.simulate_mouse_move(point(px(-100.), px(-100.)), None, Modifiers::default());
+    draw(cx);
     for _ in 0..=index {
         cx.simulate_keystrokes("down");
     }

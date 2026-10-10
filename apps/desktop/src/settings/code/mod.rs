@@ -30,7 +30,6 @@ struct Scope {
 
 pub(super) struct Panel {
     binding: Binding,
-    transport: Arc<dyn Transport>,
     active: bool,
     saved: Option<code::Settings>,
     draft: Option<code::Settings>,
@@ -59,18 +58,12 @@ impl Drop for Panel {
 }
 
 impl Panel {
-    fn new(
-        binding: Binding,
-        transport: Arc<dyn Transport>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    fn new(binding: Binding, window: &mut Window, cx: &mut Context<Self>) -> Self {
         crate::feedback::observe(window, cx, |panel: &Self, _| {
             panel.error.into_iter().collect()
         });
         Self {
             binding,
-            transport,
             active: false,
             saved: None,
             draft: None,
@@ -177,7 +170,24 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let key = transport.target();
+        self.bind_code_client(
+            Binding {
+                client: Arc::new(sailry_client::Client::new(transport)),
+                runtime,
+                label,
+            },
+            window,
+            cx,
+        );
+    }
+
+    pub(in crate::settings) fn bind_code_client(
+        &mut self,
+        binding: Binding,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let key = binding.client.target();
         if self.code.selected == Some(key) {
             return;
         }
@@ -187,12 +197,7 @@ impl Workspace {
             .panels
             .entry(key)
             .or_insert_with(|| {
-                let binding = Binding {
-                    client: Arc::new(sailry_client::Client::new(transport.clone())),
-                    runtime,
-                    label,
-                };
-                let panel = cx.new(|cx| Panel::new(binding, transport, window, cx));
+                let panel = cx.new(|cx| Panel::new(binding, window, cx));
                 cx.observe(&panel, |_, _, cx| cx.notify()).detach();
                 panel
             })

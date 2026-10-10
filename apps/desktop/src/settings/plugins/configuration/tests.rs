@@ -291,3 +291,42 @@ fn embedded_page_keeps_editing_after_save(cx: &mut TestAppContext) {
         fixture.close(visual);
     }
 }
+
+#[gpui::test]
+fn menu_opens_configuration_without_details(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        install(&fixture, "TOKEN", 0);
+        let (owner, visual) = fixture.mount(cx);
+        wait(visual, |cx| {
+            owner
+                .read(cx)
+                .plugin_catalog
+                .metadata
+                .as_ref()
+                .is_some_and(|metadata| metadata.read(cx).entries.contains_key("example"))
+        });
+        wait(visual, |cx| !owner.read(cx).plugin_catalog.busy());
+        tap(visual, "plugin-menu-example");
+        visual.update(|window, cx| {
+            use gpui_kit::test::TestWindowExt as _;
+            let row = window.within("popup-menu").find(0_usize);
+            assert_eq!(row.label(), Some(tr("plugins_settings_title").as_ref()));
+            window.within("popup-menu").click(0_usize, cx);
+        });
+        shown(visual, "plugin-settings-form", true);
+        shown(visual, "plugin-live-details", false);
+        assert_eq!(
+            owner.read_with(visual, |owner, _| owner.section),
+            crate::settings::Section::Plugins
+        );
+        input(visual, "plugin-setting-label", "Configured from menu");
+        next(visual, "plugin-intent-token");
+        input(visual, "plugin-secret-token", "fixture-token");
+        tap(visual, "plugin-settings-save");
+        shown(visual, "plugin-settings-form", false);
+        assert_eq!(state(&fixture).values["label"], "Configured from menu");
+        fixture.close(visual);
+    }
+}

@@ -145,7 +145,21 @@ fn leaves_configuration_closed_without_settings(cx: &mut TestAppContext) {
                 .as_ref()
                 .is_some_and(|metadata| metadata.read(cx).entries.contains_key("example"))
         });
-        crate::settings::plugins::test_support::menu(visual, "plugin-menu-example", 0);
+        tap(visual, "plugin-menu-example");
+        visual.update(|window, _| {
+            use gpui_kit::test::TestWindowExt as _;
+            let labels: Vec<_> = (0..5)
+                .filter_map(|index| window.within("popup-menu").try_find(index))
+                .filter_map(|row| row.label().map(str::to_owned))
+                .collect();
+            assert!(
+                !labels
+                    .iter()
+                    .any(|label| label == tr("plugins_settings_title").as_ref())
+            );
+            assert!(!labels.is_empty());
+        });
+        visual.simulate_keystrokes("escape");
         shown(visual, "plugin-settings-form", false);
         fixture.close(visual);
     }

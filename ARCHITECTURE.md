@@ -434,6 +434,11 @@ startup does not reset or delete user data. Third-party dependency versions, ord
 data revisions and event sequences are independent. Release compatibility remains
 a separate decision.
 
+Plugin configuration opens in captured-Node Kit dialogs from cards, details,
+plugin panels and settings navigation. Schema forms and contributed native or
+scripted settings share this modal boundary; MCP authorization remains in details.
+Plugins without configuration fields or a settings surface have no configuration action.
+
 Conversation export reads canonical history through Client. Per-reply actions select
 one turn's final reply; session exports include user messages and final replies.
 Tool activity, reasoning and diagnostics are excluded. Markdown retains source syntax;

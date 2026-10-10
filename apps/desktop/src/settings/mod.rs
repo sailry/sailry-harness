@@ -227,6 +227,12 @@ impl Workspace {
     }
 
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let mut workspace = Self::unbound(window, cx);
+        providers::bind_local(&mut workspace, cx);
+        workspace
+    }
+
+    fn unbound(window: &mut Window, cx: &mut Context<Self>) -> Self {
         crate::preferences::init(cx);
         crate::feedback::observe_with(
             window,
@@ -283,7 +289,7 @@ impl Workspace {
         .detach();
         cx.observe(&terminal.font_size, |_, _, cx| cx.notify())
             .detach();
-        let mut workspace = Self {
+        Self {
             connections: cx.new(|cx| connections::Connections::new(window, cx)),
             section: Section::General,
             providers: providers::Store::default(),
@@ -313,9 +319,7 @@ impl Workspace {
             plugins: vec![plugins::Plugin::example()],
             plugin_serial: 0,
             plugin_catalog: plugins::Catalog::default(),
-        };
-        providers::bind_local(&mut workspace, cx);
-        workspace
+        }
     }
 
     pub fn select(&mut self, section: Section, cx: &mut Context<Self>) {

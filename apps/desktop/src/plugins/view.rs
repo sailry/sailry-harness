@@ -2,7 +2,7 @@ use super::{Panel, metadata};
 use crate::tr;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    component::{button::Button, *},
+    component::{button::Button, scroll::ScrollableElement as _, *},
     *,
 };
 
@@ -36,6 +36,16 @@ impl Render for Panel {
                 script.update(cx, |script, cx| script.refresh(cx));
             }
         }
+        let scroll_settings = self.surface == sailry_protocol::plugin::desktop::Surface::Settings
+            && self.selected.as_ref().is_some_and(|package| {
+                self.metadata
+                    .read(cx)
+                    .entries
+                    .get(&package.name)
+                    .and_then(|info| info.extension.as_ref())
+                    .and_then(|extension| extension.settings_page.as_ref())
+                    .is_some_and(|page| !page.full_width)
+            });
         let panel = v_flex()
             .id("plugin-panel")
             .debug_selector(|| "plugin-panel".into())
@@ -43,7 +53,7 @@ impl Render for Panel {
             .min_w_0()
             .min_h_0()
             .child(if let Some(mounted) = &self.mounted {
-                div()
+                let content = div()
                     .id(("plugin-content", mounted.root.entity_id()))
                     .relative()
                     .when(!self.content_sized, |panel| panel.flex_1())
@@ -57,8 +67,12 @@ impl Render for Panel {
                             view.capture_key_down(|_, _, cx| cx.stop_propagation())
                                 .child(div().absolute().inset_0().occlude())
                         },
-                    )
-                    .into_any_element()
+                    );
+                if scroll_settings {
+                    content.overflow_y_scrollbar().into_any_element()
+                } else {
+                    content.into_any_element()
+                }
             } else {
                 v_flex()
                     .id("plugin-panel-content")

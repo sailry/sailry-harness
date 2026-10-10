@@ -214,21 +214,13 @@ fn routes_pages_and_preserves_core_tabs(cx: &mut TestAppContext) {
             shell.read(cx).live.as_ref().unwrap().view.connected
         });
         click(visual, "browser-settings");
-        wait(visual, |cx| {
-            shell.read(cx).page == crate::preview::Page::Settings
-        });
-        assert!(shell.read_with(visual, |shell, cx| {
-            shell.settings_target == Some(fixture.node.id())
-                && shell.settings.read(cx).selected_plugin_settings() == Some("browser")
-        }));
-        wait(visual, |cx| {
-            shell
-                .read(cx)
-                .settings
-                .read(cx)
-                .plugin_settings_panel()
-                .is_some_and(|panel| snapshot(&panel, cx).contains("browser-settings-page"))
-        });
+        wait(visual, |_| true);
+        assert!(visual.update(|window, cx| window.has_active_dialog(cx)));
+        assert_ne!(
+            shell.read_with(visual, |shell, _| shell.page),
+            crate::preview::Page::Settings
+        );
+        click(visual, "plugin-config-close");
         visual.update(|window, cx| {
             shell.update(cx, |shell, cx| {
                 shell.navigate(crate::preview::Page::Conversation, window, cx)

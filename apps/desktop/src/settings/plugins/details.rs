@@ -171,11 +171,10 @@ fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) ->
                     }))
                     .when(
                         installed
-                            && state.info.as_ref().is_some_and(|info| {
-                                info.settings
-                                    .as_ref()
-                                    .is_some_and(|schema| !schema.properties.is_empty())
-                            }),
+                            && state
+                                .info
+                                .as_ref()
+                                .is_some_and(super::super::extensions::modal::configurable),
                         |footer| {
                             footer.child(
                                 Button::new("plugin-details-configure")
@@ -218,18 +217,20 @@ impl Details {
         let Target::Installed(expected) = &self.target else {
             return;
         };
-        if !self.info.as_ref().is_some_and(|info| {
-            info.settings
-                .as_ref()
-                .is_some_and(|schema| !schema.properties.is_empty())
-        }) {
+        let Some(info) = self
+            .info
+            .clone()
+            .filter(super::super::extensions::modal::configurable)
+        else {
+            return;
+        };
+        if info.summary.reference() != expected.reference() {
             return;
         }
         let binding = self.binding.clone();
-        let expected = expected.clone();
         self.stop.cancel();
         window.close_dialog(cx);
-        configuration::mount(binding, expected, window, cx);
+        super::super::extensions::modal::open(binding, info, vec![], window, cx);
     }
 
     fn pending(&self, cx: &App) -> bool {

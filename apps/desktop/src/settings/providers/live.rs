@@ -53,7 +53,18 @@ impl Workspace {
         label: SharedString,
         cx: &mut Context<Self>,
     ) {
-        let node = transport.target();
+        self.bind_client(
+            Binding {
+                client: Arc::new(Client::new(transport)),
+                runtime,
+                label,
+            },
+            cx,
+        );
+    }
+
+    pub(in crate::settings) fn bind_client(&mut self, binding: Binding, cx: &mut Context<Self>) {
+        let node = binding.client.target();
         if self
             .provider_link
             .as_ref()
@@ -71,11 +82,6 @@ impl Workspace {
         self.role_catalog = Default::default();
         self.plugin_catalog = Default::default();
         self.extensions = super::super::extensions::State::reset(self.extensions.selected.clone());
-        let binding = Binding {
-            client: Arc::new(Client::new(transport)),
-            runtime,
-            label,
-        };
         let metadata = cx.new(|_| {
             super::super::plugins::Metadata::new(binding.client.clone(), binding.runtime.clone())
         });

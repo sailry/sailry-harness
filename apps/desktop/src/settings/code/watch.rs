@@ -1,5 +1,5 @@
 use super::*;
-use sailry_protocol::{Topic, Update};
+use sailry_protocol::Update;
 use std::time::Duration;
 
 impl Panel {
@@ -11,14 +11,14 @@ impl Panel {
         let generation = self.generation;
         let stop = CancellationToken::new();
         self.stop = Some(stop.clone());
-        let transport = self.transport.clone();
+        let client = self.binding.client.clone();
         let node = self.binding.client.target();
         let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
         self.binding.runtime.spawn(async move {
             loop {
                 let stream = tokio::select! {
                     _ = stop.cancelled() => break,
-                    stream = transport.subscribe(Topic::CodeInstallations) => stream,
+                    stream = client.subscribe_code_installations() => stream,
                 };
                 if let Ok(mut stream) = stream {
                     loop {

@@ -430,13 +430,7 @@ pub(super) fn open(
                 .settings
                 .update(cx, |settings, cx| settings.select(section, cx));
         }
-        Target::PluginSetting(entry) => {
-            shell.navigate(Page::Settings, window, cx);
-            shell.settings_target = Some(entry.node);
-            shell.settings.update(cx, |settings, cx| {
-                settings.open_plugin_settings(&entry.package.name, cx)
-            });
-        }
+        Target::PluginSetting(entry) => shell.open_settings_entry(entry, window, cx),
         Target::Folder(_) => {}
     }
 }

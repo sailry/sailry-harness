@@ -128,6 +128,12 @@ impl Client {
             .await
     }
 
+    pub async fn subscribe_code_installations(&self) -> Result<Box<dyn Subscription>, Fault> {
+        self.transport
+            .subscribe(sailry_protocol::Topic::CodeInstallations)
+            .await
+    }
+
     pub async fn subscribe_browser(&self) -> Result<Box<dyn Subscription>, Fault> {
         self.transport
             .subscribe(sailry_protocol::Topic::Browser)
