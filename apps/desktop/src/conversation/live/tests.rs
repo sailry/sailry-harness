@@ -314,8 +314,9 @@ fn resumes_after_close(cx: &mut TestAppContext) {
                 .turn
         });
         visual.update(|window, cx| window.draw(cx).clear(cx));
+        // Stopped turns keep their actions.
         let selector = Box::leak(format!("live-turn-more-{cancelled}").into_boxed_str());
-        assert!(visual.debug_bounds(selector).is_none());
+        assert!(visual.debug_bounds(selector).is_some());
         click(visual, "live-chat-input");
         visual.simulate_input("survives closing");
         click(visual, "live-chat-send");

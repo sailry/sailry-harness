@@ -369,7 +369,7 @@ async fn preserves_stopped_and_interrupted_input() {
 }
 
 #[tokio::test]
-async fn follows_natural_child_completion() {
+async fn interrupts_awaited_child_response() {
     for remote in [false, true] {
         let release = sailry_link::CancellationToken::new();
         let parent = Server::turn_tools(vec![(
@@ -388,19 +388,17 @@ async fn follows_natural_child_completion() {
         let recipient = history(&fixture.client, child.id).await.runs[0].clone();
         let Output::QueuedTurn(guided) = fixture
             .client
-            .execute(prepare(
-                &fixture,
-                &recipient,
-                "Follow up after completion".into(),
-            ))
+            .execute(prepare(&fixture, &recipient, "Change direction now".into()))
             .await
             .unwrap()
         else {
             panic!("guided turn expected")
         };
+        // The awaited child response yields before release; guidance runs next.
+        fixture.child.wait_count(2).await;
         release.cancel();
         let page = finished(&fixture.client, child.id, guided.id).await;
-        assert_eq!(status(&page, recipient.turn), Status::Completed);
+        assert_eq!(status(&page, recipient.turn), Status::Continued);
         assert_eq!(status(&page, guided.id), Status::Completed);
         let page = finished(&fixture.client, fixture.session.id, parent.id).await;
         assert_eq!(results(&page)[0]["turn"], json!(guided.id));

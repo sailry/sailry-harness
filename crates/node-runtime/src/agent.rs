@@ -341,7 +341,8 @@ async fn execute_with(
         }))
         .before_model_callback(guidance::bind(ingress, invocation.turn.id))
         .before_model_callback(approval::bind(ingress, invocation.turn.id, content.clone()))
-        .before_model_callback(preamble);
+        .before_model_callback(preamble)
+        .before_tool_callback(guidance::settle(ingress, invocation.turn.id));
     if let Some(hooks) = hooks {
         agent = agent
             .before_tool_callback(hooks.before())
@@ -479,6 +480,10 @@ async fn execute_with(
                     if answer::present(&event) {
                         proposal = Some(event.id.clone());
                     }
+                }
+                if !event.llm_response.partial {
+                    // The terminal response is committed; only its tools can follow.
+                    ingress.agents.model_settled(turn);
                 }
                 if event.llm_response.partial {
                     ingress.partial(target, turn, event).await?;

@@ -1095,6 +1095,13 @@ impl Store {
                                     | sailry_protocol::Command::GuideTurn { .. }
                                     | sailry_protocol::Command::SetQueuePaused { .. }
                             );
+                            let guiding = match &request.command {
+                                sailry_protocol::Command::GuideTurn { recipient, .. }
+                                | sailry_protocol::Command::GuideQueuedTurn { recipient, .. } => {
+                                    Some(*recipient)
+                                }
+                                _ => None,
+                            };
                             let sending = match request.command {
                                 sailry_protocol::Command::SendQueuedTurn { turn, .. } => Some(turn),
                                 _ => None,
@@ -1195,6 +1202,13 @@ impl Store {
                             }
                             for turn in transaction_stops {
                                 if agent::stopping(&database.connection, turn) {agents.cancel(turn);}
+                            }
+                            if let Some(recipient) = guiding
+                                && let Err(error) = agents.interrupt_model(recipient, || {
+                                    agent::queue::guidance::yield_run(&mut database, recipient, &events)
+                                })
+                            {
+                                eprintln!("guidance could not interrupt the model response: {error}");
                             }
                             if let Some(selected) = sending
                                 && let Ok(turns) =

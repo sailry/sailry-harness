@@ -66,6 +66,20 @@ async fn tools(fixture: &mut Fixture) {
     fixture.provider = provider;
 }
 
+/// Starts a task waiting on a user answer, outside its interruptible model phase.
+async fn asking(remote: bool) -> (Fixture, QueuedTurn) {
+    let server = Server::tools(vec![(
+        "ask_user".into(),
+        json!({"prompt": "Describe the task", "input": {"kind": "text", "multiline": true, "max_bytes": 1024}}),
+    )])
+    .await;
+    let mut fixture = Fixture::with_server(remote, server).await;
+    tools(&mut fixture).await;
+    let active = fixture.push("Initial task").await;
+    questions::pending(&fixture.client, fixture.session.id).await;
+    (fixture, active)
+}
+
 #[tokio::test]
 async fn settles_tool_batch() {
     for remote in [false, true] {
@@ -173,29 +187,26 @@ async fn settles_tool_batch() {
 }
 
 #[tokio::test]
-async fn follows_natural_completion() {
+async fn interrupts_awaited_response() {
     for remote in [false, true] {
         let release = CancellationToken::new();
         let server = Server::markdown_held("Natural answer".into(), release.clone()).await;
         let fixture = Fixture::with_server(remote, server).await;
         let active = fixture.push("Initial task").await;
         fixture.server.wait_count(1).await;
-        let selected = held(&fixture, "Follow up without interruption".into()).await;
+        let selected = held(&fixture, "Change direction now".into()).await;
         fixture
             .client
             .execute(guide(&fixture, selected.id, active.id, 1))
             .await
             .unwrap();
-        assert_eq!(
-            status(
-                &history(&fixture.client, fixture.session.id).await,
-                active.id
-            ),
-            Status::Running
-        );
+        // The pending model response yields; guidance starts its own request.
+        fixture.server.wait_count(2).await;
+        let page = history(&fixture.client, fixture.session.id).await;
+        assert_eq!(status(&page, active.id), Status::Continued);
+        assert_eq!(status(&page, selected.id), Status::Running);
         release.cancel();
         let page = finished(&fixture.client, fixture.session.id, selected.id).await;
-        assert_eq!(status(&page, active.id), Status::Completed);
         assert_eq!(status(&page, selected.id), Status::Completed);
         assert_eq!(fixture.server.requests.lock().unwrap().len(), 2);
         assert!(page.queue.items.is_empty());
@@ -204,11 +215,72 @@ async fn follows_natural_completion() {
 }
 
 #[tokio::test]
+async fn retains_streamed_text() {
+    for remote in [false, true] {
+        let fixture = Fixture::start(remote, true).await;
+        let active = fixture.push("Initial task").await;
+        let mut stream = fixture
+            .client
+            .subscribe_conversation(fixture.session.id)
+            .await
+            .unwrap();
+        let streamed = |draft: &sailry_protocol::conversation::Draft| {
+            draft.turn == active.id && draft.parts == vec![Part::Text("partial-fixture".into())]
+        };
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                match stream.next().await.unwrap() {
+                    Update::ConversationSnapshot(snapshot)
+                        if snapshot.drafts.iter().any(streamed) =>
+                    {
+                        break;
+                    }
+                    Update::ConversationFrame(frame)
+                        if matches!(&frame.change, sailry_protocol::conversation::Change::Delta(draft) if streamed(draft)) =>
+                    {
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let selected = held(&fixture, "Stop and summarize".into()).await;
+        fixture
+            .client
+            .execute(guide(&fixture, selected.id, active.id, 1))
+            .await
+            .unwrap();
+        fixture.server.wait_count(2).await;
+        let page = history(&fixture.client, fixture.session.id).await;
+        assert_eq!(status(&page, active.id), Status::Continued);
+        assert_eq!(
+            page.entries
+                .iter()
+                .filter(|entry| entry.turn == active.id
+                    && entry.parts == vec![Part::Text("partial-fixture".into())])
+                .count(),
+            1
+        );
+        fixture
+            .client
+            .execute(
+                fixture
+                    .client
+                    .prepare(Command::StopTurn { turn: selected.id }),
+            )
+            .await
+            .unwrap();
+        finished(&fixture.client, fixture.session.id, selected.id).await;
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
 async fn preserves_stopped_input() {
     for remote in [false, true] {
-        let mut fixture = Fixture::start(remote, true).await;
-        let active = fixture.push("Initial task").await;
-        fixture.server.wait_count(1).await;
+        let (mut fixture, active) = asking(remote).await;
         let bytes = b"Retained attachment";
         let Output::AttachmentUpload(upload) = fixture
             .client
@@ -341,9 +413,7 @@ async fn preserves_stopped_input() {
 #[tokio::test]
 async fn retargets_without_discarding_input() {
     for remote in [false, true] {
-        let fixture = Fixture::start(remote, true).await;
-        let active = fixture.push("Initial task").await;
-        fixture.server.wait_count(1).await;
+        let (fixture, active) = asking(remote).await;
         let first = held(&fixture, "First guidance".into()).await;
         let second = held(&fixture, "Second guidance".into()).await;
         fixture
@@ -411,9 +481,7 @@ async fn retargets_without_discarding_input() {
 #[tokio::test]
 async fn retains_recipient_capture() {
     for remote in [false, true] {
-        let mut fixture = Fixture::start(remote, true).await;
-        let active = fixture.push("Initial task").await;
-        fixture.server.wait_count(1).await;
+        let (mut fixture, active) = asking(remote).await;
         for config in [
             SessionConfig {
                 effort: Effort::Low,

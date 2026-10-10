@@ -16,6 +16,8 @@ struct Active {
     python: Vec<crate::python::Access>,
     finishing: bool,
     yielded: bool,
+    /// Awaiting or streaming a model response; no tool from this response has started.
+    modeling: bool,
 }
 
 struct Child {
@@ -49,6 +51,7 @@ impl Controls {
                 python: Vec::new(),
                 finishing: false,
                 yielded: false,
+                modeling: false,
             },
         );
     }
@@ -174,6 +177,47 @@ impl Controls {
         }
     }
 
+    pub(crate) fn model_started(&self, turn: TurnId) {
+        if let Some(active) = self.active.lock().unwrap().get_mut(&turn) {
+            active.modeling = true;
+        }
+    }
+
+    /// Ends the model phase before tools run. Returns false once guidance has taken over;
+    /// an explicit Stop keeps its ordinary tool-phase settlement.
+    pub(crate) fn model_settled(&self, turn: TurnId) -> bool {
+        let mut runs = self.active.lock().unwrap();
+        let Some(active) = runs.get_mut(&turn) else {
+            return true;
+        };
+        active.modeling = false;
+        !active.yielded
+    }
+
+    /// Yields a run still in its model phase; tool batches always settle first.
+    pub(crate) fn interrupt_model(
+        &self,
+        turn: TurnId,
+        handoff: impl FnOnce() -> Result<bool, Fault>,
+    ) -> Result<bool, Fault> {
+        let mut runs = self.active.lock().unwrap();
+        let Some(active) = runs.get_mut(&turn) else {
+            return Ok(false);
+        };
+        if !active.modeling
+            || active.finishing
+            || active.stop.is_cancelled()
+            || self.stopped.is_cancelled()
+            || !handoff()?
+        {
+            return Ok(false);
+        }
+        active.modeling = false;
+        active.yielded = true;
+        active.stop.cancel();
+        Ok(true)
+    }
+
     pub fn yielded(&self, turn: TurnId) -> bool {
         self.active
             .lock()
@@ -282,6 +326,28 @@ impl Controls {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn interrupts_only_model_phase() {
+        let controls = Controls::default();
+        let turn = TurnId::new();
+        let stop = CancellationToken::new();
+        controls.register(turn, SessionId::new(), stop.clone());
+        let handoff = || Ok(true);
+        assert!(!controls.interrupt_model(turn, handoff).unwrap());
+        controls.model_started(turn);
+        assert!(!controls.interrupt_model(turn, || Ok(false)).unwrap());
+        assert!(controls.model_settled(turn));
+        assert!(!controls.interrupt_model(turn, handoff).unwrap());
+        assert!(!stop.is_cancelled());
+        controls.model_started(turn);
+        assert!(controls.interrupt_model(turn, handoff).unwrap());
+        assert!(stop.is_cancelled() && controls.yielded(turn));
+        // Tools from an interrupted response never start.
+        assert!(!controls.model_settled(turn));
+        controls.cancel(turn);
+        assert!(controls.model_settled(turn));
+    }
 
     #[tokio::test]
     async fn streams_only_active_owned_runs() {

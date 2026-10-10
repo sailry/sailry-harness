@@ -291,9 +291,11 @@ and wait for them through Node-owned tools. Main-session completion waits for
 owned children, while explicit Stop cancels them. Child views are read-only;
 their approvals retain the child identity and are presented in the main session.
 
-Guidance is durably admitted before execution and hands off after the whole tool
-batch settles, before the next model request. A new ADK invocation continues the
-same session history; it does not inject into an in-flight model stream. If a
+Guidance is durably admitted before execution. While the recipient awaits or
+streams a model response, admission interrupts that response and retains its
+visible output; once the response's tools start, guidance waits until the whole
+tool batch settles, before the next model request. A new ADK invocation continues
+the same session history. If a
 queued input has a different capture, explicit guidance admits a replacement
 using the recipient's capture without modifying the original sent-turn record.
 A controller may also guide the running main-session task directly; that input
