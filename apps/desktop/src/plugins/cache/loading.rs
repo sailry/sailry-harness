@@ -1,9 +1,52 @@
 //! Capacity contention may delay a view read without invalidating its captured owner.
+use super::Cache;
 use sailry_client::Client;
 use sailry_link::CancellationToken;
 use sailry_protocol::{Command, ErrorCode, Fault, Output, plugin};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::{Instant, sleep_until};
+
+pub(in crate::plugins) async fn prepare(
+    client: Arc<Client>,
+    runtime: tokio::runtime::Handle,
+    package: plugin::Reference,
+    surface: plugin::desktop::Surface,
+    stop: CancellationToken,
+) -> Option<Result<Arc<Cache>, &'static str>> {
+    let bundle = match read(&client, package.clone(), surface, &stop).await? {
+        Ok(Output::PluginView(bundle)) => bundle,
+        Err(error) => {
+            eprintln!(
+                "sailry-desktop: plugin {} view read failed: {error}",
+                package.name
+            );
+            return Some(Err("plugins_view_read_failed"));
+        }
+        Ok(_) => return Some(Err("plugins_view_read_failed")),
+    };
+    if stop.is_cancelled() {
+        return None;
+    }
+    let worker = runtime.clone();
+    let result = runtime
+        .spawn_blocking(move || Cache::create(bundle, &package, worker))
+        .await;
+    if stop.is_cancelled() {
+        return None;
+    }
+    Some(match result {
+        Ok(Ok(cache)) => Ok(Arc::new(cache)),
+        Ok(Err(error)) => {
+            eprintln!("sailry-desktop: plugin view cache failed: {error}");
+            Err("plugins_view_read_failed")
+        }
+        Err(error) => {
+            eprintln!("sailry-desktop: plugin view cache task failed: {error}");
+            Err("plugins_view_read_failed")
+        }
+    })
+}
 
 pub(super) async fn read(
     client: &Client,

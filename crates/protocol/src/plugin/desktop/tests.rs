@@ -456,3 +456,24 @@ fn shared_controls_require_a_controller() {
         view,
     );
 }
+
+#[test]
+fn retention_defaults_and_round_trips() {
+    let options: NavigationOptions = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert_eq!(options.retention, Retention::None);
+    for value in [
+        serde_json::json!({"mode":"none"}),
+        serde_json::json!({"mode":"always"}),
+        serde_json::json!({"mode":"idle","seconds":300}),
+    ] {
+        let policy: Retention = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(policy).unwrap(), value);
+    }
+    for value in [
+        serde_json::json!({"mode":"idle","seconds":0}),
+        serde_json::json!({"mode":"idle"}),
+        serde_json::json!({"mode":"unknown"}),
+    ] {
+        assert!(serde_json::from_value::<Retention>(value).is_err());
+    }
+}

@@ -31,6 +31,8 @@ pub(super) struct State {
     pub selected: Option<String>,
     panel: Option<Entity<Panel>>,
     form: Option<Entity<super::plugins::configuration::Editor>>,
+    resources: Option<crate::plugins::preload::Resources>,
+    warmed: bool,
 }
 
 impl State {
@@ -45,9 +47,96 @@ impl State {
         self.panel = None;
         self.form = None;
     }
+
+    pub(super) fn retain_resources(&mut self, summaries: &[sailry_protocol::plugin::Summary]) {
+        if let Some(resources) = &mut self.resources {
+            resources.retain(summaries);
+        }
+    }
+
+    pub(super) fn clear_resources(&mut self) {
+        self.resources = None;
+        self.warmed = false;
+    }
 }
 
 impl Workspace {
+    pub(crate) fn preload_settings(&mut self, name: &str, cx: &App) {
+        let _ = self.prepare_settings(name, cx);
+    }
+
+    fn prepare_settings(
+        &mut self,
+        name: &str,
+        cx: &App,
+    ) -> Option<crate::plugins::preload::Prepared> {
+        let live = self.provider_link.as_ref().filter(|live| live.connected)?;
+        let info = self
+            .plugin_catalog
+            .metadata
+            .as_ref()?
+            .read(cx)
+            .entries
+            .get(name)?;
+        info.extension
+            .as_ref()?
+            .settings_page
+            .as_ref()?
+            .entry
+            .as_ref()?;
+        let package = info.summary.reference();
+        let resources = self.extensions.resources.get_or_insert_with(|| {
+            crate::plugins::preload::Resources::new(
+                live.binding.client.clone(),
+                live.binding.runtime.handle().clone(),
+            )
+        });
+        Some(resources.prepare(package))
+    }
+
+    pub(super) fn warm_settings(&mut self, cx: &App) {
+        if self.section.is_extension()
+            || self.extensions.warmed
+            || !self
+                .provider_link
+                .as_ref()
+                .is_some_and(|live| live.connected)
+        {
+            return;
+        }
+        let Some(metadata) = self
+            .plugin_catalog
+            .metadata
+            .as_ref()
+            .map(|metadata| metadata.read(cx))
+        else {
+            return;
+        };
+        if !metadata.settled() || metadata.entries.is_empty() {
+            return;
+        }
+        // Passive warming must not evict a resource already requested by navigation.
+        let remaining = self.extensions.resources.as_ref().map_or(
+            crate::plugins::preload::CAPACITY,
+            crate::plugins::preload::Resources::remaining,
+        );
+        let names: Vec<_> = metadata
+            .entries
+            .values()
+            .filter(|info| {
+                info.extension
+                    .as_ref()
+                    .and_then(|extension| extension.settings_page.as_ref())
+                    .is_some_and(|page| page.entry.is_some())
+            })
+            .take(remaining)
+            .map(|info| info.summary.name.clone())
+            .collect();
+        self.extensions.warmed = true;
+        for name in names {
+            self.preload_settings(&name, cx);
+        }
+    }
     pub(crate) fn configure_plugin(
         &mut self,
         name: &str,
@@ -158,6 +247,7 @@ impl Workspace {
     }
 
     pub(crate) fn open_plugin_settings(&mut self, name: &str, cx: &mut Context<Self>) {
+        self.preload_settings(name, cx);
         self.deactivate(cx);
         self.section = Section::Plugin;
         self.extensions.selected = Some(name.into());
@@ -267,6 +357,7 @@ impl Workspace {
             return self.schema_settings(info, window, cx);
         }
         if self.extensions.panel.is_none() {
+            let prepared = self.prepare_settings(&name, cx);
             let Some(live) = &self.provider_link else {
                 return div().into_any_element();
             };
@@ -291,7 +382,7 @@ impl Workspace {
                 });
             }
             let panel = cx.new(|cx| {
-                let panel = Panel::settings(binding, cx);
+                let panel = Panel::settings(binding, cx).with_prepared(prepared);
                 panel.usage_sources.set(sources);
                 panel
             });

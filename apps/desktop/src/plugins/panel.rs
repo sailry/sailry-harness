@@ -1,14 +1,10 @@
-use super::{cache::Cache, host::Host, metadata::Metadata, runtime::Mounted};
+use super::{host::Host, metadata::Metadata, runtime::Mounted};
 use crate::conversation::live::{Binding, View as Chat};
 use gpui_kit::*;
 use sailry_client::View;
 use sailry_link::CancellationToken;
-use sailry_protocol::{
-    Output,
-    plugin::{Context as Scope, Reference, Summary},
-};
+use sailry_protocol::plugin::{Context as Scope, Reference, Summary};
 use std::{cell::RefCell, rc::Rc};
-mod loading;
 
 pub(super) type Snapshot = Rc<RefCell<Option<sailry_protocol::Snapshot>>>;
 
@@ -39,6 +35,7 @@ pub(crate) struct Panel {
     pub(super) selected: Option<Reference>,
     pub(super) mounted: Option<Mounted>,
     pub(super) loading: bool,
+    prepared: Option<super::preload::Prepared>,
     reload: bool,
     pub(super) error: Option<&'static str>,
     pub(super) viewport: Option<Size<Pixels>>,
@@ -179,6 +176,11 @@ impl Panel {
         panel
     }
 
+    pub(crate) fn with_prepared(mut self, prepared: Option<super::preload::Prepared>) -> Self {
+        self.prepared = prepared;
+        self
+    }
+
     pub(crate) fn contributions(
         binding: Binding,
         session: Option<sailry_protocol::SessionId>,
@@ -280,6 +282,7 @@ impl Panel {
             selected: None,
             mounted: None,
             loading: false,
+            prepared: None,
             reload: false,
             error: None,
             viewport: None,
@@ -477,37 +480,29 @@ impl Panel {
         let binding = self.binding.clone();
         let expected = package.clone();
         let surface = self.surface;
+        let prepared = self
+            .prepared
+            .take()
+            .filter(|prepared| prepared.package == expected);
         let job = self.binding.runtime.spawn(async move {
-            let result =
-                loading::read(&binding.client, expected.clone(), surface, &cancellation).await?;
-            let bundle = match result {
-                Ok(Output::PluginView(bundle)) => bundle,
-                Err(error) => {
-                    eprintln!(
-                        "sailry-desktop: plugin {} view read failed: {error}",
-                        expected.name
-                    );
-                    return Some(Err("plugins_view_read_failed"));
+            if let Some(prepared) = prepared {
+                let result = tokio::select! {
+                    biased;
+                    _ = cancellation.cancelled() => return None,
+                    result = prepared.load() => result,
+                };
+                if result.is_some() {
+                    return result;
                 }
-                Ok(_) => return Some(Err("plugins_view_read_failed")),
-            };
-            let runtime = binding.runtime.handle().clone();
-            let name = expected.name.clone();
-            let result = binding
-                .runtime
-                .spawn_blocking(move || Cache::create(bundle, &expected, runtime))
-                .await;
-            Some(match result {
-                Ok(Ok(cache)) => Ok(cache),
-                Ok(Err(error)) => {
-                    eprintln!("sailry-desktop: plugin {name} view cache failed: {error}");
-                    Err("plugins_view_read_failed")
-                }
-                Err(error) => {
-                    eprintln!("sailry-desktop: plugin {name} view cache task failed: {error}");
-                    Err("plugins_view_read_failed")
-                }
-            })
+            }
+            super::cache::prepare(
+                binding.client,
+                binding.runtime.handle().clone(),
+                expected,
+                surface,
+                cancellation,
+            )
+            .await
         });
         let cancellation = self.load_stop.clone();
         self.load = Some(cx.spawn_in(window, async move |panel, cx| {

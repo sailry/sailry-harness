@@ -9,6 +9,7 @@ use sailry_protocol::{
 };
 use std::sync::Arc;
 mod desktop;
+mod retention;
 
 /// Navigation is a UI action; the existing conversation route owns all loading.
 pub(super) fn ui(
@@ -149,6 +150,7 @@ pub(crate) struct Navigation {
     pub metadata: Entity<Metadata>,
     desktop: Entity<desktop::Desktop>,
     pub(super) panels: Vec<(Entry, Entity<Panel>)>,
+    expiry: std::collections::HashMap<EntityId, Task<()>>,
     pub panel: Option<Entity<Panel>>,
     pub selected: Option<Entry>,
     pub label: SharedString,
@@ -414,6 +416,7 @@ impl Shell {
                     metadata,
                     desktop,
                     panels: Vec::new(),
+                    expiry: Default::default(),
                     panel: None,
                     selected: None,
                     label: crate::tr("settings_plugins"),
@@ -462,9 +465,25 @@ impl Shell {
                 })
             })
         });
+        state.expiry.retain(|id, _| {
+            state
+                .panels
+                .iter()
+                .any(|(_, panel)| panel.entity_id() == *id)
+        });
+        if self.page != Page::Plugin
+            && state
+                .panel
+                .as_ref()
+                .is_some_and(|panel| !state.panels.iter().any(|(_, cached)| cached == panel))
+        {
+            state.panel = None;
+            state.selected = None;
+        }
         // A visible panel can refresh its package/settings revision in place.
         // Retain that replacement too once it belongs to the current catalog.
-        if let Some(panel) = &state.panel
+        if self.page == Page::Plugin
+            && let Some(panel) = &state.panel
             && !state.panels.iter().any(|(_, cached)| cached == panel)
             && let Some(entry) = entries.iter().find(|entry| {
                 let panel = panel.read(cx);
@@ -751,6 +770,15 @@ impl Shell {
         }) {
             return;
         }
+        if self.page == Page::Plugin
+            && self
+                .extensions
+                .as_ref()
+                .and_then(|state| state.selected.as_ref())
+                != Some(&entry)
+        {
+            self.park_extension(cx);
+        }
         self.navigate(Page::Plugin, window, cx);
         let state = self.extensions.as_mut().unwrap();
         let loadable = entry.navigation.target
@@ -762,6 +790,7 @@ impl Shell {
                 && cached.package == entry.package
                 && cached.worktree == entry.worktree
         }) {
+            state.expiry.remove(&panel.entity_id());
             state.panel = Some(panel.clone());
             state.selected = Some(entry.clone());
             if loadable {

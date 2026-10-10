@@ -441,6 +441,18 @@ pages open their existing panels from configuration actions and
 settings navigation. Other configurable plugins use the shared schema form dialog,
 with the Node and package captured when opened. MCP authorization remains in details.
 Plugins without configuration fields or a settings surface have no configuration action.
+Scripted settings pages preload up to four validated resource bundles per captured
+Node, warming on settings entry and navigation hover. Preloading never executes
+scripts or reads configuration values. Returning to a page reuses those files but
+creates a fresh view and reads current data; leaving releases the view and its
+runtime. Leaving the settings area releases all prepared resources. Recent resource
+entries are bounded and invalidated by package/settings revisions, disconnects and
+Node changes. Workspace plugins declare `navigation_options.retention`: `none`
+releases on navigation, `always` retains until window close, and `idle` expires
+after a declared number of seconds away. The host owns these lifetimes, cancels
+expiry on return, and invalidates stale packages regardless of retention. Omitting the
+policy defaults to `none`; bundled games, editors and connection views explicitly
+use `always` to preserve their interactive state.
 
 Conversation export reads canonical history through Client. Per-reply actions select
 one turn's user message and final reply; session exports include all user messages

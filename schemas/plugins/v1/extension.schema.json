@@ -5,6 +5,7 @@
         {
           "enum": [
             "code.read",
+            "code.manage",
             "activity.read",
             "usage.read",
             "databases.read",
@@ -383,6 +384,33 @@
     },
     "Declaration2": {
       "additionalProperties": false,
+      "properties": {
+        "credentials": {
+          "description": "Existing HTTP credential fields filled by this account's access token.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "provider": {
+          "$ref": "#/$defs/Provider"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "provider",
+        "scopes",
+        "credentials"
+      ],
+      "type": "object"
+    },
+    "Declaration3": {
+      "additionalProperties": false,
       "description": "A plugin can configure only its own named tool; native tools omit the MCP server.",
       "properties": {
         "contexts": {
@@ -466,7 +494,7 @@
       ],
       "type": "object"
     },
-    "Declaration3": {
+    "Declaration4": {
       "additionalProperties": false,
       "properties": {
         "capability": {
@@ -784,6 +812,9 @@
             "details": false,
             "order": 10000,
             "pinned": false,
+            "retention": {
+              "mode": "none"
+            },
             "surface": "workspace",
             "target": "node"
           },
@@ -948,6 +979,12 @@
           "default": false,
           "type": "boolean"
         },
+        "retention": {
+          "$ref": "#/$defs/Retention",
+          "default": {
+            "mode": "none"
+          }
+        },
         "surface": {
           "$ref": "#/$defs/Surface",
           "default": "workspace"
@@ -990,6 +1027,9 @@
     },
     "Operation": {
       "enum": [
+        "code.packages",
+        "code.install",
+        "code.uninstall",
         "code.diagnostics",
         "code.definition",
         "code.references",
@@ -1024,6 +1064,8 @@
         "files.find",
         "files.search",
         "office.read",
+        "notebook.read",
+        "notebook.edit",
         "media.inspect",
         "media.image",
         "media.video",
@@ -1241,6 +1283,14 @@
       ],
       "type": "object"
     },
+    "Provider": {
+      "enum": [
+        "google",
+        "microsoft",
+        "dingtalk"
+      ],
+      "type": "string"
+    },
     "Reference": {
       "additionalProperties": false,
       "properties": {
@@ -1299,6 +1349,56 @@
         "git"
       ],
       "type": "string"
+    },
+    "Retention": {
+      "description": "Workspace view lifetime; settings always release their view on navigation.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "always",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "idle",
+              "type": "string"
+            },
+            "seconds": {
+              "format": "uint32",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "mode",
+            "seconds"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "Rows": {
       "additionalProperties": false,
@@ -1760,9 +1860,19 @@
       "default": [],
       "description": "Provider-executed capabilities; these are not local function handlers.",
       "items": {
-        "$ref": "#/$defs/Declaration3"
+        "$ref": "#/$defs/Declaration4"
       },
       "type": "array"
+    },
+    "oauth": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Declaration2"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "scope": {
       "$ref": "#/$defs/Scope",
@@ -1801,7 +1911,7 @@
       "default": [],
       "description": "Output presentation for tools provided by this package.",
       "items": {
-        "$ref": "#/$defs/Declaration2"
+        "$ref": "#/$defs/Declaration3"
       },
       "type": "array"
     },

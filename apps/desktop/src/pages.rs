@@ -10,8 +10,7 @@ impl Shell {
         {
             let node = self.settings_target.unwrap_or(live.selected);
             let Some(transport) = live.transport_for(node) else {
-                self.settings
-                    .update(cx, |settings, cx| settings.deactivate(cx));
+                self.settings.update(cx, |settings, cx| settings.leave(cx));
                 return div().size_full().into_any_element();
             };
             let runtime = cx.global::<crate::backend::Services>().runtime.clone();

@@ -1,4 +1,6 @@
+mod loading;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+pub(super) use loading::prepare;
 use sailry_protocol::{
     ErrorCode, Fault,
     plugin::{Reference, desktop::Bundle},

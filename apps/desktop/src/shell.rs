@@ -311,9 +311,11 @@ impl Shell {
             self.restore_session_scope(cx);
         }
         self.settings_target = None;
+        if self.page == Page::Plugin && page != Page::Plugin {
+            self.park_extension(cx);
+        }
         if matches!(self.page, Page::Settings | Page::Plugins) && self.page != page {
-            self.settings
-                .update(cx, |settings, cx| settings.deactivate(cx));
+            self.settings.update(cx, |settings, cx| settings.leave(cx));
         }
         let page = if self.live.is_none()
             && self.workspace.selected_owner(self.host).is_none()

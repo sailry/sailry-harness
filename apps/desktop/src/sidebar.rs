@@ -488,6 +488,17 @@ impl Shell {
                         return;
                     }
                     this.sidebar.hovered = Some(row);
+                    if let Row::PluginSetting(index) = row
+                        && let Some(entry) = this
+                            .settings
+                            .read(cx)
+                            .plugin_settings_entries(cx)
+                            .get(index)
+                    {
+                        let name = entry.name.clone();
+                        this.settings
+                            .update(cx, |settings, cx| settings.preload_settings(&name, cx));
+                    }
                     if let Row::LiveSession(id) | Row::RecentSession(id) | Row::ActiveSession(id) =
                         row
                     {

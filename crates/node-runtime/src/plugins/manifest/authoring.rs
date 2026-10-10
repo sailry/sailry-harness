@@ -51,6 +51,43 @@ fn exports_match_the_deserialization_contract() {
 }
 
 #[test]
+fn validates_navigation_retention_offline() {
+    let validator = validator();
+    let mut manifest: Value =
+        serde_json::from_slice(include_bytes!("../../../../../plugins/ssh/plugin.json")).unwrap();
+    for policy in [
+        json!({"mode":"none"}),
+        json!({"mode":"always"}),
+        json!({"mode":"idle","seconds":300}),
+    ] {
+        manifest["extensions"]["dev.sailry.platform"]["desktop"]["navigation_options"]["retention"] =
+            policy;
+        assert!(validator.is_valid(&manifest));
+        assert!(
+            parse(&serde_json::to_vec(&manifest).unwrap())
+                .unwrap()
+                .issues
+                .is_empty()
+        );
+    }
+    for policy in [
+        json!({"mode":"idle","seconds":0}),
+        json!({"mode":"idle"}),
+        json!({"mode":"unknown"}),
+    ] {
+        manifest["extensions"]["dev.sailry.platform"]["desktop"]["navigation_options"]["retention"] =
+            policy;
+        assert!(!validator.is_valid(&manifest));
+        assert!(
+            parse(&serde_json::to_vec(&manifest).unwrap())
+                .unwrap()
+                .extension
+                .is_none()
+        );
+    }
+}
+
+#[test]
 fn validates_host_settings_adapters_offline() {
     let validator = validator();
     for bytes in [

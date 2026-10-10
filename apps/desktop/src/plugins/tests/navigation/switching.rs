@@ -175,8 +175,13 @@ fn empty_resources_stay_unloaded(cx: &mut TestAppContext) {
                     shell.navigate(crate::preview::Page::Activity, window, cx)
                 })
             });
+            let retention = entry.navigation.retention;
             let cached = open(&shell, entry, visual);
-            assert_eq!(cached, panel);
+            if retention == sailry_protocol::plugin::desktop::Retention::None {
+                assert_ne!(cached, panel);
+            } else {
+                assert_eq!(cached, panel);
+            }
             wait(visual, |cx| panel.read(cx).resource_active());
             assert!(panel.read_with(visual, |panel, _| panel.binding.worktree.is_none()));
             assert!(!shell.read_with(visual, |shell, _| shell.needs_project()));
@@ -199,7 +204,10 @@ fn empty_resources_stay_unloaded(cx: &mut TestAppContext) {
 #[gpui::test]
 fn entry_reads_again_without_replacing_cached_state(cx: &mut TestAppContext) {
     init(cx);
-    for remote in [false, true] {
+    for (remote, retention) in [false, true]
+        .into_iter()
+        .flat_map(|remote| ["always", "none", "idle"].map(|mode| (remote, mode)))
+    {
         let fixture = Fixture::new(remote);
         fixture.package();
         let root = fixture.directory.path().join("project/package");
@@ -210,6 +218,18 @@ fn entry_reads_again_without_replacing_cached_state(cx: &mut TestAppContext) {
         desktop["navigation"] =
             serde_json::json!({"label":"Cached panel","icon":"reicon:files/file-text"});
         desktop["navigation_options"] = serde_json::json!({"pinned":true,"target":"node"});
+        desktop["navigation_options"]["retention"] = if retention == "idle" {
+            serde_json::json!({"mode":"idle","seconds":300})
+        } else {
+            serde_json::json!({"mode":retention})
+        };
+        if retention == "none" {
+            // An omitted policy must use the same release behavior.
+            desktop["navigation_options"]
+                .as_object_mut()
+                .unwrap()
+                .remove("retention");
+        }
         std::fs::write(path, manifest.to_string()).unwrap();
         std::fs::write(
             root.join("dev.sailry.platform/desktop/main.js"),
@@ -266,6 +286,67 @@ fn entry_reads_again_without_replacing_cached_state(cx: &mut TestAppContext) {
                 shell.navigate(crate::preview::Page::Activity, window, cx)
             })
         });
+        if retention != "always" {
+            let weak = panel.downgrade();
+            if retention == "idle" {
+                // Returning cancels the old deadline, even while the view stays open.
+                let returned = open(&shell, entry.clone(), visual);
+                assert_eq!(returned, panel);
+                visual.run_until_parked();
+                visual.executor().advance_clock(Duration::from_secs(301));
+                visual.run_until_parked();
+                assert_eq!(returned, panel);
+                assert!(shell.read_with(visual, |shell, _| {
+                    shell.extensions.as_ref().unwrap().panel.as_ref() == Some(&panel)
+                }));
+                drop(returned);
+            }
+            drop(panel);
+            if retention == "none" {
+                wait(visual, |_| weak.upgrade().is_none());
+                let reopened = open(&shell, entry.clone(), visual);
+                wait(visual, |cx| {
+                    snapshot(&reopened, cx).contains("entry-reads-1")
+                });
+            }
+            // Switching directly to another plugin also applies retention.
+            let other = shell.read_with(visual, |shell, cx| {
+                shell
+                    .extension_entries(cx)
+                    .into_iter()
+                    .find(|entry| entry.package.name == "ssh")
+                    .unwrap()
+            });
+            let previous = shell.read_with(visual, |shell, _| {
+                shell
+                    .extensions
+                    .as_ref()
+                    .unwrap()
+                    .panel
+                    .as_ref()
+                    .unwrap()
+                    .downgrade()
+            });
+            open(&shell, other, visual);
+            if retention == "idle" {
+                visual.run_until_parked();
+                assert!(previous.upgrade().is_some());
+                visual.executor().advance_clock(Duration::from_secs(301));
+            }
+            wait(visual, |_| previous.upgrade().is_none());
+            let reopened = open(&shell, entry, visual);
+            wait(visual, |cx| {
+                snapshot(&reopened, cx).contains("entry-reads-1")
+            });
+            assert!(!reopened.read_with(visual, |_, cx| {
+                snapshot(&reopened, cx).contains("entry-draft-1")
+            }));
+            visual.update(|window, _| window.remove_window());
+            drop(reopened);
+            drop(shell);
+            fixture.close();
+            continue;
+        }
         let cursor = panel.read_with(visual, |panel, _| {
             panel.snapshot.borrow().as_ref().unwrap().cursor
         });

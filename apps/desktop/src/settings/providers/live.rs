@@ -146,7 +146,11 @@ impl Workspace {
         let refresh =
             !live.connected && view.connected && self.section == super::super::Section::Providers;
         live.connected = view.connected;
+        if !view.connected {
+            self.extensions.clear_resources();
+        }
         if let Some(snapshot) = view.snapshot.as_ref() {
+            self.extensions.retain_resources(&snapshot.plugins);
             live.terminal_revision = snapshot.terminal_settings_revision;
             live.sandbox_revision = snapshot.sandbox_settings_revision;
             live.search_revision = snapshot.search_settings_revision;

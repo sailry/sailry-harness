@@ -17,6 +17,7 @@ mod game;
 mod git;
 mod loading;
 mod navigation;
+mod preload;
 mod recovery;
 mod reminders;
 mod scheduled;

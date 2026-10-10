@@ -34,6 +34,7 @@ mod overlay;
 mod panel;
 pub(crate) mod panes;
 mod picker;
+pub(crate) mod preload;
 mod previews;
 pub(crate) mod projects;
 mod references;

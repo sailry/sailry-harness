@@ -347,6 +347,11 @@ impl Workspace {
         cx.notify();
     }
 
+    pub fn leave(&mut self, cx: &mut Context<Self>) {
+        self.deactivate(cx);
+        self.extensions.clear_resources();
+    }
+
     pub fn deactivate(&mut self, cx: &mut Context<Self>) {
         self.clear_knowledge(cx);
         self.clear_runtime(cx);
@@ -365,6 +370,7 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.warm_settings(cx);
         let native = self.native_settings(cx);
         if native != Some(sailry_protocol::plugin::desktop::NativeSettings::Code) {
             self.clear_code(cx);

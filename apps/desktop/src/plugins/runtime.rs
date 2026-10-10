@@ -11,7 +11,7 @@ pub(super) struct Mounted {
     pub root: Entity<ShellRoot>,
     pub header: Entity<super::header::Header>,
     _runtime: Rc<ShellRuntime>,
-    _cache: Cache,
+    _cache: Arc<Cache>,
     _activation: Entity<super::window::Activation>,
     _composer: Option<Entity<super::composer::State>>,
     _location: Entity<super::location::State>,
@@ -57,7 +57,7 @@ impl Mounted {
     }
 
     pub(super) fn new(
-        cache: Cache,
+        cache: Arc<Cache>,
         host: Arc<Host>,
         application: &str,
         scopes: Scopes,
