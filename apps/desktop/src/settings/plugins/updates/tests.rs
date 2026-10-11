@@ -116,6 +116,141 @@ fn selects_updates_and_prompts_once(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn scrolls_all_candidates(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let names = [
+            "candidate-a",
+            "candidate-b",
+            "candidate-c",
+            "candidate-d",
+            "candidate-e",
+            "candidate-f",
+            "candidate-g",
+            "candidate-h",
+            "candidate-i",
+        ];
+        for name in names {
+            package(&fixture, name, "1.0.0");
+            install(&fixture, name, name);
+            package(&fixture, name, "2.0.0");
+        }
+        let skill = fixture
+            .directory
+            .path()
+            .join("project/candidate-a/skills/draft");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: draft\ndescription: Draft changes\n---\nDraft changes\n",
+        )
+        .unwrap();
+        let (owner, visual) = fixture.mount(cx);
+        let handle = visual.update(|window, _| window.window_handle());
+        visual.simulate_window_resize(handle, size(px(1280.), px(640.)));
+        start(&fixture, &owner, visual);
+        let state = owner.read_with(visual, |owner, _| {
+            owner.plugin_catalog.updates.clone().unwrap()
+        });
+        assert_eq!(
+            state.read_with(visual, |state, _| state.dialog.as_ref().unwrap().rows.len()),
+            names.len()
+        );
+        tap(visual, "plugin-update-select-candidate-a");
+        let first = visual
+            .debug_bounds("plugin-update-select-candidate-a")
+            .unwrap();
+        let last = visual
+            .debug_bounds("plugin-update-select-candidate-i")
+            .unwrap();
+        let dialog = visual.debug_bounds("dialog-0").unwrap();
+        let footer = ["plugins-updates-later", "plugins-updates-apply"]
+            .map(|selector| visual.debug_bounds(selector).unwrap());
+        let bottom = footer[0].top().min(footer[1].top());
+        assert!(last.bottom() > bottom);
+        for button in footer {
+            assert!(button.top() >= dialog.top() && button.bottom() <= dialog.bottom());
+        }
+        visual.simulate_event(ScrollWheelEvent {
+            position: first.center(),
+            delta: ScrollDelta::Pixels(point(px(0.), px(-2000.))),
+            touch_phase: TouchPhase::Moved,
+            modifiers: Modifiers::default(),
+        });
+        draw(visual);
+        let reached = visual
+            .debug_bounds("plugin-update-select-candidate-i")
+            .unwrap();
+        assert!(
+            reached.top() < last.top() - px(100.),
+            "the candidate list did not scroll: first={first:?}, last={last:?}, reached={reached:?}, dialog={dialog:?}, footer={footer:?}"
+        );
+        assert!(reached.top() >= first.top() && reached.bottom() <= bottom);
+        tap(visual, "plugin-update-select-candidate-i");
+        assert!(state.read_with(visual, |state, _| {
+            let rows = &state.dialog.as_ref().unwrap().rows;
+            !rows["candidate-a"].selected
+                && !rows["candidate-i"].selected
+                && rows.values().filter(|row| row.selected).count() == 7
+        }));
+        assert_eq!(
+            ["plugins-updates-later", "plugins-updates-apply"]
+                .map(|selector| visual.debug_bounds(selector).unwrap()),
+            footer
+        );
+        visual.simulate_event(ScrollWheelEvent {
+            position: first.center(),
+            delta: ScrollDelta::Pixels(point(px(0.), px(2000.))),
+            touch_phase: TouchPhase::Moved,
+            modifiers: Modifiers::default(),
+        });
+        draw(visual);
+        assert_eq!(
+            visual
+                .debug_bounds("plugin-update-select-candidate-a")
+                .unwrap(),
+            first
+        );
+        let card = visual
+            .debug_bounds("plugin-update-card-candidate-a")
+            .unwrap();
+        tap(visual, "plugin-update-expand-candidate-a");
+        shown(visual, "plugins_update_skills", true);
+        assert!(
+            visual
+                .debug_bounds("plugin-update-card-candidate-a")
+                .unwrap()
+                .size
+                .height
+                > card.size.height
+        );
+        assert!(state.read_with(visual, |state, _| {
+            let rows = &state.dialog.as_ref().unwrap().rows;
+            rows["candidate-a"].expanded
+                && !rows["candidate-a"].selected
+                && !rows["candidate-i"].selected
+        }));
+        assert_eq!(
+            ["plugins-updates-later", "plugins-updates-apply"]
+                .map(|selector| visual.debug_bounds(selector).unwrap()),
+            footer
+        );
+        let requests = fixture.transport.requests.lock().unwrap().len();
+        tap(visual, "plugins-updates-later");
+        shown(visual, "plugins-update-dialog", false);
+        assert_eq!(fixture.transport.requests.lock().unwrap().len(), requests);
+        assert!(
+            fixture
+                .plugins()
+                .iter()
+                .all(|package| package.version.as_deref() == Some("1.0.0"))
+        );
+        fixture.close(visual);
+    }
+}
+
+#[gpui::test]
 fn retains_failed_rows_and_retries(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {

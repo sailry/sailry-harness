@@ -11,7 +11,6 @@ use gpui_kit::component::{
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     dialog::DialogFooter,
-    scroll::ScrollableElement,
     spinner::Spinner,
     *,
 };
@@ -175,8 +174,6 @@ impl Render for State {
             .id("plugins-update-list")
             .w_full()
             .min_w_0()
-            .max_h(px(460.))
-            .overflow_y_scrollbar()
             .gap_3()
             .debug_selector(|| "plugins-update-dialog".into())
             .child(
@@ -216,6 +213,7 @@ impl Render for State {
                         v_flex()
                             .w_full()
                             .min_w_0()
+                            .flex_shrink_0()
                             .rounded_lg()
                             .border_1()
                             .border_color(cx.theme().border)
