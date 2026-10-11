@@ -4,29 +4,10 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use sailry_protocol::{Fault, artifact::MAX_HTML_BYTES, chart::Chart};
 use std::collections::{HashMap, HashSet};
 
-const CLASSES: &[&str] = &[
-    "lead",
-    "callout",
-    "info",
-    "warn",
-    "risk",
-    "ok",
-    "mermaid",
-    "math",
-    "math-inline",
-    "chart",
-    "steps",
-    "files",
-    "badge",
-    "new",
-    "changed",
-    "removed",
-    "compare",
-    "option",
-    "brief-form",
-];
-
-pub(crate) fn sanitize(source: &str) -> Result<(String, Vec<String>), Fault> {
+pub(crate) fn sanitize(
+    source: &str,
+    allowed_classes: &[String],
+) -> Result<(String, Vec<String>), Fault> {
     if source.trim().is_empty() || source.len() > MAX_HTML_BYTES || source.contains('\0') {
         return Err(Fault::invalid(
             "artifact HTML is empty or exceeds its limit",
@@ -51,6 +32,7 @@ pub(crate) fn sanitize(source: &str) -> Result<(String, Vec<String>), Fault> {
     ] {
         attributes.insert(tag, names.split_whitespace().collect::<HashSet<_>>());
     }
+    let allowed_classes = allowed_classes.to_vec();
     let cleaned = Builder::empty()
         .tags(tags)
         .clean_content_tags(
@@ -70,7 +52,7 @@ pub(crate) fn sanitize(source: &str) -> Result<(String, Vec<String>), Fault> {
         .url_schemes(["data"].into_iter().collect())
         .url_relative(UrlRelative::PassThrough)
         .link_rel(None)
-        .attribute_filter(|tag, name, value| {
+        .attribute_filter(move |tag, name, value| {
             if value.len() > MAX_HTML_BYTES {
                 return None;
             }
@@ -84,7 +66,7 @@ pub(crate) fn sanitize(source: &str) -> Result<(String, Vec<String>), Fault> {
                 (_, "class") => {
                     let classes = value
                         .split_whitespace()
-                        .filter(|class| CLASSES.contains(class))
+                        .filter(|class| allowed_classes.iter().any(|allowed| allowed == class))
                         .collect::<Vec<_>>()
                         .join(" ");
                     (!classes.is_empty()).then(|| classes.into())

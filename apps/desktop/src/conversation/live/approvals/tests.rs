@@ -20,6 +20,7 @@ mod process;
 fn sample(display: Option<serde_json::Value>) -> (Call, Page) {
     let turn = sailry_protocol::TurnId::new();
     let call = Call {
+        terminal_interaction: false,
         turn,
         id: Some("call".into()),
         name: "example".into(),

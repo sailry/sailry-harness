@@ -254,6 +254,13 @@ impl View {
         if run.kind == sailry_protocol::conversation::RunKind::Compaction {
             return self.compaction_turn(run, &snapshot.page, cx);
         }
+        let continuation = run.continuation.as_ref().map(|continuation| {
+            continuation
+                .marker
+                .as_ref()
+                .map(|marker| SharedString::from(marker.label(&rust_i18n::locale()).to_owned()))
+                .unwrap_or_else(|| tr("chat_continuation"))
+        });
 
         let mut prompt = String::new();
         let mut sent_ms = None;
@@ -602,8 +609,22 @@ impl View {
                 MessageGroup::new()
                     .gap(px(10.))
                     .pb(px(28.))
+                    .when_some(continuation.clone(), |group, label| {
+                        group.child(
+                            h_flex()
+                                .debug_selector(move || format!("live-continuation-{turn}"))
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .gap_2()
+                                .child(Icon::new(IconName::Bot).size_4())
+                                .child(label),
+                        )
+                    })
                     .when(
-                        !prompt.is_empty() || !attachments.is_empty() || !references.is_empty(),
+                        continuation.is_none()
+                            && (!prompt.is_empty()
+                                || !attachments.is_empty()
+                                || !references.is_empty()),
                         |group| {
                             group.child(
                                 Message::new()

@@ -89,6 +89,18 @@ pub(in crate::store) fn admit(
         params![turn.id.to_string(), encode(&fence)?],
     )
     .map_err(storage_error)?;
+    let package = super::plugins::packages(db, std::slice::from_ref(&context.package))?
+        .into_iter()
+        .next()
+        .ok_or_else(|| Fault::invalid("continuation package is unavailable"))?;
+    let mut run = runs::get(db, turn.id)?;
+    run.continuation = Some(sailry_protocol::conversation::Continuation {
+        package: context.package.clone(),
+        marker: package
+            .extension
+            .and_then(|extension| extension.continuation_marker),
+    });
+    runs::put(db, &run)?;
     Ok((
         Output::QueuedTurn(turn.clone()),
         Some(activity::queued(db, turn)?),

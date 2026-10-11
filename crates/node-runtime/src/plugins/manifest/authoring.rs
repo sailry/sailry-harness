@@ -51,6 +51,32 @@ fn exports_match_the_deserialization_contract() {
 }
 
 #[test]
+fn validates_continuation_markers() {
+    let validator = validator();
+    let mut manifest: Value =
+        serde_json::from_slice(include_bytes!("../../../../../plugins/goals/plugin.json")).unwrap();
+    assert!(validator.is_valid(&manifest));
+    assert!(
+        parse(&serde_json::to_vec(&manifest).unwrap())
+            .unwrap()
+            .issues
+            .is_empty()
+    );
+    for marker in [
+        json!({"label":""}),
+        json!({"label":"Continue", "locales":{"en":"\n"}}),
+    ] {
+        manifest["extensions"]["dev.sailry.platform"]["continuation_marker"] = marker;
+        assert!(
+            parse(&serde_json::to_vec(&manifest).unwrap())
+                .unwrap()
+                .extension
+                .is_none()
+        );
+    }
+}
+
+#[test]
 fn validates_navigation_retention_offline() {
     let validator = validator();
     let mut manifest: Value =

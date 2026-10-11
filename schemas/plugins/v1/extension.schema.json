@@ -1800,6 +1800,14 @@
     "View": {
       "additionalProperties": false,
       "properties": {
+        "allowed_classes": {
+          "default": [],
+          "description": "CSS classes accepted in this package's model-authored fragments.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "libraries": {
           "default": [],
           "items": {
@@ -1856,6 +1864,17 @@
         }
       ],
       "description": "Shared HTML resource surfaces load this package-owned presentation."
+    },
+    "continuation_marker": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Navigation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Localized controller marker for this package's automatic continuations."
     },
     "credential_source": {
       "anyOf": [

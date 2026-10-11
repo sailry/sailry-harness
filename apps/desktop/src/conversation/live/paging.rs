@@ -84,6 +84,13 @@ impl View {
                         .runs
                         .iter()
                         .filter(|run| {
+                            sailry_client::conversation::turns::visible(
+                                run,
+                                &snapshot.page,
+                                &snapshot.drafts,
+                            )
+                        })
+                        .filter(|run| {
                             run.status != Status::Queued
                                 && (run.status != Status::Cancelled
                                     || run.kind == RunKind::Compaction

@@ -84,6 +84,7 @@ fn page() -> Page {
             started_ms: Some(1000),
             finished_ms: None,
             origin: None,
+            continuation: None,
         }],
     }
 }

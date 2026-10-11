@@ -143,6 +143,7 @@ fn queued_activity(session: &Session, turn: &QueuedTurn) -> sailry_protocol::act
             started_ms: None,
             finished_ms: None,
             origin: None,
+            continuation: None,
         }),
         waiting: None,
         queued: 1,

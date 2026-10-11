@@ -34,6 +34,7 @@ fn preserves_explicit_kind() {
             started_ms: None,
             finished_ms: None,
             origin: None,
+            continuation: None,
         };
         let body = serde_json::to_value(&run).unwrap();
         assert_eq!(body["kind"], name);

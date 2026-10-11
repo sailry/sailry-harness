@@ -25,6 +25,7 @@ fn fixture() -> (Projection, Snapshot, Run, Draft) {
         started_ms: Some(1000),
         finished_ms: None,
         origin: None,
+        continuation: None,
     };
     let snapshot = Snapshot {
         artifacts: Default::default(),

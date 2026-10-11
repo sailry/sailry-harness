@@ -1,5 +1,35 @@
 use super::*;
 
+fn sanitize(source: &str) -> Result<(String, Vec<String>), Fault> {
+    super::sanitize(
+        source,
+        &[
+            "brief-form",
+            "mermaid",
+            "chart",
+            "info",
+            "math",
+            "math-inline",
+            "lead",
+            "callout",
+            "warn",
+            "risk",
+            "ok",
+            "steps",
+            "files",
+            "badge",
+            "new",
+            "changed",
+            "removed",
+            "compare",
+            "option",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>(),
+    )
+}
+
 #[test]
 fn strips_executable_and_external_content() {
     let (html,warnings)=sanitize("<section style='color:red' onclick='run()'><script>bad()</script><style>body{}</style><iframe src='https://x'>bad</iframe><a href='javascript:run()'>bad</a><a href='https://x'>external</a><a href='#here'>anchor</a><img src='https://x'><p>正文</p></section>").unwrap();
@@ -138,4 +168,12 @@ fn rejects_empty_and_oversized_fragments() {
     assert!(sanitize("<script>bad()</script>").is_err());
     assert!(sanitize(&"x".repeat(MAX_HTML_BYTES + 1)).is_err());
     assert!(sanitize("\0").is_err());
+}
+
+#[test]
+fn accepts_only_declared_classes() {
+    let (html, _) = super::sanitize("<p class='custom lead'>Text</p>", &["custom".into()]).unwrap();
+    assert_eq!(html, "<p class=\"custom\">Text</p>");
+    let (html, _) = super::sanitize("<p class='custom lead'>Text</p>", &[]).unwrap();
+    assert_eq!(html, "<p>Text</p>");
 }

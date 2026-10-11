@@ -113,6 +113,7 @@ async fn recovers_overflow() {
         started_ms: Some(1000),
         finished_ms: None,
         origin: None,
+        continuation: None,
     };
     let feeds = Feeds::default();
     feeds.publish(node, session, Change::Run(run.clone()));
@@ -197,6 +198,7 @@ fn seals_stopping_before_cancellation() {
         started_ms: Some(1000),
         finished_ms: None,
         origin: None,
+        continuation: None,
     };
     let controls = crate::agent::Controls::default();
     let stop = CancellationToken::new();

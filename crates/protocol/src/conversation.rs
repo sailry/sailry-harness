@@ -165,6 +165,15 @@ pub struct Run {
     /// Original configuration/history owner for inherited, closed turns.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub origin: Option<SessionId>,
+    /// Package-owned automatic input, distinct from inherited history ownership.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation: Option<Continuation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Continuation {
+    pub package: crate::plugin::Reference,
+    pub marker: Option<crate::plugin::desktop::Navigation>,
 }
 
 /// A child execution referenced by its parent's canonical tool call.

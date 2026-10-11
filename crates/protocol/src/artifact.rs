@@ -53,6 +53,9 @@ pub struct View {
     pub scripts: Vec<String>,
     #[serde(default)]
     pub libraries: Vec<Library>,
+    /// CSS classes accepted in this package's model-authored fragments.
+    #[serde(default)]
+    pub allowed_classes: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -74,6 +77,20 @@ impl View {
             && self.scripts.len() <= 8
             && self.styles.iter().all(|path| path.ends_with(".css"))
             && self.scripts.iter().all(|path| path.ends_with(".js"))
+            && self.allowed_classes.len() <= 64
+            && self
+                .allowed_classes
+                .iter()
+                .enumerate()
+                .all(|(index, class)| {
+                    !class.is_empty()
+                        && class.len() <= 64
+                        && class.as_bytes()[0].is_ascii_alphabetic()
+                        && class
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+                        && !self.allowed_classes[..index].contains(class)
+                })
             && self.libraries.len() <= 3
             && self
                 .libraries

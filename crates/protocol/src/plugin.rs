@@ -84,6 +84,9 @@ pub struct Extension {
     /// Package-owned instructions supplied once with its available tools.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
+    /// Localized controller marker for this package's automatic continuations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation_marker: Option<desktop::Navigation>,
     /// Shared HTML resource surfaces load this package-owned presentation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_view: Option<crate::artifact::View>,
@@ -151,6 +154,10 @@ impl Extension {
                 .is_some_and(|suffix| !suffix.is_empty())
         };
         self.icon.as_deref().is_none_or(contains)
+            && self
+                .continuation_marker
+                .as_ref()
+                .is_none_or(desktop::Navigation::valid)
             && self.artifact_view.as_ref().is_none_or(|view| view.valid())
             && self.settings_schema.as_deref().is_none_or(contains)
             && self

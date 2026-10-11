@@ -5,6 +5,56 @@ use crate::conversation::live::tests::{
 };
 use core::prelude::v1::test;
 
+#[gpui_kit::test]
+fn presents_automatic_input_as_marker(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::with_tools(remote, vec![]);
+        let turn = complete(&fixture, "Private continuation instructions");
+        let package = fixture.files_context().package;
+        let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
+        wait(visual, |cx| view.read(cx).connected());
+        let mut history = view.read_with(visual, |view, _| view.history.clone());
+        let page = Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
+        page.runs[0].continuation = Some(sailry_protocol::conversation::Continuation {
+            package,
+            marker: Some(sailry_protocol::plugin::desktop::Navigation {
+                label: "Continuing task".into(),
+                locales: BTreeMap::new(),
+                icon: None,
+            }),
+        });
+        let original = page.entries.clone();
+        view.update(visual, |view, cx| view.update_history(history.clone(), cx));
+        let marker: &'static str = Box::leak(format!("live-continuation-{turn}").into_boxed_str());
+        let prompt: &'static str = Box::leak(format!("live-user-text-{turn}").into_boxed_str());
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds(marker).is_some());
+        assert!(visual.debug_bounds(prompt).is_none());
+        assert_eq!(
+            view.read_with(visual, |view, _| view
+                .history
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .page
+                .entries
+                .clone()),
+            original
+        );
+        let page = Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
+        page.runs[0].status = Status::Continued;
+        view.update(visual, |view, cx| view.update_history(history.clone(), cx));
+        assert!(view.read_with(visual, |view, _| view.rows.contains(&turn)));
+        let page = Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
+        page.entries.retain(|entry| entry.author == "user");
+        view.update(visual, |view, cx| view.update_history(history, cx));
+        assert!(view.read_with(visual, |view, _| view.rows.is_empty()));
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
 fn complete(fixture: &Fixture, message: impl Into<Input>) -> TurnId {
     let Output::QueuedTurn(turn) = fixture.execute(Command::SubmitTurn {
         session: fixture.session.id,

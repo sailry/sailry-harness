@@ -8,6 +8,9 @@ use std::fs;
 #[allow(dead_code)]
 mod backup_server;
 
+#[path = "artifact/declarations.rs"]
+mod declarations;
+
 const PACKAGE: &str = "document-fixture";
 
 async fn install(fixture: &process::Fixture, revision: u64, template: &str) -> plugin::Info {
@@ -17,6 +20,7 @@ async fn install(fixture: &process::Fixture, revision: u64, template: &str) -> p
         &fixture.root,
         revision,
         template,
+        &["chart", "fixture-accent"],
     )
     .await
 }
@@ -27,6 +31,7 @@ async fn install_at(
     project: &std::path::Path,
     revision: u64,
     template: &str,
+    classes: &[&str],
 ) -> plugin::Info {
     let root = project.join("document-package");
     fs::create_dir_all(root.join("dev.sailry.platform/view")).unwrap();
@@ -49,7 +54,8 @@ async fn install_at(
                 "api_version":"v1","actions":["artifacts.read","artifacts.write"],
                 "artifact_view":{"template":"dev.sailry.platform/view/index.html",
                     "styles":["dev.sailry.platform/view/theme.css"],
-                    "scripts":["dev.sailry.platform/view/main.js"],"libraries":["echarts"]},
+                    "scripts":["dev.sailry.platform/view/main.js"],"libraries":["echarts"],
+                    "allowed_classes":classes},
                 "tools":[
                     {"name":"write","description":"Write a document","operation":"artifacts.write"},
                     {"name":"read","description":"Read a document","operation":"artifacts.read"},
@@ -79,7 +85,7 @@ async fn install_at(
 
 fn draft(id: Option<ArtifactId>, revision: Option<u32>, title: &str) -> Value {
     json!({"id":id,"expected_revision":revision,"title":title,"summary":"Compare the options",
-        "html":"<section onclick='bad()'><h1>Options</h1><a href='https://invalid.test'>External</a><pre class='chart'>{\"type\":\"bar\",\"data\":[{\"label\":\"A\",\"value\":1}]}</pre><script>bad()</script></section>"})
+        "html":"<section class='fixture-accent lead' onclick='bad()'><h1>Options</h1><a href='https://invalid.test'>External</a><pre class='chart'>{\"type\":\"bar\",\"data\":[{\"label\":\"A\",\"value\":1}]}</pre><script>bad()</script></section>"})
 }
 
 async fn submit(fixture: &process::Fixture, text: &str) -> TurnId {
@@ -794,6 +800,7 @@ async fn excludes_writes_from_delegated_tools() {
             &fixture.root(),
             0,
             "<html><body>Template</body></html>",
+            &["chart", "fixture-accent"],
         )
         .await;
         let turn = fixture.push("Delegate the analysis").await;
@@ -884,6 +891,8 @@ async fn persists_plan_documents_and_conflicts() {
         assert!(!content.html.contains("https://"));
         assert!(!content.html.contains("<script"));
         assert!(content.html.contains("class=\"chart\""));
+        assert!(content.html.contains("class=\"fixture-accent\""));
+        assert!(!content.html.contains("lead"));
         assert!(!content.warnings.is_empty());
         assert_eq!(
             content.view.as_ref().unwrap().template,

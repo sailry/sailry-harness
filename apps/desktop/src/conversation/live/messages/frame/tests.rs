@@ -73,6 +73,7 @@ fn run() -> Run {
         status: Status::Running,
         error: None,
         origin: None,
+        continuation: None,
         started_ms: Some(1000),
         finished_ms: None,
     }

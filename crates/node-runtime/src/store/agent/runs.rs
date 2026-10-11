@@ -91,6 +91,7 @@ fn insert(
         started_ms: (status == Status::Running).then(|| chrono::Utc::now().timestamp_millis()),
         finished_ms: None,
         origin: None,
+        continuation: None,
     };
     db.execute(
         "INSERT INTO agent_runs(turn,ready,body,provider,hooks) VALUES(?1,?2,?3,?4,?5)",
@@ -156,7 +157,7 @@ pub(super) fn project(mut run: Run, session: SessionId) -> Run {
     run
 }
 
-fn put(db: &Connection, run: &Run) -> Result<(), Fault> {
+pub(super) fn put(db: &Connection, run: &Run) -> Result<(), Fault> {
     if run.kind == RunKind::Task
         && matches!(
             run.status,

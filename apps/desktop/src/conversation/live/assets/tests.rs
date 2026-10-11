@@ -746,6 +746,7 @@ fn scopes_current_turn(cx: &mut TestAppContext) {
                 entry.citations = vec![citation(uri), citation(uri)];
             }
             let plan = |turn, title: &str| Call {
+                terminal_interaction: false,
                 turn,
                 id: None,
                 name: crate::agent_fixture::plugin_tool("progress", "update_plan"),

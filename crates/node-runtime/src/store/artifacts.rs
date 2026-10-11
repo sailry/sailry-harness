@@ -151,7 +151,14 @@ fn write(
             ));
         }
     }
-    let (html, warnings) = crate::artifacts::sanitize(&draft.html)?;
+    let package = super::agent::plugins::package(db, context)?;
+    let allowed_classes = package
+        .extension
+        .as_ref()
+        .and_then(|extension| extension.artifact_view.as_ref())
+        .map(|view| view.allowed_classes.as_slice())
+        .unwrap_or_default();
+    let (html, warnings) = crate::artifacts::sanitize(&draft.html, allowed_classes)?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(storage_error)?

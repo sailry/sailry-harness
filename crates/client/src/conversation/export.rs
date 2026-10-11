@@ -166,6 +166,15 @@ fn render(page: &Page, title: &str, format: Format, assets: &str) -> Result<Docu
     let conversation = page.entries.iter().any(|entry| entry.author == "user");
     for entry in &page.entries {
         let user = entry.author == "user";
+        // Automatic controller input is execution context, not user-authored speech.
+        if user
+            && page
+                .runs
+                .iter()
+                .any(|run| run.turn == entry.turn && run.continuation.is_some())
+        {
+            continue;
+        }
         let mut body = String::new();
         for (index, part) in entry.parts.iter().enumerate() {
             if !user

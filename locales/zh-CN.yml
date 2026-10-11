@@ -582,6 +582,7 @@ plugins_read_failed: 无法读取插件信息
 plugins_view_empty: 暂无桌面扩展
 plugins_view_offline: 主机连接已断开
 plugins_view_unavailable: 扩展已不可用，请返回重新选择
+plugins_uninstalled: "插件已卸载"
 plugins_view_read_failed: 无法读取扩展资源
 plugins_view_load_failed: 无法打开扩展
 plugins_conversation_unavailable: 会话不可用
@@ -2619,3 +2620,4 @@ approval_code_start: "在 %{worktree} 启动 %{server}"
 tool_directory_missing: "目录不存在"
 tool_file_missing: "文件不存在"
 queue_draft_present: "输入框已有草稿"
+chat_continuation: "继续执行"

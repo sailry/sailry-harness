@@ -85,11 +85,24 @@ fn claims_ordinary_input_with_an_opaque_fence() {
     let context = prepare(&mut fixture);
     let after = fixture.completed(&["Verified work"]);
     let turn = continue_turn(&mut fixture, &context, Some(after)).unwrap();
+    let run = runs::get(&fixture.database.connection, turn).unwrap();
+    assert!(run.origin.is_none());
+    let provenance = run.continuation.as_ref().unwrap();
+    assert_eq!(provenance.package, context.package);
+    let marker = provenance.marker.as_ref().unwrap();
+    assert_eq!(marker.label("en"), "Continue goal");
+    assert_eq!(marker.label("zh-CN"), "继续执行目标");
     let invocation = runs::claim(&mut fixture.database, &fixture.events)
         .unwrap()
         .unwrap();
     assert_eq!(invocation.turn.id, turn);
     assert!(invocation.automatic);
+    assert_eq!(
+        runs::get(&fixture.database.connection, turn)
+            .unwrap()
+            .continuation,
+        run.continuation
+    );
     assert_eq!(invocation.message.text, "Continue the requested work");
     assert_eq!(
         continue_turn(&mut fixture, &context, Some(after))

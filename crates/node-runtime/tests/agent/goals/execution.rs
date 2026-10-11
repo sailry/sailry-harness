@@ -51,6 +51,15 @@ async fn continues_without_controller_input() {
         assert!(value.get("token_budget").is_none());
         let snapshot = observe(&fixture.client, fixture.session.id).await;
         assert_eq!(snapshot.page.runs.len(), 3);
+        assert!(snapshot.page.runs[0].continuation.is_none());
+        for run in snapshot.page.runs.iter().skip(1) {
+            assert!(run.origin.is_none());
+            let continuation = run.continuation.as_ref().unwrap();
+            assert_eq!(continuation.package.name, "goals");
+            let marker = continuation.marker.as_ref().unwrap();
+            assert_eq!(marker.label("en"), "Continue goal");
+            assert_eq!(marker.label("zh-CN"), "继续执行目标");
+        }
         assert!(
             snapshot
                 .page
