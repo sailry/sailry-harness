@@ -79,7 +79,7 @@ impl Copier {
                 .set_permissions(".", before.permissions.clone())
                 .map_err(io_error)?;
             #[cfg(unix)]
-            target.into_std_file().sync_all().map_err(io_error)?;
+            path::sync(&target).map_err(io_error)?;
             Contents::Directory(children)
         } else {
             let mut file = open_regular(source, name)?;

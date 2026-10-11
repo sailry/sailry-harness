@@ -117,10 +117,7 @@ impl Target {
         #[cfg(test)]
         hook(Phase::Published);
         #[cfg(unix)]
-        self.dir
-            .try_clone()
-            .and_then(|dir| dir.into_std_file().sync_all())
-            .map_err(|_| unknown())?;
+        path::sync(&self.dir).map_err(|_| unknown())?;
         self.validate_parent().map_err(|_| unknown())?;
         let (file, observed) =
             current(&self.dir, name, self.limit.max(size), None).map_err(|_| unknown())?;

@@ -167,7 +167,7 @@ impl Tree {
                 self.walk(&source, target.as_ref(), &path, depth + 1)?;
                 #[cfg(unix)]
                 if let Some(target) = target {
-                    target.into_std_file().sync_all().map_err(io_error)?;
+                    crate::files::path::sync(&target).map_err(io_error)?;
                 }
             } else {
                 let mut file = crate::files::open_regular(source, &name)?;

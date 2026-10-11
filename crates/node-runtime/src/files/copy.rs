@@ -138,10 +138,7 @@ fn publish(
         #[cfg(test)]
         hook(Phase::Published);
         #[cfg(unix)]
-        target_dir
-            .try_clone()
-            .and_then(|dir| dir.into_std_file().sync_all())
-            .map_err(|_| unknown())?;
+        path::sync(&target_dir).map_err(|_| unknown())?;
         validate_parent(target_root, target_parents, target_parent).map_err(|_| unknown())?;
         if self::object(&target_dir, target_name).map_err(|_| unknown())? != staged {
             return Err(unknown());

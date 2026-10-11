@@ -186,14 +186,7 @@ fn publish(
         )
     })?;
     let confirmed = (|| {
-        publication
-            .lock
-            .dir
-            .try_clone()
-            .map_err(io_error)?
-            .into_std_file()
-            .sync_all()
-            .map_err(io_error)?;
+        path::sync(&publication.lock.dir).map_err(io_error)?;
         super::super::check_root(&retained, root)?;
         super::super::check_root(&publication.lock.dir, parent)?;
         Ok::<_, Fault>(())
@@ -391,8 +384,8 @@ fn sync_blob(repository: &Repository, oid: Oid) -> Result<(), Fault> {
                 return Err(conflict());
             }
             file.sync_all().map_err(io_error)?;
-            directory.into_std_file().sync_all().map_err(io_error)?;
-            objects.into_std_file().sync_all().map_err(io_error)?;
+            path::sync(&directory).map_err(io_error)?;
+            path::sync(&objects).map_err(io_error)?;
             Ok(())
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),

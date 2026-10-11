@@ -299,10 +299,7 @@ impl Host {
                         .rename("package", &packages, &digest)
                         .map_err(io_error)?;
                     #[cfg(unix)]
-                    packages
-                        .try_clone()
-                        .and_then(|dir| dir.into_std_file().sync_all())
-                        .map_err(io_error)?;
+                    crate::files::path::sync(&packages).map_err(io_error)?;
                 }
                 Err(error) => return Err(io_error(error)),
             }

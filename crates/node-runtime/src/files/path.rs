@@ -90,6 +90,13 @@ pub(crate) fn descend(mut dir: Dir, parts: &[&str]) -> Result<Dir, Fault> {
     Ok(dir)
 }
 
+#[cfg(unix)]
+pub(crate) fn sync(dir: &Dir) -> std::io::Result<()> {
+    // Linux traversal capabilities use O_PATH, which cannot be synchronized.
+    // Open the retained directory itself without resolving an ambient path.
+    dir.open(".")?.sync_all()
+}
+
 /// Prepare missing parent directories for an admitted file creation.
 /// Existing entries are opened without following symlinks on every step.
 pub(crate) fn create_parents(base: &Path, relative: &str) -> Result<(), Fault> {
@@ -229,5 +236,30 @@ mod tests {
         );
         assert!(root(Path::new("relative/root")).is_err());
         assert!(root(&base.join("..")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn syncs_after_parent_rename() {
+        let temp = tempfile::tempdir().unwrap();
+        let base = temp.path().canonicalize().unwrap();
+        let parent = base.join("parent");
+        let folder = parent.join("directory");
+        std::fs::create_dir_all(&folder).unwrap();
+        let retained = root(&folder).unwrap();
+        let original = identity::directory(&retained).unwrap();
+        let relocated = base.join("relocated");
+        std::fs::rename(&parent, &relocated).unwrap();
+        std::fs::create_dir_all(&folder).unwrap();
+        let replacement = root(&folder).unwrap();
+        assert_ne!(original, identity::directory(&replacement).unwrap());
+
+        sync(&retained).unwrap();
+        sync(&replacement).unwrap();
+        assert_eq!(original, identity::directory(&retained).unwrap());
+        assert_eq!(
+            original,
+            identity::directory(&root(&relocated.join("directory")).unwrap()).unwrap()
+        );
     }
 }
