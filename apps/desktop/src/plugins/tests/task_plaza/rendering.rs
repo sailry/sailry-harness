@@ -32,20 +32,31 @@ fn preview(fixture: &Fixture, selection: &str, sparse: bool) {
         };
         projects.push(serde_json::json!({"id":project,"name":name}));
         worktrees.push(serde_json::json!({"id":worktree,"project":project,"path":"/preview"}));
-        for seat in 0..if sparse { 4 } else { 6 } {
+        for seat in 0..if sparse {
+            4
+        } else if room == 0 {
+            14
+        } else {
+            6
+        } {
             let id = if room == 0 && seat == 0 {
                 fixture.session.id.to_string()
             } else {
                 format!("preview-{room}-{seat}")
             };
             let approval = seat == 5 && [0, 2, 5].contains(&room);
-            let active = seat < running[room];
-            let lane = if approval {
+            let reply = seat == 5 && room == 1;
+            let active = seat < running[room] || room == 0 && seat == 13;
+            let lane = if approval || reply {
                 "waiting"
             } else if active {
                 "running"
             } else {
-                "idle"
+                match seat % 6 {
+                    3 => "completed",
+                    4 => "failed",
+                    _ => "idle",
+                }
             };
             lanes.insert(id.clone(), lane.into());
             let titles = [
@@ -66,13 +77,13 @@ fn preview(fixture: &Fixture, selection: &str, sparse: bool) {
             ];
             sessions.push(serde_json::json!({
                 "id":id,"project":project,"worktree":worktree,"archived":false,"delegation":null,
-                "activity":{"title":titles[seat],"queued":0,
-                    "waiting":if approval {Some("approval")} else {None},
-                    "run":if active || approval {Some(serde_json::json!({"turn":format!("turn-{room}-{seat}"),"status":"running"}))} else {None}}
+                "activity":{"title":titles[seat % 6],"queued":0,
+                    "waiting":if approval {Some("approval")} else if reply {Some("input")} else {None},
+                    "run":if lane != "idle" {Some(serde_json::json!({"turn":format!("turn-{room}-{seat}"),"status":if active || approval || reply {"running"} else {lane}}))} else {None}}
             }));
             previews.push(serde_json::json!({"session":id,
-                "turn":if active || approval {Some(format!("turn-{room}-{seat}"))} else {None},
-                "text":summaries[seat]}));
+                "turn":if lane != "idle" {Some(format!("turn-{room}-{seat}"))} else {None},
+                "text":summaries[seat % 6]}));
         }
     }
     let catalog = serde_json::json!({
@@ -283,6 +294,14 @@ pub(in crate::plugins) fn run() {
             960.,
             ThemeMode::Light,
             "room",
+            false,
+        ),
+        (
+            "actual-scene.png",
+            1640.,
+            960.,
+            ThemeMode::Dark,
+            "none",
             false,
         ),
         (
