@@ -35,6 +35,7 @@ fn install(fixture: &Fixture, binding: &str, revision: u64) -> Summary {
         path: "package".into(),
         name: "example".into(),
         expected_revision: revision,
+        expected_digest: None,
     }) else {
         panic!("plugin expected")
     };
@@ -252,6 +253,7 @@ fn embedded_page_keeps_editing_after_save(cx: &mut TestAppContext) {
             path: "package".into(),
             name: "example".into(),
             expected_revision: 0,
+            expected_digest: None,
         }) else {
             panic!("plugin expected")
         };

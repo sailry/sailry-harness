@@ -77,5 +77,6 @@ pub(crate) fn install(worktree: WorktreeId, expected_revision: u64) -> Command {
         path: "package".into(),
         name: "example".into(),
         expected_revision,
+        expected_digest: None,
     }
 }

@@ -111,6 +111,7 @@ fn forms(sse: bool, oauth: bool, input: Input) {
                 path: "package".into(),
                 name: "example".into(),
                 expected_revision: 0,
+                expected_digest: None,
             }))
             .await
             .unwrap()

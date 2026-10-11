@@ -39,6 +39,7 @@ fn urls(cx: &mut TestAppContext, task: bool) {
             path: "package".into(),
             name: "example".into(),
             expected_revision: 0,
+            expected_digest: None,
         }) else {
             panic!("plugin expected")
         };
@@ -147,6 +148,7 @@ fn optional_fields_and_decline(cx: &mut TestAppContext) {
             path: "package".into(),
             name: "example".into(),
             expected_revision: 0,
+            expected_digest: None,
         }) else {
             panic!("plugin expected")
         };

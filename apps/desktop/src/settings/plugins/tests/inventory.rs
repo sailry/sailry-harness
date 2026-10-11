@@ -8,6 +8,7 @@ fn install(fixture: &Fixture) {
         path: "package".into(),
         name: "example".into(),
         expected_revision: 0,
+        expected_digest: None,
     });
 }
 
@@ -93,6 +94,7 @@ fn shows_current_components(cx: &mut TestAppContext) {
             path: "package".into(),
             name: "example".into(),
             expected_revision: 2,
+            expected_digest: None,
         });
         wait(visual, |cx| {
             owner
@@ -139,6 +141,7 @@ fn shows_supported_sse_servers(cx: &mut TestAppContext) {
             path: "package".into(),
             name: "example".into(),
             expected_revision: 0,
+            expected_digest: None,
         }) else {
             panic!("plugin expected")
         };

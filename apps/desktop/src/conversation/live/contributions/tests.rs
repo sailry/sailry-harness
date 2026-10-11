@@ -36,6 +36,7 @@ fn install_with(fixture: &mut Fixture, edit: impl FnOnce(&mut Value)) -> plugin:
         path: "package".into(),
         name: "task-notes".into(),
         expected_revision: 0,
+        expected_digest: None,
     }) else {
         panic!("plugin expected")
     };
@@ -250,6 +251,7 @@ fn releases_changed_packages(cx: &mut TestAppContext) {
             path: "package".into(),
             name: "task-notes".into(),
             expected_revision: 2,
+            expected_digest: None,
         }) else {
             panic!("plugin expected")
         };

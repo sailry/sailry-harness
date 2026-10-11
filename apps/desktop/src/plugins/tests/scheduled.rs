@@ -63,6 +63,7 @@ fn install(fixture: &Fixture) -> plugin::Info {
         path: "tasks".into(),
         name: "scheduled-tasks".into(),
         expected_revision: 1,
+        expected_digest: None,
     }) else {
         panic!("plugin expected")
     };

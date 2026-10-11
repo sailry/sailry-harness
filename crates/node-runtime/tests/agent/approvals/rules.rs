@@ -560,6 +560,7 @@ async fn package(fixture: &Fixture, revision: u64, version: &str) -> plugin::Inf
             path: "package".into(),
             worktree: fixture.session.worktree,
             expected_revision: revision,
+            expected_digest: None,
         },
     )
     .await

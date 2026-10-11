@@ -28,6 +28,7 @@ pub(super) fn install(fixture: &fixture::Fixture) {
         path: "worktrees-package".into(),
         name: "worktrees".into(),
         expected_revision: info.summary.revision,
+        expected_digest: None,
     }) else {
         panic!("Worktrees package expected")
     };

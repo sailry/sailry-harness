@@ -224,6 +224,7 @@ async fn install(
             path: name.into(),
             name: name.into(),
             expected_revision: revision,
+            expected_digest: None,
         },
     )
     .await

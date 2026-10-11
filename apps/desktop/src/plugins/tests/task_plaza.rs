@@ -30,6 +30,7 @@ fn install(fixture: &Fixture) -> Info {
         path: "plaza-package".into(),
         name: "task-plaza".into(),
         expected_revision: 0,
+        expected_digest: None,
     }) else {
         panic!("task plaza package expected");
     };

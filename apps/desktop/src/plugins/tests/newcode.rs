@@ -62,6 +62,7 @@ fn install(fixture: &Fixture) -> plugin::Info {
         path: "code".into(),
         name: "code".into(),
         expected_revision: current.summary.revision,
+        expected_digest: None,
     }) else {
         panic!("language package expected");
     };

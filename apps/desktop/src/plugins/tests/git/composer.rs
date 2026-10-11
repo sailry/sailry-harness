@@ -12,6 +12,7 @@ fn install(fixture: &Fixture) {
         path: "git-package".into(),
         name: "git".into(),
         expected_revision: package(fixture).summary.revision,
+        expected_digest: None,
     }) else {
         panic!("Git package expected")
     };

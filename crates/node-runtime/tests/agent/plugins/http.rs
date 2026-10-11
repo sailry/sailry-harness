@@ -39,6 +39,7 @@ async fn applies_approval_and_turn_cancellation() {
                     path: "package".into(),
                     name: "http-fixture".into(),
                     expected_revision: 0,
+                    expected_digest: None,
                 }))
                 .await
                 .unwrap()

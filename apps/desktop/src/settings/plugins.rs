@@ -13,7 +13,7 @@ pub(in crate::settings) mod preparation;
 #[cfg(test)]
 #[path = "plugins/tests/fixture.rs"]
 pub(super) mod test_support;
-mod updates;
+pub(in crate::settings) mod updates;
 use super::{Section, Workspace, draft, group::Group};
 pub(super) use crate::plugins::metadata;
 use crate::tr;
@@ -131,7 +131,7 @@ impl Workspace {
                         })
                     })),
             )
-            .when(self.plugin_catalog.retryable(), |view| {
+            .when(self.plugin_catalog.retryable(cx), |view| {
                 view.child(
                     Button::new("plugins-retry")
                         .label(tr("plugins_retry"))

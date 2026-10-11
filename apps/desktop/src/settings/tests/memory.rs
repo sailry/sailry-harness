@@ -171,6 +171,7 @@ fn install(fixture: &Fixture, index: usize) {
             path: "memory".into(),
             name: "memory".into(),
             expected_revision: current.summary.revision,
+            expected_digest: None,
         },
     ) else {
         panic!("plugin expected")

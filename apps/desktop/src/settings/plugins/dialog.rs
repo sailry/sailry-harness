@@ -211,6 +211,7 @@ impl Editor {
                 path: path.clone(),
                 name: original.name.clone(),
                 expected_revision: revision,
+                expected_digest: None,
             });
         }
         let package = self.package.as_ref().ok_or("plugins_choose_package")?;

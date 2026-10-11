@@ -97,6 +97,7 @@ pub async fn install(client: &Client, worktree: WorktreeId, path: &str) -> plugi
             path: path.into(),
             name: "memory".into(),
             expected_revision: revision,
+            expected_digest: None,
         }))
         .await
         .unwrap()

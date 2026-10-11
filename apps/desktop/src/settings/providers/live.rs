@@ -80,6 +80,9 @@ impl Workspace {
         self.roles.clear();
         self.role_catalog = Default::default();
         self.plugin_catalog = Default::default();
+        let updates = super::super::plugins::updates::bind(binding.clone(), cx);
+        cx.observe(&updates, |_, _, cx| cx.notify()).detach();
+        self.plugin_catalog.updates = Some(updates);
         self.extensions = super::super::extensions::State::reset(self.extensions.selected.clone());
         let metadata = cx.new(|_| {
             super::super::plugins::Metadata::new(binding.client.clone(), binding.runtime.clone())

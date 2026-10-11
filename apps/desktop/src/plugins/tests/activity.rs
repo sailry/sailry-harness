@@ -32,6 +32,7 @@ fn install(fixture: &Fixture) -> Info {
         path: "progress-package".into(),
         name: "progress".into(),
         expected_revision: current.summary.revision,
+        expected_digest: None,
     }) else {
         panic!("progress package expected");
     };

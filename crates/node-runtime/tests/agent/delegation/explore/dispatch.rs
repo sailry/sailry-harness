@@ -42,6 +42,7 @@ pub(super) async fn install(fixture: &Fixture) -> plugin::Info {
             path: "boundary".into(),
             name: PACKAGE.into(),
             expected_revision: 0,
+            expected_digest: None,
         },
     )
     .await

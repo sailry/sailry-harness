@@ -41,6 +41,7 @@ async fn install(fixture: &Fixture, name: &str, revision: u64) -> plugin::Info {
             path: name.into(),
             name: name.into(),
             expected_revision: revision,
+            expected_digest: None,
         },
     )
     .await

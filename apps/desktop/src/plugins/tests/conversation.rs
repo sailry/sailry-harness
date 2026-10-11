@@ -50,6 +50,7 @@ fn package(fixture: &Fixture, control: bool) -> sailry_protocol::plugin::Info {
         path: "package".into(),
         name: "task-notes".into(),
         expected_revision: 0,
+        expected_digest: None,
     }) else {
         panic!("plugin expected")
     };

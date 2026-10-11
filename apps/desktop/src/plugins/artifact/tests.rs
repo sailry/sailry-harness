@@ -276,6 +276,7 @@ fn install(fixture: &chat::Fixture) -> plugin::Info {
         path: "brief".into(),
         name: PACKAGE.into(),
         expected_revision: 0,
+        expected_digest: None,
     }) else {
         panic!("document package expected")
     };

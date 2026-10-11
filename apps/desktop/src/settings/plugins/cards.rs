@@ -12,7 +12,8 @@ impl Workspace {
             .as_ref()
             .expect("plugin inventory is bound");
         let catalog = &self.plugin_catalog;
-        let busy = !live.connected || catalog.busy();
+        let updates = catalog.updates.as_ref().map(|state| state.read(cx));
+        let busy = !live.connected || catalog.busy(cx);
         let plugins = &catalog.packages;
         let owner = cx.entity();
         let download_owner = owner.clone();
@@ -26,20 +27,21 @@ impl Workspace {
                             Button::new("plugins-check-updates")
                                 .label(tr("plugins_check_updates"))
                                 .disabled(busy || plugins.is_empty())
-                                .loading(catalog.updates.checking())
+                                .loading(updates.is_some_and(|state| state.checking()))
                                 .debug_selector(|| "plugins-check-updates".into())
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.check_plugin_updates(window, cx)
                                 })),
                         )
                         .when(
-                            catalog.updates.available() > 0 || catalog.updates.applying(),
+                            updates.map_or(0, |state| state.available()) > 0
+                                || updates.is_some_and(|state| state.applying()),
                             |view| {
                                 view.child(
                                     Button::new("plugins-update-all")
                                         .label(tr("plugins_update_all"))
                                         .disabled(busy)
-                                        .loading(catalog.updates.applying())
+                                        .loading(updates.is_some_and(|state| state.applying()))
                                         .debug_selector(|| "plugins-update-all".into())
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             this.update_plugins(None, window, cx)
@@ -68,7 +70,7 @@ impl Workspace {
                         ),
                 ),
             )
-            .when(catalog.retryable(), |view| {
+            .when(catalog.retryable(cx), |view| {
                 view.child(
                     Button::new("plugins-retry")
                         .label(tr("plugins_retry"))
@@ -153,9 +155,11 @@ impl Workspace {
         let available = self
             .plugin_catalog
             .updates
-            .entries
-            .get(&plugin.name)
+            .as_ref()
+            .map(|state| state.read(cx))
+            .and_then(|state| state.entries.get(&plugin.name))
             .and_then(|entry| entry.candidate.as_ref());
+
         let update_name = plugin.name.clone();
         let owner = cx.entity();
         let details = plugin.clone();
@@ -194,29 +198,6 @@ impl Workspace {
             .flex_shrink_0()
             .gap_2()
             .items_center()
-            .when_some(available, |actions, candidate| {
-                actions.child(
-                    Button::new(SharedString::from(format!("plugin-update-{update_name}")))
-                        .small()
-                        .icon(IconName::ArrowDown)
-                        .label(tr("plugins_update_available"))
-                        .tooltip(
-                            rust_i18n::t!(
-                                "plugins_update_version",
-                                version = candidate.version().unwrap_or("—")
-                            )
-                            .to_string(),
-                        )
-                        .disabled(busy)
-                        .debug_selector({
-                            let name = update_name.clone();
-                            move || format!("plugin-update-{name}")
-                        })
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.update_plugins(Some(&update_name), window, cx)
-                        })),
-                )
-            })
             .child(
                 resource_card::menu(format!("plugin-menu-{name}"), group)
                     .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
@@ -279,6 +260,33 @@ impl Workspace {
                         )
                     }),
             )
+            .when_some(available, |actions, candidate| {
+                actions.child(
+                    Button::new(SharedString::from(format!("plugin-update-{update_name}")))
+                        .small()
+                        .ghost()
+                        .icon(
+                            Icon::new(gpui_kit::assets::IconName::Download)
+                                .text_color(cx.theme().success),
+                        )
+                        .accessibility_label(tr("plugins_update_available"))
+                        .tooltip(
+                            rust_i18n::t!(
+                                "plugins_update_version",
+                                version = candidate.version().unwrap_or("—")
+                            )
+                            .to_string(),
+                        )
+                        .disabled(busy)
+                        .debug_selector({
+                            let name = update_name.clone();
+                            move || format!("plugin-update-{name}")
+                        })
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.update_plugins(Some(&update_name), window, cx)
+                        })),
+                )
+            })
             .child(
                 div()
                     .debug_selector({

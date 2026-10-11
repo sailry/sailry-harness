@@ -469,6 +469,9 @@ pub enum Command {
         path: String,
         name: String,
         expected_revision: u64,
+        /// Rejects source changes after an update preview.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected_digest: Option<String>,
     },
     SetPluginEnabled {
         name: String,

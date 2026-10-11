@@ -82,6 +82,17 @@ impl Worker {
                 wait(preceding, &stop).await?;
                 let info = acquire(&ingress, &mutation, &stop).await?;
                 check(&stop)?;
+                if let Command::InstallPlugin {
+                    expected_digest: Some(expected),
+                    ..
+                } = &mutation.request.command
+                    && info.summary.digest != *expected
+                {
+                    return Err(Fault::new(
+                        ErrorCode::RevisionConflict,
+                        "plugin source changed; check updates again",
+                    ));
+                }
                 ingress
                     .plugins
                     .prepare_python(&info, &ingress.environment, &stop)

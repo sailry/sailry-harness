@@ -8,7 +8,7 @@ pub(in crate::settings) struct Catalog {
     pub packages: Vec<Summary>,
     pub(super) market: Option<Entity<super::market::Market>>,
     pub metadata: Option<Entity<Metadata>>,
-    pub(super) updates: super::updates::State,
+    pub(in crate::settings) updates: Option<Entity<super::updates::State>>,
     action: Option<Action>,
     pub(in crate::settings) error: Option<&'static str>,
 }
@@ -20,15 +20,28 @@ struct Action {
 }
 
 impl Catalog {
-    pub(in crate::settings) fn busy(&self) -> bool {
-        self.action.is_some() || self.updates.busy()
+    pub(in crate::settings) fn busy(&self, cx: &App) -> bool {
+        self.action.is_some()
+            || self
+                .updates
+                .as_ref()
+                .is_some_and(|state| state.read(cx).busy() || state.read(cx).selecting())
     }
-    pub(in crate::settings) fn retryable(&self) -> bool {
-        self.action.as_ref().is_some_and(|action| !action.pending) || self.updates.retryable()
+    pub(in crate::settings) fn retryable(&self, cx: &App) -> bool {
+        self.action.as_ref().is_some_and(|action| !action.pending)
+            || self
+                .updates
+                .as_ref()
+                .is_some_and(|state| state.read(cx).retryable())
     }
     pub(in crate::settings) fn accept(&mut self, snapshot: &Snapshot, cx: &mut App) {
         self.packages = snapshot.plugins.clone();
-        self.updates.accept(&snapshot.plugins);
+        if let Some(state) = &self.updates {
+            state.update(cx, |state, cx| {
+                state.accept(&snapshot.plugins);
+                cx.notify();
+            });
+        }
         if let Some(metadata) = &self.metadata {
             metadata.update(cx, |metadata, cx| metadata.accept(&snapshot.plugins, cx));
         }
@@ -40,7 +53,7 @@ impl Workspace {
         let Some(live) = &self.provider_link else {
             return;
         };
-        if !live.connected || self.plugin_catalog.busy() {
+        if !live.connected || self.plugin_catalog.busy(cx) {
             return;
         }
         self.plugin_catalog.action = Some(Action {
@@ -84,7 +97,12 @@ impl Workspace {
     }
 
     pub(in crate::settings) fn send_plugin_action(&mut self, cx: &mut Context<Self>) {
-        if self.plugin_catalog.updates.retryable() {
+        if self
+            .plugin_catalog
+            .updates
+            .as_ref()
+            .is_some_and(|state| state.read(cx).retryable())
+        {
             return;
         }
         let Some(action) = &mut self.plugin_catalog.action else {

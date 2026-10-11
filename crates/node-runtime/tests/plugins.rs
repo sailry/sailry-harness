@@ -317,18 +317,21 @@ async fn isolates_resources() {
                 path: "package".into(),
                 name: "example".into(),
                 expected_revision: 1,
+                expected_digest: None,
             },
             Command::InstallPlugin {
                 worktree,
                 path: "../node".into(),
                 name: "example".into(),
                 expected_revision: 1,
+                expected_digest: None,
             },
             Command::InstallPlugin {
                 worktree,
                 path: "package".into(),
                 name: "other".into(),
                 expected_revision: 0,
+                expected_digest: None,
             },
         ] {
             assert!(client.execute(client.prepare(command)).await.is_err());

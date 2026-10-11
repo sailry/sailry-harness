@@ -131,6 +131,7 @@ fn preview(fixture: &Fixture, selection: &str, sparse: bool) {
         path: "plaza-package".into(),
         name: "task-plaza".into(),
         expected_revision: 1,
+        expected_digest: None,
     });
 }
 

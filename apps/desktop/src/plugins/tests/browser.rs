@@ -173,6 +173,7 @@ fn routes_pages_and_preserves_core_tabs(cx: &mut TestAppContext) {
                 path: "browser-package".into(),
                 name: "browser".into(),
                 expected_revision: revision,
+                expected_digest: None,
             })
         };
         let Output::Plugin(updated) = install(package(&fixture).summary.revision) else {
@@ -275,6 +276,7 @@ fn install_review(fixture: &Fixture) {
         path: "browser-review-package".into(),
         name: "browser".into(),
         expected_revision: package(fixture).summary.revision,
+        expected_digest: None,
     }) else {
         panic!("browser package expected")
     };

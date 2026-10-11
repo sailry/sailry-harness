@@ -24,6 +24,7 @@ fn install(fixture: &fixture::Fixture) -> sailry_protocol::plugin::Info {
         path: "files-package".into(),
         name: "files".into(),
         expected_revision: revision,
+        expected_digest: None,
     }) else {
         panic!();
     };

@@ -28,6 +28,7 @@ async fn update(fixture: &Fixture, revision: u64) -> plugin::Info {
             path: "package".into(),
             worktree: fixture.session.worktree,
             expected_revision: revision,
+            expected_digest: None,
         },
     )
     .await

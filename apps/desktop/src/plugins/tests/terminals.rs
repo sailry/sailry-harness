@@ -105,6 +105,7 @@ fn install(fixture: &Fixture) -> sailry_protocol::plugin::Info {
         path: "commands".into(),
         name: "commands".into(),
         expected_revision: revision(fixture),
+        expected_digest: None,
     }) else {
         panic!()
     };

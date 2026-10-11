@@ -26,6 +26,8 @@ impl Server {
                 "/catalog.json".to_owned(),
                 "/repos/sailry/sailry-plugins/commits/main".to_owned(),
                 format!("/sailry/sailry-plugins/zip/{}", "a".repeat(40)),
+                "/repos/sailry/sailry-plugins/commits/main".to_owned(),
+                format!("/sailry/sailry-plugins/zip/{}", "a".repeat(40)),
             ]
         );
     }
@@ -292,7 +294,14 @@ fn preinstalled_updates(cx: &mut TestAppContext) {
         updates::ready(&owner, visual, "reminders", 2);
         menu(visual, "plugin-menu-reminders", 1);
         wait(visual, |cx| {
-            !owner.read(cx).plugin_catalog.updates.checking()
+            !owner
+                .read(cx)
+                .plugin_catalog
+                .updates
+                .as_ref()
+                .unwrap()
+                .read(cx)
+                .checking()
         });
         shown(visual, "plugin-update-reminders", true);
         shown(visual, "plugins-update-all", true);
@@ -314,7 +323,7 @@ fn preinstalled_updates(cx: &mut TestAppContext) {
                 .any(|path| path.starts_with("/sailry/sailry-plugins/zip/"))
         );
         tap(visual, "plugins-retry");
-        wait(visual, |cx| !owner.read(cx).plugin_catalog.busy());
+        wait(visual, |cx| !owner.read(cx).plugin_catalog.busy(cx));
         assert_eq!(
             *fixture.transport.requests.lock().unwrap(),
             [request, request]
@@ -343,28 +352,24 @@ fn preinstalled_updates(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn failed_inspection_preserves_official_candidate(cx: &mut TestAppContext) {
+fn installs_captured_commit(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let server = Server::official();
         let fixture = Fixture::with_skill_source(remote, &server.endpoint);
-        let before = fixture.public_packages(false);
         let (owner, visual) = fixture.mount(cx);
         updates::ready(&owner, visual, "reminders", 1);
         tap(visual, "plugins-check-updates");
         shown(visual, "plugin-update-reminders", true);
         server.checked();
+        let mut paths = server.requests.lock().unwrap().clone();
+        paths.push(format!("/sailry/sailry-plugins/zip/{}", "a".repeat(40)));
         server.unavailable.store(true, Ordering::SeqCst);
         tap(visual, "plugin-update-reminders");
-        wait(visual, |cx| !owner.read(cx).plugin_catalog.busy());
-        shown(visual, "plugin-update-reminders", true);
-        shown(visual, "plugins-retry", false);
-        assert_eq!(fixture.public_packages(false), before);
-        assert!(fixture.transport.requests.lock().unwrap().is_empty());
-        assert!(!visual.update(|window, cx| window.notifications(cx).is_empty()));
-        server.unavailable.store(false, Ordering::SeqCst);
-        tap(visual, "plugin-update-reminders");
         updates::ready(&owner, visual, "reminders", 2);
+        shown(visual, "plugin-update-reminders", false);
+        shown(visual, "plugins-retry", false);
+        assert_eq!(*server.requests.lock().unwrap(), paths);
         let current = fixture
             .public_packages(false)
             .into_iter()
@@ -589,7 +594,14 @@ fn installs_portable_packages_from_catalog(cx: &mut TestAppContext) {
         let downloads = server.requests.lock().unwrap().len();
         menu(visual, "plugin-menu-portable", 1);
         wait(visual, |cx| {
-            !owner.read(cx).plugin_catalog.updates.checking()
+            !owner
+                .read(cx)
+                .plugin_catalog
+                .updates
+                .as_ref()
+                .unwrap()
+                .read(cx)
+                .checking()
         });
         assert!(!visual.did_prompt_for_paths());
         assert_eq!(fixture.transport.requests.lock().unwrap().len(), requests);
@@ -694,7 +706,7 @@ fn separates_card_details_and_toggles(cx: &mut TestAppContext) {
         assert!((icon.center().y - text.center().y).abs() < px(1.));
         assert!((icon.center().y - toggle.center().y).abs() < px(1.));
         tap(visual, "plugin-toggle-databases");
-        wait(visual, |cx| !owner.read(cx).plugin_catalog.busy());
+        wait(visual, |cx| !owner.read(cx).plugin_catalog.busy(cx));
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
         tap(visual, "plugin-details-databases");
         shown(visual, "plugin-tool-database_query", true);

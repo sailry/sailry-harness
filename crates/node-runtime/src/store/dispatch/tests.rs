@@ -707,6 +707,7 @@ pub(super) fn install(
             worktree: protocol::WorktreeId::new(),
             path: name.into(),
             expected_revision: 0,
+            expected_digest: None,
         },
         &mut result,
     )

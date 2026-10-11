@@ -467,6 +467,7 @@ impl Fixture {
             path: "package".into(),
             name: "project-summary".into(),
             expected_revision,
+            expected_digest: None,
         }) else {
             panic!("plugin expected");
         };

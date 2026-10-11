@@ -15,6 +15,7 @@ pub(in crate::settings) struct Observed {
     pub permission_requests: Mutex<Vec<sailry_protocol::computer::Permission>>,
     inner: Arc<dyn Transport>,
     pub mode: AtomicU8,
+    pub lose_update: Mutex<Option<String>>,
     pub read_mode: AtomicU8,
     pub read_cancelled: CancellationToken,
     pub catalog_hold: AtomicU8,
@@ -126,7 +127,21 @@ impl Transport for Observed {
                 return self.inner.dispatch(request).await;
             }
             self.requests.lock().unwrap().push(request.id);
-            let mode = self.mode.swap(0, Ordering::SeqCst);
+            let lost = if let Command::InstallPlugin { name, .. } = &request.command {
+                let mut selected = self.lose_update.lock().unwrap();
+                if selected.as_ref() == Some(name) {
+                    selected.take().is_some()
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            let mode = if lost {
+                1
+            } else {
+                self.mode.swap(0, Ordering::SeqCst)
+            };
             let admission = self.inner.dispatch(request).await?;
             if mode == 0 {
                 return Ok(admission);
@@ -275,6 +290,7 @@ impl Fixture {
             permission_requests: Mutex::new(Vec::new()),
             inner,
             mode: AtomicU8::new(0),
+            lose_update: Mutex::new(None),
             read_mode: AtomicU8::new(0),
             read_cancelled: CancellationToken::new(),
             catalog_hold: AtomicU8::new(0),

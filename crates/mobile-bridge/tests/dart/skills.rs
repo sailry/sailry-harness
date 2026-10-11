@@ -38,7 +38,7 @@ fn controls_host_skills() {
             execute(&client, Command::SetPluginEnabled { name: package.name, expected_revision: package.revision, enabled: false }).await;
         }
         let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else { panic!("snapshot expected") };
-        let Output::Plugin(plugin) = execute(&client, Command::InstallPlugin { worktree: snapshot.sessions[0].worktree, path: "package".into(), name: "example".into(), expected_revision: 0 }).await else { panic!("plugin expected") };
+        let Output::Plugin(plugin) = execute(&client, Command::InstallPlugin { worktree: snapshot.sessions[0].worktree, path: "package".into(), name: "example".into(), expected_revision: 0, expected_digest: None }).await else { panic!("plugin expected") };
         let Output::Plugin(commands) = execute(&client, Command::ReadPlugin { name: "commands".into() }).await else { panic!("commands expected") };
         let references = vec![commands.summary.reference(), plugin.summary.reference()];
         let script = node.profile().join("plugins/packages").join(&plugin.summary.digest).join("skills/analysis/check.sh");

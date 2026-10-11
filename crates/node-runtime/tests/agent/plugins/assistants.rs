@@ -83,6 +83,7 @@ async fn load(fixture: &process::Fixture, revision: u64) -> plugin::Info {
             path: "assistant".into(),
             name: PACKAGE.into(),
             expected_revision: revision,
+            expected_digest: None,
         },
     )
     .await
@@ -144,6 +145,7 @@ async fn unrelated(fixture: &process::Fixture) -> plugin::Info {
             path: "unrelated".into(),
             name: "unrelated".into(),
             expected_revision: 0,
+            expected_digest: None,
         },
     )
     .await

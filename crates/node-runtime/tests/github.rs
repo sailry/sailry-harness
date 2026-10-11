@@ -311,6 +311,7 @@ async fn refuses_stale_and_changed_targets() {
                 path: "github".into(),
                 name: "github".into(),
                 expected_revision: current.summary.revision,
+                expected_digest: None,
             }))
             .await
             .unwrap()

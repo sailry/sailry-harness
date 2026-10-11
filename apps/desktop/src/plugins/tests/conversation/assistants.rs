@@ -220,6 +220,7 @@ fn opens_file(cx: &mut TestAppContext) {
             path: "package".into(),
             name: "task-notes".into(),
             expected_revision: original.summary.revision,
+            expected_digest: None,
         }) else {
             panic!("plugin expected")
         };

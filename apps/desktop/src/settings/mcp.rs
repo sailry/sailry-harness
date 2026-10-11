@@ -73,7 +73,7 @@ impl Workspace {
                         }),
                 ),
             )
-            .when(self.plugin_catalog.retryable(), |view| {
+            .when(self.plugin_catalog.retryable(cx), |view| {
                 view.child(
                     Button::new("mcp-retry")
                         .debug_selector(|| "mcp-retry".into())
@@ -98,7 +98,7 @@ impl Workspace {
 
     fn mcp_card(&self, info: &Info, cx: &mut Context<Self>) -> AnyElement {
         let live = self.provider_link.as_ref().unwrap();
-        let busy = !live.connected || self.plugin_catalog.busy();
+        let busy = !live.connected || self.plugin_catalog.busy(cx);
         let name = &info.summary.name;
         let detail = match info.mcp_source.as_ref() {
             Some(Definition::Stdio { command, .. }) => command.clone(),

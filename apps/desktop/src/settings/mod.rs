@@ -14,6 +14,7 @@ mod model_library;
 mod plugins;
 pub(crate) use plugins::open_bound as open_plugin_details;
 pub(crate) use plugins::preparation::label as python_stage;
+pub(crate) use plugins::updates::connected as check_plugin_updates;
 mod preferences;
 mod providers;
 mod resource_card;

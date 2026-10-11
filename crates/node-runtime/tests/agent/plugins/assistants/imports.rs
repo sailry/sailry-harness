@@ -64,6 +64,7 @@ export function hidden() {{ throw new Error('Unselected tool executed'); }}
             path: "provider".into(),
             name: PROVIDER.into(),
             expected_revision: revision,
+            expected_digest: None,
         },
     )
     .await

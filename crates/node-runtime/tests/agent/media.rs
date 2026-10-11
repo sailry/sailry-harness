@@ -64,6 +64,7 @@ async fn replace_package(client: &Client, root: &std::path::Path, worktree: Work
             path: "media-update".into(),
             name: "media".into(),
             expected_revision: package.summary.revision,
+            expected_digest: None,
         }))
         .await
         .unwrap()

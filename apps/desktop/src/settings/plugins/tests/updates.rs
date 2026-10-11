@@ -229,6 +229,7 @@ fn uses_the_execution_worktree(cx: &mut TestAppContext) {
         let fixture = Fixture::new(remote);
         fixture.package("1.0.0");
         fixture.execute(Command::InstallPlugin {
+            expected_digest: None,
             worktree: fixture.worktree,
             path: "package".into(),
             name: "example".into(),
@@ -273,7 +274,14 @@ fn keeps_installed_market_actions_disabled(cx: &mut TestAppContext) {
         );
         assert!(!visual.did_prompt_for_paths());
         wait(visual, |cx| {
-            !owner.read(cx).plugin_catalog.updates.checking()
+            !owner
+                .read(cx)
+                .plugin_catalog
+                .updates
+                .as_ref()
+                .unwrap()
+                .read(cx)
+                .checking()
         });
         ready(&owner, visual, "files", 2);
         tap(visual, "plugins-market-tab");
@@ -312,6 +320,7 @@ fn checks_before_update_and_recovers_original_request(cx: &mut TestAppContext) {
         let fixture = Fixture::new(remote);
         fixture.package("1.0.0");
         fixture.execute(Command::InstallPlugin {
+            expected_digest: None,
             worktree: fixture.worktree,
             path: "package".into(),
             name: "example".into(),
@@ -324,6 +333,11 @@ fn checks_before_update_and_recovers_original_request(cx: &mut TestAppContext) {
         tap(visual, "plugins-check-updates");
         shown(visual, "plugin-update-example", true);
         shown(visual, "plugins-update-all", true);
+        let menu = visual.debug_bounds("plugin-menu-example").unwrap();
+        let update = visual.debug_bounds("plugin-update-example").unwrap();
+        let toggle = visual.debug_bounds("plugin-toggle-example").unwrap();
+        assert!(menu.right() < update.left());
+        assert!(update.right() < toggle.left());
         assert_eq!(fixture.plugins()[0].revision, 1);
         assert!(fixture.transport.requests.lock().unwrap().is_empty());
         fixture.transport.mode.store(1, Ordering::SeqCst);
@@ -332,13 +346,20 @@ fn checks_before_update_and_recovers_original_request(cx: &mut TestAppContext) {
         assert_eq!(fixture.plugins()[0].revision, 2);
         let first = fixture.transport.requests.lock().unwrap()[0];
         tap(visual, "plugins-retry");
-        wait(visual, |cx| !owner.read(cx).plugin_catalog.busy());
+        wait(visual, |cx| !owner.read(cx).plugin_catalog.busy(cx));
         assert_eq!(*fixture.transport.requests.lock().unwrap(), [first, first]);
         ready(&owner, visual, "example", 2);
         shown(visual, "plugins-retry", false);
         tap(visual, "plugins-check-updates");
         wait(visual, |cx| {
-            !owner.read(cx).plugin_catalog.updates.checking()
+            !owner
+                .read(cx)
+                .plugin_catalog
+                .updates
+                .as_ref()
+                .unwrap()
+                .read(cx)
+                .checking()
         });
         shown(visual, "plugins-update-all", false);
         shown(visual, "plugin-update-example", false);
@@ -402,6 +423,7 @@ fn bulk_updates_continue_after_a_revision_conflict(cx: &mut TestAppContext) {
         write_second("1.0.0");
         for (path, name) in [("package", "example"), ("second", "second")] {
             fixture.execute(Command::InstallPlugin {
+                expected_digest: None,
                 worktree: fixture.worktree,
                 path: path.into(),
                 name: name.into(),
@@ -414,10 +436,23 @@ fn bulk_updates_continue_after_a_revision_conflict(cx: &mut TestAppContext) {
         write_second("2.0.0");
         tap(visual, "plugins-check-updates");
         wait(visual, |cx| {
-            !owner.read(cx).plugin_catalog.updates.checking()
+            !owner
+                .read(cx)
+                .plugin_catalog
+                .updates
+                .as_ref()
+                .unwrap()
+                .read(cx)
+                .checking()
         });
         assert_eq!(
-            owner.read_with(visual, |owner, _| owner.plugin_catalog.updates.available()),
+            owner.read_with(visual, |owner, cx| owner
+                .plugin_catalog
+                .updates
+                .as_ref()
+                .unwrap()
+                .read(cx)
+                .available()),
             2
         );
         assert!(fixture.transport.requests.lock().unwrap().is_empty());
@@ -430,7 +465,7 @@ fn bulk_updates_continue_after_a_revision_conflict(cx: &mut TestAppContext) {
         visual.update(|window, cx| {
             owner.update(cx, |owner, cx| owner.update_plugins(None, window, cx))
         });
-        wait(visual, |cx| !owner.read(cx).plugin_catalog.busy());
+        wait(visual, |cx| !owner.read(cx).plugin_catalog.busy(cx));
         ready(&owner, visual, "second", 2);
         let packages = fixture.plugins();
         let first = packages

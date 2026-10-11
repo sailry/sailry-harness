@@ -54,6 +54,7 @@ fn controls_host_tools() {
                 path: "package".into(),
                 name: "example".into(),
                 expected_revision: 0,
+                expected_digest: None,
             },
         )
         .await

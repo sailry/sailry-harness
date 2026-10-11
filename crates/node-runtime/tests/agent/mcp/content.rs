@@ -39,6 +39,7 @@ async fn restores() {
                 path: "package".into(),
                 name: "tool-content".into(),
                 expected_revision: 0,
+                expected_digest: None,
             },
         )
         .await

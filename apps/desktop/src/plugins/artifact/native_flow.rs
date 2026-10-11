@@ -146,6 +146,7 @@ pub(in crate::plugins) async fn prepare(
                 path: "brief".into(),
                 name: PACKAGE.into(),
                 expected_revision: 0,
+                expected_digest: None,
             },
         )
         .await

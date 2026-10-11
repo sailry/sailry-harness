@@ -45,6 +45,7 @@ fn replace(fixture: &Fixture, original: &Info) -> Info {
         path: "package".into(),
         name: "example".into(),
         expected_revision: 2,
+        expected_digest: None,
     }) else {
         panic!("plugin expected")
     };

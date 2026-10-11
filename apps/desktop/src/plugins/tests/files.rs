@@ -100,6 +100,7 @@ fn install(fixture: &Fixture) {
         path: "files-package".into(),
         name: "files".into(),
         expected_revision: package(fixture).summary.revision,
+        expected_digest: None,
     }) else {
         panic!("Files package expected");
     };

@@ -278,6 +278,7 @@ impl Fixture {
             path: "delegation".into(),
             name: "delegation".into(),
             expected_revision: current.summary.revision,
+            expected_digest: None,
         }) else {
             panic!("package expected");
         };

@@ -61,6 +61,7 @@ fn package(fixture: &fixture::Fixture) -> plugin::Reference {
         path: "goal-package".into(),
         name: "goals".into(),
         expected_revision: previous.revision,
+        expected_digest: None,
     }) else {
         panic!("package expected")
     };

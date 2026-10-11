@@ -60,6 +60,7 @@ fn install(fixture: &Fixture) -> plugin::Info {
         path: "reminders".into(),
         name: "reminders".into(),
         expected_revision: 1,
+        expected_digest: None,
     }) else {
         panic!("plugin expected");
     };

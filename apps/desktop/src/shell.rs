@@ -568,6 +568,19 @@ impl Render for Shell {
         .then(|| self.splits.read(cx).active)
         .flatten();
         self.clear_plugin_focus(active, cx);
+        if let Some(live) = &self.live
+            && live.view.connected
+            && let Some(snapshot) = &live.view.snapshot
+        {
+            crate::settings::check_plugin_updates(
+                live.transport.clone(),
+                cx.global::<crate::backend::Services>().runtime.clone(),
+                live.name(live.selected),
+                &snapshot.plugins,
+                window,
+                cx,
+            );
+        }
         self.sync_project_plugins(window, cx);
         self.bind_browsers(window, cx);
         self.sync_extensions(window, cx);

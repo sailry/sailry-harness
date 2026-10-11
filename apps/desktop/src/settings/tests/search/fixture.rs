@@ -169,7 +169,7 @@ impl Fixture {
         wait(visual, |cx| {
             ready(&owner, cx)
                 && owner.read(cx).provider_link.as_ref().unwrap().connected
-                && !owner.read(cx).plugin_catalog.busy()
+                && !owner.read(cx).plugin_catalog.busy(cx)
         });
         (owner, visual)
     }

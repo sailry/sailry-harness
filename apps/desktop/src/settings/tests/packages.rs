@@ -83,6 +83,7 @@ pub(super) async fn install(client: &Client, directory: &Path, name: &str) {
             path: "package".into(),
             name: name.into(),
             expected_revision: previous.summary.revision,
+            expected_digest: None,
         }))
         .await
         .unwrap()

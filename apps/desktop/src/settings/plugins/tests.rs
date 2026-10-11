@@ -139,6 +139,7 @@ fn reloads_conflicting_details(cx: &mut TestAppContext) {
             path: "package".into(),
             name: "example".into(),
             expected_revision: 0,
+            expected_digest: None,
         });
         let (owner, visual) = fixture.mount(cx);
         wait(visual, |cx| {

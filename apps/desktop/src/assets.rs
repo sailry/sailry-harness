@@ -10,7 +10,9 @@ gpui_kit::assets::icon_assets!(ActivityAssets, [ListTodo]);
 gpui_kit::assets::icon_assets!(UsageAssets, [Gauge, DollarSign, MessagesSquare]);
 gpui_kit::assets::icon_assets!(
     SettingsAssets,
-    [Download, Upload, Trash, Volume2, Square, Pause, House]
+    [
+        Download, Upload, Trash, Volume2, Square, Pause, House, RotateCcw
+    ]
 );
 
 pub(crate) const DRAG_ICON: &str = "icons/reicon/move.svg";
@@ -448,6 +450,7 @@ mod tests {
             "icons/square.svg",
             "icons/pause.svg",
             "icons/house.svg",
+            "icons/rotate-ccw.svg",
         ] {
             let expected = SettingsAssets.load(path).unwrap().unwrap();
             assert_eq!(Assets.load(path).unwrap().unwrap(), expected);

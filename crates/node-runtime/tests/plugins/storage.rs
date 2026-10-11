@@ -89,6 +89,7 @@ async fn install_named(
                 path: name.into(),
                 name: name.into(),
                 expected_revision: 0,
+                expected_digest: None,
             },
         )
         .await,
@@ -175,6 +176,7 @@ async fn isolates_namespaces_and_grants() {
                     path: "other".into(),
                     name: "other".into(),
                     expected_revision: 1,
+                    expected_digest: None,
                 },
             )
             .await,

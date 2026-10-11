@@ -48,6 +48,7 @@ async fn setup(remote: bool, endpoint: &str, native: bool) -> Fixture {
             path: "assistant".into(),
             name: OWNER.into(),
             expected_revision: 0,
+            expected_digest: None,
         },
     )
     .await

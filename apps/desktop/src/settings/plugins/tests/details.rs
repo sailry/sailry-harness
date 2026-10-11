@@ -20,6 +20,7 @@ fn scrolls_long_skill_details(cx: &mut TestAppContext) {
             path: "package".into(),
             name: "example".into(),
             expected_revision: 0,
+            expected_digest: None,
         });
         let installed = fixture.public_packages(false);
         let requests = fixture.transport.requests.lock().unwrap().len();

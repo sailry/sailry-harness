@@ -287,6 +287,7 @@ fn install(
                 path: format!("fixture-{name}"),
                 name: name.into(),
                 expected_revision: previous.summary.revision,
+                expected_digest: None,
             })))
             .unwrap()
         else {

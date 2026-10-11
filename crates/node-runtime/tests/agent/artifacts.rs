@@ -73,6 +73,7 @@ async fn install_at(
             path: "document-package".into(),
             name: PACKAGE.into(),
             expected_revision: revision,
+            expected_digest: None,
         }))
         .await
         .unwrap()
@@ -243,6 +244,7 @@ async fn preserves_metadata_read_authority() {
                 path: "observer-package".into(),
                 name: "observer-fixture".into(),
                 expected_revision: 0,
+                expected_digest: None,
             }))
             .await
             .unwrap()

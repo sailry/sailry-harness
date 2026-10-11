@@ -6,7 +6,7 @@ fn wait_installation(owner: &Entity<Workspace>, visual: &mut VisualTestContext, 
     loop {
         draw(visual);
         let (package, busy, error, preparations, connected) =
-            owner.read_with(visual, |owner, _| {
+            owner.read_with(visual, |owner, cx| {
                 let catalog = &owner.plugin_catalog;
                 (
                     catalog
@@ -14,7 +14,7 @@ fn wait_installation(owner: &Entity<Workspace>, visual: &mut VisualTestContext, 
                         .iter()
                         .find(|package| package.name == "office")
                         .cloned(),
-                    catalog.busy(),
+                    catalog.busy(cx),
                     catalog.error,
                     catalog.python.preparations.clone(),
                     owner

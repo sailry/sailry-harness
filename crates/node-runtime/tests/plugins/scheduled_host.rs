@@ -34,6 +34,7 @@ async fn installed(client: &Client, directory: &Path, worktree: WorktreeId) -> C
                 path: "tasks".into(),
                 name: "scheduled-tasks".into(),
                 expected_revision: 1,
+                expected_digest: None,
             },
         )
         .await,
@@ -67,6 +68,7 @@ async fn update(
                 path: "tasks".into(),
                 name: "scheduled-tasks".into(),
                 expected_revision,
+                expected_digest: None,
             },
         )
         .await,
@@ -474,6 +476,7 @@ async fn resumes_disabled_delivery() {
                     path: "tasks".into(),
                     name: context.package.name.clone(),
                     expected_revision: 3,
+                    expected_digest: None,
                 },
             )
             .await,

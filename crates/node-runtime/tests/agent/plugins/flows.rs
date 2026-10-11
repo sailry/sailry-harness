@@ -55,6 +55,7 @@ async fn install(
             path: "package".into(),
             name: PACKAGE.into(),
             expected_revision: 0,
+            expected_digest: None,
         }))
         .await
         .unwrap()

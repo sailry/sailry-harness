@@ -69,6 +69,7 @@ async fn install(fixture: &mut process::Fixture) -> plugin::Info {
             path: "package".into(),
             name: "task-notes".into(),
             expected_revision: 0,
+            expected_digest: None,
         },
     )
     .await
@@ -137,6 +138,7 @@ async fn keeps_admitted_operations_and_history() {
                 path: "package".into(),
                 name: "task-notes".into(),
                 expected_revision: info.summary.revision,
+                expected_digest: None,
             },
         )
         .await;

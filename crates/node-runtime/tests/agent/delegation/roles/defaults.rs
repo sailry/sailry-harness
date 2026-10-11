@@ -58,6 +58,7 @@ async fn install(fixture: &Fixture, revision: u64, context: &str) -> plugin::Inf
             path: "assistant".into(),
             name: PACKAGE.into(),
             expected_revision: revision,
+            expected_digest: None,
         },
     )
     .await

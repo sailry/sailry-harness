@@ -241,6 +241,7 @@ async fn executes_the_external_summary_package() {
                     path: "summary".into(),
                     name: "project-summary".into(),
                     expected_revision: 0,
+                    expected_digest: None,
                 },
             )
             .await,

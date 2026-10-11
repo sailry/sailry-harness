@@ -34,6 +34,7 @@ export default class Detail extends View {{
         path: "package".into(),
         name: "task-notes".into(),
         expected_revision: current.summary.revision,
+        expected_digest: None,
     }) else {
         panic!("plugin expected");
     };

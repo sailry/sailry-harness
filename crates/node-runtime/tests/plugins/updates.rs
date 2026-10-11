@@ -110,6 +110,84 @@ async fn checks_reject_stale_revisions_without_installing() {
 }
 
 #[tokio::test]
+async fn rejects_changed_worktree_content() {
+    for remote in [false, true] {
+        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let installed = info(execute(&client, install(worktree, 0)).await);
+        let path = directory
+            .path()
+            .join("source/package/skills/analysis/references/guide.md");
+        fs::write(&path, "Reviewed update").unwrap();
+        let Some(plugin::updates::Candidate::Package(candidate)) =
+            check(&client, &installed.summary).await.available
+        else {
+            panic!("worktree update expected");
+        };
+        let request = client.prepare(Command::InstallPlugin {
+            worktree,
+            path: "package".into(),
+            name: installed.summary.name.clone(),
+            expected_revision: installed.summary.revision,
+            expected_digest: Some(candidate.summary.digest),
+        });
+        fs::write(&path, "Changed after review").unwrap();
+        let error = client.execute(request.clone()).await.unwrap_err();
+        assert_eq!(error.code, ErrorCode::RevisionConflict);
+        assert_eq!(client.execute(request).await.unwrap_err(), error);
+        assert_eq!(
+            info(
+                execute(
+                    &client,
+                    Command::ReadPlugin {
+                        name: installed.summary.name.clone(),
+                    },
+                )
+                .await,
+            ),
+            installed
+        );
+
+        let Some(plugin::updates::Candidate::Package(candidate)) =
+            check(&client, &installed.summary).await.available
+        else {
+            panic!("current worktree update expected");
+        };
+        let updated = info(
+            execute(
+                &client,
+                Command::InstallPlugin {
+                    worktree,
+                    path: "package".into(),
+                    name: installed.summary.name.clone(),
+                    expected_revision: installed.summary.revision,
+                    expected_digest: Some(candidate.summary.digest.clone()),
+                },
+            )
+            .await,
+        );
+        assert_eq!(updated.summary.digest, candidate.summary.digest);
+        assert_eq!(updated.summary.revision, installed.summary.revision + 1);
+        assert_eq!(updated.summary.enabled, installed.summary.enabled);
+        assert_eq!(
+            updated.summary.settings_revision,
+            installed.summary.settings_revision
+        );
+        assert_eq!(
+            fs::read_to_string(
+                node.profile()
+                    .join("plugins/packages")
+                    .join(&updated.summary.digest)
+                    .join("skills/analysis/references/guide.md"),
+            )
+            .unwrap(),
+            "Changed after review"
+        );
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn unavailable_official_source() {
     for remote in [false, true] {
         let (_directory, node, controller, client, _) = fixture(remote).await;

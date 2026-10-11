@@ -17,6 +17,7 @@ fn cards_open_owned_configuration(cx: &mut TestAppContext) {
             path: "package".into(),
             name: "example".into(),
             expected_revision: 0,
+            expected_digest: None,
         });
         for name in ["mcp-alpha", "mcp-beta", "mcp-gamma"] {
             fixture.execute(Command::InstallMcp {

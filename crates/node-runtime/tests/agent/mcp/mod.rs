@@ -49,6 +49,7 @@ async fn install(fixture: &process::Fixture, revision: u64) -> plugin::Info {
             path: "package".into(),
             name: "example".into(),
             expected_revision: revision,
+            expected_digest: None,
         },
     )
     .await

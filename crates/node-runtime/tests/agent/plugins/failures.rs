@@ -41,6 +41,7 @@ export function broken() {throw new Error('formatting failed');}
                 path: "package".into(),
                 name: "format-failure".into(),
                 expected_revision: 0,
+                expected_digest: None,
             }))
             .await
             .unwrap()

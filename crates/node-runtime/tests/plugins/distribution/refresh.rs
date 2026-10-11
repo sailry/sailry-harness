@@ -38,6 +38,7 @@ async fn previous(
                 path,
                 name: name.into(),
                 expected_revision: current.summary.revision,
+                expected_digest: None,
             },
         )
         .await,

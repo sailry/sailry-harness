@@ -88,6 +88,7 @@ fn derives_origin_from_admitted_command() {
                 path: "package".into(),
                 name: "files".into(),
                 expected_revision: 0,
+                expected_digest: None,
             },
             plugin::Origin::Worktree {
                 worktree,

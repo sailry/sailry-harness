@@ -42,6 +42,7 @@ fn install(fixture: &Fixture, name: &str, skill: &str, revision: u64) -> plugin:
         path: name.into(),
         name: name.into(),
         expected_revision: revision,
+        expected_digest: None,
     }) else {
         panic!("plugin expected");
     };
@@ -96,6 +97,7 @@ fn plugin_links_reuse_details(cx: &mut TestAppContext) {
             path: "reports".into(),
             name: "reports".into(),
             expected_revision: package.summary.revision,
+            expected_digest: None,
         }) else {
             panic!("plugin expected");
         };
@@ -466,6 +468,7 @@ fn queued_mentions_keep_the_admitted_skill(cx: &mut TestAppContext) {
             path: "reports".into(),
             name: "reports".into(),
             expected_revision: package.summary.revision,
+            expected_digest: None,
         }) else {
             panic!("plugin expected")
         };

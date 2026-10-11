@@ -255,6 +255,7 @@ fn bundled_package_controls(cx: &mut TestAppContext) {
         path: "package".into(),
         name: "example".into(),
         expected_revision: 0,
+        expected_digest: None,
     });
     let (owner, visual) = fixture.mount(cx);
     owner.update(visual, |owner, cx| owner.select(Section::Skills, cx));

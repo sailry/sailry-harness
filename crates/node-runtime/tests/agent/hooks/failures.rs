@@ -129,6 +129,7 @@ async fn retains_uncertain_cleanup_and_hook_failure() {
                 path: "package".into(),
                 name: "example".into(),
                 expected_revision: 0,
+                expected_digest: None,
             },
         )
         .await

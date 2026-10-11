@@ -132,6 +132,7 @@ fn releases_invalid_forms(cx: &mut TestAppContext) {
             path: "package".into(),
             name: "example".into(),
             expected_revision: fixture.plugins()[0].revision,
+            expected_digest: None,
         });
         tap(visual, "plugin-settings-reload");
         wait(visual, |cx| !editor.read(cx).loading);
@@ -169,6 +170,7 @@ fn scrolls_long_forms(cx: &mut TestAppContext) {
             path: "package".into(),
             name: "example".into(),
             expected_revision: fixture.plugins()[0].revision,
+            expected_digest: None,
         });
         let (owner, visual) = fixture.mount(cx);
         let handle = visual.update(|window, _| window.window_handle());

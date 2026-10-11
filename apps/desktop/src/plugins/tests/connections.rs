@@ -70,6 +70,7 @@ fn install(fixture: &Fixture, name: &str) -> plugin::Info {
         path: name.into(),
         name: name.into(),
         expected_revision: current.summary.revision,
+        expected_digest: None,
     }) else {
         panic!("package expected");
     };

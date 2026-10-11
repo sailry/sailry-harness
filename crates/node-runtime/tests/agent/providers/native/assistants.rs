@@ -51,6 +51,7 @@ async fn setup(remote: bool, api: ModelApi, endpoint: &str, allow_search: bool) 
             path: "assistant".into(),
             name: "search-assistant".into(),
             expected_revision: 0,
+            expected_digest: None,
         },
     )
     .await

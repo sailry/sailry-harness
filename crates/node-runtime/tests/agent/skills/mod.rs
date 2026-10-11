@@ -69,6 +69,7 @@ async fn install(client: &Client, worktree: WorktreeId, revision: u64) -> plugin
             path: "package".into(),
             name: "example".into(),
             expected_revision: revision,
+            expected_digest: None,
         },
     )
     .await

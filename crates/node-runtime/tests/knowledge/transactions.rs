@@ -37,6 +37,7 @@ async fn declared(client: &Client, fixture: &Fixture, name: &str) -> Context {
             path: name.into(),
             name: name.into(),
             expected_revision: 0,
+            expected_digest: None,
         },
     )
     .await
@@ -339,6 +340,7 @@ async fn updates_registration_at_package_completion() {
                 path: name.clone(),
                 name: name.clone(),
                 expected_revision: info.summary.revision,
+                expected_digest: None,
             },
         )
         .await

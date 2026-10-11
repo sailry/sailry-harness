@@ -52,6 +52,7 @@ impl Fixture {
             path: "doudizhu".into(),
             name: "doudizhu".into(),
             expected_revision: 0,
+            expected_digest: None,
         }) else {
             panic!("plugin expected")
         };
@@ -109,6 +110,7 @@ impl Fixture {
             path: name.into(),
             name: name.into(),
             expected_revision: 0,
+            expected_digest: None,
         }) else {
             panic!("plugin expected")
         };

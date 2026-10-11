@@ -48,6 +48,7 @@ async fn executes_configured_bundled_tools() {
                         path: "github".into(),
                         name: "github".into(),
                         expected_revision: installed.summary.revision,
+                        expected_digest: None,
                     },
                 )
                 .await

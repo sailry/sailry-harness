@@ -595,6 +595,7 @@ export function save(args) {{
                 path: "prepared-plugin".into(),
                 worktree: fixture.session.worktree,
                 expected_revision: 0,
+                expected_digest: None,
             },
         )
         .await

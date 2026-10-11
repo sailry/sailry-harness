@@ -713,6 +713,7 @@ async fn preserves_unshipped_installed_package() {
                     path: "notes-fixture".into(),
                     name: "knowledge".into(),
                     expected_revision: 0,
+                    expected_digest: None,
                 },
             )
             .await,

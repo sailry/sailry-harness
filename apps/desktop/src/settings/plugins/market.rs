@@ -235,7 +235,7 @@ impl Render for Market {
             || !connected
             || owner
                 .as_ref()
-                .is_some_and(|owner| owner.read(cx).plugin_catalog.busy());
+                .is_some_and(|owner| owner.read(cx).plugin_catalog.busy(cx));
         let installed = owner
             .as_ref()
             .map(|owner| {

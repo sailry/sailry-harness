@@ -8,25 +8,32 @@ use sailry_protocol::{
     Command, ErrorCode, Fault, Output, Request,
     plugin::{Info, Origin, Summary, catalog::Entry as Listing, updates as checks},
 };
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-#[derive(Default)]
-pub(super) struct State {
-    pub entries: BTreeMap<String, Entry>,
+mod changes;
+#[cfg(test)]
+mod tests;
+mod view;
+
+pub(in crate::settings) struct State {
+    binding: Binding,
+    packages: Vec<Summary>,
+    pub(super) entries: BTreeMap<String, Entry>,
     check: Option<CancellationToken>,
     batch: Option<Batch>,
     task: Option<Task<()>>,
+    dialog: Option<view::Selection>,
 }
 
 pub(super) struct Entry {
     pub current: Summary,
     pub candidate: Option<Candidate>,
     pub manual: bool,
+    pub previous: Option<Info>,
 }
 
 pub(super) enum Candidate {
     Node(Info),
-    Official(Listing),
     Upload(Package),
 }
 
@@ -51,6 +58,9 @@ impl State {
     pub(super) fn busy(&self) -> bool {
         self.check.is_some() || self.batch.is_some()
     }
+    pub(super) fn selecting(&self) -> bool {
+        self.dialog.is_some()
+    }
     pub(super) fn checking(&self) -> bool {
         self.check.is_some()
     }
@@ -67,8 +77,14 @@ impl State {
             .count()
     }
     pub(super) fn accept(&mut self, packages: &[Summary]) {
+        self.packages = packages.to_vec();
         self.entries
             .retain(|_, entry| packages.contains(&entry.current));
+        if let Some(dialog) = &mut self.dialog {
+            dialog.rows.retain(|name, row| {
+                row.status != view::Status::Ready || self.entries.contains_key(name)
+            });
+        }
     }
 }
 
@@ -76,7 +92,6 @@ impl Candidate {
     pub(super) fn version(&self) -> Option<&str> {
         match self {
             Self::Node(info) => info.summary.version.as_deref(),
-            Self::Official(entry) => entry.version.as_deref(),
             Self::Upload(package) => package.info.summary.version.as_deref(),
         }
     }
@@ -85,7 +100,6 @@ impl Candidate {
         let expected_revision = current.revision;
         let name = current.name.clone();
         Some(match self {
-            Self::Official(_) => return None,
             Self::Upload(package) => Command::InstallPluginUpload {
                 stream: package.upload.stream,
                 source: sailry_protocol::plugin::UploadSource::Directory,
@@ -102,6 +116,7 @@ impl Candidate {
                     path: path.clone(),
                     name,
                     expected_revision,
+                    expected_digest: Some(info.summary.digest.clone()),
                 },
                 Origin::Online { source, path } if info.skill.is_some() => Command::InstallSkill {
                     source: source.clone(),
@@ -121,17 +136,116 @@ impl Candidate {
     }
 }
 
+#[derive(Default)]
+struct Registry {
+    nodes: BTreeMap<sailry_protocol::NodeId, Entity<State>>,
+    checked: BTreeSet<sailry_protocol::NodeId>,
+}
+impl Global for Registry {}
+
+pub(in crate::settings) fn bind(binding: Binding, cx: &mut App) -> Entity<State> {
+    if !cx.has_global::<Registry>() {
+        cx.set_global(Registry::default());
+    }
+    let node = binding.client.target();
+    if let Some(state) = cx.global::<Registry>().nodes.get(&node) {
+        return state.clone();
+    }
+    let state = cx.new(|_| State {
+        binding,
+        packages: Vec::new(),
+        entries: BTreeMap::new(),
+        check: None,
+        batch: None,
+        task: None,
+        dialog: None,
+    });
+    cx.global_mut::<Registry>()
+        .nodes
+        .insert(node, state.clone());
+    state
+}
+
+pub(crate) fn connected(
+    transport: std::sync::Arc<dyn sailry_link::Transport>,
+    runtime: std::sync::Arc<tokio::runtime::Runtime>,
+    label: SharedString,
+    packages: &[Summary],
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let state = bind(
+        Binding {
+            client: std::sync::Arc::new(sailry_client::Client::new(transport)),
+            runtime,
+            label,
+        },
+        cx,
+    );
+    let node = state.read(cx).binding.client.target();
+    state.update(cx, |state, cx| {
+        state.accept(packages);
+        state.present(window, cx);
+    });
+    if state.read(cx).busy() || !cx.global_mut::<Registry>().checked.insert(node) {
+        return;
+    }
+    state.update(cx, |state, cx| state.check(true, window, cx));
+}
+
 impl Workspace {
     pub(super) fn check_plugin_updates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(live) = &self.provider_link else {
-            return;
-        };
-        if !live.connected || self.plugin_catalog.busy() {
+        if self.plugin_catalog.busy(cx)
+            || self
+                .provider_link
+                .as_ref()
+                .is_none_or(|live| !live.connected)
+        {
             return;
         }
-        let binding = live.binding.clone();
+        if let Some(state) = &self.plugin_catalog.updates {
+            state.update(cx, |state, cx| state.check(false, window, cx));
+        }
+    }
+
+    pub(super) fn update_plugins(
+        &mut self,
+        name: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.plugin_catalog.busy(cx)
+            || self
+                .provider_link
+                .as_ref()
+                .is_none_or(|live| !live.connected)
+        {
+            return;
+        }
+        if let Some(state) = &self.plugin_catalog.updates {
+            state.update(cx, |state, cx| state.apply(name, window, cx));
+        }
+    }
+
+    pub(super) fn retry_plugin_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(state) = self.plugin_catalog.updates.clone()
+            && state.read(cx).retryable()
+        {
+            state.update(cx, |state, cx| state.send(window, cx));
+        } else {
+            self.send_plugin_action(cx);
+        }
+    }
+}
+
+impl State {
+    fn check(&mut self, startup: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy() || self.selecting() {
+            return;
+        }
+        let binding = self.binding.clone();
         let node = binding.client.target();
-        let packages = self.plugin_catalog.packages.clone();
+        let packages = self.packages.clone();
         let directories: BTreeMap<_, _> = packages
             .iter()
             .filter_map(|package| {
@@ -140,7 +254,7 @@ impl Workspace {
             })
             .collect();
         let stop = CancellationToken::new();
-        self.plugin_catalog.updates.check = Some(stop.clone());
+        self.check = Some(stop.clone());
         let cancelled = stop.clone();
         let job = binding.runtime.clone().spawn(async move {
             let result = tokio::select! {
@@ -174,23 +288,34 @@ impl Workspace {
             }
             Some(Ok((entries, failed)))
         });
-        self.plugin_catalog.updates.task = Some(cx.spawn_in(window, async move |owner, cx| {
+        let origin = window.window_handle();
+        self.task = Some(cx.spawn(async move |owner, cx| {
             let result = job.await;
-            let _ = owner.update_in(cx, |owner, window, cx| {
-                if stop.is_cancelled()
-                    || owner
-                        .provider_link
-                        .as_ref()
-                        .is_none_or(|live| live.binding.client.target() != node)
-                {
+            let target = cx.update(|cx| {
+                let windows = cx.windows();
+                windows.contains(&origin).then_some(origin)
+                    .or_else(|| cx.active_window())
+                    .or_else(|| windows.first().copied())
+            });
+            if let Some(target) = target {
+                let _ = target.update(cx, |_, window, cx| owner.update(cx, |owner, cx| {
+                if stop.is_cancelled() || owner.binding.client.target() != node {
                     return;
                 }
-                let state = &mut owner.plugin_catalog.updates;
+                let state = owner;
                 state.check = None;
                 match result {
                     Ok(Some(Ok((entries, failed)))) => {
                         state.entries = entries;
-                        state.accept(&owner.plugin_catalog.packages);
+                        state.entries.retain(|_, entry| state.packages.contains(&entry.current));
+                        if startup {
+                            if failed > 0 {
+                                eprintln!("sailry-desktop: startup plugin inspection for {node:?} had {failed} failures");
+                            }
+                            state.open(window, cx);
+                            cx.notify();
+                            return;
+                        }
                         let available = state.available();
                         let manual = state.entries.values().filter(|entry| entry.manual).count();
                         let message = if failed > 0 {
@@ -214,33 +339,40 @@ impl Workspace {
                         };
                         notify(window, message, failed > 0, cx);
                     }
+                    _ if startup => eprintln!("sailry-desktop: startup plugin update check for {node:?} failed"),
                     _ => notify(window, tr("plugins_check_failed"), true, cx),
                 }
                 cx.notify();
-            });
+                }));
+            } else {
+                let _ = owner.update(cx, |state, cx| {
+                    state.check = None;
+                    cx.notify();
+                });
+            }
         }));
         cx.notify();
     }
 
-    pub(super) fn update_plugins(
-        &mut self,
-        name: Option<&str>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(live) = &self.provider_link else {
-            return;
-        };
-        if !live.connected || self.plugin_catalog.busy() {
+    fn apply(&mut self, name: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy() {
             return;
         }
-        let state = &mut self.plugin_catalog.updates;
-        state.accept(&self.plugin_catalog.packages);
+        let state = &mut *self;
+        state
+            .entries
+            .retain(|_, entry| state.packages.contains(&entry.current));
         let names: Vec<_> = state
             .entries
             .iter()
             .filter(|(key, entry)| {
-                name.is_none_or(|name| key.as_str() == name) && entry.candidate.is_some()
+                name.is_none_or(|name| key.as_str() == name)
+                    && entry.candidate.is_some()
+                    && state.dialog.as_ref().is_none_or(|dialog| {
+                        dialog.rows.get(*key).is_some_and(|row| {
+                            row.selected && (name.is_some() || row.status == view::Status::Ready)
+                        })
+                    })
             })
             .map(|(name, _)| name.clone())
             .collect();
@@ -251,27 +383,27 @@ impl Workspace {
         if entries.is_empty() {
             return;
         }
+        if let Some(dialog) = &mut state.dialog {
+            dialog.locked = true;
+            for entry in &entries {
+                if let Some(row) = dialog.rows.get_mut(&entry.current.name) {
+                    row.status = view::Status::Queued;
+                }
+            }
+        }
         state.batch = Some(Batch {
-            binding: live.binding.clone(),
+            binding: state.binding.clone(),
             entries,
             request: None,
             pending: false,
             completed: 0,
             failed: 0,
         });
-        self.send_plugin_updates(window, cx);
+        self.send(window, cx);
     }
 
-    pub(super) fn retry_plugin_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.plugin_catalog.updates.retryable() {
-            self.send_plugin_updates(window, cx);
-        } else {
-            self.send_plugin_action(cx);
-        }
-    }
-
-    fn send_plugin_updates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(batch) = &mut self.plugin_catalog.updates.batch else {
+    fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(batch) = &mut self.batch else {
             return;
         };
         if batch.pending {
@@ -281,11 +413,6 @@ impl Workspace {
             return;
         };
         if batch.request.is_none() {
-            if let Some(Candidate::Official(listing)) = &entry.candidate {
-                let listing = listing.clone();
-                self.prepare_plugin_update(listing, window, cx);
-                return;
-            }
             let Some(command) = entry
                 .candidate
                 .as_ref()
@@ -296,162 +423,157 @@ impl Workspace {
             batch.request = Some(batch.binding.client.prepare(command));
         }
         batch.pending = true;
+        if let Some(dialog) = &mut self.dialog
+            && let Some(row) = dialog.rows.get_mut(&entry.current.name)
+        {
+            row.status = view::Status::Updating;
+        }
         let binding = batch.binding.clone();
         let node = binding.client.target();
         let request = batch.request.clone().expect("update request is prepared");
         let id = request.id;
-        let job = binding
-            .runtime
-            .clone()
-            .spawn(async move { binding.client.execute(request).await });
-        self.plugin_catalog.updates.task = Some(cx.spawn_in(window, async move |owner, cx| {
-            let result = job.await;
-            let _ = owner.update_in(cx, |owner, window, cx| {
-                let state = &mut owner.plugin_catalog.updates;
-                let Some(batch) = &mut state.batch else {
-                    return;
-                };
-                if batch.binding.client.target() != node
-                    || batch
-                        .request
-                        .as_ref()
-                        .is_none_or(|request| request.id != id)
-                {
-                    return;
+        let job = binding.runtime.clone().spawn(async move {
+            let admission = match binding.client.dispatch(request).await {
+                Ok(admission) => admission,
+                Err(error) => {
+                    let uncertain = live::uncertain(&error);
+                    return (Err(error), uncertain);
                 }
-                batch.pending = false;
-                let error = match result {
-                    Ok(Ok(Output::Plugin(info))) => {
-                        let entry = batch.entries.pop_front().expect("active update");
-                        if let Some(Candidate::Upload(package)) = entry.candidate
-                            && let Some(path) = package.directory.clone()
-                        {
-                            crate::preferences::plugins::remember(
-                                node,
-                                &info.summary.name,
-                                &info.summary.digest,
-                                info.summary.revision,
-                                path,
-                                cx,
-                            );
-                        } else {
-                            crate::preferences::plugins::forget(
-                                node,
-                                &info.summary.name,
-                                info.summary.revision,
-                                cx,
-                            );
-                        }
-                        batch.completed += 1;
-                        batch.request = None;
-                        None
-                    }
-                    Ok(Err(error)) => Some(error),
-                    _ => Some(Fault::new(
+            };
+            match admission.completion.await {
+                Ok(result) => {
+                    let uncertain = result
+                        .as_ref()
+                        .is_err_and(|error| error.code == ErrorCode::OutcomeUnknown);
+                    (result, uncertain)
+                }
+                Err(_) => (
+                    Err(Fault::new(
                         ErrorCode::OutcomeUnknown,
                         "plugin update result is unconfirmed",
                     )),
-                };
-                if let Some(error) = error {
-                    let name = &batch.entries.front().expect("active update").current.name;
-                    let message = rust_i18n::t!(
-                        "plugins_update_error",
-                        name = name,
-                        error = tr(live::error_key(&error))
-                    );
-                    notify(window, message.into(), true, cx);
-                    if live::uncertain(&error) {
-                        cx.notify();
-                        return;
-                    }
-                    let entry = batch.entries.pop_front().expect("active update");
-                    if owner.plugin_catalog.packages.contains(&entry.current) {
-                        state.entries.insert(entry.current.name.clone(), entry);
-                    }
-                    batch.failed += 1;
-                    batch.request = None;
-                }
-                owner.advance_plugin_updates(window, cx);
-                cx.notify();
-            });
-        }));
-        cx.notify();
-    }
-
-    fn prepare_plugin_update(
-        &mut self,
-        listing: Listing,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let batch = self
-            .plugin_catalog
-            .updates
-            .batch
-            .as_mut()
-            .expect("active updates");
-        let current = batch
-            .entries
-            .front()
-            .expect("active update")
-            .current
-            .clone();
-        batch.pending = true;
-        let binding = batch.binding.clone();
-        let node = binding.client.target();
-        let selected = current.clone();
-        let job = binding
-            .runtime
-            .clone()
-            .spawn(async move { prepare(&binding, &selected, listing).await });
-        self.plugin_catalog.updates.task = Some(cx.spawn_in(window, async move |owner, cx| {
+                    true,
+                ),
+            }
+        });
+        let origin = window.window_handle();
+        self.task = Some(cx.spawn(async move |owner, cx| {
             let result = job.await;
-            let _ = owner.update_in(cx, |owner, window, cx| {
-                let state = &mut owner.plugin_catalog.updates;
-                let Some(batch) = &mut state.batch else {
-                    return;
-                };
-                if batch.binding.client.target() != node
-                    || batch
-                        .entries
-                        .front()
-                        .is_none_or(|entry| entry.current != current)
-                {
-                    return;
-                }
-                batch.pending = false;
-                match result {
-                    Ok(Ok(command)) => batch.request = Some(batch.binding.client.prepare(command)),
-                    result => {
-                        let error = match result {
-                            Ok(Err(error)) => error,
-                            _ => Fault::new(
-                                ErrorCode::Unavailable,
-                                "plugin update inspection failed",
-                            ),
-                        };
-                        let entry = batch.entries.pop_front().expect("active update");
-                        let message = rust_i18n::t!(
-                            "plugins_update_error",
-                            name = entry.current.name,
-                            error = tr(live::error_key(&error))
-                        );
-                        if owner.plugin_catalog.packages.contains(&entry.current) {
-                            state.entries.insert(entry.current.name.clone(), entry);
-                        }
-                        batch.failed += 1;
-                        notify(window, message.into(), true, cx);
-                    }
-                }
-                owner.advance_plugin_updates(window, cx);
-                cx.notify();
+            let target = cx.update(|cx| {
+                let windows = cx.windows();
+                windows
+                    .contains(&origin)
+                    .then_some(origin)
+                    .or_else(|| cx.active_window())
+                    .or_else(|| windows.first().copied())
             });
+            if let Some(target) = target {
+                let _ = target.update(cx, |_, window, cx| {
+                    owner.update(cx, |owner, cx| {
+                        let state = owner;
+                        let Some(batch) = &mut state.batch else {
+                            return;
+                        };
+                        if batch.binding.client.target() != node
+                            || batch
+                                .request
+                                .as_ref()
+                                .is_none_or(|request| request.id != id)
+                        {
+                            return;
+                        }
+                        batch.pending = false;
+                        let (result, mut uncertain) = result.unwrap_or_else(|_| {
+                            (
+                                Err(Fault::new(
+                                    ErrorCode::OutcomeUnknown,
+                                    "plugin update result is unconfirmed",
+                                )),
+                                true,
+                            )
+                        });
+                        let error = match result {
+                            Ok(Output::Plugin(info)) => {
+                                let entry = batch.entries.pop_front().expect("active update");
+                                if let Some(Candidate::Upload(package)) = entry.candidate
+                                    && let Some(path) = package.directory.clone()
+                                {
+                                    crate::preferences::plugins::remember(
+                                        node,
+                                        &info.summary.name,
+                                        &info.summary.digest,
+                                        info.summary.revision,
+                                        path,
+                                        cx,
+                                    );
+                                } else {
+                                    crate::preferences::plugins::forget(
+                                        node,
+                                        &info.summary.name,
+                                        info.summary.revision,
+                                        cx,
+                                    );
+                                }
+                                if let Some(dialog) = &mut state.dialog
+                                    && let Some(row) = dialog.rows.get_mut(&entry.current.name)
+                                {
+                                    row.status = view::Status::Succeeded;
+                                }
+                                batch.completed += 1;
+                                batch.request = None;
+                                None
+                            }
+                            Err(error) => Some(error),
+                            _ => {
+                                uncertain = true;
+                                Some(Fault::new(
+                                    ErrorCode::OutcomeUnknown,
+                                    "plugin update result is unconfirmed",
+                                ))
+                            }
+                        };
+                        if let Some(error) = error {
+                            let name = &batch.entries.front().expect("active update").current.name;
+                            let message = rust_i18n::t!(
+                                "plugins_update_error",
+                                name = name,
+                                error = tr(live::error_key(&error))
+                            );
+                            if let Some(dialog) = &mut state.dialog
+                                && let Some(row) = dialog.rows.get_mut(name)
+                            {
+                                row.status = view::Status::Failed;
+                            }
+                            notify(window, message.into(), true, cx);
+                            if uncertain {
+                                cx.notify();
+                                return;
+                            }
+                            let entry = batch.entries.pop_front().expect("active update");
+                            if state.packages.contains(&entry.current) {
+                                state.entries.insert(entry.current.name.clone(), entry);
+                            }
+                            batch.failed += 1;
+                            batch.request = None;
+                        }
+                        state.advance(window, cx);
+                        cx.notify();
+                    })
+                });
+            } else {
+                let _ = owner.update(cx, |state, cx| {
+                    if let Some(batch) = &mut state.batch {
+                        batch.pending = false;
+                    }
+                    cx.notify();
+                });
+            }
         }));
         cx.notify();
     }
 
-    fn advance_plugin_updates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let state = &mut self.plugin_catalog.updates;
+    fn advance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let state = &mut *self;
         let Some(batch) = &state.batch else { return };
         if batch.entries.is_empty() {
             let message = if batch.failed > 0 {
@@ -465,14 +587,29 @@ impl Workspace {
             };
             let failed = batch.failed > 0;
             state.batch = None;
+            if let Some(dialog) = &mut state.dialog {
+                dialog.locked = false;
+                if !failed
+                    && dialog
+                        .rows
+                        .values()
+                        .all(|row| !row.selected || row.status == view::Status::Succeeded)
+                {
+                    let mounted = dialog.window == Some(window.window_handle().window_id());
+                    state.dialog = None;
+                    if mounted {
+                        window.close_dialog(cx);
+                    }
+                }
+            }
             notify(window, message.into(), failed, cx);
         } else {
-            self.send_plugin_updates(window, cx);
+            self.send(window, cx);
         }
     }
 }
 
-async fn prepare(binding: &Binding, current: &Summary, listing: Listing) -> Result<Command, Fault> {
+async fn prepare(binding: &Binding, current: &Summary, listing: Listing) -> Result<Info, Fault> {
     let source = sailry_protocol::plugin::skills::Source {
         repository: listing
             .repository
@@ -502,12 +639,12 @@ async fn prepare(binding: &Binding, current: &Summary, listing: Listing) -> Resu
             "official plugin version changed; check updates again",
         ));
     }
-    Ok(Command::InstallPluginSource {
+    let mut info = selected.info;
+    info.origin = Some(Origin::Online {
         source: selected.source,
         path: selected.path,
-        name: current.name.clone(),
-        expected_revision: current.revision,
-    })
+    });
+    Ok(info)
 }
 
 async fn inspect(
@@ -517,36 +654,60 @@ async fn inspect(
     stop: CancellationToken,
 ) -> Result<Entry, Fault> {
     let current = &report.current;
-    if report.manual
+    let candidate = if report.manual
         && let Some(path) = directory
     {
-        return match upload::prepare(binding.clone(), path, true, stop).await? {
-            Prepared::MissingDirectory => Ok(Entry {
-                current: report.current,
-                candidate: None,
-                manual: true,
-            }),
+        match upload::prepare(binding.clone(), path, true, stop).await? {
+            Prepared::MissingDirectory => {
+                return Ok(Entry {
+                    current: report.current,
+                    previous: None,
+                    candidate: None,
+                    manual: true,
+                });
+            }
             Prepared::Package(package) => {
                 let package = *package;
                 if package.info.summary.name != current.name {
                     return Err(Fault::invalid("plugin update has a different identity"));
                 }
-                Ok(Entry {
-                    candidate: (package.info.summary.digest != current.digest)
-                        .then_some(Candidate::Upload(package)),
-                    current: report.current,
-                    manual: false,
-                })
+                (package.info.summary.digest != current.digest)
+                    .then_some(Candidate::Upload(package))
             }
+        }
+    } else {
+        match report.available {
+            Some(checks::Candidate::Package(info)) => Some(Candidate::Node(*info)),
+            Some(checks::Candidate::Official(listing)) => {
+                let info = prepare(binding, current, *listing).await?;
+                (info.summary.digest != current.digest).then_some(Candidate::Node(info))
+            }
+            None => None,
+        }
+    };
+    let previous = if candidate.is_some() {
+        let Output::Plugin(info) = binding
+            .client
+            .execute(binding.client.prepare(Command::ReadPluginVersion {
+                package: current.reference(),
+            }))
+            .await?
+        else {
+            return Err(Fault::new(
+                ErrorCode::Internal,
+                "installed plugin information expected",
+            ));
         };
-    }
+        Some(info)
+    } else {
+        None
+    };
+    let manual = report.manual && !matches!(candidate, Some(Candidate::Upload(_)));
     Ok(Entry {
         current: report.current,
-        candidate: report.available.map(|candidate| match candidate {
-            checks::Candidate::Package(info) => Candidate::Node(*info),
-            checks::Candidate::Official(entry) => Candidate::Official(*entry),
-        }),
-        manual: report.manual,
+        previous,
+        candidate,
+        manual,
     })
 }
 

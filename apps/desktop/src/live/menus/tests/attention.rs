@@ -46,6 +46,7 @@ fn install_worktrees(fixture: &crate::activity::fixture::Fixture, index: usize, 
         path: "worktrees-package".into(),
         name: "worktrees".into(),
         expected_revision: previous.summary.revision,
+        expected_digest: None,
     }) else {
         panic!("Worktrees package expected")
     };
