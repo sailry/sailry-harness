@@ -16,6 +16,7 @@ struct Probe {
     size: Size,
     adornments: bool,
     multiline: bool,
+    width: Pixels,
 }
 
 impl Render for Probe {
@@ -34,7 +35,7 @@ impl Render for Probe {
             input.into_any_element()
         };
         div()
-            .w(px(280.))
+            .w(self.width)
             .child(control)
             .debug_selector(|| "input-frame".into())
     }
@@ -61,6 +62,7 @@ fn mount(cx: &mut TestAppContext) -> (Entity<Probe>, &mut VisualTestContext) {
             size: Size::Medium,
             adornments: false,
             multiline: false,
+            width: px(280.),
         });
         probe = Some(view.clone());
         Root::new(view, window, cx)
@@ -222,5 +224,78 @@ fn textarea_retains_line_height_and_padding(cx: &mut TestAppContext) {
             assert_eq!(viewport.bottom(), frame.bottom() - px(1.) - size.input_py());
             assert_eq!(viewport.left(), frame.left() + px(1.) + size.input_px());
         });
+    }
+}
+
+#[gpui::test]
+fn textarea_wraps_inside_horizontal_padding(cx: &mut TestAppContext) {
+    let (probe, cx) = mount(cx);
+    let textarea = probe.read_with(cx, |probe, _| probe.textarea.clone());
+    let instructions = [
+        "Read the selected files and describe the changes before editing. Keep the existing behavior and verify the result. ".repeat(3),
+        "阅读选中的文件并描述变化，在确认范围后修改文件，保留现有行为并验证结果。".repeat(3),
+    ];
+    for size in [Size::Small, Size::Medium, Size::Large] {
+        for width in [280., 420., 520.] {
+            probe.update(cx, |probe, cx| {
+                probe.multiline = true;
+                probe.size = size;
+                probe.width = px(width);
+                cx.notify();
+            });
+            for value in &instructions {
+                cx.update(|window, cx| {
+                    textarea.update(cx, |state, cx| {
+                        state.set_value(value.clone(), window, cx);
+                        state.focus(window, cx);
+                    });
+                });
+                // Width changes invalidate the retained wrap map and auto-grow rows.
+                draw(cx);
+                draw(cx);
+                let frame = frame(cx);
+                let right = frame.right() - px(1.) - size.input_px();
+                textarea.read_with(cx, |state, _| {
+                    let viewport = state.input_bounds();
+                    let line_height = state.line_height().unwrap();
+                    let context = format!(
+                        "size {size:?}, width {width}, frame {frame:?}, viewport {viewport:?}"
+                    );
+                    assert_eq!(
+                        viewport.left(),
+                        frame.left() + px(1.) + size.input_px(),
+                        "{context}"
+                    );
+                    assert_eq!(viewport.right(), right, "{context}");
+                    let mut rows = std::collections::BTreeSet::new();
+                    for (offset, character) in value.char_indices() {
+                        let Some(bounds) =
+                            state.range_to_bounds(&(offset..offset + character.len_utf8()))
+                        else {
+                            continue;
+                        };
+                        if bounds.top() < viewport.top() || bounds.bottom() > viewport.bottom() {
+                            continue;
+                        }
+                        assert!(
+                            bounds.left() >= viewport.left(),
+                            "{context}, range {offset}, glyph {character:?}, bounds {bounds:?}"
+                        );
+                        if bounds.size.height <= line_height {
+                            assert!(
+                                bounds.right() <= right,
+                                "{context}, range {offset}, glyph {character:?}, bounds {bounds:?}"
+                            );
+                        }
+                        rows.insert(f32::from(bounds.top()) as i32);
+                    }
+                    assert!(
+                        rows.len() >= 2,
+                        "the fixture must exercise soft wrapping: {context}"
+                    );
+                    assert_eq!(state.value().as_str(), value.as_str());
+                });
+            }
+        }
     }
 }
