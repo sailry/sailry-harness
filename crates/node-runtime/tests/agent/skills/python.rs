@@ -1,5 +1,10 @@
 use super::*;
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod environments;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod first_use;
+
 #[tokio::test]
 #[cfg(unix)]
 async fn missing_python_preserves_skills_and_ordinary_commands() {

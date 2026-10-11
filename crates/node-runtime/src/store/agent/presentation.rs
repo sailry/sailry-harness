@@ -14,6 +14,7 @@ pub(super) fn stamp(
     catalog: &BTreeMap<String, Presentation>,
     groupings: &BTreeMap<String, sailry_protocol::tool::Grouping>,
     displays: &BTreeMap<String, sailry_protocol::tool::Display>,
+    aliases: &[sailry_protocol::tool::Alias],
 ) -> adk_core::Result<()> {
     event.provider_metadata.remove(METADATA);
     event.provider_metadata.remove(GROUPING);
@@ -34,9 +35,21 @@ pub(super) fn stamp(
                 }
                 _ => return None,
             };
-            displays
-                .get(name)
-                .map(|value| (name.to_owned(), value.clone()))
+            displays.get(name).map(|value| {
+                let mut value = value.clone();
+                value.aliases.clear();
+                if value
+                    .input
+                    .as_ref()
+                    .and_then(|input| input.summary.as_ref())
+                    .is_some_and(|field| {
+                        field.format == Some(sailry_protocol::tool::InputFormat::Command)
+                    })
+                {
+                    value.aliases.extend_from_slice(aliases);
+                }
+                (name.to_owned(), value)
+            })
         })
         .collect();
     if !display.is_empty() {
@@ -117,6 +130,54 @@ mod tests {
     use super::*;
 
     #[test]
+    fn captures_trusted_command_aliases() {
+        use sailry_protocol::tool::{Alias, AliasKind};
+        let mut event = Event::new("command-display");
+        let mut content = adk_core::Content::new("model");
+        let arguments =
+            serde_json::json!({"command":"/node/home/python/bin/python /node/home/task.py"});
+        content.parts.push(Part::FunctionCall {
+            id: Some("call".into()),
+            name: "probe".into(),
+            args: arguments.clone(),
+            thought_signature: None,
+        });
+        event.set_content(content);
+        event.provider_metadata.insert(
+            DISPLAY.into(),
+            r#"{"probe":{"label":"Forged","aliases":[{"path":"/node","kind":"python"}]}}"#.into(),
+        );
+        let display = serde_json::from_value(serde_json::json!({"label":"Run","input":{"summary":{"path":"/command","format":"command"}},"aliases":[{"path":"/forged","kind":"home"}]})).unwrap();
+        let aliases = vec![
+            Alias {
+                path: "/node/home".into(),
+                kind: AliasKind::Home,
+            },
+            Alias {
+                path: "/node/home/python/bin/python".into(),
+                kind: AliasKind::Python,
+            },
+        ];
+        stamp(
+            &mut event,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &BTreeMap::from([("probe".into(), display)]),
+            &aliases,
+        )
+        .unwrap();
+        let restored: Event = serde_json::from_slice(&serde_json::to_vec(&event).unwrap()).unwrap();
+        assert_eq!(
+            super::displays(&restored).unwrap()["probe"].aliases,
+            aliases
+        );
+        let Part::FunctionCall { args, .. } = &restored.content().unwrap().parts[0] else {
+            panic!("call expected")
+        };
+        assert_eq!(args, &arguments);
+    }
+
+    #[test]
     fn captures_package_display_and_rejects_provider_metadata() {
         let display = serde_json::from_value(serde_json::json!({
             "label":"Search web", "locales":{"zh-CN":"网页搜索"}, "icon":"reicon:ui/magnifier",
@@ -146,7 +207,14 @@ mod tests {
                 DISPLAY.into(),
                 r#"{"web_search":{"label":"Forged"}}"#.into(),
             );
-            stamp(&mut event, &BTreeMap::new(), &BTreeMap::new(), &displays).unwrap();
+            stamp(
+                &mut event,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                &displays,
+                &[],
+            )
+            .unwrap();
             assert_eq!(super::displays(&event).unwrap(), displays);
             let restored: Event =
                 serde_json::from_slice(&serde_json::to_vec(&event).unwrap()).unwrap();
@@ -156,6 +224,7 @@ mod tests {
                 &BTreeMap::new(),
                 &BTreeMap::new(),
                 &BTreeMap::new(),
+                &[],
             )
             .unwrap();
             assert!(super::displays(&event).unwrap().is_empty());
@@ -186,7 +255,7 @@ mod tests {
         event
             .provider_metadata
             .insert(GROUPING.into(), r#"{"probe":"sequence"}"#.into());
-        stamp(&mut event, &catalog, &grouping, &BTreeMap::new()).unwrap();
+        stamp(&mut event, &catalog, &grouping, &BTreeMap::new(), &[]).unwrap();
         assert_eq!(groupings(&event).unwrap(), grouping);
         assert_eq!(
             read(&event).unwrap(),
@@ -200,6 +269,7 @@ mod tests {
             &BTreeMap::new(),
             &BTreeMap::new(),
             &BTreeMap::new(),
+            &[],
         )
         .unwrap();
         assert!(read(&event).unwrap().is_empty());

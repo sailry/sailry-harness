@@ -7,6 +7,7 @@ use sailry_protocol::{
 };
 use serde::Serialize;
 use serde_json::Value;
+mod command;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Resolved {
@@ -150,7 +151,19 @@ pub(super) fn resolve(call: &Call, page: &Page) -> Option<Resolved> {
             locales: display.locales.clone(),
         }),
         input: Input {
-            summary: field(input.and_then(|input| input.summary.as_ref()), arguments),
+            summary: field(input.and_then(|input| input.summary.as_ref()), arguments).map(
+                |mut text| {
+                    if input
+                        .and_then(|input| input.summary.as_ref())
+                        .is_some_and(|field| {
+                            field.format == Some(sailry_protocol::tool::InputFormat::Command)
+                        })
+                    {
+                        text.text = command::format(&text.text, &display.unwrap().aliases);
+                    }
+                    text
+                },
+            ),
             context: field(input.and_then(|input| input.context.as_ref()), arguments),
             target: field(input.and_then(|input| input.target.as_ref()), arguments),
             content: field(input.and_then(|input| input.content.as_ref()), arguments),

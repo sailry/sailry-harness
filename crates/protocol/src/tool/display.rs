@@ -19,6 +19,10 @@ pub struct Display {
     pub output: Option<projection::Output>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub approval: Vec<projection::Prompt>,
+    /// Execution Node paths captured for display only, never package-authored.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(skip)]
+    pub aliases: Vec<Alias>,
 }
 
 impl Display {
@@ -40,6 +44,8 @@ impl Display {
             && self.output.as_ref().is_none_or(projection::Output::valid)
             && self.approval.len() <= 4
             && self.approval.iter().all(projection::Prompt::valid)
+            && self.aliases.len() <= 32
+            && self.aliases.iter().all(Alias::valid)
     }
 }
 
@@ -52,6 +58,7 @@ impl From<Navigation> for Display {
             input: None,
             output: None,
             approval: Vec::new(),
+            aliases: Vec::new(),
         }
     }
 }
@@ -70,6 +77,9 @@ impl Input {
         [&self.summary, &self.context, &self.target, &self.content]
             .into_iter()
             .all(|field| field.as_ref().is_none_or(Field::valid))
+            && [&self.context, &self.target, &self.content]
+                .into_iter()
+                .all(|field| field.as_ref().is_none_or(|field| field.format.is_none()))
     }
 }
 
@@ -82,6 +92,42 @@ pub struct Field {
     pub code: bool,
     #[serde(default)]
     pub omit: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<InputFormat>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum InputFormat {
+    Command,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Alias {
+    pub path: String,
+    pub kind: AliasKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AliasKind {
+    Home,
+    Python,
+}
+
+impl Alias {
+    fn valid(&self) -> bool {
+        let bytes = self.path.as_bytes();
+        (self.path.starts_with('/')
+            || self.path.starts_with("\\\\")
+            || bytes.len() >= 3
+                && bytes[0].is_ascii_alphabetic()
+                && bytes[1] == b':'
+                && matches!(bytes[2], b'/' | b'\\'))
+            && self.path.len() <= 4096
+            && !self.path.chars().any(char::is_control)
+    }
 }
 
 impl Field {
@@ -117,6 +163,24 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn reserves_aliases_for_captured_display() {
+        let mut declaration: super::super::Declaration = serde_json::from_value(json!({
+            "name":"run", "display":{"label":"Run","input":{"summary":{"path":"/command","format":"command"}}}
+        })).unwrap();
+        assert!(declaration.valid());
+        declaration.display.as_mut().unwrap().aliases.push(Alias {
+            path: "/node/home".into(),
+            kind: AliasKind::Home,
+        });
+        assert!(declaration.display.as_ref().unwrap().valid());
+        assert!(!declaration.valid());
+        let input: Input =
+            serde_json::from_value(json!({"content":{"path":"/command","format":"command"}}))
+                .unwrap();
+        assert!(!input.valid());
+    }
+
+    #[test]
     fn reads_original_fields() {
         let display: Display = serde_json::from_value(json!({
             "label":"Run", "input":{
@@ -142,6 +206,7 @@ mod tests {
                 path: path.into(),
                 code: false,
                 omit: vec![],
+                format: None,
             };
             assert!(!field.valid(), "{path:?}");
         }
@@ -149,6 +214,7 @@ mod tests {
             path: "/command".into(),
             code: false,
             omit: vec![],
+            format: None,
         };
         assert!(
             field

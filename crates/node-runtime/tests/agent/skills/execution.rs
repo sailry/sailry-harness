@@ -261,6 +261,42 @@ async fn loads_complete_resources() {
         assert_eq!(output[1]["content"], "Guide 1.0.0 中文 🙂");
         assert!(output[2].get("error").is_some());
         assert!(output[3].get("error").is_some());
+        let captured: Vec<_> = page
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .filter_map(|part| match part {
+                Part::ToolCall {
+                    name,
+                    arguments,
+                    presentation,
+                    display,
+                    ..
+                } => Some((name, arguments, presentation, display)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(captured.len(), calls.len());
+        for ((name, arguments, presentation, display), (expected, _)) in captured.iter().zip(&calls)
+        {
+            assert_eq!(*name, expected);
+            assert_eq!(**presentation, sailry_protocol::tool::Presentation::Summary);
+            let display = display.as_ref().unwrap();
+            assert!(display.valid());
+            assert_eq!(
+                display
+                    .input
+                    .as_ref()
+                    .unwrap()
+                    .summary
+                    .as_ref()
+                    .unwrap()
+                    .read(arguments),
+                arguments["skill"].as_str()
+            );
+            assert!(display.input.as_ref().unwrap().content.is_none());
+            assert_ne!(display.label("zh-CN"), display.label("en"));
+        }
         assert!(page.approvals.is_empty());
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 5);

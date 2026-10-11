@@ -48,6 +48,10 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
+    pub(crate) fn python(&self) -> &Path {
+        &self.python
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub(super) fn fixture(root: &Path) -> Result<Self, Fault> {
         let python = root.join(if cfg!(windows) {
@@ -93,9 +97,21 @@ impl Runtime {
     }
 
     pub(crate) fn bundled() -> Result<Self, Fault> {
+        Self::open(&Self::directory()?)
+    }
+
+    pub(crate) fn directory() -> Result<PathBuf, Fault> {
         let executable = std::env::current_exe().map_err(storage)?;
         let directory = executable.parent().ok_or_else(super::unavailable)?;
-        Self::open(&directory.join("python"))
+        Ok(directory.join("python"))
+    }
+
+    pub(crate) fn interpreter(directory: &Path) -> PathBuf {
+        directory.join(if cfg!(windows) {
+            "python.exe"
+        } else {
+            "bin/python3.12"
+        })
     }
 
     pub(crate) fn open(directory: &Path) -> Result<Self, Fault> {
@@ -106,11 +122,7 @@ impl Runtime {
             ));
         }
         let root = directory.canonicalize().map_err(storage)?;
-        let path = root.join(if cfg!(windows) {
-            "python.exe"
-        } else {
-            "bin/python3.12"
-        });
+        let path = Self::interpreter(&root);
         let python = path.canonicalize().map_err(storage)?;
         if !python.starts_with(&root) || !python.is_file() {
             return Err(Fault::invalid(

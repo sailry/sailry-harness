@@ -3,8 +3,10 @@ use super::*;
 use crate::plugins::resources::Resources;
 use adk_core::{AdkError, Tool, ToolContext};
 use async_trait::async_trait;
+use sailry_protocol::tool::{Display, Field, Input, Presentation};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::{collections::BTreeMap, sync::OnceLock};
 pub(super) mod management;
 
 pub(super) const NAMES: [&str; 2] = ["load_skill", "read_skill_resource"];
@@ -19,6 +21,64 @@ struct Skills {
 }
 
 impl Skills {
+    fn display(resource: bool) -> &'static Display {
+        static DISPLAYS: OnceLock<[Display; 2]> = OnceLock::new();
+        &DISPLAYS.get_or_init(|| {
+            #[derive(Deserialize)]
+            struct Labels {
+                #[serde(rename = "tool_load_skill")]
+                load: String,
+                #[serde(rename = "tool_read_skill_resource")]
+                read: String,
+            }
+            let labels = [
+                ("en", include_str!("../../../../locales/en.yml")),
+                ("zh-CN", include_str!("../../../../locales/zh-CN.yml")),
+                (
+                    "zh-TW",
+                    include_str!("../../../../locales/application.zh-TW.yml"),
+                ),
+                ("ja", include_str!("../../../../locales/application.ja.yml")),
+                ("ko", include_str!("../../../../locales/application.ko.yml")),
+                ("fr", include_str!("../../../../locales/application.fr.yml")),
+                ("de", include_str!("../../../../locales/application.de.yml")),
+                ("es", include_str!("../../../../locales/application.es.yml")),
+                (
+                    "pt-BR",
+                    include_str!("../../../../locales/application.pt-BR.yml"),
+                ),
+                ("ru", include_str!("../../../../locales/application.ru.yml")),
+            ]
+            .map(|(locale, source)| {
+                let labels: Labels =
+                    serde_saphyr::from_str(source).expect("skill labels are valid");
+                (locale, [labels.load, labels.read])
+            });
+            [0, 1].map(|index| Display {
+                label: labels[0].1[index].clone(),
+                icon: None,
+                locales: labels[1..]
+                    .iter()
+                    .map(|(locale, values)| ((*locale).into(), values[index].clone()))
+                    .collect::<BTreeMap<_, _>>(),
+                input: Some(Input {
+                    summary: Some(Field {
+                        path: "/skill".into(),
+                        code: false,
+                        omit: Vec::new(),
+                        format: None,
+                    }),
+                    context: None,
+                    target: None,
+                    content: None,
+                }),
+                output: None,
+                approval: Vec::new(),
+                aliases: Vec::new(),
+            })
+        })[usize::from(resource)]
+    }
+
     fn bind(
         resources: Arc<Resources>,
         session: String,
@@ -135,7 +195,14 @@ pub(super) fn bind(
     } else {
         Skills::bind(resources.clone(), session.to_string(), stop, ingress, turn)
             .into_iter()
-            .map(catalog::Registration::managed)
+            .enumerate()
+            .map(|(index, tool)| {
+                let display = (tool.name().into(), Skills::display(index == 1).clone());
+                let mut registration = catalog::Registration::managed(tool);
+                registration.presentation = Presentation::Summary;
+                registration.display = Some(display);
+                registration
+            })
             .collect()
     };
     Ok((tools, instruction))

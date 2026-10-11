@@ -607,6 +607,16 @@
           "default": false,
           "type": "boolean"
         },
+        "format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputFormat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "omit": {
           "default": [],
           "items": {
@@ -775,6 +785,12 @@
         }
       },
       "type": "object"
+    },
+    "InputFormat": {
+      "enum": [
+        "command"
+      ],
+      "type": "string"
     },
     "Kind": {
       "enum": [

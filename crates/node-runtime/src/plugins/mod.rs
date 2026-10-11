@@ -52,6 +52,39 @@ pub(crate) struct Host {
 }
 
 impl Host {
+    pub(crate) async fn display_python(&self, commands: &[&str]) -> Option<PathBuf> {
+        if commands.is_empty() {
+            return None;
+        }
+        if let Some(manager) = self.python.get() {
+            return Some(manager.python().to_owned());
+        }
+        #[cfg(any(test, feature = "test-support"))]
+        let fixture = self
+            .python_runtime
+            .lock()
+            .expect("Python fixture lock is valid")
+            .clone();
+        #[cfg(not(any(test, feature = "test-support")))]
+        let fixture: Option<PathBuf> = None;
+        let directory = fixture.or_else(|| crate::python::Runtime::directory().ok())?;
+        let candidate = crate::python::Runtime::interpreter(&directory)
+            .canonicalize()
+            .ok()?;
+        let path = candidate.to_str()?;
+        if !commands.iter().any(|command| command.contains(path)) {
+            return None;
+        }
+        // The first call is captured before command preparation. Verify only the
+        // existing installation; presentation must not create a manager or venv.
+        tokio::task::spawn_blocking(move || {
+            crate::python::Runtime::open(&directory).map(|runtime| runtime.python().to_owned())
+        })
+        .await
+        .ok()?
+        .ok()
+    }
+
     pub(crate) fn new(profile: Option<PathBuf>) -> Self {
         Self {
             profile,

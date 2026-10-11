@@ -104,11 +104,48 @@ impl SessionService for Sessions {
             .map_err(|_| AdkError::session("Node storage is closed"))?
     }
     async fn append_event(&self, session_id: &str, mut event: AdkEvent) -> adk_core::Result<()> {
+        let mut aliases = Vec::new();
+        if let Some(home) = self.ingress.environment.home() {
+            aliases.push(sailry_protocol::tool::Alias {
+                path: home.to_string_lossy().into_owned(),
+                kind: sailry_protocol::tool::AliasKind::Home,
+            });
+        }
+        let commands: Vec<_> = event
+            .content()
+            .into_iter()
+            .flat_map(|content| &content.parts)
+            .filter_map(|part| {
+                let adk_core::Part::FunctionCall { name, args, .. } = part else {
+                    return None;
+                };
+                let field = self.displays.get(name)?.input.as_ref()?.summary.as_ref()?;
+                (field.format == Some(sailry_protocol::tool::InputFormat::Command))
+                    .then(|| field.read(args))
+                    .flatten()
+            })
+            .collect();
+        if let Some(python) = self.ingress.plugins.display_python(&commands).await {
+            aliases.push(sailry_protocol::tool::Alias {
+                path: python.to_string_lossy().into_owned(),
+                kind: sailry_protocol::tool::AliasKind::Python,
+            });
+        }
+        for access in self.ingress.agents.python(self.turn) {
+            let alias = sailry_protocol::tool::Alias {
+                path: access.ready.python.to_string_lossy().into_owned(),
+                kind: sailry_protocol::tool::AliasKind::Python,
+            };
+            if !aliases.contains(&alias) && aliases.len() < 32 {
+                aliases.push(alias);
+            }
+        }
         super::presentation::stamp(
             &mut event,
             &self.presentations,
             &self.groupings,
             &self.displays,
+            &aliases,
         )?;
         if event.author == "user" {
             event

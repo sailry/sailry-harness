@@ -4,7 +4,7 @@ mod content;
 pub use content::{Block, Content, Diff, File, Table, Text};
 mod display;
 mod result;
-pub use display::{Display, Field, Input, projection};
+pub use display::{Alias, AliasKind, Display, Field, Input, InputFormat, projection};
 pub use result::{Diagnostic, Expected, LocalText, ResultDisplay};
 
 /// Controls availability of successful result details, not automatic expansion state.
@@ -438,7 +438,10 @@ impl Declaration {
                         && !description.trim().is_empty()
                         && description.len() <= 4096
                 })
-            && self.display.as_ref().is_none_or(Display::valid)
+            && self
+                .display
+                .as_ref()
+                .is_none_or(|display| display.valid() && display.aliases.is_empty())
             && !self.name.is_empty()
             && self.name.len() <= 512
             && !self.name.chars().any(char::is_control)

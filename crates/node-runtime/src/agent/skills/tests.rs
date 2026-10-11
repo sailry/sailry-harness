@@ -68,8 +68,24 @@ async fn binds_captured_resources_without_plugin_identity() {
             .all(|entry| entry.managed && entry.plugin.is_none())
     );
     assert!(tools.iter().all(|entry| entry.presentation
-        == sailry_protocol::tool::Presentation::Details
+        == sailry_protocol::tool::Presentation::Summary
         && entry.grouping == sailry_protocol::tool::Grouping::Sequence));
+    for entry in &tools {
+        let (name, display) = entry.display.as_ref().unwrap();
+        assert_eq!(name, entry.tool.name());
+        assert!(display.valid());
+        assert_eq!(display, Skills::display(name == NAMES[1]));
+        let input = display.input.as_ref().unwrap();
+        assert_eq!(
+            input.summary.as_ref().unwrap().read(&json!({
+                "skill":"example:analysis", "path":"references/guide.md"
+            })),
+            Some("example:analysis")
+        );
+        assert!(input.content.is_none());
+        assert_eq!(display.locales.len(), 9);
+        assert_ne!(display.label("zh-CN"), display.label("en"));
+    }
     assert!(tools.iter().all(|entry| entry.tool.is_read_only()));
     assert!(!tools[0].tool.is_concurrency_safe());
     assert!(tools[1].tool.is_concurrency_safe());

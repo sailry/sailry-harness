@@ -13,7 +13,6 @@ mod fixture;
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
 use std::path::Path;
 
 pub(crate) use execution::Execution;
@@ -150,7 +149,6 @@ impl Manager {
         Ok(())
     }
 
-    #[cfg(test)]
     pub(crate) fn python(&self) -> &Path {
         &self.runtime.python
     }
