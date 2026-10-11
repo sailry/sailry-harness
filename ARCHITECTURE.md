@@ -357,6 +357,14 @@ adapters. See the [service contract](services/pairing-relay/README.md).
 
 ## Extension and presentation boundaries
 
+Official theme source lives in `sailry-themes`, pinned by the `themes/` Git
+submodule. Its generated `catalog.json` records manifest metadata and resource
+digests for discovery. Official theme package versions stay `0.1.0` before the
+first release, with numeric manifest and index formats at `1`. Desktop owns the
+reusable local theme loader, importer and renderer; repository theme sources are
+not embedded or installed automatically. Updating the source Gitlink does not
+change a user's selected or installed theme.
+
 The application lives in `sailry-harness`; official plugin source lives only in
 `sailry-plugins`. The `plugins/` Git submodule pins a reviewed plugin commit.
 Builds embed that snapshot as ordinary package assets for offline use; new Node

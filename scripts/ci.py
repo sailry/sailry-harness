@@ -41,6 +41,9 @@ def select_paths(paths):
         if path == "plugins":  # A changed submodule pointer includes its SDK and assets.
             selected.update(NATIVE)
             continue
+        if path == "themes" or path.startswith("themes/"):
+            # Theme sources are imported explicitly, never embedded in binaries.
+            continue
         for prefixes, lanes in DEPENDENTS:
             if path.startswith(prefixes):
                 selected.update(lanes)

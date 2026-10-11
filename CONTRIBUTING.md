@@ -18,9 +18,12 @@ Set `SAILRY_PYTHON` to an explicit executable when needed; an unsupported explic
 interpreter fails rather than silently selecting another one.
 
 Clone with `git clone --recurse-submodules` or run
-`git submodule update --init --recursive` before building. Official package changes
-are committed and pushed in `sailry-plugins`; then commit the reviewed `plugins/`
-gitlink update in this repository. Never copy plugin source into a second owner.
+`git submodule update --init --recursive` before building. Official plugins live
+in `sailry-plugins` under `plugins/`; official themes live in `sailry-themes` under
+`themes/`. Commit each package repository separately, then commit its reviewed
+Gitlink here. When publishing, push the referenced package commit first. Never
+copy package source into a second owner. Package maintenance and generated index
+checks are documented in each submodule's README and AGENTS files.
 
 From the repository root:
 

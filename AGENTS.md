@@ -15,6 +15,7 @@
 - Usage statistics cover only Sailry's own sessions, including shared Client aggregation across Sailry Nodes. Do not collect third-party tool histories (such as Codex or Claude Code), external account quotas, or their billing data.
 
 - Maintain the new product in this repository. Do not depend on a separately maintained Sailry Platform repository.
+- Official theme packages and their generated catalog belong in the independent `sailry-themes` repository pinned by `themes/`; follow its `AGENTS.md`. Keep reusable theme loading, validation, installation and rendering in the application. Commit package changes separately and publish referenced theme commits before parent Gitlinks.
 - Desktop uses `gpui-kit`; Agent execution stays on ADK-Rust. Do not introduce another desktop stack or Agent engine without an explicitly authorized architecture change.
 - Host is a long-running headless service that Desktop and Mobile connect to, not an interactive CLI Agent. Its command-line entry starts/configures the service; conversations, Agent tasks, and development tools are controlled through the shared protocol, without a separate prompt loop or TUI.
 - Preview data must be clearly identified and must not trigger models, tools, network pairing, terminals, or user-data mutations.
