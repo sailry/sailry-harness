@@ -61,6 +61,7 @@ pub(crate) fn file_rows(
         .min_w_0()
         .child(
             GroupBox::new()
+                .rounded(cx.theme().radius_2xl())
                 .outline()
                 .content_style(
                     StyleRefinement::default()
@@ -106,7 +107,7 @@ pub(crate) fn file_rows(
                 )
                 // GPUI clips rectangular viewports. Keep only a bottom inset for
                 // the rounded frame; the diff itself spans its full inner width.
-                .child(div().pb(cx.theme().radius).child(
+                .child(div().pb(cx.theme().radius_2xl()).child(
                     if crate::content::diff::is_binary(lines) {
                         super::notice(crate::tr("git_diff_binary"), cx).into_any_element()
                     } else {

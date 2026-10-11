@@ -1,6 +1,6 @@
 use super::*;
 use crate::conversation::live::tests::{
-    fixture::{Fixture, init, open, tap},
+    fixture::{Fixture, hover, init, open, tap},
     wait,
 };
 use core::prelude::v1::test;
@@ -115,6 +115,13 @@ fn confirmation_and_backup(cx: &mut TestAppContext) {
             assert!(view.rewind_request(first).is_none());
             view.backup.clone().unwrap()
         });
+        assert!(visual.debug_bounds("live-rewind-notice").is_none());
+        assert_eq!(
+            visual.update(|window, cx| {
+                crate::feedback::tests::count(window, &tr("chat_rewound"), cx)
+            }),
+            1
+        );
         let inherited = fixture
             .runtime
             .block_on(
@@ -136,9 +143,12 @@ fn confirmation_and_backup(cx: &mut TestAppContext) {
             })
             .detach();
         });
+        // Hover expands Kit's toast stack before locating the backup action.
+        hover(visual, "live-rewind-backup");
+        crate::feedback::tests::settle(visual);
         tap(visual, "live-rewind-backup");
         assert_eq!(*opened.lock().unwrap(), Some(backup.id));
-        tap(visual, "live-rewind-dismiss");
+        wait(visual, |cx| view.read(cx).backup.is_none());
         assert!(view.read_with(visual, |view, _| view.backup.is_none()));
         let (reopened, reopened_cx) = open(cx, fixture.binding.clone(), fixture.session.clone());
         wait(reopened_cx, |cx| reopened.read(cx).connected());

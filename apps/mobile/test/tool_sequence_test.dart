@@ -102,6 +102,28 @@ Future<void> tap(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
+  for (final name in ['plan_review', 'ask_user', 'mcp_elicitation']) {
+    testWidgets('closing $name preserves the final reply', (tester) async {
+      final transcript = Transcript()
+        ..tool('inspect')
+        ..text('answer', 'Published plan')
+        ..tool('closing', name: name, standalone: true);
+      transcript.calls.last['terminal_interaction'] = true;
+      final projection = ValueNotifier(transcript.view());
+      addTearDown(projection.dispose);
+      await mount(tester, projection);
+      expect(find.text('Published plan'), findsOneWidget);
+      expect(find.text('inspect'), findsNothing);
+      await tap(tester, find.text(tr('completed')));
+      expect(find.text('Published plan'), findsOneWidget);
+      expect(find.text('inspect'), findsOneWidget);
+      await tap(tester, find.text(tr('completed')));
+      expect(find.text('Published plan'), findsOneWidget);
+      expect(find.text('inspect'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
   for (final todo in [false, true]) {
     testWidgets(
       'returned ${todo ? 'plan' : 'tool'} owns activity until new content',

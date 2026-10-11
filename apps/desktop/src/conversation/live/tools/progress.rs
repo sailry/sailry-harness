@@ -29,6 +29,7 @@ pub(in crate::conversation::live) fn render(
         })
         .child(
             GroupBox::new()
+                .rounded(cx.theme().radius_2xl())
                 .id(format!("progress-card-{key}"))
                 .outline()
                 .content_style(
@@ -36,10 +37,10 @@ pub(in crate::conversation::live) fn render(
                         .px_3()
                         .py_0()
                         .overflow_hidden()
-                        .rounded(cx.theme().radius_lg)
+                        .rounded(cx.theme().radius_2xl())
                         .bg(cx.theme().group_box.opacity(0.8)),
                 )
-                .child(list(key, progress, continuing, cx)),
+                .child(rows(key, progress, continuing, true)),
         )
         .into_any_element()
 }
@@ -51,6 +52,10 @@ pub(in crate::conversation::live) fn list(
     continuing: bool,
     _cx: &App,
 ) -> AnyElement {
+    rows(key, progress, continuing, false)
+}
+
+fn rows(key: &str, progress: &Progress, continuing: bool, frame: bool) -> AnyElement {
     let active = continuing
         .then(|| {
             progress
@@ -63,13 +68,13 @@ pub(in crate::conversation::live) fn list(
     div()
         .w_full()
         .min_w_0()
+        .when(!frame, |rows| rows.pl_2())
         .debug_selector({
             let key = key.to_owned();
             move || format!("live-progress-{key}")
         })
-        .child(surface::group_scroll(
-            format!("progress-scroll-{key}"),
-            crate::ui::status_list::Rows {
+        .child({
+            let rows = crate::ui::status_list::Rows {
                 id: format!("progress-{key}"),
                 items: progress
                     .steps
@@ -88,7 +93,12 @@ pub(in crate::conversation::live) fn list(
                         highlight: active == Some(index),
                     })
                     .collect(),
-            },
-        ))
+            };
+            if frame {
+                surface::group_scroll(format!("progress-scroll-{key}"), rows)
+            } else {
+                surface::list_scroll(format!("progress-scroll-{key}"), rows)
+            }
+        })
         .into_any_element()
 }

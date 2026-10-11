@@ -49,6 +49,7 @@ pub(in crate::conversation) fn row(
     cx: &App,
 ) -> ListItem {
     ListItem::new(id)
+        .hover_background(false)
         .h_8()
         .py_0()
         .px_2()

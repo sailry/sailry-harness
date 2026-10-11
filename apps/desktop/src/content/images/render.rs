@@ -22,6 +22,7 @@ pub(crate) fn card(
     };
     let selector = format!("image-media-{}", source.id());
     let card = Card::new()
+        .rounded(cx.theme().radius_2xl())
         .axis(Axis::Vertical)
         .xsmall()
         .w(px(width))
@@ -37,7 +38,7 @@ pub(crate) fn card(
                 .w_full()
                 .aspect_ratio(ratio)
                 .overlay(div().size_full().debug_selector(move || selector.clone()))
-                .rounded(cx.theme().radius),
+                .rounded(cx.theme().radius_2xl()),
         );
     Images::gallery(card, images, gallery, index)
 }

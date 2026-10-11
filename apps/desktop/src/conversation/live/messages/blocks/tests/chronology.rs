@@ -49,6 +49,7 @@ fn history() -> (TurnId, View) {
             ],
         });
         calls.push(Call {
+            terminal_interaction: false,
             presentation: Default::default(),
             grouping: Default::default(),
             turn,

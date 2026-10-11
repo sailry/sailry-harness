@@ -67,6 +67,9 @@ impl RenderOnce for Rows {
                     .is_some_and(|(id, text)| *id == row.id && *text == row.text);
                 let key = row.id.clone();
                 let label_key = format!("{}-label", row.id);
+                let icon_key = format!("{}-icon", row.id);
+                let caret_key = format!("{}-caret", row.id);
+                let group = SharedString::from(row.id.clone());
                 let details_key = format!("{}-details", row.id);
                 let text_key = format!("status-details-{}", row.id);
                 let shimmer_key = format!("status-label-{}", row.id);
@@ -75,9 +78,17 @@ impl RenderOnce for Rows {
                     .w_full()
                     .min_w_0()
                     .gap_2()
-                    .text_color(cx.theme().foreground)
+                    .text_color(if row.details {
+                        cx.theme().muted_foreground
+                    } else {
+                        cx.theme().foreground
+                    })
+                    .group_hover(group.clone(), |style| {
+                        style.text_color(cx.theme().foreground)
+                    })
                     .child(
                         div()
+                            .debug_selector(move || icon_key.clone())
                             .flex_shrink_0()
                             .child(if row.state == State::InProgress {
                                 Spinner::new()
@@ -99,6 +110,11 @@ impl RenderOnce for Rows {
                             .when(settled, |text| {
                                 text.text_color(cx.theme().muted_foreground).line_through()
                             })
+                            .when(row.details, |text| {
+                                text.group_hover(group.clone(), |style| {
+                                    style.text_color(cx.theme().foreground)
+                                })
+                            })
                             .debug_selector(move || label_key.clone())
                             .child(if row.highlight {
                                 shimmer::ShimmerText::new(row.text.clone())
@@ -107,11 +123,30 @@ impl RenderOnce for Rows {
                             } else {
                                 row.text.clone().into_any_element()
                             }),
-                    );
+                    )
+                    .when(row.details, |content| {
+                        content.child(
+                            div()
+                                .debug_selector(move || caret_key.clone())
+                                .flex_shrink_0()
+                                .child(
+                                    Icon::new(if selected {
+                                        IconName::ChevronDown
+                                    } else {
+                                        IconName::ChevronRight
+                                    })
+                                    .size_3(),
+                                ),
+                        )
+                    });
                 let trigger = if row.details {
                     let action = expanded.clone();
                     button::Button::new(row.id.clone())
-                        .ghost()
+                        .group(group)
+                        .custom(
+                            button::ButtonCustomVariant::new(cx)
+                                .foreground(cx.theme().muted_foreground),
+                        )
                         .accessibility_label(row.text.clone())
                         .w_full()
                         .h_8()
@@ -192,7 +227,7 @@ impl RenderOnce for Content {
             .tab_group()
             .w(px(320.).min(window.viewport_size().width - px(48.)))
             .min_w_0()
-            .child(crate::conversation::surface::group_scroll(
+            .child(crate::conversation::surface::list_scroll(
                 format!("{}-scroll", self.id),
                 if self.items.is_empty() {
                     div()
@@ -201,11 +236,13 @@ impl RenderOnce for Content {
                         .child(self.empty)
                         .into_any_element()
                 } else {
-                    Rows {
-                        id: self.id.clone(),
-                        items: self.items,
-                    }
-                    .into_any_element()
+                    div()
+                        .pl_2()
+                        .child(Rows {
+                            id: self.id.clone(),
+                            items: self.items,
+                        })
+                        .into_any_element()
                 },
             ))
             .when(!self.footer.is_empty(), |panel| {

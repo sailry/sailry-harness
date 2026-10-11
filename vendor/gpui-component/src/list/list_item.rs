@@ -28,6 +28,7 @@ pub struct ListItem {
     mode: ListItemMode,
     style: StyleRefinement,
     disabled: bool,
+    hover_background: bool,
     selected: bool,
     secondary_selected: bool,
     confirmed: bool,
@@ -49,6 +50,7 @@ impl ListItem {
             base: h_flex().id(id),
             style: StyleRefinement::default(),
             disabled: false,
+            hover_background: true,
             selected: false,
             secondary_selected: false,
             confirmed: false,
@@ -97,6 +99,12 @@ impl ListItem {
 
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    /// Controls hover fill while preserving the list item's interactions.
+    pub fn hover_background(mut self, enabled: bool) -> Self {
+        self.hover_background = enabled;
         self
     }
 
@@ -225,7 +233,7 @@ impl RenderOnce for ListItem {
                     // Register `hover` unconditionally, a conditional registration
                     // leaves a stale hover style behind when the item turns active.
                     .hover(|this| {
-                        if is_active {
+                        if is_active || !self.hover_background {
                             this
                         } else {
                             this.bg(cx.theme().tokens.list_hover)

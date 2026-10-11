@@ -21,7 +21,7 @@ impl RenderOnce for Card {
         v_flex()
             .w_full()
             .min_w_0()
-            .rounded(cx.theme().radius)
+            .rounded(cx.theme().radius_2xl())
             .border_1()
             .border_color(cx.theme().border)
             .bg(cx.theme().group_box.opacity(0.8))

@@ -86,6 +86,7 @@ fn updates_preserve_failures() {
                 unreachable!()
             };
             Call {
+                terminal_interaction: false,
                 presentation: sailry_protocol::tool::Presentation::Progress,
                 grouping: Default::default(),
                 turn: entry.turn,

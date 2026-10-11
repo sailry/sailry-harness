@@ -271,7 +271,7 @@ impl Render for Card {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .rounded(cx.theme().radius_lg)
+                    .rounded(cx.theme().radius_2xl())
                     .bg(cx.theme().muted_foreground.opacity(0.12))
                     .text_color(cx.theme().muted_foreground)
                     .child(Icon::new(IconName::FileText).size_5()),
@@ -320,7 +320,7 @@ impl Render for Card {
         };
         // GPUI clips overflow to rectangular bounds; round the row's own paint
         // where it touches the card's bottom edge, inside the one-pixel border.
-        let bottom_radius = (cx.theme().radius_lg - px(1.)).max(px(0.));
+        let bottom_radius = (cx.theme().radius_2xl() - px(1.)).max(px(0.));
         let files =
             v_flex()
                 .w_full()

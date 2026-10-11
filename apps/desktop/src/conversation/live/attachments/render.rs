@@ -54,6 +54,7 @@ impl View {
                                 Images::gallery(
                                     Card::new().axis(Axis::Vertical).media(
                                         Images::media(&self.images, source.clone(), cx)
+                                            .rounded(cx.theme().radius_2xl())
                                             .overlay(media_bounds(key)),
                                     ),
                                     &self.images,
@@ -82,6 +83,7 @@ impl View {
                                     )
                             };
                             let card = card
+                                .rounded(cx.theme().radius_2xl())
                                 .id(format!("composer-attachment-{key}"))
                                 .status(status)
                                 .tooltip(detail.map(tr).unwrap_or_else(|| item.name.clone().into()))
@@ -283,6 +285,7 @@ fn file_card(
     let id = source.id();
     let selector = id.clone();
     let card = Card::new()
+        .rounded(cx.theme().radius_2xl())
         .media(Images::media(images, source.clone(), cx))
         .content(
             AttachmentContent::new()

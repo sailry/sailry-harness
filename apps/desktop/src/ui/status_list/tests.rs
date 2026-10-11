@@ -39,6 +39,10 @@ fn keeps_footer_outside_bounded_rows(cx: &mut TestAppContext) {
     let scroll = visual.debug_bounds("status-panel-scroll").unwrap();
     let footer = visual.debug_bounds("status-panel-footer").unwrap();
     let first = visual.debug_bounds("status-row-0").unwrap();
+    let label = visual.debug_bounds("status-row-0-label").unwrap();
+    let caret = visual.debug_bounds("status-row-0-caret").unwrap();
+    assert!(caret.left() >= label.right());
+    assert!(first.contains(&caret.center()));
     let last = visual.debug_bounds("status-row-47").unwrap();
     assert_eq!(first.size.height, px(32.));
     assert_eq!(last.size.height, px(32.));

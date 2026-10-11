@@ -276,12 +276,21 @@ class _LiveTimelineState extends State<LiveTimeline> {
           : 'thinkingNow';
       final split =
           visible.lastIndexWhere(
-            (row) => ![
-              'text',
-              'image',
-              'attachment',
-              'reference',
-            ].contains(row.$3['kind']),
+            (row) =>
+                ![
+                  'text',
+                  'image',
+                  'attachment',
+                  'reference',
+                ].contains(row.$3['kind']) &&
+                !calls.any(
+                  (call) =>
+                      call['terminal_interaction'] == true &&
+                      ((object(call['source'])['entry'] == row.$1['id'] &&
+                              object(call['source'])['index'] == row.$2) ||
+                          (object(call['response'])['entry'] == row.$1['id'] &&
+                              object(call['response'])['index'] == row.$2)),
+                ),
           ) +
           1;
       final work = <Widget>[];

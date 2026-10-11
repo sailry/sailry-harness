@@ -4,7 +4,6 @@ use gpui_kit::component::{
     button::{Button, ButtonVariants},
     clipboard::Clipboard,
     scroll::ScrollableElement,
-    tag::Tag,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 
@@ -49,7 +48,7 @@ impl Panel {
             } else {
                 IconName::Replace
             })
-            .disabled(self.blocked())
+            .disabled(self.blocked() || item.guidance.is_some())
             .debug_selector(move || format!("queue-{action}-{turn}"))
             .tooltip(tr(label_key))
             .accessibility_label(tr(label_key))
@@ -62,7 +61,7 @@ impl Panel {
             .ghost()
             .small()
             .icon(IconName::ArrowUp)
-            .disabled(self.blocked())
+            .disabled(self.blocked() || item.guidance.is_some())
             .debug_selector(move || format!("queue-send-{turn}"))
             .tooltip(tr("queue_send_now"))
             .accessibility_label(tr("queue_send_now"))
@@ -81,21 +80,18 @@ impl Panel {
             .recipient
             .filter(|_| !self.child && item.kind == sailry_protocol::conversation::RunKind::Task)
             .map(|recipient| {
-                if item.guidance == Some(recipient) {
-                    return div()
-                        .flex_shrink_0()
-                        .debug_selector(move || format!("queue-guided-{turn}"))
-                        .child(Tag::primary().small().child(tr("queue_guided")))
-                        .into_any_element();
-                }
                 Button::new(format!("live-queue-guide-{turn}"))
                     .rounded_full()
                     .ghost()
                     .small()
                     .icon(IconName::Redo2)
-                    .tooltip(tr("chat_queue_guide"))
+                    .tooltip(tr(if item.guidance.is_some() {
+                        "queue_guided"
+                    } else {
+                        "chat_queue_guide"
+                    }))
                     .accessibility_label(tr("chat_queue_guide"))
-                    .disabled(self.blocked() || self.guidance_blocked)
+                    .disabled(self.blocked() || self.guidance_blocked || item.guidance.is_some())
                     .debug_selector(move || format!("queue-guide-{turn}"))
                     .on_click(cx.listener(move |panel, _, window, cx| {
                         cx.stop_propagation();
@@ -111,7 +107,9 @@ impl Panel {
                     }))
                     .into_any_element()
             });
-        let remove = self.remove_button(turn, revision, cx);
+        let remove = self
+            .remove_button(turn, revision, cx)
+            .disabled(self.blocked() || item.guidance.is_some());
         presentation::row(
             format!("live-queue-row-{turn}"),
             key,
@@ -127,12 +125,15 @@ impl Panel {
             cx,
         )
         .debug_selector(move || format!("queue-row-{turn}"))
-        .when(!self.child && !self.blocked(), |row| {
-            row.on_drag(drag, |drag, _, _, cx| cx.new(|_| drag.clone()))
-                .on_drop(cx.listener(move |panel, source: &Drag, window, cx| {
-                    panel.reorder(source, turn, window, cx)
-                }))
-        })
+        .when(
+            !self.child && !self.blocked() && item.guidance.is_none(),
+            |row| {
+                row.on_drag(drag, |drag, _, _, cx| cx.new(|_| drag.clone()))
+                    .on_drop(cx.listener(move |panel, source: &Drag, window, cx| {
+                        panel.reorder(source, turn, window, cx)
+                    }))
+            },
+        )
         .into_any_element()
     }
 

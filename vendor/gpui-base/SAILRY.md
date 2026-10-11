@@ -59,3 +59,9 @@ the Kit 0.7.0 source revision and the patches above. This follows the dependency
 selection in upstream Kit revision `87d10ae5e1299d1be18670a37570c5402f952e34`
 without taking its unrelated component changes. Line-wrapper calls explicitly
 retain `IndentAdjustment::SameIndent`, including Sailry's extra wrap paths.
+
+Managed tooltip requests accept an optional mounted-trigger owner. Releasing
+that owner cancels its delayed or visible tooltip without dismissing a newer
+trigger's tooltip. The pinned provider otherwise relies only on pointer leave,
+which is not delivered when a queue row disappears. Component uses a keyed
+trigger lifetime; Base retains timing, switching, focus and overlay placement.

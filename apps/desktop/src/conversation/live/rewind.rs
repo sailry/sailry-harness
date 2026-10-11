@@ -57,41 +57,37 @@ impl View {
         );
     }
 
-    pub(super) fn rewind_notice(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let backup = self.backup.as_ref()?.clone();
-        Some(
-            h_flex()
-                .debug_selector(|| "live-rewind-notice".into())
-                .gap_2()
-                .flex_wrap()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(tr("chat_rewound"))
-                .child(
-                    Button::new("rewind-backup")
-                        .debug_selector(|| "live-rewind-backup".into())
-                        .ghost()
-                        .small()
-                        .rounded_full()
-                        .label(tr("chat_rewind_backup"))
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            cx.emit(Event::Forked(Box::new(backup.clone())))
-                        })),
-                )
-                .child(
-                    Button::new("rewind-dismiss")
-                        .debug_selector(|| "live-rewind-dismiss".into())
-                        .ghost()
-                        .small()
-                        .rounded_full()
-                        .icon(IconName::Close)
-                        .accessibility_label(tr("close"))
-                        .on_click(cx.listener(|view, _, _, cx| {
-                            view.backup = None;
-                            cx.notify();
-                        })),
-                )
-                .into_any_element(),
-        )
+    pub(super) fn rewound(&mut self, backup: Session, window: &mut Window, cx: &mut Context<Self>) {
+        self.backup = Some(backup.clone());
+        let owner = cx.weak_entity();
+        let close_owner = owner.clone();
+        let id = backup.id;
+        let message = gpui_kit::component::notification::Notification::success(tr("chat_rewound"))
+            .id1::<Self>(id.to_string())
+            .action(move |_, _, cx| {
+                let owner = owner.clone();
+                let backup = backup.clone();
+                Button::new("rewind-backup")
+                    .debug_selector(|| "live-rewind-backup".into())
+                    .ghost()
+                    .small()
+                    .label(tr("chat_rewind_backup"))
+                    .on_click(cx.listener(move |toast, _, window, cx| {
+                        toast.dismiss(window, cx);
+                        _ = owner
+                            .update(cx, |_, cx| cx.emit(Event::Forked(Box::new(backup.clone()))));
+                    }))
+            })
+            // Kit actions default to persistent notifications; rewind feedback expires.
+            .autohide(true)
+            .on_close(move |_, cx| {
+                _ = close_owner.update(cx, |view, cx| {
+                    if view.backup.as_ref().is_some_and(|backup| backup.id == id) {
+                        view.backup = None;
+                        cx.notify();
+                    }
+                });
+            });
+        crate::feedback::toast(window, tr("chat_rewound"), message, cx);
     }
 }

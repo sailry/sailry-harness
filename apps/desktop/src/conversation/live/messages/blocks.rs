@@ -237,7 +237,8 @@ fn join_tools(blocks: Vec<Block<'_>>) -> Vec<Block<'_>> {
 }
 
 fn groupable(call: &Call) -> bool {
-    call.grouping == sailry_protocol::tool::Grouping::Sequence
+    !call.terminal_interaction
+        && call.grouping == sailry_protocol::tool::Grouping::Sequence
         && call.presentation != sailry_protocol::tool::Presentation::Progress
         && call.progress.is_none()
 }

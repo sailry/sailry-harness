@@ -5,7 +5,7 @@ pub use content::{Block, Content, Diff, File, Table, Text};
 mod display;
 mod result;
 pub use display::{Display, Field, Input, projection};
-pub use result::{Diagnostic, LocalText, ResultDisplay};
+pub use result::{Diagnostic, Expected, LocalText, ResultDisplay};
 
 /// Controls availability of successful result details, not automatic expansion state.
 /// Failures remain inspectable regardless of the declared presentation.

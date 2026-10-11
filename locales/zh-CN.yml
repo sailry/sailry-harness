@@ -1570,8 +1570,8 @@ interaction_cancelled: 已取消
 interaction_continue: 继续规划
 interaction_start: 执行计划
 question_reply: 等待回答
-interaction_submit: 提交回答
-interaction_cancel: 取消问题
+interaction_submit: "提交"
+interaction_cancel: "取消"
 question_other: 其他
 question_yes: 是
 question_no: 否
@@ -1613,9 +1613,9 @@ queue_add: 加入示例队列
 queue_count: "%{count} 条待发送"
 queue_preview: 仅内存队列示例，不执行模型或工具
 queue_drag: 拖动调整顺序
-queue_edit: 编辑待发送内容
+queue_edit: "编辑"
 queue_read: 查看
-queue_delete: 从队列移除
+queue_delete: "移除"
 queue_send: 立即演示此消息（停止当前示例回合）
 queue_save: 保存
 queue_title: 待发送
@@ -1623,7 +1623,7 @@ queue_paused: 队列已暂停
 queue_paused_count: "%{count} 条已暂停"
 queue_pause: 暂停队列
 queue_resume: 继续发送
-queue_send_now: 立即发送并停止当前回合
+queue_send_now: "发送"
 queue_changed: 队列已改变，请重试
 queue_draft_changed: 队列已改变，编辑草稿已保留
 queue_reload: 重新载入
@@ -2615,3 +2615,6 @@ updates_recovery_failed: "草稿恢复未完成"
 updates_profile_inside: "数据目录位于 Sailry 应用内，请移出后再更新"
 approval_unrestricted: 完整文件系统和网络访问
 approval_code_start: "在 %{worktree} 启动 %{server}"
+
+tool_directory_missing: "目录不存在"
+tool_file_missing: "文件不存在"

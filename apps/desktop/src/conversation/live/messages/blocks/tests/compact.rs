@@ -2,6 +2,7 @@ use super::*;
 
 fn call(index: usize) -> Call {
     Call {
+        terminal_interaction: false,
         presentation: Default::default(),
         grouping: Default::default(),
         turn: TurnId::new(),

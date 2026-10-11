@@ -52,7 +52,7 @@ pub(crate) fn card(header: Option<AnyElement>, body: AnyElement, cx: &App) -> Di
         .w_full()
         .min_w_0()
         .overflow_hidden()
-        .rounded(cx.theme().radius_lg)
+        .rounded(cx.theme().radius_2xl())
         .border_1()
         .border_color(cx.theme().border)
         .bg(cx.theme().group_box.opacity(0.8))
@@ -140,6 +140,7 @@ pub(crate) fn scroll(id: String, content: impl IntoElement) -> AnyElement {
         id: id.into(),
         content: content.into_any_element(),
         group: false,
+        frame: true,
     }
     .into_any_element()
 }
@@ -150,6 +151,18 @@ pub(crate) fn group_scroll(id: String, content: impl IntoElement) -> AnyElement 
         id: id.into(),
         content: content.into_any_element(),
         group: true,
+        frame: true,
+    }
+    .into_any_element()
+}
+
+/// List rows already provide vertical spacing; popovers supply their outer frame.
+pub(crate) fn list_scroll(id: String, content: impl IntoElement) -> AnyElement {
+    ActivityScroll {
+        id: id.into(),
+        content: content.into_any_element(),
+        group: true,
+        frame: false,
     }
     .into_any_element()
 }
@@ -159,6 +172,7 @@ struct ActivityScroll {
     id: SharedString,
     content: AnyElement,
     group: bool,
+    frame: bool,
 }
 
 impl RenderOnce for ActivityScroll {
@@ -175,28 +189,32 @@ impl RenderOnce for ActivityScroll {
         } else {
             px(OUTPUT_LINES as f32 * LINE_HEIGHT)
         };
-        div().w_full().min_w_0().py_2().child(
-            div()
-                .relative()
-                .w_full()
-                .min_w_0()
-                .child(
-                    div()
-                        .id(self.id.clone())
-                        .debug_selector(move || selector.to_string())
-                        .w_full()
-                        .max_h(height)
-                        .when(self.group, |viewport| viewport.pr_3())
-                        .overflow_y_scroll()
-                        .lock_scroll_axis()
-                        .track_scroll(&handle)
-                        .child(self.content),
-                )
-                .vertical_scrollbar(&handle)
-                // A sibling mask stays over the viewport as its content moves.
-                // It consumes the wheel before MessageScroller, chaining only at an edge.
-                .child(ScrollableMask::new(Axis::Vertical, &handle).id(self.id)),
-        )
+        div()
+            .w_full()
+            .min_w_0()
+            .when(self.frame, |body| body.py_2())
+            .child(
+                div()
+                    .relative()
+                    .w_full()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .id(self.id.clone())
+                            .debug_selector(move || selector.to_string())
+                            .w_full()
+                            .max_h(height)
+                            .when(self.group && self.frame, |viewport| viewport.pr_3())
+                            .overflow_y_scroll()
+                            .lock_scroll_axis()
+                            .track_scroll(&handle)
+                            .child(self.content),
+                    )
+                    .vertical_scrollbar(&handle)
+                    // A sibling mask stays over the viewport as its content moves.
+                    // It consumes the wheel before MessageScroller, chaining only at an edge.
+                    .child(ScrollableMask::new(Axis::Vertical, &handle).id(self.id)),
+            )
     }
 }
 

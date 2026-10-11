@@ -16,7 +16,7 @@ impl View {
             .min_w_0()
             .p_3()
             .gap_3()
-            .rounded(cx.theme().radius)
+            .rounded(cx.theme().radius_2xl())
             .border_1()
             .border_color(cx.theme().border)
             .bg(cx.theme().group_box.opacity(0.8))

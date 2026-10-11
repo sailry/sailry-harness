@@ -451,6 +451,8 @@ fn summary(call: &Call, page: &Page) -> Summary {
     let failed = output::is_error(&call.name, call.result(page));
     let state = if denied {
         Some(approvals::label(ApprovalState::Denied))
+    } else if let Some(expected) = output::expected(call.result(page)) {
+        Some(expected)
     } else if let Some(fault) = output::fault(call.result(page))
         && matches!(
             fault.code,

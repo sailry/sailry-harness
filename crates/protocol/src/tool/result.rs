@@ -9,6 +9,16 @@ pub struct ResultDisplay {
     pub version: u32,
     pub diagnostics: Vec<Diagnostic>,
     pub status: Option<LocalText>,
+    /// A recoverable tool outcome whose original diagnostic remains inspectable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected: Option<Expected>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Expected {
+    DirectoryNotFound,
+    FileNotFound,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

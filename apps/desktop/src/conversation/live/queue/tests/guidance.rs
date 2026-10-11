@@ -564,8 +564,27 @@ fn enter_queues_until_guided(cx: &mut TestAppContext) {
         );
         visual.update(|window, cx| window.draw(cx).clear(cx));
         assert!(visual.debug_bounds("live-outgoing-message").is_some());
-        assert!(visual.debug_bounds(selector("guided", guided)).is_some());
-        assert!(visual.debug_bounds(selector("guide", guided)).is_none());
+        assert!(visual.debug_bounds(selector("guided", guided)).is_none());
+        assert!(visual.debug_bounds(selector("guide", guided)).is_some());
+        let queue = panel.read_with(visual, |panel, _| panel.queue.clone());
+        for action in ["guide", "edit", "send", "delete"] {
+            click(visual, selector(action, guided));
+            visual.run_until_parked();
+            panel.read_with(visual, |panel, _| {
+                assert_eq!(panel.queue, queue);
+                assert!(!panel.pending);
+                assert!(panel.retry.is_none());
+                assert!(panel.editing.is_none());
+            });
+            view.read_with(visual, |view, cx| {
+                assert_eq!(view.input.read(cx).value(), "");
+                assert!(
+                    view.outgoing
+                        .as_ref()
+                        .is_some_and(|message| { message.turn == Some(guided) && !message.queued })
+                );
+            });
+        }
         let question = view.read_with(visual, |view, _| {
             view.history.snapshot.as_ref().unwrap().page.questions[0].id
         });

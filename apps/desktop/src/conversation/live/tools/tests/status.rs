@@ -48,6 +48,27 @@ fn reserves_danger_for_execution_errors(cx: &mut TestAppContext) {
         let cases = [
             (
                 "read_file",
+                json!({"error":Fault::new(ErrorCode::NotFound, "File diagnostic"), "isError":true,
+                    "sailry_result":{"version":1,"diagnostics":[],"expected":"file_not_found"}}),
+                false,
+                Some("tool_file_missing"),
+            ),
+            (
+                "list_directory",
+                json!({"error":Fault::new(ErrorCode::NotFound, "Directory diagnostic"), "isError":true,
+                    "sailry_result":{"version":1,"diagnostics":[],"expected":"directory_not_found"}}),
+                false,
+                Some("tool_directory_missing"),
+            ),
+            (
+                "list_directory",
+                json!({"error":Fault::new(ErrorCode::PermissionDenied, "Denied diagnostic"), "isError":true,
+                    "sailry_result":{"version":1,"diagnostics":[],"expected":"directory_not_found"}}),
+                true,
+                Some("tool_failed"),
+            ),
+            (
+                "read_file",
                 json!({"error":Fault::new(ErrorCode::NotFound, "worktree filesystem operation failed: No such file or directory (os error 2)")}),
                 true,
                 Some("tool_failed"),

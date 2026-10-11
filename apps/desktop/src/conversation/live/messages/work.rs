@@ -4,15 +4,13 @@
 use super::*;
 
 pub(super) fn answer_from(blocks: &[Block<'_>]) -> usize {
-    blocks
-        .iter()
-        .rposition(|block| {
-            !matches!(
-                block,
-                Block::Text(..) | Block::Search(..) | Block::Images(..)
-            )
-        })
-        .map_or(0, |index| index + 1)
+    sailry_client::conversation::reply::boundary(blocks.iter().map(|block| match block {
+        Block::Text(..) | Block::Search(..) | Block::Images(..) | Block::Question(_) => false,
+        Block::Tools(calls) => {
+            calls.is_empty() || calls.iter().any(|call| !call.terminal_interaction)
+        }
+        _ => true,
+    }))
 }
 
 impl View {

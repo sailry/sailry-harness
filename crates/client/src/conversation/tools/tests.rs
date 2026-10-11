@@ -9,6 +9,26 @@ mod content;
 mod display;
 mod progress;
 
+#[test]
+fn projects_closing_interactions_for_controllers() {
+    for name in ["plan_review", "ask_user", "mcp_elicitation", "read_file"] {
+        let mut page = page();
+        let Part::ToolCall {
+            name: tool_name, ..
+        } = &mut page.entries[0].parts[0]
+        else {
+            unreachable!()
+        };
+        *tool_name = name.into();
+        let call = &collect(&page)[0];
+        assert_eq!(call.terminal_interaction, name != "read_file");
+        assert_eq!(
+            serde_json::to_value(call).unwrap()["terminal_interaction"],
+            name != "read_file"
+        );
+    }
+}
+
 fn entry(sequence: u64, turn: TurnId, branch: &str, result: bool) -> Entry {
     Entry {
         sequence,

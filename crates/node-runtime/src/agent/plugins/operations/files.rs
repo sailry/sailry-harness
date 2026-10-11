@@ -82,6 +82,30 @@ fn find_limit() -> usize {
     sailry_protocol::MAX_FIND_MATCHES
 }
 
+pub(super) fn failure(operation: Operation, error: Fault) -> Value {
+    use sailry_protocol::tool::{Diagnostic, Expected, ResultDisplay};
+    let expected = (error.code == ErrorCode::NotFound)
+        .then(|| match operation {
+            Operation::ListDirectory => Some(Expected::DirectoryNotFound),
+            Operation::ReadFile => Some(Expected::FileNotFound),
+            _ => None,
+        })
+        .flatten();
+    let mut result = json!({"error":error,"isError":true});
+    if let Some(expected) = expected {
+        result["sailry_result"] = json!(ResultDisplay {
+            version: 1,
+            diagnostics: vec![Diagnostic {
+                text: error.message,
+                error: false,
+            }],
+            status: None,
+            expected: Some(expected),
+        });
+    }
+    result
+}
+
 pub(super) fn description(operation: Operation) -> &'static str {
     match operation {
         Operation::ListDirectory => "List a directory in the captured worktree",
@@ -291,4 +315,30 @@ pub(super) fn command(
         },
         _ => unreachable!("not a file operation"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn marks_only_expected_read_failures() {
+        use sailry_protocol::tool::{Expected, ResultDisplay};
+        for (operation, expected) in [
+            (Operation::ListDirectory, Some(Expected::DirectoryNotFound)),
+            (Operation::ReadFile, Some(Expected::FileNotFound)),
+            (Operation::ReadOffice, None),
+            (Operation::WriteFile, None),
+        ] {
+            let result = failure(operation, Fault::new(ErrorCode::NotFound, "Raw diagnostic"));
+            assert_eq!(result["error"]["message"], "Raw diagnostic");
+            assert_eq!(result["isError"], true);
+            assert_eq!(
+                ResultDisplay::from_value(&result).and_then(|display| display.expected),
+                expected
+            );
+            let denied = failure(operation, Fault::new(ErrorCode::PermissionDenied, "Denied"));
+            assert!(ResultDisplay::from_value(&denied).is_none());
+        }
+    }
 }

@@ -271,7 +271,7 @@ impl View {
                     {
                         view.retry = None;
                         view.editing = None;
-                        view.backup = Some(history.backup);
+                        view.rewound(history.backup, window, cx);
                     }
                     Ok(Ok(Output::Rewound(result)))
                         if matches!(attempt.action, Action::Rewind(_)) =>
@@ -291,7 +291,7 @@ impl View {
                                 .is_some_and(|fork| fork.session == result.session)
                         {
                             view.retry = None;
-                            view.backup = Some(result.backup);
+                            view.rewound(result.backup, window, cx);
                         } else {
                             view.error = Some("chat_action_unknown");
                         }

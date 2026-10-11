@@ -184,3 +184,12 @@ without taking its unrelated component changes. The Component public API
 and presentation patches are unchanged.
 
 Native menu submenus accept optional icons through `submenu_with_icon`; the pinned Kit only supported icons on leaf items. This keeps conversation export on the OS-native menu path on macOS and Windows.
+
+`ListItem::hover_background(false)` suppresses only the hover fill. The pinned
+control always paints `list_hover` and offers no override; its existing selection,
+focus, accessibility and event handling stay intact. Queue rows use the option
+instead of recreating a list control. Retire it when upstream exposes this API.
+
+Managed tooltips attach the Base request to a keyed trigger lifetime. Releasing
+an unmounted trigger dismisses its pending or visible tooltip; upstream supplies
+no unmount hook. Pointer delays and the per-window overlay remain owned by Kit.

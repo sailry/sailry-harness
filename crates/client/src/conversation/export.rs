@@ -158,7 +158,7 @@ fn render(page: &Page, title: &str, format: Format, assets: &str) -> Result<Docu
             continue;
         }
         for (index, part) in entry.parts.iter().enumerate() {
-            if !matches!(part, Part::Text(_) | Part::Image(_) | Part::Attachment(_)) {
+            if super::reply::is_work(part) {
                 boundaries.insert(entry.turn, (entry.sequence, index));
             }
         }

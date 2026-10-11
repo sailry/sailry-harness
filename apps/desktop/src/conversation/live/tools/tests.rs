@@ -4,6 +4,7 @@ use core::prelude::v1::test;
 use serde_json::json;
 
 mod commands;
+mod missing;
 mod preparation;
 mod status;
 

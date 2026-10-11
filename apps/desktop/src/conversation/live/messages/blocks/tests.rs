@@ -153,6 +153,7 @@ fn retains_text_boundaries() {
         })),
         calls: Arc::new(vec![
             Call {
+                terminal_interaction: false,
                 presentation: Default::default(),
                 grouping: Default::default(),
                 turn,
@@ -168,6 +169,7 @@ fn retains_text_boundaries() {
                 question: None,
             },
             Call {
+                terminal_interaction: false,
                 presentation: Default::default(),
                 grouping: Default::default(),
                 turn,

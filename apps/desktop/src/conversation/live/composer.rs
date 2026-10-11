@@ -223,13 +223,7 @@ impl View {
     }
 
     pub(super) fn notices(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        [
-            self.composer_activity(cx),
-            (!self.readonly()).then(|| self.rewind_notice(cx)).flatten(),
-        ]
-        .into_iter()
-        .flatten()
-        .collect()
+        self.composer_activity(cx).into_iter().collect()
     }
     pub(super) fn welcome(&self, cx: &mut Context<Self>) -> AnyElement {
         let owner = cx.entity().downgrade();

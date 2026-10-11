@@ -2,9 +2,9 @@ use crate::root::WindowState;
 use std::{cell::Cell, rc::Rc, time::Duration};
 
 use gpui::{
-    Action, AnyElement, AnyView, App, AppContext, Bounds, Context, ElementId, IntoElement,
-    MouseButton, ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement,
-    StyleRefinement, Styled, Window, div, prelude::FluentBuilder, px,
+    Action, AnyElement, AnyView, App, AppContext, Bounds, Context, ElementId, EntityId,
+    InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Render, SharedString,
+    StatefulInteractiveElement, StyleRefinement, Styled, Window, div, prelude::FluentBuilder, px,
 };
 use gpui_base::{
     Tooltip as BaseTooltip, TooltipOverlay as BaseTooltipOverlay,
@@ -105,41 +105,43 @@ impl Render for Tooltip {
             }
         };
 
-        div().child(
-            // Wrap in a child, to ensure the left margin is applied to the tooltip
-            BaseTooltip::new("tooltip-popup")
-                .h_flex()
-                .font_family(cx.theme().font_family.clone())
-                .m_3()
-                .bg(cx.theme().tokens.popover)
-                .text_color(cx.theme().popover_foreground)
-                .bg(cx.theme().tokens.popover)
-                .border_1()
-                .border_color(cx.theme().border)
-                .shadow_md()
-                .rounded(cx.theme().radius)
-                .justify_between()
-                .py_0p5()
-                .px_2()
-                .text_sm()
-                .gap_3()
-                .refine_style(&self.style)
-                .map(|this| {
-                    this.child(div().map(|this| match self.content {
-                        TooltipContext::Text(ref text) => this.child(text.clone()),
-                        TooltipContext::Element(ref builder) => this.child(builder(window, cx)),
-                    }))
-                })
-                .when_some(key_binding, |this, kbd| {
-                    this.child(
-                        div()
-                            .text_xs()
-                            .flex_shrink_0()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(kbd.appearance(false)),
-                    )
-                }),
-        )
+        div()
+            .debug_selector(|| "managed-tooltip-popup".into())
+            .child(
+                // Wrap in a child, to ensure the left margin is applied to the tooltip
+                BaseTooltip::new("tooltip-popup")
+                    .h_flex()
+                    .font_family(cx.theme().font_family.clone())
+                    .m_3()
+                    .bg(cx.theme().tokens.popover)
+                    .text_color(cx.theme().popover_foreground)
+                    .bg(cx.theme().tokens.popover)
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .shadow_md()
+                    .rounded(cx.theme().radius)
+                    .justify_between()
+                    .py_0p5()
+                    .px_2()
+                    .text_sm()
+                    .gap_3()
+                    .refine_style(&self.style)
+                    .map(|this| {
+                        this.child(div().map(|this| match self.content {
+                            TooltipContext::Text(ref text) => this.child(text.clone()),
+                            TooltipContext::Element(ref builder) => this.child(builder(window, cx)),
+                        }))
+                    })
+                    .when_some(key_binding, |this, kbd| {
+                        this.child(
+                            div()
+                                .text_xs()
+                                .flex_shrink_0()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(kbd.appearance(false)),
+                        )
+                    }),
+            )
     }
 }
 
@@ -252,9 +254,23 @@ pub(crate) trait ManagedTooltipExt:
         let build_tooltip = Rc::new(build_tooltip);
         let trigger_bounds_cell: Rc<Cell<Bounds<Pixels>>> = Rc::new(Cell::new(Bounds::default()));
         let bounds_writer = trigger_bounds_cell.clone();
+        let owner_id = Rc::new(Cell::new(None::<EntityId>));
+        let owner_writer = owner_id.clone();
 
-        self.on_prepaint(move |bounds, _, _| {
+        self.on_prepaint(move |bounds, window, cx| {
             bounds_writer.set(bounds);
+            let overlay =
+                WindowState::tooltip_overlay(window, cx).map(|overlay| overlay.downgrade());
+            let owner = window.use_keyed_state("managed-tooltip-owner", cx, move |_, cx| {
+                let id = cx.entity_id();
+                cx.on_release(move |_, cx| {
+                    if let Some(overlay) = &overlay {
+                        _ = overlay.update(cx, |overlay, cx| overlay.hide_for(id, cx));
+                    }
+                })
+                .detach();
+            });
+            owner_writer.set(Some(owner.entity_id()));
         })
         .on_hover({
             let trigger_bounds_cell = trigger_bounds_cell.clone();
@@ -265,9 +281,12 @@ pub(crate) trait ManagedTooltipExt:
                         let bounds = trigger_bounds_cell.get();
                         overlay.update(cx, |o: &mut BaseTooltipOverlay, cx| {
                             let build = build_tooltip.clone();
-                            let request = BaseTooltipRequest::new(bounds, move |window, cx| {
+                            let mut request = BaseTooltipRequest::new(bounds, move |window, cx| {
                                 build(window, cx)
                             });
+                            if let Some(owner) = owner_id.get() {
+                                request = request.owner(owner);
+                            }
                             let request = match preferred_placement {
                                 Some(placement) => request.placement(placement),
                                 None => request,

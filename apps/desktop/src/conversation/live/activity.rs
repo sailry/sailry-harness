@@ -78,6 +78,7 @@ impl View {
                             )
                             .content(move |_, window, cx| {
                                 div()
+                                    .debug_selector(|| "composer-todo-content".into())
                                     .w(px(320.).min(window.viewport_size().width - px(48.)))
                                     .child(tools::progress::list(
                                         "composer-todo",

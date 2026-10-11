@@ -540,7 +540,7 @@ impl HostOperation {
         };
         Ok(match work.await {
             Ok(output) => output,
-            Err(error) => json!({"error":error,"isError":true}),
+            Err(error) => files::failure(self.operation, error),
         })
     }
 }

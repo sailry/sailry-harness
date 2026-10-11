@@ -16,6 +16,117 @@ fn keeps_final_prose_outside_work() {
     assert_eq!(answer_from(&blocks[5..]), 0);
 }
 
+#[gpui_kit::test]
+fn keeps_plan_prose_visible_and_exportable(cx: &mut TestAppContext) {
+    use sailry_protocol::{
+        Output, WorkMode,
+        conversation::question::{Answer, Response, State},
+    };
+    fixture::init(cx);
+    for remote in [false, true] {
+        let fixture = fixture::Fixture::with_tools(
+            remote,
+            vec![(
+                crate::agent_fixture::plugin_tool("files", "list_directory"),
+                serde_json::json!({"path":""}),
+            )],
+        );
+        let mut config = fixture.session.config.clone();
+        config.mode = WorkMode::Plan;
+        let Output::Session(session) = fixture.execute(Command::SetSessionConfig {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            config,
+        }) else {
+            panic!("session expected")
+        };
+        let (view, visual) = fixture::open(cx, fixture.binding.clone(), session.clone());
+        fixture.execute(Command::SubmitTurn {
+            session: session.id,
+            expected_revision: session.revision,
+            message: "Prepare a plan".into(),
+        });
+        wait(visual, |cx| {
+            view.read(cx).history.calls.iter().any(|call| {
+                call.question
+                    .as_ref()
+                    .is_some_and(|question| question.state == State::Pending)
+            })
+        });
+        let (turn, question, prose) = view.read_with(visual, |view, _| {
+            let page = &view.history.snapshot.as_ref().unwrap().page;
+            let call = view
+                .history
+                .calls
+                .iter()
+                .find(|call| call.name == "plan_review")
+                .unwrap();
+            assert!(call.terminal_interaction);
+            assert_eq!(
+                serde_json::to_value(call).unwrap()["terminal_interaction"],
+                true
+            );
+            let blocks = super::super::blocks::collect(call.turn, &view.history);
+            assert!(matches!(
+                blocks.get(answer_from(&blocks)),
+                Some(Block::Text(..) | Block::Search(..))
+            ));
+            let prose = page
+                .entries
+                .iter()
+                .filter(|entry| entry.turn == call.turn && entry.author != "user")
+                .flat_map(|entry| &entry.parts)
+                .filter_map(|part| {
+                    if let Part::Text(text) = part {
+                        Some(text.clone())
+                    } else {
+                        None
+                    }
+                })
+                .last()
+                .unwrap();
+            (call.turn, call.question.as_ref().unwrap().id, prose)
+        });
+        fixture.execute(Command::ResolveQuestion {
+            session: session.id,
+            question,
+            response: Response::Answer(Answer::Text(String::new())),
+        });
+        wait(visual, |cx| {
+            view.read(cx).history.snapshot.as_ref().unwrap().page.runs[0].status
+                == Status::Completed
+        });
+        let text: &'static str = Box::leak(format!("live-turn-text-{turn}").into_boxed_str());
+        assert!(visual.debug_bounds(text).is_some());
+        let key = view.read_with(visual, |view, _| view.history.calls[0].source.key());
+        let tool: &'static str = Box::leak(format!("live-{turn}-tools-{key}").into_boxed_str());
+        let group: &'static str =
+            Box::leak(format!("live-{turn}-tool-group-{key}").into_boxed_str());
+        assert!(visual.debug_bounds(tool).is_none() && visual.debug_bounds(group).is_none());
+        fixture::tap(visual, &format!("live-turn-work-{turn}"));
+        assert!(visual.debug_bounds(tool).is_some() || visual.debug_bounds(group).is_some());
+        for format in [
+            sailry_client::conversation::export::Format::Markdown,
+            sailry_client::conversation::export::Format::Html,
+        ] {
+            let document = fixture
+                .runtime
+                .block_on(fixture.binding.client.export_reply(
+                    session.id,
+                    turn,
+                    "Plan",
+                    format,
+                    "assets",
+                    &CancellationToken::new(),
+                ))
+                .unwrap();
+            assert!(document.content.contains(&prose));
+        }
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
 fn stage(view: &Entity<View>, visual: &mut VisualTestContext, status: Status) {
     view.update(visual, |view, cx| {
         let snapshot = Arc::make_mut(view.history.snapshot.as_mut().unwrap());

@@ -89,6 +89,21 @@ fn restores_history(cx: &mut TestAppContext) {
         fixture.start();
         awaiting_approval(&view, visual);
         fixture::tap(visual, "composer-todo");
+        settle(visual);
+        let content = visual.debug_bounds("live-progress-composer-todo").unwrap();
+        let icon = visual
+            .debug_bounds("progress-composer-todo-0-icon")
+            .unwrap();
+        let label = visual
+            .debug_bounds("progress-composer-todo-2-label")
+            .unwrap();
+        let last = visual
+            .debug_bounds("progress-composer-todo-2-icon")
+            .unwrap();
+        assert_eq!(icon.left() - content.left(), px(8.));
+        assert_eq!(icon.top() - content.top(), px(8.));
+        assert_eq!(content.right() - label.right(), px(8.));
+        assert_eq!(content.bottom() - last.bottom(), px(8.));
         assert!(visual.debug_bounds("live-progress-composer-todo").is_some());
         assert!(
             visual

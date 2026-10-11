@@ -62,6 +62,9 @@ fn mcp_failure(value: &Value) -> Option<String> {
 }
 
 pub(super) fn is_error(_name: &str, value: Option<&Value>) -> bool {
+    if expected(value).is_some() {
+        return false;
+    }
     if let Some(fault) = fault(value) {
         return !matches!(fault.code, ErrorCode::Cancelled | ErrorCode::OutcomeUnknown);
     }
@@ -74,6 +77,17 @@ pub(super) fn is_error(_name: &str, value: Option<&Value>) -> bool {
                 == Some(true)
             || ResultDisplay::from_value(value)
                 .is_some_and(|display| display.diagnostics.iter().any(|item| item.error))
+    })
+}
+
+pub(super) fn expected(value: Option<&Value>) -> Option<&'static str> {
+    use sailry_protocol::tool::Expected;
+    if fault(value)?.code != ErrorCode::NotFound {
+        return None;
+    }
+    Some(match ResultDisplay::from_value(value?)?.expected? {
+        Expected::DirectoryNotFound => "tool_directory_missing",
+        Expected::FileNotFound => "tool_file_missing",
     })
 }
 

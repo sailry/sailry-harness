@@ -3,6 +3,7 @@ pub mod export;
 mod history;
 mod observer;
 mod projection;
+pub mod reply;
 mod search;
 pub mod tools;
 pub use assets::unique as unique_assets;

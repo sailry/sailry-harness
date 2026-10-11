@@ -1,9 +1,10 @@
 use std::{rc::Rc, time::Duration};
 
 use gpui::{
-    AnyElement, AnyView, App, Bounds, Context, Div, ElementId, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Render, RenderOnce, Role, Stateful, StatefulInteractiveElement, Styled,
-    Task, Window, deferred, div, prelude::FluentBuilder as _, px,
+    AnyElement, AnyView, App, Bounds, Context, Div, ElementId, EntityId, InteractiveElement,
+    IntoElement, ParentElement, Pixels, Render, RenderOnce, Role, Stateful,
+    StatefulInteractiveElement, Styled, Task, Window, deferred, div, prelude::FluentBuilder as _,
+    px,
 };
 
 use crate::{Placement, Positioner};
@@ -28,7 +29,7 @@ pub struct Tooltip {
 impl Tooltip {
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
-            base: div().id(id).role(Role::Tooltip),
+            base: div().id(id).role(Role::Tooltip).occlude(),
         }
     }
 }
@@ -57,6 +58,7 @@ pub struct TooltipRequest {
     build: TooltipBuilder,
     trigger_bounds: Bounds<Pixels>,
     preferred_placement: Option<Placement>,
+    owner: Option<EntityId>,
 }
 
 impl TooltipRequest {
@@ -68,7 +70,14 @@ impl TooltipRequest {
             build: Rc::new(build),
             trigger_bounds,
             preferred_placement: None,
+            owner: None,
         }
+    }
+
+    /// Associates a managed request with its mounted trigger.
+    pub fn owner(mut self, owner: EntityId) -> Self {
+        self.owner = Some(owner);
+        self
     }
 
     pub fn placement(mut self, placement: Placement) -> Self {
@@ -103,6 +112,7 @@ pub struct TooltipOverlay {
     animation_epoch: usize,
     is_switching: bool,
     show_task: Option<Task<()>>,
+    pending_owner: Option<EntityId>,
     hide_task: Option<Task<()>>,
     renderer: TooltipRenderer,
 }
@@ -118,6 +128,7 @@ impl TooltipOverlay {
             animation_epoch: 0,
             is_switching: false,
             show_task: None,
+            pending_owner: None,
             hide_task: None,
             renderer: Rc::new(|view, _, _, _| div().child(view).into_any_element()),
         }
@@ -148,11 +159,13 @@ impl TooltipOverlay {
             return;
         }
         self.hide_task = None;
+        self.pending_owner = content.owner;
         let was_visible = self.content.is_some();
         if was_visible || self.had_recent_tooltip {
             self.previous_bounds = self.content.as_ref().map(|content| content.trigger_bounds);
             self.content = Some(content);
             self.show_task = None;
+            self.pending_owner = None;
             self.is_switching = was_visible;
             self.animation_epoch += 1;
             cx.notify();
@@ -165,6 +178,7 @@ impl TooltipOverlay {
             let _ = this.update_in(cx, |this, _, cx| {
                 if this.epoch == epoch {
                     this.content = Some(content);
+                    this.pending_owner = None;
                     this.previous_bounds = None;
                     this.is_switching = false;
                     this.animation_epoch += 1;
@@ -176,6 +190,7 @@ impl TooltipOverlay {
 
     pub fn request_hide(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.show_task = None;
+        self.pending_owner = None;
         if self.content.is_none() {
             return;
         }
@@ -194,6 +209,18 @@ impl TooltipOverlay {
         }));
     }
 
+    /// Dismisses only the request belonging to an unmounted trigger.
+    pub fn hide_for(&mut self, owner: EntityId, cx: &mut Context<Self>) {
+        if self.pending_owner == Some(owner)
+            || self
+                .content
+                .as_ref()
+                .is_some_and(|content| content.owner == Some(owner))
+        {
+            self.hide(cx);
+        }
+    }
+
     pub fn hide(&mut self, cx: &mut Context<Self>) {
         let changed = self.content.is_some()
             || self.previous_bounds.is_some()
@@ -205,6 +232,7 @@ impl TooltipOverlay {
         self.had_recent_tooltip = false;
         self.is_switching = false;
         self.show_task = None;
+        self.pending_owner = None;
         self.hide_task = None;
         if changed {
             cx.notify();

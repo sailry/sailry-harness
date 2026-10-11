@@ -42,6 +42,52 @@ use sailry_link::{Admission, Pending as Future, Subscription};
 use sailry_protocol::{Fault, RequestId, Topic};
 use std::sync::Mutex;
 
+#[gpui::test]
+fn dismisses_removed_row_tooltips(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        for visible in [false, true] {
+            let fixture = Fixture::new(remote);
+            let turn = fixture.enqueue("Queued input");
+            let (view, visual) = super::super::super::tests::fixture::open(
+                cx,
+                fixture.binding.clone(),
+                fixture.session.clone(),
+            );
+            let panel = view.read_with(visual, |view, _| view.queue.clone());
+            wait(visual, |cx| {
+                panel.read(cx).connected
+                    && panel.read(cx).queue.items.len() == 1
+                    && view.read(cx).configured()
+            });
+            let bounds = visual.debug_bounds(selector("edit", turn)).unwrap();
+            visual.simulate_mouse_move(bounds.center(), None, Modifiers::default());
+            visual.run_until_parked();
+            if visible {
+                super::super::super::tests::fixture::hover(visual, selector("edit", turn));
+                assert!(visual.debug_bounds("managed-tooltip-popup").is_some());
+            }
+            let revision = panel.read_with(visual, |panel, _| panel.queue.items[0].revision);
+            fixture.execute(Command::RemoveQueuedTurn {
+                turn,
+                expected_revision: revision,
+            });
+            wait(visual, |cx| panel.read(cx).queue.items.is_empty());
+            for _ in 0..12 {
+                visual
+                    .executor()
+                    .advance_clock(std::time::Duration::from_millis(100));
+                visual.run_until_parked();
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+            }
+            assert!(visual.debug_bounds("managed-tooltip-popup").is_none());
+            visual.update(|window, _| window.remove_window());
+            drop(view);
+            fixture.close();
+        }
+    }
+}
+
 struct Lost {
     inner: Arc<dyn Transport>,
     ids: Mutex<Vec<RequestId>>,

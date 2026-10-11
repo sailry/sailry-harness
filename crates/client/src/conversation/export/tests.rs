@@ -155,6 +155,53 @@ fn excludes_work_before_final_reply() {
 }
 
 #[test]
+fn preserves_reply_before_closing_interactions() {
+    for name in ["plan_review", "ask_user", "mcp_elicitation"] {
+        let mut page = page(vec![Part::Text("User request".into())]);
+        let mut assistant = page.entries[0].clone();
+        assistant.id = "assistant".into();
+        assistant.author = "assistant".into();
+        assistant.sequence = 2;
+        assistant.parts = vec![
+            Part::Thinking("Work details".into()),
+            Part::Text("Final plan".into()),
+        ];
+        page.entries.push(assistant.clone());
+        assistant.id = "closing".into();
+        assistant.sequence = 3;
+        assistant.parts = vec![
+            Part::ToolCall {
+                id: Some("closing".into()),
+                name: name.into(),
+                arguments: serde_json::json!({}),
+                presentation: Default::default(),
+                grouping: Default::default(),
+                display: None,
+            },
+            Part::Resource(serde_json::json!({"type":"tool_started","id":"closing","name":name})),
+        ];
+        page.entries.push(assistant.clone());
+        assistant.id = "closed".into();
+        assistant.sequence = 4;
+        assistant.parts = vec![
+            Part::ToolResult {
+                id: Some("closing".into()),
+                name: name.into(),
+                result: serde_json::json!({"status":"accepted"}),
+                images: vec![],
+            },
+            Part::Resource(serde_json::json!({"type":"provider_context"})),
+        ];
+        page.entries.push(assistant);
+        for format in [Format::Markdown, Format::Html] {
+            let document = render(&page, "Plan", format, "assets").unwrap();
+            assert!(document.content.contains("Final plan"));
+            assert!(!document.content.contains("Work details"));
+        }
+    }
+}
+
+#[test]
 fn preserves_formula_delimiters_and_code() {
     let text = r"Inline \(x^2\) and $y^2$.
 
