@@ -194,8 +194,11 @@ async fn restores_defaults_without_resetting_plugins() {
         let profile = directory.path().join("node");
         let path = profile.join("storage/node.sqlite3");
         let db = rusqlite::Connection::open(&path).unwrap();
-        db.execute_batch("ALTER TABLE node DROP COLUMN plugin_defaults;")
-            .unwrap();
+        db.execute_batch(
+            "ALTER TABLE node DROP COLUMN plugin_defaults;
+             ALTER TABLE agent_approvals DROP COLUMN prepared;",
+        )
+        .unwrap();
         drop(db);
         let node = Node::start(&profile).await.unwrap();
         let controller =
@@ -221,6 +224,32 @@ async fn restores_defaults_without_resetting_plugins() {
                 .unwrap(),
             1
         );
+        let (kind, required, default) = db
+            .query_row(
+                "SELECT type, \"notnull\", dflt_value
+                 FROM pragma_table_info('agent_approvals') WHERE name='prepared'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(kind, "BLOB");
+        assert_eq!(required, 1);
+        let prepared: Vec<u8> = db
+            .query_row(&format!("SELECT {default}"), [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(prepared.as_slice(), b"null");
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM agent_approvals", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
         drop(db);
         let backup = fs::read_dir(profile.join("storage/backups"))
             .unwrap()
@@ -235,6 +264,11 @@ async fn restores_defaults_without_resetting_plugins() {
         assert!(
             previous
                 .prepare("SELECT plugin_defaults FROM node")
+                .is_err()
+        );
+        assert!(
+            previous
+                .prepare("SELECT prepared FROM agent_approvals")
                 .is_err()
         );
         assert_eq!(

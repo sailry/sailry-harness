@@ -415,6 +415,7 @@ fn preserves_base_permission_precedence() {
             reason: None,
             prefix: None,
             startup: None,
+            ssh: None,
             can_remember: true,
             access: None,
         };

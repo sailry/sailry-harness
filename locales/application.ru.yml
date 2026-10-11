@@ -2618,6 +2618,8 @@ form_date_hint: "Выберите дату"
 form_time_hint: "HH:mm:ss"
 approval_unrestricted: Полный доступ к файловой системе и сети
 approval_code_start: "Запустить %{server} в %{worktree}"
+approval_ssh_trust: "Доверять %{host}:%{port} — %{algorithm} %{fingerprint}"
+approval_ssh_replace: "Заменить ключ %{host}:%{port} — %{algorithm} %{fingerprint}"
 
 tool_directory_missing: "Каталог не найден"
 tool_file_missing: "Файл не найден"

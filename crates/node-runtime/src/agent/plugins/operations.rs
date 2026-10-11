@@ -96,6 +96,8 @@ pub(super) fn bind(
                     | Operation::GuideAgent
                     | Operation::WaitAgent
                     | Operation::WriteArtifact
+                    | Operation::RunSsh
+                    | Operation::TransferSsh
             ) {
                 ToolRegistration::managed(tool)
             } else {
@@ -125,10 +127,6 @@ pub(super) fn available(ingress: &Ingress, invocation: &Invocation, operation: O
         Operation::SearchWeb => {
             ingress.search.available() && !super::model_tools::preferred(ingress, invocation)
         }
-        Operation::BrowseDatabase | Operation::QueryDatabase | Operation::ExecuteDatabase => {
-            !invocation.connections.databases.is_empty()
-        }
-        Operation::RunSsh | Operation::TransferSsh => !invocation.connections.ssh.is_empty(),
         Operation::DelegateAgent | Operation::GuideAgent | Operation::WaitAgent => {
             invocation.child.is_none() && invocation.project.is_some()
         }
@@ -280,14 +278,14 @@ impl HostOperation {
     pub(super) async fn prepare(&self, arguments: Value) -> Result<Request, Fault> {
         let command = if connections::handles(self.operation) {
             let (target, action) = connections::action(self.operation, arguments)?;
-            if !self.connections.contains(&target) {
-                return Err(Fault::new(
-                    ErrorCode::PermissionDenied,
-                    "connection is not available to this turn",
-                ));
-            }
             self.ingress
-                .connection_command(self.turn, target, action)
+                .connection_command(
+                    self.turn,
+                    self.context.package.clone(),
+                    target,
+                    action,
+                    self.connections.clone(),
+                )
                 .await?
         } else if repository::handles(self.operation) {
             let registered = self.ingress.agent_worktrees(self.turn).await?;
@@ -328,7 +326,15 @@ impl HostOperation {
         self.ingress
             .check_plugin(self.caller, request.clone())
             .await?;
-        if connections::handles(self.operation) {
+        if connections::handles(self.operation)
+            && !matches!(
+                self.operation,
+                Operation::ListDatabaseConnections
+                    | Operation::SaveDatabaseConnection
+                    | Operation::ListSshConnections
+                    | Operation::SaveSshConnection
+            )
+        {
             let cancel = match request.command {
                 Command::BrowseDatabase { .. } | Command::QueryDatabase { .. } => {
                     Command::CancelDatabase {
@@ -380,6 +386,9 @@ impl HostOperation {
             }
             let mut value = serde_json::to_value(&output)
                 .map_err(|error| Fault::new(ErrorCode::Internal, error.to_string()))?;
+            if connections::handles(self.operation) {
+                connections::annotate(self, &output, &mut value).await?;
+            }
             commands::annotate(&output, &mut value, workspace);
             artifacts::annotate(&output, &mut value);
             if self.ingress.code.after_edit()
@@ -447,9 +456,11 @@ impl HostOperation {
                     )
                     .await?;
             }
-            self.ingress
-                .check_plugin(self.caller, request.clone())
-                .await?;
+            if !connections::management(self.operation) {
+                self.ingress
+                    .check_plugin(self.caller, request.clone())
+                    .await?;
+            }
             if let Command::ReadCode {
                 worktree, query, ..
             } = &request.command
@@ -496,6 +507,30 @@ impl HostOperation {
                     )
                 })??;
             }
+            let ssh_trust = if connections::ssh(self.operation) {
+                let trust = connections::preflight(self, &request).await?;
+                let decision = tokio::select! {
+                    biased;
+                    _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled,"SSH approval was cancelled")),
+                    decision = self.ingress.confirm_ssh(self.turn, adk_core::ToolConfirmationRequest {
+                        tool_name: self.name.clone(), function_call_id: Some(context.function_call_id().into()), args: authorized_arguments.clone(),
+                    }, crate::store::agent::ApprovalBinding { owner: self.context.package.clone(), tool: self.name.clone(), operation: Some(self.operation) }, trust.clone()) => decision?,
+                };
+                if !matches!(
+                    decision,
+                    sailry_protocol::conversation::Decision::Approve
+                        | sailry_protocol::conversation::Decision::ApproveSession
+                        | sailry_protocol::conversation::Decision::ApprovePrefix(_)
+                ) {
+                    return Err(Fault::new(
+                        ErrorCode::PermissionDenied,
+                        "SSH operation was denied",
+                    ));
+                }
+                trust
+            } else {
+                None
+            };
             if !self.is_read_only() {
                 if self.operation == Operation::WriteArtifact {
                     self.ingress
@@ -521,7 +556,11 @@ impl HostOperation {
                         Some(request.command.clone()),
                     )
                     .await?;
-                if connections::handles(self.operation) {
+                if let Some(trust) = ssh_trust {
+                    connections::trust(self, &trust).await?;
+                }
+                if connections::handles(self.operation) && !connections::management(self.operation)
+                {
                     request = self.prepare(arguments).await?;
                 }
                 request.id = id;

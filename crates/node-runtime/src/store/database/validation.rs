@@ -91,6 +91,11 @@ pub(super) fn stored(db: &Connection) -> Result<(), Error> {
         "agent_approvals.binding",
         "SELECT binding FROM agent_approvals",
     )?;
+    records::<Option<crate::store::agent::connections::Prepared>>(
+        db,
+        "agent_approvals.prepared",
+        "SELECT prepared FROM agent_approvals",
+    )?;
     records::<crate::store::agent::ApprovalBinding>(
         db,
         "agent_approval_rules.binding",

@@ -29,12 +29,22 @@ pub(super) fn input(invocation: &Invocation, package: &plugin::Info, selected: &
     let databases = operations.iter().any(|operation| {
         matches!(
             operation,
-            Operation::BrowseDatabase | Operation::QueryDatabase | Operation::ExecuteDatabase
+            Operation::ListDatabaseConnections
+                | Operation::SaveDatabaseConnection
+                | Operation::BrowseDatabase
+                | Operation::QueryDatabase
+                | Operation::ExecuteDatabase
         )
     });
-    let ssh = operations
-        .iter()
-        .any(|operation| matches!(operation, Operation::RunSsh | Operation::TransferSsh));
+    let ssh = operations.iter().any(|operation| {
+        matches!(
+            operation,
+            Operation::ListSshConnections
+                | Operation::SaveSshConnection
+                | Operation::RunSsh
+                | Operation::TransferSsh
+        )
+    });
     let roles: Vec<_> = invocation
         .turn
         .roles

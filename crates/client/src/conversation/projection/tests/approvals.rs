@@ -14,6 +14,7 @@ fn recovers_decisions() {
         source: sailry_protocol::conversation::ApprovalSource::User,
         access: Some(sailry_protocol::process::Access::Unrestricted),
         startup: None,
+        ssh: None,
         can_remember: false,
         prefix: None,
         choice: None,
@@ -76,7 +77,7 @@ fn recovers_decisions() {
 
 #[test]
 fn preserves_rule_identity() {
-    for change in 0..6 {
+    for change in 0..7 {
         let (mut projection, mut snapshot, run, _) = fixture();
         let approval = Approval {
             id: ApprovalId::new(),
@@ -88,6 +89,7 @@ fn preserves_rule_identity() {
             source: conversation::ApprovalSource::User,
             access: None,
             startup: None,
+            ssh: None,
             can_remember: true,
             prefix: Some("cargo test".into()),
             choice: None,
@@ -106,13 +108,26 @@ fn preserves_rule_identity() {
             2 => changed.can_remember = false,
             3 => changed.access = Some(sailry_protocol::process::Access::Unrestricted),
             4 => changed.source = conversation::ApprovalSource::Sandbox,
-            _ => {
+            5 => {
                 changed.startup = Some(sailry_protocol::code::Startup {
                     worktree: sailry_protocol::WorktreeId::new(),
                     root: String::new(),
                     server: "fixture".into(),
                     executable: "tool".into(),
                     revision: "a".repeat(64),
+                })
+            }
+            _ => {
+                changed.ssh = Some(sailry_protocol::ssh::Trust {
+                    profile: sailry_protocol::SshId::new(),
+                    expected_revision: 1,
+                    host: "ssh.example.invalid".into(),
+                    port: 22,
+                    key: sailry_protocol::ssh::HostKey {
+                        algorithm: "ssh-ed25519".into(),
+                        fingerprint: "SHA256:fixture".into(),
+                    },
+                    changed: false,
                 })
             }
         }
@@ -148,6 +163,7 @@ fn preserves_complete_decision() {
                 source: conversation::ApprovalSource::User,
                 access: None,
                 startup: None,
+                ssh: None,
                 can_remember: true,
                 prefix: Some("cargo test".into()),
                 choice: choice.clone(),

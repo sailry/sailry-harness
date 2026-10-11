@@ -2618,6 +2618,8 @@ form_date_hint: "日付を選択"
 form_time_hint: "HH:mm:ss"
 approval_unrestricted: ファイルシステムとネットワークへのフルアクセス
 approval_code_start: "%{worktree} で %{server} を起動"
+approval_ssh_trust: "%{host}:%{port} を信頼 — %{algorithm} %{fingerprint}"
+approval_ssh_replace: "%{host}:%{port} のキーを置換 — %{algorithm} %{fingerprint}"
 
 tool_directory_missing: "ディレクトリが見つかりません"
 tool_file_missing: "ファイルが見つかりません"

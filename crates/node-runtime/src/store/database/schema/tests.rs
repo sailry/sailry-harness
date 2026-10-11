@@ -275,6 +275,7 @@ mod startup {
             ("agent_runs", "hooks"),
             ("plugin_values", "index_data"),
             ("sessions", "state"),
+            ("agent_approvals", "prepared"),
         ] {
             let (directory, path, node) =
                 fixture(&format!("ALTER TABLE {table} DROP COLUMN {column}"));

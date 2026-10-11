@@ -150,6 +150,15 @@ impl View {
                                 ),
                         )
                     })
+                    .when_some(approval.ssh.as_ref(), |row, trust| {
+                        row.child(
+                            div()
+                                .debug_selector(move || format!("live-approval-ssh-{id}"))
+                                .font_medium()
+                                .whitespace_normal()
+                                .child(ssh_prompt(trust)),
+                        )
+                    })
                     .children(
                         details
                             .notices
@@ -303,4 +312,20 @@ pub(super) fn label(state: ApprovalState) -> &'static str {
         ApprovalState::Cancelled => "approval_cancelled",
         ApprovalState::Interrupted => "approval_interrupted",
     }
+}
+
+fn ssh_prompt(trust: &sailry_protocol::ssh::Trust) -> String {
+    let key = if trust.changed {
+        "approval_ssh_replace"
+    } else {
+        "approval_ssh_trust"
+    };
+    rust_i18n::t!(
+        key,
+        host = trust.host,
+        port = trust.port,
+        algorithm = trust.key.algorithm,
+        fingerprint = trust.key.fingerprint
+    )
+    .to_string()
 }

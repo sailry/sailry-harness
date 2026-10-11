@@ -20,6 +20,7 @@ pub(in crate::conversation) fn check_transition(
         || previous.prefix != incoming.prefix
         || previous.can_remember != incoming.can_remember
         || previous.startup != incoming.startup
+        || previous.ssh != incoming.ssh
         || terminal
             && !stale
             && (previous.state != incoming.state

@@ -2618,6 +2618,8 @@ updates_recovery_failed: "草稿恢復未完成"
 updates_profile_inside: "資料目錄位於 Sailry 應用內，請移出後再更新"
 approval_unrestricted: 完整檔案系統和網路存取
 approval_code_start: "在 %{worktree} 啟動 %{server}"
+approval_ssh_trust: "信任 %{host}:%{port} — %{algorithm} %{fingerprint}"
+approval_ssh_replace: "替換 %{host}:%{port} 的金鑰 — %{algorithm} %{fingerprint}"
 
 tool_directory_missing: "目錄不存在"
 tool_file_missing: "檔案不存在"

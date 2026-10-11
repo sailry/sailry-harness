@@ -2320,6 +2320,8 @@ updates_recovery_failed: "Draft recovery could not complete"
 updates_profile_inside: "The data profile is inside Sailry; move it before updating"
 approval_unrestricted: Full filesystem and network access
 approval_code_start: "Start %{server} in %{worktree}"
+approval_ssh_trust: "Trust %{host}:%{port} — %{algorithm} %{fingerprint}"
+approval_ssh_replace: "Replace the key for %{host}:%{port} — %{algorithm} %{fingerprint}"
 
 tool_directory_missing: "Directory not found"
 tool_file_missing: "File not found"

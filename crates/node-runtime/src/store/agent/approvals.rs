@@ -47,6 +47,7 @@ impl Ingress {
                 request,
                 binding,
                 startup: None,
+                ssh: None,
                 reply,
             })))
             .await
@@ -70,6 +71,29 @@ impl Ingress {
                 request,
                 binding: Some(binding),
                 startup: Some(startup),
+                ssh: None,
+                reply,
+            })))
+            .await
+            .map_err(|_| super::super::unavailable())?;
+        response.await.map_err(|_| super::super::unavailable())?
+    }
+
+    pub(crate) async fn confirm_ssh(
+        &self,
+        turn: TurnId,
+        request: ToolConfirmationRequest,
+        binding: Binding,
+        ssh: Option<sailry_protocol::ssh::Trust>,
+    ) -> Result<Decision, Fault> {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .send(Job::Agent(Box::new(Operation::Confirm {
+                turn,
+                request,
+                binding: Some(binding),
+                startup: None,
+                ssh,
                 reply,
             })))
             .await
@@ -150,6 +174,7 @@ pub(super) fn begin(
     begin_with(database, turn, request, binding, None, events)
 }
 
+#[cfg(test)]
 pub(super) fn begin_with(
     database: &mut Database,
     turn: TurnId,
@@ -158,11 +183,32 @@ pub(super) fn begin_with(
     startup: Option<&sailry_protocol::code::Startup>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Approval, Fault> {
+    begin_for(database, turn, request, binding, startup, None, events)
+}
+
+pub(super) fn begin_for(
+    database: &mut Database,
+    turn: TurnId,
+    request: &ToolConfirmationRequest,
+    binding: Option<&Binding>,
+    startup: Option<&sailry_protocol::code::Startup>,
+    ssh: Option<&sailry_protocol::ssh::Trust>,
+    events: &broadcast::Sender<EventEnvelope>,
+) -> Result<Approval, Fault> {
     let transaction = database.connection.transaction().map_err(storage_error)?;
     let run = active(&transaction, turn)?;
     let call = call_id(request)?;
     let (entry, index) = super::calls::locate(&transaction, turn, request)?;
-    let mut source = if let Some(startup) = startup {
+    let mut source = if let Some(ssh) = ssh {
+        super::connections::validate_trust(&transaction, turn, binding, ssh)?;
+        if permissions::config(&transaction, turn)?.mode == WorkMode::Plan {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "planning turns cannot trust SSH host keys",
+            ));
+        }
+        ApprovalSource::User
+    } else if let Some(startup) = startup {
         super::permissions::code_source(&transaction, turn, request, startup)?
     } else {
         super::permissions::source(&transaction, turn, request)?
@@ -176,8 +222,11 @@ pub(super) fn begin_with(
     if escape && source != ApprovalSource::Full {
         source = ApprovalSource::User;
     }
-    let can_remember =
-        startup.is_none() && binding.is_some() && source == ApprovalSource::User && !escape;
+    let can_remember = startup.is_none()
+        && ssh.is_none()
+        && binding.is_some()
+        && source == ApprovalSource::User
+        && !escape;
     let prefix = binding
         .and_then(|binding| rules::command(binding, request))
         .and_then(prefix::offered)
@@ -208,6 +257,7 @@ pub(super) fn begin_with(
         can_remember,
         access,
         startup: startup.cloned(),
+        ssh: ssh.cloned(),
     };
     let exists: bool = transaction
         .query_row(
@@ -377,11 +427,28 @@ pub(super) fn authorize(
         }
         super::super::code::grant(&transaction, startup)?;
     }
+    if let Some(ssh) = &approval.ssh {
+        if !matches!(prepared, Some(Command::RunSsh { profile, expected_revision, .. } | Command::TransferSsh { profile, expected_revision, .. }) if *profile == ssh.profile && *expected_revision == ssh.expected_revision)
+        {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "prepared SSH connection differs from host key approval",
+            ));
+        }
+    }
     rules::check_prepared(&approval, prepared)?;
     transaction
         .execute(
-            "UPDATE agent_approvals SET claimed=1 WHERE id=?1",
-            [approval.id.to_string()],
+            "UPDATE agent_approvals SET claimed=1,prepared=?2 WHERE id=?1",
+            params![
+                approval.id.to_string(),
+                encode(
+                    &prepared
+                        .map(connections::Prepared::new)
+                        .transpose()?
+                        .flatten()
+                )?
+            ],
         )
         .map_err(storage_error)?;
     transaction.commit().map_err(storage_error)?;

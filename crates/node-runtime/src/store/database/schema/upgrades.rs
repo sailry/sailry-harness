@@ -11,7 +11,7 @@ static HOOKS: LazyLock<Vec<u8>> = LazyLock::new(|| {
 
 pub(super) fn column(table: &str, name: &str) -> Option<&'static [u8]> {
     match (table, name) {
-        ("agent_approvals", "binding") => Some(b"null"),
+        ("agent_approvals", "binding" | "prepared") => Some(b"null"),
         ("agent_runs", "hooks") => Some(HOOKS.as_slice()),
         _ => None,
     }
@@ -21,7 +21,7 @@ pub(super) fn matches(table: &str, name: &str, value: &[u8]) -> bool {
     match (table, name) {
         ("agent_runs", "hooks") => serde_json::from_slice::<Settings>(value)
             .is_ok_and(|settings| settings == Settings::default()),
-        ("agent_approvals", "binding") => {
+        ("agent_approvals", "binding" | "prepared") => {
             serde_json::from_slice::<serde_json::Value>(value).is_ok_and(|value| value.is_null())
         }
         _ => false,

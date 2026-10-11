@@ -2618,6 +2618,8 @@ form_date_hint: "날짜 선택"
 form_time_hint: "HH:mm:ss"
 approval_unrestricted: 전체 파일 시스템 및 네트워크 접근
 approval_code_start: "%{worktree}에서 %{server} 시작"
+approval_ssh_trust: "%{host}:%{port} 신뢰 — %{algorithm} %{fingerprint}"
+approval_ssh_replace: "%{host}:%{port} 키 교체 — %{algorithm} %{fingerprint}"
 
 tool_directory_missing: "디렉터리를 찾을 수 없습니다"
 tool_file_missing: "파일을 찾을 수 없습니다"

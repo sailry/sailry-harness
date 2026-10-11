@@ -137,6 +137,7 @@ fn uses_captured_access_without_display() {
         source: ApprovalSource::User,
         access: Some(Access::Unrestricted),
         startup: None,
+        ssh: None,
         can_remember: false,
         prefix: None,
         choice: None,
@@ -294,4 +295,28 @@ fn resolves_and_reopens(cx: &mut TestAppContext) {
         visual.update(|window, _| window.remove_window());
         fixture.close();
     }
+}
+
+#[test]
+fn shows_exact_ssh_identity() {
+    let mut trust = sailry_protocol::ssh::Trust {
+        profile: sailry_protocol::SshId::new(),
+        expected_revision: 7,
+        host: "ssh.example.invalid".into(),
+        port: 2222,
+        key: sailry_protocol::ssh::HostKey {
+            algorithm: "ssh-ed25519".into(),
+            fingerprint: "SHA256:ZhvAsinHmUCtVaKH9IVrCg2YZVkvtDMRpyQD0+dCHQs".into(),
+        },
+        changed: false,
+    };
+    assert_eq!(
+        ssh_prompt(&trust),
+        "Trust ssh.example.invalid:2222 — ssh-ed25519 SHA256:ZhvAsinHmUCtVaKH9IVrCg2YZVkvtDMRpyQD0+dCHQs"
+    );
+    trust.changed = true;
+    assert_eq!(
+        ssh_prompt(&trust),
+        "Replace the key for ssh.example.invalid:2222 — ssh-ed25519 SHA256:ZhvAsinHmUCtVaKH9IVrCg2YZVkvtDMRpyQD0+dCHQs"
+    );
 }

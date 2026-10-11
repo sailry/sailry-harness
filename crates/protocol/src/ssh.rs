@@ -44,6 +44,17 @@ pub struct HostKey {
     pub fingerprint: String,
 }
 
+/// Exact first-use host identity shown for explicit conversation consent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Trust {
+    pub profile: SshId,
+    pub expected_revision: u64,
+    pub host: String,
+    pub port: u16,
+    pub key: HostKey,
+    pub changed: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TerminalLaunch {
     pub viewport: crate::terminal::Viewport,

@@ -64,7 +64,7 @@ impl Database {
         {
             return Err(Fault::new(ErrorCode::NotConfigured, "plugin is disabled"));
         }
-        let connection = super::connections::action(&self.connection, context, &request.command)?;
+        let connection = super::connections::action(&self.connection, context, request)?;
         if connection.is_some()
             && context.turn.is_some()
             && !super::required(&self.connection, &context.package.name)?

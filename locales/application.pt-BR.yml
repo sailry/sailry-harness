@@ -2618,6 +2618,8 @@ form_date_hint: "Escolha a data"
 form_time_hint: "HH:mm:ss"
 approval_unrestricted: Acesso completo ao sistema de arquivos e à rede
 approval_code_start: "Iniciar %{server} em %{worktree}"
+approval_ssh_trust: "Confiar em %{host}:%{port} — %{algorithm} %{fingerprint}"
+approval_ssh_replace: "Substituir a chave de %{host}:%{port} — %{algorithm} %{fingerprint}"
 
 tool_directory_missing: "Diretório não encontrado"
 tool_file_missing: "Arquivo não encontrado"

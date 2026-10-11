@@ -133,6 +133,14 @@ pub enum Operation {
     RegisterWorktree,
     #[serde(rename = "worktrees.remove")]
     RemoveWorktree,
+    #[serde(rename = "databases.connections")]
+    ListDatabaseConnections,
+    #[serde(rename = "databases.save")]
+    SaveDatabaseConnection,
+    #[serde(rename = "ssh.connections")]
+    ListSshConnections,
+    #[serde(rename = "ssh.save")]
+    SaveSshConnection,
     #[serde(rename = "databases.catalog")]
     BrowseDatabase,
     #[serde(rename = "databases.query")]
@@ -259,7 +267,12 @@ impl Operation {
             Self::CreateManagedWorktree | Self::RegisterWorktree | Self::RemoveWorktree => {
                 Some(Action::WriteWorktrees)
             }
-            Self::BrowseDatabase | Self::QueryDatabase => Some(Action::ReadDatabases),
+            Self::ListDatabaseConnections | Self::BrowseDatabase | Self::QueryDatabase => {
+                Some(Action::ReadDatabases)
+            }
+            Self::SaveDatabaseConnection => Some(Action::ManageDatabases),
+            Self::ListSshConnections => Some(Action::ReadSsh),
+            Self::SaveSshConnection => Some(Action::ManageSsh),
             Self::ExecuteDatabase => Some(Action::ControlDatabases),
             Self::RunSsh | Self::TransferSsh => Some(Action::ControlSsh),
             Self::DelegateAgent | Self::GuideAgent | Self::WaitAgent => {
@@ -317,6 +330,8 @@ impl Operation {
                 | Self::CreateManagedWorktree
                 | Self::RegisterWorktree
                 | Self::RemoveWorktree
+                | Self::SaveDatabaseConnection
+                | Self::SaveSshConnection
                 | Self::ExecuteDatabase
                 | Self::RunSsh
                 | Self::TransferSsh

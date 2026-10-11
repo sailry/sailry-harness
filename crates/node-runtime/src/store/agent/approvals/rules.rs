@@ -108,6 +108,7 @@ pub(super) fn apply_session(db: &Connection, source: &Run, binding: &Binding) ->
         if !approval.can_remember
             || approval.source != ApprovalSource::User
             || approval.startup.is_some()
+            || approval.ssh.is_some()
         {
             continue;
         }

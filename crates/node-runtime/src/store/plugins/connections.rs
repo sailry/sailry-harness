@@ -7,12 +7,14 @@ use sailry_protocol::{
 };
 
 use crate::store::{commands, connections, databases, ssh, terminals, worktrees};
+mod management;
 
 pub(super) fn action(
     db: &Connection,
     context: &Context,
-    command: &Command,
+    request: &sailry_protocol::Request,
 ) -> Result<Option<Action>, Fault> {
+    let command = &request.command;
     let mut target = None;
     let mut management = false;
     let action = match command {
@@ -130,10 +132,20 @@ pub(super) fn action(
         }
         _ => return Ok(None),
     };
-    if management && (context.turn.is_some() || context.invocation.is_some()) {
-        return Err(denied("connection management requires a controller view"));
-    }
-    if let Some(target) = target {
+    let creation = if management && (context.turn.is_some() || context.invocation.is_some()) {
+        management::authorize(db, request)?
+    } else {
+        false
+    };
+    if creation {
+        if crate::store::agent::connections::bound(db, context.turn.expect("checked turn"))?
+            .is_some()
+        {
+            return Err(denied(
+                "bound conversations cannot create another connection",
+            ));
+        }
+    } else if let Some(target) = target {
         check_target(db, context, target)?;
     } else if context.turn.is_some() && context.session.is_none() {
         return Err(denied("connection tool requires a captured session"));
@@ -164,6 +176,15 @@ pub(in crate::store) fn check_target(
     } else {
         return Err(denied("connection operation requires a captured resource"));
     };
+    if let Some(turn) = context.turn {
+        let run = crate::store::agent::connections::owner(db, turn)?;
+        if Some(run.session) != context.session || Some(run.worktree) != context.worktree {
+            return Err(denied("connection turn belongs to another resource"));
+        }
+        if crate::store::agent::connections::created(db, turn, &context.package, target)? {
+            return Ok(());
+        }
+    }
     let sharing = match target {
         Resource::Database(id) => databases::read(db, id)?.and_then(|profile| profile.sharing),
         Resource::Ssh(id) => ssh::read(db, id)?.and_then(|profile| profile.sharing),

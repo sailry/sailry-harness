@@ -164,6 +164,7 @@ fn preserves_live_metadata() {
         source: ApprovalSource::User,
         access: None,
         startup: None,
+        ssh: None,
         can_remember: true,
         prefix: Some("cargo test".into()),
         choice: Some(conversation::ApprovalChoice::Session),

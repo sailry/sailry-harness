@@ -44,7 +44,11 @@ pub(super) fn description(operation: Operation) -> &'static str {
         | Operation::CreateManagedWorktree
         | Operation::RegisterWorktree
         | Operation::RemoveWorktree => repository::description(operation),
-        Operation::BrowseDatabase
+        Operation::ListDatabaseConnections
+        | Operation::SaveDatabaseConnection
+        | Operation::ListSshConnections
+        | Operation::SaveSshConnection
+        | Operation::BrowseDatabase
         | Operation::QueryDatabase
         | Operation::ExecuteDatabase
         | Operation::RunSsh
@@ -253,7 +257,11 @@ pub(super) fn parameters(operation: Operation) -> Value {
             vec!["id", "input"],
         ),
         Operation::ReadSettings => (json!({}), vec![]),
-        Operation::BrowseDatabase
+        Operation::ListDatabaseConnections
+        | Operation::SaveDatabaseConnection
+        | Operation::ListSshConnections
+        | Operation::SaveSshConnection
+        | Operation::BrowseDatabase
         | Operation::QueryDatabase
         | Operation::ExecuteDatabase
         | Operation::RunSsh
@@ -521,7 +529,11 @@ pub(super) fn command(
         | Operation::RemoveWorktree => {
             unreachable!("repository command requires the captured project")
         }
-        Operation::BrowseDatabase
+        Operation::ListDatabaseConnections
+        | Operation::SaveDatabaseConnection
+        | Operation::ListSshConnections
+        | Operation::SaveSshConnection
+        | Operation::BrowseDatabase
         | Operation::QueryDatabase
         | Operation::ExecuteDatabase
         | Operation::RunSsh

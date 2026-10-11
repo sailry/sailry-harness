@@ -82,9 +82,30 @@ pub(super) enum Operation {
     },
     Connection {
         turn: TurnId,
-        target: sailry_protocol::connection::Resource,
+        package: plugin::Reference,
+        target: Option<sailry_protocol::connection::Resource>,
         action: connections::Action,
+        captured: Vec<sailry_protocol::connection::Resource>,
         reply: oneshot::Sender<Result<Command, Fault>>,
+    },
+    ConnectionStatus {
+        turn: TurnId,
+        package: plugin::Reference,
+        targets: Vec<sailry_protocol::connection::Resource>,
+        captured: Vec<sailry_protocol::connection::Resource>,
+        reply: oneshot::Sender<
+            Result<std::collections::BTreeMap<sailry_protocol::connection::Resource, bool>, Fault>,
+        >,
+    },
+    ConnectionTrust {
+        turn: TurnId,
+        package: plugin::Reference,
+        profile: SshId,
+        revision: u64,
+        key: ssh::HostKey,
+        changed: bool,
+        captured: Vec<sailry_protocol::connection::Resource>,
+        reply: oneshot::Sender<Result<ssh::Trust, Fault>>,
     },
     Attachment {
         turn: TurnId,
@@ -134,6 +155,7 @@ pub(super) enum Operation {
         request: adk_core::ToolConfirmationRequest,
         binding: Option<ApprovalBinding>,
         startup: Option<sailry_protocol::code::Startup>,
+        ssh: Option<sailry_protocol::ssh::Trust>,
         reply: oneshot::Sender<Result<Decision, Fault>>,
     },
     Authorize {
@@ -474,15 +496,55 @@ pub(super) fn execute(
         }
         Operation::Connection {
             turn,
+            package,
             target,
             action,
+            captured,
             reply,
         } => {
             let _ = reply.send(connections::command(
                 &database.connection,
                 turn,
+                &package,
                 target,
                 action,
+                &captured,
+            ));
+        }
+        Operation::ConnectionStatus {
+            turn,
+            package,
+            targets,
+            captured,
+            reply,
+        } => {
+            let _ = reply.send(connections::status(
+                &database.connection,
+                turn,
+                &package,
+                &targets,
+                &captured,
+            ));
+        }
+        Operation::ConnectionTrust {
+            turn,
+            package,
+            profile,
+            revision,
+            key,
+            changed,
+            captured,
+            reply,
+        } => {
+            let _ = reply.send(connections::trust(
+                &database.connection,
+                turn,
+                &package,
+                profile,
+                revision,
+                key,
+                changed,
+                &captured,
             ));
         }
         Operation::Attachment {
@@ -572,13 +634,15 @@ pub(super) fn execute(
             request,
             binding,
             startup,
+            ssh,
             reply,
-        } => match approvals::begin_with(
+        } => match approvals::begin_for(
             database,
             turn,
             &request,
             binding.as_ref(),
             startup.as_ref(),
+            ssh.as_ref(),
             events,
         ) {
             Ok(approval) if approval.state == ApprovalState::Approved => {

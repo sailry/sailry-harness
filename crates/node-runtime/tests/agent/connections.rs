@@ -188,9 +188,14 @@ async fn scopes_database_approvals() {
                     == agent_support::plugin_tool("databases", "database_query")
             })
             .unwrap();
-        assert_eq!(
-            query["function"]["parameters"]["properties"]["connection"]["enum"],
-            json!([profile.id])
+        let connection = &query["function"]["parameters"]["properties"]["connection"];
+        assert!(connection["pattern"].is_string());
+        assert!(connection.get("enum").is_none());
+        assert!(
+            connection["description"]
+                .as_str()
+                .unwrap()
+                .contains(&profile.id.to_string())
         );
         assert!(
             !serde_json::to_string(&requests)
@@ -521,3 +526,7 @@ async fn executes_private_ssh_references() {
 
 #[path = "connections/ownership.rs"]
 mod ownership;
+
+#[cfg(unix)]
+#[path = "connections/management.rs"]
+mod management;

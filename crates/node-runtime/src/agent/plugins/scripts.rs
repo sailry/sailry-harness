@@ -205,8 +205,12 @@ pub(super) async fn bind(
                 turn: turns.get(&package.summary.name).cloned(),
                 stop: stop.clone(),
             });
-            let mut registration = if operation
-                .is_some_and(|operation| operation != tool::Operation::DelegateAgent)
+            let mut registration = if matches!(
+                operation,
+                Some(tool::Operation::RunSsh | tool::Operation::TransferSsh)
+            ) {
+                ToolRegistration::managed(script)
+            } else if operation.is_some_and(|operation| operation != tool::Operation::DelegateAgent)
                 || declaration
                     .handler
                     .as_ref()

@@ -13,6 +13,7 @@ use tokio::{
 pub mod anthropic;
 mod browser;
 pub mod compaction;
+mod connection_results;
 mod delegation;
 mod goals;
 pub mod phases;
@@ -74,6 +75,7 @@ enum Reply {
     Tools(Arc<Vec<(String, Value)>>),
     ReasonedTools(Arc<Vec<(String, Value)>>),
     TurnTools(Arc<Vec<(String, Value)>>),
+    ResultTools(Arc<Vec<(String, Value)>>),
     ScriptedTools(Arc<Mutex<Calls>>),
     PromptTools {
         prompt: Arc<String>,
@@ -266,6 +268,10 @@ impl Server {
 
     pub async fn turn_tools(calls: Vec<(String, Value)>) -> Self {
         Self::serve(Reply::TurnTools(Arc::new(calls))).await
+    }
+
+    pub async fn result_tools(calls: Vec<(String, Value)>) -> Self {
+        Self::serve(Reply::ResultTools(Arc::new(calls))).await
     }
 
     pub async fn scripted_tools(calls: Vec<(String, Value)>) -> Self {
@@ -562,7 +568,10 @@ async fn respond(
         .take_while(|message| {
             !matches!(
                 reply,
-                Reply::TurnTools(_) | Reply::ScriptedTools(_) | Reply::TurnParallel(_)
+                Reply::TurnTools(_)
+                    | Reply::ResultTools(_)
+                    | Reply::ScriptedTools(_)
+                    | Reply::TurnParallel(_)
             ) || message["role"] != "user"
                 || !message["content"].is_string()
         })
@@ -582,11 +591,19 @@ async fn respond(
         Reply::ScriptedTools(calls) => Some(calls.lock().unwrap().clone()),
         _ => None,
     };
+    let resolved = if let Reply::ResultTools(calls) = &reply {
+        calls
+            .get(completed)
+            .map(|call| connection_results::resolve(&body, call))
+    } else {
+        None
+    };
     let call = match &reply {
         Reply::Tools(calls) | Reply::ReasonedTools(calls) | Reply::TurnTools(calls) => {
             calls.get(completed)
         }
         Reply::ScriptedTools(_) => scripted.as_ref().unwrap().get(completed),
+        Reply::ResultTools(_) => resolved.as_ref(),
         Reply::PromptTools { prompt, calls } => body["messages"]
             .as_array()
             .unwrap()

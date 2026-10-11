@@ -285,6 +285,7 @@ CREATE TABLE IF NOT EXISTS agent_approvals (
     call TEXT NOT NULL,
     body BLOB NOT NULL,
     binding BLOB NOT NULL,
+    prepared BLOB NOT NULL DEFAULT X'6e756c6c',
     request TEXT NOT NULL,
     claimed INTEGER NOT NULL CHECK(claimed IN (0,1)),
     UNIQUE(turn,call)

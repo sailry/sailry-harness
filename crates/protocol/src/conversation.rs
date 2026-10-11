@@ -294,6 +294,8 @@ pub struct Approval {
     pub prefix: Option<String>,
     pub can_remember: bool,
     pub startup: Option<crate::code::Startup>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssh: Option<crate::ssh::Trust>,
     pub access: Option<crate::process::Access>,
 }
 

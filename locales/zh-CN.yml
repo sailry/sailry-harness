@@ -2616,6 +2616,8 @@ updates_recovery_failed: "草稿恢复未完成"
 updates_profile_inside: "数据目录位于 Sailry 应用内，请移出后再更新"
 approval_unrestricted: 完整文件系统和网络访问
 approval_code_start: "在 %{worktree} 启动 %{server}"
+approval_ssh_trust: "信任 %{host}:%{port} — %{algorithm} %{fingerprint}"
+approval_ssh_replace: "替换 %{host}:%{port} 的密钥 — %{algorithm} %{fingerprint}"
 
 tool_directory_missing: "目录不存在"
 tool_file_missing: "文件不存在"
