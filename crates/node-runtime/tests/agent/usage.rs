@@ -6,6 +6,8 @@ use tokio::sync::{mpsc, watch};
 
 #[path = "usage/cost.rs"]
 mod cost;
+#[path = "usage/delegation.rs"]
+mod delegation;
 #[path = "usage/overview.rs"]
 mod overview;
 #[path = "usage/transport.rs"]

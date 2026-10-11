@@ -96,6 +96,12 @@ pub(super) fn append(
         apply_state(&transaction, session, &event)?;
         let entry = project(&transaction, sequence, turn, &event)?;
         let statistics = super::statistics::read(&transaction, session)?;
+        let parents = super::statistics::parents(&transaction, turn)?
+            .into_iter()
+            .map(|parent| {
+                super::statistics::read(&transaction, parent).map(|statistics| (parent, statistics))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let envelope = changed(&transaction, database.node, session)?;
         transaction.commit().map_err(storage_error)?;
         let _ = events.send(envelope);
@@ -105,6 +111,11 @@ pub(super) fn append(
         database
             .feeds
             .publish(database.node, session, Change::Statistics(statistics));
+        for (parent, statistics) in parents {
+            database
+                .feeds
+                .publish(database.node, parent, Change::Statistics(statistics));
+        }
         Ok(())
     };
     write().map_err(adk_error)

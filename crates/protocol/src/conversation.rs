@@ -367,6 +367,10 @@ pub struct Statistics {
     pub context_tokens: Option<u64>,
     pub cost: Option<crate::usage::Cost>,
     pub generation: Option<crate::usage::Generation>,
+    /// Canonical child responses linked to this conversation's visible parent turns.
+    /// Parent context occupancy and generation speed remain separate.
+    #[serde(default)]
+    pub delegated: crate::usage::Metrics,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -482,6 +486,10 @@ pub mod checkpoint;
 #[cfg(test)]
 #[path = "conversation/part_tests.rs"]
 mod part_tests;
+
+#[cfg(test)]
+#[path = "conversation/statistics_tests.rs"]
+mod statistics_tests;
 
 #[cfg(test)]
 mod input {

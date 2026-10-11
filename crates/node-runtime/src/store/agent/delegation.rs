@@ -15,6 +15,8 @@ pub(in crate::store) use guidance::{guide, queued_guidance, retain_guidance};
 #[cfg(test)]
 mod fixture;
 #[cfg(test)]
+mod statistics_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod worktree_tests;

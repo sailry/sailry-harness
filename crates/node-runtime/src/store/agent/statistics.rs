@@ -21,7 +21,7 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fa
             |row| row.get::<_, i64>(0),
         )
         .map_err(storage_error)?;
-    let metrics = report::session(db, session)?;
+    let (metrics, delegated) = report::session(db, session)?;
     let context_tokens = context_tokens(db, session)?;
     db.query_row(TOTALS, [session.to_string()], |row| {
         let responses = row.get::<_, i64>(0)? as u64;
@@ -42,9 +42,25 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fa
             context_tokens,
             cost: metrics.cost.clone(),
             generation: metrics.generation.clone(),
+            delegated: delegated.clone(),
         })
     })
     .map_err(storage_error)
+}
+
+pub(super) fn parents(db: &Connection, turn: TurnId) -> Result<Vec<SessionId>, Fault> {
+    let mut query = db
+        .prepare(
+            "SELECT DISTINCT h.session FROM agent_delegations d
+         JOIN conversation_turns h ON h.turn=d.parent_turn JOIN sessions s ON s.id=h.session
+         WHERE d.turn=?1 AND s.state!='removed'",
+        )
+        .map_err(storage_error)?;
+    query
+        .query_map([turn.to_string()], |row| row.get::<_, String>(0))
+        .map_err(storage_error)?
+        .map(|row| row.map_err(storage_error)?.parse().map_err(storage_error))
+        .collect()
 }
 
 fn context_tokens(db: &Connection, session: SessionId) -> Result<Option<u64>, Fault> {
