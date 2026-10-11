@@ -280,13 +280,7 @@ impl Host {
                 Err(error) if error.code == ErrorCode::NotFound => return Ok(None),
                 Err(error) => return Err(error),
             };
-        if bundled.summary.digest == current.summary.digest
-            || (current.origin != Some(Origin::Bundled)
-                && !newer(
-                    bundled.summary.version.as_deref(),
-                    current.summary.version.as_deref(),
-                )?)
-        {
+        if bundled.summary.digest == current.summary.digest {
             return Ok(None);
         }
         bundled.origin = Some(Origin::Bundled);
@@ -294,40 +288,8 @@ impl Host {
     }
 }
 
-fn newer(candidate: Option<&str>, current: Option<&str>) -> Result<bool, Fault> {
-    Ok(version(candidate)?
-        .cmp_precedence(&version(current)?)
-        .is_gt())
-}
-
 fn version(value: Option<&str>) -> Result<semver::Version, Fault> {
     value
         .and_then(|value| semver::Version::parse(value).ok())
         .ok_or_else(|| sailry_protocol::Fault::invalid("official plugin version is unavailable"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn compares_semantic_versions() {
-        for (candidate, current, expected) in [
-            ("1.10.0", "1.9.0", true),
-            ("1.0.0", "1.0.0", false),
-            ("1.0.0", "2.0.0", false),
-            ("1.0.0", "1.0.0-rc.1", true),
-            ("1.0.0-rc.1", "1.0.0", false),
-            ("1.0.0+other", "1.0.0+build", false),
-        ] {
-            assert_eq!(newer(Some(candidate), Some(current)).unwrap(), expected);
-        }
-        for (candidate, current) in [
-            (None, Some("1.0.0")),
-            (Some("1.0.0"), None),
-            (Some("invalid"), Some("1.0.0")),
-        ] {
-            assert!(newer(candidate, current).is_err());
-        }
-    }
 }

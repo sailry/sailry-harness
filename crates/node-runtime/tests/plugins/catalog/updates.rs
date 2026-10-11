@@ -99,11 +99,15 @@ async fn detects_content_without_version_bumps() {
         let before = stored(&node);
         let unchanged = check(&client, std::slice::from_ref(&current.summary)).await;
         assert!(unchanged.failures.is_empty());
-        assert!(unchanged.reports[0].available.is_none());
+        let Some(Candidate::Package(candidate)) = &unchanged.reports[0].available else {
+            panic!("bundled content update expected");
+        };
+        assert_eq!(candidate.origin, Some(plugin::Origin::Bundled));
+        assert_eq!(candidate.summary.digest, bundled.digest);
         catalog.status.store(503, Ordering::SeqCst);
         let offline = check(&client, std::slice::from_ref(&current.summary)).await;
-        assert!(offline.reports.is_empty());
-        assert_eq!(offline.failures[0].error.code, ErrorCode::Unavailable);
+        assert!(offline.failures.is_empty());
+        assert_eq!(offline.reports[0].available, unchanged.reports[0].available);
         catalog.status.store(200, Ordering::SeqCst);
         catalog.updated.store(true, Ordering::SeqCst);
         catalog.requests.lock().unwrap().clear();
@@ -144,7 +148,11 @@ async fn detects_content_without_version_bumps() {
         );
         let latest = check(&client, std::slice::from_ref(&updated.summary)).await;
         assert!(latest.failures.is_empty());
-        assert!(latest.reports[0].available.is_none());
+        let Some(Candidate::Package(candidate)) = &latest.reports[0].available else {
+            panic!("bundled content update expected");
+        };
+        assert_eq!(candidate.origin, Some(plugin::Origin::Bundled));
+        assert_eq!(candidate.summary.digest, bundled.digest);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }
@@ -202,8 +210,13 @@ async fn offers_same_version_bundled_content() {
 
 #[tokio::test]
 async fn offers_bundled_updates_when_offline() {
-    for remote in [false, true] {
-        let catalog = Catalog::with_mcp_reminders("0.0.1").await;
+    for (remote, initial) in [
+        (false, "0.0.1"),
+        (true, "0.0.1"),
+        (false, "0.1.3"),
+        (true, "0.1.3"),
+    ] {
+        let catalog = Catalog::with_mcp_reminders(initial).await;
         let (_directory, node, controller, client) = connection(remote, &catalog).await;
         let mut events = client.subscribe().await.unwrap();
         const TOKEN: &str = "Bearer synthetic-bundled-private-token";
@@ -243,7 +256,7 @@ async fn offers_bundled_updates_when_offline() {
             )
             .await,
         );
-        assert_eq!(old.summary.version.as_deref(), Some("0.0.1"));
+        assert_eq!(old.summary.version.as_deref(), Some(initial));
         let Output::PluginMcp(mut configured) = execute(
             &client,
             Command::ReadPluginMcp {
@@ -304,6 +317,15 @@ async fn offers_bundled_updates_when_offline() {
             saved["mcp"]["mcpServers"]["service"]["headers"]["Authorization"],
             TOKEN
         );
+        let captured = info(
+            execute(
+                &client,
+                Command::ReadPluginVersion {
+                    package: current.summary.reference(),
+                },
+            )
+            .await,
+        );
         catalog.updated.store(true, Ordering::SeqCst);
         let online = check(&client, std::slice::from_ref(&current.summary)).await;
         assert!(online.failures.is_empty());
@@ -354,12 +376,26 @@ async fn offers_bundled_updates_when_offline() {
             .await,
         );
         assert_eq!(updated.summary.digest, bundled.digest);
+        assert_eq!(updated.summary.version, bundled.version);
+        assert_eq!(updated.origin, Some(plugin::Origin::Bundled));
         assert!(!updated.summary.enabled);
         assert_eq!(
             updated.summary.settings_revision,
             current.summary.settings_revision
         );
         assert_eq!(private(), body);
+        assert_eq!(
+            info(
+                execute(
+                    &client,
+                    Command::ReadPluginVersion {
+                        package: current.summary.reference(),
+                    },
+                )
+                .await,
+            ),
+            captured
+        );
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 let event = events.next().await.unwrap();
