@@ -83,6 +83,208 @@ fn mixed(root: &Path) -> (Repository, BTreeSet<String>) {
 }
 
 #[tokio::test]
+async fn omits_unchanged_cli_index_paths() {
+    for remote in [false, true] {
+        let (fixture, _) = start(remote).await;
+        let repository = Repository::init(&fixture.root).unwrap();
+        let files = [
+            ("README.md", "Inventory fixture\n"),
+            (
+                "inventory/stock.py",
+                "def low_stock(value):\n    return value <= 5\n",
+            ),
+            ("tests/test_stock.py", "assert low_stock(5)\n"),
+            ("data/sales.csv", "month,sales\n2025-01,100\n"),
+            ("notes/meeting.md", "Meeting fixture\n"),
+            ("web/index.html", "<main>Inventory fixture</main>\n"),
+        ];
+        for (path, contents) in files {
+            write(&fixture.root, path, contents);
+        }
+        for arguments in [
+            &["add", "--", "."][..],
+            &["commit", "--no-gpg-sign", "-m", "Initial fixture"][..],
+        ] {
+            let output = std::process::Command::new("git")
+                .current_dir(&fixture.root)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .args([
+                    "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=fixture@example.test",
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                ])
+                .args(arguments)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "Git fixture failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        let index_path = repository.path().join("index");
+        let index = std::fs::read(&index_path).unwrap();
+        write(
+            &fixture.root,
+            "inventory/stock.py",
+            "def low_stock(value):\n    return value < 5\n",
+        );
+        write(
+            &fixture.root,
+            "tests/test_stock.py",
+            "assert not low_stock(5)\n",
+        );
+        write(
+            &fixture.root,
+            ".env",
+            "review-secret-must-never-reach-the-model",
+        );
+        std::fs::set_permissions(
+            fixture.root.join(".env"),
+            std::fs::Permissions::from_mode(0o0),
+        )
+        .unwrap();
+        let contents: Vec<_> = files
+            .iter()
+            .map(|(path, _)| (*path, std::fs::read(fixture.root.join(path)).unwrap()))
+            .collect();
+
+        let (created, server) = calls(
+            &fixture,
+            vec![(
+                plugin_tool(PACKAGE, "review_scope"),
+                json!({"target":{"kind":"worktree","data":{"scope":"all"}}}),
+            )],
+        )
+        .await;
+        let scope = &created[0];
+        success(scope);
+        let paths: BTreeSet<_> = scope["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|file| file["path"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            paths,
+            BTreeSet::from(["inventory/stock.py", "tests/test_stock.py"]),
+            "remote={remote}: {scope}"
+        );
+        assert_eq!(scope["counts"]["files"], 2);
+        assert_eq!(scope["counts"]["skipped"], 1);
+        assert_eq!(scope["counts"]["findings"], 0);
+        assert_eq!(
+            scope["counts"]["groups"],
+            scope["groups"].as_array().unwrap().len()
+        );
+        assert!(scope["groups"].as_array().unwrap().iter().all(|group| {
+            group["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|path| paths.contains(path.as_str().unwrap()))
+        }));
+        assert_eq!(
+            scope["skipped"],
+            json!([{"path":".env","reason":"credentials"}])
+        );
+        for (path, before, after) in [
+            (
+                "inventory/stock.py",
+                "    return value <= 5",
+                "    return value < 5",
+            ),
+            (
+                "tests/test_stock.py",
+                "assert low_stock(5)",
+                "assert not low_stock(5)",
+            ),
+        ] {
+            let file = file(scope, path);
+            let mut command = Command::ReadGitChange {
+                worktree: fixture.session.worktree,
+                snapshot: serde_json::from_value(scope["snapshot"].clone()).unwrap(),
+                path: path.into(),
+                expected_metadata_revision: file["metadata_revision"].as_str().unwrap().into(),
+                expected_revision: Some(file["revision"].as_str().unwrap().into()),
+                offset: 0,
+                limit: 100,
+            };
+            let Output::GitChange(change) = execute(&fixture.client, command.clone()).await else {
+                panic!("Git change expected")
+            };
+            assert_eq!(change.revision, file["revision"].as_str().unwrap());
+            assert!(change.next.is_none());
+            assert!(!change.binary);
+            assert!(change.skip_reason.is_none());
+            assert!(
+                change
+                    .lines
+                    .iter()
+                    .any(|line| { line.kind == GitChangeLineKind::Deleted && line.text == before })
+            );
+            assert!(
+                change
+                    .lines
+                    .iter()
+                    .any(|line| { line.kind == GitChangeLineKind::Added && line.text == after })
+            );
+            if let Command::ReadGitChange {
+                expected_revision, ..
+            } = &mut command
+            {
+                *expected_revision = Some("0".repeat(64));
+            }
+            assert_eq!(
+                fixture
+                    .client
+                    .execute(fixture.client.prepare(command))
+                    .await
+                    .unwrap_err()
+                    .code,
+                ErrorCode::RevisionConflict
+            );
+        }
+        let complete = call(&fixture, "review_complete", receipts(scope, true)).await;
+        success(&complete);
+        assert_eq!(complete["status"], "complete");
+        assert_eq!(complete["reviewed_files"], 2);
+        assert_eq!(
+            complete["reviewed_groups"].as_array().unwrap().len(),
+            scope["groups"].as_array().unwrap().len()
+        );
+        assert_eq!(complete["findings"], 0);
+        assert_eq!(
+            complete["remaining"]["counts"],
+            json!({"files":0,"groups":0})
+        );
+        assert_eq!(complete["remaining"]["files"], json!([]));
+        assert_eq!(complete["remaining"]["groups"], json!([]));
+        assert_eq!(std::fs::read(&index_path).unwrap(), index);
+        for (path, expected) in contents {
+            assert_eq!(std::fs::read(fixture.root.join(path)).unwrap(), expected);
+        }
+        assert!(
+            !scope
+                .to_string()
+                .contains("review-secret-must-never-reach-the-model")
+        );
+        for request in server.requests.lock().unwrap().iter() {
+            assert!(
+                !request
+                    .to_string()
+                    .contains("review-secret-must-never-reach-the-model")
+            );
+        }
+        stop(fixture).await;
+    }
+}
+
+#[tokio::test]
 async fn covers_the_full_filtered_scope() {
     for remote in [false, true] {
         let (mut fixture, _) = start(remote).await;

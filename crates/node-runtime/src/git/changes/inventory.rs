@@ -122,8 +122,9 @@ impl Stamp {
                             i64::from(entry.ctime.seconds()),
                             i64::from(entry.ctime.nanoseconds()),
                         )
-                    // libgit2 caches st_rdev in index.dev, rather than st_dev.
-                    && self.special_device as u32 == entry.dev
+                    // Git caches st_dev; the pinned libgit2 caches st_rdev.
+                    && (self.identity.0 as u32 == entry.dev
+                        || self.special_device as u32 == entry.dev)
                         && self.identity.1 as u32 == entry.ino
                 }
                 // libgit2 maps Windows index ctime to the file's creation time.

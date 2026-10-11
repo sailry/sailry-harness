@@ -64,6 +64,35 @@ impl Fixture {
             .to_string()
     }
 
+    #[cfg(unix)]
+    fn commit_with_cli(&self) {
+        for arguments in [
+            &["add", "--", "."][..],
+            &["commit", "--no-gpg-sign", "-m", "Fixture"][..],
+        ] {
+            let output = std::process::Command::new("git")
+                .current_dir(self.root())
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .args([
+                    "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=fixture@example.test",
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                ])
+                .args(arguments)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "Git fixture failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
     fn working(&self, limit: usize) -> GitChanges {
         list(
             &self.root(),
@@ -341,6 +370,74 @@ fn rejects_changed_working_metadata_and_index() {
             .code,
         ErrorCode::RevisionConflict
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn excludes_unchanged_index_entries_from_both_writers() {
+    use std::os::unix::fs::MetadataExt;
+
+    for cli in [false, true] {
+        let fixture = Fixture::new();
+        for name in [
+            "README.md",
+            "inventory/stock.py",
+            "tests/test_stock.py",
+            "data/sales.csv",
+            "notes/meeting.md",
+            "web/index.html",
+        ] {
+            fixture.write(name, "before\n");
+        }
+        if cli {
+            fixture.commit_with_cli();
+        } else {
+            fixture.commit();
+        }
+        let index_path = fixture.repository.path().join("index");
+        let index_bytes = fs::read(&index_path).unwrap();
+        let index = git2::Index::open(&index_path).unwrap();
+        let entry = index.get_path(Path::new("README.md"), 0).unwrap();
+        let metadata = fs::metadata(fixture.root().join("README.md")).unwrap();
+        assert_eq!(
+            entry.dev,
+            if cli { metadata.dev() } else { metadata.rdev() } as u32
+        );
+        assert_eq!(entry.ino, metadata.ino() as u32);
+
+        let clean = fixture.working(500);
+        assert!(clean.entries.is_empty(), "cli={cli}: {clean:?}");
+        assert!(clean.exhausted);
+        fixture.write("inventory/stock.py", "after\n");
+        fixture.write("tests/test_stock.py", "after\n");
+        let changed = fixture.working(500);
+        assert_eq!(
+            changed
+                .entries
+                .iter()
+                .map(|entry| entry.path.as_str())
+                .collect::<Vec<_>>(),
+            ["inventory/stock.py", "tests/test_stock.py"],
+            "cli={cli}: {changed:?}"
+        );
+        assert!(changed.exhausted);
+        assert_eq!(fs::read(&index_path).unwrap(), index_bytes);
+        assert_eq!(
+            list(
+                &fixture.root(),
+                None,
+                Some(GitChangesCursor {
+                    snapshot: clean.snapshot,
+                    after_path: None,
+                }),
+                500,
+                &fixture.control,
+            )
+            .unwrap_err()
+            .code,
+            ErrorCode::RevisionConflict
+        );
+    }
 }
 
 #[cfg(unix)]
