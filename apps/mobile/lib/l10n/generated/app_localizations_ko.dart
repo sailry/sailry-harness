@@ -2087,6 +2087,12 @@ class AppLocalizationsKo extends AppLocalizations {
   String get artifactFormRequired => '필수 항목을 입력하세요';
 
   @override
+  String get artifactFormInvalid => '답변을 제출할 수 없습니다';
+
+  @override
+  String get artifactRenderFailed => '시각 자료를 표시할 수 없습니다';
+
+  @override
   String artifactReply(String id, String revision, String title, String form) {
     return '“$title” v$revision ($id/$form)에 대한 답변';
   }

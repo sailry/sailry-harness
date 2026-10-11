@@ -809,6 +809,8 @@
   "artifactZoomOut": "Zoom out",
   "artifactVersions": "Versions",
   "artifactFormRequired": "Complete required fields",
+  "artifactFormInvalid": "Could not submit answers",
+  "artifactRenderFailed": "Could not render visual",
   "artifactReply": "Reply to “{title}” v{revision} ({id}/{form})",
   "@artifactReply": {
     "placeholders": {

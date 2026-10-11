@@ -1,5 +1,5 @@
 // flutter_svg 2.3.0 does not render embedded CSS/class selectors or SVG markers.
-// Let the offline browser rasterize Mermaid's SVG, preserving its own styling.
+// Rasterize at native pixel density while retaining bounded bitmap memory.
 const diagramRasterizer = r'''
 window.sailryVisual = async request => {
   const result = await window.sailryRender(request);
@@ -12,7 +12,9 @@ window.sailryVisual = async request => {
       image.onerror = () => reject(new Error('Diagram image could not load'));
       image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(result.source);
     });
-    const scale = Math.min(1, Math.sqrt(2097152 / (result.width * result.height)));
+    const scale = Math.min(Math.max(1, window.devicePixelRatio || 1),
+      4096 / Math.max(result.width, result.height),
+      Math.sqrt(2097152 / (result.width * result.height)));
     canvas.width = Math.max(1, Math.floor(result.width * scale));
     canvas.height = Math.max(1, Math.floor(result.height * scale));
     const context = canvas.getContext('2d');

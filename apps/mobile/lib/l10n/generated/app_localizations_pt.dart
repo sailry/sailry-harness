@@ -2125,6 +2125,12 @@ class AppLocalizationsPt extends AppLocalizations {
   String get artifactFormRequired => 'Preencha os campos obrigatórios';
 
   @override
+  String get artifactFormInvalid => 'Não foi possível enviar as respostas';
+
+  @override
+  String get artifactRenderFailed => 'Não foi possível exibir o gráfico';
+
+  @override
   String artifactReply(String id, String revision, String title, String form) {
     return 'Resposta a “$title” v$revision ($id/$form)';
   }
@@ -2148,6 +2154,12 @@ class AppLocalizationsPtBr extends AppLocalizationsPt {
 
   @override
   String get artifactFormRequired => 'Preencha os campos obrigatórios';
+
+  @override
+  String get artifactFormInvalid => 'Não foi possível enviar as respostas';
+
+  @override
+  String get artifactRenderFailed => 'Não foi possível exibir o gráfico';
 
   @override
   String artifactReply(String id, String revision, String title, String form) {

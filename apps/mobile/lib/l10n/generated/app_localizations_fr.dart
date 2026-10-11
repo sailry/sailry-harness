@@ -2137,6 +2137,12 @@ class AppLocalizationsFr extends AppLocalizations {
   String get artifactFormRequired => 'Remplissez les champs obligatoires';
 
   @override
+  String get artifactFormInvalid => 'Impossible d’envoyer les réponses';
+
+  @override
+  String get artifactRenderFailed => 'Impossible d’afficher le graphique';
+
+  @override
   String artifactReply(String id, String revision, String title, String form) {
     return 'Réponse à « $title » v$revision ($id/$form)';
   }

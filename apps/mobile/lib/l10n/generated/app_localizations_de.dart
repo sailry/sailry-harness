@@ -2133,6 +2133,12 @@ class AppLocalizationsDe extends AppLocalizations {
   String get artifactFormRequired => 'Pflichtfelder ausfüllen';
 
   @override
+  String get artifactFormInvalid => 'Antworten konnten nicht gesendet werden';
+
+  @override
+  String get artifactRenderFailed => 'Grafik konnte nicht dargestellt werden';
+
+  @override
   String artifactReply(String id, String revision, String title, String form) {
     return 'Antwort zu „$title“ v$revision ($id/$form)';
   }

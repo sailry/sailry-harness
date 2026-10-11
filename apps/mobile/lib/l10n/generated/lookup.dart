@@ -690,6 +690,8 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'artifactZoomOut' => strings.artifactZoomOut,
   'artifactVersions' => strings.artifactVersions,
   'artifactFormRequired' => strings.artifactFormRequired,
+  'artifactFormInvalid' => strings.artifactFormInvalid,
+  'artifactRenderFailed' => strings.artifactRenderFailed,
   'artifactReply' => strings.artifactReply(
     '{id}',
     '{revision}',

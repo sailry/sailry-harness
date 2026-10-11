@@ -2085,6 +2085,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get artifactFormRequired => '必須項目を入力してください';
 
   @override
+  String get artifactFormInvalid => '回答を送信できません';
+
+  @override
+  String get artifactRenderFailed => '図を表示できません';
+
+  @override
   String artifactReply(String id, String revision, String title, String form) {
     return '「$title」v$revision（$id/$form）への回答';
   }

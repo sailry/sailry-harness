@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/content/code.dart';
 import 'package:sailry_mobile/content/markdown.dart';
 import 'package:sailry_mobile/content/visuals.dart';
+import 'package:sailry_mobile/content/visuals/image.dart';
 import 'package:sailry_mobile/ui/theme.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
@@ -237,7 +238,7 @@ void main() {
     expect(formulaPictures, findsNWidgets(2));
     expect(
       tester
-          .widgetList<Baseline>(find.byType(Baseline))
+          .widgetList<FormulaBaseline>(find.byType(FormulaBaseline))
           .every((value) => value.baseline == 8),
       isTrue,
     );
@@ -251,6 +252,58 @@ void main() {
     expect(requests, hasLength(2));
     expect(requests.last.dark, isTrue);
     expect(requests.last.foreground, isNot(requests.first.foreground));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('tall inline formulas fit their paragraph', (tester) async {
+    const tall = VisualSvg(
+      source:
+          '<svg xmlns="http://www.w3.org/2000/svg" width="203.64" height="29.51"><path d="M0 0L203.64 29.51"/></svg>',
+      width: 203.64,
+      height: 29.51,
+      baseline: 18.88,
+    );
+    final pending = Completer<VisualSvg>();
+    await mount(
+      tester,
+      const SizedBox(
+        width: 320,
+        child: MarkdownContent(r'Before $fraction$ after text.'),
+      ),
+      render: (_) => pending.future,
+    );
+    expect(formulaPictures, findsNothing);
+    pending.complete(tall);
+    await tester.pumpAndSettle();
+    final picture = tester.getRect(formulaPictures);
+    final paragraph = find.byWidgetPredicate(
+      (widget) =>
+          widget is SelectableText &&
+          widget.textSpan?.toPlainText().contains('Before') == true,
+    );
+    final bounds = tester.getRect(paragraph);
+    expect(picture.top, greaterThanOrEqualTo(bounds.top));
+    expect(picture.bottom, lessThanOrEqualTo(bounds.bottom));
+    expect(bounds.height, greaterThanOrEqualTo(picture.height));
+    expect(
+      tester.widget<SelectableText>(paragraph).textSpan!.toPlainText(),
+      contains('after text.'),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('plain paragraphs retain fixed line height', (tester) async {
+    await mount(tester, const MarkdownContent('Plain text paragraph.'));
+    final paragraph = tester.widget<SelectableText>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText &&
+            widget.textSpan?.toPlainText() == 'Plain text paragraph.',
+      ),
+    );
+    expect(paragraph.strutStyle!.forceStrutHeight, isTrue);
+    expect(paragraph.strutStyle!.height, 1.7);
+    expect(paragraph.strutStyle!.fontSize, 14);
     expect(tester.takeException(), isNull);
   });
 
@@ -607,6 +660,49 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('observes cancellation before a queued consumer attaches', (
+    tester,
+  ) async {
+    final platform = VisualPlatform()..hold = true;
+    final previous = WebViewPlatform.instance;
+    WebViewPlatform.instance = platform;
+    addTearDown(() => WebViewPlatform.instance = previous ?? BrowserPlatform());
+    await mount(
+      tester,
+      const MarkdownVisual(kind: VisualKind.inlineMath, source: 'active'),
+      ready: () =>
+          platform.controllers.isNotEmpty &&
+          platform.controllers.single.calls.isNotEmpty,
+    );
+    final dynamic owner = tester.state(find.byType(VisualScope));
+    Future<VisualSvg> queued(bool dark) =>
+        owner.render(
+              VisualRequest(
+                kind: VisualKind.inlineMath,
+                source: 'queued',
+                dark: dark,
+                foreground: '#ffffff',
+                background: dark ? '#000000' : '#ffffff',
+                accent: '#123456',
+                fontSize: 14,
+              ),
+            )
+            as Future<VisualSvg>;
+    final obsolete = queued(false);
+    final current = queued(true);
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    await expectLater(obsolete, throwsStateError);
+    platform.hold = false;
+    final controller = platform.controllers.single;
+    controller.reply(controller.calls.single);
+    await tester.pumpAndSettle();
+    expect((await current).source, testSvg.source);
+    expect(controller.calls, hasLength(2));
+    expect(controller.calls.last, contains('"dark":true'));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('renders the final animated theme under load', (tester) async {
     final platform = VisualPlatform()..hold = true;
     final previous = WebViewPlatform.instance;
@@ -643,6 +739,42 @@ void main() {
           .every((script) => script.contains('"dark":true')),
       isTrue,
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('observes abandoned renders when the scope closes', (
+    tester,
+  ) async {
+    final platform = VisualPlatform()..hold = true;
+    final previous = WebViewPlatform.instance;
+    WebViewPlatform.instance = platform;
+    addTearDown(() => WebViewPlatform.instance = previous ?? BrowserPlatform());
+    await mount(
+      tester,
+      const MarkdownVisual(kind: VisualKind.inlineMath, source: 'active'),
+      ready: () =>
+          platform.controllers.isNotEmpty &&
+          platform.controllers.single.calls.isNotEmpty,
+    );
+    final dynamic owner = tester.state(find.byType(VisualScope));
+    final queued =
+        owner.render(
+              const VisualRequest(
+                kind: VisualKind.inlineMath,
+                source: 'queued',
+                dark: false,
+                foreground: '#000000',
+                background: '#ffffff',
+                accent: '#123456',
+                fontSize: 14,
+              ),
+            )
+            as Future<VisualSvg>;
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    await expectLater(queued, throwsStateError);
+    expect(platform.controllers.single.removals, 1);
     expect(tester.takeException(), isNull);
   });
 }

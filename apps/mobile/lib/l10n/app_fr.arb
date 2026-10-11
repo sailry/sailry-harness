@@ -809,5 +809,7 @@
   "artifactZoomOut": "Réduire",
   "artifactVersions": "Versions",
   "artifactFormRequired": "Remplissez les champs obligatoires",
+  "artifactFormInvalid": "Impossible d’envoyer les réponses",
+  "artifactRenderFailed": "Impossible d’afficher le graphique",
   "artifactReply": "Réponse à « {title} » v{revision} ({id}/{form})"
 }

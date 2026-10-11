@@ -2106,6 +2106,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get artifactFormRequired => 'Complete required fields';
 
   @override
+  String get artifactFormInvalid => 'Could not submit answers';
+
+  @override
+  String get artifactRenderFailed => 'Could not render visual';
+
+  @override
   String artifactReply(String id, String revision, String title, String form) {
     return 'Reply to “$title” v$revision ($id/$form)';
   }

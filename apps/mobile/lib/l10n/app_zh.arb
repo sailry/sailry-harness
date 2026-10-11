@@ -809,5 +809,7 @@
   "artifactZoomOut": "缩小",
   "artifactVersions": "版本",
   "artifactFormRequired": "请填写必填项",
+  "artifactFormInvalid": "无法提交回答",
+  "artifactRenderFailed": "无法渲染图表",
   "artifactReply": "关于「{title}」v{revision}（{id}/{form}）的回复"
 }

@@ -42,6 +42,10 @@ dependencies:
   share_plus: 13.3.0
   open_filex: 4.7.0
 
+dependency_overrides:
+  flutter_markdown_plus:
+    path: ../../vendor/flutter-markdown-plus
+
 dev_dependencies:
   url_launcher_platform_interface: 2.3.2
   webview_flutter_platform_interface: 2.15.1

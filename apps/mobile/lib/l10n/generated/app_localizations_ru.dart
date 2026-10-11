@@ -2124,6 +2124,12 @@ class AppLocalizationsRu extends AppLocalizations {
   String get artifactFormRequired => 'Заполните обязательные поля';
 
   @override
+  String get artifactFormInvalid => 'Не удалось отправить ответы';
+
+  @override
+  String get artifactRenderFailed => 'Не удалось отобразить график';
+
+  @override
   String artifactReply(String id, String revision, String title, String form) {
     return 'Ответ к «$title» v$revision ($id/$form)';
   }

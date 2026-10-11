@@ -809,5 +809,7 @@
   "artifactZoomOut": "축소",
   "artifactVersions": "버전",
   "artifactFormRequired": "필수 항목을 입력하세요",
+  "artifactFormInvalid": "답변을 제출할 수 없습니다",
+  "artifactRenderFailed": "시각 자료를 표시할 수 없습니다",
   "artifactReply": "“{title}” v{revision} ({id}/{form})에 대한 답변"
 }

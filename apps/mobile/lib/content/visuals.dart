@@ -77,7 +77,7 @@ class _VisualScopeState extends State<VisualScope> {
             )
             .toList()) {
       _queue.remove(job);
-      _cache.remove(jsonEncode(job.request.toJson()));
+      _cache.remove(jsonEncode(job.request.toJson()))?.future.ignore();
       job.completion.completeError(StateError('Visual theme changed'));
     }
     final cached = _cache.remove(key);
@@ -334,6 +334,7 @@ class _VisualScopeState extends State<VisualScope> {
     }
     _queue.clear();
     for (final entry in _cache.values) {
+      entry.future.ignore();
       _evict(entry);
     }
     _cache.clear();
@@ -451,9 +452,8 @@ class MarkdownVisual extends StatelessWidget {
                   context.tr('codePlain'),
                   child: CodeBlock(original ?? source, language: 'latex'),
                 ),
-                child: Baseline(
+                child: FormulaBaseline(
                   baseline: (svg.baseline ?? svg.height) * scale,
-                  baselineType: TextBaseline.alphabetic,
                   child: image,
                 ),
               );

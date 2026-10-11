@@ -22,6 +22,8 @@ Map<String, String> artifactTheme(BuildContext context) {
   return {
     'background': css(colors.surface),
     'foreground': css(colors.onSurface),
+    'diagram_foreground': css(colors.onSurface),
+    'diagram_background': 'transparent',
     'muted': css(colors.surfaceContainerHighest),
     'muted_foreground': css(colors.onSurfaceVariant),
     'border': css(colors.outlineVariant),

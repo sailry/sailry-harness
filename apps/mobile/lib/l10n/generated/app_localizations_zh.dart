@@ -2077,6 +2077,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get artifactFormRequired => '请填写必填项';
 
   @override
+  String get artifactFormInvalid => '无法提交回答';
+
+  @override
+  String get artifactRenderFailed => '无法渲染图表';
+
+  @override
   String artifactReply(String id, String revision, String title, String form) {
     return '关于「$title」v$revision（$id/$form）的回复';
   }
@@ -4153,6 +4159,12 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get artifactFormRequired => '請填寫必填項';
+
+  @override
+  String get artifactFormInvalid => '無法提交回答';
+
+  @override
+  String get artifactRenderFailed => '無法呈現圖表';
 
   @override
   String artifactReply(String id, String revision, String title, String form) {

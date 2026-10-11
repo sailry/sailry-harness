@@ -78,10 +78,8 @@ class MarkdownContent extends StatelessWidget {
           fontFamily: 'monospace',
           backgroundColor: colors.surfaceContainerHigh,
         ),
-        codeblockDecoration: BoxDecoration(
-          color: colors.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(8),
-        ),
+        // Every fenced block supplies its own CodeBlock, chart or diagram.
+        codeblockDecoration: const BoxDecoration(),
         blockquoteDecoration: BoxDecoration(
           border: Border(
             left: BorderSide(color: colors.outlineVariant, width: 3),
@@ -217,7 +215,13 @@ class _CodeBuilder extends MarkdownElementBuilder {
         ? tag!.substring(9)
         : null;
     return switch (language) {
-      'chart' => SailryChart(source: element.textContent),
+      'chart' => DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: SailryChart(source: element.textContent),
+      ),
       'mermaid' => MarkdownVisual(
         kind: VisualKind.mermaid,
         source: element.textContent,

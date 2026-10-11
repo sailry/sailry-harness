@@ -11,6 +11,7 @@ import 'package:sailry_mobile/features/resources/artifact/submission.dart';
 import 'package:sailry_mobile/features/resources/artifact/surface.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/session.dart';
+import 'package:webview_flutter/webview_flutter.dart' show WebViewWidget;
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
 
 import 'live_conversations_test.dart' as fixture;
@@ -230,6 +231,36 @@ void main() {
   setUp(() {
     platform = ArtifactPlatform();
     WebViewPlatform.instance = platform;
+  });
+  testWidgets('recoverable feedback distinguishes failures and repeats', (
+    tester,
+  ) async {
+    await mount(
+      tester,
+      Scaffold(body: ArtifactSurface(content: content(1), connected: true)),
+    );
+    final native = platform.controllers.single;
+    for (var repetition = 0; repetition < 2; repetition++) {
+      for (final feedback in {
+        'required': 'artifactFormRequired',
+        'invalid_form': 'artifactFormInvalid',
+        'render_error': 'artifactRenderFailed',
+      }.entries) {
+        native.event({'kind': feedback.key});
+        await tester.pumpAndSettle();
+        expect(find.text(tr(feedback.value)), findsOneWidget);
+        expect(find.byType(WebViewWidget), findsOneWidget);
+        await tester.pump(const Duration(seconds: 3));
+        await tester.pumpAndSettle();
+        expect(find.text(tr(feedback.value)), findsNothing);
+      }
+    }
+    final exported = await tester
+        .state<ArtifactSurfaceState>(find.byType(ArtifactSurface))
+        .exportHtml();
+    expect(exported, contains('Saved'));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
   });
   testWidgets('inherited cards open pinned readonly documents', (tester) async {
     final reads = <Map<String, dynamic>?>[];

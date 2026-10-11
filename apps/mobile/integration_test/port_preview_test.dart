@@ -85,6 +85,15 @@ socket.onmessage = () => { document.title = 'Preview ready'; };
       expect(paths.where((path) => path == '/'), hasLength(1));
       expect(paths.where((path) => path == '/asset'), hasLength(1));
       expect(echoes, 1);
+      await until(
+        tester,
+        () async => tester
+            .widgetList<RoundButton>(find.byType(RoundButton))
+            .any(
+              (button) =>
+                  button.tooltip == tr('refresh') && button.onPressed != null,
+            ),
+      );
       await tester.tap(find.byTooltip(tr('refresh')));
       await until(tester, () async => echoes == 2);
       expect(paths.where((path) => path == '/'), hasLength(2));

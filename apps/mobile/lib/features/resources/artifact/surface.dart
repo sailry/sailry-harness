@@ -107,6 +107,9 @@ class ArtifactSurfaceState extends State<ArtifactSurface> {
         'zoom_in': context.tr('artifactZoomIn'),
         'zoom_out': context.tr('artifactZoomOut'),
         'close': context.tr('close'),
+        'required': context.tr('artifactFormRequired'),
+        'invalid_form': context.tr('artifactFormInvalid'),
+        'render_error': context.tr('artifactRenderFailed'),
       }, writable: writable);
       if (_closed) return;
       final controller = WebViewController();
@@ -191,8 +194,11 @@ class ArtifactSurfaceState extends State<ArtifactSurface> {
             widget.onEdited?.call();
           }
         case 'required':
-        case 'invalid_form':
           showToast(context, context.tr('artifactFormRequired'));
+        case 'invalid_form':
+          showToast(context, context.tr('artifactFormInvalid'));
+        case 'render_error':
+          showToast(context, context.tr('artifactRenderFailed'));
         case 'submit':
           if (_ready && writable && !_sending) unawaited(_submit(event));
         case 'export':

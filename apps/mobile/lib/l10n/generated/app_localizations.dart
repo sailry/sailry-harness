@@ -4182,6 +4182,18 @@ abstract class AppLocalizations {
   /// **'Complete required fields'**
   String get artifactFormRequired;
 
+  /// No description provided for @artifactFormInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not submit answers'**
+  String get artifactFormInvalid;
+
+  /// No description provided for @artifactRenderFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not render visual'**
+  String get artifactRenderFailed;
+
   /// No description provided for @artifactReply.
   ///
   /// In en, this message translates to:
