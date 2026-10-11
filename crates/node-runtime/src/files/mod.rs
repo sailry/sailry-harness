@@ -168,6 +168,38 @@ impl Files {
                 .map_err(|_| Fault::new(ErrorCode::Internal, "file worker failed"))?,
         }
     }
+
+    pub(crate) async fn inspect_document(
+        &self,
+        name: String,
+        bytes: Vec<u8>,
+        offset: usize,
+        closed: CancellationToken,
+    ) -> Result<office::Inspection, Fault> {
+        let permit = self
+            .capacity
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Fault::new(ErrorCode::Busy, "file read capacity exhausted"))?;
+        let cancelled = closed.child_token();
+        let _guard = cancelled.clone().drop_guard();
+        let ocr = self.ocr.clone();
+        let worker = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let control = Control::new(cancelled);
+            control.check()?;
+            let result =
+                crate::office::inspect(&name, &bytes, offset, ocr.as_deref(), &control.cancelled);
+            control.check()?;
+            result
+        });
+        tokio::select! {
+            _ = closed.cancelled() => Err(Fault::new(ErrorCode::Cancelled, "document inspection was cancelled")),
+            result = tokio::time::timeout(Duration::from_secs(5), worker) => result
+                .map_err(|_| Fault::new(ErrorCode::Busy, "file read deadline exceeded"))?
+                .map_err(|_| Fault::new(ErrorCode::Internal, "file worker failed"))?,
+        }
+    }
 }
 
 pub(crate) fn capture_text(

@@ -116,8 +116,7 @@ async fn scripts_use_node_environment() {
             std::path::Path::new(python).starts_with(node.profile().join("python/environments"))
         );
         let command = format!(
-            "'{}' verify.py '{}'",
-            python.replace('\'', "'\"'\"'"),
+            "\"$SAILRY_PYTHON\" verify.py '{}'",
             installed.to_str().unwrap().replace('\'', "'\"'\"'")
         );
         let mut calls: Vec<_> = ["word", "excel", "powerpoint", "pdf"]
@@ -241,7 +240,9 @@ async fn scripts_use_node_environment() {
                 .execute(client.prepare(Command::ReadOffice {
                     worktree: session.worktree,
                     options: sailry_protocol::office::Read {
-                        path: format!("output/office-check/{path}"),
+                        source: sailry_protocol::office::Source::Path(format!(
+                            "output/office-check/{path}"
+                        )),
                         offset: 0,
                     },
                 }))

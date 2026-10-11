@@ -144,7 +144,8 @@ fn preserves_text_and_defers_attachments() {
     };
     assert!(text.contains(&attachment.id.to_string()));
     assert!(text.contains("not included"));
-    assert!(text.contains("an attachment-capable tool is required"));
+    assert!(text.contains("read_office"));
+    assert!(text.contains("\"kind\":\"attachment\""));
     assert!(!text.contains(PREFIX));
 }
 

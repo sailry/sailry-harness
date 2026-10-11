@@ -71,7 +71,7 @@ async fn reads_and_downloads_locally_and_remotely() {
                 .execute(client.prepare(Command::ReadOffice {
                     worktree,
                     options: Read {
-                        path: path.clone(),
+                        source: sailry_protocol::office::Source::Path(path.clone()),
                         offset: 0,
                     },
                 }))

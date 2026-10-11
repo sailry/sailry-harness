@@ -100,13 +100,14 @@ impl Controls {
             .get_mut(&turn)
             .filter(|active| !active.finishing && !active.stop.is_cancelled())
             .ok_or_else(|| Fault::new(ErrorCode::Conflict, "turn is not running"))?;
-        if !active.python.iter().any(|existing| {
-            existing.ready.environment == ready.environment && existing.directory == directory
-        }) {
-            active
-                .python
-                .push(crate::python::Access { ready, directory });
-        }
+        // The latest loaded skill selects the command interpreter. Retain all
+        // bindings for sandbox access, moving a reloaded skill to the end.
+        active.python.retain(|existing| {
+            existing.ready.environment != ready.environment || existing.directory != directory
+        });
+        active
+            .python
+            .push(crate::python::Access { ready, directory });
         Ok(())
     }
 

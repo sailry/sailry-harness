@@ -221,7 +221,7 @@ async fn deploys_and_pairs() {
             Command::ReadOffice {
                 worktree: snapshot.worktrees[0].id,
                 options: sailry_protocol::office::Read {
-                    path: "report.docx".into(),
+                    source: sailry_protocol::office::Source::Path("report.docx".into()),
                     offset: 0,
                 },
             },

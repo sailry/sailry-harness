@@ -50,7 +50,15 @@ impl Manager {
 impl Execution {
     pub(crate) fn variables(&self) -> BTreeMap<&'static str, OsString> {
         let mut variables = BTreeMap::from([
-            ("SAILRY_PYTHON", self.base.python.clone().into_os_string()),
+            (
+                "SAILRY_PYTHON",
+                self.skills
+                    .last()
+                    .map_or(&self.base, |skill| &skill.ready)
+                    .python
+                    .clone()
+                    .into_os_string(),
+            ),
             ("SAILRY_SESSION_DIR", self.session.clone().into_os_string()),
             ("PIP_CACHE_DIR", self.cache.clone().into_os_string()),
             ("PYTHONDONTWRITEBYTECODE", "1".into()),
@@ -83,4 +91,57 @@ fn directory(profile: &Path, session: SessionId) -> Result<PathBuf, Fault> {
         anchor = anchor.open_dir_nofollow(name).map_err(storage)?;
     }
     Ok(crate::workspaces::session(profile, session))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ready(name: &str) -> Ready {
+        let root = PathBuf::from(name);
+        Ready {
+            python: root.join("bin/python"),
+            environment: root.clone(),
+            runtime: root,
+            _lease: None,
+            requirements: None,
+        }
+    }
+
+    #[test]
+    fn selects_latest_loaded_skill() {
+        let controls = crate::agent::Controls::default();
+        let turn = sailry_protocol::TurnId::new();
+        let session = SessionId::new();
+        controls.register(turn, session, CancellationToken::new());
+        let mut execution = Execution {
+            base: ready("base"),
+            skills: Vec::new(),
+            session: PathBuf::from("session"),
+            cache: PathBuf::from("cache"),
+            index: None,
+        };
+        assert_eq!(
+            execution.variables()["SAILRY_PYTHON"],
+            ready("base").python.into_os_string()
+        );
+        for name in ["first", "second", "first"] {
+            controls
+                .bind_python(turn, ready(name), PathBuf::from(name))
+                .unwrap();
+            execution.skills = controls.python(turn);
+            assert_eq!(
+                execution.variables()["SAILRY_PYTHON"],
+                ready(name).python.into_os_string()
+            );
+        }
+        assert_eq!(execution.skills.len(), 2);
+        assert_eq!(execution.skills[0].directory, PathBuf::from("second"));
+        controls.finish(turn);
+        execution.skills = controls.python(turn);
+        assert_eq!(
+            execution.variables()["SAILRY_PYTHON"],
+            ready("base").python.into_os_string()
+        );
+    }
 }

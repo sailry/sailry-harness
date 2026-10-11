@@ -20,7 +20,7 @@ fn reads_four_formats() {
         let inspection = read(
             &root,
             &Read {
-                path: name.into(),
+                source: sailry_protocol::office::Source::Path(name.into()),
                 offset: 0,
             },
         )
@@ -62,7 +62,7 @@ fn reads_long_unicode_parts_through_continuations() {
         let page = read(
             &root,
             &Read {
-                path: "long.docx".into(),
+                source: sailry_protocol::office::Source::Path("long.docx".into()),
                 offset,
             },
         )

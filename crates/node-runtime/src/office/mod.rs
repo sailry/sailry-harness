@@ -59,12 +59,24 @@ pub(crate) fn read_with(
     ocr: Option<&crate::ocr::Service>,
     cancel: &sailry_link::CancellationToken,
 ) -> Result<Inspection, Fault> {
-    if !crate::ocr::document::supported(&options.path) {
-        extension(&options.path)?;
-    }
-    let bytes = bytes(root, &options.path)?;
-    let revision = blake3::hash(&bytes).to_hex().to_string();
-    let sections = parts_with(&options.path, &bytes, ocr, cancel)?;
+    let Source::Path(path) = &options.source else {
+        return Err(Fault::invalid(
+            "attachment inspection requires a captured turn",
+        ));
+    };
+    let bytes = bytes(root, path)?;
+    inspect(path, &bytes, options.offset, ocr, cancel)
+}
+
+pub(crate) fn inspect(
+    path: &str,
+    bytes: &[u8],
+    offset: usize,
+    ocr: Option<&crate::ocr::Service>,
+    cancel: &sailry_link::CancellationToken,
+) -> Result<Inspection, Fault> {
+    let revision = blake3::hash(bytes).to_hex().to_string();
+    let sections = parts_with(path, bytes, ocr, cancel)?;
     // Long document parts continue in subsequent offsets instead of losing their tail.
     let mut chunks = Vec::new();
     for part in sections {
@@ -86,17 +98,13 @@ pub(crate) fn read_with(
         }
     }
     let total = chunks.len();
-    if options.offset > total {
+    if offset > total {
         return Err(invalid("section offset is out of range"));
     }
-    let sections = chunks
-        .into_iter()
-        .skip(options.offset)
-        .take(8)
-        .collect::<Vec<_>>();
-    let next = (options.offset + sections.len() < total).then_some(options.offset + sections.len());
+    let sections = chunks.into_iter().skip(offset).take(8).collect::<Vec<_>>();
+    let next = (offset + sections.len() < total).then_some(offset + sections.len());
     Ok(Inspection {
-        path: options.path.clone(),
+        path: path.into(),
         revision,
         sections,
         next,

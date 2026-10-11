@@ -61,14 +61,14 @@ impl Tool for Skills {
         if self.resource {
             "Read complete UTF-8 text from a file relative to an available skill's directory. Use package:skill and a normalized relative path. Binary or oversized resources report an error, not a partial file."
         } else {
-            "Load the complete SKILL.md for an available package:skill. The execution Node prepares required Python dependencies and returns python beside directory when available, otherwise null. Run Python scripts with the quoted returned interpreter and absolute script paths. Read referenced documents with read_skill_resource. Skill loading grants no command permission."
+            "Load the complete SKILL.md for an available package:skill. The execution Node prepares required Python dependencies and returns python beside directory when available, otherwise null. Run Python scripts with \"$SAILRY_PYTHON\" and absolute script paths; the most recently loaded skill with an available Python interpreter selects it for this turn. Read referenced documents with read_skill_resource. Skill loading grants no command permission."
         }
     }
     fn is_read_only(&self) -> bool {
         true
     }
     fn is_concurrency_safe(&self) -> bool {
-        true
+        self.resource
     }
     fn parameters_schema(&self) -> Option<Value> {
         Some(if self.resource {

@@ -484,7 +484,10 @@ async fn confines_arguments_and_preserves_large_office_results() {
                 name("read_file"),
                 json!({"path":"note.txt","worktree":WorktreeId::new()}),
             ),
-            (name("read_office"), json!({"path":"long.docx"})),
+            (
+                name("read_office"),
+                json!({"source":{"kind":"path","value":"long.docx"}}),
+            ),
         ])
         .await;
         let fixture = process::Fixture::new(remote, &server).await;

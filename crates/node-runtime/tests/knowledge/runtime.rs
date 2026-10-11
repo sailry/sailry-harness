@@ -126,7 +126,7 @@ async fn reads_images_and_indexes_scanned_sources() {
                 Command::ReadOffice {
                     worktree: fixture.worktree,
                     options: office::Read {
-                        path: path.into(),
+                        source: sailry_protocol::office::Source::Path(path.into()),
                         offset: 0,
                     },
                 },

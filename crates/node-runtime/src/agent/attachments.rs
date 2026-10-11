@@ -153,7 +153,7 @@ fn file(attachment: &Attachment, included: bool) -> Part {
     let note = if included {
         ""
     } else {
-        "\nContents not included; an attachment-capable tool is required to inspect the file"
+        "\nContents not included; use read_office with source {\"kind\":\"attachment\",\"value\":\"<id>\"} for PDF, Office documents and spreadsheets; use an attachment-capable tool for other files"
     };
     Part::Text {
         text: format!("Attachment file: {metadata}{note}"),

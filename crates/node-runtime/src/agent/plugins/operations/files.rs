@@ -105,7 +105,9 @@ pub(super) fn description(operation: Operation) -> &'static str {
         Operation::SearchFiles => {
             "Search UTF-8 files within path using embedded ripgrep matching, respecting .gitignore and never following symlinks. Choose content rows, matching paths, or matching line counts. type uses ripgrep language names; context adds up to five neighboring lines; multiline permits newline-spanning matches. Use next_offset for complete-scan pagination; narrow path if partial"
         }
-        Operation::ReadOffice => "Read document sections in the captured worktree",
+        Operation::ReadOffice => {
+            "Read document sections from a worktree path or a current-turn attachment ID"
+        }
         Operation::ReadNotebook => {
             "Read numbered notebook cells without executing a kernel. Use next_offset to continue; truncated cells omit oversized metadata or outputs"
         }

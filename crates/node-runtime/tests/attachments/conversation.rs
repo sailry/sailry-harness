@@ -9,6 +9,8 @@ mod media;
 mod model;
 #[path = "conversation/native.rs"]
 mod native;
+#[path = "conversation/office.rs"]
+mod office;
 #[allow(dead_code)]
 #[path = "../agent/providers/native/server.rs"]
 mod provider;

@@ -67,7 +67,47 @@ impl Ingress {
             };
             self.worktree_root_with(worktree, internal).await?
         };
-        let output = if matches!(request.command, Command::ListTerminalTools { .. }) {
+        let output = if let Command::ReadOffice {
+            worktree,
+            options:
+                sailry_protocol::office::Read {
+                    source: sailry_protocol::office::Source::Attachment(id),
+                    offset,
+                },
+        } = &request.command
+        {
+            let turn = request
+                .plugin
+                .as_ref()
+                .and_then(|context| context.turn)
+                .ok_or_else(|| {
+                    Fault::new(
+                        ErrorCode::PermissionDenied,
+                        "attachment inspection requires a captured turn",
+                    )
+                })?;
+            let attachment = self.current_attachment(turn, *id).await?;
+            if attachment.spec.worktree != *worktree {
+                return Err(Fault::new(
+                    ErrorCode::PermissionDenied,
+                    "attachment belongs to another worktree",
+                ));
+            }
+            if attachment.spec.size > crate::office::LIMIT as u64 {
+                return Err(Fault::invalid("Office: file exceeds 32 MiB"));
+            }
+            let stop = self
+                .agents
+                .python_stop(turn)
+                .ok_or_else(|| Fault::new(ErrorCode::Conflict, "turn is not running"))?;
+            let name = attachment.spec.name.clone();
+            let bytes = self.attachment_bytes(attachment, stop.clone()).await?;
+            sailry_protocol::Output::OfficeContent(
+                self.files
+                    .inspect_document(name, bytes, *offset, stop)
+                    .await?,
+            )
+        } else if matches!(request.command, Command::ListTerminalTools { .. }) {
             let (reply, response) = oneshot::channel();
             if internal {
                 self.send_internal(Job::TerminalSettings { reply }).await?;

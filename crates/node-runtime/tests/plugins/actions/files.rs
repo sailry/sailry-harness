@@ -462,7 +462,7 @@ async fn office_reads_and_file_writes_require_grants() {
         let read = Command::ReadOffice {
             worktree,
             options: office::Read {
-                path: "report.docx".into(),
+                source: sailry_protocol::office::Source::Path("report.docx".into()),
                 offset: 0,
             },
         };
@@ -534,7 +534,7 @@ async fn office_reads_and_file_writes_require_grants() {
             Command::ReadOffice {
                 worktree: WorktreeId::new(),
                 options: office::Read {
-                    path: "report.docx".into(),
+                    source: sailry_protocol::office::Source::Path("report.docx".into()),
                     offset: 0,
                 },
             },

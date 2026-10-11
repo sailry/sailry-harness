@@ -70,11 +70,9 @@ async fn binds_captured_resources_without_plugin_identity() {
     assert!(tools.iter().all(|entry| entry.presentation
         == sailry_protocol::tool::Presentation::Details
         && entry.grouping == sailry_protocol::tool::Grouping::Sequence));
-    assert!(
-        tools
-            .iter()
-            .all(|entry| entry.tool.is_read_only() && entry.tool.is_concurrency_safe())
-    );
+    assert!(tools.iter().all(|entry| entry.tool.is_read_only()));
+    assert!(!tools[0].tool.is_concurrency_safe());
+    assert!(tools[1].tool.is_concurrency_safe());
     assert!(instruction.contains("example:analysis"));
     assert!(!instruction.contains("Load this content on demand"));
     node.shutdown().await.unwrap();
