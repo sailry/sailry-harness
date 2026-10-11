@@ -7,6 +7,7 @@ pub(crate) use details::open_bound;
 pub(super) mod dialog;
 mod download;
 mod editor;
+mod inventory;
 pub(super) mod live;
 mod market;
 pub(in crate::settings) mod preparation;
@@ -181,9 +182,6 @@ impl Workspace {
     }
 
     pub(super) fn plugins(&self, cx: &mut Context<Self>) -> AnyElement {
-        if self.provider_link.is_some() {
-            return self.installed_plugins(cx);
-        }
         let owner = cx.entity();
         let mut group = Group::new("plugins_installed").empty(IconName::Inbox, "plugins_none");
         for (index, plugin) in self.plugins.iter().enumerate() {

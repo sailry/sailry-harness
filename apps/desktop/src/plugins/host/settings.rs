@@ -1,5 +1,5 @@
-//! A settings view can retain native drafts only across its own confirmed save.
-//! The receipt changes provenance; scripts cannot adopt arbitrary package revisions.
+//! Settings views follow observed revisions without replacing native drafts.
+//! Pending saves adopt provenance only through their matching confirmed receipt.
 use super::*;
 use crate::plugins::credentials;
 use gpui_kit::Entity;
@@ -69,7 +69,7 @@ impl Settings {
                 self.invalid = true;
             }
         } else if live.settings_revision > self.current.settings_revision {
-            self.invalid = true;
+            self.current = live.reference();
         }
         self.live = Some(live.clone());
     }

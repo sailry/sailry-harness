@@ -364,6 +364,9 @@ impl Workspace {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.warm_settings(cx);
+        if self.section == Section::Plugins && self.provider_link.is_some() {
+            return self.inventory(window, cx);
+        }
         let content = match self.section {
             Section::Connections => self.connections.clone().into_any_element(),
             Section::Providers => self.providers(cx),

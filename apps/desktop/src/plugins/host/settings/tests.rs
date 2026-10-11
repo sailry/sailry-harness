@@ -41,6 +41,19 @@ fn adopts_only_the_matching_confirmed_receipt() {
 }
 
 #[test]
+fn adopts_observed_revisions() {
+    let mut settings = settings();
+    let previous = settings.reference();
+    settings.observe(&[summary(4)], true);
+    assert!(!settings.invalid);
+    assert_eq!(settings.reference(), summary(4).reference());
+    assert!(settings.begin(RequestId::new(), &previous).is_err());
+    settings
+        .begin(RequestId::new(), &settings.reference())
+        .unwrap();
+}
+
+#[test]
 fn invalidates_conflicting_revisions() {
     let mut settings = settings();
     let id = RequestId::new();

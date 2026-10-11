@@ -6,7 +6,7 @@ use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use sailry_protocol::plugin::Summary;
 
 impl Workspace {
-    pub(super) fn installed_plugins(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn inventory_controls(&self, cx: &mut Context<Self>) -> AnyElement {
         let live = self
             .provider_link
             .as_ref()
@@ -113,19 +113,10 @@ impl Workspace {
                         .empty(IconName::Inbox, "plugins_none"),
                 )
             })
-            .child(
-                resource_card::grid()
-                    .debug_selector(|| "plugin-cards".into())
-                    .children(
-                        plugins
-                            .iter()
-                            .map(|plugin| self.plugin_card(plugin, busy, cx)),
-                    ),
-            )
             .into_any_element()
     }
 
-    fn plugin_card(&self, plugin: &Summary, busy: bool, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn caption(&self, plugin: &Summary, cx: &App) -> (String, String) {
         let info = self
             .plugin_catalog
             .metadata
@@ -143,6 +134,21 @@ impl Workspace {
             .package(&plugin.name)
             .map(|preparation| preparation::label(preparation.stage).to_string())
             .or(description);
+        (title, description.unwrap_or_default())
+    }
+
+    pub(super) fn plugin_card(
+        &self,
+        plugin: &Summary,
+        busy: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let info = self
+            .plugin_catalog
+            .metadata
+            .as_ref()
+            .and_then(|state| state.read(cx).entries.get(&plugin.name));
+        let (title, description) = self.caption(plugin, cx);
         let configured = info.is_some_and(super::super::extensions::modal::configurable);
         let update_ready = info.is_some_and(|info| info.summary == *plugin);
         let online = info.is_some_and(|info| {
@@ -170,7 +176,7 @@ impl Workspace {
         let summary = resource_card::summary(
             format!("plugin-details-{name}"),
             title,
-            description.unwrap_or_default(),
+            description,
             div()
                 .debug_selector({
                     let name = name.clone();

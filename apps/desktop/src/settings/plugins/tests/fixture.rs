@@ -464,6 +464,46 @@ pub(in crate::settings) fn draw(cx: &mut VisualTestContext) {
     });
 }
 
+pub(in crate::settings) fn reveal(cx: &mut VisualTestContext, id: ElementId) -> bool {
+    use gpui_kit::test::TestWindowExt as _;
+    if cx.update(|window, cx| window.has_active_dialog(cx)) {
+        return false;
+    }
+    let Some(viewport) = cx.debug_bounds("settings-viewport") else {
+        return false;
+    };
+    let step = f32::from(viewport.size.height) * 0.75;
+    for direction in [-1., 1.] {
+        for _ in 0..44 {
+            draw(cx);
+            let position = cx.update(|window, _| {
+                window
+                    .try_find(id.clone())
+                    .map(|target| target.bounds().center())
+                    .filter(|position| viewport.contains(position))
+            });
+            if let Some(position) = position {
+                cx.simulate_mouse_move(position, None, Modifiers::default());
+                draw(cx);
+                if cx.update(|window, _| {
+                    window.try_find(id.clone()).is_some_and(|target| {
+                        target.visible() && viewport.contains(&target.bounds().center())
+                    })
+                }) {
+                    return true;
+                }
+            }
+            cx.simulate_event(ScrollWheelEvent {
+                position: viewport.center(),
+                delta: ScrollDelta::Pixels(point(px(0.), px(step * direction))),
+                touch_phase: TouchPhase::Moved,
+                modifiers: Modifiers::default(),
+            });
+        }
+    }
+    false
+}
+
 #[track_caller]
 pub(in crate::settings) fn shown(
     cx: &mut VisualTestContext,
@@ -473,6 +513,12 @@ pub(in crate::settings) fn shown(
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         draw(cx);
+        if expected
+            && selector.starts_with("plugin-details-")
+            && !cx.update(|window, cx| window.has_active_dialog(cx))
+        {
+            reveal(cx, SharedString::from(selector).into());
+        }
         if cx.debug_bounds(selector).is_some() == expected {
             return;
         }
@@ -525,6 +571,14 @@ pub(in crate::settings) fn tap(cx: &mut VisualTestContext, selector: &'static st
         std::thread::sleep(Duration::from_millis(350));
     }
     draw(cx);
+    if (selector.starts_with("plugin-details-") || selector.starts_with("plugin-menu-"))
+        && !cx.update(|window, cx| window.has_active_dialog(cx))
+    {
+        assert!(
+            reveal(cx, SharedString::from(selector).into()),
+            "plugin target is not visible: {selector}"
+        );
+    }
     // The native catalog can extend below the viewport. Exercise its real scroll
     // container before clicking package actions instead of clicking clipped rows.
     for _ in 0..4 {

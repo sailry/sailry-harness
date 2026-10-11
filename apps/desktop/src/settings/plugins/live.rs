@@ -9,6 +9,7 @@ pub(in crate::settings) struct Catalog {
     pub(super) market: Option<Entity<super::market::Market>>,
     pub metadata: Option<Entity<Metadata>>,
     pub(in crate::settings) updates: Option<Entity<super::updates::State>>,
+    pub(super) inventory: Option<super::inventory::Inventory>,
     action: Option<Action>,
     pub(in crate::settings) error: Option<&'static str>,
 }

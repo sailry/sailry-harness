@@ -3,6 +3,9 @@ use gpui_kit::{App, AppContext as _, Entity, IntoElement, Styled, StyledImage as
 use gpui_shell::{ShellRoot, ShellRuntime, policy::Policy};
 use std::{rc::Rc, sync::Arc};
 
+#[cfg(test)]
+mod continuity;
+
 pub(super) struct Mounted {
     #[cfg(test)]
     pub conversations: super::conversation::Conversations,
