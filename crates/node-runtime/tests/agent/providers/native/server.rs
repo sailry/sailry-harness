@@ -25,8 +25,22 @@ pub enum Reply {
     Grounding,
     Failure,
     Raw(Arc<Vec<u8>>),
+    Scripted(Arc<Vec<Script>>),
     Redirect(String),
     Wait(Arc<tokio::sync::Notify>),
+}
+
+#[derive(Clone)]
+pub struct Script {
+    pub bytes: Vec<u8>,
+    pub ending: Ending,
+}
+
+#[derive(Clone)]
+pub enum Ending {
+    Close,
+    Release(Arc<tokio::sync::Notify>),
+    Closed(Arc<tokio::sync::Notify>),
 }
 
 #[derive(Clone, Debug)]
@@ -142,11 +156,33 @@ async fn respond(
                     .is_some_and(|text| text.starts_with("Summarize this conversation"))
             })
         });
-    records.lock().unwrap().push(Request {
-        path,
-        headers,
-        body,
-    });
+    let index = {
+        let mut records = records.lock().unwrap();
+        let index = records.len();
+        records.push(Request {
+            path,
+            headers,
+            body,
+        });
+        index
+    };
+    if let Reply::Scripted(scripts) = &reply {
+        let script = &scripts[index.min(scripts.len() - 1)];
+        for chunk in script.bytes.chunks(7) {
+            stream.write_all(chunk).await?;
+        }
+        match &script.ending {
+            Ending::Close => {}
+            Ending::Release(release) => release.notified().await,
+            Ending::Closed(closed) => {
+                let mut byte = [0; 1];
+                assert_eq!(stream.read(&mut byte).await?, 0);
+                closed.notify_one();
+                return Ok(());
+            }
+        }
+        return stream.shutdown().await;
+    }
     if let Reply::Redirect(target) = &reply {
         stream.write_all(format!("HTTP/1.1 307 Temporary Redirect\r\nLocation: {target}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await?;
         return stream.shutdown().await;

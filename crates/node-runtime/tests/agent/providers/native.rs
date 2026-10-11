@@ -22,6 +22,8 @@ mod phases;
 mod prompt;
 #[path = "native/reasoning.rs"]
 mod reasoning;
+#[path = "native/retry.rs"]
+mod retry;
 #[path = "native/search_assistant.rs"]
 mod search_assistant;
 #[path = "native/search_packages.rs"]

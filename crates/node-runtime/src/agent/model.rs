@@ -51,6 +51,7 @@ pub(super) async fn build(
     Ok(Arc::new(attachments::Model {
         inner: Arc::new(retry::Model {
             inner,
+            api: opencode::api(provider.api, &config.model)?,
             ingress: ingress.clone(),
             turn: invocation.turn.id,
             session: invocation.turn.session,

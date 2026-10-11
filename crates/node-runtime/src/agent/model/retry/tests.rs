@@ -151,10 +151,9 @@ async fn stops_an_idle_stream_after_output() {
     let mut stream = responsive(Box::pin(source));
     assert!(stream.next().await.unwrap().unwrap().partial);
     let started = tokio::time::Instant::now();
-    assert_eq!(
-        stream.next().await.unwrap().unwrap_err().code,
-        "model.response_timeout"
-    );
+    let error = stream.next().await.unwrap().unwrap_err();
+    assert_eq!(error.code, "model.response_timeout");
+    assert!(!retryable(&error));
     assert_eq!(started.elapsed(), RESPONSE_TIMEOUT);
     assert!(stream.next().await.is_none());
 }
