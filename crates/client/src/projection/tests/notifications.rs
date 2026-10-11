@@ -12,6 +12,7 @@ fn notice(sequence: u64, read: bool) -> notification::Notice {
             message: "Check the task".into(),
             kind: notification::Kind::Info,
             session: None,
+            presentation: None,
         },
         timestamp_ms: 1000,
         read,
@@ -90,6 +91,7 @@ fn plugin_and_activity_sequences_remain_independent() {
         worktree: None,
         title: "Task".into(),
         message: String::new(),
+        presentation: None,
         kind: Kind::Completed,
         read: false,
     };

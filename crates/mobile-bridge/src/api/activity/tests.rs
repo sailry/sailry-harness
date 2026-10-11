@@ -32,6 +32,7 @@ async fn reading_plugin_notice_updates_the_execution_node() {
                 message: "Check the task".into(),
                 kind: Kind::Info,
                 session: None,
+                presentation: None,
             },
         }))
         .await

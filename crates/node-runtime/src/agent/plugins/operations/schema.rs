@@ -678,6 +678,7 @@ mod tests {
                     message: "Sent".into(),
                     kind: sailry_protocol::notification::Kind::Info,
                     session: None,
+                    presentation: None,
                 }}]}),
                 &scope,
             )

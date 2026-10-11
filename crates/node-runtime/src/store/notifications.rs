@@ -38,6 +38,22 @@ pub(super) fn execute(
             {
                 return Err(Fault::invalid("invalid notification content"));
             }
+            if content.presentation.as_ref().is_some_and(|presentation| {
+                presentation.heading.trim().is_empty()
+                    || presentation.heading.len() > 128
+                    || presentation.locales.len() > 32
+                    || presentation.locales.iter().any(|(locale, heading)| {
+                        locale.is_empty()
+                            || locale.len() > 32
+                            || !locale
+                                .bytes()
+                                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                            || heading.trim().is_empty()
+                            || heading.len() > 128
+                    })
+            }) {
+                return Err(Fault::invalid("invalid notification presentation"));
+            }
             if let Some(session) = content.session {
                 super::commands::session(db, session)?;
             }

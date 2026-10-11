@@ -276,6 +276,7 @@ fn routes_entries_and_keeps_host_scope(cx: &mut TestAppContext) {
                     message: String::new(),
                     kind: sailry_protocol::notification::Kind::Info,
                     session: None,
+                    presentation: None,
                 },
             },
         ) else {
@@ -382,6 +383,7 @@ fn routes_entries_and_keeps_host_scope(cx: &mut TestAppContext) {
                     message: String::new(),
                     kind: sailry_protocol::notification::Kind::Info,
                     session: None,
+                    presentation: None,
                 },
             }) else {
                 panic!("notice expected")

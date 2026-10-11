@@ -72,8 +72,29 @@ impl Shell {
         if !preferences.notifications[index] {
             return;
         }
+        let persistent = notice
+            .presentation
+            .as_ref()
+            .is_some_and(|presentation| presentation.persistent);
+        let heading = notice
+            .presentation
+            .as_ref()
+            .map(|presentation| {
+                let locale = rust_i18n::locale();
+                presentation
+                    .locales
+                    .get(&*locale)
+                    .unwrap_or(&presentation.heading)
+                    .clone()
+                    .into()
+            })
+            .unwrap_or_else(|| tr(label));
         let delivery = if preferences.notifications[0] && !window.is_window_active() {
-            NotificationDelivery::System
+            if persistent {
+                NotificationDelivery::InAppAndSystem
+            } else {
+                NotificationDelivery::System
+            }
         } else {
             NotificationDelivery::InApp
         };
@@ -103,7 +124,7 @@ impl Shell {
                 .id1::<NoticeView>(key.clone())
                 .min_w(crate::feedback::minimum_width(window))
                 .max_w(px(520.).min(window.viewport_size().width - px(32.)))
-                .title(tr(label))
+                .title(heading)
                 .message(message)
                 .with_type(kind)
                 .delivery(delivery)
@@ -131,7 +152,7 @@ impl Shell {
                 })),
             cx,
         );
-        if delivery.includes_in_app() {
+        if delivery.includes_in_app() && !persistent {
             // Kit b79f4ce fixes autohide at five seconds. Its public dismissal
             // API applies the selected duration without replacing the toast.
             cx.spawn_in(window, async move |_, cx| {

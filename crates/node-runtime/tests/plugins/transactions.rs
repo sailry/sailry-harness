@@ -19,6 +19,7 @@ fn notice(title: &str) -> Operation {
         message: "Updated".into(),
         kind: notification::Kind::Info,
         session: None,
+        presentation: None,
     })
 }
 

@@ -1,6 +1,7 @@
 //! Durable plugin notices owned by the execution Node.
 use crate::{NotificationId, SessionId};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 pub const LIMIT: usize = 200;
 
@@ -22,6 +23,18 @@ pub struct Draft {
     /// None opens the publishing plugin when it has a page; a session must be
     /// in the publishing plugin's captured scope.
     pub session: Option<SessionId>,
+    #[serde(default)]
+    pub presentation: Option<Presentation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Presentation {
+    pub heading: String,
+    #[serde(default)]
+    pub locales: BTreeMap<String, String>,
+    #[serde(default)]
+    pub persistent: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

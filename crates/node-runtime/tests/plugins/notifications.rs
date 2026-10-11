@@ -10,6 +10,11 @@ fn draft() -> Draft {
         message: "Review the task".into(),
         kind: Kind::Info,
         session: None,
+        presentation: Some(sailry_protocol::notification::Presentation {
+            heading: "Reminder".into(),
+            locales: std::collections::BTreeMap::from([("zh-CN".into(), "提醒".into())]),
+            persistent: true,
+        }),
     }
 }
 
@@ -72,6 +77,10 @@ async fn durable_delivery_read_and_clear() {
         let view = receiver.borrow().clone();
         assert_eq!(view.notifications.len(), 1);
         assert_eq!(view.notifications[0].title, "Reminder");
+        assert_eq!(
+            view.notifications[0].presentation,
+            notice.content.presentation
+        );
         assert!(!view.notifications[0].read);
         execute(&client, Command::MarkNotificationRead { id: notice.id }).await;
         tokio::time::timeout(Duration::from_secs(10), async {
