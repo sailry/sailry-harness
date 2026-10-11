@@ -82,6 +82,8 @@ Navigation and resource entries use `desktop.navigation` and `desktop.panel`. Sc
 
 Workspace pages declare `desktop.navigation_options.retention` as `{ "mode": "none" }` (default), `{ "mode": "always" }`, or `{ "mode": "idle", "seconds": 300 }`. Idle seconds must be a positive integer. The host releases `none` views on navigation, retains `always` views until window close, and starts idle expiry when a page is hidden. Returning cancels expiry and runs the normal entry refresh. Package/settings changes, removal, and disconnected scopes still invalidate views. Plugins do not implement their own retention timers; releasing a view cancels its UI runtime, not already admitted Node tasks.
 
+Use `Workspace.new` from `sailry/ui` to supply main content and an optional details child to the Shell's common right sidebar. `has_details` controls availability; the Shell owns its header alignment, divider, width and visibility toggle. Call `showWorkspaceDetails()` after an explicit selection to reveal a previously hidden sidebar without changing its resized width. Do not call it on every render.
+
 Settings ignore workspace retention: entering settings can preload bounded immutable resources without running scripts or reading business data. Opening a settings page creates its view and reads current data; switching releases that view, and leaving the settings area releases all preloaded files.
 
 `settings_page` contributes settings navigation, placement and an optional shared enable control. A script page supplies `entry`; a schema-generated page omits it. Feature pages and workflows belong in the package, including bundled language-service and search settings. The host provides Kit composition and scoped service APIs, never package-specific native page selectors.

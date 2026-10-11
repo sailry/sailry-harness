@@ -4,7 +4,7 @@ use super::*;
 use gpui_kit::test::TestWindowExt;
 use std::{path::Path, sync::Arc};
 
-fn preview(fixture: &Fixture, sidebar: bool, sparse: bool) {
+fn preview(fixture: &Fixture, selection: &str, sparse: bool) {
     let directory = fixture.directory.path().join("project/plaza-package");
     let main = directory.join("dev.sailry.platform/desktop/main.js");
     let names = [
@@ -14,6 +14,7 @@ fn preview(fixture: &Fixture, sidebar: bool, sparse: bool) {
     let mut projects = Vec::new();
     let mut worktrees = Vec::new();
     let mut sessions = Vec::new();
+    let mut previews = Vec::new();
     let mut lanes = serde_json::Map::new();
     for (room, name) in names.iter().enumerate() {
         if sparse && room > 1 {
@@ -47,18 +48,38 @@ fn preview(fixture: &Fixture, sidebar: bool, sparse: bool) {
                 "idle"
             };
             lanes.insert(id.clone(), lane.into());
+            let titles = [
+                "检查远程主机并确认服务运行状态",
+                "优化任务广场的布局与交互",
+                "分析项目结构并整理当前进度",
+                "修复会话列表中的文字裁切问题",
+                "完成插件配置与连接验收",
+                "更新项目文件，需要审批",
+            ];
+            let summaries = [
+                "已检查连接配置，正在核对服务日志和运行状态",
+                "任务卡片已调整，正在验证统一右侧栏中的会话与审批交互",
+                "已整理项目结构，正在检查依赖与构建入口",
+                "已定位列表高度问题，下一步验证长标题与多行内容",
+                "连接配置已保存",
+                "即将更新工作区文件，请确认本次操作",
+            ];
             sessions.push(serde_json::json!({
                 "id":id,"project":project,"worktree":worktree,"archived":false,"delegation":null,
-                "activity":{"title":format!("Preview {}",seat+1),"queued":0,
+                "activity":{"title":titles[seat],"queued":0,
                     "waiting":if approval {Some("approval")} else {None},
                     "run":if active || approval {Some(serde_json::json!({"turn":format!("turn-{room}-{seat}"),"status":"running"}))} else {None}}
             }));
+            previews.push(serde_json::json!({"session":id,
+                "turn":if active || approval {Some(format!("turn-{room}-{seat}"))} else {None},
+                "text":summaries[seat]}));
         }
     }
     let catalog = serde_json::json!({
         "node":fixture.node.id(),"cursor":"1","projects":projects,"worktrees":worktrees,
         "sessions":sessions,"session_lanes":lanes,"terminals":[],"terminal_lanes":{},"unread_terminals":[],
     });
+    let previews = serde_json::Value::Array(previews);
     let source = std::fs::read_to_string(&main).unwrap();
     let source = source
         .replace(
@@ -67,12 +88,20 @@ fn preview(fixture: &Fixture, sidebar: bool, sparse: bool) {
         )
         .replace(
             "new State(readActivityCatalog,readActivityPreviews,",
-            &format!("new State(async () => ({catalog}),async () => [],"),
+            &format!("new State(async () => ({catalog}),async () => ({previews}),"),
         );
-    let source = if sidebar {
+    let selected = match selection {
+        "session" => format!(
+            "{{kind:'session',id:'{}',title:'检查远程主机并确认服务运行状态'}}",
+            fixture.session.id
+        ),
+        "room" => format!("{{kind:'room',id:'{}'}}", fixture.session.project.unwrap()),
+        _ => String::new(),
+    };
+    let source = if !selected.is_empty() {
         source.replace(
             "render(cx) {return render(this,cx);}",
-            &format!("render(cx) {{if (this.board.visible && !this.captureOpened) {{this.captureOpened = true;this.panelOpen = true;this.selected = {{kind:'session',id:'{}',title:'Preview session'}};}}return render(this,cx);}}", fixture.session.id),
+            &format!("render(cx) {{if (this.board.visible && !this.captureOpened) {{this.captureOpened = true;this.panelOpen = true;this.selected = {selected};}}return render(this,cx);}}"),
         )
     } else {
         source
@@ -114,10 +143,10 @@ fn wait_render(cx: &mut HeadlessAppContext, handle: AnyWindowHandle, ready: impl
     }
 }
 
-fn capture(output: &Path, width: f32, height: f32, mode: ThemeMode, sidebar: bool, sparse: bool) {
+fn capture(output: &Path, width: f32, height: f32, mode: ThemeMode, selection: &str, sparse: bool) {
     let fixture = Fixture::new(false);
     install(&fixture);
-    preview(&fixture, sidebar, sparse);
+    preview(&fixture, selection, sparse);
     let mut cx = HeadlessAppContext::with_platform(
         gpui_kit::platform::current_platform(true).text_system(),
         Arc::new(crate::assets::Assets),
@@ -182,7 +211,9 @@ fn capture(output: &Path, width: f32, height: f32, mode: ThemeMode, sidebar: boo
     });
     wait_render(&mut cx, handle, |cx| {
         snapshot(&panel, cx).contains(&format!("plaza-{}", fixture.session.id))
-            && (!sidebar || chat(&panel, cx).is_some_and(|chat| chat.read(cx).connected()))
+            && (selection != "session"
+                || chat(&panel, cx).is_some_and(|chat| chat.read(cx).connected()))
+            && (selection != "room" || snapshot(&panel, cx).contains("正在核对服务日志"))
     });
     // Shell initialization follows the system appearance. Apply the requested
     // capture theme after its initial preferences and subscriptions settle.
@@ -237,14 +268,21 @@ pub(in crate::plugins) fn run() {
     };
     let directory = std::path::PathBuf::from(directory);
     std::fs::create_dir_all(&directory).unwrap();
-    for (name, width, height, mode, sidebar, sparse) in [
-        ("actual-dark.png", 1640., 960., ThemeMode::Dark, true, false),
+    for (name, width, height, mode, selection, sparse) in [
+        (
+            "actual-dark.png",
+            1640.,
+            960.,
+            ThemeMode::Dark,
+            "room",
+            false,
+        ),
         (
             "actual-light.png",
             1640.,
             960.,
             ThemeMode::Light,
-            true,
+            "room",
             false,
         ),
         (
@@ -252,7 +290,7 @@ pub(in crate::plugins) fn run() {
             1000.,
             760.,
             ThemeMode::Dark,
-            false,
+            "none",
             false,
         ),
         (
@@ -260,11 +298,26 @@ pub(in crate::plugins) fn run() {
             1640.,
             960.,
             ThemeMode::Dark,
-            false,
+            "none",
             true,
         ),
+        (
+            "actual-session.png",
+            1640.,
+            960.,
+            ThemeMode::Dark,
+            "session",
+            false,
+        ),
     ] {
-        capture(&directory.join(name), width, height, mode, sidebar, sparse);
+        capture(
+            &directory.join(name),
+            width,
+            height,
+            mode,
+            selection,
+            sparse,
+        );
     }
 }
 

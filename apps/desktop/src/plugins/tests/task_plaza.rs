@@ -136,14 +136,10 @@ fn rooms_sidebar_and_lifecycle(cx: &mut TestAppContext) {
             assert!(visual.debug_bounds(room).is_some());
             assert!(visual.debug_bounds("shell-feature-rail").is_some());
             assert!(visual.debug_bounds("plaza-host-filter").is_none());
+            assert!(panel.read_with(visual, |_, cx| !snapshot(&panel, cx).contains("plaza-zoom")));
         }
         visual.simulate_window_resize(handle, size(px(1440.), px(1000.)));
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        let before = visual.debug_bounds("plaza-world").unwrap().size;
-        click(visual, "plaza-zoom-in");
-        assert!(visual.debug_bounds("plaza-world").unwrap().size.width > before.width);
-        click(visual, "plaza-zoom-reset");
-        assert_eq!(visual.debug_bounds("plaza-world").unwrap().size, before);
         let latest = sessions.last().unwrap();
         let last = selector(format!("plaza-{}", latest.id));
         assert!(visual.debug_bounds(last).is_none());
@@ -155,12 +151,49 @@ fn rooms_sidebar_and_lifecycle(cx: &mut TestAppContext) {
             snapshot(&panel, cx).contains("plaza-detail-list")
         });
         for session in &sessions {
+            let id = format!("plaza-detail-session-{}", session.id);
+            let card = visual.debug_bounds(selector(id.clone())).unwrap();
+            let title = visual
+                .debug_bounds(selector(format!("{id}-title")))
+                .unwrap();
+            let state = visual
+                .debug_bounds(selector(format!("{id}-state")))
+                .unwrap();
+            let metadata = visual
+                .debug_bounds(selector(format!("{id}-metadata")))
+                .unwrap();
             assert!(
-                visual
-                    .debug_bounds(selector(format!("plaza-detail-session-{}", session.id)))
-                    .is_some()
+                card.size.height > px(90.),
+                "task cards must keep their natural height"
             );
+            assert!(card.top() <= title.top() && title.bottom() <= state.top());
+            assert!(state.bottom() <= metadata.top() && metadata.bottom() <= card.bottom());
         }
+        let sidebar = visual.debug_bounds("plaza-detail-panel").unwrap();
+        let canvas = visual.debug_bounds("plaza-canvas").unwrap();
+        assert_eq!(
+            sidebar.top(),
+            px(0.),
+            "details must occupy the outer header band"
+        );
+        assert_eq!(canvas.top(), px(crate::preview::HEADER_HEIGHT));
+        assert!(canvas.right() <= sidebar.left());
+        assert!(panel.read_with(visual, |_, cx| {
+            snapshot(&panel, cx).contains("module_component sailry/ui.CardButton")
+        }));
+        assert!(panel.read_with(visual, |_, cx| {
+            !snapshot(&panel, cx).contains("plaza-columns")
+        }));
+        // A task selection explicitly reveals a sidebar hidden by the native toggle.
+        let workspace = shell.read_with(visual, |shell, cx| shell.plugin_workspace(cx).unwrap());
+        let width = workspace.read_with(visual, |state, _| state.width);
+        click(visual, "toggle-details");
+        wait(visual, |cx| !workspace.read(cx).open);
+        assert!(visual.debug_bounds("plaza-detail-panel").is_none());
+        click(visual, room);
+        wait(visual, |cx| workspace.read(cx).open);
+        assert_eq!(workspace.read_with(visual, |state, _| state.width), width);
+        assert!(visual.debug_bounds("plaza-detail-panel").is_some());
         click(
             visual,
             selector(format!("plaza-detail-session-{}", latest.id)),

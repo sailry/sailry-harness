@@ -108,7 +108,6 @@ fn cancels_on_hide_and_resumes_cached_page(cx: &mut TestAppContext) {
         });
         wait(visual, |_| held.reads.load(Ordering::SeqCst) > 0);
         wait(visual, |cx| snapshot(&panel, cx).contains("plaza-world"));
-        click(visual, "plaza-zoom-in");
         let world = visual.debug_bounds("plaza-world").unwrap().size;
         visual.update(|window, cx| {
             shell.update(cx, |shell, cx| {
@@ -151,7 +150,7 @@ fn cancels_on_hide_and_resumes_cached_page(cx: &mut TestAppContext) {
         assert_eq!(
             visual.debug_bounds("plaza-world").unwrap().size,
             world,
-            "cached zoom survives leaving the page"
+            "scene fit survives leaving the page"
         );
         held.release.cancel();
         click(
@@ -171,6 +170,13 @@ fn room_lists_use_current_previews(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
+        fixture.execute(Command::RenameSession {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            title:
+                "Inspect the project and verify every remaining integration task before delivery"
+                    .into(),
+        });
         install(&fixture);
         let release = CancellationToken::new();
         release.cancel();
@@ -199,6 +205,23 @@ fn room_lists_use_current_previews(cx: &mut TestAppContext) {
         wait(visual, |cx| {
             snapshot(&panel, cx).contains("Fresh preview Verified")
         });
+        let id = format!("plaza-detail-session-{}", fixture.session.id);
+        let card = visual.debug_bounds(selector(id.clone())).unwrap();
+        let title = visual
+            .debug_bounds(selector(format!("{id}-title")))
+            .unwrap();
+        let preview = visual
+            .debug_bounds(selector(format!("{id}-preview")))
+            .unwrap();
+        let state = visual
+            .debug_bounds(selector(format!("{id}-state")))
+            .unwrap();
+        assert!(
+            title.size.height >= px(40.),
+            "long titles must wrap rather than clip"
+        );
+        assert!(title.bottom() <= preview.top() && preview.bottom() <= state.top());
+        assert!(card.top() <= title.top() && state.bottom() <= card.bottom());
         click(visual, "plaza-detail-close");
         let handle = visual.update(|window, _| window.window_handle());
         for mode in [ThemeMode::Light, ThemeMode::Dark] {

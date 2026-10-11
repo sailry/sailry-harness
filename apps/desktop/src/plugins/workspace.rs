@@ -152,11 +152,27 @@ pub(super) fn module(
 ) -> HostModule {
     let mode = workspace.clone();
     let mode_host = host.clone();
+    let reveal = workspace.clone();
+    let reveal_host = host.clone();
     let declarations = format!(
-        "{}\nexport function workspaceMode(): \"main\" | \"embedded\";\n/** Children are content, optional details, and optional resource navigation; Shell owns the frame. Navigation/details minimum widths are bounded by 320/480px; main content uses Header.min_content_width. */\nexport const Workspace: {{ new(id: string, props?: {{has_details?: boolean; details_label?: string; default_details_width?: number; min_navigation_width?: number; min_details_width?: number; navigation?: \"default\" | \"none\" | \"resource\"}}): import(\"gpui-kit\").Element }};",
+        "{}\nexport function workspaceMode(): \"main\" | \"embedded\";\n/** Reveal the Shell details slot after an explicit selection, retaining its resized width. */\nexport function showWorkspaceDetails(): void;\n/** Children are content, optional details, and optional resource navigation; Shell owns the frame. Navigation/details minimum widths are bounded by 320/480px; main content uses Header.min_content_width. */\nexport const Workspace: {{ new(id: string, props?: {{has_details?: boolean; details_label?: string; default_details_width?: number; min_navigation_width?: number; min_details_width?: number; navigation?: \"default\" | \"none\" | \"resource\"}}): import(\"gpui-kit\").Element }};",
         module.declared().unwrap_or_default()
     );
     module
+        .function("showWorkspaceDetails", move |_| {
+            reveal_host.check()?;
+            let workspace = reveal
+                .as_ref()
+                .ok_or_else(|| gpui_shell::HostError::new("workspace is unavailable"))?;
+            gpui_shell::with_current_app(|cx| {
+                workspace.update(cx, |state, cx| {
+                    state.open = true;
+                    cx.notify();
+                });
+                Ok(gpui_shell::HostValue::Null)
+            })
+            .ok_or_else(|| gpui_shell::HostError::new("workspace is unavailable"))?
+        })
         .function("workspaceMode", move |_| {
             mode_host.check()?;
             gpui_shell::with_current_app(|cx| {
