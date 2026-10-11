@@ -160,6 +160,9 @@ pub(super) fn validate(root: &Path, release: &Release) -> Result<()> {
 }
 
 fn validate_plist(root: &Path, release: &Release) -> Result<()> {
+    let version = semver::Version::parse(&release.version)
+        .map_err(|_| Failure::new("updates_package_invalid", "invalid application version"))?;
+    let apple_version = format!("{}.{}.{}", version.major, version.minor, version.patch);
     let bytes = read(
         &confined(root, &root.join("Contents/Info.plist"))?,
         128 * 1024,
@@ -205,7 +208,7 @@ fn validate_plist(root: &Path, release: &Release) -> Result<()> {
     };
     if value("CFBundleIdentifier") != Some("ai.sailry.desktop")
         || value("CFBundleExecutable") != Some("sailry-desktop")
-        || value("CFBundleShortVersionString") != Some(release.version.as_str())
+        || value("CFBundleShortVersionString") != Some(apple_version.as_str())
         || value("LSMinimumSystemVersion") != Some(release.minimum_system.as_str())
     {
         return Err(Failure::new(

@@ -65,3 +65,39 @@ fn rejects_missing_executable_or_wrong_architecture() {
         "updates_platform"
     );
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn accepts_preview_core_version() {
+    for version in ["9.9.9-alpha.2", "9.9.9-beta.10", "9.9.9-rc.1"] {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("Sailry.app");
+        let mut release = fixture::release();
+        release.version = version.into();
+        fixture::bundle(&root, &release);
+        package::validate(&root, &release).unwrap();
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn rejects_mismatched_plist_versions() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("Sailry.app");
+    let mut release = fixture::release();
+    release.version = "9.9.9-alpha.2".into();
+    fixture::bundle(&root, &release);
+    let path = root.join("Contents/Info.plist");
+    let original = fs::read_to_string(&path).unwrap();
+    for version in ["9.9.8", "9.9.9-alpha.2"] {
+        let changed = original.replace(
+            "<key>CFBundleShortVersionString</key><string>9.9.9</string>",
+            &format!("<key>CFBundleShortVersionString</key><string>{version}</string>"),
+        );
+        fs::write(&path, changed).unwrap();
+        assert_eq!(
+            package::validate(&root, &release).unwrap_err().key,
+            "updates_package_invalid"
+        );
+    }
+}

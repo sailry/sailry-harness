@@ -60,10 +60,13 @@ pub(crate) fn run_helper() -> bool {
                 .map_err(|error| error.to_string())?;
             let root = package::extract(archive, &selection.release, staging)
                 .map_err(|error| error.to_string())?;
-            Ok(windows::VerifiedBundle {
-                root,
-                executable: selection.release.executable.into(),
-            })
+            Ok((
+                windows::VerifiedBundle {
+                    root,
+                    executable: selection.release.executable.into(),
+                },
+                selection.release.version,
+            ))
         }) {
             if let Err(error) = result {
                 eprintln!("desktop update helper failed: {error}");

@@ -84,11 +84,13 @@ pub(super) fn digest(bytes: &[u8]) -> String {
 
 #[cfg(target_os = "macos")]
 pub(super) fn bundle(root: &Path, release: &Release) {
+    let version = semver::Version::parse(&release.version).unwrap();
+    let apple_version = format!("{}.{}.{}", version.major, version.minor, version.patch);
     let resources = root.join("Contents/Resources");
     fs::create_dir_all(root.join("Contents/MacOS")).unwrap();
     fs::create_dir_all(&resources).unwrap();
     fs::write(resources.join("build.json"), serde_json::to_vec(&serde_json::json!({"version":1,"target":release.target,"application_version":release.version})).unwrap()).unwrap();
-    fs::write(root.join("Contents/Info.plist"), format!("<?xml version=\"1.0\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>ai.sailry.desktop</string><key>CFBundleExecutable</key><string>sailry-desktop</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>{}</string><key>LSMinimumSystemVersion</key><string>{}</string></dict></plist>", release.version, release.minimum_system)).unwrap();
+    fs::write(root.join("Contents/Info.plist"), format!("<?xml version=\"1.0\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>ai.sailry.desktop</string><key>CFBundleExecutable</key><string>sailry-desktop</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>{}</string><key>LSMinimumSystemVersion</key><string>{}</string></dict></plist>", apple_version, release.minimum_system)).unwrap();
     // Build and ad hoc sign only isolated fixtures; neither fixture is executed.
     let source = root.parent().unwrap().join("fixture.c");
     fs::write(&source, "int main(void) { return 0; }\n").unwrap();

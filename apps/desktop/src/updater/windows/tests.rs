@@ -211,12 +211,29 @@ mod receipt {
     use super::*;
 
     #[test]
+    fn records_authenticated_application_version() {
+        let fixture = Fixture::new();
+        write_receipt(
+            &fixture.plan.receipt,
+            "success",
+            None,
+            Some("9.9.9-alpha.2"),
+        )
+        .unwrap();
+        let bytes = fs::read(&fixture.plan.receipt).unwrap();
+        let receipt: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(receipt["application_version"], "9.9.9-alpha.2");
+        assert!(receipt["installed"].as_bool().unwrap());
+    }
+
+    #[test]
     fn reports_outcomes_without_overwriting_state() {
         let fixture = Fixture::new();
         write_receipt(
             &fixture.plan.receipt,
             "failure",
             Some("installation is uncertain"),
+            None,
         )
         .unwrap();
         let bytes = fs::read(&fixture.plan.receipt).unwrap();
@@ -224,7 +241,15 @@ mod receipt {
         assert_eq!(receipt["version"], 1);
         assert_eq!(receipt["result"], "failure");
         assert_eq!(receipt["message"], "installation is uncertain");
-        assert!(write_receipt(&fixture.plan.receipt, "success", None).is_err());
+        assert!(
+            write_receipt(
+                &fixture.plan.receipt,
+                "success",
+                None,
+                Some("9.9.9-alpha.2")
+            )
+            .is_err()
+        );
         assert_eq!(fs::read(&fixture.plan.receipt).unwrap(), bytes);
     }
 }

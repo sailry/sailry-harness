@@ -6,6 +6,7 @@ use std::{fs, io::Write as _, path::Path};
 struct Receipt {
     version: u32,
     result: String,
+    application_version: Option<String>,
     message: Option<String>,
     uncertain: Option<bool>,
     installed: Option<bool>,
@@ -26,7 +27,14 @@ pub(super) fn read(directory: &Path) -> Result<Option<&'static str>> {
     }
     let receipt: Receipt = serde_json::from_slice(&bytes)
         .map_err(|_| Failure::new("updates_receipt_unread", "the update receipt is invalid"))?;
-    if receipt.version != 1 || !matches!(receipt.result.as_str(), "success" | "failure") {
+    if receipt.version != 1
+        || !matches!(receipt.result.as_str(), "success" | "failure")
+        || receipt.result == "success"
+            && receipt
+                .application_version
+                .as_ref()
+                .is_none_or(|version| semver::Version::parse(version).is_err())
+    {
         return Err(Failure::new(
             "updates_receipt_unread",
             "the update receipt has an unsupported definition",
@@ -53,6 +61,11 @@ pub(super) fn read(directory: &Path) -> Result<Option<&'static str>> {
             receipt
                 .message
                 .unwrap_or_else(|| "the prior update did not complete".into()),
+        ))
+    } else if receipt.application_version.as_deref() != Some(env!("CARGO_PKG_VERSION")) {
+        Err(Failure::new(
+            "updates_restart_failed",
+            "the recorded update does not match the running application",
         ))
     } else {
         Ok(Some("updates_completed"))

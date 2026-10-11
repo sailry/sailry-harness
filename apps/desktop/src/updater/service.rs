@@ -333,7 +333,7 @@ impl Service {
                     };
                     super::receipt::write(
                         &receipt,
-                        &serde_json::json!({"version":1,"result":"success","backup":&backup}),
+                        &serde_json::json!({"version":1,"result":"success","application_version":&staged.selection.release.version,"backup":&backup}),
                     ).map_err(|error| Failure::new("updates_receipt_failed", format!("application was installed but the update receipt could not be saved; original retained at {}: {error}", backup.display())))?;
                     install::restart(
                         &installed.join(&staged.selection.release.executable),

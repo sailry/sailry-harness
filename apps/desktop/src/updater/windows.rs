@@ -54,6 +54,8 @@ struct Receipt<'a> {
     version: u32,
     result: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
+    application_version: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     message: Option<&'a str>,
     installed: bool,
     uncertain: bool,
@@ -202,7 +204,7 @@ impl PreparedHelper {
 #[cfg(target_os = "windows")]
 pub(super) fn run_if_requested(
     args: &[OsString],
-    verify: impl Fn(&Path, &Value, &Path) -> Result<VerifiedBundle, String>,
+    verify: impl Fn(&Path, &Value, &Path) -> Result<(VerifiedBundle, String), String>,
 ) -> Option<Result<(), String>> {
     let path = match helper_request(args)? {
         Ok(path) => path,
@@ -214,7 +216,7 @@ pub(super) fn run_if_requested(
 #[cfg(target_os = "windows")]
 fn run(
     path: &Path,
-    verify: impl Fn(&Path, &Value, &Path) -> Result<VerifiedBundle, String>,
+    verify: impl Fn(&Path, &Value, &Path) -> Result<(VerifiedBundle, String), String>,
 ) -> Result<(), String> {
     let (workspace, plan) = read_plan(path)?;
     let mut receipt_written = false;
@@ -231,7 +233,7 @@ fn run(
         let staging = workspace.join("staging");
         fs::create_dir(&staging)
             .map_err(|error| format!("cannot create helper staging: {error}"))?;
-        let verified = verify(&plan.archive, &plan.proof, &staging)?;
+        let (verified, application_version) = verify(&plan.archive, &plan.proof, &staging)?;
         validate_bundle(&workspace, &plan, &verified)?;
         write_new(&workspace.join("ready"), b"ready")?;
         parent.wait(Duration::from_secs(180))?;
@@ -246,7 +248,7 @@ fn run(
         installation_started = true;
         install(&workspace, &plan, &verified)?;
         installed = true;
-        write_receipt(&plan.receipt, "success", None)?;
+        write_receipt(&plan.receipt, "success", None, Some(&application_version))?;
         receipt_written = true;
         restart(&plan)?;
         Ok(())
@@ -264,6 +266,7 @@ fn run(
                 &Receipt {
                     version: 1,
                     result: "failure",
+                    application_version: None,
                     message: Some(&message),
                     installed,
                     uncertain: installation_started && !installed,
@@ -275,6 +278,7 @@ fn run(
             &Receipt {
                 version: 1,
                 result: "failure",
+                application_version: None,
                 message: Some(&message),
                 installed,
                 uncertain: installation_started && !installed,
@@ -447,12 +451,18 @@ fn receipt_path(path: &Path) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-fn write_receipt(path: &Path, result: &str, message: Option<&str>) -> Result<(), String> {
+fn write_receipt(
+    path: &Path,
+    result: &str,
+    message: Option<&str>,
+    application_version: Option<&str>,
+) -> Result<(), String> {
     write_json(
         path,
         &Receipt {
             version: 1,
             result,
+            application_version,
             message,
             installed: result == "success",
             uncertain: false,
@@ -467,6 +477,7 @@ fn replace_receipt(path: &Path, result: &str, message: &str) -> Result<(), Strin
     let bytes = serde_json::to_vec(&Receipt {
         version: 1,
         result,
+        application_version: None,
         message: Some(message),
         installed: true,
         uncertain: false,
