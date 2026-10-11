@@ -1,7 +1,6 @@
 use super::*;
 use gpui_kit::component::link::Link;
-use gpui_wry::WebView;
-use raw_window_handle::HasWindowHandle;
+use gpui_webview::WebView;
 
 struct ResultView {
     entry: Arc<Entry>,
@@ -34,38 +33,33 @@ impl ResultView {
             "<!doctype html><meta charset=utf-8><meta http-equiv=Content-Security-Policy content=\"default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; form-action 'none'; base-uri 'none'\">{}",
             entry.search_suggestions.as_deref().unwrap_or_default(),
         );
-        let webview = window
-            .window_handle()
-            .ok()
-            .and_then(|handle| {
-                wry::WebViewBuilder::new()
-                    .with_html(html)
-                    .with_transparent(true)
-                    .with_javascript_disabled()
-                    .with_incognito(true)
-                    .with_download_started_handler(|_, _| false)
-                    .with_navigation_handler(move |url| {
-                        if url == "about:blank" {
-                            return true;
-                        }
-                        if destination(&url) {
-                            let _ = links.send(url);
-                        }
-                        false
-                    })
-                    .with_new_window_req_handler(move |url, _| {
-                        if destination(&url) {
-                            let _ = popups.send(url);
-                        }
-                        wry::NewWindowResponse::Deny
-                    })
-                    .build_as_child(&handle)
-                    .map_err(|error| {
-                        eprintln!("sailry-desktop: failed to render search suggestions: {error}")
-                    })
-                    .ok()
+        let builder = wry::WebViewBuilder::new()
+            .with_html(html)
+            .with_transparent(true)
+            .with_javascript_disabled()
+            .with_incognito(true)
+            .with_download_started_handler(|_, _| false)
+            .with_navigation_handler(move |url| {
+                if url == "about:blank" {
+                    return true;
+                }
+                if destination(&url) {
+                    let _ = links.send(url);
+                }
+                false
             })
-            .map(|raw| cx.new(|cx| WebView::new(raw, window, cx)));
+            .with_new_window_req_handler(move |url, _| {
+                if destination(&url) {
+                    let _ = popups.send(url);
+                }
+                wry::NewWindowResponse::Deny
+            });
+        let webview = WebView::build(builder, window, cx)
+            .map_err(|error| {
+                eprintln!("sailry-desktop: failed to render search suggestions: {error}");
+            })
+            .ok()
+            .map(|page| cx.new(|_| page));
         let task = cx.spawn(async move |_, cx| {
             while let Some(url) = incoming.recv().await {
                 cx.update(|cx| cx.open_url(&url));
@@ -98,7 +92,7 @@ impl Render for ResultView {
                 .child(tr("chat_search_unavailable"))
                 .into_any_element();
         };
-        // Kit's native WebView overlays GPUI; give it its own window and fixed region.
+        // Keep search suggestions in their existing window and fixed region.
         v_flex()
             .size_full()
             .bg(cx.theme().background)

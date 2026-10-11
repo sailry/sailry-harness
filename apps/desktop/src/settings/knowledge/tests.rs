@@ -214,6 +214,8 @@ fn keeps_download_after_details_close(cx: &mut TestAppContext) {
         tap(visual, &format!("knowledge-details-{}", model.key()));
         assert!(visual.update(|window, _| {
             window
+                .within("dialog")
+                .within("gpui_component::progress::progress::Progress")
                 .try_find(SharedString::from(format!(
                     "knowledge-progress-{}",
                     model.key()
@@ -222,6 +224,7 @@ fn keeps_download_after_details_close(cx: &mut TestAppContext) {
         }));
         assert!(visual.update(|window, _| {
             window
+                .within("dialog")
                 .try_find(SharedString::from(format!(
                     "knowledge-speed-{}",
                     model.key()

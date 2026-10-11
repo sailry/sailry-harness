@@ -1,7 +1,7 @@
 [package]
 name = "gpui-component-shell"
 description = "gpui-component bindings for the gpui-shell runtime."
-version = "0.7.0"
+version = "0.7.1"
 publish = false
 edition = "2024"
 
@@ -10,13 +10,14 @@ name = "gpui_component_shell"
 path = "src/lib.rs"
 
 [dependencies]
-gpui-shell = { version = "0.7.0", path = "../shell" }
-gpui-component = { version = "0.7.0", features = ["tree-sitter-rust"], path = "../../gpui-component" }
+gpui-shell = { version = "0.7.1", path = "../shell" }
+gpui-component = { version = "0.7.1", path = "../../gpui-component", features = ["tree-sitter-rust"] }
 
 [dev-dependencies]
 gpui = { package = "gpui-pre", version = "=0.3.8", features = ["test-support"] }
-gpui-base = { version = "0.7.0", features = ["test-support"], path = "../../gpui-base" }
-gpui-component = { version = "0.7.0", features = ["test-support"], path = "../../gpui-component" }
+gpui-fast = { package = "gpui-fast", version = "=0.1.3", features = ["windows-manifest-provided-by-host", "test-support"] }
+gpui-base = { version = "0.7.1", path = "../../gpui-base", features = ["test-support"] }
+gpui-component = { version = "0.7.1", path = "../../gpui-component", features = ["test-support"] }
 serde_json = { version = "1" }
 
 [lints.clippy]
@@ -35,5 +36,8 @@ style = { level = "allow", priority = -1 }
 todo = "deny"
 type_complexity = "allow"
 useless_conversion = "allow"
+
+[features]
+gpui-fast = ["gpui-shell/gpui-fast", "gpui-component/gpui-fast", "gpui-base/gpui-fast"]
 
 [workspace]

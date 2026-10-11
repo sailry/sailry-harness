@@ -7048,6 +7048,7 @@ impl ShellRuntime {
                 "on_change",
                 "token",
                 "on_token_click",
+                "on_token_hover",
                 "on_open_change",
                 "on_confirm",
                 "on_dismiss",
@@ -8026,6 +8027,7 @@ impl ShellRuntime {
             | "on_change"
             | "token"
             | "on_token_click"
+            | "on_token_hover"
             | "on_open_change"
             | "on_confirm"
             | "on_dismiss"
@@ -9974,6 +9976,7 @@ fn callback_op_name(method: &str) -> Option<&'static str> {
         "on_change" => "on_change",
         "token" => "token",
         "on_token_click" => "on_token_click",
+        "on_token_hover" => "on_token_hover",
         "on_confirm" => "on_confirm",
         "on_dismiss" => "on_dismiss",
         "on_step" => "on_step",

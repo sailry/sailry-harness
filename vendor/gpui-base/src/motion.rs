@@ -143,6 +143,12 @@ impl Transition {
         self.easing.sample(progress)
     }
 
+    /// The easing curve, for a caller that samples one timeline at several
+    /// offsets, such as a staggered plot appear.
+    pub(crate) fn curve(&self) -> &Easing {
+        &self.easing
+    }
+
     fn progress(&self, elapsed: Duration, duration: Duration) -> (f32, MotionStatus) {
         let Some(active_elapsed) = self.delay.active_elapsed(elapsed) else {
             return (0.0, MotionStatus::Delayed);
@@ -669,6 +675,19 @@ mod css_timing_tests {
                     "{easing:?}({progress}) = {actual}, expected {expected}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn cubic_bezier_easing_keeps_anticipation_and_overshoot() {
+        let anticipate = Easing::cubic_bezier(1.0, -0.4, 0.35, 0.95).unwrap();
+        let overshoot = Easing::cubic_bezier(0.175, 0.885, 0.32, 1.275).unwrap();
+
+        assert!(anticipate.sample(0.2) < 0.0);
+        assert!(overshoot.sample(0.8) > 1.0);
+        for easing in [anticipate, overshoot] {
+            assert_eq!(easing.sample(-1.0), 0.0);
+            assert_eq!(easing.sample(2.0), 1.0);
         }
     }
 

@@ -1,8 +1,35 @@
 use super::*;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_protocol::{
     conversation::{Statistics, Usage},
     plugin::ui::Slot,
 };
+
+fn hover_summary(visual: &mut VisualTestContext) {
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            window.find("composer-stats").label(),
+            Some(tr("composer_statistics").as_ref())
+        );
+        window.hover("composer-stats", cx);
+    });
+    for _ in 0..12 {
+        visual.executor().advance_clock(Duration::from_millis(100));
+        wait(visual, |_| true);
+    }
+}
+
+fn details(entry: &crate::plugins::contributions::Entry, own: &str, child: &str) {
+    assert_eq!(entry.state.details.len(), 2);
+    for (detail, label, value) in [
+        (&entry.state.details[0], "This session", own),
+        (&entry.state.details[1], "Subagents", child),
+    ] {
+        assert_eq!(detail.label.label(&rust_i18n::locale()), label);
+        assert_eq!(detail.value, value);
+    }
+}
 
 #[gpui::test]
 fn restores_totals_and_keeps_focus(cx: &mut TestAppContext) {
@@ -132,13 +159,8 @@ fn restores_totals_and_keeps_focus(cx: &mut TestAppContext) {
                     .cost
                     .is_none()
             );
-            assert!(
-                metric("composer_cost")
-                    .state
-                    .details
-                    .iter()
-                    .all(|detail| detail.value == "—")
-            );
+            details(metric("composer_tokens"), "16", "0");
+            details(metric("composer_cost"), "—", "$0.00");
         });
         visual.simulate_input("Preserved draft 中文 🙂");
         for mode in [ThemeMode::Light, ThemeMode::Dark] {
@@ -168,7 +190,7 @@ fn restores_totals_and_keeps_focus(cx: &mut TestAppContext) {
                     assert!(branch.right() < stats.left());
                     assert_eq!(location.center().y, stats.center().y);
                     assert_eq!(branch.center().y, stats.center().y);
-                    fixture::hover(visual, "composer-stats");
+                    hover_summary(visual);
                     assert!(visual.debug_bounds("composer-statistics-panel").is_some());
                     assert!(
                         visual
@@ -177,7 +199,7 @@ fn restores_totals_and_keeps_focus(cx: &mut TestAppContext) {
                     );
                     assert!(
                         visual
-                            .debug_bounds("statistics-plugin-statistics-composer_cost-3")
+                            .debug_bounds("statistics-plugin-statistics-composer_cost-1")
                             .is_some()
                     );
                     fixture::leave(visual);
@@ -213,26 +235,26 @@ fn restores_totals_and_keeps_focus(cx: &mut TestAppContext) {
                     (
                         "composer_tokens",
                         "plugin-stat-statistics-composer_tokens",
-                        6,
+                        2,
                     ),
                     ("composer_speed", "plugin-stat-statistics-composer_speed", 2),
-                    ("composer_cost", "plugin-stat-statistics-composer_cost", 5),
+                    ("composer_cost", "plugin-stat-statistics-composer_cost", 2),
                     ("composer_cache", "plugin-stat-statistics-composer_cache", 3),
                     ("composer_turns", "plugin-stat-statistics-composer_turns", 1),
                 ] {
                     fixture::hover(visual, selector);
-                    let details = visual.debug_bounds("composer-stat-details").unwrap();
+                    let tooltip = visual.debug_bounds("composer-stat-details").unwrap();
                     assert!(
-                        details.bottom() <= px(820.)
-                            && details.left() >= px(0.)
-                            && details.right() <= px(width)
+                        tooltip.bottom() <= px(820.)
+                            && tooltip.left() >= px(0.)
+                            && tooltip.right() <= px(width)
                     );
-                    assert_eq!(details.size.width, px(220.));
+                    assert_eq!(tooltip.size.width, px(220.));
                     let prefix = format!("statistics-plugin-statistics-{metric}");
                     let header = visual
                         .debug_bounds(Box::leak(prefix.clone().into_boxed_str()))
                         .unwrap();
-                    assert!(header.top() >= details.top() && header.bottom() < details.bottom());
+                    assert!(header.top() >= tooltip.top() && header.bottom() < tooltip.bottom());
                     view.read_with(visual, |view, cx| {
                         let entry = view
                             .contributions
@@ -259,7 +281,7 @@ fn restores_totals_and_keeps_focus(cx: &mut TestAppContext) {
                         let row = visual
                             .debug_bounds(Box::leak(format!("{prefix}-{index}").into_boxed_str()))
                             .unwrap();
-                        assert!(row.left() >= details.left() && row.right() <= details.right());
+                        assert!(row.left() >= tooltip.left() && row.right() <= tooltip.right());
                         assert!(row.top() > previous);
                         previous = row.bottom();
                     }
@@ -356,7 +378,7 @@ fn counts_turns_instead_of_responses(cx: &mut TestAppContext) {
                 })
                 .unwrap();
             assert_eq!(entry.state.value.as_str(), Some("0.00"));
-            assert!(entry.state.details.iter().all(|detail| detail.value == "—"));
+            details(&entry, "—", "$0.00");
         });
         assert_eq!(fixture.server.requests.lock().unwrap().len(), 2);
         visual.update(|window, _| window.remove_window());

@@ -1,3 +1,4 @@
+// Modified by Longbridge for gpui-fast.
 use crate::{
     App, Bounds, DevicePixels, Half, Hsla, LineLayout, Pixels, Point, RenderGlyphParams, Result,
     SharedString, StrikethroughStyle, TextAlign, UnderlineStyle, Window, WrapBoundary,
@@ -554,7 +555,7 @@ fn paint_line(
         let mut color = black();
         let mut current_underline: Option<(Point<Pixels>, UnderlineStyle, Range<usize>)> = None;
         let mut current_strikethrough: Option<(Point<Pixels>, StrikethroughStyle)> = None;
-        let text_system = cx.text_system().clone();
+        let mut glyph_painter = crate::fast::glyphs::LineGlyphPainter::new(window);
         let mut glyph_origin = point(
             aligned_origin_x(
                 origin,
@@ -570,7 +571,8 @@ fn paint_line(
         let mut max_glyph_size = size(px(0.), px(0.));
         let mut first_glyph_x = origin.x;
         for (run_ix, run) in layout.runs.iter().enumerate() {
-            max_glyph_size = text_system.bounding_box(run.font_id, layout.font_size).size;
+            max_glyph_size =
+                crate::fast::glyphs::bounding_box(window, cx, run.font_id, layout.font_size).size;
 
             for (glyph_ix, glyph) in run.glyphs.iter().enumerate() {
                 glyph_origin.x += glyph.position.x - prev_glyph_position.x;
@@ -729,7 +731,12 @@ fn paint_line(
                 };
 
                 let content_mask = window.content_mask();
-                if max_glyph_bounds.intersects(&content_mask.bounds) {
+                if crate::fast::glyphs::LineGlyphPainter::may_reach(
+                    &mut glyph_painter,
+                    max_glyph_bounds,
+                    baseline_offset.y + glyph.position.y,
+                    &content_mask.bounds,
+                ) {
                     let vertical_offset = point(px(0.0), glyph.position.y);
                     if glyph.is_emoji {
                         window.paint_emoji(
@@ -739,7 +746,9 @@ fn paint_line(
                             layout.font_size,
                         )?;
                     } else {
-                        window.paint_glyph(
+                        crate::fast::glyphs::LineGlyphPainter::paint_glyph(
+                            &mut glyph_painter,
+                            window,
                             glyph_origin + baseline_offset + vertical_offset,
                             run.font_id,
                             glyph.id,
@@ -799,6 +808,9 @@ fn paint_line_background(
     window: &mut Window,
     cx: &mut App,
 ) -> Result<()> {
+    if crate::fast::glyphs::has_no_background(decoration_runs) {
+        return Ok(());
+    }
     let line_bounds = line_paint_bounds(
         origin,
         layout,

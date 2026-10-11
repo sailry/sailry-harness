@@ -1,5 +1,5 @@
 use super::*;
-use gpui_wry::WebView;
+use gpui_webview::WebView;
 use raw_window_handle::HasWindowHandle;
 
 pub(super) enum Event {
@@ -37,6 +37,10 @@ impl Browser {
             unsafe { page.raw().controller().IsVisible(&mut visible).ok() }?;
             Some(!visible.as_bool())
         });
+        #[cfg(target_os = "windows")]
+        let snapshot = tab.map(|tab| tab.snapshot.state());
+        #[cfg(not(target_os = "windows"))]
+        let snapshot = serde_json::Value::Null;
         serde_json::json!({
             "mounted": self.mounted.get(),
             "lease": self.lease,
@@ -46,7 +50,7 @@ impl Browser {
             "loading": tab.map(|tab| tab.loading),
             "kit_visible": page.map(|page| page.visible()),
             "raw_hidden": hidden,
-            "snapshot": tab.map(|tab| tab.snapshot.state()),
+            "snapshot": snapshot,
         })
     }
 
@@ -124,6 +128,7 @@ impl Browser {
             let navigation = self.events.clone();
             let shortcuts = self.events.clone();
             let shortcut = super::shortcuts::script(cx);
+            #[cfg(target_os = "windows")]
             let signals = tab.snapshot.signals();
             let page = window
                 .window_handle()
@@ -135,6 +140,7 @@ impl Browser {
                         .with_url(&url)
                         .with_initialization_script(&shortcut)
                         .with_ipc_handler(move |request| {
+                            #[cfg(target_os = "windows")]
                             if signals.receive(request.body()) {
                                 return;
                             }
@@ -180,6 +186,7 @@ impl Browser {
                             let _ = popups.send((id, Event::Open(url)));
                             wry::NewWindowResponse::Deny
                         });
+                    #[cfg(target_os = "windows")]
                     let builder = tab.snapshot.signals().prepare(builder);
                     #[cfg(target_os = "macos")]
                     let builder = {
@@ -223,21 +230,14 @@ impl Browser {
                             self.events.clone(),
                         ));
                     }
-                    let background = tab.background;
                     tab.page = Some(cx.new(|cx| {
-                        let page = if background {
-                            // Pinned Kit's new()+hide() moves native keyboard focus
-                            // even when Wry already created this view invisible.
-                            WebView::new_hidden(page, window, cx)
-                        } else {
-                            let mut page = WebView::new(page, window, cx);
-                            page.hide();
-                            page
-                        };
+                        // Mounting and selection explicitly hand off focus later.
+                        // Hidden construction also preserves a foreground tab's responder.
+                        let page = WebView::new_hidden(page, window, cx);
                         // Kit initializes zero bounds and has no layout for unmounted tabs.
                         // Background browser tools still need a viewport; visible layout takes over.
                         let viewport = window.viewport_size();
-                        let _ = page.raw().set_bounds(wry::Rect {
+                        let _ = page.set_bounds(wry::Rect {
                             position: wry::dpi::LogicalPosition::new(0., 0.).into(),
                             size: wry::dpi::LogicalSize::new(
                                 f32::from(viewport.width) as f64,
@@ -261,7 +261,7 @@ impl Browser {
     }
 
     #[cfg(feature = "workload-tests")]
-    pub(crate) fn handle(&self, tab: u64, cx: &App) -> Option<gpui_wry::WebViewHandle> {
+    pub(crate) fn handle(&self, tab: u64, cx: &App) -> Option<gpui_webview::WebViewHandle> {
         self.tabs
             .iter()
             .find(|entry| entry.id as u64 == tab)

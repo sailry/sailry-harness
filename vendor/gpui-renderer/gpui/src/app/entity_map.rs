@@ -1,3 +1,4 @@
+// Modified by Longbridge for gpui-fast.
 use crate::{App, AppContext, GpuiBorrow, VisualContext, Window, seal::Sealed};
 use anyhow::{Context as _, Result};
 use collections::FxHashSet;
@@ -56,6 +57,7 @@ impl Display for EntityId {
 pub(crate) struct EntityMap {
     entities: SecondaryMap<EntityId, Box<dyn Any>>,
     pub accessed_entities: RefCell<FxHashSet<EntityId>>,
+    pub(crate) access_log: crate::fast::dependencies::EntityAccessLog,
     ref_counts: Arc<RwLock<EntityRefCounts>>,
 }
 
@@ -76,6 +78,7 @@ impl EntityMap {
         Self {
             entities: SecondaryMap::new(),
             accessed_entities: RefCell::new(FxHashSet::default()),
+            access_log: crate::fast::dependencies::EntityAccessLog::default(),
             ref_counts: Arc::new(RwLock::new(EntityRefCounts {
                 counts: SlotMap::with_key(),
                 dropped_entity_ids: Vec::new(),
@@ -127,6 +130,7 @@ impl EntityMap {
     {
         let mut accessed_entities = self.accessed_entities.get_mut();
         accessed_entities.insert(slot.entity_id);
+        crate::fast::dependencies::note_access(self, slot.entity_id);
 
         let handle = slot.0;
         self.entities.insert(handle.entity_id, Box::new(entity));
@@ -159,6 +163,7 @@ impl EntityMap {
     #[track_caller]
     pub(super) fn lease_erased(&mut self, pointer: &AnyEntity, entity_type: &str) -> LeaseInner {
         self.assert_valid_context(pointer);
+        crate::fast::dependencies::note_update(self, pointer.entity_id);
         let entity = Some(
             self.lease_inner(pointer.entity_id)
                 .unwrap_or_else(|| double_lease_panic("update", entity_type)),
@@ -175,12 +180,6 @@ impl EntityMap {
             Weak::ptr_eq(&entity.entity_map, &Arc::downgrade(&self.ref_counts)),
             "used a entity with the wrong context"
         );
-    }
-
-    pub fn extend_accessed(&mut self, entities: &FxHashSet<EntityId>) {
-        self.accessed_entities
-            .get_mut()
-            .extend(entities.iter().copied());
     }
 
     pub fn clear_accessed(&mut self) {
@@ -201,6 +200,7 @@ impl EntityMap {
                     "dropped an entity that was referenced"
                 );
                 accessed_entities.remove(&entity_id);
+                crate::fast::dependencies::EntityAccessLog::forget(&mut self.access_log, entity_id);
                 // If the EntityId was allocated with `Context::reserve`,
                 // the entity may not have been inserted.
                 Some((entity_id, self.entities.remove(entity_id)?))
@@ -212,6 +212,7 @@ impl EntityMap {
     fn read_inner(&self, entity_id: EntityId) -> Option<&dyn Any> {
         let mut accessed_entities = self.accessed_entities.borrow_mut();
         accessed_entities.insert(entity_id);
+        crate::fast::dependencies::note_access(self, entity_id);
         self.entities.get(entity_id).map(Box::as_ref)
     }
 

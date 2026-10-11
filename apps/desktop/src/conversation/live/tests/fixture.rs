@@ -1,5 +1,6 @@
 use super::{provider, support, wait};
 use crate::conversation::live::*;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_link::{Link, NetworkScope, Transport};
 use sailry_node_runtime::Node;
 use std::time::Duration;
@@ -231,8 +232,24 @@ pub(crate) fn open_session(
 }
 
 pub(crate) fn hover(cx: &mut VisualTestContext, selector: &'static str) {
-    let bounds = cx.debug_bounds(selector).unwrap();
-    move_pointer(cx, bounds.center());
+    let observed = cx.update(|window, cx| {
+        window.render_frame(cx);
+        if window.try_find(selector).is_some() {
+            window.hover(selector, cx);
+            true
+        } else {
+            false
+        }
+    });
+    if observed {
+        for _ in 0..12 {
+            cx.executor().advance_clock(Duration::from_millis(100));
+            wait(cx, |_| true);
+        }
+    } else {
+        let bounds = cx.debug_bounds(selector).unwrap();
+        move_pointer(cx, bounds.center());
+    }
 }
 
 pub(crate) fn leave(cx: &mut VisualTestContext) {
@@ -260,10 +277,24 @@ pub(crate) fn tap(cx: &mut VisualTestContext, selector: &str) {
     ) {
         crate::feedback::tests::settle(cx);
     }
-    cx.update(|window, cx| {
-        window.refresh();
-        window.draw(cx).clear(cx);
+    let observed = cx.update(|window, cx| {
+        window.render_frame(cx);
+        if window
+            .try_find(SharedString::from(selector.to_owned()))
+            .is_some()
+        {
+            window.click(SharedString::from(selector.to_owned()), cx);
+            true
+        } else {
+            false
+        }
     });
+    if observed {
+        cx.run_until_parked();
+        cx.update(|window, cx| window.render_frame(cx));
+        return;
+    }
+    // Legacy debug-only anchors retain native hit testing until their owning feature migrates.
     let selector = Box::leak(selector.to_owned().into_boxed_str());
     let bounds = cx
         .debug_bounds(selector)

@@ -1,3 +1,4 @@
+// Modified by Longbridge for gpui-fast.
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use std::{
@@ -1036,6 +1037,22 @@ impl PlatformWindow for WindowsWindow {
             .log_err();
     }
 
+    fn draw_composed(&self, scene: ComposedScene<'_>) {
+        crate::fast::composition::draw_composed(self, scene)
+    }
+
+    fn enable_window_composition(&self) -> anyhow::Result<()> {
+        crate::fast::composition::enable_window_composition(self)
+    }
+
+    fn create_native_surface(&self) -> anyhow::Result<Rc<dyn PlatformSurfaceAttachment>> {
+        crate::fast::composition::create_native_surface(self)
+    }
+
+    fn set_composition_order(&self, surfaces: &[PlatformCompositionSurface]) -> anyhow::Result<()> {
+        crate::fast::composition::set_composition_order(self, surfaces)
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     fn render_to_image(&self, scene: &Scene) -> anyhow::Result<image::RgbaImage> {
         self.state
@@ -1416,7 +1433,7 @@ enum WindowOpenState {
     Windowed,
 }
 
-const WINDOW_CLASS_NAME: PCWSTR = w!("Zed::Window");
+pub(crate) const WINDOW_CLASS_NAME: PCWSTR = w!("Zed::Window");
 
 fn register_window_class(icon_handle: HICON) {
     static ONCE: Once = Once::new();

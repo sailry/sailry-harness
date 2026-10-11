@@ -1,6 +1,7 @@
 use super::*;
 use core::prelude::v1::test;
 use gpui_kit::component::Root;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_protocol::{Authentication, conversation::ModelApi};
 
 #[gpui::test]
@@ -90,25 +91,25 @@ fn scrolls_expanded_groups(cx: &mut TestAppContext) {
         Root::new(picker, window, cx)
     });
     let picker = owner.unwrap();
-    let draw = |visual: &mut VisualTestContext| {
-        visual.run_until_parked();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
-    };
+    let draw = settle;
     draw(visual);
-    let scroll = visual.debug_bounds("composer-model-scroll").unwrap();
-    assert!(scroll.size.height <= px(320.));
-    visual.simulate_event(ScrollWheelEvent {
-        position: scroll.center(),
-        delta: ScrollDelta::Pixels(point(px(0.), px(-2000.))),
-        touch_phase: TouchPhase::Moved,
-        modifiers: Modifiers::default(),
+    let scroll = visual.update(|window, _| window.find("composer-model-scroll").bounds());
+    assert_eq!(
+        scroll.size.height,
+        visual.update(|window, _| panel_size(window).height),
+    );
+    visual.update(|window, cx| {
+        window.scroll(
+            "composer-model-scroll",
+            ScrollDelta::Pixels(point(px(0.), px(-2000.))),
+            cx,
+        );
     });
     draw(visual);
     let bottom = picker.read_with(visual, |picker, _| picker.scroll.offset().y);
     assert!(bottom < px(-100.));
     for collapsed in [true, false] {
-        let header = visual.debug_bounds("composer-model-group-1").unwrap();
-        visual.simulate_click(header.center(), Modifiers::default());
+        visual.update(|window, cx| window.click("composer-model-group-1", cx));
         visual
             .executor()
             .advance_clock(std::time::Duration::from_secs(1));
@@ -118,16 +119,20 @@ fn scrolls_expanded_groups(cx: &mut TestAppContext) {
             collapsed
         );
     }
-    visual.simulate_event(ScrollWheelEvent {
-        position: scroll.center(),
-        delta: ScrollDelta::Pixels(point(px(0.), px(-2000.))),
-        touch_phase: TouchPhase::Moved,
-        modifiers: Modifiers::default(),
+    let scroll = visual.update(|window, _| window.find("composer-model-scroll").bounds());
+    visual.update(|window, cx| {
+        window.scroll(
+            "composer-model-scroll",
+            ScrollDelta::Pixels(point(px(0.), px(-2000.))),
+            cx,
+        );
     });
     draw(visual);
-    let last = visual
-        .debug_bounds("composer-model-option-1-model-1")
-        .unwrap();
+    let last = visual.update(|window, _| {
+        window
+            .find((SharedString::from("model-model-1"), 1usize))
+            .bounds()
+    });
     assert!(
         last.top() >= scroll.top() && last.bottom() <= scroll.bottom(),
         "last provider must remain reachable: {last:?}, {scroll:?}"
@@ -139,7 +144,7 @@ fn scrolls_expanded_groups(cx: &mut TestAppContext) {
             *received.borrow_mut() = Some(picked.selection.clone());
         })
     });
-    visual.simulate_click(last.center(), Modifiers::default());
+    visual.update(|window, cx| window.click((SharedString::from("model-model-1"), 1usize), cx));
     draw(visual);
     assert_eq!(
         *selected.borrow(),
@@ -148,6 +153,28 @@ fn scrolls_expanded_groups(cx: &mut TestAppContext) {
             model: "model-1".into()
         })
     );
+}
+
+fn settle(visual: &mut VisualTestContext) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    let mut previous = None;
+    loop {
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            window.simulate_next_frame(cx);
+            window.render_frame(cx);
+        });
+        let bounds = visual.update(|window, _| window.find("composer-model-scroll").bounds());
+        if previous == Some(bounds) {
+            return;
+        }
+        previous = Some(bounds);
+        assert!(
+            std::time::Instant::now() < deadline,
+            "picker layout deadline"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
 }
 
 #[gpui::test]

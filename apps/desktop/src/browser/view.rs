@@ -29,6 +29,7 @@ impl Render for Browser {
             panel.on_action(cx.listener(|this, _: &inspector::Inspect, _, cx| this.inspect(cx)));
         panel
             .debug_selector(|| "browser-surface".into())
+            .test_support()
             .size_full()
             .min_h_0()
             .min_w_0()

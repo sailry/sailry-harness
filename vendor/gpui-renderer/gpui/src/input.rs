@@ -1,3 +1,4 @@
+// Modified by Longbridge for gpui-fast.
 use crate::{
     App, Bounds, ClipboardItem, Context, Entity, InputHandler, Pixels, TextInputConfiguration,
     UTF16Selection, Window,
@@ -149,14 +150,15 @@ impl<V: EntityInputHandler> InputHandler for ElementInputHandler<V> {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<UTF16Selection> {
-        self.view.update(cx, |view, cx| {
+        crate::fast::dependencies::query(&self.view, cx, |view, cx| {
             view.selected_text_range(ignore_disabled_input, window, cx)
         })
     }
 
     fn marked_text_range(&mut self, window: &mut Window, cx: &mut App) -> Option<Range<usize>> {
-        self.view
-            .update(cx, |view, cx| view.marked_text_range(window, cx))
+        crate::fast::dependencies::query(&self.view, cx, |view, cx| {
+            view.marked_text_range(window, cx)
+        })
     }
 
     fn text_for_range(
@@ -166,7 +168,7 @@ impl<V: EntityInputHandler> InputHandler for ElementInputHandler<V> {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<String> {
-        self.view.update(cx, |view, cx| {
+        crate::fast::dependencies::query(&self.view, cx, |view, cx| {
             view.text_for_range(range_utf16, adjusted_range, window, cx)
         })
     }
@@ -218,7 +220,7 @@ impl<V: EntityInputHandler> InputHandler for ElementInputHandler<V> {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<Bounds<Pixels>> {
-        self.view.update(cx, |view, cx| {
+        crate::fast::dependencies::query(&self.view, cx, |view, cx| {
             view.bounds_for_range(range_utf16, self.element_bounds, window, cx)
         })
     }
@@ -229,7 +231,7 @@ impl<V: EntityInputHandler> InputHandler for ElementInputHandler<V> {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<usize> {
-        self.view.update(cx, |view, cx| {
+        crate::fast::dependencies::query(&self.view, cx, |view, cx| {
             view.character_index_for_point(point, window, cx)
         })
     }
@@ -250,18 +252,21 @@ impl<V: EntityInputHandler> InputHandler for ElementInputHandler<V> {
     }
 
     fn text_length_utf16(&mut self, window: &mut Window, cx: &mut App) -> Option<usize> {
-        self.view
-            .update(cx, |view, cx| view.text_length_utf16(window, cx))
+        crate::fast::dependencies::query(&self.view, cx, |view, cx| {
+            view.text_length_utf16(window, cx)
+        })
     }
 
     fn accepts_text_input(&mut self, window: &mut Window, cx: &mut App) -> bool {
-        self.view
-            .update(cx, |view, cx| view.accepts_text_input(window, cx))
+        crate::fast::dependencies::query(&self.view, cx, |view, cx| {
+            view.accepts_text_input(window, cx)
+        })
     }
 
     fn prefers_ime_for_printable_keys(&mut self, window: &mut Window, cx: &mut App) -> bool {
-        self.view
-            .update(cx, |view, cx| view.accepts_text_input(window, cx))
+        crate::fast::dependencies::query(&self.view, cx, |view, cx| {
+            view.accepts_text_input(window, cx)
+        })
     }
 
     fn text_input_configuration(
@@ -269,8 +274,9 @@ impl<V: EntityInputHandler> InputHandler for ElementInputHandler<V> {
         window: &mut Window,
         cx: &mut App,
     ) -> TextInputConfiguration {
-        self.view
-            .update(cx, |view, cx| view.text_input_configuration(window, cx))
+        crate::fast::dependencies::query(&self.view, cx, |view, cx| {
+            view.text_input_configuration(window, cx)
+        })
     }
 
     fn text_input_editable_range(
@@ -278,8 +284,9 @@ impl<V: EntityInputHandler> InputHandler for ElementInputHandler<V> {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<Range<usize>> {
-        self.view
-            .update(cx, |view, cx| view.text_input_editable_range(window, cx))
+        crate::fast::dependencies::query(&self.view, cx, |view, cx| {
+            view.text_input_editable_range(window, cx)
+        })
     }
 }
 

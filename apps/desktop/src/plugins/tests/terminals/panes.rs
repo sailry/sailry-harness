@@ -315,8 +315,22 @@ fn shares_workspace_and_preserves_process_on_detach(cx: &mut TestAppContext) {
         let title = "终端🙂".repeat(100);
         assert!(title.len() > 512);
         assert!(title.chars().count() <= 512);
-        visual.simulate_input(&format!("printf '\\033]2;{title}\\007'; sleep 1"));
-        visual.simulate_keystrokes("enter");
+        // A complete paste avoids flooding the bounded queue with synthetic key events.
+        visual.update(|window, cx| {
+            use gpui_kit::test::TestWindowExt as _;
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(format!(
+                "printf '\\033]2;{title}\\007'; sleep 1"
+            )));
+            window.press(
+                if cfg!(target_os = "macos") {
+                    "cmd-v"
+                } else {
+                    "ctrl-shift-v"
+                },
+                cx,
+            );
+            window.press("enter", cx);
+        });
         wait_title(&shell, &panel, &view, terminal, &title, visual);
         assert!(visual.update(|_, cx| snapshot(&panel, cx).contains("terminal-content-running")));
         wait(visual, |cx| {

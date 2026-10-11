@@ -1,3 +1,4 @@
+// Modified by Longbridge for gpui-fast.
 //! Div is the central, reusable element that most GPUI trees will be built from.
 //! It functions as a container for other elements, and provides a number of
 //! useful features for laying out and styling its children as well as binding
@@ -580,7 +581,7 @@ impl Interactivity {
         &mut self,
         predicate: impl Fn(&dyn Any, &mut Window, &mut App) -> bool + 'static,
     ) {
-        self.can_drop_predicate = Some(Box::new(predicate));
+        self.can_drop_predicate = crate::fast::interactivity::rare(Box::new(predicate));
     }
 
     /// Bind the given callback to click events of this element.
@@ -625,7 +626,7 @@ impl Interactivity {
             self.drag_listener.is_none(),
             "calling on_drag more than once on the same element is not supported"
         );
-        self.drag_listener = Some(DragListener {
+        self.drag_listener = crate::fast::interactivity::rare(DragListener {
             value: Arc::new(value),
             render: Box::new(move |value, offset, window, cx| {
                 constructor(value.downcast_ref().unwrap(), offset, window, cx).into()
@@ -680,7 +681,7 @@ impl Interactivity {
             self.hover_listener.is_none(),
             "calling on_hover more than once on the same element is not supported"
         );
-        self.hover_listener = Some(Box::new(listener));
+        self.hover_listener = crate::fast::interactivity::rare(Box::new(listener));
     }
 
     /// Sets how [`Self::on_hover`] responds to key presses while the mouse is stationary.
@@ -703,7 +704,7 @@ impl Interactivity {
             self.tooltip_builder.is_none(),
             "calling tooltip more than once on the same element is not supported"
         );
-        self.tooltip_builder = Some(TooltipBuilder {
+        self.tooltip_builder = crate::fast::interactivity::rare(TooltipBuilder {
             build: Rc::new(build_tooltip),
             hoverable: false,
         });
@@ -722,7 +723,7 @@ impl Interactivity {
             self.tooltip_builder.is_none(),
             "calling tooltip more than once on the same element is not supported"
         );
-        self.tooltip_builder = Some(TooltipBuilder {
+        self.tooltip_builder = crate::fast::interactivity::rare(TooltipBuilder {
             build: Rc::new(build_tooltip),
             hoverable: true,
         });
@@ -854,7 +855,7 @@ pub trait InteractiveElement: Sized {
         group_name: impl Into<SharedString>,
         f: impl FnOnce(StyleRefinement) -> StyleRefinement,
     ) -> Self {
-        self.interactivity().group_hover_style = Some(GroupStyle {
+        self.interactivity().group_hover_style = crate::fast::interactivity::rare(GroupStyle {
             group: group_name.into(),
             style: Box::new(f(StyleRefinement::default())),
         });
@@ -1386,7 +1387,8 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         mut self,
         f: impl FnOnce(&mut crate::A11ySubtreeBuilder) + 'static,
     ) -> Self {
-        self.interactivity().a11y_synthetic_children = Some(Box::new(f));
+        self.interactivity().a11y_synthetic_children =
+            crate::fast::interactivity::rare(Box::new(f));
         self
     }
 
@@ -1553,7 +1555,7 @@ pub trait StatefulInteractiveElement: InteractiveElement {
 
     /// Track the scroll state of this element with the given handle.
     fn anchor_scroll(mut self, scroll_anchor: Option<ScrollAnchor>) -> Self {
-        self.interactivity().scroll_anchor = scroll_anchor;
+        self.interactivity().scroll_anchor = crate::fast::interactivity::rare_option(scroll_anchor);
         self
     }
 
@@ -1575,7 +1577,7 @@ pub trait StatefulInteractiveElement: InteractiveElement {
     where
         Self: Sized,
     {
-        self.interactivity().group_active_style = Some(GroupStyle {
+        self.interactivity().group_active_style = crate::fast::interactivity::rare(GroupStyle {
             group: group_name.into(),
             style: Box::new(f(StyleRefinement::default())),
         });
@@ -1951,7 +1953,7 @@ impl Element for Div {
                             .iter_mut()
                             .map(|child| child.request_layout(window, cx))
                             .collect::<SmallVec<_>>();
-                        window.request_layout(style, child_layout_ids.iter().copied(), cx)
+                        crate::fast::layout::request_layout(window, &style, &child_layout_ids)
                     })
                 },
             )
@@ -1990,6 +1992,7 @@ impl Element for Div {
         let content_size = if request_layout.child_layout_ids.is_empty() {
             bounds.size
         } else if let Some(scroll_handle) = self.interactivity.tracked_scroll_handle.as_ref() {
+            crate::fast::layers::input::track_handle(window, &scroll_handle.0);
             let mut state = scroll_handle.0.borrow_mut();
             state.child_bounds = Vec::with_capacity(request_layout.child_layout_ids.len());
             for child_layout_id in &request_layout.child_layout_ids {
@@ -2030,7 +2033,17 @@ impl Element for Div {
                 }
 
                 window.with_image_cache(image_cache, |window| {
-                    window.with_element_offset(scroll_offset, |window| {
+                    let fast_layer = crate::fast::layers::paint::begin_children(
+                        window,
+                        cx,
+                        global_id,
+                        bounds,
+                        child_min,
+                        content_size,
+                        scroll_offset,
+                        style,
+                    );
+                    crate::fast::layers::paint::prepaint_children(window, fast_layer, |window| {
                         if let Some(order_fn) = &self.prepaint_order_fn {
                             let order = order_fn(window, cx);
                             for idx in order {
@@ -2044,8 +2057,10 @@ impl Element for Div {
                             }
                         }
                     });
+                    crate::fast::layers::paint::end_children(window, cx, fast_layer);
 
                     if let Some(listener) = self.prepaint_listener.as_ref() {
+                        crate::fast::layers::invalidate::note_uncarried(window);
                         listener(children_bounds, window, cx);
                     }
                 });
@@ -2085,9 +2100,16 @@ impl Element for Div {
                         return;
                     }
 
-                    for child in &mut self.children {
-                        child.paint(window, cx);
-                    }
+                    crate::fast::layers::paint::paint_children(
+                        window,
+                        cx,
+                        global_id,
+                        |window, cx| {
+                            for child in &mut self.children {
+                                child.paint(window, cx);
+                            }
+                        },
+                    );
                 },
             )
         });
@@ -2144,7 +2166,7 @@ pub struct Interactivity {
     pub(crate) focusable: bool,
     pub(crate) tracked_focus_handle: Option<FocusHandle>,
     pub(crate) tracked_scroll_handle: Option<ScrollHandle>,
-    pub(crate) scroll_anchor: Option<ScrollAnchor>,
+    pub(crate) scroll_anchor: crate::fast::interactivity::Rare<ScrollAnchor>,
     pub(crate) scroll_offset: Option<Rc<RefCell<Point<Pixels>>>>,
     pub(crate) ongoing_scroll: Option<Rc<RefCell<OngoingScroll>>>,
     pub(crate) group: Option<SharedString>,
@@ -2155,34 +2177,36 @@ pub struct Interactivity {
     pub(crate) in_focus_style: Option<Box<StyleRefinement>>,
     pub(crate) focus_visible_style: Option<Box<StyleRefinement>>,
     pub(crate) hover_style: Option<Box<StyleRefinement>>,
-    pub(crate) group_hover_style: Option<GroupStyle>,
+    pub(crate) group_hover_style: crate::fast::interactivity::Rare<GroupStyle>,
     pub(crate) active_style: Option<Box<StyleRefinement>>,
-    pub(crate) group_active_style: Option<GroupStyle>,
-    pub(crate) drag_over_styles: Vec<(
+    pub(crate) group_active_style: crate::fast::interactivity::Rare<GroupStyle>,
+    pub(crate) drag_over_styles: crate::fast::interactivity::LazyVec<(
         TypeId,
         Box<dyn Fn(&dyn Any, &mut Window, &mut App) -> StyleRefinement>,
     )>,
-    pub(crate) group_drag_over_styles: Vec<(TypeId, GroupStyle)>,
-    pub(crate) mouse_down_listeners: Vec<MouseDownListener>,
-    pub(crate) mouse_up_listeners: Vec<MouseUpListener>,
-    pub(crate) mouse_pressure_listeners: Vec<MousePressureListener>,
-    pub(crate) mouse_move_listeners: Vec<MouseMoveListener>,
-    pub(crate) mouse_exit_listeners: Vec<MouseExitListener>,
-    pub(crate) file_drop_exit_listeners: Vec<FileDropExitListener>,
-    pub(crate) scroll_wheel_listeners: Vec<ScrollWheelListener>,
-    pub(crate) pinch_listeners: Vec<PinchListener>,
-    pub(crate) key_down_listeners: Vec<KeyDownListener>,
-    pub(crate) key_up_listeners: Vec<KeyUpListener>,
-    pub(crate) modifiers_changed_listeners: Vec<ModifiersChangedListener>,
-    pub(crate) action_listeners: Vec<(TypeId, ActionListener)>,
-    pub(crate) drop_listeners: Vec<(TypeId, DropListener)>,
-    pub(crate) can_drop_predicate: Option<CanDropPredicate>,
-    pub(crate) click_listeners: Vec<ClickListener>,
-    pub(crate) aux_click_listeners: Vec<ClickListener>,
-    pub(crate) drag_listener: Option<DragListener>,
-    pub(crate) hover_listener: Option<Box<dyn Fn(&bool, &mut Window, &mut App)>>,
+    pub(crate) group_drag_over_styles: crate::fast::interactivity::LazyVec<(TypeId, GroupStyle)>,
+    pub(crate) mouse_down_listeners: crate::fast::interactivity::LazyVec<MouseDownListener>,
+    pub(crate) mouse_up_listeners: crate::fast::interactivity::LazyVec<MouseUpListener>,
+    pub(crate) mouse_pressure_listeners: crate::fast::interactivity::LazyVec<MousePressureListener>,
+    pub(crate) mouse_move_listeners: crate::fast::interactivity::LazyVec<MouseMoveListener>,
+    pub(crate) mouse_exit_listeners: crate::fast::interactivity::LazyVec<MouseExitListener>,
+    pub(crate) file_drop_exit_listeners: crate::fast::interactivity::LazyVec<FileDropExitListener>,
+    pub(crate) scroll_wheel_listeners: crate::fast::interactivity::LazyVec<ScrollWheelListener>,
+    pub(crate) pinch_listeners: crate::fast::interactivity::LazyVec<PinchListener>,
+    pub(crate) key_down_listeners: crate::fast::interactivity::LazyVec<KeyDownListener>,
+    pub(crate) key_up_listeners: crate::fast::interactivity::LazyVec<KeyUpListener>,
+    pub(crate) modifiers_changed_listeners:
+        crate::fast::interactivity::LazyVec<ModifiersChangedListener>,
+    pub(crate) action_listeners: crate::fast::interactivity::LazyVec<(TypeId, ActionListener)>,
+    pub(crate) drop_listeners: crate::fast::interactivity::LazyVec<(TypeId, DropListener)>,
+    pub(crate) can_drop_predicate: crate::fast::interactivity::Rare<CanDropPredicate>,
+    pub(crate) click_listeners: crate::fast::interactivity::LazyVec<ClickListener>,
+    pub(crate) aux_click_listeners: crate::fast::interactivity::LazyVec<ClickListener>,
+    pub(crate) drag_listener: crate::fast::interactivity::Rare<DragListener>,
+    pub(crate) hover_listener:
+        crate::fast::interactivity::Rare<Box<dyn Fn(&bool, &mut Window, &mut App)>>,
     pub(crate) hover_listener_mode: HoverListenerMode,
-    pub(crate) tooltip_builder: Option<TooltipBuilder>,
+    pub(crate) tooltip_builder: crate::fast::interactivity::Rare<TooltipBuilder>,
     pub(crate) tooltip_show_delay: Option<Duration>,
     pub(crate) window_control: Option<WindowControlArea>,
     pub(crate) hitbox_behavior: HitboxBehavior,
@@ -2190,12 +2214,15 @@ pub struct Interactivity {
     pub(crate) tab_group: bool,
     pub(crate) tab_stop: bool,
 
-    pub(crate) a11y_action_listeners:
-        Vec<(accesskit::Action, crate::window::a11y::A11yActionListener)>,
-    pub(crate) a11y_synthetic_children: Option<Box<dyn FnOnce(&mut crate::A11ySubtreeBuilder)>>,
+    pub(crate) a11y_action_listeners: crate::fast::interactivity::LazyVec<(
+        accesskit::Action,
+        crate::window::a11y::A11yActionListener,
+    )>,
+    pub(crate) a11y_synthetic_children:
+        crate::fast::interactivity::Rare<Box<dyn FnOnce(&mut crate::A11ySubtreeBuilder)>>,
     pub(crate) report_active_descendant_focus: bool,
     pub(crate) override_role: Option<accesskit::Role>,
-    pub(crate) aria: AriaProperties,
+    pub(crate) aria: crate::fast::interactivity::Aria,
 
     #[cfg(any(feature = "inspector", debug_assertions))]
     pub(crate) source_location: Option<&'static core::panic::Location<'static>>,
@@ -2271,6 +2298,7 @@ impl Interactivity {
 
                 if let Some(scroll_handle) = self.tracked_scroll_handle.as_ref() {
                     let scroll_handle_state = scroll_handle.0.borrow();
+                    crate::fast::dependencies::note_state_read(cx, &scroll_handle_state.version);
                     self.scroll_offset = Some(scroll_handle_state.offset.clone());
                     self.ongoing_scroll = Some(scroll_handle_state.ongoing_scroll.clone());
                 } else if (self.base_style.overflow.x == Some(Overflow::Scroll)
@@ -2383,7 +2411,8 @@ impl Interactivity {
                     }
                 }
 
-                window.with_text_style(style.text_style().cloned(), |window| {
+                let opacity = crate::fast::retained::push_element_opacity(window, style.opacity);
+                let result = window.with_text_style(style.text_style().cloned(), |window| {
                     window.with_content_mask(
                         style.overflow_mask(bounds, window.rem_size()),
                         |window| {
@@ -2399,7 +2428,9 @@ impl Interactivity {
                             (result, element_state)
                         },
                     )
-                })
+                });
+                crate::fast::retained::pop_element_opacity(window, opacity);
+                result
             },
         )
     }
@@ -2694,12 +2725,16 @@ impl Interactivity {
 
                         let was_hovered = hitbox.is_hovered(window);
                         let current_view = window.current_view();
+                        let subtrees = crate::fast::retained::enclosing_retained_subtrees(window);
                         window.on_mouse_event({
                             let hitbox = hitbox.clone();
                             move |_: &MouseMoveEvent, phase, window, cx| {
                                 if phase == DispatchPhase::Capture {
                                     let hovered = hitbox.is_hovered(window);
                                     if hovered != was_hovered {
+                                        crate::fast::retained::invalidate_retained_subtrees(
+                                            window, &subtrees,
+                                        );
                                         cx.notify(current_view)
                                     }
                                 }
@@ -2854,6 +2889,7 @@ impl Interactivity {
                     .cloned()
             });
             let current_view = window.current_view();
+            let subtrees = crate::fast::retained::enclosing_retained_subtrees(window);
 
             window.on_mouse_event(move |_: &MouseMoveEvent, phase, window, cx| {
                 let hovered = hitbox.is_hovered(window);
@@ -2863,6 +2899,7 @@ impl Interactivity {
                 if phase == DispatchPhase::Capture && hovered != was_hovered {
                     if let Some(hover_state) = &hover_state {
                         hover_state.borrow_mut().element = hovered;
+                        crate::fast::retained::invalidate_retained_subtrees(window, &subtrees);
                         cx.notify(current_view);
                     }
                 }
@@ -2876,6 +2913,7 @@ impl Interactivity {
                     .and_then(|element| element.hover_state.as_ref())
                     .cloned();
                 let current_view = window.current_view();
+                let subtrees = crate::fast::retained::enclosing_retained_subtrees(window);
 
                 window.on_mouse_event(move |_: &MouseMoveEvent, phase, window, cx| {
                     let group_hovered = group_hitbox_id.is_hovered(window);
@@ -2885,6 +2923,7 @@ impl Interactivity {
                     if phase == DispatchPhase::Capture && group_hovered != was_group_hovered {
                         if let Some(hover_state) = &hover_state {
                             hover_state.borrow_mut().group = group_hovered;
+                            crate::fast::retained::invalidate_retained_subtrees(window, &subtrees);
                             cx.notify(current_view);
                         }
                     }
@@ -3312,9 +3351,11 @@ impl Interactivity {
         if let Some(group_hitbox) = group_hitbox {
             let was_hovered = group_hitbox.is_hovered(window);
             let current_view = window.current_view();
+            let subtrees = crate::fast::retained::enclosing_retained_subtrees(window);
             window.on_mouse_event(move |_: &MouseMoveEvent, phase, window, cx| {
                 let hovered = group_hitbox.is_hovered(window);
                 if phase == DispatchPhase::Capture && hovered != was_hovered {
+                    crate::fast::retained::invalidate_retained_subtrees(window, &subtrees);
                     cx.notify(current_view);
                 }
             });
@@ -3336,6 +3377,8 @@ impl Interactivity {
             let line_height = window.line_height();
             let hitbox = hitbox.clone();
             let current_view = window.current_view();
+            let subtrees = crate::fast::retained::enclosing_retained_subtrees(window);
+            let fast_container = crate::fast::layers::invalidate::painted_container(window, self);
             window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
                 if phase == DispatchPhase::Bubble && hitbox.should_handle_scroll(window) {
                     let mut scroll_offset = scroll_offset.borrow_mut();
@@ -3379,6 +3422,8 @@ impl Interactivity {
                     scroll_offset.y += delta_y;
                     scroll_offset.x += delta_x;
                     if *scroll_offset != old_scroll_offset {
+                        crate::fast::retained::invalidate_retained_subtrees(window, &subtrees);
+                        crate::fast::layers::invalidate::note_scrolled(window, &fast_container);
                         cx.notify(current_view);
                     }
                 }
@@ -4218,7 +4263,7 @@ impl ScrollAnchor {
 }
 
 #[derive(Default, Debug)]
-struct ScrollHandleState {
+pub(crate) struct ScrollHandleState {
     offset: Rc<RefCell<Point<Pixels>>>,
     ongoing_scroll: Rc<RefCell<OngoingScroll>>,
     bounds: Bounds<Pixels>,
@@ -4227,6 +4272,7 @@ struct ScrollHandleState {
     scroll_to_bottom: bool,
     overflow: Point<Overflow>,
     active_item: Option<ScrollActiveItem>,
+    pub(crate) version: crate::fast::dependencies::StateVersion,
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -4246,7 +4292,7 @@ enum ScrollStrategy {
 /// Used for accessing scroll state, like the current scroll offset,
 /// and for mutating the scroll state, like scrolling to a specific child.
 #[derive(Clone, Debug)]
-pub struct ScrollHandle(Rc<RefCell<ScrollHandleState>>);
+pub struct ScrollHandle(pub(crate) Rc<RefCell<ScrollHandleState>>);
 
 impl Default for ScrollHandle {
     fn default() -> Self {
@@ -4262,17 +4308,20 @@ impl ScrollHandle {
 
     /// Get the current scroll offset.
     pub fn offset(&self) -> Point<Pixels> {
+        crate::fast::layers::invalidate::note_offset_read(&self.0.borrow().version);
         *self.0.borrow().offset.borrow()
     }
 
     /// Get the maximum scroll offset.
     pub fn max_offset(&self) -> Point<Pixels> {
+        crate::fast::layers::invalidate::note_offset_read(&self.0.borrow().version);
         self.0.borrow().max_offset
     }
 
     /// Get the top child that's scrolled into view.
     pub fn top_item(&self) -> usize {
         let state = self.0.borrow();
+        crate::fast::layers::invalidate::note_offset_read(&state.version);
         let top = state.bounds.top() - state.offset.borrow().y;
 
         match state.child_bounds.binary_search_by(|bounds| {
@@ -4292,6 +4341,7 @@ impl ScrollHandle {
     /// Get the bottom child that's scrolled into view.
     pub fn bottom_item(&self) -> usize {
         let state = self.0.borrow();
+        crate::fast::layers::invalidate::note_offset_read(&state.version);
         let bottom = state.bounds.bottom() - state.offset.borrow().y;
 
         match state.child_bounds.binary_search_by(|bounds| {
@@ -4310,17 +4360,19 @@ impl ScrollHandle {
 
     /// Return the bounds into which this child is painted
     pub fn bounds(&self) -> Bounds<Pixels> {
-        self.0.borrow().bounds
+        crate::fast::layers::input::moved(&self.0, Some(self.0.borrow().bounds)).unwrap_or_default()
     }
 
     /// Get the bounds for a specific child.
     pub fn bounds_for_item(&self, ix: usize) -> Option<Bounds<Pixels>> {
-        self.0.borrow().child_bounds.get(ix).cloned()
+        crate::fast::layers::invalidate::note_offset_read(&self.0.borrow().version);
+        crate::fast::layers::input::moved(&self.0, self.0.borrow().child_bounds.get(ix).cloned())
     }
 
     /// Update [ScrollHandleState]'s active item for scrolling to in prepaint
     pub fn scroll_to_item(&self, ix: usize) {
         let mut state = self.0.borrow_mut();
+        crate::fast::dependencies::StateVersion::bump(&state.version);
         state.active_item = Some(ScrollActiveItem {
             index: ix,
             strategy: ScrollStrategy::default(),
@@ -4331,6 +4383,7 @@ impl ScrollHandle {
     /// This scrolls the minimal amount to ensure that the child is the first visible element
     pub fn scroll_to_top_of_item(&self, ix: usize) {
         let mut state = self.0.borrow_mut();
+        crate::fast::dependencies::StateVersion::bump(&state.version);
         state.active_item = Some(ScrollActiveItem {
             index: ix,
             strategy: ScrollStrategy::Top,
@@ -4391,6 +4444,7 @@ impl ScrollHandle {
     /// Scrolls to the bottom.
     pub fn scroll_to_bottom(&self) {
         let mut state = self.0.borrow_mut();
+        crate::fast::dependencies::StateVersion::bump(&state.version);
         state.scroll_to_bottom = true;
     }
 
@@ -4399,6 +4453,10 @@ impl ScrollHandle {
     /// As you scroll further down the offset becomes more negative.
     pub fn set_offset(&self, mut position: Point<Pixels>) {
         let state = self.0.borrow();
+        crate::fast::layers::invalidate::offset_set(
+            &state.version,
+            *state.offset.borrow() != position,
+        );
         *state.offset.borrow_mut() = position;
     }
 

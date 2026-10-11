@@ -1,3 +1,4 @@
+// Modified by Longbridge for gpui-fast.
 use crate::metal_atlas::MetalAtlas;
 use anyhow::{Context as _, Result};
 use block2::RcBlock;
@@ -53,6 +54,10 @@ pub unsafe fn new_renderer(
     transparent: bool,
 ) -> Renderer {
     MetalRenderer::new(context, transparent)
+}
+
+pub fn new_overlay_renderer(context: self::Context, base: &Renderer) -> Renderer {
+    crate::fast::composition::new_overlay_renderer(context, base)
 }
 
 pub struct InstanceBufferPool {
@@ -111,15 +116,15 @@ impl InstanceBufferPool {
 }
 
 pub struct MetalRenderer {
-    device: metal::Device,
+    pub(crate) device: metal::Device,
     layer: Option<metal::MetalLayer>,
     is_apple_gpu: bool,
-    is_unified_memory: bool,
+    pub(crate) is_unified_memory: bool,
     presents_with_transaction: bool,
     /// For headless rendering, tracks whether output should be opaque
-    opaque: bool,
-    command_queue: CommandQueue,
-    paths_rasterization_pipeline_state: metal::RenderPipelineState,
+    pub(crate) opaque: bool,
+    pub(crate) command_queue: CommandQueue,
+    pub(crate) paths_rasterization_pipeline_state: metal::RenderPipelineState,
     path_sprites_pipeline_state: metal::RenderPipelineState,
     shadows_pipeline_state: metal::RenderPipelineState,
     backdrop_blur_pipeline_state: metal::RenderPipelineState,
@@ -132,20 +137,21 @@ pub struct MetalRenderer {
     quads_pipeline_state: metal::RenderPipelineState,
     underlines_pipeline_state: metal::RenderPipelineState,
     monochrome_sprites_pipeline_state: metal::RenderPipelineState,
-    polychrome_sprites_pipeline_state: metal::RenderPipelineState,
+    pub(crate) polychrome_sprites_pipeline_state: metal::RenderPipelineState,
     surfaces_pipeline_state: metal::RenderPipelineState,
-    unit_vertices: metal::Buffer,
+    pub(crate) unit_vertices: metal::Buffer,
     #[allow(clippy::arc_with_non_send_sync)]
-    instance_buffer_pool: Arc<Mutex<InstanceBufferPool>>,
-    sprite_atlas: Arc<MetalAtlas>,
+    pub(crate) instance_buffer_pool: Arc<Mutex<InstanceBufferPool>>,
+    pub(crate) sprite_atlas: Arc<MetalAtlas>,
     core_video_texture_cache: core_video::metal_texture_cache::CVMetalTextureCache,
-    path_intermediate_texture: Option<metal::Texture>,
-    path_intermediate_msaa_texture: Option<metal::Texture>,
+    pub(crate) path_intermediate_texture: Option<metal::Texture>,
+    pub(crate) path_intermediate_msaa_texture: Option<metal::Texture>,
     path_sample_count: u32,
     /// Offscreen render target reused across `render_scene` calls when
     /// rendering headlessly without reading pixels back.
     #[cfg(any(test, feature = "bench-support", feature = "test-support"))]
     headless_render_target: Option<metal::Texture>,
+    pub(crate) fast_layers: crate::fast::layers::TileCache,
 }
 
 #[repr(C)]
@@ -184,7 +190,11 @@ impl MetalRenderer {
         Self::new_internal(device, Some(layer), !transparent, instance_buffer_pool)
     }
 
-    fn configure_layer(layer: &metal::MetalLayerRef, device: &metal::DeviceRef, transparent: bool) {
+    pub(crate) fn configure_layer(
+        layer: &metal::MetalLayerRef,
+        device: &metal::DeviceRef,
+        transparent: bool,
+    ) {
         layer.set_device(device);
         layer.set_pixel_format(MTLPixelFormat::BGRA8Unorm);
         // Support direct-to-display rendering if the window is not transparent
@@ -252,7 +262,7 @@ impl MetalRenderer {
         })
     }
 
-    fn new_internal(
+    pub(crate) fn new_internal(
         device: metal::Device,
         layer: Option<metal::MetalLayer>,
         opaque: bool,
@@ -415,6 +425,7 @@ impl MetalRenderer {
             path_sample_count: PATH_SAMPLE_COUNT,
             #[cfg(any(test, feature = "bench-support", feature = "test-support"))]
             headless_render_target: None,
+            fast_layers: crate::fast::layers::TileCache::default(),
         }
     }
 
@@ -445,6 +456,7 @@ impl MetalRenderer {
             layer.set_drawable_size(CGSize::new(size.width.0 as f64, size.height.0 as f64));
         }
         self.update_path_intermediate_textures(size);
+        crate::fast::layers::TileCache::clear(&mut self.fast_layers);
     }
 
     fn update_path_intermediate_textures(&mut self, size: Size<DevicePixels>) {
@@ -545,6 +557,7 @@ impl MetalRenderer {
         texture: &metal::TextureRef,
         viewport_size: Size<DevicePixels>,
     ) -> Result<metal::CommandBuffer> {
+        crate::fast::layers::raster::rasterize_tiles(self, scene);
         let mut writer = InstanceBufferWriter::new(
             &self.device,
             &self.instance_buffer_pool,
@@ -724,6 +737,16 @@ impl MetalRenderer {
         texture: &metal::TextureRef,
         viewport_size: Size<DevicePixels>,
     ) -> Result<metal::CommandBuffer> {
+        if let Some(command_buffer) = crate::fast::paths::draw_primitives_to_texture(
+            self,
+            scene,
+            instance_bindings,
+            writer,
+            texture,
+            viewport_size,
+        )? {
+            return Ok(command_buffer);
+        }
         let command_queue = self.command_queue.clone();
         let command_buffer = command_queue.new_command_buffer();
         let alpha = if self.opaque { 1. } else { 0. };
@@ -1054,7 +1077,7 @@ impl MetalRenderer {
         );
     }
 
-    fn draw_shadows(
+    pub(crate) fn draw_shadows(
         &self,
         shadows: Range<usize>,
         instance_bindings: &InstanceBindings,
@@ -1096,7 +1119,7 @@ impl MetalRenderer {
         );
     }
 
-    fn draw_quads(
+    pub(crate) fn draw_quads(
         &self,
         quads: Range<usize>,
         instance_bindings: &InstanceBindings,
@@ -1138,7 +1161,7 @@ impl MetalRenderer {
         );
     }
 
-    fn draw_paths_from_intermediate(
+    pub(crate) fn draw_paths_from_intermediate(
         &self,
         paths: &[Path<ScaledPixels>],
         writer: &mut InstanceBufferWriter,
@@ -1209,7 +1232,7 @@ impl MetalRenderer {
         Ok(())
     }
 
-    fn draw_underlines(
+    pub(crate) fn draw_underlines(
         &self,
         underlines: Range<usize>,
         instance_bindings: &InstanceBindings,
@@ -1251,7 +1274,7 @@ impl MetalRenderer {
         );
     }
 
-    fn draw_monochrome_sprites(
+    pub(crate) fn draw_monochrome_sprites(
         &self,
         texture_id: AtlasTextureId,
         sprites: Range<usize>,
@@ -1307,7 +1330,7 @@ impl MetalRenderer {
         );
     }
 
-    fn draw_polychrome_sprites(
+    pub(crate) fn draw_polychrome_sprites(
         &self,
         texture_id: AtlasTextureId,
         sprites: Range<usize>,
@@ -1316,6 +1339,16 @@ impl MetalRenderer {
         command_encoder: &metal::RenderCommandEncoderRef,
     ) {
         if sprites.is_empty() {
+            return;
+        }
+        if crate::fast::layers::composite::draw_tiles(
+            self,
+            texture_id,
+            &sprites,
+            instance_bindings,
+            viewport_size,
+            command_encoder,
+        ) {
             return;
         }
 
@@ -1363,7 +1396,7 @@ impl MetalRenderer {
         );
     }
 
-    fn draw_surfaces(
+    pub(crate) fn draw_surfaces(
         &mut self,
         surfaces: &[PaintSurface],
         first_surface: usize,
@@ -1452,7 +1485,7 @@ impl MetalRenderer {
     }
 }
 
-fn new_command_encoder_for_texture<'a>(
+pub(crate) fn new_command_encoder_for_texture<'a>(
     command_buffer: &'a metal::CommandBufferRef,
     texture: &'a metal::TextureRef,
     viewport_size: Size<DevicePixels>,
@@ -1650,19 +1683,19 @@ fn build_path_rasterization_pipeline_state(
 }
 
 #[derive(Clone)]
-struct InstanceBinding {
-    buffer: metal::Buffer,
-    offset: usize,
+pub(crate) struct InstanceBinding {
+    pub(crate) buffer: metal::Buffer,
+    pub(crate) offset: usize,
 }
 
-struct InstanceBindings {
-    quads: InstanceBinding,
-    shadows: InstanceBinding,
-    backdrop_blurs: InstanceBinding,
-    underlines: InstanceBinding,
-    monochrome_sprites: InstanceBinding,
-    polychrome_sprites: InstanceBinding,
-    surfaces: InstanceBinding,
+pub(crate) struct InstanceBindings {
+    pub(crate) quads: InstanceBinding,
+    pub(crate) shadows: InstanceBinding,
+    pub(crate) underlines: InstanceBinding,
+    pub(crate) monochrome_sprites: InstanceBinding,
+    pub(crate) polychrome_sprites: InstanceBinding,
+    pub(crate) surfaces: InstanceBinding,
+    pub(crate) backdrop_blurs: InstanceBinding,
 }
 
 fn write_instances(scene: &Scene, writer: &mut InstanceBufferWriter) -> Result<InstanceBindings> {
@@ -1680,7 +1713,7 @@ fn write_instances(scene: &Scene, writer: &mut InstanceBufferWriter) -> Result<I
     })
 }
 
-struct InstanceBufferWriter {
+pub(crate) struct InstanceBufferWriter {
     device: metal::Device,
     pool: Arc<Mutex<InstanceBufferPool>>,
     unified_memory: bool,
@@ -1690,7 +1723,7 @@ struct InstanceBufferWriter {
 }
 
 impl InstanceBufferWriter {
-    fn new(
+    pub(crate) fn new(
         device: &metal::Device,
         pool: &Arc<Mutex<InstanceBufferPool>>,
         unified_memory: bool,
@@ -1728,7 +1761,7 @@ impl InstanceBufferWriter {
         Ok((binding, values))
     }
 
-    fn write<T>(&mut self, values: &[T]) -> Result<InstanceBinding> {
+    pub(crate) fn write<T>(&mut self, values: &[T]) -> Result<InstanceBinding> {
         let (binding, destination) = self.allocate::<T>(values.len())?;
         unsafe {
             ptr::copy_nonoverlapping(
@@ -1740,7 +1773,7 @@ impl InstanceBufferWriter {
         Ok(binding)
     }
 
-    fn write_iter<T>(
+    pub(crate) fn write_iter<T>(
         &mut self,
         values: impl ExactSizeIterator<Item = T>,
     ) -> Result<InstanceBinding> {
@@ -1777,7 +1810,7 @@ impl InstanceBufferWriter {
         Ok(())
     }
 
-    fn finish(self) -> InstanceBuffer {
+    pub(crate) fn finish(self) -> InstanceBuffer {
         let Self {
             unified_memory,
             filled,
@@ -1842,7 +1875,7 @@ enum UnderlineInputIndex {
 }
 
 #[repr(C)]
-enum SpriteInputIndex {
+pub(crate) enum SpriteInputIndex {
     Vertices = 0,
     Sprites = 1,
     ViewportSize = 2,
@@ -1861,7 +1894,7 @@ enum SurfaceInputIndex {
 }
 
 #[repr(C)]
-enum PathRasterizationInputIndex {
+pub(crate) enum PathRasterizationInputIndex {
     Vertices = 0,
     ViewportSize = 1,
 }
@@ -1941,5 +1974,67 @@ mod drawable_size {
         assert_eq!(actual.height, native.height);
         assert!(renderer.path_intermediate_texture.is_none());
         assert!(renderer.path_intermediate_msaa_texture.is_none());
+    }
+}
+
+#[cfg(test)]
+mod material {
+    use super::*;
+    use gpui::{BackdropBlur, Corners, px, red};
+
+    #[test]
+    fn encodes_blur_beside_paths() {
+        let pool = Arc::new(Mutex::new(InstanceBufferPool::default()));
+        let mut renderer = MetalRenderer::new_headless(pool);
+        let viewport = size(DevicePixels(32), DevicePixels(32));
+        let mut path = Path::new(point(px(2.), px(2.)));
+        path.line_to(point(px(30.), px(2.)));
+        path.line_to(point(px(2.), px(30.)));
+        path.content_mask = ContentMask {
+            bounds: Bounds::new(point(px(0.), px(0.)), size(px(32.), px(32.))),
+        };
+        path.color = red().into();
+        let mut scene = Scene::default();
+        scene.insert_primitive(path.scale(1.));
+        scene.finish();
+        assert_eq!(scene.paths.len(), 1);
+        renderer.render_scene(&scene, viewport).unwrap();
+        assert!(renderer.backdrop_kernel.is_none());
+        assert!(renderer.backdrop_scratch.is_none());
+
+        let bounds = Bounds::new(
+            point(ScaledPixels(4.), ScaledPixels(4.)),
+            size(ScaledPixels(24.), ScaledPixels(24.)),
+        );
+        scene.insert_backdrop_blur(BackdropBlur {
+            order: 0,
+            blur_radius: ScaledPixels(6.),
+            bounds,
+            content_mask: ContentMask { bounds },
+            corner_radii: Corners::default(),
+            lens: ScaledPixels(0.),
+            reach: ScaledPixels(0.),
+            magnify: 0.,
+            dispersion: 0.,
+            gain: 1.,
+            saturation: 1.,
+            tint: gpui::transparent_black(),
+            edge: 0.,
+            edge_width: ScaledPixels(0.),
+            edge_aa: ScaledPixels(0.5),
+            opacity: 1.,
+        });
+        scene.finish();
+        renderer.render_scene(&scene, viewport).unwrap();
+
+        // These are the real resources created while encoding the ordered
+        // snapshot and Gaussian pass, without reading rendered pixels back.
+        let (sigma, kernel) = renderer.backdrop_kernel.as_ref().unwrap();
+        assert_eq!(*sigma, 6.);
+        assert!(!(**kernel).is_null());
+        for texture in [&renderer.backdrop_scratch, &renderer.backdrop_blurred] {
+            let texture = texture.as_ref().unwrap();
+            assert_eq!((texture.width(), texture.height()), (32, 32));
+        }
     }
 }

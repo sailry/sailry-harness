@@ -2,7 +2,7 @@
 //!
 //! Ported from crabtalk/bezel 4a7505ab7c36aec3333d2dac45bcf4c8c600a5a5
 //! (MIT). See third_party_licenses/bezel.md. Kit's pinned renderer had no local
-//! backdrop primitive; the compatible GPUI fork supplies it. Layout, hit testing
+//! backdrop primitive; Sailry's selected renderer patch supplies it. Layout, hit testing
 //! and control behavior remain with the child. All colors and radii use Kit's
 //! active application theme; Bezel's optics use a denser tint for readable menus.
 use gpui_kit::component::{
@@ -139,10 +139,9 @@ impl Element for Surface {
         );
         let effect = glass(theme, bounds.size);
         let color = theme.popover;
-        // GPUI b9b7df7 records a centered text line's layer at its unaligned
-        // origin, then shifts its glyphs without expanding those layer bounds.
-        // A floating surface needs a viewport ordering barrier so such glyphs
-        // cannot batch above it. The fill/blur still paints only the panel.
+        // The blur samples a framebuffer snapshot, including nearby geometry
+        // outside the panel. A viewport ordering barrier keeps that background
+        // in the snapshot before the material; only the panel is painted.
         let layer = Self::layer_bounds(window.viewport_size());
         window.paint_layer(layer, |window| {
             if BACKDROP {

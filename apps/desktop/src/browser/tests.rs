@@ -3,7 +3,7 @@ use core::prelude::v1::test;
 use gpui_kit::component::input::{Input, InputState};
 use std::{cell::Cell, rc::Rc};
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(target_os = "windows")]
 mod occlusion {
     use super::*;
     use gpui_kit::prelude::FluentBuilder as _;

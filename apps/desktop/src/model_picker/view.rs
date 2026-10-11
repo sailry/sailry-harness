@@ -229,6 +229,8 @@ impl Render for Picker {
             groups = groups.item(|item| {
                 item.title(
                     div()
+                        .id(SharedString::from(format!("composer-model-group-{id}")))
+                        .test_support()
                         .debug_selector(move || format!("composer-model-group-{id}"))
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
@@ -253,6 +255,7 @@ impl Render for Picker {
                 v_flex().relative().flex_1().min_w_0().gap_2().child(
                     div()
                         .id("composer-model-scroll")
+                        .test_support()
                         .debug_selector(|| "composer-model-scroll".into())
                         .relative()
                         .max_h(panel_size(window).height)

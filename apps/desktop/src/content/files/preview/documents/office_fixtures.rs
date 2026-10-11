@@ -37,13 +37,31 @@ pub(super) fn documents(output: &std::path::Path) -> Vec<(String, Vec<u8>, Strin
         let mut documents = Vec::new();
         for case in cases {
             let path = case["path"].as_str().unwrap().to_owned();
-            std::fs::copy(
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../crates/node-runtime/src/office/fixtures")
-                    .join(&path),
-                root.join(&path),
-            )
-            .unwrap();
+            // Native fixture bundles must not read the development checkout.
+            let bytes: &[u8] = match path.as_str() {
+                "report.docx" => include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../crates/node-runtime/src/office/fixtures/report.docx"
+                )),
+                "report.pdf" => include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../crates/node-runtime/src/office/fixtures/report.pdf"
+                )),
+                "book.xlsx" => include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../crates/node-runtime/src/office/fixtures/book.xlsx"
+                )),
+                "chart.xlsx" => include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../crates/node-runtime/src/office/fixtures/chart.xlsx"
+                )),
+                "deck.pptx" => include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../crates/node-runtime/src/office/fixtures/deck.pptx"
+                )),
+                _ => panic!("unknown Office fixture"),
+            };
+            std::fs::write(root.join(&path), bytes).unwrap();
             let Output::FileDownload(download) = client
                 .execute(client.prepare(Command::DownloadFile {
                     worktree,

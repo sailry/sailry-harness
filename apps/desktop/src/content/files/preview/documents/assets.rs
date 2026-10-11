@@ -120,13 +120,16 @@ pub(in crate::content::files::html) fn native(
     mime: &str,
     background: &str,
     status: impl Fn(&str) + 'static,
-    window: &Window,
+    window: &mut Window,
+    cx: &mut App,
 ) -> Result<surface::Native, ()> {
     let format = format(mime).ok_or(())?;
     // Wry maps this scheme to http://sailry-preview.localhost on Windows.
     let url = format!("sailry-preview://localhost/index.html#{format}");
     let mime = mime.to_owned();
+    #[cfg(target_os = "windows")]
     let snapshot = crate::ui::webview_snapshot::Snapshot::new();
+    #[cfg(target_os = "windows")]
     let signals = snapshot.signals();
     let builder = wry::WebViewBuilder::new()
         .with_initialization_script(format!(
@@ -153,14 +156,20 @@ pub(in crate::content::files::html) fn native(
                 .unwrap()
         })
         .with_ipc_handler(move |request| {
-            if !signals.receive(request.body()) {
-                status(request.body());
+            #[cfg(target_os = "windows")]
+            if signals.receive(request.body()) {
+                return;
             }
+            status(request.body());
         })
         .with_navigation_handler(|url| {
             url.starts_with("sailry-preview://localhost/index.html#")
                 || url.starts_with("http://sailry-preview.localhost/index.html#")
         })
         .with_url(&url);
-    surface::Native::build(builder, window, snapshot)
+    #[cfg(target_os = "windows")]
+    let native = surface::Native::build(builder, window, cx, snapshot);
+    #[cfg(not(target_os = "windows"))]
+    let native = surface::Native::build(builder, window, cx);
+    native
 }

@@ -1,19 +1,12 @@
-//! File previews use a native WebView. Kit 0c830f4d's WebView sets unclipped native
-//! bounds and only hides on entity destruction, so a small mount adapter below
-//! applies the GPUI content mask and releases visibility with the painted frame.
-//! Native child views cannot be composited below Kit overlays. The adapter uses
-//! the current frame's clipped occluding hitboxes and a shared native snapshot
-//! to keep preview content visible under intersecting surfaces.
+//! Kit owns native composition; the mount adapter applies the content mask and
+//! hides retained previews when their painted frame is released. Windows keeps
+//! an image fallback because its native child cannot compose with GPUI overlays.
 use super::*;
-use raw_window_handle::HasWindowHandle;
 use sailry_link::CancellationToken;
 use sailry_protocol::{Command, Output};
 use std::{cell::Cell, rc::Rc};
 #[path = "preview/documents.rs"]
 mod documents;
-#[cfg(target_os = "macos")]
-#[path = "preview/pointer.rs"]
-mod pointer;
 #[path = "preview/surface.rs"]
 pub(crate) mod surface;
 #[cfg(test)]
@@ -61,8 +54,8 @@ impl Render for Html {
         if let Some(Ok(html)) = &self.result {
             let html = html.clone();
             let native = window
-                .use_keyed_state("html-native", cx, move |window, _| {
-                    surface::Native::new(&html, window).map(Rc::new)
+                .use_keyed_state("html-native", cx, move |window, cx| {
+                    surface::Native::new(&html, window, cx).map(Rc::new)
                 })
                 .read(cx)
                 .clone();

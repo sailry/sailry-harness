@@ -1,3 +1,4 @@
+// Modified by Longbridge for gpui-fast.
 use crate::{
     AbsoluteLength, App, Bounds, DefiniteLength, Edges, GridTemplate, Length, Pixels, Point, Size,
     Style, Window, size,
@@ -6,7 +7,7 @@ use crate::{
         round_to_device_pixel,
     },
 };
-use collections::{FxHashMap, FxHashSet};
+use collections::FxHashSet;
 use std::{fmt::Debug, ops::Range};
 use taffy::{
     TaffyTree, TraversePartialTree as _,
@@ -17,24 +18,25 @@ use taffy::{
 };
 
 #[cfg(feature = "stacker")]
-type StackSafe<T> = stacksafe::StackSafe<T>;
+pub(crate) type StackSafe<T> = stacksafe::StackSafe<T>;
 #[cfg(not(feature = "stacker"))]
-type StackSafe<T> = T;
+pub(crate) type StackSafe<T> = T;
 
-type MeasureFn =
+pub(crate) type MeasureFn =
     dyn FnMut(Size<Option<Pixels>>, Size<AvailableSpace>, &mut Window, &mut App) -> Size<Pixels>;
 type NodeMeasureFn = StackSafe<Box<MeasureFn>>;
 
-struct NodeContext {
-    measure: NodeMeasureFn,
+pub(crate) struct NodeContext {
+    pub(crate) measure: NodeMeasureFn,
 }
 pub struct TaffyLayoutEngine {
-    taffy: TaffyTree<NodeContext>,
-    absolute_layout_bounds: FxHashMap<LayoutId, Bounds<Pixels>>,
+    pub(crate) taffy: TaffyTree<NodeContext>,
+    pub(crate) retention: crate::fast::layout::LayoutRetention,
+    pub(crate) absolute_layout_bounds: crate::fast::layout_bounds::LayoutIdMap<Bounds<Pixels>>,
     /// Unrounded absolute border-box top-left per-node coordinate in device pixels.
-    absolute_outer_origins: FxHashMap<LayoutId, Point<f32>>,
+    pub(crate) absolute_outer_origins: crate::fast::layout_bounds::LayoutIdMap<Point<f32>>,
     computed_layouts: FxHashSet<LayoutId>,
-    layout_bounds_scratch_space: Vec<LayoutId>,
+    pub(crate) layout_bounds_scratch_space: Vec<LayoutId>,
 }
 
 const EXPECT_MESSAGE: &str = "we should avoid taffy layout errors by construction if possible";
@@ -45,15 +47,16 @@ impl TaffyLayoutEngine {
         taffy.disable_rounding();
         TaffyLayoutEngine {
             taffy,
-            absolute_layout_bounds: FxHashMap::default(),
-            absolute_outer_origins: FxHashMap::default(),
+            retention: crate::fast::layout::LayoutRetention::default(),
+            absolute_layout_bounds: crate::fast::layout_bounds::LayoutIdMap::default(),
+            absolute_outer_origins: crate::fast::layout_bounds::LayoutIdMap::default(),
             computed_layouts: FxHashSet::default(),
             layout_bounds_scratch_space: Vec::new(),
         }
     }
 
     pub fn clear(&mut self) {
-        self.taffy.clear();
+        crate::fast::layout::release_unclaimed_nodes(self);
         self.absolute_layout_bounds.clear();
         self.absolute_outer_origins.clear();
         self.computed_layouts.clear();
@@ -61,29 +64,25 @@ impl TaffyLayoutEngine {
 
     pub fn request_layout(
         &mut self,
+        fast_key: Option<u64>,
         style: Style,
         rem_size: Pixels,
         scale_factor: f32,
         children: &[LayoutId],
     ) -> LayoutId {
-        let taffy_style = style.to_taffy(rem_size, scale_factor);
-
-        if children.is_empty() {
-            self.taffy
-                .new_leaf(taffy_style)
-                .expect(EXPECT_MESSAGE)
-                .into()
-        } else {
-            self.taffy
-                // This is safe because LayoutId is repr(transparent) to taffy::tree::NodeId.
-                .new_with_children(taffy_style, LayoutId::to_taffy_slice(children))
-                .expect(EXPECT_MESSAGE)
-                .into()
-        }
+        crate::fast::layout::request_retained_layout(
+            self,
+            fast_key,
+            &style,
+            rem_size,
+            scale_factor,
+            children,
+        )
     }
 
     pub fn request_measured_layout(
         &mut self,
+        fast_key: Option<u64>,
         style: Style,
         rem_size: Pixels,
         scale_factor: f32,
@@ -95,15 +94,14 @@ impl TaffyLayoutEngine {
         ) -> Size<Pixels>
         + 'static,
     ) -> LayoutId {
-        let taffy_style = style.to_taffy(rem_size, scale_factor);
-        let measure = Box::new(measure) as Box<MeasureFn>;
-        #[cfg(feature = "stacker")]
-        let measure = StackSafe::new(measure);
-
-        self.taffy
-            .new_leaf_with_context(taffy_style, NodeContext { measure })
-            .expect(EXPECT_MESSAGE)
-            .into()
+        crate::fast::layout::request_retained_measured_layout(
+            self,
+            fast_key,
+            &style,
+            rem_size,
+            scale_factor,
+            measure,
+        )
     }
 
     /// Treats any `auto` dimension of the given node's style as filling `size`.
@@ -118,22 +116,7 @@ impl TaffyLayoutEngine {
         size: Size<Pixels>,
         scale_factor: f32,
     ) {
-        let style = self.taffy.style(id.0).expect(EXPECT_MESSAGE);
-        let stretch_width = style.size.width.is_auto();
-        let stretch_height = style.size.height.is_auto();
-        if !stretch_width && !stretch_height {
-            return;
-        }
-        let mut style = style.clone();
-        if stretch_width {
-            style.size.width =
-                taffy::style::Dimension::length(round_to_device_pixel(size.width.0, scale_factor));
-        }
-        if stretch_height {
-            style.size.height =
-                taffy::style::Dimension::length(round_to_device_pixel(size.height.0, scale_factor));
-        }
-        self.taffy.set_style(id.0, style).expect(EXPECT_MESSAGE);
+        crate::fast::layout::stretch_retained_auto_size_to_fill(self, id, size, scale_factor);
     }
 
     // Used to understand performance
@@ -232,6 +215,7 @@ impl TaffyLayoutEngine {
             transform(available_space.height),
         );
 
+        let mut measures = crate::fast::stats::begin_measure_tally(self);
         self.taffy
             .compute_layout_with_measure(
                 id.into(),
@@ -240,6 +224,7 @@ impl TaffyLayoutEngine {
                     let Some(node_context) = node_context else {
                         return taffy::geometry::Size::default();
                     };
+                    let measure_started_at = crate::fast::stats::MeasureTally::start(&mut measures);
 
                     let known_dimensions = Size {
                         width: known_dimensions.width.map(|e| Pixels(e / scale_factor)),
@@ -261,10 +246,19 @@ impl TaffyLayoutEngine {
 
                     let measured_size: Size<Pixels> =
                         (node_context.measure)(known_dimensions, available_space, window, cx);
+                    crate::fast::stats::MeasureTally::finish(&mut measures, measure_started_at);
+                    crate::fast::layout::MeasuredLeaves::note(
+                        &mut measures.leaves,
+                        _id,
+                        known_dimensions,
+                        available_space,
+                    );
                     snap_measured_size_to_device_pixels(measured_size, scale_factor).into()
                 },
             )
             .expect(EXPECT_MESSAGE);
+        crate::fast::stats::finish_measure_tally(self, measures);
+        crate::fast::layout::settle_measured_leaves(self, window, cx);
     }
 
     // Pixel snapping
@@ -385,7 +379,7 @@ impl TaffyLayoutEngine {
 pub struct LayoutId(NodeId);
 
 impl LayoutId {
-    fn to_taffy_slice(node_ids: &[Self]) -> &[taffy::NodeId] {
+    pub(crate) fn to_taffy_slice(node_ids: &[Self]) -> &[taffy::NodeId] {
         // SAFETY: LayoutId is repr(transparent) to taffy::tree::NodeId.
         unsafe { std::mem::transmute::<&[LayoutId], &[taffy::NodeId]>(node_ids) }
     }
@@ -432,7 +426,7 @@ fn border_widths_to_taffy(
     }
 }
 
-trait ToTaffy<Output> {
+pub(crate) trait ToTaffy<Output> {
     fn to_taffy(&self, rem_size: Pixels, scale_factor: f32) -> Output;
 }
 

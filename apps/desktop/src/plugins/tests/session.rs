@@ -22,6 +22,7 @@ pub(super) fn mcp(fixture: &Fixture) {
 pub(super) fn run(
     fixture: &mut Fixture,
     package: &sailry_protocol::plugin::Info,
+    remote: bool,
 ) -> crate::agent_fixture::Server {
     let server = fixture
         .runtime
@@ -105,7 +106,16 @@ pub(super) fn run(
                     "../../../../../plugins/examples/project-summary/skills/project-summary/SKILL.md"
                 )
             );
-            assert_eq!(results[1]["output"]["version"], "project-summary");
+            assert_eq!(
+                results[1]["output"]["version"],
+                "project-summary",
+                "MCP fixture result: remote={remote}, result={}",
+                results[1]
+                    .to_string()
+                    .chars()
+                    .take(4096)
+                    .collect::<String>(),
+            );
             assert_eq!(results[1]["output"]["value"], "report requested");
             return server;
         }

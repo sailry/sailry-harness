@@ -89,7 +89,8 @@ mod tests {
             self.selection.register(
                 TextSelectionRegistration::new(hitbox.clone(), bounds)
                     .with_document_order(self.document_order)
-                    .with_text_bounds(vec![bounds]),
+                    .with_text_bounds(vec![bounds])
+                    .with_rendered_element(&self.selection, window, cx),
                 window,
                 cx,
             );
@@ -730,7 +731,9 @@ mod tests {
         let bounds = cx
             .debug_bounds("scrollable-text-view")
             .expect("scrollable TextView bounds");
-        let start = point(bounds.left() + px(30.), bounds.top() + px(30.));
+        // On the first paragraph's line: a drag that neither starts nor
+        // lands on text selects nothing, and the edge may sit in a gap.
+        let start = point(bounds.left() + px(30.), bounds.top() + px(10.));
         let edge = point(bounds.left() + px(60.), bounds.bottom() - px(2.));
         cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
         cx.simulate_mouse_move(edge, Some(MouseButton::Left), Modifiers::default());
@@ -1824,7 +1827,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn same_size_style_reflow_invalidates_finished_selection(cx: &mut TestAppContext) {
+    fn same_size_style_reflow_keeps_finished_selection(cx: &mut TestAppContext) {
         let (chat, cx) = setup(true, cx);
         drag(cx, point(px(0.), px(15.)), point(px(300.), px(15.)));
         assert_eq!(window_selected_text(cx).trim(), "Hello world");
@@ -1837,7 +1840,7 @@ mod tests {
             let _ = window.draw(cx);
         });
 
-        assert_eq!(window_selected_text(cx), "");
+        assert_eq!(window_selected_text(cx).trim(), "Hello world");
     }
 
     #[gpui::test]

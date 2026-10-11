@@ -4,6 +4,7 @@ use gpui_kit::component::{
     *,
 };
 use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::*;
 use std::time::Duration;
 
@@ -18,6 +19,8 @@ impl Render for Tabs {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex().w(px(self.width)).child(
             div()
+                .id("tabs-box")
+                .test_support()
                 .debug_selector(|| "tabs-box".into())
                 .when(self.equal, |wrapper| wrapper.w_full())
                 .child(
@@ -44,7 +47,10 @@ impl Render for Tabs {
 fn settle(cx: &mut VisualTestContext) {
     for _ in 0..4 {
         cx.run_until_parked();
-        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|window, cx| {
+            window.simulate_next_frame(cx);
+            window.render_frame(cx);
+        });
         cx.executor().advance_clock(Duration::from_millis(250));
     }
 }
@@ -85,8 +91,12 @@ fn insets_and_indicator(cx: &mut TestAppContext) {
                 settle(visual);
                 for index in [0, 2, 1, 0] {
                     let selector = ["tab-0", "tab-1", "tab-2"][index];
-                    let tab = visual.debug_bounds(selector).unwrap();
-                    visual.simulate_click(tab.center(), Modifiers::none());
+                    visual.update(|window, cx| {
+                        window
+                            .within("tabs-box")
+                            .within("gpui_base::tabs::Tab")
+                            .click(index, cx);
+                    });
                     settle(visual);
                     assert_eq!(view.read_with(visual, |view, _| view.selected), index);
                     let bar = visual.debug_bounds("tabs-box").unwrap();
@@ -144,7 +154,12 @@ fn equal_width_variants(cx: &mut TestAppContext) {
                 assert!(tab.size.width > bar.size.width / 5.);
             }
             for index in [2, 0] {
-                visual.simulate_click(tabs[index].center(), Modifiers::none());
+                visual.update(|window, cx| {
+                    window
+                        .within("tabs-box")
+                        .within("gpui_base::tabs::Tab")
+                        .click(index, cx);
+                });
                 settle(visual);
                 assert_eq!(view.read_with(visual, |view, _| view.selected), index);
             }
@@ -183,10 +198,12 @@ fn themed_categories(cx: &mut TestAppContext) {
         });
         settle(visual);
         for index in [2, 0] {
-            let bounds = visual
-                .debug_bounds(["tab-0", "tab-1", "tab-2"][index])
-                .unwrap();
-            visual.simulate_click(bounds.center(), Modifiers::none());
+            visual.update(|window, cx| {
+                window
+                    .within("tabs-box")
+                    .within("gpui_base::tabs::Tab")
+                    .click(index, cx);
+            });
             settle(visual);
             assert_eq!(view.read_with(visual, |view, _| view.selected), index);
         }

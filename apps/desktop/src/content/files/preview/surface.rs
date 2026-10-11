@@ -1,83 +1,77 @@
 use super::*;
+#[cfg(target_os = "windows")]
 use crate::ui::webview_snapshot::Snapshot;
 #[cfg(test)]
 #[path = "overlay_tests.rs"]
 mod overlays;
 
 pub(crate) struct Native {
-    pub(crate) page: wry::WebView,
+    pub(crate) page: gpui_webview::WebView,
     pub(super) frame: Cell<Option<(Bounds<Pixels>, Bounds<Pixels>)>>,
-    visible: Cell<bool>,
+    scale: Cell<f32>,
+    #[cfg(target_os = "windows")]
     snapshot: Rc<Snapshot>,
-    #[cfg(target_os = "macos")]
-    _pointer: Rc<pointer::Pointer>,
 }
 impl Native {
-    pub(super) fn new(html: &str, window: &Window) -> Result<Self, ()> {
+    pub(super) fn new(html: &str, window: &mut Window, cx: &mut App) -> Result<Self, ()> {
+        #[cfg(target_os = "windows")]
         let snapshot = Snapshot::new();
+        #[cfg(target_os = "windows")]
         let signals = snapshot.signals();
-        Self::build(
-            wry::WebViewBuilder::new()
-                .with_html(document(html))
-                .with_ipc_handler(move |request| {
-                    signals.receive(request.body());
-                })
-                .with_navigation_handler(|url| url == "about:blank" || url == "about:srcdoc"),
-            window,
-            snapshot,
-        )
+        let builder = wry::WebViewBuilder::new()
+            .with_html(document(html))
+            .with_ipc_handler(move |_request| {
+                #[cfg(target_os = "windows")]
+                signals.receive(_request.body());
+            })
+            .with_navigation_handler(|url| url == "about:blank" || url == "about:srcdoc");
+        #[cfg(target_os = "windows")]
+        let native = Self::build(builder, window, cx, snapshot);
+        #[cfg(not(target_os = "windows"))]
+        let native = Self::build(builder, window, cx);
+        native
     }
 
     pub(crate) fn build(
         builder: wry::WebViewBuilder<'_>,
-        window: &Window,
-        snapshot: Rc<Snapshot>,
+        window: &mut Window,
+        cx: &mut App,
+        #[cfg(target_os = "windows")] snapshot: Rc<Snapshot>,
     ) -> Result<Self, ()> {
+        #[cfg(target_os = "windows")]
         let builder = snapshot.signals().prepare(builder);
         #[cfg(all(feature = "workload-tests", target_os = "macos"))]
         let builder = super::check::prepare(builder);
-        let handle = HasWindowHandle::window_handle(window).map_err(|_| ())?;
-        let page = builder
-            .with_visible(false)
-            .with_incognito(true)
-            .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
-            .with_download_started_handler(|_, _| false)
-            .build_as_child(&handle)
-            .map_err(|_| ())?;
+        let page = gpui_webview::WebView::build_hidden(
+            builder
+                .with_incognito(true)
+                .with_focused(false)
+                .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
+                .with_download_started_handler(|_, _| false),
+            window,
+            cx,
+        )
+        .map_err(|_| ())?;
         Ok(Self {
-            #[cfg(target_os = "macos")]
-            _pointer: pointer::Pointer::attach(&page)?,
             page,
             frame: Cell::new(None),
-            visible: Cell::new(false),
+            scale: Cell::new(window.scale_factor()),
+            #[cfg(target_os = "windows")]
             snapshot,
         })
     }
     fn show(&self, visible: bool) {
-        if self.visible.get() != visible && self.page.set_visible(visible).is_ok() {
-            self.visible.set(visible);
+        if self.page.visible() != visible {
+            let _ = self.page.set_visible(visible);
         }
     }
     fn hide(&self) {
-        if self.visible.get() {
-            #[cfg(target_os = "macos")]
-            pointer::release_focus(&self.page);
-            #[cfg(not(target_os = "macos"))]
-            let _ = self.page.focus_parent();
-        }
         self.show(false);
-    }
-    #[cfg(all(feature = "workload-tests", target_os = "macos"))]
-    pub(crate) fn substituted(&self) -> bool {
-        self.snapshot.shown.get()
-    }
-    #[cfg(all(feature = "workload-tests", target_os = "macos"))]
-    pub(crate) fn cache_state(&self) -> (u64, bool) {
-        (self.snapshot.generation(), self.snapshot.current())
     }
 }
 impl Drop for Native {
     fn drop(&mut self) {
+        #[cfg(target_os = "windows")]
         self.snapshot.unmount();
         self.hide();
     }
@@ -86,27 +80,33 @@ impl Drop for Native {
 struct Mount(Rc<Native>);
 impl Drop for Mount {
     fn drop(&mut self) {
+        #[cfg(target_os = "windows")]
         self.0.snapshot.unmount();
         self.0.hide();
     }
 }
 
 pub(crate) fn render(native: Rc<Native>, window: &mut Window, cx: &mut App) -> AnyElement {
+    #[cfg(target_os = "windows")]
     native.snapshot.bind(window, cx);
     let mounted = native.clone();
-    // Kit element state lasts through cached frames and is released on unmount,
-    // even when the owning session retains its preview entity in the background.
+    // Kit's managed WebView owns composition. Its element does not apply the
+    // content mask or retained-entity unmount visibility, so this adapter only
+    // supplies clipped bounds and frame lifetime through the managed API.
     let key: SharedString = format!("file-preview-mount-{:p}", Rc::as_ptr(&native)).into();
     window.use_keyed_state(key, cx, move |_, _| Mount(mounted));
-    canvas(|bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal), move |bounds, hitbox, window, cx| {
-        let blocked = window.is_hitbox_occluded(&hitbox);
+    canvas(|bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal), move |bounds, _hitbox, window, _cx| {
         let clip = bounds.intersect(&window.content_mask().bounds);
         if clip.size.width <= px(0.) || clip.size.height <= px(0.) {
+            #[cfg(target_os = "windows")]
             native.snapshot.unmount();
             native.hide(); return;
         }
         let previous = native.frame.get();
-        if previous.is_none_or(|(_, previous_clip)| previous_clip != clip) {
+        let scale = window.scale_factor();
+        native.page.set_scale_factor(scale);
+        let scaled = native.scale.replace(scale) != scale;
+        if scaled || previous.is_none_or(|(_, previous_clip)| previous_clip != clip) {
             let _ = native.page.set_bounds(wry::Rect {
                 position: wry::dpi::LogicalPosition::new(f64::from(f32::from(clip.left())), f64::from(f32::from(clip.top()))).into(),
                 size: wry::dpi::LogicalSize::new(f64::from(f32::from(clip.size.width)), f64::from(f32::from(clip.size.height))).into(),
@@ -118,18 +118,18 @@ pub(crate) fn render(native: Rc<Native>, window: &mut Window, cx: &mut App) -> A
             let _ = native.page.evaluate_script(&script);
         }
         native.frame.set(Some((bounds, clip)));
-        native.snapshot.mount((bounds, clip));
-        #[cfg(target_os = "macos")]
-        native.snapshot.refresh(blocked, || crate::ui::webview_capture::snapshot_now(&native.page), window);
-        native.snapshot.request(|| crate::ui::webview_capture::snapshot(&native.page), window, cx);
-        let substituted = blocked && native.snapshot.paint(window);
-        native.snapshot.shown.set(substituted);
-        if substituted {
-            native.hide();
-            return;
+        #[cfg(target_os = "windows")]
+        {
+            let blocked = window.is_hitbox_occluded(&_hitbox);
+            native.snapshot.mount((bounds, clip));
+            native.snapshot.request(|| crate::ui::webview_capture::snapshot(native.page.raw()), window, _cx);
+            let substituted = blocked && native.snapshot.paint(window);
+            native.snapshot.shown.set(substituted);
+            if substituted {
+                native.hide();
+                return;
+            }
         }
-        // Retain the live content until its first snapshot is ready, including
-        // capture failures, so an overlapping surface never empties the preview.
         native.show(true);
         window.on_mouse_event(move |event: &MouseDownEvent, phase, _, _| {
             if phase == DispatchPhase::Capture && !clip.contains(&event.position) {

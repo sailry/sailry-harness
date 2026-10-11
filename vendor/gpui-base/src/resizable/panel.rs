@@ -1,7 +1,4 @@
-use std::{
-    ops::{Deref, Range},
-    rc::Rc,
-};
+use std::{ops::Range, rc::Rc};
 
 use gpui::{
     Along, AnyElement, App, AppContext, Axis, Bounds, Context, Element, ElementId, Empty, Entity,
@@ -175,6 +172,11 @@ impl RenderOnce for ResizablePanelGroup {
             .on_prepaint({
                 let state = state.clone();
                 move |bounds, window, cx| {
+                    // The same bounds as last frame change nothing; updating
+                    // the state for them would mark it changed every frame.
+                    if state.read(cx).bounds == bounds {
+                        return;
+                    }
                     state.update(cx, |state, cx| {
                         let size_changed =
                             state.bounds.size.along(self.axis) != bounds.size.along(self.axis);
@@ -354,6 +356,12 @@ impl RenderOnce for ResizablePanel {
             .on_prepaint({
                 let state = state.clone();
                 move |bounds, _, cx| {
+                    if !state
+                        .read(cx)
+                        .panel_size_changes(self.panel_ix, bounds, &self.size_range)
+                    {
+                        return;
+                    }
                     state.update(cx, |state, cx| {
                         state.update_panel_size(self.panel_ix, bounds, self.size_range, cx)
                     })
@@ -373,7 +381,7 @@ impl RenderOnce for ResizablePanel {
                             state.update(cx, |state, _| {
                                 state.resizing_panel_ix = Some(ix);
                             });
-                            cx.new(|_| drag_panel.deref().clone())
+                            cx.new(|_| drag_panel.clone())
                         }),
                 )
             })

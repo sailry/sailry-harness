@@ -1,3 +1,4 @@
+use super::entrance::{DialogEntrance, EntranceSurface};
 use crate::root::WindowState;
 use gpui_base::TestSupportExt as _;
 use std::{rc::Rc, sync::LazyLock, time::Duration};
@@ -211,6 +212,7 @@ pub(crate) struct DialogProps {
     overlay_closable: bool,
     pub(crate) overlay_visible: bool,
     keyboard: bool,
+    entrance: DialogEntrance,
 }
 
 impl Default for DialogProps {
@@ -225,6 +227,7 @@ impl Default for DialogProps {
             close_button: true,
             full_screen: false,
             overlay_closable: true,
+            entrance: DialogEntrance::default(),
         }
     }
 }
@@ -326,6 +329,25 @@ pub(crate) fn overlay_color(overlay: bool, cx: &App) -> Hsla {
     cx.theme().overlay
 }
 
+fn dialog_shadow(delta: f32) -> Vec<BoxShadow> {
+    vec![
+        BoxShadow {
+            color: hsla(0., 0., 0., 0.1 * delta),
+            offset: point(px(0.), px(20.)),
+            blur_radius: px(25.),
+            spread_radius: px(-5.),
+            inset: false,
+        },
+        BoxShadow {
+            color: hsla(0., 0., 0., 0.1 * delta),
+            offset: point(px(0.), px(8.)),
+            blur_radius: px(10.),
+            spread_radius: px(-6.),
+            inset: false,
+        },
+    ]
+}
+
 impl Dialog {
     /// Create a new dialog.
     pub fn new(cx: &mut App) -> Self {
@@ -369,9 +391,7 @@ impl Dialog {
         self
     }
 
-    /// Sets the footer of the dialog, the footer will render at the bottom of the dialog, usually for action buttons.
-    ///
-    /// When you set the footer, the `button_props` will be ignored, you need to render the action buttons by yourself.
+    /// Sets the header of the dialog, rendered above the title and content.
     pub(crate) fn header(mut self, header: impl IntoElement) -> Self {
         self.header = Some(header.into_any_element());
         self
@@ -379,7 +399,12 @@ impl Dialog {
 
     /// Sets the footer of the dialog, the footer will render at the bottom of the dialog, usually for action buttons.
     ///
-    /// When you set the footer, the `button_props` will be ignored, you need to render the action buttons by yourself.
+    /// A plain `Dialog` never renders buttons from `button_props`: the props
+    /// only install the callbacks behind the `Confirm` and `Cancel` actions.
+    /// Compose the action buttons yourself — typically with a
+    /// [`DialogFooter`](crate::dialog::DialogFooter) — or use an
+    /// [`AlertDialog`](crate::dialog::AlertDialog), which builds a default
+    /// footer from `button_props` when no footer is set.
     pub fn footer(mut self, footer: impl IntoElement) -> Self {
         self.footer = Some(footer.into_any_element());
         self
@@ -390,6 +415,12 @@ impl Dialog {
     /// This overrides only the fields `button_props` sets; the rest of the
     /// dialog's button configuration is kept, so the call order does not
     /// matter.
+    ///
+    /// On a plain `Dialog` these props install the callbacks behind the
+    /// `Confirm` and `Cancel` actions and the labels an
+    /// [`AlertDialog`](crate::dialog::AlertDialog) default footer would use;
+    /// the dialog surface itself renders no buttons from them, see
+    /// [`Self::footer`].
     pub fn button_props(mut self, button_props: DialogButtonProps) -> Self {
         self.button_props.merge(button_props);
         self
@@ -496,6 +527,15 @@ impl Dialog {
     /// Set whether to support keyboard esc to close the dialog, defaults to `true`.
     pub fn keyboard(mut self, keyboard: bool) -> Self {
         self.props.keyboard = keyboard;
+        self
+    }
+
+    /// Sets how the dialog enters, defaulting to [`DialogEntrance::SlideDown`].
+    ///
+    /// This controls the surface and backdrop together. Reduced motion skips
+    /// the entrance and immediately shows the final state. Closing remains immediate.
+    pub fn entrance(mut self, entrance: DialogEntrance) -> Self {
+        self.props.entrance = entrance;
         self
     }
 
@@ -626,6 +666,12 @@ impl RenderOnce for Dialog {
         let margin = cx.theme().spacing_tokens().lg;
         let layer_offset = px(layer_ix as f32 * 16.);
         let y = self.props.margin_top.unwrap_or(view_size.height / 10.) + layer_offset;
+        let entrance = self.props.entrance;
+        let motion = cx.theme().motion_tokens();
+        let animated = entrance != DialogEntrance::None
+            && !cx.reduce_motion()
+            && (entrance == DialogEntrance::SlideDown || !motion.duration_normal.is_zero());
+        let travel = motion.distance_short.to_pixels(window.rem_size());
         let width = self
             .props
             .width
@@ -654,12 +700,19 @@ impl RenderOnce for Dialog {
         // preserving the trajectory this dialog was tuned with before
         // `cubic_bezier` solved for x; vaul's (0.32, 0.72, 0., 1.) is far
         // more front-loaded under the CSS-correct solver.
-        let animation = Animation::new(*ANIMATION_DURATION).with_easing(cubic_bezier(
-            1. / 3.,
-            0.72,
-            2. / 3.,
-            1.,
-        ));
+        let animation = if entrance == DialogEntrance::SlideDown {
+            Animation::new(*ANIMATION_DURATION).with_easing(cubic_bezier(
+                1. / 3.,
+                0.72,
+                2. / 3.,
+                1.,
+            ))
+        } else {
+            let easing = motion.easing_enter.clone();
+            // The delta drives opacity, so keep an overshooting theme curve in range.
+            Animation::new(motion.duration_normal)
+                .with_easing(move |delta| easing.sample(delta).clamp(0., 1.))
+        };
 
         anchored()
             .position(point(window_paddings.left, window_paddings.top))
@@ -778,51 +831,82 @@ impl RenderOnce for Dialog {
                                                         .icon(IconName::Close)
                                                 })
                                         }))
-                                        .map(|card| {
+                                        .map(|surface| {
                                             if crate::surface::is_custom(cx) {
-                                                return crate::surface::render(card, cx);
+                                                crate::surface::render(surface, cx)
+                                            } else if animated {
+                                                surface
+                                                    .with_animation(
+                                                        "slide-down-shadow",
+                                                        animation.clone(),
+                                                        |surface, delta| {
+                                                            surface.shadow(dialog_shadow(delta))
+                                                        },
+                                                    )
+                                                    .text_selection_scope(selection_scope)
+                                                    .into_any_element()
+                                            } else {
+                                                surface
+                                                    .shadow(dialog_shadow(1.))
+                                                    .text_selection_scope(selection_scope)
+                                                    .into_any_element()
                                             }
-                                            card.with_animation(
-                                                "slide-down-shadow",
+                                        })
+                                        .map(|surface| {
+                                            if animated && entrance == DialogEntrance::FadeSlide {
+                                                EntranceSurface::new(
+                                                    surface,
+                                                    travel,
+                                                    window_paddings.top + margin,
+                                                )
+                                                .with_animation(
+                                                    "dialog-settle",
+                                                    animation.clone(),
+                                                    |mut surface, delta| {
+                                                        surface.progress = delta;
+                                                        surface
+                                                    },
+                                                )
+                                                .into_any_element()
+                                            } else {
+                                                surface
+                                            }
+                                        }),
+                                )
+                                .map(|positioner| {
+                                    if animated && entrance == DialogEntrance::SlideDown {
+                                        positioner
+                                            .with_animation(
+                                                "slide-down",
                                                 animation.clone(),
                                                 move |this, delta| {
-                                                    // This is equivalent to `shadow_xl` with an extra opacity.
-                                                    let shadow = vec![
-                                                        BoxShadow {
-                                                            color: hsla(0., 0., 0., 0.1 * delta),
-                                                            offset: point(px(0.), px(20.)),
-                                                            blur_radius: px(25.),
-                                                            spread_radius: px(-5.),
-                                                            inset: false,
-                                                        },
-                                                        BoxShadow {
-                                                            color: hsla(0., 0., 0., 0.1 * delta),
-                                                            offset: point(px(0.), px(8.)),
-                                                            blur_radius: px(10.),
-                                                            spread_radius: px(-6.),
-                                                            inset: false,
-                                                        },
-                                                    ];
-                                                    this.shadow(shadow)
+                                                    this.position(point(
+                                                        window_paddings.left + x,
+                                                        window_paddings.top + y * delta,
+                                                    ))
                                                 },
                                             )
                                             .into_any_element()
-                                        }),
-                                )
-                                .with_animation(
-                                    "slide-down",
-                                    animation.clone(),
-                                    move |this, delta| {
-                                        this.position(point(
-                                            window_paddings.left + x,
-                                            window_paddings.top + y * delta,
-                                        ))
-                                    },
-                                ),
+                                    } else {
+                                        positioner.into_any_element()
+                                    }
+                                }),
                             ),
                     )
-                    .with_animation("fade-in", animation, move |this, delta| this.opacity(delta))
-                    .text_selection_scope(selection_scope),
+                    .map(|layer| {
+                        if animated {
+                            layer
+                                .with_animation("fade-in", animation, |layer, delta| {
+                                    layer.opacity(delta)
+                                })
+                                .text_selection_scope(selection_scope)
+                                .into_any_element()
+                        } else {
+                            layer
+                                .text_selection_scope(selection_scope)
+                                .into_any_element()
+                        }
+                    }),
             )
             .into_any_element()
     }
@@ -959,5 +1043,101 @@ pub(crate) mod tests {
         assert!(first.bottom() <= viewport.height - px(16.), "{first:?}");
         assert!(second.bottom() <= viewport.height - px(16.), "{second:?}");
         assert!(second.size.height < first.size.height);
+    }
+
+    #[gpui::test]
+    fn test_dialog_entrance_builder(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        cx.update(|cx| {
+            assert_eq!(Dialog::new(cx).props.entrance, DialogEntrance::SlideDown);
+            for entrance in [
+                DialogEntrance::SlideDown,
+                DialogEntrance::Fade,
+                DialogEntrance::FadeSlide,
+                DialogEntrance::None,
+            ] {
+                assert_eq!(Dialog::new(cx).entrance(entrance).props.entrance, entrance);
+            }
+        });
+    }
+
+    #[gpui::test]
+    fn reduced_motion_displays_every_entrance_at_rest(cx: &mut TestAppContext) {
+        for entrance in [
+            DialogEntrance::SlideDown,
+            DialogEntrance::Fade,
+            DialogEntrance::FadeSlide,
+            DialogEntrance::None,
+        ] {
+            let cx = window(cx, size(px(1000.), px(800.)));
+            open(cx, move |dialog, _, _| {
+                dialog
+                    .title("Entrance")
+                    .child("body")
+                    .entrance(entrance)
+                    .margin_top(px(300.))
+            });
+            assert_eq!(surface(cx, 0).top(), px(300.));
+        }
+    }
+
+    #[gpui::test]
+    fn no_entrance_displays_immediately_and_keeps_keyboard_dismissal(cx: &mut TestAppContext) {
+        let cx = window(cx, size(px(1000.), px(800.)));
+        cx.update(|_, cx| cx.set_reduce_motion(false));
+        open(cx, |dialog, _, _| {
+            dialog
+                .title("Immediate")
+                .child("body")
+                .entrance(DialogEntrance::None)
+                .margin_top(px(300.))
+        });
+        assert_eq!(surface(cx, 0).top(), px(300.));
+        cx.simulate_keystrokes("escape");
+        cx.update(|window, cx| assert!(WindowState::read(window, cx).active_dialogs.is_empty()));
+    }
+
+    #[gpui::test]
+    fn zero_theme_duration_displays_fade_entrances_immediately(cx: &mut TestAppContext) {
+        for entrance in [DialogEntrance::Fade, DialogEntrance::FadeSlide] {
+            let cx = window(cx, size(px(1000.), px(800.)));
+            cx.update(|_, cx| {
+                cx.set_reduce_motion(false);
+                crate::Theme::update(cx, |theme| theme.motion.duration_normal = Duration::ZERO);
+            });
+            open(cx, move |dialog, _, _| {
+                dialog
+                    .title("Immediate")
+                    .child("body")
+                    .entrance(entrance)
+                    .margin_top(px(300.))
+            });
+            assert_eq!(surface(cx, 0).top(), px(300.));
+        }
+    }
+
+    #[gpui::test]
+    fn alert_dialog_uses_the_same_entrance(cx: &mut TestAppContext) {
+        for entrance in [
+            DialogEntrance::SlideDown,
+            DialogEntrance::Fade,
+            DialogEntrance::FadeSlide,
+            DialogEntrance::None,
+        ] {
+            let cx = window(cx, size(px(1000.), px(800.)));
+            cx.update(|window, cx| {
+                let alert = crate::dialog::AlertDialog::new(cx)
+                    .title("Alert")
+                    .entrance(entrance);
+                assert_eq!(alert.build_surface(window, cx).props.entrance, entrance);
+                window.open_alert_dialog(cx, move |alert, _, _| {
+                    alert.title("Alert").entrance(entrance)
+                });
+            });
+            cx.run_until_parked();
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert_eq!(surface(cx, 0).top(), px(80.));
+        }
     }
 }

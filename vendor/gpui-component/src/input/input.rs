@@ -3,9 +3,9 @@ use std::rc::Rc;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AccessibleAction, AnyElement, App, DefiniteLength, Edges, ElementId, Entity, Hsla,
-    InteractiveElement as _, IntoElement, ParentElement as _, Rems, RenderOnce, Role, SharedString,
-    StatefulInteractiveElement as _, StyleRefinement, Styled, TextAlign, TouchPhase, Window, div,
-    px, relative,
+    InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Rems, RenderOnce, Role,
+    SharedString, StatefulInteractiveElement as _, StyleRefinement, Styled, TextAlign, TouchPhase,
+    Window, div, px, relative,
 };
 
 use crate::button::{Button, ButtonRounded, ButtonVariants as _};
@@ -111,6 +111,7 @@ pub(crate) fn input_style(disabled: bool, cx: &App) -> (Hsla, Hsla) {
 pub struct Input {
     token_renderer: Option<gpui_base::input::InlineTokenRenderer>,
     token_click_listener: Option<gpui_base::input::InlineTokenClickListener>,
+    token_hover_listener: Option<gpui_base::input::InlineTokenHoverListener>,
     id: Option<ElementId>,
     state: TextInputState,
     style: StyleRefinement,
@@ -192,6 +193,15 @@ impl Input {
         self.token_click_listener = Some(Rc::new(listener));
         self
     }
+    /// Report pointer presence over a token so the application can show a
+    /// tooltip or run custom logic. Hover never selects or edits.
+    pub fn on_token_hover(
+        mut self,
+        listener: impl Fn(&super::InlineTokenHoverEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.token_hover_listener = Some(Rc::new(listener));
+        self
+    }
 
     /// Sets the GPUI identity of the input frame. By default it uses the state entity ID.
     pub fn id(mut self, id: impl Into<ElementId>) -> Self {
@@ -238,6 +248,7 @@ impl Input {
             paste_handler: None,
             token_renderer: None,
             token_click_listener: None,
+            token_hover_listener: None,
         }
     }
 
@@ -537,6 +548,7 @@ impl RenderOnce for Input {
             ),
             cx,
         );
+        state.install_token_hover_presentation(self.token_hover_listener, cx);
         // Which kind of input this registers as follows from the state itself.
         sync_focused_input_registry(&state, window, cx);
 
@@ -682,8 +694,9 @@ impl RenderOnce for Input {
             })
             .read(cx)
             .clone();
-        let focused = input_focused
-            || (frame_focus_handle.contains_focused(window, cx) && !presentation.is_disabled());
+        let focused = !presentation.is_disabled()
+            && (state.has_selection_focus(window, cx)
+                || frame_focus_handle.contains_focused(window, cx));
 
         let gap_x = match self.size {
             Size::Small => px(4.),
@@ -729,6 +742,15 @@ impl RenderOnce for Input {
             .focused(focused)
             .disabled(disabled)
             .track_focus(&frame_focus_handle)
+            .on_mouse_down(MouseButton::Right, {
+                let state = state.clone();
+                move |_, window, cx| {
+                    // The text element has already taken focus. Publish its state
+                    // before an outer ContextMenu resolves the selection owner;
+                    // render-time registration still names the previous input.
+                    sync_focused_input_registry(&state, window, cx);
+                }
+            })
             .when(disabled, |this| {
                 this.capture_any_mouse_down(|_, _, cx| cx.stop_propagation())
             })
@@ -760,8 +782,6 @@ impl RenderOnce for Input {
             .size_full()
             .line_height(LINE_HEIGHT)
             .when(!is_multi_line, |this| {
-                // The single-line state fills and centers itself in the frame.
-                // Vertical padding would clip its line in the smaller sizes.
                 this.input_px(self.size).line_height(relative(1.25))
             })
             .input_h(self.size)
@@ -1000,6 +1020,28 @@ mod tests {
             assert!(Input::new(&state).paste_handler.is_none());
             let input = Input::new(&state).on_paste(|_, _, _| true);
             assert!(input.paste_handler.is_some());
+            Probe
+        });
+    }
+
+    #[gpui::test]
+    fn test_on_token_hover_builder(cx: &mut gpui::TestAppContext) {
+        use gpui::{AppContext as _, Render};
+
+        struct Probe;
+        impl Render for Probe {
+            fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                div()
+            }
+        }
+
+        cx.update(crate::init);
+        let _ = cx.add_window_view(|window, cx| {
+            let state = cx.new(|cx| InputState::new(window, cx));
+
+            assert!(Input::new(&state).token_hover_listener.is_none());
+            let input = Input::new(&state).on_token_hover(|_, _, _| {});
+            assert!(input.token_hover_listener.is_some());
             Probe
         });
     }

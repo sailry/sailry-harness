@@ -8,6 +8,7 @@ use gpui_kit::component::{
     select::{SearchableVec, Select, SelectState},
 };
 use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::test::{TestSupportExt as _, TestWindowExt as _};
 use gpui_kit::{
     AppContext, Context, Entity, InteractiveElement, KeyDownEvent, KeyUpEvent, Keystroke,
     ParentElement, Render, Styled, TestAppContext, VisualTestContext, div, point, rems,
@@ -28,7 +29,7 @@ fn setup(cx: &mut TestAppContext) {
 }
 
 fn draw(cx: &mut VisualTestContext) {
-    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|window, cx| window.render_frame(cx));
 }
 
 fn activate(cx: &mut VisualTestContext) {
@@ -332,6 +333,10 @@ impl gpui_kit::component::select::SelectItem for SelectOption {
     fn render(&self, _: &mut Window, _: &mut App) -> impl IntoElement {
         let label = self.0;
         div()
+            .id(gpui_kit::SharedString::from(format!(
+                "material-option-{label}"
+            )))
+            .test_support()
             .debug_selector(move || format!("material-option-{label}"))
             .line_height(gpui_kit::relative(1.))
             .child(label)
@@ -346,6 +351,8 @@ impl Render for SelectFixture {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div().size_full().p(px(40.)).child(
             div()
+                .id("material-select")
+                .test_support()
                 .debug_selector(|| "material-select".into())
                 .w(px(180.))
                 .child(Select::new(&self.state).menu_width(px(240.)).empty(|_, _| {
@@ -373,6 +380,8 @@ fn select_bounds_and_motion(cx: &mut TestAppContext) {
                     Corners::all(px(16.)).map(|radius| (*radius).into())
                 );
                 div()
+                    .id("material-dropdown")
+                    .test_support()
                     .debug_selector(|| "material-dropdown".into())
                     .child(Surface { child, corners })
                     .into_any_element()
@@ -391,48 +400,52 @@ fn select_bounds_and_motion(cx: &mut TestAppContext) {
         }),
     });
     draw(visual);
-    let trigger = visual.debug_bounds("material-select").unwrap().center();
-    visual.simulate_click(trigger, Default::default());
+    visual.update(|window, cx| window.click("material-select", cx));
     draw(visual);
-    let opening = visual.debug_bounds("material-dropdown").unwrap();
+    let opening = visual.update(|window, _| window.find("material-dropdown").bounds());
     assert_eq!(opening.size.width, px(240.));
     assert!(opening.size.height > px(0.));
 
     // Kit animations use the wall clock, independently of the test executor.
     std::thread::sleep(std::time::Duration::from_millis(600));
     draw(visual);
-    let settled = visual.debug_bounds("material-dropdown").unwrap();
+    let settled = visual.update(|window, _| window.find("material-dropdown").bounds());
     assert_eq!(opening.size, settled.size);
-    let first = visual.debug_bounds("material-option-First").unwrap();
-    let second = visual.debug_bounds("material-option-Second").unwrap();
+    let first = visual.update(|window, _| window.find("material-option-First").bounds());
+    let second = visual.update(|window, _| window.find("material-option-Second").bounds());
     // Select retains its 4px row padding inside the shared 8px popup inset.
     assert_eq!(first.top() - settled.top(), px(12.));
     assert_eq!(settled.bottom() - second.bottom(), px(12.));
-    assert_eq!(first.left() - settled.left(), px(20.));
+    // Kit Medium rows use 7px horizontal padding inside the shared 8px inset.
+    assert_eq!(first.left() - settled.left(), px(15.));
+    assert!(first.right() < settled.right() && second.right() < settled.right());
     assert_eq!(second.top() - first.bottom(), px(9.));
     assert!(
         opening.top() < settled.top(),
         "the material should move with the entering menu: {opening:?} -> {settled:?}",
     );
 
-    visual.simulate_keystrokes("escape");
+    visual.update(|window, cx| window.press("escape", cx));
     draw(visual);
-    assert!(visual.debug_bounds("material-dropdown").is_none());
-    visual.simulate_click(trigger, Default::default());
+    assert!(visual.update(|window, _| window.try_find("material-dropdown").is_none()));
+    visual.update(|window, cx| window.click("material-select", cx));
     draw(visual);
-    let reopening = visual.debug_bounds("material-dropdown").unwrap();
+    let reopening = visual.update(|window, _| window.find("material-dropdown").bounds());
     assert_eq!(reopening.size, settled.size);
     assert!(
         reopening.top() < settled.top(),
         "the whole material should restart its enter motion: {reopening:?} -> {settled:?}",
     );
-    visual.simulate_keystrokes("down enter");
+    visual.update(|window, cx| {
+        window.press("down", cx);
+        window.press("enter", cx);
+    });
     draw(visual);
     assert_eq!(
         visual.update(|_, cx| fixture.read(cx).state.read(cx).selected_value().copied()),
         Some("Second"),
     );
-    assert!(visual.debug_bounds("material-dropdown").is_none());
+    assert!(visual.update(|window, _| window.try_find("material-dropdown").is_none()));
 }
 
 #[gpui::test]

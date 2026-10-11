@@ -1,3 +1,4 @@
+// Modified by Longbridge for gpui-fast.
 use crate::{
     Action, AnyView, AnyWindowHandle, App, AppCell, AppContext, AsyncApp, AvailableSpace,
     BackgroundExecutor, BorrowAppContext, Bounds, Capslock, ClipboardItem, DrawPhase, Drawable,
@@ -25,10 +26,10 @@ pub struct TestAppContext {
     pub foreground_executor: ForegroundExecutor,
     #[doc(hidden)]
     pub dispatcher: TestDispatcher,
-    test_platform: Rc<TestPlatform>,
-    text_system: Arc<TextSystem>,
-    fn_name: Option<&'static str>,
-    on_quit: Rc<RefCell<Vec<Box<dyn FnOnce() + 'static>>>>,
+    pub(crate) test_platform: Rc<TestPlatform>,
+    pub(crate) text_system: Arc<TextSystem>,
+    pub(crate) fn_name: Option<&'static str>,
+    pub(crate) on_quit: Rc<RefCell<Vec<Box<dyn FnOnce() + 'static>>>>,
     #[doc(hidden)]
     pub app: Rc<AppCell>,
 }
@@ -1004,6 +1005,7 @@ impl VisualTestContext {
         self.update(|window, cx| {
             let arena_scope = ElementArenaScope::enter(&cx.element_arena);
 
+            crate::fast::retained::draw_outside_frames(window);
             window.invalidator.set_phase(DrawPhase::Prepaint);
             let mut element = Drawable::new(f(window, cx));
             element.layout_as_root(space.into(), window, cx);

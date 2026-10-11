@@ -1,3 +1,4 @@
+// Modified by Longbridge for gpui-fast.
 use std::{
     cell::{Cell, RefCell},
     ffi::{OsStr, OsString},
@@ -499,6 +500,7 @@ fn translate_accelerator(msg: &MSG) -> Option<()> {
     if msg.message != WM_KEYDOWN && msg.message != WM_SYSKEYDOWN {
         return None;
     }
+    crate::fast::composition::is_gpui_window(msg.hwnd)?;
 
     let result = unsafe {
         SendMessageW(

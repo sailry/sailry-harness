@@ -312,12 +312,15 @@ impl View {
             return;
         };
         let (sender, mut receiver) = tokio::sync::mpsc::channel::<String>(4);
+        #[cfg(target_os = "windows")]
         let snapshot = crate::ui::webview_snapshot::Snapshot::new();
+        #[cfg(target_os = "windows")]
         let signals = snapshot.signals();
         let builder = wry::WebViewBuilder::new()
             .with_html(html)
             .with_navigation_handler(|url| url == "about:blank")
             .with_ipc_handler(move |request| {
+                #[cfg(target_os = "windows")]
                 if signals.receive(request.body()) {
                     return;
                 }
@@ -335,9 +338,12 @@ impl View {
                     }
                 }
             });
-        let Ok(native) =
-            crate::content::files::html::surface::Native::build(builder, window, snapshot)
-        else {
+        #[cfg(target_os = "windows")]
+        let native =
+            crate::content::files::html::surface::Native::build(builder, window, cx, snapshot);
+        #[cfg(not(target_os = "windows"))]
+        let native = crate::content::files::html::surface::Native::build(builder, window, cx);
+        let Ok(native) = native else {
             self.error = Some("artifact_preview_failed");
             return;
         };

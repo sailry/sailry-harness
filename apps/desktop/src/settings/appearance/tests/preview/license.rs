@@ -1,5 +1,26 @@
 use super::*;
-use gpui_kit::test::TestWindowExt as _;
+
+fn toggle(visual: &mut VisualTestContext) {
+    settle(visual);
+    visual.update(|window, cx| {
+        let expanded = window
+            .within("theme-license-details")
+            .find(("trigger", 0usize))
+            .expanded()
+            .expect("license trigger must expose expanded state");
+        window
+            .within("theme-license-details")
+            .click(("trigger", 0usize), cx);
+        assert_eq!(
+            window
+                .within("theme-license-details")
+                .find(("trigger", 0usize))
+                .expanded(),
+            Some(!expanded),
+        );
+    });
+    settle(visual);
+}
 
 fn surface(visual: &mut VisualTestContext) {
     visual.update(|window, cx| {
@@ -77,11 +98,11 @@ fn keeps_fill_inside_the_rounded_border(cx: &mut TestAppContext) {
             surface(visual);
             assert!(visual.debug_bounds("theme-license-text").is_none());
             let footer = actions(visual).map(|bounds| bounds.size);
-            click(visual, "theme-license-toggle");
+            toggle(visual);
             assert!(visual.debug_bounds("theme-license-text").is_some());
             surface(visual);
             assert_eq!(actions(visual).map(|bounds| bounds.size), footer);
-            click(visual, "theme-license-toggle");
+            toggle(visual);
             for _ in 0..100 {
                 if visual.debug_bounds("theme-license-text").is_none() {
                     break;
@@ -90,7 +111,13 @@ fn keeps_fill_inside_the_rounded_border(cx: &mut TestAppContext) {
             }
             assert!(visual.debug_bounds("theme-license-text").is_none());
             surface(visual);
-            click(visual, "theme-import-cancel");
+            settle(visual);
+            visual.update(|window, cx| {
+                window
+                    .within("gpui_component::dialog::footer::DialogFooter")
+                    .click("close", cx)
+            });
+            settle(visual);
             assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
         }
     }

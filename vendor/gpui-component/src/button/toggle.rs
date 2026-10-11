@@ -1,4 +1,4 @@
-use std::{cell::Cell, rc::Rc};
+use std::{cell::Cell, rc::Rc, time::Duration};
 
 use gpui::{
     AnyElement, App, Axis, Corners, Edges, ElementId, InteractiveElement, IntoElement,
@@ -71,6 +71,14 @@ impl Toggle {
     /// Set tooltip text for the toggle.
     pub fn tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
         self.tooltip.text = Some((tooltip.into(), None));
+        self
+    }
+
+    /// Overrides how long the pointer must rest before the tooltip shows.
+    ///
+    /// Defaults to [`gpui_base::TooltipDefaults::show_delay`].
+    pub fn tooltip_show_delay(mut self, delay: Duration) -> Self {
+        self.tooltip.show_delay = Some(delay);
         self
     }
 
@@ -174,9 +182,8 @@ impl RenderOnce for Toggle {
             .map(|this| match self.size {
                 Size::XSmall => this.min_w_5().h_5().px_0p5().text_xs(),
                 Size::Small => this.min_w_6().h_6().px_1().text_sm(),
-                Size::Medium => this.min_w_8().h_8().px_2().text_sm(),
-                Size::Large => this.min_w_9().h_9().px_3().text_lg(),
-                _ => this.min_w_8().h_8().px_2(),
+                Size::Large => this.min_w_9().h_9().px_3().text_base(),
+                _ => this.min_w_8().h_8().px_2().text_sm(),
             })
             .when(self.border_corners.top_left, |this| {
                 this.rounded_tl(rounding)

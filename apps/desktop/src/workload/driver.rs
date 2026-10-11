@@ -174,10 +174,14 @@ async fn measure(
     eprintln!("workload-start: {route}/{workload}");
     let started = Instant::now();
     let mut delays = Vec::new();
+    let mut frames = cx
+        .update(|window, cx| frames::Frames::new(window, cx))
+        .unwrap();
     while !job.is_finished() {
         let timer = Instant::now();
         pause(cx, Duration::from_millis(50)).await;
         delays.push(timer.elapsed().as_secs_f64() * 1000. - 50.);
+        frames.collect();
         if delays.len() % 10 == 0 {
             let previous = cx
                 .update(|window, cx| {
@@ -203,7 +207,8 @@ async fn measure(
     delays.sort_by(f64::total_cmp);
     assert!(!delays.is_empty());
     let record = json!({"route":route,"workload":workload,"seconds":started.elapsed().as_secs_f64(),
-        "foreground_samples":delays.len(), "timer_delay_p95_ms":delays[(delays.len()-1)*95/100], "timer_delay_max_ms":delays.last()});
+        "foreground_samples":delays.len(), "timer_delay_p95_ms":delays[(delays.len()-1)*95/100], "timer_delay_max_ms":delays.last(),
+        "native_frames": frames.finish()?});
     println!("Workload end: {record}");
     eprintln!("workload-end: {route}/{workload}");
     Ok(record)

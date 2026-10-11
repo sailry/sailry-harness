@@ -133,14 +133,10 @@ fn reconnects_revoked_accounts(cx: &mut TestAppContext) {
             assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
             settle(visual);
             let before = recorded.commands.lock().unwrap().len();
+            let previous = visual.opened_url();
             tap(visual, "provider-login-0");
             if preset == Preset::ChatGpt {
-                let deadline = Instant::now() + Duration::from_secs(10);
-                while visual.debug_bounds("provider-login-waiting").is_none() {
-                    settle(visual);
-                    assert!(Instant::now() < deadline, "browser readiness deadline");
-                }
-                let authorization = visual.opened_url().unwrap();
+                let authorization = browser_ready(visual, previous.as_deref());
                 let callback = support::callback(&authorization);
                 let response = fixture.runtime.spawn(async move {
                     reqwest::get(callback.expose())

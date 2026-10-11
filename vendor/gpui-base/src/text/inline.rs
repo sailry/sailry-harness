@@ -105,8 +105,9 @@ pub(super) fn combine_highlights(
 }
 
 /// Layers a streamed fade-in over `highlights`: text inside each fade range
-/// loses that share of its color, and a highlight background fades with it so
-/// an inline code chip does not appear before its text.
+/// loses that share of its color, and a highlight background or decoration
+/// color fades with it so an inline code chip or a link underline does not
+/// appear before its text.
 pub(super) fn fade_highlights(
     highlights: Vec<(Range<usize>, InlineHighlight)>,
     fades: &[(Range<usize>, f32)],
@@ -124,11 +125,22 @@ pub(super) fn fade_highlights(
         )
     });
     let mut combined = combine_highlights(highlights, fade_highlights);
+    // GPUI fades only the glyph color, so explicit decoration colors fade
+    // here too, or a link underline would show before its text does.
     for (_, highlight) in &mut combined {
-        if let Some(fade_out) = highlight.style.fade_out
-            && let Some(background) = highlight.style.background_color.as_mut()
+        let Some(fade_out) = highlight.style.fade_out else {
+            continue;
+        };
+        let style = &mut highlight.style;
+        for color in [
+            style.background_color.as_mut(),
+            style.underline.as_mut().and_then(|u| u.color.as_mut()),
+            style.strikethrough.as_mut().and_then(|s| s.color.as_mut()),
+        ]
+        .into_iter()
+        .flatten()
         {
-            background.fade_out(fade_out);
+            color.fade_out(fade_out);
         }
     }
     combined
@@ -983,7 +995,7 @@ impl Element for Inline {
         // `max_lines` can snap its clip to a whole-line boundary. The state
         // stack only holds an entry during prepaint when that view set
         // `max_lines`, so this is a no-op otherwise.
-        if let Some(text_view_state) = GlobalState::global(cx).text_view_state().cloned() {
+        if let Some(text_view_state) = GlobalState::global(cx).text_view_state() {
             let state = text_view_state.read(cx);
             if state.max_lines.is_some()
                 && let Ok(mut line_spans) = state.line_spans.lock()
@@ -1068,31 +1080,29 @@ impl Element for Inline {
                 .unwrap_or_else(|| crate::Theme::global(cx).tokens.colors.selection);
             Self::paint_selection(selection, &text_layout, &bounds, window, color);
             if let Some((start, end)) = Self::selection_edges(selection, &text_layout)
-                && let Some(text_view_state) = GlobalState::global(cx).text_view_state().cloned()
+                && let Some(text_view_state) = GlobalState::global(cx).text_view_state()
             {
-                text_view_state.update(cx, |state, _| {
-                    state.selection_adapter.register_selection_edges(start, end);
-                });
+                text_view_state
+                    .read(cx)
+                    .selection_adapter
+                    .register_selection_edges(start, end);
             }
         }
 
         if is_selectable {
-            if let Some(text_view_state) = GlobalState::global(cx).text_view_state().cloned() {
+            if let Some(text_view_state) = GlobalState::global(cx).text_view_state() {
                 let text_bounds = Self::text_line_bounds(
                     &text_layout,
                     text_layout.line_height(),
                     window.content_mask().bounds,
                 );
-                text_view_state.update(cx, |state, _| {
-                    state.selection_adapter.register_inline(text_bounds);
-                    state
-                        .selection_adapter
-                        .register_text_run(crate::TextSelectionRun::new(
-                            self.text.clone(),
-                            text_layout.clone(),
-                            hitbox.bounds,
-                        ));
-                });
+                let adapter = &text_view_state.read(cx).selection_adapter;
+                adapter.register_inline(text_bounds);
+                adapter.register_text_run(crate::TextSelectionRun::new(
+                    self.text.clone(),
+                    text_layout.clone(),
+                    hitbox.bounds,
+                ));
             }
 
             window.on_mouse_event({
@@ -1101,7 +1111,7 @@ impl Element for Inline {
                 let inline_state = self.state.clone();
                 let text = self.text.clone();
                 let source = self.source.clone();
-                let text_view_state = GlobalState::global(cx).text_view_state().cloned();
+                let text_view_state = GlobalState::global(cx).text_view_state();
                 let line_bounds = self.selection_bounds;
                 move |event: &MouseDownEvent, phase, window, cx| {
                     if !phase.bubble()
@@ -1224,7 +1234,7 @@ impl Element for Inline {
                 let links = self.links.clone();
                 let text_layout = text_layout.clone();
                 let hitbox = hitbox.clone();
-                let text_view_state = GlobalState::global(cx).text_view_state().cloned();
+                let text_view_state = GlobalState::global(cx).text_view_state();
                 let link_click_handler = self.link_click_handler.clone();
 
                 move |event: &MouseUpEvent, phase, window, cx| {
@@ -1483,6 +1493,26 @@ mod fade_highlights_tests {
         let (_, faded_text) = &combined[2];
         assert_eq!(faded_text.style.fade_out, Some(0.5));
         assert!(faded_text.style.background_color.is_none());
+    }
+
+    #[test]
+    fn fades_explicit_decoration_colors_with_the_text() {
+        let link = InlineHighlight::from(HighlightStyle {
+            underline: Some(gpui::UnderlineStyle {
+                color: Some(gpui::blue()),
+                ..Default::default()
+            }),
+            strikethrough: Some(gpui::StrikethroughStyle {
+                color: Some(gpui::red()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let combined = fade_highlights(vec![(0..4, link)], &[(0..4, 0.75)]);
+
+        let (_, faded) = &combined[0];
+        assert_eq!(faded.style.underline.unwrap().color.unwrap().a, 0.25);
+        assert_eq!(faded.style.strikethrough.unwrap().color.unwrap().a, 0.25);
     }
 
     #[test]

@@ -153,15 +153,14 @@ fn wraps_pending_and_resolved_prompts(cx: &mut TestAppContext) {
         wait(visual, |cx| {
             view.read(cx).active().is_none() && !view.read(cx).questions.pending
         });
-        let turn = view.read_with(visual, |view, _| {
+        view.read_with(visual, |view, _| {
             let page = &view.history.snapshot.as_ref().unwrap().page;
             assert_eq!(
                 page.questions[0].state,
                 State::Answered(Answer::Text(answer.clone()))
             );
-            page.runs[0].turn
         });
-        tap(visual, &format!("live-turn-work-{turn}"));
+        assert!(history(visual, id).visible());
         let resolved = sizes(visual, id);
         assert!(resolved[0] > resolved[1]);
         assert!(
@@ -171,7 +170,7 @@ fn wraps_pending_and_resolved_prompts(cx: &mut TestAppContext) {
                 ))
                 .is_none()
         );
-        tap(visual, &format!("live-question-history-{id}"));
+        toggle_history(visual, id);
         draw(visual);
         assert!(
             visual
@@ -182,7 +181,7 @@ fn wraps_pending_and_resolved_prompts(cx: &mut TestAppContext) {
         );
         let expanded = sizes(visual, id);
         assert_eq!(expanded, resolved);
-        tap(visual, &format!("live-question-history-{id}"));
+        toggle_history(visual, id);
         draw(visual);
         assert!(
             visual

@@ -179,6 +179,8 @@ pub(super) async fn run(scenario: Scenario, shell: Entity<Shell>, cx: &mut Async
             &session,
             results[0]["url"].as_str().unwrap(),
             &shell,
+            route,
+            &scenario.output,
             cx,
         )
         .await;
@@ -206,6 +208,8 @@ async fn background(
     session: &Session,
     url: &str,
     shell: &Entity<Shell>,
+    route: &str,
+    output: &Path,
     cx: &mut AsyncWindowContext,
 ) {
     let browser = cx
@@ -232,7 +236,7 @@ async fn background(
             )
         })
         .unwrap();
-    let native_focus = focus::State::foreground(&browser, selected, cx).await;
+    let native_focus = focus::State::foreground(shell, &browser, selected, cx).await;
     let opened = call(
         client,
         services,
@@ -481,6 +485,15 @@ async fn background(
         assert_eq!(tab(&state, focus)["background"], false);
     })
     .unwrap();
+    #[cfg(target_os = "macos")]
+    {
+        let page = cx
+            .update(|_, cx| browser.read(cx).handle(focus, cx).unwrap())
+            .unwrap();
+        super::native_overlays::verify(&format!("browser-{route}"), page, output, cx).await;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (route, output);
 }
 
 fn retained(

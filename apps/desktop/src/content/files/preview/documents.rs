@@ -116,7 +116,7 @@ impl Document {
         });
     }
 
-    fn mount(&mut self, window: &Window, cx: &mut Context<Self>) {
+    fn mount(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(bytes) = self.bytes.take() else {
             return;
         };
@@ -131,6 +131,7 @@ impl Document {
                 }
             },
             window,
+            cx,
         ) {
             Ok(native) => {
                 self.native = Some(Rc::new(native));

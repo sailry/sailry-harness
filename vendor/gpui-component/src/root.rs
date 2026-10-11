@@ -116,6 +116,10 @@ impl WindowState {
         root.update(cx, |root, cx| f(root, window, cx))
     }
 
+    pub(crate) fn try_read<'a>(window: &Window, cx: &'a App) -> Option<&'a Self> {
+        Self::entity(window, cx).map(|root| root.read(cx))
+    }
+
     pub(crate) fn try_update<F, R>(window: &mut Window, cx: &mut App, f: F) -> Option<R>
     where
         F: FnOnce(&mut Self, &mut Window, &mut Context<Self>) -> R,
@@ -145,19 +149,21 @@ impl WindowState {
         };
 
         Some(
-            gpui::deferred(div()
-                .absolute()
-                .inset_0()
-                .top(insets.top)
-                .right(insets.right)
-                .bottom(insets.bottom)
-                .left(insets.left)
-                .when_some(mt, |this, offset| this.mt(offset))
-                .when_some(mr, |this, offset| this.mr(offset))
-                .when_some(mb, |this, offset| this.mb(offset))
-                .when_some(ml, |this, offset| this.ml(offset))
-                .child(root.read(cx).notification.clone()))
-                .with_priority(gpui_base::POPUP_PRIORITY + 1),
+            gpui::deferred(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .top(insets.top)
+                    .right(insets.right)
+                    .bottom(insets.bottom)
+                    .left(insets.left)
+                    .when_some(mt, |this, offset| this.mt(offset))
+                    .when_some(mr, |this, offset| this.mr(offset))
+                    .when_some(mb, |this, offset| this.mb(offset))
+                    .when_some(ml, |this, offset| this.ml(offset))
+                    .child(root.read(cx).notification.clone()),
+            )
+            .with_priority(gpui_base::POPUP_PRIORITY + 1),
         )
     }
 

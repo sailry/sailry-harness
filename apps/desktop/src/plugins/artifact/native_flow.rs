@@ -291,6 +291,16 @@ pub(in crate::plugins) async fn verify(
         .await;
         let view = mounted(node, first.id, cx).await;
         rendered(&view, cx).await;
+        let page = cx
+            .update(|_, cx| view.read(cx).native_fixture().unwrap().page.handle())
+            .unwrap();
+        crate::workload::native_overlays::verify(
+            &format!("html-brief-flow-{route}"),
+            page,
+            output,
+            cx,
+        )
+        .await;
         panel_ready(&shell, &view, node, &first, cx);
         let captured = cx
             .update(|_, cx| {
@@ -514,10 +524,10 @@ async fn reproduce_export(
     cx: &mut AsyncWindowContext,
 ) {
     use gpui_kit::component::{ThemeMode, WindowExt, notification::Notification};
-    until(cx, "live snapshot cache warmed", |_, cx| {
+    until(cx, "live composition mounted", |_, cx| {
         view.read(cx)
             .native_fixture()
-            .is_some_and(|native| native.cache_state().1)
+            .is_some_and(|native| native.page.visible())
     })
     .await;
     cx.update(|window, cx| {
@@ -526,18 +536,24 @@ async fn reproduce_export(
         window.refresh();
     })
     .unwrap();
-    until(cx, "live page substituted beneath toast", |_, cx| {
-        view.read(cx)
-            .native_fixture()
-            .is_some_and(|native| native.substituted())
-    })
-    .await;
+    let native = cx
+        .update(|_, cx| view.read(cx).native_fixture().unwrap().clone())
+        .unwrap();
+    // Composition keeps live content beneath overlays. Independently retain
+    // the real hidden-page capture policy using Kit's managed visibility API.
+    native.page.set_visible(false).unwrap();
+    assert!(!native.page.visible());
     let started = Instant::now();
     let captured = cx
         .update(|window, cx| view.update(cx, |view, cx| view.capture(2, window, cx)))
         .unwrap()
         .await
-        .expect("live capture must complete while the normal-policy page is substituted");
+        .expect("live capture must complete while the normal-policy page is hidden");
+    assert!(
+        !native.page.visible(),
+        "capture must not reveal the hidden page"
+    );
+    native.page.set_visible(true).unwrap();
     assert!(captured.contains("Export end marker"));
     println!(
         "Brief {route}: normal-policy hidden live capture completed in {:?}",

@@ -279,6 +279,82 @@ fn official_install_and_details(cx: &mut TestAppContext) {
     }
 }
 
+#[track_caller]
+fn update_control(
+    owner: &Entity<Workspace>,
+    visual: &mut VisualTestContext,
+    selector: &'static str,
+) {
+    use crate::settings::plugins::test_support::reveal;
+    use gpui_kit::test::TestWindowExt as _;
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        draw(visual);
+        let ready = owner.read_with(visual, |owner, cx| {
+            let catalog = &owner.plugin_catalog;
+            owner
+                .provider_link
+                .as_ref()
+                .is_some_and(|link| link.connected)
+                && !catalog.busy(cx)
+                && catalog.updates.as_ref().is_some_and(|updates| {
+                    let updates = updates.read(cx);
+                    selector.strip_prefix("plugin-update-").map_or_else(
+                        || updates.available() > 0,
+                        |name| {
+                            updates
+                                .entries
+                                .get(name)
+                                .is_some_and(|entry| entry.candidate.is_some())
+                        },
+                    )
+                })
+        });
+        // The virtual inventory unmounts clipped cards and the heading.
+        // Reveal the ready action before checking its rendered bounds.
+        if ready
+            && reveal(visual, SharedString::from(selector).into())
+            && visual.debug_bounds(selector).is_some()
+        {
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            let state = visual.update(|window, cx| {
+                let catalog = &owner.read(cx).plugin_catalog;
+                let updates = catalog.updates.as_ref().map(|state| state.read(cx));
+                let inventory = catalog.inventory.as_ref().map(|inventory| {
+                    (
+                        inventory.list.logical_scroll_top(),
+                        inventory.list.viewport_bounds(),
+                        inventory.list.item_count(),
+                    )
+                });
+                (
+                    updates.map(|state| {
+                        (
+                            state.checking(),
+                            state.applying(),
+                            state.selecting(),
+                            state.available(),
+                            state.entries.keys().cloned().collect::<Vec<_>>(),
+                        )
+                    }),
+                    window.try_find(selector),
+                    window.viewport_size(),
+                    window.has_active_dialog(cx),
+                    inventory,
+                )
+            });
+            panic!(
+                "plugin update control deadline: selector={selector}, state={state:?}, viewport={:?}",
+                visual.debug_bounds("settings-viewport")
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 #[gpui::test]
 fn preinstalled_updates(cx: &mut TestAppContext) {
     init(cx);
@@ -303,8 +379,8 @@ fn preinstalled_updates(cx: &mut TestAppContext) {
                 .read(cx)
                 .checking()
         });
-        shown(visual, "plugin-update-reminders", true);
-        shown(visual, "plugins-update-all", true);
+        update_control(&owner, visual, "plugin-update-reminders");
+        update_control(&owner, visual, "plugins-update-all");
         server.checked();
         assert!(fixture.transport.requests.lock().unwrap().is_empty());
         fixture.transport.mode.store(1, Ordering::SeqCst);
@@ -360,7 +436,7 @@ fn installs_captured_commit(cx: &mut TestAppContext) {
         let (owner, visual) = fixture.mount(cx);
         updates::ready(&owner, visual, "reminders", 1);
         tap(visual, "plugins-check-updates");
-        shown(visual, "plugin-update-reminders", true);
+        update_control(&owner, visual, "plugin-update-reminders");
         server.checked();
         let mut paths = server.requests.lock().unwrap().clone();
         paths.push(format!("/sailry/sailry-plugins/zip/{}", "a".repeat(40)));

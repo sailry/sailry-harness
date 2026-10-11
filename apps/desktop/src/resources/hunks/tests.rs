@@ -1,9 +1,10 @@
 use super::*;
 use crate::resources::checkpoints::tests::fixture::{
-    self, Fixture, after, before, init, open_file, tap, wait,
+    self, Fixture, after, before, init, open_file, wait,
 };
 use core::prelude::v1::test;
 use gpui_kit::component::input::EditorState;
+use gpui_kit::test::TestWindowExt as _;
 use std::{
     path::Path,
     sync::{
@@ -38,12 +39,41 @@ fn versioned(remote: bool, count: usize) -> Fixture {
     fixture
 }
 
+fn control_id(selector: &str) -> Option<SharedString> {
+    let suffix = selector.strip_prefix("turn-hunks-")?;
+    Some(if suffix == "retry" {
+        "retry-hunks".into()
+    } else {
+        suffix.to_owned().into()
+    })
+}
+
+fn tap(cx: &mut VisualTestContext, selector: &str) {
+    let Some(id) = control_id(selector) else {
+        return fixture::tap(cx, selector);
+    };
+    if cx.update(|window, cx| window.has_active_dialog(cx)) {
+        std::thread::sleep(*gpui_kit::component::dialog::ANIMATION_DURATION);
+    }
+    cx.run_until_parked();
+    cx.update(|window, cx| window.click(id, cx));
+    cx.run_until_parked();
+}
+
 fn element(cx: &mut VisualTestContext, selector: &str) {
     let selector: &'static str = Box::leak(selector.to_owned().into_boxed_str());
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         wait(cx, |_| true);
-        if cx.debug_bounds(selector).is_some() {
+        let present = if let Some(id) = control_id(selector) {
+            cx.update(|window, cx| {
+                window.render_frame(cx);
+                window.try_find(id).is_some_and(|target| target.visible())
+            })
+        } else {
+            cx.debug_bounds(selector).is_some()
+        };
+        if present {
             return;
         }
         assert!(Instant::now() < deadline, "hunk UI deadline");
@@ -56,7 +86,15 @@ fn missing(cx: &mut VisualTestContext, selector: &str) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         wait(cx, |_| true);
-        if cx.debug_bounds(selector).is_none() {
+        let absent = if let Some(id) = control_id(selector) {
+            cx.update(|window, cx| {
+                window.render_frame(cx);
+                window.try_find(id).is_none()
+            })
+        } else {
+            cx.debug_bounds(selector).is_none()
+        };
+        if absent {
             return;
         }
         assert!(Instant::now() < deadline, "hunk retry deadline");

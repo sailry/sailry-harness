@@ -20,13 +20,14 @@ Original snapshots, checksums, provenance and license copies: crates/node-runtim
 
 GPUI Kit integrations and editor overlays
 Vendored gpui-base sources originate from https://github.com/longbridge/gpui-kit
-at 0c830f4d257e69fdd17200650533ab4ca9a40cc0 (Apache-2.0). Sailry consumes handled
+at 1ccf011620da24d633f7cd6d3c11ca2e97798dcf (Apache-2.0). Sailry consumes handled
 completion and code-action menu keys before later bindings can edit the document.
-Thin Kit integration packages retain the same source revision and select GPUI
-0.3.8 alongside the existing Base and Component patches. Provenance and upstream
-licenses remain in vendor/gpui-kit/, vendor/gpui-base/ and vendor/gpui-component/.
-The renderer patches use the published GPUI 0.3.8 snapshot of Zed at
-279fe070bb389b79652e52065b2f001edcc0b11b, with notices in vendor/gpui-renderer/.
+Kit integration packages retain the same source revision and select its GPUI Fast
+0.1.3 backend alongside the rebased Base and Component patches. GPUI WebView owns
+native composition on macOS and X11. Provenance and upstream licenses remain in
+vendor/gpui-kit/, vendor/gpui-base/ and vendor/gpui-component/.
+The renderer patches use the published GPUI Fast 0.1.3 family, with package
+provenance, archive checksums and upstream licenses in vendor/gpui-renderer/.
 
 Offline conversation export
 html2canvas 1.4.1 (MIT) and Apache ECharts 6.0.0 (Apache-2.0) retain their

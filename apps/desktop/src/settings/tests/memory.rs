@@ -98,6 +98,51 @@ fn ready(owner: &Entity<Workspace>, visual: &mut VisualTestContext, selector: &s
     }
 }
 
+#[track_caller]
+fn feedback(visual: &mut VisualTestContext, previous: &[gpui_kit::EntityId]) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        visual.run_until_parked();
+        if visual.update(|window, cx| {
+            window
+                .notifications(cx)
+                .iter()
+                .any(|note| !previous.contains(&note.entity_id()))
+        }) {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "expected a new memory action toast"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[track_caller]
+fn checked(visual: &mut VisualTestContext, expected: bool) {
+    use gpui_kit::test::TestWindowExt as _;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        draw(visual);
+        let target = visual.update(|window, _| window.try_find("memory-archive"));
+        if target.as_ref().is_some_and(|target| {
+            target.role() == Some(gpui_kit::Role::Switch)
+                && target.visible()
+                && target.checked() == Some(expected)
+                // Base Switch exposes its focus binding only while enabled.
+                && target.focused().is_some()
+        }) {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "archive switch deadline: checked={expected}; {target:?}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 fn install(fixture: &Fixture, index: usize) {
     let root = fixture
         .directory
@@ -115,14 +160,6 @@ fn install(fixture: &Fixture, index: usize) {
         .replace(
             "new Tab().label(text[`memory_${key}`])",
             "new Tab().child(Anchor.new(`memory-view-${key}`).child(div().child(text[`memory_${key}`])))",
-        )
-        .replace(
-            ".children(summary.revision ? [new Switch('memory-archive')",
-            ".children(summary.revision ? [Anchor.new('memory-archive').child(new Switch('memory-archive')",
-        )
-        .replace(
-            ".on_change((value,cx)=>{summary.archived=value;cx.notify();})]",
-            ".on_change((value,cx)=>{summary.archived=value;cx.notify();}))]",
         )
         .replace(
             ": merge] : [])",
@@ -297,9 +334,18 @@ fn entries_preserve_host_conflicts(cx: &mut TestAppContext) {
         // Its catalog refresh uses the same bounded request pool as saving.
         shown_settings(&owner, visual, "Changed elsewhere", true);
         ready(&owner, visual, "memory-create");
+        // Clearing starts Kit's exit transition, so ending toasts stay mounted.
+        // Observe a new delivery without selecting the expected error message.
         visual.update(|window, cx| window.clear_notifications(cx));
+        let previous = visual.update(|window, cx| {
+            window
+                .notifications(cx)
+                .iter()
+                .map(|note| note.entity_id())
+                .collect::<Vec<_>>()
+        });
         save(&owner, visual);
-        crate::feedback::tests::shown(visual);
+        feedback(visual, &previous);
         assert_eq!(
             visual.update(crate::feedback::tests::summary),
             "Memory changed or was deleted · reopen to edit"
@@ -355,9 +401,15 @@ fn entries_preserve_host_conflicts(cx: &mut TestAppContext) {
             true,
         );
         edit(&owner, visual, source.summary.id);
-        shown(visual, "memory-archive", true);
-        ready(&owner, visual, "memory-archive");
-        tap(visual, "memory-archive");
+        checked(visual, true);
+        if visual.update(|window, cx| window.has_active_dialog(cx)) {
+            std::thread::sleep(*gpui_kit::component::dialog::ANIMATION_DURATION);
+        }
+        visual.update(|window, cx| {
+            use gpui_kit::test::TestWindowExt as _;
+            window.click("memory-archive", cx);
+        });
+        checked(visual, false);
         save(&owner, visual);
         wait(visual, |_| {
             !read(&fixture, index, source.summary.id).summary.archived

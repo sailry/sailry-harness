@@ -1,5 +1,4 @@
-//! Native child views yield to intersecting GPUI overlays through a warm image.
-//! Native snapshots own freshness; synchronous pixels only keep a matching fallback.
+//! Windows native child views yield to intersecting GPUI overlays through a warm image.
 use gpui_kit::*;
 use std::{
     cell::{Cell, RefCell},
@@ -19,6 +18,7 @@ enum Signal {
 pub(crate) struct Signals(mpsc::UnboundedSender<Signal>);
 
 impl Signals {
+    #[cfg(target_os = "windows")]
     pub(crate) fn prepare<'a>(&self, builder: wry::WebViewBuilder<'a>) -> wry::WebViewBuilder<'a> {
         builder.with_initialization_script_for_main_only(include_str!("webview_snapshot.js"), false)
     }
@@ -134,7 +134,7 @@ impl Snapshot {
         self.shown.set(false);
     }
 
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(test)]
     pub(crate) fn refresh(
         self: &Rc<Self>,
         blocked: bool,
@@ -247,6 +247,7 @@ impl Snapshot {
         }
     }
 
+    #[cfg(target_os = "windows")]
     pub(crate) fn paint(&self, window: &mut Window) -> bool {
         let Some(frame) = self.frame.get() else {
             return false;
@@ -267,7 +268,7 @@ impl Snapshot {
             .is_ok()
     }
 
-    #[cfg(any(target_os = "macos", test, feature = "workload-tests"))]
+    #[cfg(any(test, all(target_os = "windows", feature = "workload-tests")))]
     pub(crate) fn current(&self) -> bool {
         self.image.borrow().as_ref().is_some_and(|image| {
             image.generation == Some(self.generation.get())
@@ -278,7 +279,7 @@ impl Snapshot {
         })
     }
 
-    #[cfg(feature = "workload-tests")]
+    #[cfg(all(target_os = "windows", feature = "workload-tests"))]
     pub(crate) fn state(&self) -> serde_json::Value {
         let geometry = |bounds: Bounds<Pixels>| {
             serde_json::json!({
@@ -303,11 +304,6 @@ impl Snapshot {
                 "clip": geometry(clip),
             })),
         })
-    }
-
-    #[cfg(feature = "workload-tests")]
-    pub(crate) fn generation(&self) -> u64 {
-        self.generation.get()
     }
 }
 

@@ -92,6 +92,7 @@ pub(in crate::plugins) fn run(output: &Path) {
     let output = output.to_owned();
     std::fs::create_dir_all(&output).unwrap();
     gpui_kit::application().with_assets(crate::assets::Assets).run(move|cx| {
+        crate::workload::native_overlays::init(cx);
         gpui_kit::init(cx);crate::theme::init(cx);rust_i18n::set_locale("en");cx.activate(true);
         let output=output.clone();
         cx.spawn(async move|cx| {
@@ -103,7 +104,6 @@ pub(in crate::plugins) fn run(output: &Path) {
                 Theme::change(ThemeMode::Light,Some(window),cx);
                 let html=page::document(&initial,page::theme(cx),page::labels(),true,vec![]).unwrap();
                 let events=Rc::new(RefCell::new(Vec::<Value>::new()));let posts=events.clone();let loaded=events.clone();
-                let snapshot=crate::ui::webview_snapshot::Snapshot::new();let signals=snapshot.signals();
                 let builder=wry::WebViewBuilder::new().with_html(html)
                     .with_background_throttling(wry::BackgroundThrottlingPolicy::Disabled)
                     .with_initialization_script("window.requestAnimationFrame=callback=>setTimeout(()=>callback(performance.now()),16);window.cancelAnimationFrame=id=>clearTimeout(id);")
@@ -112,10 +112,9 @@ pub(in crate::plugins) fn run(output: &Path) {
                         if matches!(event,wry::PageLoadEvent::Finished) {loaded.borrow_mut().push(json!({"kind":"loaded"}));}
                     })
                     .with_ipc_handler(move|request| {
-                        if signals.receive(request.body()){return;}
                         if let Ok(event)=serde_json::from_str(request.body()){posts.borrow_mut().push(event);}
                     });
-                let native=Rc::new(crate::content::files::html::surface::Native::build(builder,window,snapshot).unwrap());
+                let native=Rc::new(crate::content::files::html::surface::Native::build(builder,window,cx).unwrap());
                 let view=cx.new(|_|Harness{native,events});*capture.borrow_mut()=Some(view.clone());
                 cx.new(|cx|Root::new(view,window,cx))
             }).unwrap();
@@ -123,6 +122,8 @@ pub(in crate::plugins) fn run(output: &Path) {
             let task=window.update(cx,|_,window,cx|window.spawn(cx,async move|cx| {
                 let _ = crate::workload::check(async {
                 verify(&view,&content,cx).await;
+                let page = cx.update(|_, cx| view.read(cx).native.page.handle()).unwrap();
+                crate::workload::native_overlays::verify("html-brief", page, &output, cx).await;
                 let fallback=cx.update(|window,cx|page::capture(content.clone(),window,cx)).unwrap().await.unwrap();
                 assert!(fallback.contains("<svg"));
                 evaluate(&view,&page::serialize_capture(Some(1)),cx).await;

@@ -40,8 +40,8 @@ struct Tab {
     #[cfg(target_os = "macos")]
     surface: Option<std::rc::Rc<inspector::Surface>>,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
-    page: Option<Entity<gpui_wry::WebView>>,
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    page: Option<Entity<gpui_webview::WebView>>,
+    #[cfg(target_os = "windows")]
     snapshot: std::rc::Rc<crate::ui::webview_snapshot::Snapshot>,
 }
 
@@ -133,7 +133,6 @@ impl Browser {
                     tab.surface = None;
                     tab.navigation = None;
                     tab.page = None;
-                    tab.snapshot = crate::ui::webview_snapshot::Snapshot::new();
                     // Drop callbacks queued by the old website data store.
                     tab.id = this.serial;
                     this.serial += 1;
@@ -255,13 +254,10 @@ impl Browser {
                 if let Some(page) = &tab.page {
                     page.update(cx, |page, _| {
                         let show = visible && index == self.selected && !tab.background;
-                        #[cfg(target_os = "macos")]
-                        if !show && let Some(surface) = &tab.surface {
-                            surface.visible(show);
-                        }
-                        // The selected paint adapter decides overlay substitution.
-                        // Inactive tabs retain their page and cache while hidden.
+                        // The selected paint adapter owns clipped visibility.
+                        // Inactive tabs retain their page while hidden.
                         if !show {
+                            #[cfg(target_os = "windows")]
                             tab.snapshot.unmount();
                             if page.visible() {
                                 page.hide();
@@ -321,7 +317,7 @@ impl Tab {
             surface: None,
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             page: None,
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            #[cfg(target_os = "windows")]
             snapshot: crate::ui::webview_snapshot::Snapshot::new(),
         }
     }

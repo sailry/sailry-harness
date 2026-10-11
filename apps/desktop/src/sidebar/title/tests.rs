@@ -1,6 +1,7 @@
 use super::*;
 use core::prelude::v1::test;
 use gpui_kit::component::{Root, list::ListItem};
+use gpui_kit::test::TestWindowExt as _;
 use std::time::Duration;
 
 struct Harness {
@@ -37,7 +38,7 @@ fn mount<'a>(
         entity = Some(view.clone());
         Root::new(view, window, cx)
     });
-    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|window, cx| window.render_frame(cx));
     (entity.unwrap(), visual)
 }
 
@@ -45,8 +46,10 @@ fn advance(visual: &mut VisualTestContext, delay: Duration) {
     visual.executor().advance_clock(delay);
     visual.run_until_parked();
     visual.update(|window, cx| {
-        window.draw(cx).clear(cx);
-        window.draw(cx).clear(cx);
+        window.simulate_next_frame(cx);
+        window.render_frame(cx);
+        window.simulate_next_frame(cx);
+        window.render_frame(cx);
     });
 }
 
@@ -58,7 +61,7 @@ fn long_title_scrolls_only_while_hovered(cx: &mut TestAppContext) {
     );
     let row = visual.debug_bounds("row").unwrap();
     let resting = visual.debug_bounds("title").unwrap();
-    visual.simulate_mouse_move(row.center(), None, Modifiers::default());
+    visual.update(|window, cx| window.hover("row", cx));
     advance(visual, Duration::from_millis(300));
     let initial = visual.debug_bounds("title-text").unwrap();
     assert_eq!(initial.left(), resting.left());
@@ -77,7 +80,7 @@ fn long_title_scrolls_only_while_hovered(cx: &mut TestAppContext) {
     advance(visual, Duration::from_millis(100));
     assert!(visual.debug_bounds("title-text").is_none());
     assert_eq!(visual.debug_bounds("title").unwrap(), resting);
-    visual.simulate_mouse_move(row.center(), None, Modifiers::default());
+    visual.update(|window, cx| window.hover("row", cx));
     advance(visual, Duration::from_millis(100));
     assert_eq!(
         visual.debug_bounds("title-text").unwrap().left(),
@@ -89,7 +92,7 @@ fn long_title_scrolls_only_while_hovered(cx: &mut TestAppContext) {
 fn short_titles_and_reduced_motion_stay_still(cx: &mut TestAppContext) {
     let (view, visual) = mount(cx, "Short");
     let row = visual.debug_bounds("row").unwrap();
-    visual.simulate_mouse_move(row.center(), None, Modifiers::default());
+    visual.update(|window, cx| window.hover("row", cx));
     advance(visual, Duration::from_millis(100));
     let initial = visual.debug_bounds("title-text").unwrap();
     advance(visual, Duration::from_secs(10));

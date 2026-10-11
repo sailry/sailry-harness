@@ -1,3 +1,6 @@
+#[cfg(feature = "gpui-fast")]
+extern crate gpui_fast as gpui;
+
 use gpui::App;
 use std::ops::Deref;
 use std::sync::LazyLock;
@@ -5,7 +8,6 @@ use std::sync::LazyLock;
 mod component_traits;
 mod element_ext;
 pub mod global_state;
-pub mod surface;
 mod icon;
 mod index_path;
 #[cfg(any(feature = "inspector", debug_assertions))]
@@ -13,6 +15,7 @@ mod inspector;
 mod root;
 mod sizing;
 mod styled;
+pub mod surface;
 mod time;
 mod title_bar;
 mod touch_selection;
@@ -42,6 +45,7 @@ pub mod combobox;
 pub mod command;
 pub mod description_list;
 pub mod dialog;
+pub mod diff;
 pub mod dock;
 pub mod empty;
 pub mod form;
@@ -78,6 +82,7 @@ pub mod shimmer;
 pub mod sidebar;
 pub mod skeleton;
 pub mod slider;
+pub mod speech;
 pub mod spinner;
 pub mod status_bar;
 pub mod stepper;
@@ -96,8 +101,6 @@ pub use element_ext::*;
 pub use global_state::GlobalState;
 pub use gpui_base::Root;
 pub use gpui_base::animation;
-#[doc(hidden)]
-pub(crate) use gpui_base::resize_handle;
 pub use gpui_base::{
     AxisExt, Edges, FocusTrapElement, InteractiveElementExt, LengthExt, Measure, OngoingScrollExt,
     Placement, Side, measure, measure_if,
@@ -110,7 +113,7 @@ pub use input::{Rope, RopeExt, RopeLines};
 pub use inspector::*;
 pub use resizable::{
     ResizablePanel, ResizablePanelEvent, ResizablePanelGroup, ResizableState, h_resizable,
-    resizable_panel, resize_handle_appearance, v_resizable,
+    resizable_panel, resize_handle, resize_handle_appearance, v_resizable,
 };
 pub use styled::*;
 pub use theme::*;
@@ -133,6 +136,7 @@ pub fn init(cx: &mut App) {
     root::init(cx);
     gpui_base::init(cx);
     input::init(cx);
+    diff::init(cx);
     date_picker::init(cx);
     dock::init(cx);
     sheet::init(cx);

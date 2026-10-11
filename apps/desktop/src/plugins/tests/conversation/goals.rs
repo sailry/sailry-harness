@@ -135,6 +135,49 @@ fn cancelled(fixture: &fixture::Fixture, visual: &mut VisualTestContext, count: 
     assert_eq!(fixture.task_requests(), count);
 }
 
+fn resumed(
+    fixture: &fixture::Fixture,
+    package: &plugin::Reference,
+    view: &Entity<View>,
+    visual: &mut VisualTestContext,
+    remote: bool,
+) {
+    use gpui_kit::test::TestWindowExt as _;
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        visual.executor().advance_clock(Duration::from_millis(10));
+        visual.run_until_parked();
+        visual.update(|window, cx| window.render_frame(cx));
+        let requests = fixture.task_requests();
+        let goal = read(fixture, package);
+        if requests == 2 && goal["state"] == "active" {
+            return;
+        }
+        if Instant::now() >= deadline {
+            let diagnostics = visual.read(|cx| {
+                contributions(view.read(cx))
+                    .read(cx)
+                    .test_panel("goals")
+                    .map(|panel| crate::plugins::diagnostics(&panel, cx))
+                    .unwrap_or_default()
+            });
+            let Output::Conversation(history) = fixture.execute(Command::ReadConversation {
+                session: fixture.session.id,
+                before: None,
+                limit: 100,
+            }) else {
+                panic!("conversation expected")
+            };
+            panic!(
+                "goal resume deadline: remote={remote}, requests={requests}, goal={goal}, runs={:?}, panel={diagnostics}",
+                history.page.runs
+            );
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 fn declaration(view: &Entity<View>, cx: &gpui::App, selector: &str) -> Option<String> {
     let panel = contributions(view.read(cx)).read(cx).test_panel("goals")?;
     let snapshot = super::super::snapshot(&panel, cx);
@@ -338,9 +381,7 @@ fn local_and_remote_commands_share_status(cx: &mut TestAppContext) {
         cancelled(&fixture, visual, 1);
         ready(&view, visual, "goal-resume");
         control(&view, visual, "goal-resume");
-        wait(visual, |_| {
-            fixture.task_requests() == 2 && read(&fixture, &package)["state"] == "active"
-        });
+        resumed(&fixture, &package, &view, visual, remote);
         crate::feedback::tests::settle(visual);
         control(&view, visual, "goal-stop");
         wait(visual, |_| read(&fixture, &package)["state"] == "paused");

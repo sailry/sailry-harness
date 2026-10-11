@@ -174,6 +174,8 @@ fn run(#[cfg(feature = "workload-tests")] workload: workload::Scenario) {
         if let Some(backend) = backend {
             backend.install(cx);
         }
+        #[cfg(all(feature = "workload-tests", target_os = "macos"))]
+        workload::native_overlays::init(cx);
         gpui_kit::init(cx);
         theme::init(cx);
         locale::init(cx);

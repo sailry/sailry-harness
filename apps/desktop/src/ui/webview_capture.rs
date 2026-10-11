@@ -1,5 +1,5 @@
 //! Wry 0.53.3 has no portable capture API. Share its retained native platform
-//! adapters between browser automation and inert preview placeholders.
+//! adapters for browser captures and the Windows preview fallback.
 use tokio::sync::oneshot;
 
 pub(crate) struct Buffer {
@@ -10,81 +10,7 @@ pub(crate) struct Buffer {
 pub(crate) type Pending = oneshot::Receiver<Result<Buffer, ()>>;
 
 #[cfg(target_os = "macos")]
-pub(crate) fn snapshot_now(page: &wry::WebView) -> Result<Buffer, ()> {
-    use objc2_app_kit::{NSColorRenderingIntent, NSColorSpace, NSView};
-    use wry::WebViewExtMacOS;
-
-    struct Restore<'a> {
-        view: &'a NSView,
-        hidden: bool,
-    }
-    impl Drop for Restore<'_> {
-        fn drop(&mut self) {
-            self.view.setHidden(self.hidden);
-        }
-    }
-
-    let view = page.webview();
-    let bounds = view.bounds();
-    let scale = view
-        .window()
-        .map_or(1., |window| window.backingScaleFactor());
-    let width = bounds.size.width * scale;
-    let height = bounds.size.height * scale;
-    if !width.is_finite()
-        || !height.is_finite()
-        || width <= 0.
-        || height <= 0.
-        || width > 16_384.
-        || height > 16_384.
-        || width * height > 64. * 1024. * 1024. / 4.
-    {
-        return Err(());
-    }
-    // Wry 0.53's WK snapshot is asynchronous. A native probe confirmed that
-    // NSView caching can capture a substituted WK view in the paint call,
-    // while directly capturing a hidden view produces transparent pixels.
-    // Restore native visibility before returning without calling focus APIs
-    // or changing the host's visibility flag or browser inspector ownership.
-    let restore = Restore {
-        view: &view,
-        hidden: view.isHidden(),
-    };
-    if restore.hidden {
-        view.setHidden(false);
-    }
-    // visibleRect is empty while substituted, so capture the retained bounds.
-    let bitmap = view
-        .bitmapImageRepForCachingDisplayInRect(bounds)
-        .ok_or(())?;
-    view.cacheDisplayInRect_toBitmapImageRep(bounds, &bitmap);
-    let bitmap = bitmap
-        .bitmapImageRepByConvertingToColorSpace_renderingIntent(
-            &NSColorSpace::sRGBColorSpace(),
-            NSColorRenderingIntent::Default,
-        )
-        .ok_or(())?;
-    let data = bitmap
-        .TIFFRepresentation()
-        .filter(|data| data.len() <= 32 * 1024 * 1024)
-        .ok_or(())?;
-    Ok(Buffer {
-        bytes: data.to_vec(),
-        format: image::ImageFormat::Tiff,
-    })
-}
-
-#[cfg(target_os = "macos")]
 pub(crate) fn capture(page: &wry::WebView, width: Option<f64>) -> Result<Pending, ()> {
-    capture_after_updates(page, width, false)
-}
-
-#[cfg(target_os = "macos")]
-fn capture_after_updates(
-    page: &wry::WebView,
-    width: Option<f64>,
-    updated: bool,
-) -> Result<Pending, ()> {
     use objc2::MainThreadOnly;
     use objc2_app_kit::NSImage;
     use objc2_foundation::{NSError, NSNumber};
@@ -118,21 +44,15 @@ fn capture_after_updates(
     unsafe {
         let config = WKSnapshotConfiguration::new(view.mtm());
         config.setSnapshotWidth(width.map(NSNumber::new_f64).as_deref());
-        config.setAfterScreenUpdates(updated);
+        config.setAfterScreenUpdates(false);
         view.takeSnapshotWithConfiguration_completionHandler(Some(&config), &callback);
     }
     Ok(receive)
 }
 
+#[cfg(target_os = "windows")]
 pub(crate) fn snapshot(page: &wry::WebView) -> Result<Pending, ()> {
-    #[cfg(target_os = "macos")]
-    {
-        capture_after_updates(page, None, true)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        capture(page, None)
-    }
+    capture(page, None)
 }
 
 #[cfg(target_os = "windows")]

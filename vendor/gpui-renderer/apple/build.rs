@@ -1,4 +1,4 @@
-// Modified for gpui-pre (snapshot of zed@279fe07): the gpui sources it reads are vendored under `vendor/gpui`.
+// Modified for gpui-fast releases: bundle cbindgen inputs inside this package.
 #![allow(clippy::disallowed_methods, reason = "build scripts are exempt")]
 
 fn main() {

@@ -1,4 +1,6 @@
+// Modified by Longbridge for gpui-fast.
 mod cosmic_text_system;
+mod fast;
 mod wgpu_atlas;
 mod wgpu_context;
 mod wgpu_renderer;

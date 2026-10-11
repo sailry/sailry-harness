@@ -1,3 +1,4 @@
+// Modified by Longbridge for gpui-fast.
 #[cfg(not(target_family = "wasm"))]
 use anyhow::Context as _;
 #[cfg(not(target_family = "wasm"))]
@@ -415,7 +416,7 @@ impl WgpuContext {
         Ok(PreparedWebGraphics { context, surface })
     }
 
-    async fn create_device(
+    pub(crate) async fn create_device(
         adapter: &wgpu::Adapter,
     ) -> anyhow::Result<(wgpu::Device, wgpu::Queue, bool, TextureFormat)> {
         let dual_source_blending = adapter

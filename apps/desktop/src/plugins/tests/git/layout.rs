@@ -9,6 +9,7 @@ fn staging_ready(visual: &mut VisualTestContext, id: SharedString, checked: bool
             window.try_find(id.clone()).is_some_and(|check| {
                 check.visible()
                     && check.disabled() != Some(true)
+                    && check.focused().is_some()
                     && check.checked() == Some(checked)
             })
         });
@@ -248,10 +249,9 @@ fn protects_counts_and_staging_paths(cx: &mut TestAppContext) {
         loop {
             wait(visual, |_| true);
             let observed = visual.update(|window, _| window.try_find(check.clone()));
-            if observed
-                .as_ref()
-                .is_some_and(|check| check.visible() && check.disabled() != Some(true))
-            {
+            if observed.as_ref().is_some_and(|check| {
+                check.visible() && check.disabled() != Some(true) && check.focused().is_some()
+            }) {
                 break;
             }
             assert!(

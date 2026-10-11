@@ -4,6 +4,7 @@ use crate::conversation::live::tests::{
     wait,
 };
 use core::prelude::v1::test;
+use gpui_kit::test::{ElementSnapshot, TestWindowExt as _};
 use serde_json::json;
 use std::time::Duration;
 
@@ -11,6 +12,24 @@ mod elicitation;
 mod layout;
 mod lifecycle;
 mod planning;
+
+fn history(visual: &mut VisualTestContext, id: QuestionId) -> ElementSnapshot {
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.find(SharedString::from(format!("live-question-history-{id}")))
+    })
+}
+
+fn toggle_history(visual: &mut VisualTestContext, id: QuestionId) {
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click(
+            SharedString::from(format!("live-question-history-{id}")),
+            cx,
+        );
+    });
+    visual.run_until_parked();
+}
 
 fn text(multiline: bool, max_bytes: usize) -> (String, serde_json::Value) {
     (
@@ -197,14 +216,11 @@ fn choices_text_and_resume(cx: &mut TestAppContext) {
         let answer = Box::leak(format!("live-question-answer-{third}").into_boxed_str());
         visual.update(|window, cx| window.draw(cx).clear(cx));
         assert!(visual.debug_bounds(answer).is_none());
-        let turn = view.read_with(visual, |view, _| {
-            view.history.snapshot.as_ref().unwrap().page.runs[0].turn
-        });
-        tap(visual, &format!("live-turn-work-{turn}"));
-        tap(visual, &format!("live-question-history-{third}"));
+        assert!(history(visual, third).visible());
+        toggle_history(visual, third);
         visual.update(|window, cx| window.draw(cx).clear(cx));
         assert!(visual.debug_bounds(answer).is_some());
-        tap(visual, &format!("live-question-history-{third}"));
+        toggle_history(visual, third);
         visual.update(|window, cx| window.draw(cx).clear(cx));
         assert!(visual.debug_bounds(answer).is_none());
         assert!(

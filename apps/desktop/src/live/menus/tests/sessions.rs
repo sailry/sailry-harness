@@ -1,6 +1,11 @@
 use super::*;
 use crate::live::conversation::tests::wait as settled;
 use crate::live::file_tests::click;
+use gpui_kit::{
+    Role,
+    test::{TestQueryExt as _, TestWindowExt as _},
+};
+use sailry_protocol::plugin::ui::Intent;
 
 #[gpui::test]
 fn archive_restore_and_delete(cx: &mut TestAppContext) {
@@ -253,7 +258,17 @@ fn excludes_sessions(
     node: NodeId,
     session: &sailry_protocol::Session,
 ) {
-    for command in [Command::Branches, Command::Worktrees] {
+    for (command, intent, package) in [
+        (Command::Branches, Intent::GitBranches, "git"),
+        (Command::Worktrees, Intent::Worktrees, "worktrees"),
+    ] {
+        let registry = visual.update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                shell
+                    .project_plugins(session.project.unwrap(), window, cx)
+                    .unwrap()
+            })
+        });
         visual.update(|window, cx| {
             shell.update(cx, |shell, cx| {
                 shell.live_resource_action(
@@ -267,32 +282,87 @@ fn excludes_sessions(
                 );
             })
         });
-        let ready = if command == Command::Branches {
-            "0"
-        } else {
-            "entry-0"
-        };
-        surface(visual, ready);
+        surface(visual, &registry, intent, package, false);
         visual.simulate_input(&crate::activity::title(session));
-        surface(visual, "plugin-picker-empty");
+        surface(visual, &registry, intent, package, true);
         visual.simulate_keystrokes("escape");
         visual.run_until_parked();
     }
 }
 
-fn surface(visual: &mut VisualTestContext, selector: &str) {
-    let selector = Box::leak(selector.to_owned().into_boxed_str());
+#[track_caller]
+fn surface(
+    visual: &mut VisualTestContext,
+    registry: &Entity<crate::plugins::contributions::Registry>,
+    intent: Intent,
+    package: &str,
+    empty: bool,
+) {
+    let prefix = match package {
+        "git" => "git-picker-",
+        "worktrees" => "worktrees-",
+        _ => panic!("unexpected manager package: {package}"),
+    };
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
+        // Contribution readiness and Kit search completion both use executor timers.
+        visual.executor().advance_clock(Duration::from_millis(10));
         visual.run_until_parked();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
-        if visual.debug_bounds(selector).is_some() {
-            break;
+        let (rows, inputs, focused) = visual.update(|window, cx| {
+            window.render_frame(cx);
+            let rows = window
+                .elements()
+                .into_iter()
+                .filter(|row| {
+                    matches!(row.path().last(), Some(ElementId::NamedInteger(id, 0))
+                        if id.starts_with(prefix)
+                            && row.path()[..row.path().len() - 1].contains(&ElementId::Name(id.clone())))
+                        && row.visible()
+                })
+                .collect::<Vec<_>>();
+            let inputs = rows
+                .first()
+                .and_then(|row| match row.path().last() {
+                    Some(ElementId::NamedInteger(id, _)) => Some(id.clone()),
+                    _ => None,
+                })
+                .map(|id| {
+                    window
+                        .within(id)
+                        .find_all_by_role(Role::TextInput)
+                        .into_iter()
+                        .filter(|input| input.visible())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let focused = inputs.len() == 1 && inputs[0].focused() == Some(true);
+            (rows, inputs, focused)
+        });
+        let found = if empty {
+            visual.debug_bounds("plugin-picker-empty").is_some() && rows.is_empty()
+        } else {
+            rows.len() == 1 && focused
+        };
+        if found {
+            return;
         }
-        assert!(
-            Instant::now() < deadline,
-            "manager surface deadline: {selector}"
-        );
+        if Instant::now() >= deadline {
+            let state = visual.update(|_, cx| {
+                let registry = registry.read(cx);
+                let panel = registry
+                    .test_panel(package)
+                    .map(|panel| crate::plugins::diagnostics(&panel, cx))
+                    .unwrap_or_else(|| "package contribution is not mounted".to_owned());
+                format!(
+                    "ready={}, intent={}, {panel}",
+                    registry.ready(cx),
+                    registry.intent(intent, cx).is_some(),
+                )
+            });
+            panic!(
+                "manager surface deadline: {package}, empty={empty}, focused={focused}, rows={rows:?}, inputs={inputs:?}; {state}"
+            );
+        }
         std::thread::sleep(Duration::from_millis(10));
     }
 }

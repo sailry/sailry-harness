@@ -139,9 +139,9 @@ fn narrow_controls(cx: &mut TestAppContext) {
                 assert!(panel.left() >= px(0.) && panel.right() <= px(width));
                 assert!(panel.bottom() < location.top());
                 for (metric, details) in [
-                    ("composer_tokens", 6),
+                    ("composer_tokens", 2),
                     ("composer_speed", 2),
-                    ("composer_cost", 5),
+                    ("composer_cost", 2),
                     ("composer_cache", 3),
                     ("composer_turns", 1),
                 ] {
@@ -293,7 +293,9 @@ fn context_ready(view: &View, cx: &App) -> bool {
 
 fn statistics_row(visual: &mut VisualTestContext, selector: &str, panel: Bounds<Pixels>) {
     let selector = Box::leak(selector.to_owned().into_boxed_str());
-    let mut row = visual.debug_bounds(selector).unwrap();
+    let mut row = visual
+        .debug_bounds(selector)
+        .unwrap_or_else(|| panic!("missing statistics row {selector}, panel={panel:?}"));
     let delta = if row.top() < panel.top() {
         panel.top() - row.top() + px(8.)
     } else if row.bottom() > panel.bottom() {

@@ -35,7 +35,7 @@ impl Follow {
     }
 }
 
-#[derive(IntoElement)]
+#[derive(gpui_kit::IntoElement)]
 struct Thought {
     id: String,
     content: markdown::View,

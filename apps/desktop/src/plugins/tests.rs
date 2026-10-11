@@ -223,7 +223,7 @@ fn completes_panel_lifecycle(cx: &mut TestAppContext) {
         fixture.package();
         session::mcp(&fixture);
         let package = fixture.install(0);
-        let server = session::run(&mut fixture, &package);
+        let server = session::run(&mut fixture, &package, remote);
         let (panel, visual) = mount(&fixture, cx);
         click(visual, "plugin-open-0");
         wait(visual, |cx| snapshot(&panel, cx).contains("notes.txt"));

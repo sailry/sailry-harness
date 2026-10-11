@@ -4,6 +4,70 @@ use gpui_kit::component::WindowExt;
 
 const VISUAL_FEEDBACK: &str = "Package visual feedback";
 
+#[cfg(all(target_os = "macos", feature = "workload-tests"))]
+#[track_caller]
+pub(in crate::plugins::artifact) fn settle_mount(
+    resource: &Resource,
+    visual: &mut VisualTestContext,
+) {
+    use gpui_kit::test::TestWindowExt as _;
+
+    let key = (resource.binding.client.target(), resource.artifact.id);
+    let revision = resource.artifact.revision;
+    let preview_failure = crate::tr("artifact_preview_failed");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        visual
+            .executor()
+            .advance_clock(std::time::Duration::from_millis(10));
+        visual.run_until_parked();
+        let (state, delivered) = visual.update(|window, cx| {
+            window.render_frame(cx);
+            let state = cx
+                .global::<super::super::native_flow::Surfaces>()
+                .0
+                .get(&key)
+                .and_then(WeakEntity::upgrade)
+                .map(|owner| {
+                    let view = owner.read(cx);
+                    (
+                        owner.entity_id(),
+                        view.generation,
+                        view.loading,
+                        view.reload,
+                        view.content
+                            .as_ref()
+                            .map(|content| (content.artifact.revision, content.latest_revision)),
+                        view.error,
+                        view.native.is_some(),
+                    )
+                });
+            (
+                state,
+                crate::feedback::tests::count(window, &preview_failure, cx),
+            )
+        });
+        // The package header can settle before its independently loaded body.
+        // TestPlatform cannot mount WebKit; observe that owner's initial feedback
+        // before the detached draft starts measuring operation feedback.
+        if state.as_ref().is_some_and(|state| {
+            !state.2
+                && !state.3
+                && state.4 == Some((revision, revision))
+                && state.5 == Some("artifact_preview_failed")
+                && !state.6
+        }) && delivered > 0
+        {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "mounted artifact feedback deadline: state={state:?}, delivered={delivered}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 pub(in crate::plugins::artifact) struct Draft {
     surface: Entity<View>,
     events: tokio::sync::mpsc::Receiver<Value>,

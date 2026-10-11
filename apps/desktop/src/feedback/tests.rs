@@ -1,6 +1,7 @@
 use super::*;
 use core::prelude::v1::test;
 use gpui_kit::component::{Root, Theme};
+use gpui_kit::test::TestWindowExt as _;
 
 #[derive(Default)]
 struct Presented(std::collections::HashMap<WindowId, Vec<SharedString>>);
@@ -123,7 +124,7 @@ pub(crate) fn settle(cx: &mut VisualTestContext) {
             .advance_clock(std::time::Duration::from_millis(500));
         std::thread::sleep(std::time::Duration::from_millis(450));
         cx.run_until_parked();
-        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|window, cx| window.render_frame(cx));
     }
 }
 
@@ -241,12 +242,20 @@ fn surface_interactions(cx: &mut TestAppContext) {
     assert!(action.left() >= title.right() + px(8.));
     assert!(close.left() >= action.right() + px(4.));
 
-    visual.simulate_click(action.center(), Default::default());
+    visual.update(|window, cx| {
+        window.hover("notice-action", cx);
+        assert!(window.find("notice-action").visible());
+        window.click("notice-action", cx);
+    });
     visual.run_until_parked();
     assert_eq!(actions.get(), 1);
     assert_eq!(clicks.get(), 0);
     assert_eq!(closes.get(), 0);
-    visual.simulate_click(close.center(), Default::default());
+    visual.update(|window, cx| {
+        window.hover("close", cx);
+        assert!(window.find("close").visible());
+        window.click("close", cx);
+    });
     settle(visual);
     assert_eq!(clicks.get(), 0);
     assert_eq!(closes.get(), 1);
@@ -293,7 +302,6 @@ fn replaces_repeated_information(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn retry_action_activates_once(cx: &mut TestAppContext) {
-    use gpui_kit::test::TestWindowExt as _;
     use std::{cell::Cell, rc::Rc};
     let (_, visual) = mount(cx);
     let clicks = Rc::new(Cell::new(0));

@@ -196,6 +196,8 @@ fn clears_admitted_answers_after_surface_close(cx: &mut TestAppContext) {
             requests: Mutex::new(Vec::new()),
         });
         fixture.binding.client = Arc::new(sailry_client::Client::new(observed.clone()));
+        #[cfg(all(target_os = "macos", feature = "workload-tests"))]
+        cx.update(|cx| cx.set_global(native_flow::Surfaces::default()));
         let mut owner = None;
         let (_, visual) = cx.add_window_view(|window, cx| {
             let source = cx.new(|cx| {
@@ -220,6 +222,8 @@ fn clears_admitted_answers_after_surface_close(cx: &mut TestAppContext) {
         });
         let resource = panel.read_with(visual, |panel, _| panel.document.clone().unwrap());
         let host = panel.read_with(visual, |panel, _| panel.mounted.as_ref().unwrap().host());
+        #[cfg(all(target_os = "macos", feature = "workload-tests"))]
+        surface::tests::settle_mount(&resource, visual);
         let draft = surface::tests::Draft::new(resource, host.clone(), visual);
         crate::feedback::tests::settle(visual);
         visual.update(|window, cx| window.clear_notifications(cx));

@@ -1,5 +1,4 @@
 use super::*;
-use gpui_kit::test::TestWindowExt as _;
 use std::path::PathBuf;
 
 fn replacement(directory: &Path, zip: bool) -> PathBuf {

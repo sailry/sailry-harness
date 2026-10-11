@@ -143,11 +143,9 @@ impl RenderOnce for Popup {
         let trigger_bounds = Rc::new(Cell::new(state.read(cx).bounds));
         let offset = self.offset;
         let anchor_offset = self.anchor_offset;
-        let position = Rc::new(Cell::new(anchor_position(
-            anchor,
-            state.read(cx).bounds,
-            offset,
-        ) + anchor_offset));
+        let position = Rc::new(Cell::new(
+            anchor_position(anchor, state.read(cx).bounds, offset) + anchor_offset,
+        ));
 
         let root = self
             .base

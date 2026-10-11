@@ -5,6 +5,7 @@ use crate::conversation::live::tests::{
 };
 use crate::conversation::live::{Binding as ConversationBinding, View};
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 use image::{ImageEncoder as _, Rgba, RgbaImage};
 use std::path::PathBuf;
 
@@ -96,11 +97,11 @@ fn attach(view: &Entity<View>, cx: &mut VisualTestContext, path: PathBuf) -> Att
 
 fn finish_close(visual: &mut VisualTestContext) {
     let duration = visual.update(|window, cx| {
-        window.draw(cx).clear(cx);
+        window.render_frame(cx);
         cx.theme().motion_tokens().duration_normal
     });
     visual.executor().advance_clock(duration);
-    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|window, cx| window.render_frame(cx));
     visual.run_until_parked();
 }
 
@@ -211,8 +212,25 @@ fn preview_and_download(cx: &mut TestAppContext) {
         finish_close(visual);
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
         assert!(!visual.did_prompt_for_paths());
-        visual.update(|window, cx| view.update(cx, |view, cx| view.focus(window, cx)));
-        visual.simulate_keystrokes("shift-tab shift-tab");
+        visual.update(|window, cx| {
+            view.update(cx, |view, cx| view.focus(window, cx));
+            // Stop when the card is focused; its hover action can add a tab stop.
+            for _ in 0..2 {
+                window.press("shift-tab", cx);
+                if window
+                    .find_all("composer-attachment-0")
+                    .iter()
+                    .any(|card| card.focused() == Some(true))
+                {
+                    break;
+                }
+            }
+            let cards = window.find_all("composer-attachment-0");
+            assert!(
+                cards.iter().any(|card| card.focused() == Some(true)),
+                "attachment focus after Shift-Tab: {cards:?}"
+            );
+        });
         let keystroke = Keystroke::parse("space").unwrap();
         visual.simulate_event(KeyDownEvent {
             keystroke: keystroke.clone(),

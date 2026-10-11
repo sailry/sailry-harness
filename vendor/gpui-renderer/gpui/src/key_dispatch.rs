@@ -1,3 +1,4 @@
+// Modified by Longbridge for gpui-fast.
 //! KeyDispatch is where GPUI deals with binding actions to key events.
 //!
 //! The key pieces to making a key binding work are to define an action,
@@ -58,7 +59,6 @@ use smallvec::SmallVec;
 use std::{
     any::{Any, TypeId},
     cell::RefCell,
-    mem,
     ops::Range,
     rc::Rc,
 };
@@ -66,28 +66,28 @@ use std::{
 /// ID of a node within `DispatchTree`. Note that these are **not** stable between frames, and so a
 /// `DispatchNodeId` should only be used with the `DispatchTree` that provided it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub(crate) struct DispatchNodeId(usize);
+pub(crate) struct DispatchNodeId(pub(crate) usize);
 
 pub(crate) struct DispatchTree {
-    node_stack: Vec<DispatchNodeId>,
+    pub(crate) node_stack: Vec<DispatchNodeId>,
     pub(crate) context_stack: Vec<KeyContext>,
-    view_stack: Vec<EntityId>,
-    nodes: Vec<DispatchNode>,
-    focusable_node_ids: FxHashMap<FocusId, DispatchNodeId>,
-    view_node_ids: FxHashMap<EntityId, DispatchNodeId>,
+    pub(crate) view_stack: Vec<EntityId>,
+    pub(crate) nodes: Vec<DispatchNode>,
+    pub(crate) focusable_node_ids: FxHashMap<FocusId, DispatchNodeId>,
+    pub(crate) view_node_ids: FxHashMap<EntityId, DispatchNodeId>,
     keymap: Rc<RefCell<Keymap>>,
     action_registry: Rc<ActionRegistry>,
 }
 
 #[derive(Default)]
 pub(crate) struct DispatchNode {
-    pub key_listeners: Vec<KeyListener>,
-    pub action_listeners: Vec<DispatchActionListener>,
-    pub modifiers_changed_listeners: Vec<ModifiersChangedListener>,
+    pub key_listeners: crate::fast::dispatch::Listeners<KeyListener>,
+    pub action_listeners: crate::fast::dispatch::Listeners<DispatchActionListener>,
+    pub modifiers_changed_listeners: crate::fast::dispatch::Listeners<ModifiersChangedListener>,
     pub context: Option<KeyContext>,
     pub focus_id: Option<FocusId>,
-    view_id: Option<EntityId>,
-    parent: Option<DispatchNodeId>,
+    pub(crate) view_id: Option<EntityId>,
+    pub(crate) parent: Option<DispatchNodeId>,
 }
 
 pub(crate) struct ReusedSubtree {
@@ -243,24 +243,6 @@ impl DispatchTree {
         self.node_stack.pop();
     }
 
-    fn move_node(&mut self, source: &mut DispatchNode) {
-        self.push_node();
-        if let Some(context) = source.context.clone() {
-            self.set_key_context(context);
-        }
-        if let Some(focus_id) = source.focus_id {
-            self.set_focus_id(focus_id);
-        }
-        if let Some(view_id) = source.view_id {
-            self.set_view_id(view_id);
-        }
-
-        let target = self.active_node();
-        target.key_listeners = mem::take(&mut source.key_listeners);
-        target.action_listeners = mem::take(&mut source.action_listeners);
-        target.modifiers_changed_listeners = mem::take(&mut source.modifiers_changed_listeners);
-    }
-
     pub fn reuse_subtree(
         &mut self,
         old_range: Range<usize>,
@@ -269,36 +251,8 @@ impl DispatchTree {
     ) -> ReusedSubtree {
         let new_range = self.nodes.len()..self.nodes.len() + old_range.len();
 
-        let mut contains_focus = false;
-        let mut source_stack = vec![];
-        for (source_node_id, source_node) in source
-            .nodes
-            .iter_mut()
-            .enumerate()
-            .skip(old_range.start)
-            .take(old_range.len())
-        {
-            let source_node_id = DispatchNodeId(source_node_id);
-            while let Some(source_ancestor) = source_stack.last() {
-                if source_node.parent == Some(*source_ancestor) {
-                    break;
-                } else {
-                    source_stack.pop();
-                    self.pop_node();
-                }
-            }
-
-            source_stack.push(source_node_id);
-            if source_node.focus_id.is_some() && source_node.focus_id == focus {
-                contains_focus = true;
-            }
-            self.move_node(source_node);
-        }
-
-        while !source_stack.is_empty() {
-            source_stack.pop();
-            self.pop_node();
-        }
+        let contains_focus =
+            crate::fast::dispatch::copy_nodes(self, source, old_range.clone(), None, focus);
 
         ReusedSubtree {
             old_range,

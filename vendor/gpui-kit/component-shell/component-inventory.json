@@ -342,6 +342,25 @@
     },
     {
       "source": "ui",
+      "name": "diff",
+      "classification": "component",
+      "registration": {
+        "status": "registered",
+        "descriptor": "Diff",
+        "exports": [
+          "Diff"
+        ],
+        "states": [
+          {
+            "export": "DiffState",
+            "kind": "DiffState",
+            "role": "retained-patch-state"
+          }
+        ]
+      }
+    },
+    {
+      "source": "ui",
       "name": "dock",
       "classification": "infrastructure",
       "explanation": "Dock is an application layout subsystem already exposed directly by gpui-shell; it is not a singular gpui-component constructor."
@@ -951,6 +970,12 @@
           }
         ]
       }
+    },
+    {
+      "source": "ui",
+      "name": "speech",
+      "classification": "infrastructure",
+      "explanation": "Speech input depends on an application-supplied SpeechRecognizer or the `speech` feature's microphone and system recognizer, which the frozen catalog cannot construct from script; it is not registered as a component yet."
     },
     {
       "source": "ui",
@@ -1568,6 +1593,25 @@
         "descriptor": "Dialog",
         "exports": [
           "Dialog"
+        ]
+      }
+    },
+    {
+      "source": "story",
+      "name": "diff",
+      "classification": "component",
+      "registration": {
+        "status": "registered",
+        "descriptor": "Diff",
+        "exports": [
+          "Diff"
+        ],
+        "states": [
+          {
+            "export": "DiffState",
+            "kind": "DiffState",
+            "role": "retained-patch-state"
+          }
         ]
       }
     },
@@ -2271,6 +2315,12 @@
           }
         ]
       }
+    },
+    {
+      "source": "story",
+      "name": "speech",
+      "classification": "infrastructure",
+      "explanation": "The Speech story drives a Rust SpeechRecognizer and the `speech` feature's platform services rather than a catalog constructor."
     },
     {
       "source": "story",

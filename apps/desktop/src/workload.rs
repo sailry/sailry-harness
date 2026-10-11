@@ -15,6 +15,11 @@ mod check;
 mod driver;
 #[path = "workload/fixture.rs"]
 mod fixture;
+#[path = "workload/frames.rs"]
+mod frames;
+#[cfg(target_os = "macos")]
+#[path = "workload/native_overlays.rs"]
+pub(crate) mod native_overlays;
 
 pub(crate) use check::{check, fail, setup};
 pub(super) use check::{failed, install_exit};

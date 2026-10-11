@@ -215,6 +215,7 @@ pub(in crate::resources) fn init(cx: &mut TestAppContext) {
     });
 }
 
+#[track_caller]
 pub(in crate::resources) fn wait(cx: &mut VisualTestContext, predicate: impl Fn(&App) -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {

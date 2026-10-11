@@ -1,3 +1,4 @@
+// Modified by Longbridge for gpui-fast.
 use std::{cell::Cell, rc::Rc, sync::atomic::Ordering};
 
 use anyhow::Context as _;
@@ -886,6 +887,7 @@ impl WindowsWindowInner {
         let is_maximized = self.state.is_maximized();
         let new_scale_factor = new_dpi / USER_DEFAULT_SCREEN_DPI as f32;
         self.state.scale_factor.set(new_scale_factor);
+        crate::fast::layers::release_tiles(&mut self.state.renderer.borrow_mut());
         self.state.border_offset.update(handle).log_err();
 
         self.state

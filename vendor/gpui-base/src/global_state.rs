@@ -1,4 +1,11 @@
-use std::rc::{Rc, Weak};
+#[cfg(not(target_family = "wasm"))]
+use std::time::Instant;
+use std::{
+    cell::RefCell,
+    rc::{Rc, Weak},
+};
+#[cfg(target_family = "wasm")]
+use web_time::Instant;
 
 use gpui::{App, Entity, Global, OwnedMenu};
 
@@ -16,11 +23,13 @@ pub struct GlobalState {
     app_menus: Vec<OwnedMenu>,
     deferred_popovers: Vec<Weak<()>>,
     suppress_text_selection: bool,
-    pub(crate) text_view_state_stack: Vec<Entity<TextViewState>>,
-    selection_document_order: u64,
+    /// The text views being prepainted or painted, innermost last. Kept
+    /// apart from what views read of this global: pushing and popping as
+    /// they draw is not a change of it.
+    text_view_state_stack: RefCell<Vec<Entity<TextViewState>>>,
     /// When a finger last went down. A tap reaches controls as a mouse press;
     /// this is how they tell it from one.
-    last_touch: Option<std::time::Instant>,
+    last_touch: Option<Instant>,
 }
 
 impl Global for GlobalState {}
@@ -31,8 +40,7 @@ impl GlobalState {
             app_menus: Vec::new(),
             deferred_popovers: Vec::new(),
             suppress_text_selection: false,
-            text_view_state_stack: Vec::new(),
-            selection_document_order: 1,
+            text_view_state_stack: RefCell::new(Vec::new()),
             last_touch: None,
         }
     }
@@ -41,7 +49,7 @@ impl GlobalState {
     /// offers on every touch, before it becomes a tap, a long press or a pan.
     pub fn note_touch(cx: &mut App) {
         Self::init(cx);
-        Self::global_mut(cx).last_touch = Some(std::time::Instant::now());
+        Self::global_mut(cx).last_touch = Some(Instant::now());
     }
 
     /// Whether the press being handled came from a finger: a touch went
@@ -89,19 +97,16 @@ impl GlobalState {
         cx.global_mut::<Self>()
     }
 
-    pub(crate) fn text_view_state(&self) -> Option<&Entity<TextViewState>> {
-        self.text_view_state_stack.last()
+    pub(crate) fn text_view_state(&self) -> Option<Entity<TextViewState>> {
+        self.text_view_state_stack.borrow().last().cloned()
     }
 
-    #[doc(hidden)]
-    pub fn begin_selection_frame(&mut self) {
-        self.selection_document_order = 1;
+    pub(crate) fn push_text_view_state(&self, state: Entity<TextViewState>) {
+        self.text_view_state_stack.borrow_mut().push(state);
     }
 
-    pub(crate) fn next_selection_document_order(&mut self) -> u64 {
-        let order = self.selection_document_order;
-        self.selection_document_order = self.selection_document_order.wrapping_add(1);
-        order
+    pub(crate) fn pop_text_view_state(&self) {
+        self.text_view_state_stack.borrow_mut().pop();
     }
 
     /// Returns the application menus.

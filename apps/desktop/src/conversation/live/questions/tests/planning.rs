@@ -221,10 +221,7 @@ fn continues_without_generation(cx: &mut TestAppContext) {
         });
         assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
         assert!(!fixture.directory.path().join("project/plan.txt").exists());
-        let turn = view.read_with(visual, |view, _| {
-            view.history.snapshot.as_ref().unwrap().page.runs[0].turn
-        });
-        tap(visual, &format!("live-turn-work-{turn}"));
+        assert!(history(visual, id).visible());
         assert!(
             visual
                 .debug_bounds(Box::leak(

@@ -117,6 +117,7 @@ pub(crate) fn literal_text(id: &str, text: &str, text_size: Pixels, cx: &App) ->
         .bg(cx.theme().transparent)
         .text_color(cx.theme().muted_foreground)
         .p_0()
+        .border_0()
         .text_size(text_size)
         .line_height(line_height);
     div()

@@ -229,6 +229,7 @@ fn routes_pages_and_preserves_core_tabs(cx: &mut TestAppContext) {
         wait(visual, |cx| {
             snapshot(&panel, cx).contains("browser-new-tab")
         });
+        crate::conversation::live::tests::fixture::hover(visual, "browser-tab-1");
         click(visual, "browser-tab-close-1");
         wait(visual, |cx| {
             browser.read(cx).snapshot(cx)["tabs"]
@@ -237,6 +238,7 @@ fn routes_pages_and_preserves_core_tabs(cx: &mut TestAppContext) {
                 .len()
                 == 1
         });
+        crate::conversation::live::tests::fixture::hover(visual, "browser-tab-0");
         click(visual, "browser-tab-close-0");
         wait(visual, |cx| shell.read(cx).side_resource.is_none());
         visual.update(|window, _| window.remove_window());

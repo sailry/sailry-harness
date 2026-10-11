@@ -1,10 +1,10 @@
-use std::rc::Rc;
+use std::{rc::Rc, time::Duration};
 
 use crate::{
     ActiveTheme, Disableable, IconName, RoleOverride, Selectable, Sizable, Size, icon::IconNamed,
     text::Text, tooltip::ComponentTooltip, v_flex,
 };
-use crate::{StyledExt as _, ThemeStyled as _};
+use crate::{StyleSized as _, StyledExt as _, ThemeStyled as _};
 use gpui::{
     AnyElement, App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
     RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, div,
@@ -65,6 +65,14 @@ impl Checkbox {
     /// Set tooltip text for the checkbox.
     pub fn tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
         self.tooltip.text = Some((tooltip.into(), None));
+        self
+    }
+
+    /// Overrides how long the pointer must rest before the tooltip shows.
+    ///
+    /// Defaults to [`gpui_base::TooltipDefaults::show_delay`].
+    pub fn tooltip_show_delay(mut self, delay: Duration) -> Self {
+        self.tooltip.show_delay = Some(delay);
         self
     }
 
@@ -273,10 +281,8 @@ impl RenderOnce for Checkbox {
             .line_height(relative(1.))
             .text_color(cx.theme().foreground)
             .map(|this| match self.size {
-                Size::XSmall => this.text_xs(),
-                Size::Small | Size::Medium => this.text_sm(),
-                Size::Large => this.text_lg(),
-                _ => this,
+                Size::Size(_) => this,
+                size => this.input_text_size(size),
             })
             .rounded(cx.theme().radius * 0.5)
             .when(is_focused && self.focus_ring_enabled, |this| {

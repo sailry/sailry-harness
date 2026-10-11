@@ -1,6 +1,9 @@
 use super::*;
 use core::prelude::v1::test;
-use gpui_kit::component::{Root, ThemeMode};
+use gpui_kit::{
+    component::{Root, ThemeMode},
+    test::TestWindowExt as _,
+};
 use sailry_node_runtime::Node;
 use sailry_protocol::Command;
 use std::time::{Duration, Instant};
@@ -72,13 +75,47 @@ fn project_empty_state(cx: &mut TestAppContext) {
     wait(visual, &shell, |live| {
         live.view.connected && live.hosts.len() == 2
     });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        visual.executor().advance_clock(Duration::from_millis(10));
+        visual.run_until_parked();
+        let (ready, state) = visual.update(|window, cx| {
+            window.render_frame(cx);
+            let Some(chat) = shell.read(cx).current_chat() else {
+                return (false, "conversation is not mounted".to_owned());
+            };
+            let chat = chat.read(cx);
+            let registry = crate::conversation::live::tests::contributions(chat).read(cx);
+            let ready = chat.connected()
+                && registry.ready(cx)
+                && chat.can_invoke_contribution(sailry_protocol::plugin::ui::Intent::Worktrees, cx);
+            let panel = registry
+                .test_panel("worktrees")
+                .map(|panel| crate::plugins::diagnostics(&panel, cx))
+                .unwrap_or_else(|| "worktree contribution is not mounted".to_owned());
+            let state = format!(
+                "connected={}, ready={}, intent={}, {panel}",
+                chat.connected(),
+                registry.ready(cx),
+                chat.can_invoke_contribution(sailry_protocol::plugin::ui::Intent::Worktrees, cx),
+            );
+            (ready, state)
+        });
+        if ready {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "project contribution deadline: {state}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
     click(visual, "project-add");
     assert!(visual.debug_bounds("project-editor").is_some());
-    assert!(
-        visual
-            .debug_bounds("plugin-control-worktrees-location")
-            .is_some()
-    );
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        assert!(window.find("plugin-control-worktrees-location").visible());
+    });
     click(visual, "project-cancel");
     for (node, page, selector) in [
         (local.id(), Page::Files, "file-explorer"),

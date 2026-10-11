@@ -1,5 +1,6 @@
 use super::*;
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 use std::time::{Duration, Instant};
 
 mod actions;
@@ -16,10 +17,16 @@ impl Render for Mounted {
 
 fn settle(cx: &mut VisualTestContext) {
     cx.run_until_parked();
-    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|window, cx| {
+        window.simulate_next_frame(cx);
+        window.render_frame(cx);
+    });
     cx.executor().advance_clock(Duration::from_millis(250));
     cx.run_until_parked();
-    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|window, cx| {
+        window.simulate_next_frame(cx);
+        window.render_frame(cx);
+    });
 }
 
 fn wait(cx: &mut VisualTestContext, ready: impl Fn(&App) -> bool) {

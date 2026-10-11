@@ -6,7 +6,7 @@ use gpui_kit::{
 };
 
 #[test]
-fn floating_surface_orders_after_shifted_text() {
+fn floating_surface_captures_nearby_background() {
     let local = bounds(600., 0., 300., 500.);
     let viewport = Surface::layer_bounds(size(px(1000.), px(600.))).scale(1.);
     let (local_scene, greeting) = fixture(local);
@@ -34,10 +34,9 @@ fn fixture(layer: Bounds<ScaledPixels>) -> (Scene, usize) {
     let mut scene = Scene::default();
     let viewport = bounds(0., 0., 1000., 600.);
     let mask = ContentMask { bounds: viewport };
-    let origin = bounds(0., 300., 100., 40.);
-    // Center alignment moves glyphs right, but the pinned text painter registers
-    // its unaligned line origin. Repeated overlapping left-side layers make the
-    // erroneous greeting order greater than the local popup's order.
+    let origin = bounds(592., 310., 7., 20.);
+    // This glyph is outside the panel but inside the blur sampling radius.
+    // Matching layer and glyph bounds do not overlap the local panel barrier.
     for _ in 0..3 {
         scene.push_layer(origin);
         scene.insert_primitive(Quad {
@@ -51,7 +50,7 @@ fn fixture(layer: Bounds<ScaledPixels>) -> (Scene, usize) {
     scene.insert_primitive(MonochromeSprite {
         order: 0,
         pad: 0,
-        bounds: bounds(650., 310., 12., 20.),
+        bounds: origin,
         content_mask: mask,
         color: gpui_kit::white(),
         tile: AtlasTile {

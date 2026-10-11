@@ -1,5 +1,6 @@
 use super::*;
 use crate::settings::providers::authorization_support as support;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_protocol::Effort;
 use std::sync::atomic::AtomicU8;
 
@@ -22,6 +23,25 @@ fn settle(cx: &mut VisualTestContext) {
         window.draw(cx).clear(cx);
     });
 }
+fn browser_ready(visual: &mut VisualTestContext, previous: Option<&str>) -> String {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(authorization) = visual.opened_url()
+            && Some(authorization.as_str()) != previous
+            && visual.debug_bounds("provider-login-waiting").is_some()
+            && visual.update(|window, _| {
+                window
+                    .try_find("provider-login-open")
+                    .is_some_and(|button| button.visible())
+            })
+        {
+            return authorization;
+        }
+        settle(visual);
+        assert!(Instant::now() < deadline, "browser readiness deadline");
+    }
+}
+
 fn tap(cx: &mut VisualTestContext, selector: &'static str) {
     cx.run_until_parked();
     cx.update(|window, cx| {
@@ -122,6 +142,7 @@ fn configures_an_empty_account(cx: &mut TestAppContext) {
             assert!(provider.models.is_empty());
             assert!(server.requests.lock().unwrap().is_empty());
             settle(visual);
+            let previous = visual.opened_url();
             tap(visual, "provider-login-0");
             if preset == Preset::ChatGpt {
                 fixture.execute(Command::PutCredential {
@@ -131,12 +152,7 @@ fn configures_an_empty_account(cx: &mut TestAppContext) {
                     secret: Secret::new("isolated-unselected-key".into()),
                     expires_at_ms: None,
                 });
-                let deadline = Instant::now() + Duration::from_secs(10);
-                while visual.debug_bounds("provider-login-waiting").is_none() {
-                    settle(visual);
-                    assert!(Instant::now() < deadline, "browser readiness deadline");
-                }
-                let authorization = visual.opened_url().unwrap();
+                let authorization = browser_ready(visual, previous.as_deref());
                 let callback = support::callback(&authorization);
                 let response = fixture.runtime.spawn(async move {
                     reqwest::get(callback.expose())
