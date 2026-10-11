@@ -209,7 +209,7 @@ async fn offers_same_version_bundled_content() {
 }
 
 #[tokio::test]
-async fn offers_bundled_updates_when_offline() {
+async fn offers_bundled_updates_on_catalog_failure() {
     for (remote, initial) in [
         (false, "0.0.1"),
         (true, "0.0.1"),
@@ -360,10 +360,34 @@ async fn offers_bundled_updates_when_offline() {
         );
 
         catalog.status.store(200, Ordering::SeqCst);
-        catalog.invalid.store(true, Ordering::SeqCst);
-        let invalid = check(&client, std::slice::from_ref(&current.summary)).await;
-        assert!(invalid.reports.is_empty());
-        assert_eq!(invalid.failures[0].error.code, ErrorCode::InvalidRequest);
+        for (invalid_index, obsolete, version) in [
+            (true, false, None),
+            (false, true, None),
+            (false, false, Some("invalid")),
+        ] {
+            catalog.invalid.store(invalid_index, Ordering::SeqCst);
+            catalog.obsolete.store(obsolete, Ordering::SeqCst);
+            *catalog.version.lock().unwrap() = version.map(str::to_owned);
+            catalog.requests.lock().unwrap().clear();
+            let invalid = check(&client, std::slice::from_ref(&current.summary)).await;
+            assert!(invalid.failures.is_empty());
+            assert_eq!(invalid.reports[0].available, offline.reports[0].available);
+            assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+            assert_eq!(stored(&node), before);
+            assert_eq!(private(), body);
+            assert_eq!(
+                info(
+                    execute(
+                        &client,
+                        Command::ReadPlugin {
+                            name: "reminders".into()
+                        }
+                    )
+                    .await
+                ),
+                current
+            );
+        }
 
         let updated = info(
             execute(
@@ -396,6 +420,16 @@ async fn offers_bundled_updates_when_offline() {
             ),
             captured
         );
+        catalog.obsolete.store(true, Ordering::SeqCst);
+        *catalog.version.lock().unwrap() = None;
+        let invalid = check(&client, std::slice::from_ref(&updated.summary)).await;
+        assert!(invalid.reports.is_empty());
+        assert_eq!(invalid.failures.len(), 1);
+        assert_eq!(invalid.failures[0].error.code, ErrorCode::InvalidRequest);
+        assert_eq!(
+            invalid.failures[0].error.message,
+            "invalid official plugin identity or manifest"
+        );
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 let event = events.next().await.unwrap();
@@ -414,6 +448,7 @@ async fn offers_bundled_updates_when_offline() {
         .await
         .unwrap();
         catalog.invalid.store(false, Ordering::SeqCst);
+        catalog.obsolete.store(false, Ordering::SeqCst);
         catalog.updated.store(false, Ordering::SeqCst);
         let final_check = check(&client, std::slice::from_ref(&updated.summary)).await;
         assert!(final_check.failures.is_empty());

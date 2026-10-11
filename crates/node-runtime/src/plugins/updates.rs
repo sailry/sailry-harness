@@ -98,7 +98,8 @@ impl Host {
                 });
             let available = match entry {
                 Err(error)
-                    if !matches!(error.code, ErrorCode::Unavailable | ErrorCode::NotFound) =>
+                    if !catalog::official::unavailable(&error)
+                        && !(error.code == ErrorCode::InvalidRequest && bundled.is_some()) =>
                 {
                     return Err(error);
                 }
@@ -107,7 +108,10 @@ impl Host {
                         Ok(available) => available.or_else(|| {
                             bundled.map(|package| Candidate::Package(Box::new(package)))
                         }),
-                        Err(error) if catalog::official::unavailable(&error) => {
+                        Err(error)
+                            if catalog::official::unavailable(&error)
+                                || error.code == ErrorCode::InvalidRequest && bundled.is_some() =>
+                        {
                             if let Some(bundled) = bundled {
                                 Some(Candidate::Package(Box::new(bundled)))
                             } else {
