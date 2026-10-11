@@ -73,10 +73,24 @@ impl Panel {
                     })
             })
             .map(|info| info.summary.reference());
-        if let Some(package) = package
-            && self.selected.as_ref() != Some(&package)
-        {
-            self.open(package, window, cx);
+        if let Some(package) = package {
+            if self.selected.as_ref() != Some(&package) {
+                self.open(package, window, cx);
+            }
+        } else if self.snapshot.borrow().as_ref().is_some_and(|snapshot| {
+            !snapshot
+                .plugins
+                .iter()
+                .any(|summary| summary.name == resource.artifact.package.name)
+        }) {
+            if self.error != Some("plugins_uninstalled") {
+                self.error = Some("plugins_uninstalled");
+                // Reconciliation runs during render; notify observers after drawing.
+                let owner = cx.weak_entity();
+                cx.defer(move |cx| {
+                    let _ = owner.update(cx, |_, cx| cx.notify());
+                });
+            }
         }
     }
 }

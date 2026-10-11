@@ -49,6 +49,19 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let node = resource.binding.client.target();
+        let revision = props
+            .revision
+            .or_else(|| crate::preferences::artifacts::revision(node, resource.artifact.id, cx));
+        let dirty = revision.is_some_and(|revision| {
+            !crate::preferences::artifacts::drafts(node, resource.artifact.id, revision, cx)
+                .is_empty()
+        });
+        if dirty {
+            let _ = events.try_send(json!({
+                "kind":"edited","artifact":resource.artifact.id,"revision":revision.unwrap()
+            }));
+        }
         #[cfg(all(target_os = "macos", feature = "workload-tests"))]
         {
             let owner = cx.entity().downgrade();
@@ -85,11 +98,10 @@ impl View {
                             }
                             owner.writable(window, cx);
                             if view.connected {
-                                if owner.dirty {
-                                    owner.revision = owner
-                                        .content
-                                        .as_ref()
-                                        .map(|content| content.artifact.revision);
+                                if owner.dirty
+                                    && let Some(content) = &owner.content
+                                {
+                                    owner.revision = Some(content.artifact.revision);
                                 }
                                 owner.refresh(window, cx);
                             }
@@ -109,10 +121,10 @@ impl View {
         let mut view = Self {
             resource,
             host,
-            revision: props.revision,
+            revision,
             content: None,
             source: None,
-            dirty: false,
+            dirty,
             loading: false,
             reload: false,
             generation: 0,
@@ -205,11 +217,9 @@ impl View {
                 owner.loading = false;
                 match result {
                     Ok(content) => {
-                        if owner.dirty
-                            || owner.content.as_ref().is_some_and(|old| {
-                                old.artifact.revision == content.artifact.revision
-                            })
-                        {
+                        if owner.content.as_ref().is_some_and(|old| {
+                            owner.dirty || old.artifact.revision == content.artifact.revision
+                        }) {
                             if let Some(old) = &mut owner.content {
                                 old.latest_revision = content.latest_revision;
                             }
@@ -252,6 +262,7 @@ impl View {
                 .content
                 .as_ref()
                 .is_some_and(|content| content.artifact.revision == content.latest_revision)
+                && self.host.check().is_ok()
                 && self.resource.source.upgrade().is_some_and(|source| {
                     source
                         .read(cx)
@@ -277,6 +288,7 @@ impl View {
         let theme = page::theme(cx);
         let writable =
             content.artifact.revision == content.latest_revision
+                && self.host.check().is_ok()
                 && self.resource.source.upgrade().is_some_and(|source| {
                     source.read(cx).document_writable(content.artifact.session)
                 });
@@ -288,7 +300,14 @@ impl View {
                     .map(|(key, value)| (key.clone(), Value::String(value.clone()))),
             );
         }
-        let Ok(html) = page::document(content, theme.clone(), labels, writable) else {
+        let drafts = crate::preferences::artifacts::drafts(
+            self.resource.binding.client.target(),
+            content.artifact.id,
+            content.artifact.revision,
+            cx,
+        );
+        self.dirty |= !drafts.is_empty();
+        let Ok(html) = page::document(content, theme.clone(), labels, writable, drafts) else {
             self.error = Some("artifact_preview_failed");
             return;
         };
@@ -345,6 +364,9 @@ impl View {
 
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn event(&mut self, event: String, window: &mut Window, cx: &mut Context<Self>) {
+        if self.stop.is_cancelled() || self.host.check().is_err() {
+            return;
+        }
         let Some(content) = &self.content else { return };
         let Ok(event) = serde_json::from_str::<Value>(&event) else {
             return;
@@ -374,6 +396,25 @@ impl View {
             return;
         }
         match event.get("kind").and_then(Value::as_str) {
+            Some("draft") => {
+                let payload = json!({"form":event.get("form"),"fields":event.get("fields")});
+                let valid = serde_json::from_value::<crate::preferences::artifacts::Draft>(payload)
+                    .map_err(|_| ())
+                    .and_then(|draft| {
+                        crate::preferences::artifacts::remember(
+                            self.resource.binding.client.target(),
+                            content.artifact.id,
+                            content.artifact.revision,
+                            draft,
+                            cx,
+                        )
+                    });
+                if valid.is_err() {
+                    self.report("invalid_form", "artifact_form_invalid", window, cx);
+                } else {
+                    self.dirty = true;
+                }
+            }
             Some("edited") => {
                 self.dirty = true;
                 let _=self.events.try_send(json!({"kind":"edited","artifact":content.artifact.id,"revision":content.artifact.revision}));
@@ -413,18 +454,40 @@ impl View {
                     return;
                 }
                 self.dirty = true;
-                let stop = self.stop.clone();
+                let node = self.resource.binding.client.target();
+                let artifact = content.artifact.id;
                 let revision = content.artifact.revision;
                 let epoch = self.epoch;
-                cx.spawn_in(window,async move|owner,cx|{
-                    loop{
-                        let status=*receiver.borrow_and_update();
-                        if let Some(accepted)=status {let _=owner.update(cx,|owner,cx|{
-                            if owner.epoch==epoch&&owner.content.as_ref().is_some_and(|content|content.artifact.revision==revision){owner.ack(&form,accepted);cx.notify();}
-                        });return}
-                        tokio::select!{biased;_=stop.cancelled()=>return,result=receiver.changed()=>if result.is_err(){return},}
+                // Admission outlives the surface; only its visible acknowledgement is scoped.
+                cx.spawn(async move |owner, cx| {
+                    loop {
+                        let status = *receiver.borrow_and_update();
+                        if let Some(accepted) = status {
+                            if accepted {
+                                cx.update(|cx| {
+                                    crate::preferences::artifacts::forget(
+                                        node, artifact, revision, &form, cx,
+                                    )
+                                });
+                            }
+                            let _ = owner.update(cx, |owner, cx| {
+                                if owner.epoch == epoch
+                                    && owner.content.as_ref().is_some_and(|content| {
+                                        content.artifact.revision == revision
+                                    })
+                                {
+                                    owner.ack(&form, accepted);
+                                    cx.notify();
+                                }
+                            });
+                            return;
+                        }
+                        if receiver.changed().await.is_err() {
+                            return;
+                        }
                     }
-                }).detach();
+                })
+                .detach();
             }
             Some("required") => {
                 self.report("required", "artifact_form_required", window, cx);

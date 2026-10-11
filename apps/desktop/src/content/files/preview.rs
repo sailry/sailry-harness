@@ -1,6 +1,9 @@
-//! File previews use a native WebView. Kit b79f4ce's WebView sets unclipped native
+//! File previews use a native WebView. Kit 0c830f4d's WebView sets unclipped native
 //! bounds and only hides on entity destruction, so a small mount adapter below
 //! applies the GPUI content mask and releases visibility with the painted frame.
+//! Native child views cannot be composited below Kit overlays. The adapter uses
+//! the current frame's clipped occluding hitboxes and a shared native snapshot
+//! to keep preview content visible under intersecting surfaces.
 use super::*;
 use raw_window_handle::HasWindowHandle;
 use sailry_link::CancellationToken;

@@ -34,3 +34,9 @@ iOS support remain intact.
 shader sources plus the backdrop record stride without requiring the upstream
 font assets omitted from the published package. These are shader/layout checks,
 not GPU pixel, driver or Windows runtime acceptance.
+
+`Window::is_hitbox_occluded` exposes the current paint frame's clipped,
+mouse-blocking surfaces above a hitbox. GPUI 0.3.8 exposes point hover testing but
+no area overlap query for native child views, which the OS composes above the
+GPUI scene. Sailry's shared WebView mount adapter uses this query to substitute
+a native content snapshot only while an overlay actually intersects its frame.

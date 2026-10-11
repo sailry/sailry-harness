@@ -45,6 +45,7 @@ fn confines_content_and_preserves_capture() {
         json!({"primary":"#fff"}),
         json!({"submit":"Send"}),
         false,
+        vec![],
     )
     .unwrap();
     assert!(page.contains("connect-src 'none'"));
@@ -63,14 +64,14 @@ fn confines_content_and_preserves_capture() {
 fn rejects_missing_or_oversized_views() {
     let mut content = content();
     content.view = None;
-    assert!(document(&content, json!({}), json!({}), false).is_err());
+    assert!(document(&content, json!({}), json!({}), false, vec![]).is_err());
     content = super::tests::content();
     content.view.as_mut().unwrap().scripts =
         vec!["a".repeat(sailry_protocol::artifact::MAX_VIEW_BYTES)];
-    assert!(document(&content, json!({}), json!({}), false).is_err());
+    assert!(document(&content, json!({}), json!({}), false, vec![]).is_err());
     content = super::tests::content();
     content.html = "a".repeat(sailry_protocol::artifact::MAX_HTML_BYTES + 1);
-    assert!(document(&content, json!({}), json!({}), false).is_err());
+    assert!(document(&content, json!({}), json!({}), false, vec![]).is_err());
 }
 
 #[test]
@@ -78,7 +79,7 @@ fn supports_template_tags_and_ignores_raw_text() {
     let mut content = content();
     content.view.as_mut().unwrap().template =
         "<!DOCTYPE html><!-- <head> --><HTML><HEAD lang=\"en\" data-note=\">\"><style>/* <head> */</style></HEAD><BODY><script>const sample='</body>';</script><main id=\"brief\"></main></BODY></HTML>".into();
-    let page = document(&content, json!({}), json!({}), false).unwrap();
+    let page = document(&content, json!({}), json!({}), false, vec![]).unwrap();
     assert!(page.contains(
         "<HEAD lang=\"en\" data-note=\">\"><meta http-equiv=\"Content-Security-Policy\""
     ));
@@ -86,7 +87,7 @@ fn supports_template_tags_and_ignores_raw_text() {
     assert!(page.contains("window.sailryDocument.mount("));
     assert!(page.contains("</script></BODY>"));
     content.view.as_mut().unwrap().template = "<main id=\"brief\"></main>".into();
-    assert!(document(&content, json!({}), json!({}), false).is_err());
+    assert!(document(&content, json!({}), json!({}), false, vec![]).is_err());
 }
 
 #[test]

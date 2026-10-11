@@ -34,6 +34,7 @@ struct Harness {
     crop: bool,
     hovered: Rc<Cell<bool>>,
     trigger: Rc<Cell<Bounds<Pixels>>>,
+    overlay: Option<Pixels>,
 }
 impl Render for Harness {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -62,6 +63,20 @@ impl Render for Harness {
                         )
                     }),
             )
+            .when_some(self.overlay, |this, left| {
+                this.child(deferred(
+                    div()
+                        .id("preview-overlay")
+                        .absolute()
+                        .left(left)
+                        .top_0()
+                        .w(px(120.))
+                        .h(px(60.))
+                        .occlude()
+                        .bg(cx.theme().popover)
+                        .child("Preview menu"),
+                ))
+            })
             .child(
                 div()
                     .id("hover-region")
@@ -94,7 +109,7 @@ pub(in crate::content::files) fn run(output: &Path) {
                 window.set_window_title("Sailry — file preview fixture");
                 window.activate_window();
                 let native = Rc::new(surface::Native::new(HTML, window).unwrap());
-                let view = cx.new(|_| Harness { native: Some(native), mounted: true, crop: true, hovered: Rc::default(), trigger: Rc::default() });
+                let view = cx.new(|_| Harness { native: Some(native), mounted: true, crop: true, hovered: Rc::default(), trigger: Rc::default(), overlay: None });
                 let probe = view.clone();
                 window.spawn(cx, async move |cx| {
                     let _ = crate::workload::check(async {
@@ -348,6 +363,10 @@ async fn verify(view: &Entity<Harness>, cx: &mut AsyncWindowContext) {
             .unwrap()
     );
     assert!(hidden(view, cx));
+    assert!(
+        view.read_with(cx, |view, _| view.native.as_ref().unwrap().substituted()),
+        "an overlapping modal keeps native content visible through its snapshot"
+    );
     cx.update(|_, cx| {
         let page = view.read(cx).native.as_ref().unwrap().page.webview();
         let parent = unsafe { page.superview() }.unwrap();
@@ -365,6 +384,7 @@ async fn verify(view: &Entity<Harness>, cx: &mut AsyncWindowContext) {
     .unwrap();
     pause(cx).await;
     assert!(!hidden(view, cx));
+    verify_surfaces(view, cx).await;
     check_pointer(view, cx).await;
     view.update(cx, |view, cx| {
         view.crop = false;
@@ -387,6 +407,49 @@ async fn verify(view: &Entity<Harness>, cx: &mut AsyncWindowContext) {
     });
     pause(cx).await;
     assert!(!hidden(view, cx));
+}
+
+async fn verify_surfaces(view: &Entity<Harness>, cx: &mut AsyncWindowContext) {
+    for (left, covered) in [(px(320.), false), (px(20.), true)] {
+        view.update(cx, |view, cx| {
+            view.overlay = Some(left);
+            cx.notify();
+        });
+        pause(cx).await;
+        assert_eq!(hidden(view, cx), covered);
+        assert_eq!(
+            view.read_with(cx, |view, _| view.native.as_ref().unwrap().substituted()),
+            covered
+        );
+    }
+    view.update(cx, |view, cx| {
+        view.overlay = None;
+        cx.notify();
+    });
+    pause(cx).await;
+    for (placement, covered) in [(Anchor::TopRight, false), (Anchor::TopLeft, true)] {
+        cx.update(|window, cx| {
+            window.push_notification(
+                notification::Notification::info("Preview fixture")
+                    .placement(placement)
+                    .autohide(false),
+                cx,
+            );
+        })
+        .unwrap();
+        pause(cx).await;
+        assert_eq!(hidden(view, cx), covered);
+        assert_eq!(
+            view.read_with(cx, |view, _| view.native.as_ref().unwrap().substituted()),
+            covered
+        );
+        cx.update(|window, cx| window.clear_notifications(cx))
+            .unwrap();
+        pause(cx).await;
+        pause(cx).await;
+    }
+    assert!(!hidden(view, cx));
+    assert!(!view.read_with(cx, |view, _| view.native.as_ref().unwrap().substituted()));
 }
 
 async fn check_pointer(view: &Entity<Harness>, cx: &mut AsyncWindowContext) {

@@ -5267,6 +5267,27 @@ impl Window {
         hitbox
     }
 
+    /// Whether a later mouse-blocking surface overlaps this hitbox's visible bounds.
+    ///
+    /// Native child views are composed above the GPUI scene. Their paint adapters can
+    /// use this after all roots and deferred surfaces have been prepainted to replace
+    /// only an overlapping native view with an inert image.
+    pub fn is_hitbox_occluded(&self, hitbox: &Hitbox) -> bool {
+        self.invalidator.debug_assert_paint();
+        let bounds = hitbox.bounds.intersect(&hitbox.content_mask.bounds);
+        self.next_frame
+            .hitboxes
+            .iter()
+            .skip_while(|candidate| candidate.id != hitbox.id)
+            .skip(1)
+            .filter(|candidate| candidate.behavior != HitboxBehavior::Normal)
+            .any(|candidate| {
+                let overlap =
+                    bounds.intersect(&candidate.bounds.intersect(&candidate.content_mask.bounds));
+                overlap.size.width > Pixels::ZERO && overlap.size.height > Pixels::ZERO
+            })
+    }
+
     /// Set a hitbox which will act as a control area of the platform window.
     ///
     /// This method should only be called as part of the paint phase of element drawing.

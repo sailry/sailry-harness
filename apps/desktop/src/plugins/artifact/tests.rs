@@ -2,7 +2,10 @@ use super::*;
 use crate::conversation::live::tests::{fixture as chat, wait};
 use crate::plugins::tests::{init, snapshot};
 use core::prelude::v1::test;
-use gpui_kit::component::{Root, WindowExt};
+use gpui_kit::{
+    component::{Root, WindowExt},
+    test::TestWindowExt,
+};
 use sailry_link::{Admission, Pending, Stream, Subscription, Transport};
 use sailry_protocol::{Command, Output, plugin};
 use sailry_protocol::{Fault, NodeId, Request, StreamId, Topic};
@@ -14,6 +17,8 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 const PACKAGE: &str = "document-ui-fixture";
+
+mod shell;
 
 struct AdmissionLoss {
     inner: Arc<dyn Transport>,
@@ -133,6 +138,130 @@ fn preserves_drafts_and_recovers_admitted_answers(cx: &mut TestAppContext) {
     }
 }
 
+struct Document(Entity<Panel>);
+
+fn frame(panel: &Entity<Panel>, cx: &App) -> AnyElement {
+    gpui_kit::component::v_flex()
+        .size_full()
+        .child(
+            gpui_kit::component::h_flex()
+                .h(px(crate::preview::HEADER_HEIGHT))
+                .child(Panel::heading(panel, cx))
+                .children(panel.read(cx).header()),
+        )
+        .child(div().flex_1().min_h_0().child(panel.clone()))
+        .into_any_element()
+}
+
+impl Render for Document {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        frame(&self.0, cx)
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+struct Answer {
+    source: Entity<Chat>,
+    panel: Entity<Panel>,
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+impl Render for Answer {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        gpui_kit::component::h_flex()
+            .size_full()
+            .child(div().flex_1().min_w_0().h_full().child(self.source.clone()))
+            .child(div().w(px(480.)).h_full().child(frame(&self.panel, cx)))
+    }
+}
+
+#[gpui_kit::test]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn clears_admitted_answers_after_surface_close(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let mut fixture = chat::Fixture::with_server(remote, |runtime| {
+            runtime.block_on(crate::agent_fixture::Server::scripted_tools(vec![(
+                crate::agent_fixture::plugin_tool(PACKAGE, "write_brief"),
+                write(None, None),
+            )]))
+        });
+        install(&fixture);
+        fixture.start();
+        let first = published(&fixture, 1);
+        fixture.server.replace_tools(Vec::new());
+        let observed = Arc::new(AdmissionLoss {
+            inner: fixture.transport.clone(),
+            first: AtomicBool::new(true),
+            requests: Mutex::new(Vec::new()),
+        });
+        fixture.binding.client = Arc::new(sailry_client::Client::new(observed.clone()));
+        let mut owner = None;
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let source = cx.new(|cx| {
+                Chat::new(
+                    fixture.binding.clone(),
+                    Some(fixture.session.clone()),
+                    window,
+                    cx,
+                )
+            });
+            let panel = cx.new(|cx| Panel::document(source.clone(), first.clone(), cx));
+            owner = Some((source.clone(), panel.clone()));
+            let harness = cx.new(|_| Answer { source, panel });
+            Root::new(harness, window, cx)
+        });
+        let (source, panel) = owner.unwrap();
+        let handle = visual.update(|window, _| window.window_handle());
+        visual.simulate_window_resize(handle, size(px(1280.), px(900.)));
+        version(&panel, visual, 1);
+        wait(visual, |cx| {
+            source.read(cx).document_writable(first.session)
+        });
+        let resource = panel.read_with(visual, |panel, _| panel.document.clone().unwrap());
+        let host = panel.read_with(visual, |panel, _| panel.mounted.as_ref().unwrap().host());
+        let draft = surface::tests::Draft::new(resource, host.clone(), visual);
+        crate::feedback::tests::settle(visual);
+        visual.update(|window, cx| window.clear_notifications(cx));
+        draft.answer(visual);
+        crate::feedback::tests::shown(visual);
+        visual.update(|window, cx| {
+            assert_eq!(
+                crate::feedback::tests::summary(window, cx),
+                crate::tr("chat_action_unknown")
+            )
+        });
+        let cache = draft.close();
+        let node = fixture.binding.client.target();
+        visual.update(|_, cx| {
+            assert_eq!(
+                crate::preferences::artifacts::drafts(node, first.id, 1, cx).len(),
+                1
+            )
+        });
+        chat::tap(visual, "chat-retry");
+        wait(visual, |cx| {
+            crate::preferences::artifacts::drafts(node, first.id, 1, cx).is_empty()
+        });
+        visual.update(|_, cx| {
+            cx.set_global(crate::preferences::Preferences::open(
+                cache.path().join("preferences.json"),
+            ));
+            assert!(crate::preferences::artifacts::drafts(node, first.id, 1, cx).is_empty());
+        });
+        let requests = observed.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0], requests[1]);
+        drop(requests);
+        visual.update(|window, _| window.remove_window());
+        drop(panel);
+        drop(source);
+        host.close();
+        drop(host);
+        fixture.close();
+    }
+}
+
 fn install(fixture: &chat::Fixture) -> plugin::Info {
     let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/brief");
     let target = fixture.directory.path().join("project/brief");
@@ -186,16 +315,23 @@ fn published(fixture: &chat::Fixture, revision: u32) -> Summary {
 #[track_caller]
 fn version(panel: &Entity<Panel>, visual: &mut VisualTestContext, revision: u32) {
     let deadline = Instant::now() + Duration::from_secs(10);
-    let expected = format!("(\"selected\", Str(\"{revision}\"))");
+    let expected = revision.to_string();
     loop {
         visual.executor().advance_clock(Duration::from_millis(10));
         visual.run_until_parked();
-        let (rendered, state, notices) = visual.update(|window, cx| {
+        let (selected, rendered, state, notices) = visual.update(|window, cx| {
             window.refresh();
             window.draw(cx).clear(cx);
             let rendered = snapshot(panel, cx);
             let state = panel.read(cx);
             (
+                state.header().and_then(|header| {
+                    let header = header.read(cx);
+                    header
+                        .filter_ready("brief-version", cx)
+                        .then(|| header.filter_selected("brief-version").map(str::to_owned))
+                        .flatten()
+                }),
                 rendered,
                 (
                     state.connected,
@@ -208,11 +344,9 @@ fn version(panel: &Entity<Panel>, visual: &mut VisualTestContext, revision: u32)
                     .then(|| crate::feedback::tests::summary(window, cx)),
             )
         });
-        if rendered.lines().any(|line| {
-            line.contains("SelectField")
-                && line.contains("\"brief-version\"")
-                && line.contains(&expected)
-        }) {
+        if selected.as_deref() == Some(expected.as_str())
+            && visual.debug_bounds("brief-version").is_some()
+        {
             return;
         }
         assert!(
@@ -248,7 +382,8 @@ fn mounts_package_and_reads_captured_versions(cx: &mut TestAppContext) {
             });
             let panel = cx.new(|cx| Panel::document(source, first.clone(), cx));
             owner = Some(panel.clone());
-            Root::new(panel, window, cx)
+            let harness = cx.new(|_| Document(panel));
+            Root::new(harness, window, cx)
         });
         let panel = owner.unwrap();
         let handle = visual.update(|window, _| window.window_handle());
@@ -324,9 +459,63 @@ fn mounts_package_and_reads_captured_versions(cx: &mut TestAppContext) {
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         draft.verify(2, visual);
         version(&panel, visual, 2);
-        crate::plugins::tests::click(visual, "brief-version");
-        visual.simulate_keystrokes("down");
-        visual.simulate_keystrokes("enter");
+        // The verified readonly toast covers this harness's centered Header.
+        visual.update(|window, cx| window.clear_notifications(cx));
+        crate::feedback::tests::settle(visual);
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            let header = panel.read(cx).header().unwrap();
+            let id = header.read(cx).filter_id("brief-version").unwrap();
+            window.within(id).click("input", cx);
+        });
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            let header = panel.read(cx).header().unwrap();
+            let interaction = header
+                .read(cx)
+                .filter_interaction("brief-version", window, cx);
+            assert!(
+                gpui_kit::component::GlobalState::is_in_deferred_context(cx),
+                "version picker must open after its trigger click: {interaction:?}"
+            );
+            assert_eq!(
+                interaction,
+                Some((Some(0), Some("2".into()), true)),
+                "version picker must focus its current choice"
+            );
+        });
+        visual.update(|window, cx| window.press("down", cx));
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            let header = panel.read(cx).header().unwrap();
+            assert_eq!(
+                header
+                    .read(cx)
+                    .filter_interaction("brief-version", window, cx),
+                Some((Some(1), Some("2".into()), true)),
+                "the down key must move the native version cursor"
+            );
+        });
+        visual.update(|window, cx| window.press("enter", cx));
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            let header = panel.read(cx).header().unwrap();
+            let interaction = header
+                .read(cx)
+                .filter_interaction("brief-version", window, cx);
+            assert_eq!(
+                interaction.as_ref().and_then(|state| state.1.as_deref()),
+                Some("1"),
+                "the enter key must commit the native version choice: {interaction:?}"
+            );
+            assert!(
+                !gpui_kit::component::GlobalState::is_in_deferred_context(cx),
+                "the confirmed version picker must close"
+            );
+        });
         version(&panel, visual, 1);
         visual.update(|window, _| window.remove_window());
         drop(panel);
@@ -347,7 +536,8 @@ fn mounts_package_and_reads_captured_versions(cx: &mut TestAppContext) {
             let source = cx.new(|cx| Chat::new(fixture.binding.clone(), Some(fork), window, cx));
             let panel = cx.new(|cx| Panel::document(source, first.clone(), cx));
             owner = Some(panel.clone());
-            Root::new(panel, window, cx)
+            let harness = cx.new(|_| Document(panel));
+            Root::new(harness, window, cx)
         });
         let panel = owner.unwrap();
         let handle = visual.update(|window, _| window.window_handle());
@@ -396,11 +586,86 @@ fn mounts_package_and_reads_captured_versions(cx: &mut TestAppContext) {
             source.send_document(first.session, "Inherited answer".into(), sender, window, cx)
         })));
         assert_eq!(*status.borrow(), None);
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        let retained = surface::tests::Draft::new(
+            panel.read_with(visual, |panel, _| panel.document.clone().unwrap()),
+            host.clone(),
+            visual,
+        );
+        let Output::Conversation(before) = fixture.execute(Command::ReadConversation {
+            session: fork_id,
+            before: None,
+            limit: 100,
+        }) else {
+            panic!("conversation expected");
+        };
+        visual.update(|window, cx| window.clear_notifications(cx));
+        fixture.execute(Command::RemovePlugin {
+            name: package.summary.name.clone(),
+            expected_revision: package.summary.revision,
+        });
+        wait(visual, |cx| {
+            panel.read(cx).mounted.is_none() && panel.read(cx).error == Some("plugins_uninstalled")
+        });
+        crate::feedback::tests::shown(visual);
+        visual.update(|window, cx| {
+            assert_eq!(
+                crate::feedback::tests::summary(window, cx),
+                crate::tr("plugins_uninstalled")
+            )
+        });
+        assert!(host.check().is_err());
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            retained.answer(visual);
+            drop(retained.close());
+        }
+        let Output::Conversation(after) = fixture.execute(Command::ReadConversation {
+            session: fork_id,
+            before: None,
+            limit: 100,
+        }) else {
+            panic!("conversation expected");
+        };
+        assert_eq!(after.page.runs, before.page.runs);
+        let frozen = fixture
+            .runtime
+            .block_on(
+                fixture
+                    .binding
+                    .client
+                    .read_artifact_in(fork_id, first.id, Some(1)),
+            )
+            .unwrap();
+        assert_eq!(frozen.html, content.html);
+        assert_eq!(frozen.view, content.view);
+        let session = source.read_with(visual, |source, _| source.summary().unwrap().clone());
         visual.update(|window, _| window.remove_window());
         drop(panel);
         drop(source);
         host.close();
         drop(host);
+        let mut reopened = None;
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let source = cx.new(|cx| Chat::new(fixture.binding.clone(), Some(session), window, cx));
+            let panel = cx.new(|cx| Panel::document(source, first.clone(), cx));
+            reopened = Some(panel.clone());
+            let harness = cx.new(|_| Document(panel));
+            Root::new(harness, window, cx)
+        });
+        let panel = reopened.unwrap();
+        wait(visual, |cx| {
+            panel.read(cx).error == Some("plugins_uninstalled") && panel.read(cx).mounted.is_none()
+        });
+        crate::feedback::tests::shown(visual);
+        visual.update(|window, cx| {
+            assert_eq!(
+                crate::feedback::tests::summary(window, cx),
+                crate::tr("plugins_uninstalled")
+            )
+        });
+        visual.update(|window, _| window.remove_window());
+        drop(panel);
         fixture.close();
     }
 }

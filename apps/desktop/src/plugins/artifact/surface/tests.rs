@@ -9,6 +9,7 @@ pub(in crate::plugins::artifact) struct Draft {
     events: tokio::sync::mpsc::Receiver<Value>,
     revision: u32,
     id: ArtifactId,
+    cache: tempfile::TempDir,
 }
 
 impl Draft {
@@ -20,6 +21,12 @@ impl Draft {
         let id = resource.artifact.id;
         let session = resource.artifact.session;
         let revision = resource.artifact.revision;
+        let cache = tempfile::tempdir().unwrap();
+        visual.update(|_, cx| {
+            cx.set_global(crate::preferences::Preferences::open(
+                cache.path().join("preferences.json"),
+            ));
+        });
         let (events, receiver) = tokio::sync::mpsc::channel(4);
         let surface = visual.update(|window, cx| {
             cx.new(|cx| {
@@ -63,9 +70,33 @@ impl Draft {
             events: receiver,
             revision,
             id,
+            cache,
         };
+        draft.persist(visual);
         draft.feedback(visual);
         draft
+    }
+
+    fn persist(&self, visual: &mut VisualTestContext) {
+        visual.update(|window, cx| self.surface.update(cx, |view, cx| {
+            let content = view.content.as_ref().unwrap();
+            view.event(json!({"kind":"draft","artifact":self.id,"session":content.artifact.session,
+                "revision":self.revision,"form":"choices","fields":[{"name":"storage","values":["node"]}]}).to_string(),window,cx);
+        }));
+    }
+
+    pub(in crate::plugins::artifact) fn answer(&self, visual: &mut VisualTestContext) {
+        visual.update(|window, cx| self.surface.update(cx, |view, cx| {
+            let content = view.content.as_ref().unwrap();
+            view.event(json!({"kind":"submit","artifact":self.id,"session":content.artifact.session,
+                "revision":self.revision,"form":"choices","fields":[{"name":"storage","label":"Storage",
+                "values":[{"value":"node","label":"Execution Node"}]}]}).to_string(),window,cx);
+        }));
+    }
+
+    pub(in crate::plugins::artifact) fn close(self) -> tempfile::TempDir {
+        drop(self.surface);
+        self.cache
     }
 
     fn feedback(&self, visual: &mut VisualTestContext) {
@@ -77,6 +108,9 @@ impl Draft {
         assert_ne!(fallback.as_ref(), VISUAL_FEEDBACK);
         let fallback_count =
             visual.update(|window, cx| crate::feedback::tests::count(window, &fallback, cx));
+        let preview_failure_count = visual.update(|window, cx| {
+            crate::feedback::tests::count(window, &crate::tr("artifact_preview_failed"), cx)
+        });
         for (kind, message, label) in [
             ("required", crate::tr("artifact_form_required"), None),
             ("invalid_form", crate::tr("artifact_form_invalid"), None),
@@ -141,7 +175,7 @@ impl Draft {
                             &crate::tr("artifact_preview_failed"),
                             cx
                         ),
-                        0,
+                        preview_failure_count,
                         "a failed visual must not report a whole-page failure"
                     );
                 });
@@ -298,5 +332,56 @@ impl Draft {
                     .as_ref()
                     .is_some_and(|content| content.artifact.revision == latest)
         });
+        let (resource, host) = self
+            .surface
+            .read_with(visual, |view, _| (view.resource.clone(), view.host.clone()));
+        let node = resource.binding.client.target();
+        let path = self.cache.path().join("preferences.json");
+        let id = self.id;
+        let revision = self.revision;
+        let cache = self.close();
+        visual.update(|_, cx| {
+            cx.set_global(crate::preferences::Preferences::open(path));
+            assert_eq!(
+                serde_json::to_value(crate::preferences::artifacts::drafts(
+                    node, id, revision, cx
+                ))
+                .unwrap(),
+                json!([{"form":"choices","fields":[{"name":"storage","values":["node"]}]}])
+            );
+            assert!(crate::preferences::artifacts::drafts(node, id, latest, cx).is_empty());
+        });
+        let (events, mut restored) = tokio::sync::mpsc::channel(4);
+        let reopened = visual.update(|window, cx| {
+            cx.new(|cx| {
+                View::new(
+                    resource,
+                    Props {
+                        artifact: id,
+                        revision: None,
+                        labels: Default::default(),
+                    },
+                    host,
+                    events,
+                    window,
+                    cx,
+                )
+            })
+        });
+        wait(visual, |cx| {
+            let view = reopened.read(cx);
+            view.dirty
+                && !view.loading
+                && view.revision == Some(revision)
+                && view.content.as_ref().is_some_and(|content| {
+                    content.artifact.revision == revision && content.latest_revision == latest
+                })
+        });
+        assert_eq!(
+            restored.try_recv().unwrap(),
+            json!({"kind":"edited","artifact":id,"revision":revision})
+        );
+        drop(reopened);
+        drop(cache);
     }
 }

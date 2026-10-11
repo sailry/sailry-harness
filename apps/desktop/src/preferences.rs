@@ -1,6 +1,7 @@
 //! Local controller preferences; never sent to an execution Node.
 use gpui_kit::{App, BorrowAppContext, Global};
 use serde::{Deserialize, Serialize};
+pub(crate) mod artifacts;
 mod composer;
 mod dictation;
 pub(crate) mod plugins;
@@ -40,6 +41,7 @@ pub(crate) struct Data {
     pub dictation: Option<Dictation>,
     pub recent: Option<Vec<recent::Visit>>,
     pub sessions: Option<std::collections::BTreeMap<String, sessions::State>>,
+    pub artifact_drafts: Option<std::collections::BTreeMap<String, artifacts::Draft>>,
     pub plugin_directories: Option<std::collections::BTreeMap<String, plugins::Directory>>,
     pub message_display: Option<MessageDisplay>,
     pub message_text_size: Option<u8>,
@@ -117,6 +119,7 @@ impl Default for Data {
             dictation: None,
             sessions: None,
             plugin_directories: None,
+            artifact_drafts: None,
             recent: None,
             message_display: None,
             message_text_size: None,

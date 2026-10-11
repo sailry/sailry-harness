@@ -1,9 +1,13 @@
 use super::*;
+#[path = "snapshot.rs"]
+mod snapshot;
 
 pub(crate) struct Native {
     pub(crate) page: wry::WebView,
     pub(super) frame: Cell<Option<(Bounds<Pixels>, Bounds<Pixels>)>>,
     visible: Cell<bool>,
+    mounted: Cell<bool>,
+    snapshot: snapshot::Snapshot,
     #[cfg(target_os = "macos")]
     _pointer: Rc<pointer::Pointer>,
 }
@@ -34,6 +38,8 @@ impl Native {
             page,
             frame: Cell::new(None),
             visible: Cell::new(false),
+            mounted: Cell::new(false),
+            snapshot: snapshot::Snapshot::default(),
         })
     }
     fn show(&self, visible: bool) {
@@ -50,6 +56,10 @@ impl Native {
         }
         self.show(false);
     }
+    #[cfg(all(feature = "workload-tests", target_os = "macos"))]
+    pub(super) fn substituted(&self) -> bool {
+        self.snapshot.shown.get()
+    }
 }
 impl Drop for Native {
     fn drop(&mut self) {
@@ -60,6 +70,7 @@ impl Drop for Native {
 struct Mount(Rc<Native>);
 impl Drop for Mount {
     fn drop(&mut self) {
+        self.0.mounted.set(false);
         self.0.hide();
     }
 }
@@ -70,11 +81,12 @@ pub(crate) fn render(native: Rc<Native>, window: &mut Window, cx: &mut App) -> A
     // even when the owning session retains its preview entity in the background.
     let key: SharedString = format!("file-preview-mount-{:p}", Rc::as_ptr(&native)).into();
     window.use_keyed_state(key, cx, move |_, _| Mount(mounted));
-    canvas(|bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal), move |bounds, _, window, cx| {
-        let blocked = gpui_kit::base::GlobalState::is_in_deferred_context(cx)
-            || window.has_active_dialog(cx) || window.has_active_sheet(cx);
+    canvas(|bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal), move |bounds, hitbox, window, cx| {
+        let blocked = window.is_hitbox_occluded(&hitbox);
         let clip = bounds.intersect(&window.content_mask().bounds);
-        if blocked || clip.size.width <= px(0.) || clip.size.height <= px(0.) {
+        if clip.size.width <= px(0.) || clip.size.height <= px(0.) {
+            native.mounted.set(false);
+            native.snapshot.shown.set(false);
             native.hide(); return;
         }
         let previous = native.frame.get();
@@ -90,6 +102,16 @@ pub(crate) fn render(native: Rc<Native>, window: &mut Window, cx: &mut App) -> A
             let _ = native.page.evaluate_script(&script);
         }
         native.frame.set(Some((bounds, clip)));
+        native.mounted.set(true);
+        native.snapshot.request(&native, blocked, window, cx);
+        let substituted = blocked && native.snapshot.paint((bounds, clip), window);
+        native.snapshot.shown.set(substituted);
+        if substituted {
+            native.hide();
+            return;
+        }
+        // Retain the live content until its first snapshot is ready, including
+        // capture failures, so an overlapping surface never empties the preview.
         native.show(true);
         window.on_mouse_event(move |event: &MouseDownEvent, phase, _, _| {
             if phase == DispatchPhase::Capture && !clip.contains(&event.position) {
@@ -130,5 +152,86 @@ mod tests {
         assert!(!html.contains("allow-same-origin"));
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("connect-src 'none'"));
+    }
+
+    struct Overlap {
+        bounds: Bounds<Pixels>,
+        mask: Option<Bounds<Pixels>>,
+        behavior: HitboxBehavior,
+        result: Rc<Cell<bool>>,
+    }
+
+    impl Render for Overlap {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let result = self.result.clone();
+            let bounds = self.bounds;
+            let mask = self.mask;
+            let behavior = self.behavior;
+            div()
+                .size_full()
+                .child(
+                    canvas(
+                        |_, window, _| {
+                            window.insert_hitbox(
+                                Bounds::new(point(px(0.), px(0.)), size(px(100.), px(100.))),
+                                HitboxBehavior::Normal,
+                            )
+                        },
+                        move |_, hitbox, window, _| result.set(window.is_hitbox_occluded(&hitbox)),
+                    )
+                    .size_full(),
+                )
+                .child(deferred(
+                    canvas(
+                        move |_, window, _| {
+                            window.with_content_mask(
+                                mask.map(|bounds| ContentMask { bounds }),
+                                |window| {
+                                    window.insert_hitbox(bounds, behavior);
+                                },
+                            );
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .size_full(),
+                ))
+        }
+    }
+
+    #[gpui::test]
+    fn detects_only_visible_overlaps(cx: &mut TestAppContext) {
+        let result = Rc::new(Cell::new(false));
+        let (view, visual) = cx.add_window_view(|_, _| Overlap {
+            bounds: Bounds::new(point(px(20.), px(20.)), size(px(40.), px(40.))),
+            mask: None,
+            behavior: HitboxBehavior::BlockMouse,
+            result: result.clone(),
+        });
+        for (left, behavior, mask, expected) in [
+            (20., HitboxBehavior::BlockMouse, None, true),
+            (20., HitboxBehavior::BlockMouseExceptScroll, None, true),
+            (20., HitboxBehavior::Normal, None, false),
+            (100., HitboxBehavior::BlockMouse, None, false),
+            (120., HitboxBehavior::BlockMouse, None, false),
+            (
+                80.,
+                HitboxBehavior::BlockMouse,
+                Some(Bounds::new(
+                    point(px(100.), px(0.)),
+                    size(px(40.), px(100.)),
+                )),
+                false,
+            ),
+        ] {
+            view.update(visual, |view, cx| {
+                view.bounds.origin.x = px(left);
+                view.behavior = behavior;
+                view.mask = mask;
+                cx.notify();
+            });
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            assert_eq!(result.get(), expected);
+        }
+        visual.update(|window, _| window.remove_window());
     }
 }

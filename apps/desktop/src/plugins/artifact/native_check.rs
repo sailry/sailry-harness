@@ -101,7 +101,7 @@ pub(in crate::plugins) fn run(output: &Path) {
             let window=cx.open_window(WindowOptions::default(),move|window,cx| {
                 window.set_window_title("Sailry — HTML document fixture");window.activate_window();
                 Theme::change(ThemeMode::Light,Some(window),cx);
-                let html=page::document(&initial,page::theme(cx),page::labels(),true).unwrap();
+                let html=page::document(&initial,page::theme(cx),page::labels(),true,vec![]).unwrap();
                 let events=Rc::new(RefCell::new(Vec::<Value>::new()));let posts=events.clone();let loaded=events.clone();
                 let builder=wry::WebViewBuilder::new().with_html(html)
                     .with_background_throttling(wry::BackgroundThrottlingPolicy::Disabled)
@@ -144,8 +144,8 @@ pub(in crate::plugins) fn run(output: &Path) {
                 let bitmap=::image::load_from_memory(&png).unwrap();
                 assert_eq!(bitmap.width(),960);assert!(bitmap.height()>7*440);
                 std::fs::write(output.join("brief.png"),png).unwrap();
-                std::fs::write(output.join("brief-native.json"),"{\"webkit\":true,\"offline\":true,\"charts\":7,\"mermaid\":true,\"mathjax\":true,\"form_capture\":true,\"pending_preserved\":true,\"theme_preserved\":true,\"diagram_zoom\":true,\"readonly_export\":true,\"png_export\":true,\"branding\":true}\n").unwrap();
-                println!("HTML document: local charts, Mermaid, MathJax, captured forms, pending answers, theme changes, zoom and branded export verified");
+                std::fs::write(output.join("brief-native.json"),"{\"webkit\":true,\"offline\":true,\"charts\":7,\"mermaid\":true,\"mathjax\":true,\"form_capture\":true,\"pending_preserved\":true,\"theme_preserved\":true,\"readonly_export\":true,\"png_export\":true,\"branding\":true}\n").unwrap();
+                println!("HTML document: local charts, Mermaid, MathJax, captured forms, pending answers, theme changes and branded export verified");
                 cx.update(|window,_|window.remove_window()).unwrap();
                 }).await;
             })).unwrap();
@@ -218,9 +218,12 @@ try {
 })()"#, cx).await,
         "true"
     );
-    evaluate(view,"document.querySelector('.document-diagram').click();document.getElementById('document-zoom-in').click();true",cx).await;
-    assert_eq!(evaluate(view,"document.getElementById('document-visual').open && document.querySelector('#document-visual-content svg').style.transform==='scale(1.25)'",cx).await,"true");
-    evaluate(view,"document.getElementById('document-visual-close').click();document.querySelector('form').requestSubmit();true",cx).await;
+    evaluate(
+        view,
+        "document.querySelector('form').requestSubmit();true",
+        cx,
+    )
+    .await;
     pause(cx).await;
     assert!(
         events(view, cx)

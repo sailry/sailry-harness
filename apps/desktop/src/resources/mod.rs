@@ -193,16 +193,24 @@ impl Shell {
             SideResource::Plugin(panel) if panel.read(cx).browser_view().is_some() => {
                 panel.clone().into_any_element()
             }
-            SideResource::Plugin(panel) => v_flex()
-                .size_full()
-                .min_h_0()
-                .child(
-                    crate::header::Header::new("plugin-header", cx)
-                        .bordered(false)
-                        .child(crate::plugins::Panel::heading(panel, cx)),
-                )
-                .child(panel.clone())
-                .into_any_element(),
+            SideResource::Plugin(panel) => {
+                let header = panel.read(cx).header();
+                let title = header
+                    .as_ref()
+                    .and_then(|header| header.read(cx).title(cx))
+                    .unwrap_or_else(|| crate::plugins::Panel::heading(panel, cx));
+                v_flex()
+                    .size_full()
+                    .min_h_0()
+                    .child(
+                        crate::header::Header::new("plugin-header", cx)
+                            .bordered(false)
+                            .child(div().flex_1().min_w_0().child(title))
+                            .children(header),
+                    )
+                    .child(panel.clone())
+                    .into_any_element()
+            }
             SideResource::Link(link) => v_flex()
                 .debug_selector(|| "resource-link-preview".into())
                 .size_full()

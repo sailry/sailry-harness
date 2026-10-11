@@ -194,6 +194,9 @@ pub(in crate::plugins) async fn verify(
 ) {
     cx.update(|window, cx| {
         cx.set_global(Surfaces::default());
+        cx.set_global(crate::preferences::Preferences::open(
+            output.join("brief-flow-preferences.json"),
+        ));
         rust_i18n::set_locale("en");
         crate::theme::select(Some(gpui_kit::component::ThemeMode::Light), window, cx);
         window.resize(size(px(1440.), px(900.)));
@@ -275,6 +278,7 @@ pub(in crate::plugins) async fn verify(
         .await;
         let view = mounted(node, first.id, cx).await;
         rendered(&view, cx).await;
+        panel_ready(&shell, &view, node, &first, cx);
         let captured = cx
             .update(|_, cx| {
                 let Some(SideResource::Plugin(panel)) = &shell.read(cx).side_resource else {
@@ -285,11 +289,97 @@ pub(in crate::plugins) async fn verify(
             .unwrap();
         assert_eq!(captured.target(), node);
         assert_eq!(captured.context().session, Some(session.id));
+        drop(captured);
+        let retained = format!("Saved native draft {route}");
+        evaluate(&view, &format!(
+            "const radio=document.querySelector('input[value=node]');radio.checked=true;radio.dispatchEvent(new Event('change',{{bubbles:true}}));const note=document.querySelector('textarea');note.value={};note.dispatchEvent(new Event('input',{{bubbles:true}}));true",
+            serde_json::to_string(&retained).unwrap()), cx).await;
+        until(cx, "native draft saved in controller cache", |_, cx| {
+            !crate::preferences::artifacts::drafts(node, first.id, 1, cx).is_empty()
+        })
+        .await;
+        let history = services
+            .runtime
+            .spawn({
+                let client = client.clone();
+                async move {
+                    client
+                        .read_conversation(session.id, None, 64)
+                        .await
+                        .unwrap()
+                        .page
+                }
+            })
+            .await
+            .unwrap();
+        let previous = view.entity_id();
+        cx.update(|window, cx| shell.update(cx, |shell, cx| shell.close_file_panel(window, cx)))
+            .unwrap();
+        drop(view);
+        until(cx, "document panel closed", |_, cx| {
+            shell.read(cx).side_resource.is_none()
+        })
+        .await;
+        cx.update(|_, cx| {
+            cx.set_global(crate::preferences::Preferences::open(
+                output.join("brief-flow-preferences.json"),
+            ));
+        })
+        .unwrap();
+        stage(output, route, "reopen_card", node, &first);
+        until(cx, "saved document reopened through Shell", |_, cx| {
+            cx.global::<Surfaces>()
+                .0
+                .get(&(node, first.id))
+                .and_then(WeakEntity::upgrade)
+                .is_some_and(|view| {
+                    view.entity_id() != previous && view.read(cx).native_fixture().is_some()
+                })
+        })
+        .await;
+        let view = mounted(node, first.id, cx).await;
+        rendered(&view, cx).await;
+        panel_ready(&shell, &view, node, &first, cx);
+        assert_eq!(
+            evaluate(
+                &view,
+                "document.querySelector('input[value=node]').checked",
+                cx
+            )
+            .await,
+            "true"
+        );
+        assert_eq!(
+            evaluate(&view, "document.querySelector('textarea').value", cx).await,
+            serde_json::to_string(&retained).unwrap()
+        );
+        let unchanged = services
+            .runtime
+            .spawn({
+                let client = client.clone();
+                async move {
+                    client
+                        .read_conversation(session.id, None, 64)
+                        .await
+                        .unwrap()
+                        .page
+                }
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            unchanged, history,
+            "controller drafts do not write execution history"
+        );
         server.replace_tools(calls(Some(first.id), Some(1)));
         let note = format!("Retained answer {route}");
         evaluate(&view,&format!("document.querySelector('input[value=node]').checked=true;const note=document.querySelector('textarea');note.value={};note.dispatchEvent(new Event('input',{{bubbles:true}}));document.querySelector('form').requestSubmit();true",serde_json::to_string(&note).unwrap()),cx).await;
         let second = published(&client, &services, session.id, 2, cx).await;
         finish_plan(&client, &services, &second, cx).await;
+        until(cx, "accepted form clears controller draft", |_, cx| {
+            crate::preferences::artifacts::drafts(node, first.id, 1, cx).is_empty()
+        })
+        .await;
         assert_eq!(second.id, first.id);
         until(cx, "dirty prior revision remains readonly", |_, cx| {
             view.read(cx).fixture_revision() == Some((1, 2))
@@ -329,8 +419,10 @@ pub(in crate::plugins) async fn verify(
                 && text.contains(&first.id.to_string()) && text.contains("Execution Node (node)"))
                 )
         );
+        panel_ready(&shell, &view, node, &first, cx);
         stage(output, route, "select_version_2", node, &second);
         until(cx, "latest version selected in package picker", |_, cx| {
+            panel_current(&shell, &view, node, &first, cx);
             view.read(cx).fixture_revision() == Some((2, 2))
         })
         .await;
@@ -367,6 +459,7 @@ pub(in crate::plugins) async fn verify(
         );
         records.push(json!({"route":route,"node":node,"session":session.id,"artifact":first.id,
             "plan":true,"card_route":true,"package_host":true,"native_surface":true,"form_submit":true,
+            "draft_reopen":true,"cache_reload":true,"draft_history_unchanged":true,"submitted_draft_cleared":true,
             "dirty_version_preserved":true,"versions":true,"readonly_history":true,"live_export":true}));
     }
     std::fs::write(
@@ -380,7 +473,7 @@ pub(in crate::plugins) async fn verify(
     )
     .unwrap();
     println!(
-        "HTML brief flow: real Shell, local/Iroh Plan tools, document cards, native forms, versions and live export verified"
+        "HTML brief flow: real Shell, local/Iroh Plan tools, restored controller drafts, native forms, versions and live export verified"
     );
     if let Some(seconds) = std::env::var("SAILRY_WORKLOAD_HOLD")
         .ok()
@@ -398,6 +491,62 @@ fn stage(output: &Path, route: &str, action: &str, node: NodeId, artifact: &Summ
         "session":artifact.session,
     })).unwrap()).unwrap();
     println!("HTML brief interaction ready: {route}/{action}");
+}
+
+fn panel_current(
+    shell: &Entity<Shell>,
+    view: &Entity<surface::View>,
+    node: NodeId,
+    artifact: &Summary,
+    cx: &App,
+) {
+    let shell = shell.read(cx);
+    assert!(
+        matches!(&shell.side_resource, Some(SideResource::Plugin(panel))
+            if panel.read(cx).document.as_ref().is_some_and(|resource|
+                resource.artifact.id == artifact.id
+                    && resource.binding.client.target() == node
+                    && resource.artifact.session == artifact.session)),
+        "native document panel is no longer current"
+    );
+    assert_eq!(
+        cx.global::<Surfaces>()
+            .0
+            .get(&(node, artifact.id))
+            .and_then(WeakEntity::upgrade)
+            .map(|surface| surface.entity_id()),
+        Some(view.entity_id()),
+        "native document surface was replaced during interaction"
+    );
+}
+
+fn panel_ready(
+    shell: &Entity<Shell>,
+    view: &Entity<surface::View>,
+    node: NodeId,
+    artifact: &Summary,
+    cx: &mut AsyncWindowContext,
+) {
+    cx.update(|window, cx| {
+        panel_current(shell, view, node, artifact, cx);
+        let shell = shell.read(cx);
+        let geometry = shell.frame_geometry(true, shell.has_resource_panel(cx), window, cx);
+        assert!(
+            geometry.visible,
+            "native document panel is hidden: viewport={:?}, layout={:?}, conversation={}, panel_width={}",
+            window.viewport_size(),
+            shell.layout,
+            shell.page == crate::preview::Page::Conversation,
+            geometry.panel_width
+        );
+        println!(
+            "HTML brief panel ready: viewport={:?}, panel_width={}, surface={:?}",
+            window.viewport_size(),
+            geometry.panel_width,
+            view.entity_id()
+        );
+    })
+    .unwrap();
 }
 
 async fn finish_plan(

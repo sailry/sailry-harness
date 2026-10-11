@@ -55,6 +55,7 @@ pub(super) fn document(
     theme: Value,
     labels: Value,
     writable: bool,
+    drafts: Vec<crate::preferences::artifacts::Draft>,
 ) -> Result<String, HostError> {
     use sailry_protocol::artifact::Library;
     let view = content
@@ -94,7 +95,7 @@ pub(super) fn document(
     }
     let input = json!({"html":content.html,"theme":theme,"labels":labels,
         "identity":{"artifact":content.artifact.id,"revision":content.artifact.revision,"title":content.artifact.title,"session":content.artifact.session},
-        "writable":writable});
+        "writable":writable,"drafts":drafts});
     let input = serde_json::to_string(&input)
         .unwrap()
         .replace('<', "\\u003c");
@@ -154,7 +155,7 @@ pub(super) fn capture(
     cx: &mut App,
 ) -> Task<Result<String, HostError>> {
     use raw_window_handle::HasWindowHandle;
-    let html = match document(&content, theme(cx), labels(), false) {
+    let html = match document(&content, theme(cx), labels(), false, Vec::new()) {
         Ok(html) => html,
         Err(error) => return Task::ready(Err(error)),
     };

@@ -349,8 +349,17 @@ impl Panel {
                     mounted.close();
                 }
             } else {
+                let uninstalled = self.document.is_some()
+                    && !self
+                        .summaries
+                        .iter()
+                        .any(|summary| summary.name == package.name);
                 self.release();
-                self.error = Some("plugins_view_unavailable");
+                self.error = Some(if uninstalled {
+                    "plugins_uninstalled"
+                } else {
+                    "plugins_view_unavailable"
+                });
             }
         }
         cx.notify();
