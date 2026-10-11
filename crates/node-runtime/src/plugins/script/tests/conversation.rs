@@ -1,6 +1,95 @@
 use super::*;
 
 #[test]
+fn queue_transactions_preserve_exact_revisions() {
+    use sailry_protocol::{
+        Command, SessionId,
+        conversation::{History, Page, Queue, QueueUpdate},
+    };
+
+    let session = SessionId::new();
+    let mut scope = context();
+    scope.session = Some(session);
+    let captured = scope.clone();
+    let result = run(
+        bundle(
+            r#"
+import {readConversation,prepareTransaction,completeRequest} from 'sailry/sdk';
+export async function run() {
+  const history=await readConversation();
+  const result=await completeRequest(prepareTransaction([{kind:'queue_pause',data:{
+    session:history.page.session,expected_revision:history.page.queue.revision,paused:false
+  }}]));
+  return {previous:history.page.queue.revision,next:result.Ok.data[0].data.queue.revision};
+}
+"#,
+        ),
+        "run",
+        json!(null),
+        scope,
+        NodeId([1; 32]),
+        CancellationToken::new(),
+        move |request| {
+            assert_eq!(request.plugin.as_ref(), Some(&captured));
+            match request.command {
+                Command::ReadConversation {
+                    session: target, ..
+                } => {
+                    assert_eq!(target, session);
+                    Ok(Output::Conversation(History {
+                        sequence: 0,
+                        page: Page {
+                            session,
+                            revision: 1,
+                            entries: vec![],
+                            runs: vec![],
+                            queue: Queue {
+                                revision: 9007199254740993,
+                                paused: true,
+                                items: vec![],
+                            },
+                            approvals: vec![],
+                            questions: vec![],
+                            children: vec![],
+                            next_before: None,
+                        },
+                        missing: vec![],
+                    }))
+                }
+                Command::PluginTransaction { operations } => {
+                    assert_eq!(operations.len(), 1);
+                    assert_eq!(
+                        operations[0].command(&captured.package),
+                        Command::SetQueuePaused {
+                            session,
+                            expected_revision: 9007199254740993,
+                            paused: false,
+                        }
+                    );
+                    Ok(Output::PluginTransaction(vec![Output::Queue(
+                        QueueUpdate {
+                            session,
+                            queue: Queue {
+                                revision: 9007199254740994,
+                                paused: false,
+                                items: vec![],
+                            },
+                            runs: vec![],
+                        },
+                    )]))
+                }
+                _ => panic!("unexpected queue request"),
+            }
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        result,
+        json!({"previous":"9007199254740993","next":"9007199254740994"})
+    );
+}
+
+#[test]
 fn preserves_private_write_identity_and_revision_precision() {
     let call = sailry_protocol::RequestId::new();
     let mut ids = Vec::new();

@@ -1,6 +1,8 @@
 use super::*;
 use fixture::Fixture;
 
+mod resume;
+
 fn prepare(fixture: &mut Fixture) -> plugin::Context {
     let profile = fixture._root.path().join("profile");
     std::fs::create_dir(&profile).unwrap();

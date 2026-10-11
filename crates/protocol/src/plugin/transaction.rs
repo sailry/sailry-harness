@@ -42,6 +42,11 @@ pub enum Operation {
     },
     Dispatch(dispatch::Command),
     Notify(notification::Draft),
+    QueuePause {
+        session: crate::SessionId,
+        expected_revision: u64,
+        paused: bool,
+    },
     Submit {
         session: crate::SessionId,
         expected_revision: u64,
@@ -65,6 +70,15 @@ impl Operation {
     pub fn command(&self, package: &super::Reference) -> Command {
         match self {
             Self::Stop { turn } => Command::StopTurn { turn: *turn },
+            Self::QueuePause {
+                session,
+                expected_revision,
+                paused,
+            } => Command::SetQueuePaused {
+                session: *session,
+                expected_revision: *expected_revision,
+                paused: *paused,
+            },
             Self::Submit {
                 session,
                 expected_revision,

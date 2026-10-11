@@ -1,6 +1,53 @@
 use super::*;
 
 #[test]
+fn queue_outputs_preserve_exact_revisions() {
+    use sailry_protocol::conversation::{History, Page, Queue, QueueUpdate};
+
+    let session = sailry_protocol::SessionId::new();
+    let queue = Queue {
+        revision: 9007199254740993,
+        paused: true,
+        items: vec![],
+    };
+    let history = public_output(Output::Conversation(History {
+        sequence: 0,
+        page: Page {
+            session,
+            revision: 1,
+            entries: vec![],
+            runs: vec![],
+            queue: queue.clone(),
+            approvals: vec![],
+            questions: vec![],
+            children: vec![],
+            next_before: None,
+        },
+        missing: vec![],
+    }))
+    .unwrap();
+    assert_eq!(
+        history["data"]["page"]["queue"]["revision"],
+        "9007199254740993"
+    );
+    assert_eq!(history["data"]["page"]["revision"], 1);
+    let update = Output::Queue(QueueUpdate {
+        session,
+        queue,
+        runs: vec![],
+    });
+    assert_eq!(
+        public_output(update.clone()).unwrap()["data"]["queue"]["revision"],
+        "9007199254740993"
+    );
+    assert_eq!(
+        public_output(Output::PluginTransaction(vec![update])).unwrap()["data"][0]["data"]["queue"]
+            ["revision"],
+        "9007199254740993"
+    );
+}
+
+#[test]
 fn commits_scoped_values_and_notices_atomically() {
     for remote in [false, true] {
         let fixture = Fixture::new(remote);

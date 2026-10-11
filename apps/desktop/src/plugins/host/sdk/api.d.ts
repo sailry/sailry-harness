@@ -23,7 +23,7 @@ export function listModels(): Promise<{ models: Json[] }>;
 export function resolveSessionModel(model:string, effort?:Json|null, config?:Json|null):Promise<Json>;
 export function resolveModel(settings: Json, catalog: Json, field: string): Model;
 export function prepareRequest(command: Json): string;
-/** Up to 64 private KV, dispatch mutation, or notification operations, committed atomically. */
+/** Up to 64 private KV, dispatch, notification or scoped queue/turn operations, committed atomically. */
 export function prepareTransaction(operations: Json[]): string;
 export type NotificationDraft = {
   title: string; message: string; kind: "info" | "success" | "warning" | "error";
@@ -105,6 +105,7 @@ export function publishContributions(states: ContributionState[]): void;
 export function nextContributionEvent(): Promise<ContributionEvent>;
 /** The captured session only; credentials remain on its execution Node. */
 export function readSession(): Promise<{ id: string; revision: string; config: Json } & Record<string, Json>>;
+/** page.queue.revision is an exact decimal string for queue_pause transactions. */
 export function readConversation(before?: string | null, limit?: number): Promise<Json>;
 /** Prepare durable commands, then use completeRequest with the returned ID. */
 export function sendMessage(input: Json, expectedRevision: string): string;

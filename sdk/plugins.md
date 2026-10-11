@@ -158,6 +158,16 @@ instead of a user message. The model still receives the submitted input. Without
 a declaration, controllers use their generic continuation label. `Run.origin`
 continues to identify inherited history independently of automatic input.
 
+An explicit controller action can atomically resume an idle queue and admit a
+fenced continuation with `prepareTransaction`. Put a `queue_pause` operation
+before the state write and `continue`, with data `{session, expected_revision,
+paused: false}`. The revision comes from `readConversation().page.queue.revision`
+as an exact decimal string; queue operation receipts use the same representation.
+This requires `conversation.control` and the captured session scope. Held input
+or running work still rejects the continuation and rolls back all operations,
+including the queue pause change. Automatic completion callbacks leave the queue
+pause unchanged.
+
 The delegation package binds `agents.delegate`, `agents.guide` and `agents.wait` with the `agents.delegate` action. Delegation is synchronous unless `background: true` is requested. Background admission returns the child session and turn; guidance takes that session and a message, and waiting observes its canonical outcome. Guidance and waiting are native tools, not callback flow steps. Only the running main session can control its children. Children keep their captured permissions and configuration, and approval remains required where that capture requires it. Main guidance can interrupt a wait at the settled tool-batch boundary without cancelling background children; explicit Stop cancels them.
 
 `requestHttp` runs on the captured Node and returns a durable request ID. It accepts UTF-8 text, a maximum 1 MiB body and a 1–60000 ms timeout (default 30000). Response headers preserve repeated values. Redirects and retries are disabled. A named credential comes from a secret schema field with `origin`, `header` and optional `prefix`; only Node injects it into that origin. An interrupted or oversized response reports an unknown outcome, and retrying the original ID never resends the request.

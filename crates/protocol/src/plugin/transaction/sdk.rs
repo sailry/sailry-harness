@@ -16,6 +16,7 @@ pub fn decode(mut value: Value) -> Result<Vec<Operation>, Fault> {
                 | "remove"
                 | "conversation_write"
                 | "conversation_remove"
+                | "queue_pause"
                 | "submit"
                 | "continue",
             ) => Some("/data/expected_revision"),
@@ -60,6 +61,13 @@ pub fn output(output: Output) -> Value {
             value["data"]["revision"] = json!(entry.revision.to_string())
         }
         Output::Session(session) => value["data"]["revision"] = json!(session.revision.to_string()),
+        Output::Conversation(history) => {
+            value["data"]["page"]["queue"]["revision"] =
+                json!(history.page.queue.revision.to_string());
+        }
+        Output::Queue(update) => {
+            value["data"]["queue"]["revision"] = json!(update.queue.revision.to_string());
+        }
         Output::PluginSettings(settings) => {
             value["data"]["package"]["settings_revision"] =
                 json!(settings.package.settings_revision.to_string());
@@ -108,6 +116,83 @@ fn invalid() -> Fault {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queue_revisions() {
+        use crate::conversation::{History, Page, Queue, QueueUpdate};
+
+        let session = crate::SessionId::new();
+        let revision = 9007199254740993;
+        let operations = decode(json!([{"kind":"queue_pause","data":{
+            "session":session,"expected_revision":revision.to_string(),"paused":false
+        }}]))
+        .unwrap();
+        let package = super::super::super::Reference {
+            name: "example".into(),
+            digest: "a".repeat(64),
+            settings_revision: 0,
+        };
+        assert_eq!(
+            operations[0].command(&package),
+            Command::SetQueuePaused {
+                session,
+                expected_revision: revision,
+                paused: false,
+            }
+        );
+        for invalid in [
+            json!(9007199254740992u64),
+            json!("01"),
+            json!("-1"),
+            json!("18446744073709551616"),
+            json!(1.5),
+        ] {
+            assert!(
+                decode(json!([{"kind":"queue_pause","data":{
+                    "session":session,"expected_revision":invalid,"paused":false
+                }}]))
+                .is_err()
+            );
+        }
+        let queue = Queue {
+            revision,
+            paused: true,
+            items: vec![],
+        };
+        let history = output(Output::Conversation(History {
+            sequence: 0,
+            page: Page {
+                session,
+                revision: 1,
+                entries: vec![],
+                runs: vec![],
+                queue: queue.clone(),
+                approvals: vec![],
+                questions: vec![],
+                children: vec![],
+                next_before: None,
+            },
+            missing: vec![],
+        }));
+        assert_eq!(
+            history["data"]["page"]["queue"]["revision"],
+            "9007199254740993"
+        );
+        assert_eq!(history["data"]["page"]["revision"], 1);
+        let update = Output::Queue(QueueUpdate {
+            session,
+            queue,
+            runs: vec![],
+        });
+        assert_eq!(
+            output(update.clone())["data"]["queue"]["revision"],
+            "9007199254740993"
+        );
+        assert_eq!(
+            output(Output::PluginTransaction(vec![update]))["data"][0]["data"]["queue"]["revision"],
+            "9007199254740993"
+        );
+    }
 
     #[test]
     fn revisions_remain_exact() {

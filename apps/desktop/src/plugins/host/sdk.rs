@@ -357,6 +357,8 @@ pub(in crate::plugins) fn public_output(output: Output) -> Result<Value, HostErr
     if matches!(
         output,
         Output::PluginTransaction(_)
+            | Output::Conversation(_)
+            | Output::Queue(_)
             | Output::PluginSearch(_)
             | Output::KnowledgeCollection(_)
             | Output::KnowledgeCollections(_)

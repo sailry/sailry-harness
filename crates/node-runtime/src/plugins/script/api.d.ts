@@ -12,7 +12,7 @@ export function readProjectCatalog(): Promise<Json>;
 /** Atomically creates and queues the first turn. Requires sessions.start; null config uses Node defaults. */
 export function startSession(draft: {project: string | null; worktree: string | null; config: Json; title: string; message: {text: string; attachments: string[]; references?: Json[]}}): string;
 export function prepareRequest(command: Json): string;
-/** Up to 64 private KV, dispatch, notification or scoped turn operations, committed atomically. */
+/** Up to 64 private KV, dispatch, notification or scoped queue/turn operations, committed atomically. */
 export function prepareTransaction(operations: Json[]): string;
 export function completeRequest(id: string): Promise<Json>;
 export function forgetRequest(id: string): void;
@@ -78,6 +78,7 @@ export function newId(): string;
 /** Stable for this turn, package, tool and canonical call across flow evaluations. */
 export function callId(): string;
 export function readSession(): Promise<Json>;
+/** page.queue.revision is an exact decimal string for queue_pause transactions. */
 export function readConversation(before?:string|null,limit?:number): Promise<Json>;
 export function readTurn(turn:string,before?:number|null,limit?:number): Promise<Json>;
 /** Ephemeral policy state shared only by this package's callbacks and tools in one turn. */
