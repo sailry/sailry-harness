@@ -86,6 +86,8 @@ pub(super) fn branch(
 #[serde(deny_unknown_fields)]
 pub(super) struct Decoration {
     pub selector: Option<String>,
+    #[serde(default)]
+    pub group: bool,
     pub detail: Option<String>,
     pub icon_tone: Option<String>,
     pub icon_size: Option<f32>,
@@ -135,6 +137,7 @@ pub(super) fn content(
     let label_selector = format!("resource-label-{}", item.id);
     let detail_selector = format!("resource-detail-{}", item.id);
     let badges_selector = format!("resource-badges-{}", item.id);
+    let disclosure_selector = format!("resource-disclosure-{}", item.id);
     let fixed_badges = decoration.badges_width;
     let glyph = icon(glyph)
         .with_size(px(decoration.icon_size.unwrap_or(16.)))
@@ -144,7 +147,7 @@ pub(super) fn content(
         .w_full()
         .min_w_0()
         .gap_2()
-        .child(glyph)
+        .when(!decoration.group, |row| row.child(glyph))
         .child(
             h_flex()
                 .debug_selector(move || text_selector.clone())
@@ -155,7 +158,7 @@ pub(super) fn content(
                 .child(
                     div()
                         .debug_selector(move || label_selector.clone())
-                        .flex_auto()
+                        .flex_1()
                         .min_w_0()
                         .truncate()
                         .child(item.label.clone()),
@@ -163,7 +166,8 @@ pub(super) fn content(
                 .children(decoration.detail.map(|detail| {
                     div()
                         .debug_selector(move || detail_selector.clone())
-                        .flex_1()
+                        .flex_shrink_0()
+                        .max_w(relative(0.4))
                         .min_w_0()
                         .truncate()
                         .text_color(cx.theme().muted_foreground)
@@ -209,6 +213,21 @@ pub(super) fn content(
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(checkbox(check, window, cx, change))
         }))
+        .when(decoration.group, |row| {
+            row.child(
+                div()
+                    .debug_selector(move || disclosure_selector.clone())
+                    .flex_shrink_0()
+                    .child(
+                        Icon::new(if item.expanded {
+                            IconName::ChevronDown
+                        } else {
+                            IconName::ChevronRight
+                        })
+                        .size_3(),
+                    ),
+            )
+        })
         .into_any_element()
 }
 

@@ -10,6 +10,15 @@ impl View {
         let connected = self.state.connected;
         let controlling = self.controlling();
         self.update_screen(state);
+        if self.closed() {
+            self.message = None;
+            self.claim_pending = false;
+            self.resize = None;
+            self.appearance = None;
+            self.composition = Default::default();
+            self.keyboard.release_all();
+            self.autoscroll = None;
+        }
         let Some(snapshot) = &self.state.snapshot else {
             return;
         };

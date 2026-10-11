@@ -91,6 +91,15 @@ fn opens_core_terminals_and_changes_remote_files(cx: &mut TestAppContext) {
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
         let package = install(&fixture, "ssh");
+        let model = fixture
+            .runtime
+            .block_on(crate::agent_fixture::Server::tools(Vec::new()));
+        let mut provider = state(&fixture).providers[0].clone();
+        provider.endpoint = model.endpoint.clone();
+        fixture.execute(Command::PutProvider {
+            expected_revision: provider.revision,
+            provider,
+        });
         let root = fixture.directory.path().join("peer");
         std::fs::create_dir(&root).unwrap();
         let root = std::fs::canonicalize(root).unwrap();
@@ -167,6 +176,66 @@ fn opens_core_terminals_and_changes_remote_files(cx: &mut TestAppContext) {
                 .first()
                 .is_some_and(|chat| chat.read(cx).session().is_none())
         }));
+        tap(visual, "live-chat-input");
+        visual.simulate_input("Inspect the remote system");
+        visual.simulate_keystrokes("enter");
+        wait(visual, |cx| {
+            panel
+                .read(cx)
+                .mounted
+                .as_ref()
+                .unwrap()
+                .conversations
+                .first()
+                .is_some_and(|chat| chat.read(cx).session().is_some())
+        });
+        let assistant = panel.read_with(visual, |panel, cx| {
+            panel
+                .mounted
+                .as_ref()
+                .unwrap()
+                .conversations
+                .first()
+                .unwrap()
+                .read(cx)
+                .session()
+                .unwrap()
+        });
+        wait(visual, |_| {
+            let Output::Conversation(history) = fixture.execute(Command::ReadConversation {
+                session: assistant,
+                before: None,
+                limit: 100,
+            }) else {
+                return false;
+            };
+            history
+                .page
+                .runs
+                .iter()
+                .any(|run| run.status == sailry_protocol::conversation::Status::Completed)
+        });
+        let created = state(&fixture)
+            .sessions
+            .into_iter()
+            .find(|session| session.id == assistant)
+            .unwrap();
+        assert_eq!(
+            created.config.resource,
+            Some(sailry_protocol::connection::Resource::Ssh(profile.id))
+        );
+        assert_eq!(
+            created.config.assistant,
+            Some(plugin::conversation::Binding {
+                package: package.summary.reference(),
+                id: "ssh".into()
+            })
+        );
+        assert!(
+            model.requests.lock().unwrap()[0]
+                .to_string()
+                .contains("SSH workspace assistant")
+        );
         wait(visual, |cx| {
             snapshot(&panel, cx).lines().any(|line| {
                 line.contains("module_component sailry/ui.NativeContextMenu \"ssh-files-root\"")

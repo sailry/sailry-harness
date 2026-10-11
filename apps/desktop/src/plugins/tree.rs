@@ -329,26 +329,30 @@ fn render(
                 cx,
             ))
         } else {
-            crate::resources::rows::row(ix, selected, cx)
-                .h_7()
-                .text_sm()
-                .px_2()
-                .pl(px(indent) * entry.depth().saturating_sub(skip_depth) + px(8.))
-                .when_some(
-                    guides.as_ref().and_then(|paths| paths.get(&path)),
-                    |row, path| {
-                        row.relative()
-                            .children(guides::render(&item.id, path, skip_depth, indent, cx))
-                    },
-                )
-                .child(row::content(
-                    &item,
-                    &glyph,
-                    row_events.clone(),
-                    row_id.clone(),
-                    window,
-                    cx,
-                ))
+            crate::resources::rows::row(
+                ix,
+                selected && !item.decoration.as_ref().is_some_and(|row| row.group),
+                cx,
+            )
+            .h_7()
+            .text_sm()
+            .px_2()
+            .pl(px(indent) * entry.depth().saturating_sub(skip_depth) + px(8.))
+            .when_some(
+                guides.as_ref().and_then(|paths| paths.get(&path)),
+                |row, path| {
+                    row.relative()
+                        .children(guides::render(&item.id, path, skip_depth, indent, cx))
+                },
+            )
+            .child(row::content(
+                &item,
+                &glyph,
+                row_events.clone(),
+                row_id.clone(),
+                window,
+                cx,
+            ))
         };
         let selector = item
             .decoration

@@ -118,6 +118,21 @@ fn preserves_deep_tree_interactions(cx: &mut TestAppContext) {
     assert_eq!(guide.size.height, leaf.size.height * 0.5);
     assert_eq!(arm.top(), leaf.top() + leaf.size.height * 0.5);
     assert_eq!(arm.right(), leaf.left() + px(8. + 12. * 24.));
+    let group = visual.debug_bounds("resource-file-folder-0").unwrap();
+    let label = visual.debug_bounds("resource-label-folder-0").unwrap();
+    let check = visual.debug_bounds("group-check").unwrap();
+    let disclosure = visual.debug_bounds("resource-disclosure-folder-0").unwrap();
+    assert_eq!(label.left(), group.left() + px(8.));
+    assert!(label.right() < check.left());
+    assert!(check.right() < disclosure.left());
+    assert_eq!(disclosure.right(), group.right() - px(8.));
+    click(visual, "group-check");
+    wait(visual, |_| events.borrow().len() == 1);
+    assert_eq!(
+        events.borrow_mut().remove(0),
+        json!({"tree":"deep-tree","id":"folder-0","kind":"check"})
+    );
+    assert!(visual.debug_bounds("resource-file-leaf").is_some());
     click(visual, "deep-check");
     wait(visual, |_| events.borrow().len() == 1);
     assert_eq!(

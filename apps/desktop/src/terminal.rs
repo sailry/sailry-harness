@@ -150,10 +150,16 @@ impl View {
                 if view
                     .update(cx, |view, cx| {
                         view.claim_pending = false;
-                        view.message = result.err().map(|error| match error.code {
-                            sailry_protocol::ErrorCode::OutcomeUnknown => "terminal_input_unknown",
-                            _ => "terminal_input_failed",
-                        });
+                        view.message = if view.closed() || view.connection.stopped() {
+                            None
+                        } else {
+                            result.err().map(|error| match error.code {
+                                sailry_protocol::ErrorCode::OutcomeUnknown => {
+                                    "terminal_input_unknown"
+                                }
+                                _ => "terminal_input_failed",
+                            })
+                        };
                         cx.notify();
                     })
                     .is_err()
@@ -281,12 +287,25 @@ impl View {
             })
     }
 
+    fn closed(&self) -> bool {
+        self.connection.closed()
+            || self
+                .state
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| snapshot.info.status == protocol::Status::Closed)
+    }
+
     fn cursor_focused(&self) -> bool {
         self.focused && self.window_active && self.controlling()
     }
 
     fn send(&mut self, command: Command, cx: &mut Context<Self>) {
-        self.message = (!self.connection.enqueue(command)).then_some("terminal_input_failed");
+        if self.closed() || self.connection.stopped() {
+            return;
+        }
+        self.message = (!self.connection.enqueue(command) && !self.connection.stopped())
+            .then_some("terminal_input_failed");
         self.cursor_visible = true;
         cx.notify();
     }
@@ -535,6 +554,9 @@ impl Render for View {
 
 impl View {
     fn status(&self) -> Option<&'static str> {
+        if self.closed() {
+            return Some("terminal_exited");
+        }
         if self.state.error.is_some() {
             return Some("terminal_unavailable");
         }

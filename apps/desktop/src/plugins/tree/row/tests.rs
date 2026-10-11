@@ -40,6 +40,7 @@ fn preserves_intrinsic_defaults() {
     }))
     .unwrap();
     assert_eq!(decoration.badges_width, None);
+    assert!(!decoration.group);
 }
 
 #[gpui::test]
@@ -180,6 +181,7 @@ fn fits_intrinsic_stats_and_checks(cx: &mut TestAppContext) {
     let handle = visual.update(|window, _| window.window_handle());
     let mut measured_badges = None;
     let mut measured_labels = Vec::new();
+    let pixel = visual.update(|window, _| px(1. / window.scale_factor()));
     for width in [260., 320., 480.] {
         visual.simulate_window_resize(handle, size(px(width), px(400.)));
         visual.run_until_parked();
@@ -201,6 +203,14 @@ fn fits_intrinsic_stats_and_checks(cx: &mut TestAppContext) {
                 let detail = bounds(visual, "resource-detail-intrinsic");
                 assert_eq!(detail.right(), text.right());
                 assert!(label.right() <= detail.left());
+                assert!(
+                    detail.size.width <= text.size.width * 0.4 + pixel,
+                    "detail cap at window {width}, row {index}: text {text:?}, label {label:?}, detail {detail:?}"
+                );
+                assert!(
+                    label.size.width >= text.size.width * 0.5,
+                    "filename share at window {width}, row {index}: text {text:?}, label {label:?}, detail {detail:?}"
+                );
             } else {
                 assert_eq!(label.right(), text.right());
             }

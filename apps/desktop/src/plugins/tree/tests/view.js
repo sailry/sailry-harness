@@ -20,6 +20,7 @@ export default class DeepTree extends View {
     for(let depth=23;depth>=0;depth--) {
       this.items=[{id:`folder-${depth}`,label:`Folder ${depth}`,expanded:true,children:this.items}];
     }
+    this.items[0].decoration={group:true,check:{id:'group-check',label:'Stage group',checked:false}};
     cx.spawn(async cx=>{
       while(true) {
         let event;
