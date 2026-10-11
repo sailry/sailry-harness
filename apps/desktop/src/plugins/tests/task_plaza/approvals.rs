@@ -75,10 +75,10 @@ fn plaza_resolves_through_shared_controls(cx: &mut TestAppContext) {
             })
         });
         let weak = panel.read_with(visual, |_, cx| chat(&panel, cx).unwrap().downgrade());
-        // Dismiss the shared approval popover before closing its parent dialog.
+        // Dismiss the shared approval popover before closing its sidebar.
         click(visual, "live-approval-trigger");
         assert!(visual.debug_bounds("pending-approvals").is_none());
-        click(visual, "plaza-dialog-close");
+        click(visual, "plaza-detail-close");
         wait(visual, |cx| {
             chat(&panel, cx).is_none() && weak.upgrade().is_none()
         });
@@ -126,7 +126,7 @@ fn plaza_resolves_through_shared_controls(cx: &mut TestAppContext) {
             std::fs::read_to_string(fixture.directory.path().join("project/approved.txt")).unwrap(),
             "Approved result"
         );
-        click(visual, "plaza-dialog-close");
+        click(visual, "plaza-detail-close");
         wait(visual, |cx| {
             chat(&panel, cx).is_none() && snapshot(&panel, cx).contains("Approval 0")
         });

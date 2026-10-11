@@ -14,7 +14,7 @@ fn install(fixture: &Fixture) -> Info {
     crate::plugins::fixture::copy_package(&source, &directory);
     // Script ids are not GPUI debug selectors. The absolute test probe leaves
     // each original styled parent and every native control/event path intact.
-    for file in ["view.js", "scene.js", "dialogs.js"] {
+    for file in ["view.js", "scene.js", "details.js", "ground.js"] {
         let path = directory.join("dev.sailry.platform/desktop").join(file);
         let source = std::fs::read_to_string(&path).unwrap();
         std::fs::write(
@@ -74,7 +74,7 @@ fn chat(panel: &Entity<Panel>, cx: &App) -> Option<Entity<crate::conversation::l
 }
 
 #[gpui::test]
-fn rooms_dialogs_and_lifecycle(cx: &mut TestAppContext) {
+fn rooms_sidebar_and_lifecycle(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
@@ -109,10 +109,10 @@ fn rooms_dialogs_and_lifecycle(cx: &mut TestAppContext) {
             visual.update(|window, cx| window.draw(cx).clear(cx));
             let world = visual.debug_bounds("plaza-world").unwrap();
             let plaza = visual.debug_bounds("plaza-atrium").unwrap();
-            assert!((world.size.width / world.size.height - 1120. / 565.).abs() < 0.01);
+            assert!((world.size.width / world.size.height - 1120. / 780.).abs() < 0.01);
             assert!(
                 (visual.debug_bounds(initial).unwrap().size.width
-                    - world.size.width * (40. / 1120.))
+                    - world.size.width * (60. / 1120.))
                     .abs()
                     < px(1.)
             );
@@ -177,14 +177,24 @@ fn rooms_dialogs_and_lifecycle(cx: &mut TestAppContext) {
         });
         let weak = embedded.downgrade();
         drop(embedded);
-        click(visual, "plaza-dialog-close");
-        wait(visual, |cx| {
-            chat(&panel, cx).is_none() && weak.upgrade().is_none()
-        });
+        assert!(visual.debug_bounds("plaza-detail-panel").is_some());
+        assert!(visual.debug_bounds("plaza-dialog").is_none());
+        // Selecting another worker uses a fresh captured chat and releases the prior one.
         click(visual, selector(format!("plaza-room-prev-{project}")));
         click(visual, initial);
         wait(visual, |cx| {
             chat(&panel, cx).is_some_and(|chat| chat.read(cx).session() == Some(fixture.session.id))
+        });
+        wait(visual, |_| weak.upgrade().is_none());
+        let replacement = panel.read_with(visual, |_, cx| chat(&panel, cx).unwrap().downgrade());
+        click(visual, "plaza-detail-close");
+        wait(visual, |cx| {
+            chat(&panel, cx).is_none() && replacement.upgrade().is_none()
+        });
+        assert!(visual.debug_bounds("plaza-detail-panel").is_none());
+        click(visual, initial);
+        wait(visual, |cx| {
+            chat(&panel, cx).is_some_and(|chat| chat.read(cx).connected())
         });
         click(visual, "plaza-open-conversation");
         wait(visual, |cx| {

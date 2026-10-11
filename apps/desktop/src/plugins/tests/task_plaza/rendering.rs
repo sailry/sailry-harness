@@ -4,7 +4,7 @@ use super::*;
 use gpui_kit::test::TestWindowExt;
 use std::{path::Path, sync::Arc};
 
-fn preview(fixture: &Fixture) {
+fn preview(fixture: &Fixture, sidebar: bool, sparse: bool) {
     let directory = fixture.directory.path().join("project/plaza-package");
     let main = directory.join("dev.sailry.platform/desktop/main.js");
     let names = [
@@ -16,12 +16,27 @@ fn preview(fixture: &Fixture) {
     let mut sessions = Vec::new();
     let mut lanes = serde_json::Map::new();
     for (room, name) in names.iter().enumerate() {
-        let project = format!("room-{room}");
-        let worktree = format!("tree-{room}");
+        if sparse && room > 1 {
+            break;
+        }
+        let project = if room == 0 {
+            fixture.session.project.unwrap().to_string()
+        } else {
+            format!("room-{room}")
+        };
+        let worktree = if room == 0 {
+            fixture.session.worktree.to_string()
+        } else {
+            format!("tree-{room}")
+        };
         projects.push(serde_json::json!({"id":project,"name":name}));
         worktrees.push(serde_json::json!({"id":worktree,"project":project,"path":"/preview"}));
-        for seat in 0..6 {
-            let id = format!("preview-{room}-{seat}");
+        for seat in 0..if sparse { 4 } else { 6 } {
+            let id = if room == 0 && seat == 0 {
+                fixture.session.id.to_string()
+            } else {
+                format!("preview-{room}-{seat}")
+            };
             let approval = seat == 5 && [0, 2, 5].contains(&room);
             let active = seat < running[room];
             let lane = if approval {
@@ -41,7 +56,7 @@ fn preview(fixture: &Fixture) {
         }
     }
     let catalog = serde_json::json!({
-        "node":fixture.node.id(),"cursor":"preview","projects":projects,"worktrees":worktrees,
+        "node":fixture.node.id(),"cursor":"1","projects":projects,"worktrees":worktrees,
         "sessions":sessions,"session_lanes":lanes,"terminals":[],"terminal_lanes":{},"unread_terminals":[],
     });
     let source = std::fs::read_to_string(&main).unwrap();
@@ -54,6 +69,14 @@ fn preview(fixture: &Fixture) {
             "new State(readActivityCatalog,readActivityPreviews,",
             &format!("new State(async () => ({catalog}),async () => [],"),
         );
+    let source = if sidebar {
+        source.replace(
+            "render(cx) {return render(this,cx);}",
+            &format!("render(cx) {{if (this.board.visible && !this.captureOpened) {{this.captureOpened = true;this.panelOpen = true;this.selected = {{kind:'session',id:'{}',title:'Preview session'}};}}return render(this,cx);}}", fixture.session.id),
+        )
+    } else {
+        source
+    };
     std::fs::write(main, source).unwrap();
     let manifest = directory.join("plugin.json");
     let mut value: serde_json::Value =
@@ -91,10 +114,10 @@ fn wait_render(cx: &mut HeadlessAppContext, handle: AnyWindowHandle, ready: impl
     }
 }
 
-fn capture(output: &Path, width: f32, height: f32, mode: ThemeMode) {
+fn capture(output: &Path, width: f32, height: f32, mode: ThemeMode, sidebar: bool, sparse: bool) {
     let fixture = Fixture::new(false);
     install(&fixture);
-    preview(&fixture);
+    preview(&fixture, sidebar, sparse);
     let mut cx = HeadlessAppContext::with_platform(
         gpui_kit::platform::current_platform(true).text_system(),
         Arc::new(crate::assets::Assets),
@@ -158,7 +181,8 @@ fn capture(output: &Path, width: f32, height: f32, mode: ThemeMode) {
             .clone()
     });
     wait_render(&mut cx, handle, |cx| {
-        snapshot(&panel, cx).contains("plaza-preview-7-0")
+        snapshot(&panel, cx).contains(&format!("plaza-{}", fixture.session.id))
+            && (!sidebar || chat(&panel, cx).is_some_and(|chat| chat.read(cx).connected()))
     });
     // Shell initialization follows the system appearance. Apply the requested
     // capture theme after its initial preferences and subscriptions settle.
@@ -194,7 +218,7 @@ fn capture(output: &Path, width: f32, height: f32, mode: ThemeMode) {
             .filter(|pixel| pixel[0] > 150 && pixel[1] > 120 && pixel[2] < 170)
             .count()
             > 10000,
-        "campus textures must be decoded and drawn"
+        "workstation artwork must be decoded and drawn"
     );
     image.save(output).unwrap();
     cx.update_window(handle, |_, window, _| window.remove_window())
@@ -213,12 +237,34 @@ pub(in crate::plugins) fn run() {
     };
     let directory = std::path::PathBuf::from(directory);
     std::fs::create_dir_all(&directory).unwrap();
-    for (name, width, height, mode) in [
-        ("actual-dark.png", 1640., 960., ThemeMode::Dark),
-        ("actual-light.png", 1640., 960., ThemeMode::Light),
-        ("actual-compact.png", 1000., 760., ThemeMode::Dark),
+    for (name, width, height, mode, sidebar, sparse) in [
+        ("actual-dark.png", 1640., 960., ThemeMode::Dark, true, false),
+        (
+            "actual-light.png",
+            1640.,
+            960.,
+            ThemeMode::Light,
+            true,
+            false,
+        ),
+        (
+            "actual-compact.png",
+            1000.,
+            760.,
+            ThemeMode::Dark,
+            false,
+            false,
+        ),
+        (
+            "actual-empty.png",
+            1640.,
+            960.,
+            ThemeMode::Dark,
+            false,
+            true,
+        ),
     ] {
-        capture(&directory.join(name), width, height, mode);
+        capture(&directory.join(name), width, height, mode, sidebar, sparse);
     }
 }
 

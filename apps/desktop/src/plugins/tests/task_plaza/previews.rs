@@ -199,7 +199,7 @@ fn room_lists_use_current_previews(cx: &mut TestAppContext) {
         wait(visual, |cx| {
             snapshot(&panel, cx).contains("Fresh preview Verified")
         });
-        click(visual, "plaza-dialog-close");
+        click(visual, "plaza-detail-close");
         let handle = visual.update(|window, _| window.window_handle());
         for mode in [ThemeMode::Light, ThemeMode::Dark] {
             visual.update(|window, cx| Theme::change(mode, Some(window), cx));
