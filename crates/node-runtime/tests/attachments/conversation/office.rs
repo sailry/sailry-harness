@@ -36,9 +36,9 @@ async fn reads_only_current_document_attachments() {
         let workbook = upload(
             &client,
             fixture.worktree,
-            "book.xlsx",
+            "chart.xlsx",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            include_bytes!("../../../src/office/fixtures/book.xlsx"),
+            include_bytes!("../../../src/office/fixtures/chart.xlsx"),
         )
         .await;
         let foreign = upload(
@@ -87,7 +87,11 @@ async fn reads_only_current_document_attachments() {
             })
             .collect();
         assert_eq!(results.len(), 3);
-        for (result, text) in results.iter().take(2).zip(["PDF acceptance", "20"]) {
+        for (result, text) in results
+            .iter()
+            .take(2)
+            .zip(["PDF acceptance", "B4: 20 [=SUM(B2:B3)]"])
+        {
             assert_eq!(result["kind"], "office_content");
             assert!(
                 result["data"]["sections"]
@@ -97,6 +101,11 @@ async fn reads_only_current_document_attachments() {
                     .any(|section| { section["text"].as_str().unwrap().contains(text) })
             );
         }
+        assert_eq!(results[1]["data"]["revision"], workbook.spec.revision);
+        assert_eq!(
+            download(&client, &workbook).await,
+            include_bytes!("../../../src/office/fixtures/chart.xlsx")
+        );
         assert_eq!(results[2]["error"]["code"], "not_found");
         let request = server.requests.lock().unwrap().first().cloned().unwrap();
         assert!(request.to_string().contains("read_office"));

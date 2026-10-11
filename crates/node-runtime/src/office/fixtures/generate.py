@@ -8,6 +8,7 @@ from pptx import Presentation
 from pptx.util import Inches
 from reportlab.pdfgen.canvas import Canvas
 import xlsxwriter
+from workbooks import generate as generate_workbooks
 
 root = Path(__file__).parent
 root.mkdir(parents=True, exist_ok=True)
@@ -52,10 +53,13 @@ pdf.showPage()
 pdf.drawString(72, 750, 'Second page')
 pdf.save()
 
+generate_workbooks(root)
+
 manifest = [
     {'path': 'report.docx', 'text': '中文内容', 'pages': 2},
     {'path': 'report.pdf', 'text': 'PDF acceptance', 'pages': 2},
     {'path': 'book.xlsx', 'text': '20', 'pages': 2},
+    {'path': 'chart.xlsx', 'text': 'B4: 20 [=SUM(B2:B3)]', 'pages': 2},
     {'path': 'deck.pptx', 'text': '中文幻灯片', 'pages': 2},
 ]
 (root.parent / 'fixtures.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')

@@ -15,6 +15,11 @@
     "pages": 2
   },
   {
+    "path": "chart.xlsx",
+    "text": "B4: 20 [=SUM(B2:B3)]",
+    "pages": 2
+  },
+  {
     "path": "deck.pptx",
     "text": "中文幻灯片",
     "pages": 2

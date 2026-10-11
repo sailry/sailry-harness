@@ -3,6 +3,9 @@ use sailry_link::{CancellationToken, Link, NetworkScope};
 use sailry_node_runtime::Node;
 use sailry_protocol::{office::*, *};
 
+#[path = "office/workbooks.rs"]
+mod workbooks;
+
 #[tokio::test]
 async fn reads_and_downloads_locally_and_remotely() {
     let fixture = tempfile::tempdir().unwrap();
