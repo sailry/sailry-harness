@@ -258,7 +258,7 @@ async fn curates_scoped_memory() {
             let prompt = requests[0]["messages"].to_string();
             assert!(prompt.contains(&id.to_string()));
             assert!(!prompt.contains(&foreign_id.to_string()));
-            assert!(!prompt.contains("Original feedback"));
+            assert!(prompt.contains("Original feedback"));
         }
         let entries = support::run::<Vec<Entry>>(
             &fixture.client,
