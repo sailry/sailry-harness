@@ -5,20 +5,32 @@ fn preserves_external_messages(cx: &mut TestAppContext) {
     fixture::init(cx);
     for remote in [false, true] {
         let name = crate::agent_fixture::plugin_tool("commands", "run_command");
-        let command = "printf '完整内容 🙂\\n```rust\\n';\nprintf 'diagnostic\\377' >&2; exit 7";
-        let fixture = fixture::Fixture::with_tools(
+        let command = ": '/sailry-fixture-home/task.py'; printf '完整内容 🙂\\n```rust\\n';\nprintf 'diagnostic\\377' >&2; exit 7";
+        let tools = vec![
+            (
+                name.clone(),
+                json!({"command":command, "cwd":"nested", "access":"unrestricted"}),
+            ),
+            (
+                name.clone(),
+                json!({"command":"printf before; sleep 30", "timeout_ms":100, "access":"unrestricted"}),
+            ),
+            (name, json!({"command":"exit 0", "access":"unrestricted"})),
+        ];
+        let fixture = fixture::Fixture::with_environment(
             remote,
-            vec![
-                (
-                    name.clone(),
-                    json!({"command":command, "cwd":"nested", "access":"unrestricted"}),
-                ),
-                (
-                    name.clone(),
-                    json!({"command":"printf before; sleep 30", "timeout_ms":100, "access":"unrestricted"}),
-                ),
-                (name, json!({"command":"exit 0", "access":"unrestricted"})),
-            ],
+            |root| {
+                Some(sailry_node_runtime::EnvironmentFixture {
+                    home: "/sailry-fixture-home".into(),
+                    shell: root.join("missing-login-shell"),
+                    environment: std::collections::BTreeMap::from([
+                        ("HOME".into(), "/sailry-fixture-home".into()),
+                        ("PATH".into(), std::env::var_os("PATH").unwrap_or_default()),
+                    ]),
+                    timeout: std::time::Duration::from_secs(1),
+                })
+            },
+            |runtime| runtime.block_on(crate::agent_fixture::Server::tools(tools)),
         );
         std::fs::create_dir(fixture.directory.path().join("project/nested")).unwrap();
         let Output::Plugin(package) = fixture.execute(Command::ReadPlugin {
@@ -46,7 +58,18 @@ fn preserves_external_messages(cx: &mut TestAppContext) {
                     assert_eq!(details.context.as_deref(), Some("nested"));
                     assert_eq!(
                         summary(call, page).detail.text.as_ref(),
-                        command.lines().next().unwrap()
+                        ": '~/task.py'; printf '完整内容 🙂\\n```rust\\n';"
+                    );
+                    assert_eq!(
+                        call.resolved
+                            .as_ref()
+                            .unwrap()
+                            .input
+                            .content
+                            .as_ref()
+                            .unwrap()
+                            .text,
+                        command
                     );
                 }
                 assert_eq!(details.prompt, details.description);
@@ -80,6 +103,10 @@ fn preserves_external_messages(cx: &mut TestAppContext) {
             let page = &view.history.snapshot.as_ref().unwrap().page;
             let calls = &view.history.calls;
             assert_eq!(calls[0].display(page).unwrap().label("zh-CN"), "命令");
+            assert_eq!(
+                summary(&calls[0], page).detail.text.as_ref(),
+                ": '~/task.py'; printf '完整内容 🙂\\n```rust\\n';"
+            );
             assert!(!summary(&calls[0], page).detail.failed);
             assert!(summary(&calls[1], page).detail.failed);
             assert!(has_content(&calls[1], page));
@@ -100,6 +127,16 @@ fn preserves_external_messages(cx: &mut TestAppContext) {
         fixture::tap(visual, &format!("live-{turn}-tool-group-{source}"));
         fixture::tap(visual, &format!("live-{turn}-tools-{source}"));
         redraw(visual);
+        assert!(
+            visual
+                .debug_bounds(Box::leak(format!("{key}-input-content").into_boxed_str()))
+                .is_some()
+        );
+        fixture::tap(visual, &format!("live-tool-input-copy-{key}"));
+        assert_eq!(
+            visual.update(|_, cx| cx.read_from_clipboard().unwrap().text().unwrap()),
+            command
+        );
         for index in 0..2 {
             assert!(
                 visual

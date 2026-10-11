@@ -8,7 +8,7 @@ use gpui_kit::{
 };
 
 /// Activity details; failures accent only the icon and retain accessible diagnostics.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Default)]
 pub(crate) struct Detail {
     pub text: SharedString,
     /// Paths and commands read in the mono face.
@@ -16,6 +16,8 @@ pub(crate) struct Detail {
     /// Model metadata remains subdued when the action is hovered.
     pub secondary: bool,
     pub state: Option<SharedString>,
+    /// Quiet terminal outcomes retain their label in the status icon's tooltip.
+    pub state_icon: Option<IconName>,
     pub failed: bool,
     pub running: bool,
     pub rotate_icon: bool,
@@ -246,7 +248,29 @@ fn row(
                 .state
                 .clone()
                 .filter(|_| !detail.pending && !detail.failed),
-            |row, state| row.child(div().flex_shrink_0().text_color(status_color).child(state)),
+            |row, state| {
+                row.child(if let Some(icon) = detail.state_icon {
+                    div()
+                        .id(format!("{id}-state"))
+                        .debug_selector({
+                            let selector = format!("{id}-state");
+                            move || selector.clone()
+                        })
+                        .flex_shrink_0()
+                        .text_color(status_color)
+                        .tooltip(move |window, cx| {
+                            tooltip::Tooltip::new(state.clone()).build(window, cx)
+                        })
+                        .child(Icon::new(icon).size_4())
+                        .into_any_element()
+                } else {
+                    div()
+                        .flex_shrink_0()
+                        .text_color(status_color)
+                        .child(state)
+                        .into_any_element()
+                })
+            },
         )
         .when(!detail.hide_caret, |row| {
             row.child(caret(open, group).when(detail.wrap, |caret| caret.pt_0p5()))

@@ -84,7 +84,7 @@ impl View {
             return None;
         }
         if let Some(card) = self.changes.get(&turn) {
-            return Some(card.clone());
+            return card.read(cx).visible().then(|| card.clone());
         }
         let owner = cx.entity().downgrade();
         let card = cx.new(|cx| {
@@ -102,12 +102,12 @@ impl View {
                     gpui_kit::component::notification::Notification::error(tr(key)).action(
                         move |_, _, cx| {
                             let owner = owner.clone();
-                            Button::new("retry-changes")
-                                .label(tr("chat_retry"))
-                                .on_click(cx.listener(move |toast, _, window, cx| {
+                            crate::feedback::retry("retry-changes").on_click(cx.listener(
+                                move |toast, _, window, cx| {
                                     toast.dismiss(window, cx);
                                     _ = owner.update(cx, |card, cx| card.retry(cx));
-                                }))
+                                },
+                            ))
                         },
                     )
                 },
@@ -132,11 +132,17 @@ impl View {
             card
         });
         self.changes.insert(turn, card.clone());
-        Some(card)
+        card.read(cx).visible().then_some(card)
     }
 }
 
 impl Card {
+    fn visible(&self) -> bool {
+        self.data
+            .as_ref()
+            .is_some_and(|data| !data.files.is_empty() || data.partial)
+    }
+
     fn retry(&mut self, cx: &mut Context<Self>) {
         if self.loading {
             return;

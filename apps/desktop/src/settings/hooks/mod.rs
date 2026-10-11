@@ -51,13 +51,13 @@ impl Panel {
                 let owner = cx.weak_entity();
                 notification::Notification::error(crate::tr(key)).action(move |_, _, cx| {
                     let owner = owner.clone();
-                    button::Button::new("hooks-recover")
+                    let action = if key == "hooks_unknown" {
+                        crate::feedback::retry("hooks-recover")
+                    } else {
+                        button::Button::new("hooks-recover").label(crate::tr("hooks_reload"))
+                    };
+                    action
                         .debug_selector(|| "hooks-recover".into())
-                        .label(crate::tr(if key == "hooks_unknown" {
-                            "hooks_retry"
-                        } else {
-                            "hooks_reload"
-                        }))
                         .on_click(cx.listener(move |toast, _, window, cx| {
                             toast.dismiss(window, cx);
                             _ = owner.update(cx, |panel, cx| {

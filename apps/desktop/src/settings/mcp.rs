@@ -78,9 +78,8 @@ impl Workspace {
             )
             .when(self.plugin_catalog.retryable(cx), |view| {
                 view.child(
-                    Button::new("mcp-retry")
+                    crate::feedback::retry("mcp-retry")
                         .debug_selector(|| "mcp-retry".into())
-                        .label(tr("plugins_retry"))
                         .on_click(cx.listener(|owner, _, _, cx| owner.send_plugin_action(cx))),
                 )
             })

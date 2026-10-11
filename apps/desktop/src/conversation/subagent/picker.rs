@@ -190,7 +190,8 @@ impl Render for Picker {
                     ListItem::new(index)
                         .selected(selected)
                         .rounded(cx.theme().radius)
-                        .h_10()
+                        .h(px(26.))
+                        .mb_0p5()
                         .px_2()
                         .pl(px(16.) * entry.depth() + px(8.))
                         .debug_selector(move || format!("subagent-row-{}", key.debug_id()))
@@ -239,7 +240,7 @@ impl Render for Picker {
                             }
                         })
                 })
-                .h(px((visible * 40) as f32)),
+                .h(px((visible * 28) as f32)),
             )
     }
 }

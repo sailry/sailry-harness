@@ -351,9 +351,8 @@ impl Editor {
                 .id1::<Editor>(("package", cx.entity_id()))
                 .action(move |_, _, _| {
                     let owner = owner.clone();
-                    Button::new("plugin-retry")
+                    crate::feedback::retry("plugin-retry")
                         .debug_selector(|| "plugin-retry".into())
-                        .label(tr("plugins_retry"))
                         .on_click(move |_, window, cx| {
                             owner.update(cx, |editor, cx| {
                                 if editor.request.is_some() {

@@ -115,6 +115,7 @@ impl Render for ResultView {
                             "grounded-answer",
                             answer(&self.entry),
                         )
+                        .link_hover_underline(true)
                         .on_link_click(|url, _, cx| {
                             if destination(url) {
                                 cx.open_url(url);

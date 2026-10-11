@@ -64,8 +64,7 @@ impl Shell {
                 let owner = cx.weak_entity();
                 notice.action(move |_, _, cx| {
                     let owner = owner.clone();
-                    Button::new("tunnels-retry")
-                        .label(tr("tunnels_retry"))
+                    crate::feedback::retry("tunnels-retry")
                         .debug_selector(|| "tunnels-retry".into())
                         .on_click(cx.listener(move |toast, _, window, cx| {
                             toast.dismiss(window, cx);

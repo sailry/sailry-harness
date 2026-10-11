@@ -74,7 +74,9 @@ impl RenderOnce for Card {
                         Button::new(format!("{}-open", self.id))
                             .ghost()
                             .small()
-                            .label(tr("artifact_open"))
+                            .icon(IconName::ExternalLink)
+                            .tooltip(tr("artifact_open"))
+                            .accessibility_label(tr("artifact_open"))
                             .debug_selector(|| "artifact-file-open".into())
                             .on_click(move |_, _, cx| {
                                 if let Some(worktree) = worktree {
@@ -90,6 +92,7 @@ impl RenderOnce for Card {
                             .small()
                             .icon(IconName::Ellipsis)
                             .accessibility_label(tr("more"))
+                            .tooltip(tr("more"))
                             .debug_selector(|| "artifact-file-more".into())
                             .dropdown_menu(move |menu, _, cx| {
                                 let preview = owner.upgrade().is_some_and(|source| {
@@ -107,6 +110,9 @@ impl RenderOnce for Card {
                                 let download_binding = binding.clone();
                                 let system_source = owner.clone();
                                 let system_file = actions.clone();
+                                let edit_source = owner.clone();
+                                let edit_path = actions.path.clone();
+                                let can_edit = owner.upgrade().is_some_and(|source| source.read(cx).can_request_file_edit(worktree));
                                 menu.item(
                                     PopupMenuItem::new(tr(if preview {
                                         "artifact_preview"
@@ -141,6 +147,17 @@ impl RenderOnce for Card {
                                             download(&download_binding, &download_file, window, cx)
                                         },
                                     ),
+                                )
+                                .item(
+                                    PopupMenuItem::new(tr("artifact_request_edit"))
+                                        .disabled(!can_edit)
+                                        .on_click(move |_, _, cx| {
+                                            if let Some(worktree) = worktree {
+                                                let _ = edit_source.update(cx, |_, cx| {
+                                                    cx.emit(Event::ArtifactEdit(worktree, edit_path.clone()))
+                                                });
+                                            }
+                                        }),
                                 )
                             }),
                     ),

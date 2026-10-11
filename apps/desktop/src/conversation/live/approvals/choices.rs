@@ -7,6 +7,7 @@ impl View {
         approval: &Approval,
         primary: bool,
         disabled: bool,
+        access: Option<SharedString>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let id = approval.id;
@@ -71,6 +72,7 @@ impl View {
             .when(!approval.can_remember, |button| button.rounded_full())
             .min_w_12()
             .label(tr("approval_allow_once"))
+            .when_some(access, |button, access| button.tooltip(access))
             .disabled(disabled)
             .debug_selector(move || format!("live-approval-approve-{id}"))
             .on_click(cx.listener(move |view, _, window, cx| {

@@ -290,3 +290,36 @@ fn replaces_repeated_information(cx: &mut TestAppContext) {
         assert_eq!(window.notifications(cx).len(), 2);
     });
 }
+
+#[gpui::test]
+fn retry_action_activates_once(cx: &mut TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
+    use std::{cell::Cell, rc::Rc};
+    let (_, visual) = mount(cx);
+    let clicks = Rc::new(Cell::new(0));
+    let captured = clicks.clone();
+    visual.update(|window, cx| {
+        deliver(
+            window,
+            Notification::error("Transfer interrupted")
+                .autohide(false)
+                .action(move |_, _, cx| {
+                    let clicks = captured.clone();
+                    retry("retry-action").on_click(cx.listener(move |toast, _, window, cx| {
+                        clicks.set(clicks.get() + 1);
+                        toast.dismiss(window, cx);
+                    }))
+                }),
+            cx,
+        );
+    });
+    settle(visual);
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        assert_eq!(window.find("retry-action").label(), Some("Retry"));
+        window.click("retry-action", cx);
+    });
+    assert_eq!(clicks.get(), 1);
+    settle(visual);
+    assert!(visual.update(|window, cx| window.notifications(cx).is_empty()));
+}

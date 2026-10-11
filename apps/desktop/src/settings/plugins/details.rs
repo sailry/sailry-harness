@@ -108,8 +108,7 @@ fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) ->
                 gpui_kit::component::notification::Notification::error(tr(key)).action(
                     move |_, _, cx| {
                         let owner = owner.clone();
-                        Button::new("plugin-details-retry")
-                            .label(tr("plugins_retry"))
+                        crate::feedback::retry("plugin-details-retry")
                             .debug_selector(|| "plugin-details-retry".into())
                             .on_click(cx.listener(move |toast, _, window, cx| {
                                 toast.dismiss(window, cx);

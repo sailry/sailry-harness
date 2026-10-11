@@ -57,13 +57,13 @@ impl Panel {
                 let owner = cx.weak_entity();
                 notification::Notification::error(crate::tr(key)).action(move |_, _, cx| {
                     let owner = owner.clone();
-                    button::Button::new("backup-retry")
+                    let action = if key == "backup_unknown" {
+                        crate::feedback::retry("backup-retry")
+                    } else {
+                        button::Button::new("backup-retry").label(crate::tr("backup_reload"))
+                    };
+                    action
                         .debug_selector(|| "backup-retry".into())
-                        .label(crate::tr(if key == "backup_unknown" {
-                            "backup_retry"
-                        } else {
-                            "backup_reload"
-                        }))
                         .on_click(cx.listener(move |toast, _, window, cx| {
                             toast.dismiss(window, cx);
                             _ = owner.update(cx, |panel, cx| {

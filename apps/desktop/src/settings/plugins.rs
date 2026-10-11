@@ -133,8 +133,7 @@ impl Workspace {
             )
             .when(self.plugin_catalog.retryable(cx), |view| {
                 view.child(
-                    Button::new("plugins-retry")
-                        .label(tr("plugins_retry"))
+                    crate::feedback::retry("plugins-retry")
                         .debug_selector(|| "plugins-retry".into())
                         .on_click(
                             cx.listener(|this, _, window, cx| this.retry_plugin_action(window, cx)),

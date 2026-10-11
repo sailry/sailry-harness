@@ -308,16 +308,29 @@ impl View {
             .min_w_0()
             .gap_1()
             .when_some(
-                call.approval
+                call.resolved
                     .as_ref()
-                    .filter(|approval| approval.state != ApprovalState::Approved),
-                |column, approval| {
-                    column.child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(tr(approvals::label(approval.state))),
-                    )
+                    .and_then(|resolved| resolved.input.content.as_ref())
+                    .filter(|input| !denied && !input.text.is_empty()),
+                |column, input| {
+                    let selector = format!("live-tool-input-copy-{key}");
+                    column.child(surface::result(
+                        &format!("{key}-input"),
+                        surface::code(
+                            &format!("{key}-input"),
+                            &input.text,
+                            px(f32::from(self.message_text_size)),
+                            cx,
+                        ),
+                        [h_flex()
+                            .debug_selector(move || selector.clone())
+                            .child(surface::copy(
+                                format!("{key}-input-copy"),
+                                input.text.clone(),
+                            ))
+                            .into_any_element()],
+                        cx,
+                    ))
                 },
             )
             .map(|column| match card {
@@ -481,10 +494,11 @@ fn summary(call: &Call, page: &Page) -> Summary {
             State::Returned => None,
         }
     };
-    let declared = display
-        .and_then(|display| display.input.as_ref())
-        .and_then(|input| input.summary.as_ref())
-        .and_then(|field| Some((field, field.read(call.arguments(page)?)?.lines().next()?)))
+    let declared = call
+        .resolved
+        .as_ref()
+        .and_then(|resolved| resolved.input.summary.as_ref())
+        .and_then(|field| Some((field, field.text.lines().next()?)))
         .map(|(field, text)| {
             if field.code {
                 Detail::mono(SharedString::from(text.to_owned()))
@@ -504,6 +518,11 @@ fn summary(call: &Call, page: &Page) -> Summary {
         state.map(tr)
     };
     detail.failed = !denied && output::is_error(&call.name, call.result(page));
+    detail.state_icon = matches!(
+        state,
+        Some("approval_rejected" | "turn_cancelled" | "tool_interrupted" | "tool_not_executed")
+    )
+    .then_some(IconName::CircleX);
     detail.hide_caret = !has_content(call, page);
     detail.pending = call
         .approval
@@ -535,16 +554,26 @@ fn summary(call: &Call, page: &Page) -> Summary {
 }
 
 fn has_content(call: &Call, page: &Page) -> bool {
-    if let Some(content) = &call.content {
-        return !call.images(page).is_empty()
-            || call
-                .result(page)
-                .is_some_and(|result| content.has_visible(result))
-            || output::is_error(&call.name, call.result(page));
+    if call
+        .approval
+        .as_ref()
+        .is_some_and(|approval| approval.state == ApprovalState::Denied)
+    {
+        return false;
     }
-    !call.images(page).is_empty()
-        || (!summary_only(call) || output::failure(&call.name, call.result(page)).is_some())
-            && call.result(page).is_some_and(output::has_output)
+    let result = call.result(page);
+    let diagnostic =
+        output::failure(&call.name, result).is_some_and(|message| !message.trim().is_empty());
+    if !call.images(page).is_empty() || diagnostic {
+        return true;
+    }
+    if let Some(content) = &call.content {
+        return result.is_some_and(|result| content.has_visible(result));
+    }
+    !summary_only(call)
+        && output::fault(result).is_none()
+        && !output::is_error(&call.name, result)
+        && result.is_some_and(output::has_output)
 }
 
 fn summary_only(call: &Call) -> bool {

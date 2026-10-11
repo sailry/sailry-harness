@@ -266,6 +266,10 @@ impl Shell {
                 self.open_dictation_settings(window, cx);
                 return;
             }
+            Event::ArtifactEdit(worktree, path) => {
+                self.request_file_edit(&source, worktree, path, window, cx);
+                return;
+            }
             _ => {}
         }
         let Some(session) = source.read(cx).summary().cloned() else {

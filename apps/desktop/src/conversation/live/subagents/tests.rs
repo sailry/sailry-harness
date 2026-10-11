@@ -499,3 +499,81 @@ fn readonly_approvals(cx: &mut TestAppContext) {
         fixture.close();
     }
 }
+
+#[gpui::test]
+fn picker_spaces_rows_and_preserves_keyboard(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = fixture::Fixture::with_children(remote, 2);
+        fixture.start();
+        let binding = Binding {
+            client: fixture.client.clone(),
+            defaults: fixture.client.clone(),
+            runtime: fixture.runtime.clone(),
+            project: fixture.session.project,
+            worktree: Some(fixture.session.worktree),
+            host: "Fixture".into(),
+            project_name: "Picker".into(),
+            branch: "main".into(),
+        };
+        let (view, visual) = open(cx, binding, fixture.session.clone());
+        wait(visual, |cx| {
+            view.read(cx)
+                .history
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot.page.children.len() == 2
+                        && snapshot
+                            .page
+                            .children
+                            .iter()
+                            .all(|child| view.read(cx).child_session(child.run.session).is_some())
+                })
+        });
+        visual.simulate_keystrokes("escape");
+        visual.run_until_parked();
+        let selected = std::rc::Rc::new(std::cell::Cell::new(None));
+        let captured = selected.clone();
+        let _subscription = visual.update(|_, cx| {
+            cx.subscribe(&view, move |_, event, _| {
+                if let Event::Subagent(id) = event {
+                    captured.set(Some(*id));
+                }
+            })
+        });
+        tap(visual, "live-composer-subagents");
+        wait(visual, |_| true);
+        let ids = view.read_with(visual, |view, _| {
+            view.history
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .page
+                .children
+                .iter()
+                .map(|child| child.run.session)
+                .collect::<Vec<_>>()
+        });
+        let mut rows = ids
+            .into_iter()
+            .map(|id| {
+                (
+                    id,
+                    visual
+                        .debug_bounds(Box::leak(format!("subagent-row-{id}").into_boxed_str()))
+                        .unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by_key(|(_, bounds)| bounds.top());
+        assert_eq!(rows[0].1.size.height, px(26.));
+        assert_eq!(rows[1].1.size.height, px(26.));
+        assert!(rows[1].1.top() - rows[0].1.bottom() >= px(1.));
+        visual.simulate_keystrokes("down enter");
+        wait(visual, |_| true);
+        assert_eq!(selected.get(), Some(rows[1].0));
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}

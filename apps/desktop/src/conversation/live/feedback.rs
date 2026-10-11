@@ -1,6 +1,5 @@
 //! Conversation loading and connection failures stay separate from durable message history.
 use super::*;
-use gpui_kit::component::button::Button;
 
 impl View {
     pub(super) fn observe_errors(window: &Window, cx: &mut Context<Self>) {
@@ -31,8 +30,7 @@ impl View {
                 let owner = cx.weak_entity();
                 notice.autohide(false).action(move |_, _, cx| {
                     let owner = owner.clone();
-                    Button::new("chat-sync-retry")
-                        .label(tr("chat_sync_retry"))
+                    crate::feedback::retry("chat-sync-retry")
                         .debug_selector(|| "chat-sync-retry".into())
                         .on_click(cx.listener(move |toast, _, window, cx| {
                             toast.dismiss(window, cx);
@@ -53,8 +51,7 @@ impl View {
                 let owner = cx.weak_entity();
                 notice.action(move |_, _, cx| {
                     let owner = owner.clone();
-                    Button::new("chat-retry")
-                        .label(tr("chat_retry"))
+                    crate::feedback::retry("chat-retry")
                         .debug_selector(|| "chat-retry".into())
                         .on_click(cx.listener(move |toast, _, window, cx| {
                             toast.dismiss(window, cx);
@@ -75,8 +72,7 @@ impl View {
                 let owner = cx.weak_entity();
                 notice.action(move |_, _, cx| {
                     let owner = owner.clone();
-                    Button::new("approval-retry")
-                        .label(tr("chat_retry"))
+                    crate::feedback::retry("approval-retry")
                         .debug_selector(|| "live-approval-retry".into())
                         .on_click(cx.listener(move |toast, _, window, cx| {
                             toast.dismiss(window, cx);
@@ -106,8 +102,7 @@ impl View {
                 gpui_kit::component::notification::Notification::error(tr(key)).action(
                     move |_, _, cx| {
                         let owner = owner.clone();
-                        Button::new("live-load-older")
-                            .label(tr("chat_retry"))
+                        crate::feedback::retry("live-load-older")
                             .debug_selector(|| "live-load-older".into())
                             .on_click(cx.listener(move |toast, _, window, cx| {
                                 toast.dismiss(window, cx);

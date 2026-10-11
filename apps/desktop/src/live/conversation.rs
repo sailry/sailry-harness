@@ -54,6 +54,30 @@ impl Shell {
         self.open_documents(scope, Some((path, line)), window, cx);
     }
 
+    pub(crate) fn request_file_edit(
+        &mut self,
+        source: &Entity<Chat>,
+        worktree: sailry_protocol::WorktreeId,
+        path: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let context = (self.current_chat() == Some(source)
+            && self.layout.panel_open[0]
+            && self.page == Page::Conversation)
+            .then(|| match &self.side_resource {
+                Some(SideResource::Artifact(panel)) => {
+                    panel.read(cx).edit_context(source, worktree, &path, cx)
+                }
+                _ => None,
+            })
+            .flatten();
+        let (page, selection) = context.unwrap_or_default();
+        source.update(cx, |source, cx| {
+            source.request_file_edit(Some(worktree), path, page, &selection, window, cx);
+        });
+    }
+
     pub(crate) fn find_conversation(
         &mut self,
         _: &crate::shell::FindConversation,
@@ -295,6 +319,9 @@ impl Shell {
                         window,
                         cx,
                     );
+                }
+                Event::ArtifactEdit(worktree, path) => {
+                    shell.request_file_edit(view, *worktree, path.clone(), window, cx);
                 }
                 Event::DirectoryAt(worktree, path) => {
                     let node = view.read(cx).binding().client.target();

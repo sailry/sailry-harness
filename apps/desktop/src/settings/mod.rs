@@ -255,12 +255,12 @@ impl Workspace {
                 let notice = gpui_kit::component::notification::Notification::error(crate::tr(key));
                 if key == "preferences_save_failed" {
                     notice.action(|_, _, cx| {
-                        gpui_kit::component::button::Button::new("preferences-retry")
-                            .label(crate::tr("preferences_retry"))
-                            .on_click(cx.listener(|toast, _, window, cx| {
+                        crate::feedback::retry("preferences-retry").on_click(cx.listener(
+                            |toast, _, window, cx| {
                                 toast.dismiss(window, cx);
                                 crate::preferences::update(cx, |_| {});
-                            }))
+                            },
+                        ))
                     })
                 } else {
                     notice

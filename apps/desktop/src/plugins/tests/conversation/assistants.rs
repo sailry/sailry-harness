@@ -426,7 +426,49 @@ fn opens_file(cx: &mut TestAppContext) {
                     && chat.read(cx).binding().client.target() == fixture.node.id()
             })
         }));
+        let canonical = shell.read_with(visual, |shell, _| shell.current_chat().unwrap().clone());
+        click(visual, "live-chat-input");
+        visual.simulate_input("Canonical draft");
+        visual.update(|_, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.page = Page::Plugin;
+                cx.notify();
+            });
+        });
+        wait(visual, |cx| {
+            chat(&panel, cx).is_some_and(|chat| chat.read(cx).connected())
+        });
+        let origin = panel.read_with(visual, |_, cx| chat(&panel, cx).unwrap());
+        assert_ne!(origin.entity_id(), canonical.entity_id());
+        click(visual, "live-chat-input");
+        visual.simulate_input("Origin draft");
+        visual.update(|_, cx| {
+            origin.update(cx, |_, cx| {
+                cx.emit(crate::conversation::live::Event::ArtifactEdit(
+                    session.worktree,
+                    "origin.txt".into(),
+                ));
+            });
+        });
+        wait(visual, |cx| {
+            origin.read(cx).draft(cx).contains("origin.txt")
+        });
+        origin.read_with(visual, |origin, cx| {
+            assert!(origin.draft(cx).starts_with("Origin draft"));
+            assert!(
+                origin
+                    .draft(cx)
+                    .contains(crate::tr("artifact_edit_prompt").as_ref())
+            );
+        });
+        assert_eq!(
+            canonical.read_with(visual, |chat, cx| chat.draft(cx)),
+            "Canonical draft"
+        );
+        assert_eq!(shell.read_with(visual, |shell, _| shell.page), Page::Plugin);
         visual.update(|window, _| window.remove_window());
+        drop(origin);
+        drop(canonical);
         drop(panel);
         drop(shell);
         fixture.close();

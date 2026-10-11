@@ -101,7 +101,6 @@ fn follows_tail(cx: &mut TestAppContext) {
     grow(visual, &fixture, 36);
     at_tail(visual);
     draw(visual);
-    assert!(visual.debug_bounds("activity-fade").is_some());
     assert!(visual.debug_bounds("activity-follow").is_none());
     assert_eq!(
         fixture.read_with(visual, |fixture, _| fixture.outer.offset().y),
@@ -113,7 +112,6 @@ fn follows_tail(cx: &mut TestAppContext) {
     let (viewport, content) = bounds(visual);
     assert!(viewport.size.height < px(160.));
     assert_eq!(content.top(), viewport.top());
-    assert!(visual.debug_bounds("activity-fade").is_none());
     assert!(visual.debug_bounds("activity-follow").is_none());
 }
 
@@ -157,7 +155,6 @@ fn preserves_masked_interactions(cx: &mut TestAppContext) {
     draw(visual);
     wheel(visual, 80.);
     let viewport = bounds(visual).0;
-    assert!(visual.debug_bounds("activity-fade").is_some());
     // Start inside the visual fade: it must not intercept Markdown's pointer.
     let start = point(viewport.left() + px(8.), viewport.top() + px(8.));
     let end = point(viewport.left() + px(150.), viewport.top() + px(60.));
@@ -183,7 +180,6 @@ fn preserves_masked_interactions(cx: &mut TestAppContext) {
     wheel(visual, 10_000.);
     let (viewport, content) = bounds(visual);
     assert_eq!(content.top(), viewport.top());
-    assert!(visual.debug_bounds("activity-fade").is_none());
     assert!(visual.debug_bounds("activity-follow").is_some());
     grow(visual, &fixture, 40);
     assert_eq!(bounds(visual).1.top(), viewport.top());

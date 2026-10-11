@@ -23,6 +23,7 @@ mod outgoing;
 mod progress;
 mod recovery;
 mod retry;
+mod spacing;
 mod statistics;
 mod streaming;
 mod tools;

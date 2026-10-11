@@ -10,6 +10,7 @@ pub(super) struct Mounted {
     host: Arc<Host>,
     pub root: Entity<ShellRoot>,
     pub header: Entity<super::header::Header>,
+    pub(super) preview: super::previews::View,
     _runtime: Rc<ShellRuntime>,
     _cache: Arc<Cache>,
     _activation: Entity<super::window::Activation>,
@@ -201,7 +202,8 @@ impl Mounted {
             cx,
         );
         let module = super::browser::surface(module, &browser_surface, host.clone(), cx);
-        let ui = super::previews::module(ui, artifact, host.clone(), cx);
+        let preview = super::previews::View::default();
+        let ui = super::previews::module(ui, artifact, host.clone(), preview.clone(), cx);
         let ui = super::native_context::module(ui, host.stop_token(), cx);
         let drops = super::tree::drops::Drops::new(host.stop_token());
         let ui = super::tree::module(ui, host.stop_token(), drops.clone(), cx);
@@ -267,6 +269,7 @@ impl Mounted {
             host,
             root,
             header,
+            preview,
             _runtime: runtime,
             _cache: cache,
             _activation: activation,

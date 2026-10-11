@@ -23,6 +23,21 @@ pub(super) struct Flat {
     pub source_len: usize,
 }
 
+impl Flat {
+    pub(super) fn hover_link(&mut self, index: Option<usize>) {
+        let hovered =
+            index.and_then(|index| self.links.iter().find(|(range, _)| range.contains(&index)));
+        let mut start = 0;
+        for run in &mut self.runs {
+            let end = start + run.len;
+            if hovered.is_none_or(|(range, _)| range.start >= end || range.end <= start) {
+                run.underline = None;
+            }
+            start = end;
+        }
+    }
+}
+
 /// Convert inline marks to consecutive shaped runs.
 pub(super) fn flatten(text: &Text, base_weight: FontWeight, theme: &Theme) -> Flat {
     flatten_with(text, base_weight, theme, &[])
@@ -319,6 +334,52 @@ mod tests {
     use super::*;
     use gpui_kit as gpui;
     use gpui_kit::component::{ActiveTheme, ThemeMode};
+
+    #[gpui::test]
+    fn underlines_only_the_hovered_link(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::tests::init(cx);
+            let text = Text {
+                text: "first second".into(),
+                marks: vec![
+                    super::super::doc::MarkSpan {
+                        range: 0..5,
+                        mark: super::super::doc::Mark::Link("https://example.com/one".into()),
+                    },
+                    super::super::doc::MarkSpan {
+                        range: 6..12,
+                        mark: super::super::doc::Mark::Link("https://example.com/two".into()),
+                    },
+                ],
+            };
+            let theme = Theme::of(cx);
+            for hovered in [None, Some(2), Some(8), None] {
+                let mut flat = flatten(&text, FontWeight::NORMAL, &theme);
+                flat.hover_link(hovered.map(|index| flat.offsets.display(index)));
+                let mut start = 0;
+                for run in &flat.runs {
+                    let end = start + run.len;
+                    let source = flat.offsets.source(start)..flat.offsets.source(end);
+                    let expected = source.start < source.end
+                        && hovered.is_some_and(|index| {
+                            (index < 5 && source.start < 5) || (index >= 6 && source.start >= 6)
+                        });
+                    assert_eq!(run.underline.is_some(), expected);
+                    start = end;
+                }
+                assert_eq!(
+                    flat.text.as_ref(),
+                    "\u{2001}\u{2060}first \u{2001}\u{2060}second"
+                );
+                assert_eq!(flat.links.len(), 2);
+                for index in 0..=text.text.len() {
+                    assert_eq!(flat.offsets.source(flat.offsets.display(index)), index);
+                }
+                assert_eq!(text.text, "first second");
+            }
+        });
+    }
 
     #[gpui::test]
     fn reference_annotations_preserve_text_and_offsets(cx: &mut gpui::TestAppContext) {

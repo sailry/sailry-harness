@@ -1,4 +1,4 @@
-//! A composer draft shown while admission is pending, never a second history writer.
+//! Local input retained for presentation until canonical user content arrives.
 use super::*;
 use gpui_kit::component::message::{Message as ChatMessage, MessageAlignment};
 use sailry_protocol::{RequestId, conversation::Input};
@@ -12,6 +12,7 @@ pub(super) struct Message {
     pub attachments: Vec<attachments::images::ImageSource>,
     /// Sent while a turn runs; the queue tray shows it instead of the transcript.
     pub queued: bool,
+    pub queue_revision: Option<u64>,
     pub guidance: Option<Guidance>,
 }
 
@@ -42,6 +43,7 @@ impl View {
             worktree: self.turn_worktree(turn),
             attachments: attachments.into_iter().map(Into::into).collect(),
             queued: false,
+            queue_revision: None,
             guidance: Some(Guidance {
                 recipient,
                 revision: None,
@@ -64,6 +66,7 @@ impl View {
             worktree: self.binding.worktree,
             attachments: self.attachment_previews(),
             queued,
+            queue_revision: None,
             guidance: None,
         });
         self.sync_rows(cx);
@@ -73,6 +76,29 @@ impl View {
     }
 
     pub(super) fn reconcile_outgoing(&mut self) {
+        if let Some(snapshot) = &self.history.snapshot {
+            self.sent.retain(|turn, message| {
+                !snapshot
+                    .page
+                    .entries
+                    .iter()
+                    .any(|entry| entry.turn == *turn && entry.author == "user")
+                    && snapshot
+                        .page
+                        .runs
+                        .iter()
+                        .any(|run| run.turn == *turn && run.status != Status::Cancelled)
+                    && snapshot
+                        .page
+                        .queue
+                        .items
+                        .iter()
+                        .find(|item| item.turn == *turn)
+                        .is_none_or(|item| {
+                            Some(item.revision) == message.queue_revision && item.guidance.is_none()
+                        })
+            });
+        }
         let Some(message) = &mut self.outgoing else {
             return;
         };
@@ -87,7 +113,6 @@ impl View {
             message.turn = Some(turn.id);
         }
         let Some(turn) = message.turn else { return };
-        let queued = message.queued;
         let guidance = message
             .guidance
             .as_ref()
@@ -110,27 +135,26 @@ impl View {
                             .any(|run| run.turn == turn && run.status == Status::Cancelled))
             }) || (snapshot
                 .page
-                .queue
-                .items
+                .entries
                 .iter()
-                .any(|item| item.turn == turn)
-                && queued
-                && (self.readonly()
-                    || snapshot.page.runs.iter().any(|run| {
-                        run.turn != turn && matches!(run.status, Status::Running | Status::Stopping)
-                    })))
-                || (snapshot
-                    .page
-                    .runs
-                    .iter()
-                    .any(|run| run.turn == turn && run.status != Status::Queued)
-                    && snapshot
-                        .page
-                        .entries
-                        .iter()
-                        .any(|entry| entry.turn == turn && entry.author == "user"))
+                .any(|entry| entry.turn == turn && entry.author == "user"))
         }) {
             self.outgoing = None;
+        } else if message.queued
+            && message.guidance.is_none()
+            && let Some(item) = self.history.snapshot.as_ref().and_then(|snapshot| {
+                snapshot
+                    .page
+                    .queue
+                    .items
+                    .iter()
+                    .find(|item| item.turn == turn)
+            })
+        {
+            message.queue_revision = Some(item.revision);
+            // Durable queue admission frees the composer without losing the full
+            // input needed if execution precedes the canonical user event.
+            self.sent.insert(turn, self.outgoing.take().unwrap());
         }
     }
 

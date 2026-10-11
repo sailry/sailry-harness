@@ -116,8 +116,7 @@ impl Panel {
                 let owner = cx.weak_entity();
                 notice.action(move |_, _, cx| {
                     let owner = owner.clone();
-                    gpui_kit::component::button::Button::new("queue-retry")
-                        .label(tr("chat_retry"))
+                    crate::feedback::retry("queue-retry")
                         .debug_selector(|| "queue-retry".into())
                         .on_click(cx.listener(move |toast, _, window, cx| {
                             toast.dismiss(window, cx);

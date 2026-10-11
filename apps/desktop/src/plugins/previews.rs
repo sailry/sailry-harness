@@ -7,6 +7,8 @@ use sailry_protocol::tool::File;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 mod notebook;
 
+pub(super) type View = Rc<RefCell<Option<AnyView>>>;
+
 #[derive(Clone)]
 pub(crate) struct Resource {
     pub binding: Binding,
@@ -59,6 +61,30 @@ impl Panel {
             self.open(package, window, cx);
         }
     }
+
+    pub(crate) fn file_edit_context(&self, cx: &App) -> Option<(u32, String)> {
+        let mounted = self.mounted.as_ref().filter(|mounted| mounted.active())?;
+        let view = mounted.preview.borrow();
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            crate::content::files::html::edit_context(view.as_ref()?, cx)
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            let _ = (view, cx);
+            None
+        }
+    }
+
+    #[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
+    pub(crate) fn file_preview(&self) -> Option<AnyView> {
+        self.mounted
+            .as_ref()
+            .filter(|mounted| mounted.active())?
+            .preview
+            .borrow()
+            .clone()
+    }
 }
 
 pub(super) fn accepts(info: &sailry_protocol::plugin::Info, mime: &str) -> bool {
@@ -74,6 +100,7 @@ pub(super) fn module(
     module: HostModule,
     resource: Option<Resource>,
     host: Arc<Host>,
+    view: View,
     _: &mut App,
 ) -> HostModule {
     let declarations = format!(
@@ -82,7 +109,6 @@ pub(super) fn module(
     );
     let captured = resource.as_ref().map(|resource| resource.file.clone());
     let reader = host.clone();
-    let view = Rc::new(RefCell::new(None::<AnyView>));
     module
         .function("fileResource", move |_| {
             reader.check()?;

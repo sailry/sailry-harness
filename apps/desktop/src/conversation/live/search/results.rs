@@ -1,6 +1,5 @@
 use super::*;
 use gpui_kit::component::{
-    button::Button,
     label::Label,
     list::{ListDelegate, ListItem},
 };
@@ -237,8 +236,7 @@ impl Results {
                 let owner = search.clone();
                 notice.action(move |_, _, cx| {
                     let owner = owner.clone();
-                    Button::new("live-search-retry")
-                        .label(tr("chat_retry"))
+                    crate::feedback::retry("live-search-retry")
                         .debug_selector(|| "live-search-retry".into())
                         .on_click(cx.listener(move |toast, _, window, cx| {
                             toast.dismiss(window, cx);

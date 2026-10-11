@@ -133,8 +133,10 @@ impl View {
             .or_insert_with(|| cx.new(|cx| crate::content::markdown::State::new(text.clone(), cx)))
             .clone();
         state.update(cx, |state, cx| state.set_source(text, cx));
-        let typography = crate::content::markdown::typography::Typography::of(cx);
+        let mut typography = crate::content::markdown::typography::Typography::of(cx);
+        typography.caption = typography.body;
         crate::content::markdown::View::new(&state)
+            .link_hover_underline(true)
             .foreground(crate::theme::messages::foreground("assistant", cx))
             .typography(
                 typography.scaled(f32::from(self.message_text_size) / typography.body.size()),
@@ -292,6 +294,7 @@ impl View {
                 .outgoing
                 .as_ref()
                 .filter(|outgoing| outgoing.turn == Some(turn))
+                .or_else(|| self.sent.get(&turn))
         {
             prompt = outgoing.input.text.clone();
             references = outgoing.input.references.clone();
@@ -491,7 +494,8 @@ impl View {
                                 },
                             )),
                         )
-                        .content(
+                        .content(crate::conversation::surface::result(
+                            &format!("{turn}-error"),
                             div()
                                 .id(format!("{turn}-error-scroll"))
                                 .debug_selector(move || format!("live-turn-error-reason-{turn}"))
@@ -502,8 +506,11 @@ impl View {
                                 .child(gpui_kit::base::SelectableText::new(
                                     format!("{turn}-error-text"),
                                     error.message.clone(),
-                                )),
-                        ),
+                                ))
+                                .into_any_element(),
+                            Vec::<AnyElement>::new(),
+                            cx,
+                        )),
                 )
             });
         let status = frame::status(run, self.history.connected);

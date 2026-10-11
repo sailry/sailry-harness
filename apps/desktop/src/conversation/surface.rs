@@ -1,6 +1,6 @@
 //! Shared activity surfaces for tool output, commands and file changes.
 //!
-//! Tool output uses a left rule; review surfaces retain their own framing.
+//! Tool results share a rounded frame; review surfaces retain their own framing.
 use crate::tr;
 use gpui_kit::component::{
     clipboard::Clipboard,
@@ -84,9 +84,10 @@ pub(crate) fn result(
         .w_full()
         .min_w_0()
         .items_start()
-        .border_l_4()
+        .rounded(cx.theme().radius)
+        .bg(cx.theme().muted)
+        .p_3()
         .text_color(cx.theme().muted_foreground)
-        .border_color(cx.theme().border)
         .child(div().w_full().min_w_0().child(body))
         .child(
             h_flex()

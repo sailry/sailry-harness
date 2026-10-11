@@ -57,12 +57,8 @@ impl RenderOnce for Thought {
             (state.scroll.clone(), state.paused)
         });
         let measure = state.clone();
-        // GPUI uses total ordering for Pixels, where -0px sorts below +0px.
-        // A clamped negative zero still means the viewport is at the top.
-        let fade = f32::from(scroll.offset().y) < 0.;
         let viewport_id = self.id.clone();
         let content_id = self.id.clone();
-        let fade_id = self.id.clone();
         let follow_id = self.id.clone();
         div()
             .min_w_0()
@@ -107,22 +103,6 @@ impl RenderOnce for Thought {
                         }
                     })
                     .child(ScrollableMask::new(Axis::Vertical, &scroll).id(self.id.clone()))
-                    .when(fade, |pane| {
-                        pane.child(
-                            div()
-                                .debug_selector(move || format!("{fade_id}-fade"))
-                                .absolute()
-                                .top_0()
-                                .left_0()
-                                .w_full()
-                                .h(px(20.))
-                                .bg(linear_gradient(
-                                    180.,
-                                    linear_color_stop(cx.theme().background, 0.),
-                                    linear_color_stop(cx.theme().background.opacity(0.), 1.),
-                                )),
-                        )
-                    })
                     .when(paused, |pane| {
                         pane.child(
                             div().absolute().bottom_1().right_2().child(

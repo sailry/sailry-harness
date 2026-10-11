@@ -5,7 +5,7 @@ use crate::{
     shell::Shell,
     tr,
 };
-use gpui_kit::component::{WindowExt, button::Button, notification::Notification};
+use gpui_kit::component::{WindowExt, notification::Notification};
 use gpui_kit::*;
 use sailry_protocol::{
     CheckpointId, Command, ErrorCode, Output, Request, SessionId, TurnId, conversation::checkpoint,
@@ -99,8 +99,7 @@ impl Restore {
                 .id1::<Self>(("restore", cx.entity_id()))
                 .action(move |_, _, cx| {
                     let owner = owner.clone();
-                    Button::new("retry-undo")
-                        .label(tr("turn_changes_retry"))
+                    crate::feedback::retry("retry-undo")
                         .debug_selector(|| "turn-changes-retry".into())
                         .on_click(cx.listener(move |toast, _, window, cx| {
                             toast.dismiss(window, cx);

@@ -1,9 +1,6 @@
 //! View-owned, bounded thumbnails for local drafts and published Node attachments.
 use crate::tr;
-use gpui_kit::component::{
-    attachment::{AttachmentActions, AttachmentMedia},
-    button::Button,
-};
+use gpui_kit::component::attachment::AttachmentMedia;
 use gpui_kit::{component::*, *};
 use sailry_client::Client;
 use sailry_link::CancellationToken;
@@ -202,42 +199,10 @@ impl Images {
         sources: Vec<ImageSource>,
         index: usize,
     ) -> gpui_kit::component::attachment::Attachment {
-        use gpui_kit::component::button::ButtonVariants as _;
         let id = sources[index].id();
-        let keyboard_images = images.downgrade();
-        let keyboard_sources = sources.clone();
         let images = images.downgrade();
-        // The pinned Attachment click layer is pointer-only; Kit Button keeps keyboard access.
         card.id(format!("attachment-preview-{id}"))
             .accessibility_label(sources[index].name())
-            .actions(
-                AttachmentActions::new()
-                    .top_auto()
-                    .bottom_0()
-                    .left_0()
-                    .right_auto()
-                    .child(
-                        Button::new(format!("image-preview-{id}"))
-                            .debug_selector(move || format!("image-preview-{id}"))
-                            .ghost()
-                            .xsmall()
-                            .icon(IconName::Eye)
-                            .accessibility_label(tr("chat_image_preview"))
-                            .tooltip(tr("chat_image_preview"))
-                            .on_click(move |_, window, cx| {
-                                cx.stop_propagation();
-                                if let Some(images) = keyboard_images.upgrade() {
-                                    preview::open_gallery(
-                                        &images,
-                                        keyboard_sources.clone(),
-                                        index,
-                                        window,
-                                        cx,
-                                    );
-                                }
-                            }),
-                    ),
-            )
             .on_click(move |_, window, cx| {
                 if let Some(images) = images.upgrade() {
                     preview::open_gallery(&images, sources.clone(), index, window, cx);

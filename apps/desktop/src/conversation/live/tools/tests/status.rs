@@ -155,13 +155,33 @@ fn reserves_danger_for_execution_errors(cx: &mut TestAppContext) {
                 true,
                 Some("tool_failed"),
             ),
+            (
+                "empty_structured",
+                json!({"stdout":"", "stderr":"", "isError":true}),
+                true,
+                Some("tool_failed"),
+            ),
+            (
+                "empty_cancelled",
+                json!({"error":Fault::new(ErrorCode::Cancelled, "")}),
+                false,
+                Some("turn_cancelled"),
+            ),
         ];
         for (name, result, danger, label) in cases {
             let diagnostic = output::failure(name, Some(&result));
             let mut sample = history.clone();
             let call = &mut Arc::make_mut(&mut sample.calls)[0];
             call.name = name.into();
-            call.content = None;
+            call.content = (name == "empty_structured").then(|| sailry_protocol::tool::Content {
+                version: 1,
+                blocks: vec![sailry_protocol::tool::Block::Text(
+                    sailry_protocol::tool::Text {
+                        path: "/stdout".into(),
+                        notices: Vec::new(),
+                    },
+                )],
+            });
             call.presentation = sailry_protocol::tool::Presentation::Summary;
             let reference = call.response.as_ref().unwrap();
             let page = Arc::make_mut(&mut Arc::make_mut(sample.snapshot.as_mut().unwrap()).page);
@@ -200,18 +220,40 @@ fn reserves_danger_for_execution_errors(cx: &mut TestAppContext) {
             let row = summary(call, page);
             assert_eq!(row.detail.failed, danger, "remote={remote}, name={name}");
             assert_eq!(row.detail.state, label.map(tr));
+            assert_eq!(
+                row.detail.state_icon.is_some(),
+                matches!(label, Some("turn_cancelled" | "tool_interrupted"))
+            );
+            if diagnostic
+                .as_ref()
+                .is_none_or(|message| message.trim().is_empty())
+                && output::is_error(name, call.result(page))
+            {
+                assert!(!has_content(call, page));
+            }
+
             let group = group_summary(&[call], page);
             assert_eq!(group.detail.failed, danger);
             assert_eq!(group.detail.state, label.map(tr));
             assert_eq!(output::failure(name, call.result(page)), diagnostic);
             if output::fault(call.result(page)).is_some() {
-                assert_eq!(
-                    output::tool_preview(name, call.presentation, call.result(page).unwrap())
-                        .copy_text(),
-                    diagnostic.unwrap()
-                );
+                let preview =
+                    output::tool_preview(name, call.presentation, call.result(page).unwrap());
+                let diagnostic = diagnostic.as_ref().unwrap();
+                if name == "empty_cancelled" {
+                    assert!(diagnostic.is_empty());
+                    assert!(preview.text.is_empty());
+                    assert_eq!(preview.notices, vec!["turn_cancelled"]);
+                    assert_eq!(preview.copy_text(), tr("turn_cancelled").to_string());
+                } else {
+                    assert_eq!(&preview.text, diagnostic);
+                    assert_eq!(&preview.copy_text(), diagnostic);
+                }
             }
             let has_result = has_content(call, page);
+            if name == "empty_cancelled" {
+                assert!(!has_result, "an empty cancellation has no disclosure");
+            }
             let selector = format!("live-tool-result-{}-{}", call.turn, call.source.key());
             let key = (call.turn, format!("tools-{}", call.source.key()));
             view.update(visual, |view, cx| {
@@ -259,11 +301,22 @@ fn reserves_danger_for_execution_errors(cx: &mut TestAppContext) {
             let captured: sailry_protocol::tool::Display =
                 serde_json::from_value(declaration["display"].clone()).unwrap();
             let label = captured.label(&rust_i18n::locale()).to_owned();
+            let field = captured.input.as_ref().unwrap().summary.as_ref().unwrap();
+            let input = sailry_client::conversation::tools::display::Input {
+                summary: Some(sailry_client::conversation::tools::display::Text {
+                    text: field.read(&arguments).unwrap().to_owned(),
+                    code: field.code,
+                }),
+                ..Default::default()
+            };
             let mut sample = history.clone();
             let call = &mut Arc::make_mut(&mut sample.calls)[0];
             call.name = crate::agent_fixture::plugin_tool(package, tool);
             call.content = None;
             call.presentation = presentation;
+            // The synthetic call uses this package's captured input recipe,
+            // rather than the original command call's resolved input.
+            call.resolved.as_mut().unwrap().input = input;
             let reference = call.response.as_ref().unwrap();
             let page = Arc::make_mut(&mut Arc::make_mut(sample.snapshot.as_mut().unwrap()).page);
             let source = page

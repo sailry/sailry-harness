@@ -257,33 +257,6 @@ impl Render for Document {
         }
         toolbar = toolbar
             .child(
-                Button::new("request-edit")
-                    .ghost()
-                    .small()
-                    .label(tr("artifact_request_edit"))
-                    .disabled(
-                        !ready
-                            || !self
-                                .source
-                                .read_with(cx, |source, _| {
-                                    source.can_request_file_edit(self.binding.worktree)
-                                })
-                                .unwrap_or(false),
-                    )
-                    .on_click(cx.listener(|view, _, window, cx| {
-                        let _ = view.source.update(cx, |source, cx| {
-                            source.request_file_edit(
-                                view.binding.worktree,
-                                view.file.path.clone(),
-                                view.status.page,
-                                &view.status.selection,
-                                window,
-                                cx,
-                            )
-                        });
-                    })),
-            )
-            .child(
                 Button::new("fit")
                     .ghost()
                     .small()
@@ -338,5 +311,39 @@ pub(super) fn create(
     matches!(file.mime.as_str(), PDF | DOCX | XLSX | PPTX).then(|| {
         cx.new(|cx| Document::new(binding, file, source, context, cx))
             .into()
+    })
+}
+
+pub(super) fn edit_context(view: &AnyView, cx: &App) -> Option<(u32, String)> {
+    let view = view.clone().downcast::<Document>().ok()?;
+    let view = view.read(cx);
+    let source = view.source.upgrade()?;
+    (view.status.pages > 0
+        && view.error.is_none()
+        && source.read(cx).can_request_file_edit(view.binding.worktree))
+    .then(|| (view.status.page, view.status.selection.clone()))
+}
+
+#[cfg(test)]
+pub(super) fn set_edit_context(view: &AnyView, page: u32, selection: &str, cx: &mut App) -> bool {
+    let Ok(view) = view.clone().downcast::<Document>() else {
+        return false;
+    };
+    view.update(cx, |view, cx| {
+        if view.error.is_none() {
+            return false;
+        }
+        // The test window cannot create a native Office renderer. Seed its IPC
+        // state after the real download settles, on the same retained owner.
+        view.status = Status {
+            pages: page,
+            page,
+            scale: 1.,
+            selection: selection.into(),
+            ..Default::default()
+        };
+        view.error = None;
+        cx.notify();
+        true
     })
 }

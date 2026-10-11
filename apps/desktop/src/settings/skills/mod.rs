@@ -125,9 +125,8 @@ impl Workspace {
                                     .child(action.binding.label.clone()),
                             )
                             .child(
-                                Button::new("skills-retry")
+                                crate::feedback::retry("skills-retry")
                                     .debug_selector(|| "skills-retry".into())
-                                    .label(tr("plugins_retry"))
                                     .on_click(
                                         cx.listener(|owner, _, _, cx| owner.send_skill_action(cx)),
                                     ),

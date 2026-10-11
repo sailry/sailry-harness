@@ -454,3 +454,71 @@ fn scoped_file_downloads_follow_package_availability() {
         fixture.close();
     }
 }
+
+#[gpui::test]
+fn card_opens_with_keyboard(cx: &mut TestAppContext) {
+    struct Card {
+        images: Entity<Images>,
+        source: ImageSource,
+    }
+    impl Render for Card {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            render::card(
+                &self.source,
+                &self.images,
+                vec![self.source.clone()],
+                0,
+                false,
+                cx,
+            )
+        }
+    }
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::with_tools(remote, vec![]);
+        let path = fixture.directory.path().join("preview.png");
+        std::fs::write(&path, png(16, 8)).unwrap();
+        let source = ImageSource::Local {
+            key: 0,
+            source: Local::Path(path),
+        };
+        let images = cx.new(|cx| {
+            Images::new(
+                fixture.binding.client.clone(),
+                fixture.binding.runtime.clone(),
+                Arc::new(tokio::sync::Semaphore::new(2)),
+                cx,
+            )
+        });
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let card = cx.new(|_| Card {
+                images: images.clone(),
+                source: source.clone(),
+            });
+            Root::new(card, window, cx)
+        });
+        wait(visual, |cx| {
+            images
+                .read(cx)
+                .entries
+                .get(&Key::Local(0))
+                .is_some_and(|entry| matches!(entry.result, Some(Ok(_))))
+        });
+        visual.update(|window, cx| {
+            window.focus_next(cx);
+            assert!(window.focused(cx).is_some());
+        });
+        let keystroke = Keystroke::parse("enter").unwrap();
+        visual.simulate_event(KeyDownEvent {
+            keystroke: keystroke.clone(),
+            is_held: false,
+            prefer_character_input: false,
+        });
+        visual.simulate_event(KeyUpEvent { keystroke });
+        visual.run_until_parked();
+        assert!(visual.update(|window, cx| window.has_active_dialog(cx)));
+        visual.simulate_keystrokes("escape");
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}

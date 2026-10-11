@@ -7,6 +7,18 @@ use gpui_kit::component::{
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashSet;
+
+/// Retry actions share Kit styling while each owner retains request semantics.
+pub(crate) fn retry(id: impl Into<ElementId>) -> component::button::Button {
+    use component::Sizable as _;
+    use component::button::ButtonVariants as _;
+    component::button::Button::new(id)
+        .ghost()
+        .small()
+        .icon(component::Icon::empty().path("icons/rotate-ccw.svg"))
+        .tooltip(tr("chat_retry"))
+        .accessibility_label(tr("chat_retry"))
+}
 /// Present operation feedback through Kit's transient toast layer.
 pub(crate) fn toast(
     window: &mut Window,

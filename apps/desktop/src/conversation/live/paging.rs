@@ -106,6 +106,7 @@ impl View {
                             // the local message while its exact identity is still unknown.
                             self.outgoing.as_ref().is_none_or(|outgoing| {
                                 outgoing.turn == Some(run.turn)
+                                    || self.sent.contains_key(&run.turn)
                                     || run.kind != RunKind::Task
                                     || !matches!(run.status, Status::Running | Status::Stopping)
                                     || snapshot.page.entries.iter().any(|entry| {

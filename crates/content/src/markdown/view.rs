@@ -34,6 +34,8 @@ pub struct State {
     on_image: Option<OnImage>,
     on_file: Option<OnFile>,
     on_selection: Option<OnSelection>,
+    hover_links: bool,
+    hovered_link: Option<Cursor>,
     scroll: Option<Viewport>,
     pub(super) typography: Option<super::typography::Typography>,
     pub(super) foreground: Option<gpui_kit::Hsla>,
@@ -111,6 +113,8 @@ impl State {
             on_image: None,
             on_file: None,
             on_selection: None,
+            hover_links: false,
+            hovered_link: None,
             scroll: None,
             typography: None,
             foreground: None,
@@ -144,6 +148,7 @@ impl State {
             parsed.doc
         });
         self.source = source;
+        self.hovered_link = None;
         self.selection = self
             .selection
             .map(|selection| selection.clamp(&self.document));
@@ -348,6 +353,12 @@ impl Render for State {
             .key_context("SailryMarkdown")
             .track_focus(&self.focus)
             .cursor_text()
+            .on_hover(cx.listener(|state, hovered: &bool, _, cx| {
+                // InteractiveText reports indices only inside its hitbox.
+                if !hovered && state.hovered_link.take().is_some() {
+                    cx.notify();
+                }
+            }))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::press))
             .on_mouse_up(
                 MouseButton::Left,
@@ -375,6 +386,32 @@ impl Render for State {
                     caret_on: false,
                     layouts: Some(&self.layouts),
                     on_link: Some(on_link),
+                    hovered_link: self.hovered_link,
+                    on_link_hover: self.hover_links.then(|| {
+                        let owner = cx.weak_entity();
+                        Rc::new(
+                            move |at: Cursor,
+                                  index: Option<usize>,
+                                  _: &mut Window,
+                                  cx: &mut App| {
+                                _ = owner.update(cx, |state, cx| {
+                                    let next =
+                                        index.map(|offset| Cursor::new(at.block, at.part, offset));
+                                    if next.is_none()
+                                        && state.hovered_link.is_some_and(|current| {
+                                            current.block != at.block || current.part != at.part
+                                        })
+                                    {
+                                        return;
+                                    }
+                                    if state.hovered_link != next {
+                                        state.hovered_link = next;
+                                        cx.notify();
+                                    }
+                                });
+                            },
+                        ) as super::render::OnLinkHover
+                    }),
                     on_image: self.on_image.clone(),
                     on_file: self.on_file.clone(),
                     typography: self.typography,
@@ -400,6 +437,7 @@ pub struct View {
     scroll: Option<Viewport>,
     typography: Option<super::typography::Typography>,
     foreground: Option<gpui_kit::Hsla>,
+    hover_links: bool,
 }
 
 impl View {
@@ -414,6 +452,7 @@ impl View {
             scroll: None,
             typography: None,
             foreground: None,
+            hover_links: false,
         }
     }
     /// Retain selection and parsed content at this element's stable identity.
@@ -428,6 +467,7 @@ impl View {
             scroll: None,
             typography: None,
             foreground: None,
+            hover_links: false,
         }
     }
     pub fn on_link_click(
@@ -463,6 +503,11 @@ impl View {
 
     pub fn foreground(mut self, color: Option<gpui_kit::Hsla>) -> Self {
         self.foreground = color;
+        self
+    }
+
+    pub fn link_hover_underline(mut self, enabled: bool) -> Self {
+        self.hover_links = enabled;
         self
     }
 
@@ -507,6 +552,11 @@ impl RenderOnce for View {
             state.on_link = self.on_link;
             state.on_selection = self.on_selection;
             state.scroll = self.scroll;
+            if state.hover_links != self.hover_links {
+                state.hover_links = self.hover_links;
+                state.hovered_link = None;
+                cx.notify();
+            }
             if state.foreground != self.foreground {
                 state.foreground = self.foreground;
                 cx.notify();
@@ -551,6 +601,71 @@ mod tests {
     fn draw(cx: &mut VisualTestContext) {
         cx.run_until_parked();
         cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    #[gpui::test]
+    fn hover_preserves_selection_and_navigation(cx: &mut TestAppContext) {
+        use std::cell::Cell;
+        struct Fixture {
+            state: Entity<State>,
+            clicks: Rc<Cell<usize>>,
+        }
+        impl Render for Fixture {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let clicks = self.clicks.clone();
+                View::new(&self.state)
+                    .link_hover_underline(true)
+                    .on_link_click(move |url, _, _| {
+                        assert_eq!(url.as_ref(), "https://example.com/one");
+                        clicks.set(clicks.get() + 1);
+                    })
+            }
+        }
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::tests::init(cx);
+        });
+        let state = cx.new(|cx| State::new("Read [first](https://example.com/one) here", cx));
+        let clicks = Rc::new(Cell::new(0));
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let fixture = cx.new(|_| Fixture {
+                state: state.clone(),
+                clicks: clicks.clone(),
+            });
+            Root::new(fixture, window, cx)
+        });
+        draw(visual);
+        state.update(visual, |state, cx| state.select_all(cx));
+        draw(visual);
+        let selected = state.read_with(visual, |state, _| state.selected_text());
+        let link = state.read_with(visual, |state, _| {
+            state
+                .layouts
+                .position(Cursor::new(0, Part::Body, 6))
+                .unwrap()
+                .0
+                + point(px(1.), px(2.))
+        });
+        visual.simulate_mouse_move(link, MouseButton::Left, gpui_kit::Modifiers::none());
+        draw(visual);
+        state.read_with(visual, |state, _| {
+            assert!(
+                state
+                    .hovered_link
+                    .is_some_and(|cursor| (5..10).contains(&cursor.offset))
+            );
+            assert_eq!(state.selected_text(), selected);
+        });
+        visual.simulate_click(link, gpui_kit::Modifiers::none());
+        draw(visual);
+        assert_eq!(clicks.get(), 1);
+        visual.simulate_mouse_move(
+            point(px(500.), px(300.)),
+            MouseButton::Left,
+            gpui_kit::Modifiers::none(),
+        );
+        draw(visual);
+        assert!(state.read_with(visual, |state, _| state.hovered_link.is_none()));
     }
 
     #[gpui::test]

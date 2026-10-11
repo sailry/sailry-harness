@@ -164,3 +164,12 @@ pub(super) fn create(
         documents::create(binding, file, source, context, cx)
     }
 }
+
+pub(crate) fn edit_context(view: &AnyView, cx: &App) -> Option<(u32, String)> {
+    documents::edit_context(view, cx)
+}
+
+#[cfg(test)]
+pub(crate) fn set_edit_context(view: &AnyView, page: u32, selection: &str, cx: &mut App) -> bool {
+    documents::set_edit_context(view, page, selection, cx)
+}

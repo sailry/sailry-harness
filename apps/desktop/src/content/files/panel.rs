@@ -7,6 +7,26 @@ pub(crate) struct Panel {
     preview: Entity<crate::plugins::Panel>,
 }
 impl Panel {
+    pub(crate) fn edit_context(
+        &self,
+        source: &Entity<Chat>,
+        worktree: WorktreeId,
+        path: &str,
+        cx: &App,
+    ) -> Option<(u32, String)> {
+        (self.source == *source
+            && self.binding.client.target() == source.read(cx).binding().client.target()
+            && self.binding.worktree == Some(worktree)
+            && self.file.path == path)
+            .then(|| self.preview.read(cx).file_edit_context(cx))
+            .flatten()
+    }
+
+    #[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
+    pub(crate) fn file_preview(&self, cx: &App) -> Option<AnyView> {
+        self.preview.read(cx).file_preview()
+    }
+
     pub(crate) fn new(
         source: Entity<Chat>,
         mut binding: Binding,

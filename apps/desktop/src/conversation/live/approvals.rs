@@ -48,6 +48,7 @@ impl View {
                 let approval = call.approval.as_ref().unwrap();
                 let id = approval.id;
                 let details = details(call, page);
+                let access = details.access.clone();
                 let disabled = busy
                     || !self.connected()
                     || !connected
@@ -112,15 +113,6 @@ impl View {
                     })
                     .when_some(details.context, |row, path| {
                         row.child(div().text_color(cx.theme().muted_foreground).child(path))
-                    })
-                    .when_some(details.access, |row, scope| {
-                        row.child(
-                            div()
-                                .debug_selector(move || format!("live-approval-access-{id}"))
-                                .font_medium()
-                                .whitespace_normal()
-                                .child(scope),
-                        )
                     })
                     .when_some(approval.startup.as_ref(), |row, startup| {
                         let worktree = self
@@ -200,7 +192,7 @@ impl View {
                             )
                         },
                     )
-                    .child(self.decision_controls(approval, position == 0, disabled, cx))
+                    .child(self.decision_controls(approval, position == 0, disabled, access, cx))
                     .debug_selector(move || format!("live-approval-request-{id}"))
                     .into_any_element()
             })

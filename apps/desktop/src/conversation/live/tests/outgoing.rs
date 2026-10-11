@@ -8,6 +8,7 @@ struct Delayed {
     reply: CancellationToken,
     history: CancellationToken,
     identity: CancellationToken,
+    held_input: Option<&'static str>,
 }
 
 impl Transport for Delayed {
@@ -24,6 +25,7 @@ impl Transport for Delayed {
                 inner,
                 history: self.history.clone(),
                 identity: self.identity.clone(),
+                held_input: self.held_input,
             }) as Box<dyn Subscription>)
         })
     }
@@ -54,6 +56,7 @@ struct Events {
     inner: Box<dyn Subscription>,
     history: CancellationToken,
     identity: CancellationToken,
+    held_input: Option<&'static str>,
 }
 
 impl Subscription for Events {
@@ -66,13 +69,11 @@ impl Subscription for Events {
             }
             let user = match &update {
                 Update::ConversationFrame(frame) => {
-                    matches!(&frame.change, Change::Entry(entry) if entry.author == "user")
+                    matches!(&frame.change, Change::Entry(entry) if self.holds(entry))
                 }
-                Update::ConversationSnapshot(snapshot) => snapshot
-                    .page
-                    .entries
-                    .iter()
-                    .any(|entry| entry.author == "user"),
+                Update::ConversationSnapshot(snapshot) => {
+                    snapshot.page.entries.iter().any(|entry| self.holds(entry))
+                }
                 _ => false,
             };
             if user {
@@ -80,6 +81,18 @@ impl Subscription for Events {
             }
             Ok(update)
         })
+    }
+}
+
+impl Events {
+    fn holds(&self, entry: &sailry_protocol::conversation::Entry) -> bool {
+        entry.author == "user"
+            && self.held_input.is_none_or(|text| {
+                entry
+                    .parts
+                    .iter()
+                    .any(|part| matches!(part, Part::Text(value) if value == text))
+            })
     }
 }
 
@@ -104,6 +117,7 @@ fn shows_before_admission_and_reconciles_before_reply(cx: &mut TestAppContext) {
                 reply: CancellationToken::new(),
                 history: CancellationToken::new(),
                 identity: CancellationToken::new(),
+                held_input: None,
             });
             let mut binding = fixture.binding.clone();
             binding.client = Arc::new(Client::new(delayed.clone()));
@@ -254,5 +268,145 @@ fn shows_before_admission_and_reconciles_before_reply(cx: &mut TestAppContext) {
             drop(view);
             fixture.close();
         }
+    }
+}
+
+#[gpui::test]
+fn queued_prompt_survives_until_canonical_history(cx: &mut TestAppContext) {
+    const MESSAGE: &str = concat!(
+        "Run this queued message and preserve its full input while execution starts. ",
+        "The queue preview is deliberately shorter than this prompt, so the running ",
+        "conversation must retain the original text without replacing it with the preview. ",
+        "A second queued message must leave this first message intact until canonical history arrives."
+    );
+    fixture::init(cx);
+    for remote in [false, true] {
+        let fixture = fixture::Fixture::with_tools(
+            remote,
+            vec![(
+                crate::agent_fixture::plugin_tool("commands", "run_command"),
+                serde_json::json!({"access":"unrestricted","command":"printf ready"}),
+            )],
+        );
+        fixture.start();
+        let delayed = Arc::new(Delayed {
+            inner: fixture.transport.clone(),
+            dispatch: CancellationToken::new(),
+            reply: CancellationToken::new(),
+            history: CancellationToken::new(),
+            identity: CancellationToken::new(),
+            held_input: Some(MESSAGE),
+        });
+        delayed.dispatch.cancel();
+        delayed.reply.cancel();
+        delayed.identity.cancel();
+        let mut binding = fixture.binding.clone();
+        binding.client = Arc::new(Client::new(delayed.clone()));
+        let (view, visual) = fixture::open(cx, binding, fixture.session.clone());
+        wait(visual, |cx| {
+            view.read(cx).history.calls.first().is_some_and(|call| {
+                call.approval.as_ref().is_some_and(|approval| {
+                    approval.state == sailry_protocol::conversation::ApprovalState::Pending
+                })
+            })
+        });
+        let approval = view.read_with(visual, |view, _| {
+            view.history.calls[0].approval.as_ref().unwrap().id
+        });
+        fixture::tap(visual, "live-chat-input");
+        visual.simulate_input(MESSAGE);
+        visual.simulate_keystrokes("enter");
+        wait(visual, |cx| {
+            view.read(cx).sent.len() == 1
+                && view.read(cx).outgoing.is_none()
+                && !view.read(cx).pending
+        });
+        let turn = view.read_with(visual, |view, _| {
+            let message = view.sent.values().next().unwrap();
+            assert!(message.queued);
+            assert_eq!(message.input.text, MESSAGE);
+            let turn = message.turn.unwrap();
+            let queued = view
+                .history
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .page
+                .queue
+                .items
+                .iter()
+                .find(|item| item.turn == turn)
+                .unwrap();
+            assert!(queued.truncated);
+            assert_ne!(queued.preview, MESSAGE);
+            turn
+        });
+        fixture::tap(visual, "live-chat-input");
+        visual.simulate_input("Second queued message");
+        visual.simulate_keystrokes("enter");
+        wait(visual, |cx| {
+            view.read(cx).sent.len() == 2 && !view.read(cx).pending
+        });
+        view.read_with(visual, |view, _| {
+            assert!(view.outgoing.is_none());
+            assert_eq!(view.sent.get(&turn).unwrap().input.text, MESSAGE);
+            assert!(
+                view.sent
+                    .values()
+                    .any(|message| message.input.text == "Second queued message")
+            );
+        });
+        fixture.execute(Command::ResolveApproval {
+            session: fixture.session.id,
+            approval,
+            decision: sailry_protocol::conversation::Decision::Approve,
+        });
+        wait(visual, |cx| {
+            view.read(cx)
+                .history
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot
+                        .page
+                        .runs
+                        .iter()
+                        .any(|run| run.turn == turn && run.status == Status::Running)
+                })
+        });
+        view.read_with(visual, |view, _| {
+            assert_eq!(view.sent.get(&turn).unwrap().input.text, MESSAGE);
+            assert!(
+                !view
+                    .history
+                    .snapshot
+                    .as_ref()
+                    .unwrap()
+                    .page
+                    .entries
+                    .iter()
+                    .any(|entry| entry.turn == turn && entry.author == "user")
+            );
+        });
+        let user = visual
+            .debug_bounds(Box::leak(format!("live-user-text-{turn}").into_boxed_str()))
+            .expect("queued prompt appears as execution starts");
+        let phase = visual
+            .debug_bounds(Box::leak(
+                format!("live-turn-phase-{turn}-turn_awaiting_response").into_boxed_str(),
+            ))
+            .unwrap();
+        assert!(user.bottom() <= phase.top());
+        delayed.history.cancel();
+        wait(visual, |cx| {
+            view.read(cx).outgoing.is_none() && !view.read(cx).sent.contains_key(&turn)
+        });
+        assert!(
+            visual
+                .debug_bounds(Box::leak(format!("live-user-text-{turn}").into_boxed_str()))
+                .is_some()
+        );
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
     }
 }

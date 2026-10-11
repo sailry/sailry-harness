@@ -234,7 +234,7 @@ fn requires_fresh_unrestricted_consent(cx: &mut TestAppContext) {
                 .debug_bounds(Box::leak(
                     format!("live-approval-access-{first}").into_boxed_str()
                 ))
-                .is_some()
+                .is_none()
         );
         assert!(
             visual

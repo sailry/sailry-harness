@@ -81,6 +81,7 @@ pub type OnFile = Rc<dyn Fn(usize, &str, &str, &App) -> Option<AnyElement>>;
 /// Image resources are resolved by the owning surface.
 pub type OnImage = Rc<dyn Fn(&str, &[&str], usize, &App) -> AnyElement>;
 pub type OnMathLink = std::sync::Arc<dyn Fn(&SharedString, &mut Window, &mut App) + Send + Sync>;
+pub type OnLinkHover = Rc<dyn Fn(Cursor, Option<usize>, &mut Window, &mut App)>;
 
 /// Source-mapped draft decorations; never part of the document or its history.
 #[derive(Clone)]
@@ -110,6 +111,8 @@ pub struct Editing<'a> {
     pub typography: Option<Typography>,
     pub foreground: Option<Hsla>,
     pub on_link: Option<OnLink>,
+    pub hovered_link: Option<Cursor>,
+    pub on_link_hover: Option<OnLinkHover>,
     pub on_image: Option<OnImage>,
     pub on_file: Option<OnFile>,
     pub annotations: &'a [Annotation],
@@ -129,6 +132,8 @@ impl Default for Editing<'_> {
             typography: None,
             foreground: None,
             on_link: None,
+            hovered_link: None,
+            on_link_hover: None,
             on_image: None,
             on_file: None,
             annotations: &[],
@@ -405,6 +410,8 @@ struct Overlay<'a> {
     /// only thing that knows where that text sits, so the string comes to it.
     placeholder: Option<&'a SharedString>,
     on_link: Option<&'a OnLink>,
+    hovered_link: Option<Cursor>,
+    on_link_hover: Option<&'a OnLinkHover>,
     on_image: Option<&'a OnImage>,
     image_urls: &'a [&'a str],
     image_index: usize,
@@ -513,6 +520,8 @@ pub fn with_block(
         typography,
         foreground,
         on_link,
+        hovered_link,
+        on_link_hover,
         on_image,
         on_file,
         annotations,
@@ -576,6 +585,8 @@ pub fn with_block(
             layouts,
             placeholder: placeholder.as_ref(),
             on_link: on_link.as_ref(),
+            hovered_link,
+            on_link_hover: on_link_hover.as_ref(),
             on_image: on_image.as_ref(),
             image_urls: &image_urls,
             image_index: 0,
@@ -1100,7 +1111,7 @@ fn visual(kind: super::visuals::Kind, source: &str, overlay: Overlay) -> Option<
 /// Takes a [`Flat`] rather than a [`Text`] so tables can reuse the same inline
 /// presentation and source mapping as ordinary document text.
 fn painted_text(
-    flat: Flat,
+    mut flat: Flat,
     len: usize,
     size: f32,
     line_height: f32,
@@ -1108,6 +1119,13 @@ fn painted_text(
     theme: &Theme,
 ) -> AnyElement {
     let (ix, part) = (overlay.block, overlay.part);
+    if overlay.on_link_hover.is_some() {
+        let hovered = overlay
+            .hovered_link
+            .filter(|cursor| cursor.block == ix && cursor.part == part)
+            .map(|cursor| flat.offsets.display(cursor.offset));
+        flat.hover_link(hovered);
+    }
     let (caret, selected) = (overlay.caret_painted(), overlay.selected(len));
     let span = 0..len;
     // Only where the caret already is, and only while there is nothing to
@@ -1134,6 +1152,9 @@ fn painted_text(
     } else {
         let (ranges, urls): (Vec<_>, Vec<_>) = flat.links.into_iter().unzip();
         let on_link = overlay.on_link.cloned();
+        let on_hover = overlay.on_link_hover.cloned();
+        let hover_offsets = offsets.clone();
+        let hover_ranges = ranges.clone();
         InteractiveText::new(SharedString::from(format!("md-text-{ix}-{part:?}")), styled)
             .on_click(ranges, move |clicked, window, cx| {
                 if let Some(url) = urls.get(clicked) {
@@ -1142,6 +1163,18 @@ fn painted_text(
                     } else {
                         cx.open_url(url);
                     }
+                }
+            })
+            .on_hover(move |index, _, window, cx| {
+                if let Some(on_hover) = &on_hover {
+                    on_hover(
+                        Cursor::new(ix, part, 0),
+                        index
+                            .filter(|index| hover_ranges.iter().any(|range| range.contains(index)))
+                            .map(|index| hover_offsets.source(index)),
+                        window,
+                        cx,
+                    );
                 }
             })
             .into_any_element()

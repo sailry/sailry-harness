@@ -97,6 +97,7 @@ impl Shell {
     ) -> crate::content::markdown::View {
         let owner = cx.entity().downgrade();
         crate::content::markdown::View::markdown(id, text)
+            .link_hover_underline(true)
             .foreground(crate::theme::messages::foreground("assistant", cx))
             .on_link_click(move |link, window, cx| {
                 _ = owner.update(cx, |shell, cx| {

@@ -61,6 +61,7 @@ pub(super) fn forward(chat: &Entity<Chat>, owner: WeakEntity<super::super::Panel
                 | Event::Artifact(_, _)
                 | Event::Document(_)
                 | Event::ArtifactExternal(_, _)
+                | Event::ArtifactEdit(_, _)
                 | Event::GitFile(_, _)
                 | Event::UndoChanges(_, _)
                 | Event::Subagent(_)

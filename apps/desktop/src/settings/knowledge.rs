@@ -94,13 +94,13 @@ impl Panel {
                 let owner = cx.weak_entity();
                 notification::Notification::error(crate::tr(key)).action(move |_, _, cx| {
                     let owner = owner.clone();
-                    button::Button::new("knowledge-retry")
+                    let action = if key == "knowledge_unknown" {
+                        crate::feedback::retry("knowledge-retry")
+                    } else {
+                        button::Button::new("knowledge-retry").label(crate::tr("knowledge_reload"))
+                    };
+                    action
                         .debug_selector(|| "knowledge-retry".into())
-                        .label(crate::tr(if key == "knowledge_unknown" {
-                            "knowledge_retry"
-                        } else {
-                            "knowledge_reload"
-                        }))
                         .on_click(cx.listener(move |toast, _, window, cx| {
                             toast.dismiss(window, cx);
                             _ = owner.update(cx, |panel, cx| {
