@@ -10,17 +10,22 @@ use std::{
     time::{Duration, Instant},
 };
 
-const SOURCE: &str = r#"<section data-title="Architecture"><h1>Captured resources</h1>
-<p class="lead">Local and remote ownership 中文 🙂</p>
+const SOURCE: &str = r##"<section id="architecture" data-title="Architecture"><h1>Captured resources</h1>
+<p class="lead">Local and remote ownership 中文 🙂 <a href="#architecture">Architecture</a></p>
 <pre class="mermaid">flowchart LR
  A["Node"] --> B["Client"]</pre>
 <pre class="math">P(A\mid B)=\frac{P(B\mid A)P(A)}{P(B)}</pre>
 <table><tr><th>Owner</th><th>Resource</th></tr><tr><td>Node</td><td>Storage</td></tr></table>
+<div id="alignment-fixture">
+<label><span>Radio</span><input type="radio"></label>
+<label><span>Checkbox</span><input type="checkbox"></label>
+<label><span>Input</span><input type="text"></label>
+<label><span>Select</span><select><option>Option</option></select></label></div>
 <form data-name="decisions"><fieldset data-name="storage" data-required><legend>Storage</legend>
 <label><input type="radio" name="storage" value="node">Execution Node</label>
 <label><input type="radio" name="storage" value="project">Project</label></fieldset>
 <fieldset data-name="note"><legend>Note</legend><textarea name="note"></textarea></fieldset>
-<button type="submit">Send</button></form></section>"#;
+<button type="submit">Send</button></form></section>"##;
 
 fn fixture() -> Content {
     let root = std::env::var_os("SAILRY_WORKLOAD_PACKAGE")
@@ -191,6 +196,27 @@ async fn verify(view: &Entity<Harness>, content: &Content, cx: &mut AsyncWindowC
         )
         .await,
         "1"
+    );
+    assert_eq!(
+        evaluate(view, "document.querySelector('section[data-title]').id", cx).await,
+        "\"architecture\""
+    );
+    assert_eq!(
+        evaluate(view, "window.fixtureAnchorReached=false;document.getElementById('architecture').scrollIntoView=()=>{window.fixtureAnchorReached=true};document.querySelector('#brief a[href=\"#architecture\"]').click();window.fixtureAnchorReached", cx).await,
+        "true"
+    );
+    assert_eq!(
+        evaluate(view, r#"(() => {
+const fixture=document.getElementById('alignment-fixture');
+try {
+  const labels=[...fixture.querySelectorAll('label')];
+  return labels.length===4 && labels.every(label=>{
+    const style=getComputedStyle(label),text=label.querySelector('span').getBoundingClientRect(),control=label.querySelector('input,select').getBoundingClientRect();
+    return label.classList.contains('document-control') && style.display==='flex' && style.alignItems==='center' && Math.abs(text.top+text.height/2-control.top-control.height/2)<=1;
+  });
+} finally {fixture.remove();}
+})()"#, cx).await,
+        "true"
     );
     evaluate(view,"document.querySelector('.document-diagram').click();document.getElementById('document-zoom-in').click();true",cx).await;
     assert_eq!(evaluate(view,"document.getElementById('document-visual').open && document.querySelector('#document-visual-content svg').style.transform==='scale(1.25)'",cx).await,"true");

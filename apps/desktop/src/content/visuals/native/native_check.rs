@@ -237,6 +237,16 @@ fn verify(records: &[Record]) {
                 );
                 assert_eq!(svg.baseline.is_some(), kind == Kind::InlineMath);
                 assert!(svg.source.contains(&record.request.foreground));
+                if kind == Kind::InlineMath {
+                    assert_eq!(
+                        document
+                            .descendants()
+                            .filter(|node| node.attribute("data-mml-node") == Some("mfrac"))
+                            .count(),
+                        2,
+                        "the density formula must retain both fractions in one SVG"
+                    );
+                }
             }
         }
     }

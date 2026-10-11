@@ -1,5 +1,6 @@
 use super::*;
 use crate::conversation::live::tests::wait;
+use gpui_kit::component::WindowExt;
 
 pub(in crate::plugins::artifact) struct Draft {
     surface: Entity<View>,
@@ -25,7 +26,9 @@ impl Draft {
                     Props {
                         artifact: id,
                         revision: None,
-                        labels: Default::default(),
+                        labels: [("render_error".into(), "Could not render visual".into())]
+                            .into_iter()
+                            .collect(),
                     },
                     host,
                     events,
@@ -53,12 +56,117 @@ impl Draft {
                 assert!(view.dirty);
             });
         });
-        Self {
+        let draft = Self {
             surface,
             events: receiver,
             revision,
             id,
+        };
+        draft.feedback(visual);
+        draft
+    }
+
+    fn feedback(&self, visual: &mut VisualTestContext) {
+        let content = self
+            .surface
+            .read_with(visual, |view, _| view.content.clone().unwrap());
+        for (kind, message) in [
+            ("required", crate::tr("artifact_form_required")),
+            ("invalid_form", crate::tr("artifact_form_invalid")),
+            ("submit", crate::tr("artifact_form_invalid")),
+            ("render_error", "Could not render visual".into()),
+        ] {
+            let initial =
+                visual.update(|window, cx| crate::feedback::tests::count(window, &message, cx));
+            for expected in 1..=2 {
+                visual.update(|window, cx| {
+                    window.clear_notifications(cx);
+                    self.surface.update(cx, |view, cx| {
+                        view.event(
+                            json!({"kind":kind,"artifact":self.id,
+                                "session":content.artifact.session,"revision":self.revision})
+                            .to_string(),
+                            window,
+                            cx,
+                        );
+                        assert!(view.dirty, "feedback must retain the draft");
+                        assert_eq!(view.content.as_ref(), Some(&content));
+                        assert_eq!(view.error, None, "operation errors are transient");
+                    });
+                });
+                visual.run_until_parked();
+                visual.update(|window, cx| {
+                    assert_eq!(
+                        crate::feedback::tests::count(window, &message, cx),
+                        initial + expected,
+                        "each failed attempt must show feedback"
+                    );
+                    assert_eq!(crate::feedback::tests::summary(window, cx), message);
+                    assert_eq!(
+                        crate::feedback::tests::count(
+                            window,
+                            &crate::tr("artifact_preview_failed"),
+                            cx
+                        ),
+                        0,
+                        "a failed visual must not report a whole-page failure"
+                    );
+                });
+            }
         }
+        let required = crate::tr("artifact_form_required");
+        let initial =
+            visual.update(|window, cx| crate::feedback::tests::count(window, &required, cx));
+        visual.update(|window, cx| {
+            window.clear_notifications(cx);
+            self.surface.update(cx, |view, cx| {
+                for (artifact, session, revision) in [
+                    (ArtifactId::new(), content.artifact.session, self.revision),
+                    (self.id, sailry_protocol::SessionId::new(), self.revision),
+                    (self.id, content.artifact.session, self.revision + 1),
+                ] {
+                    view.event(
+                        json!({"kind":"required","artifact":artifact,
+                            "session":session,"revision":revision})
+                        .to_string(),
+                        window,
+                        cx,
+                    );
+                }
+                assert!(view.dirty);
+                assert_eq!(view.content.as_ref(), Some(&content));
+                assert_eq!(view.error, None);
+            });
+        });
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            assert_eq!(
+                crate::feedback::tests::count(window, &required, cx),
+                initial,
+                "events from another artifact, session or revision must not show feedback"
+            );
+        });
+        visual.update(|window, cx| {
+            self.surface.update(cx, |view, cx| {
+                view.content.as_mut().unwrap().view = None;
+                view.mount(window, cx);
+                assert_eq!(view.error, Some("artifact_preview_failed"));
+                view.content = Some(content.clone());
+                cx.notify();
+            });
+        });
+        crate::feedback::tests::shown(visual);
+        visual.update(|window, cx| {
+            assert_eq!(
+                crate::feedback::tests::summary(window, cx),
+                crate::tr("artifact_preview_failed")
+            );
+            self.surface.update(cx, |view, cx| {
+                view.error = None;
+                cx.notify();
+            });
+        });
+        visual.run_until_parked();
     }
 
     pub(in crate::plugins::artifact) fn verify(

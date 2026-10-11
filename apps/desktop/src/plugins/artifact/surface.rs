@@ -380,13 +380,11 @@ impl View {
             }
             Some("submit") => {
                 if content.artifact.revision != content.latest_revision {
-                    self.error = Some("chat_action_failed");
-                    cx.notify();
+                    crate::feedback::error("", &crate::tr("chat_action_failed"), window, cx);
                     return;
                 }
                 let Ok(message) = form_message(content, &event) else {
-                    self.error = Some("artifact_form_invalid");
-                    cx.notify();
+                    self.report("invalid_form", Some("artifact_form_invalid"), window, cx);
                     return;
                 };
                 let Some(source) = self.resource.source.upgrade() else {
@@ -402,7 +400,7 @@ impl View {
                     source.send_document(content.artifact.session, message, status, window, cx)
                 });
                 if !sent {
-                    self.error = Some("chat_action_failed");
+                    crate::feedback::error("", &crate::tr("chat_action_failed"), window, cx);
                     self.ack(&form, false);
                     cx.notify();
                     return;
@@ -422,18 +420,27 @@ impl View {
                 }).detach();
             }
             Some("required") => {
-                self.error = Some("artifact_form_required");
-                cx.notify();
+                self.report("required", Some("artifact_form_required"), window, cx);
             }
             Some("invalid_form") => {
-                self.error = Some("artifact_form_invalid");
-                cx.notify();
+                self.report("invalid_form", Some("artifact_form_invalid"), window, cx);
             }
             Some("render_error") => {
-                self.error = Some("artifact_preview_failed");
-                cx.notify();
+                self.report("render_error", None, window, cx);
             }
             _ => (),
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    fn report(&self, label: &str, fallback: Option<&str>, window: &mut Window, cx: &mut App) {
+        let message = self
+            .labels
+            .get(label)
+            .map(|message| SharedString::from(message.clone()))
+            .or_else(|| fallback.map(crate::tr));
+        if let Some(message) = message {
+            crate::feedback::error("", &message, window, cx);
         }
     }
 

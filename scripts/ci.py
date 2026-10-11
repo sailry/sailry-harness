@@ -25,7 +25,8 @@ DEPENDENTS = (
      {"backend", "desktop", "mobile"}),
     (("crates/protocol/", "crates/link/", "crates/client/",
       "crates/speech/", "crates/model-assets/", "sdk/", "schemas/", "plugins/"), NATIVE),
-    (("apps/mobile/", "crates/mobile-bridge/"), {"mobile", "android"}),
+    (("apps/mobile/", "crates/mobile-bridge/", "vendor/flutter-markdown-plus/"),
+     {"mobile", "android"}),
     (("tests/mobile-contract/",), {"mobile"}),
     (("services/pairing-relay/",), {"services"}),
 )
