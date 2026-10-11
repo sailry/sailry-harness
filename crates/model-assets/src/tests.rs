@@ -27,6 +27,7 @@ struct Server {
     url: Url,
     requests: Arc<AtomicUsize>,
     paths: Arc<Mutex<Vec<String>>>,
+    user_agents: Arc<Mutex<Vec<Option<String>>>>,
     task: JoinHandle<()>,
 }
 
@@ -38,6 +39,8 @@ impl Server {
         let counter = requests.clone();
         let paths = Arc::new(Mutex::new(Vec::new()));
         let recorded = paths.clone();
+        let user_agents = Arc::new(Mutex::new(Vec::new()));
+        let identities = user_agents.clone();
         let task = tokio::spawn(async move {
             loop {
                 let (mut socket, _) = listener.accept().await.unwrap();
@@ -50,8 +53,8 @@ impl Server {
                     request.extend_from_slice(&byte);
                     assert!(request.len() < 4096);
                 }
-                let path = std::str::from_utf8(&request)
-                    .unwrap()
+                let request = std::str::from_utf8(&request).unwrap();
+                let path = request
                     .lines()
                     .next()
                     .unwrap()
@@ -60,6 +63,12 @@ impl Server {
                     .unwrap()
                     .to_owned();
                 recorded.lock().unwrap().push(path);
+                let user_agent = request
+                    .lines()
+                    .filter_map(|line| line.split_once(':'))
+                    .find(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
+                    .map(|(_, value)| value.trim().to_owned());
+                identities.lock().unwrap().push(user_agent);
                 counter.fetch_add(1, Ordering::SeqCst);
                 match &reply {
                     Reply::Unavailable => {
@@ -107,6 +116,7 @@ impl Server {
             url,
             requests,
             paths,
+            user_agents,
             task,
         }
     }
@@ -161,6 +171,34 @@ async fn download(
         &client(Duration::from_secs(1)),
     )
     .await
+}
+
+#[tokio::test]
+async fn sends_user_agent_for_downloads() {
+    let root = directory();
+    let body = b"model";
+    let server = Server::start(Reply::Body(body.to_vec())).await;
+    let hash = checksum(body);
+    let files = [File {
+        name: "model.onnx",
+        size: body.len() as u64,
+        sha256: &hash,
+    }];
+    download(
+        root.path(),
+        &server,
+        &files,
+        &CancellationToken::new(),
+        |_| {},
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        server.user_agents.lock().unwrap().as_slice(),
+        [Some("Sailry/0.1.0".to_owned())]
+    );
+    assert_eq!(std::fs::read(root.path().join("model.onnx")).unwrap(), body);
+    assert!(ready(root.path(), &files));
 }
 
 #[tokio::test]

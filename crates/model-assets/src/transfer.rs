@@ -186,6 +186,10 @@ async fn receive(
     for attempt in 0..2 {
         let mut request = client
             .get(download.url.clone())
+            .header(
+                header::USER_AGENT,
+                concat!("Sailry/", env!("CARGO_PKG_VERSION")),
+            )
             .header(header::ACCEPT_ENCODING, "identity");
         if let Some(validator) = part.range() {
             request = request
