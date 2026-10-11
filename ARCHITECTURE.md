@@ -510,8 +510,9 @@ Conversation export reads canonical history through Client. Per-reply actions se
 one turn's user message and final reply; session exports include all user messages
 and final replies.
 Tool activity, reasoning and diagnostics are excluded. Markdown retains source syntax;
-HTML bundles offline formula, diagram and chart rendering. Desktop's existing native
-WebView boundary renders PNG in bounded tiles on macOS and Windows. Export captures
+HTML prerenders formulas, diagrams and charts as inline static SVG and embeds
+attachments in one scriptless file. Desktop's existing native WebView boundary
+renders static HTML and bounded PNG tiles on macOS and Windows. Export captures
 Node/session identity, supports cancellation and preserves changed destination files.
 HTML and images include Sailry branding and the static website QR code.
 

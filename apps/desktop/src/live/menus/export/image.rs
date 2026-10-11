@@ -39,6 +39,10 @@ pub(crate) fn assets(directory: &std::path::Path) -> Result<(), &'static str> {
             include_bytes!("../../../../assets/export/html2canvas.js").as_slice(),
         ),
         (
+            "static.js",
+            include_bytes!("../../../../assets/export/static.js").as_slice(),
+        ),
+        (
             "capture.js",
             include_bytes!("../../../../assets/export/capture.js").as_slice(),
         ),
@@ -96,7 +100,7 @@ pub(super) fn decorate(html: &str, assets: &str) -> String {
         "../../../../../../assets/branding/sailry-site-qr.svg"
     ));
     let html = html.replace("</body>", &format!(r#"<footer style="margin-top:40px;padding:28px;background:#f3f4f6;display:flex;align-items:center;gap:18px"><img alt="Sailry" width="60" height="60" src="data:image/svg+xml;base64,{logo}"><div style="flex:1"><strong style="font-size:24px">Sailry</strong><br><a href="https://sailry.dev" style="color:#596273;text-decoration:none">sailry.dev</a></div><img alt="https://sailry.dev" width="112" height="112" style="background:#fff" src="data:image/svg+xml;base64,{qr}"></footer></body>"#));
-    html.replace("</head>", &format!("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; font-src data:; connect-src 'none'; frame-src 'self'; base-uri 'none'; object-src 'none'\"><style>html{{background:#fff;color:#20242b}}body{{max-width:900px;margin:0 auto;padding:32px;font:18px/1.7 system-ui}}pre{{white-space:pre-wrap;overflow-wrap:anywhere}}table{{width:100%;font-size:15px}}.export-visual{{max-width:100%;height:auto}}mjx-container{{max-width:100%;overflow:auto}}</style>{scripts}</head>"))
+    html.replace("</head>", &format!("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; font-src data:; connect-src 'self'; frame-src 'self'; base-uri 'none'; object-src 'none'\"><style>html{{background:#fff;color:#20242b}}body{{max-width:900px;margin:0 auto;padding:32px;font:18px/1.7 system-ui}}pre{{white-space:pre-wrap;overflow-wrap:anywhere}}table{{width:100%;font-size:15px}}.export-visual{{max-width:100%;height:auto}}mjx-container{{max-width:100%;overflow:auto}}</style>{scripts}</head>"))
 }
 
 pub(crate) fn render(
@@ -108,7 +112,25 @@ pub(crate) fn render(
 ) -> Task<Result<Vec<u8>, &'static str>> {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        native::render(html, assets, directory, window, cx)
+        native::render(html, assets, directory, false, window, cx)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (html, assets, directory, window, cx);
+        Task::ready(Err("conversation_export_failed"))
+    }
+}
+
+pub(crate) fn render_html(
+    html: String,
+    assets: String,
+    directory: PathBuf,
+    window: &mut Window,
+    cx: &mut App,
+) -> Task<Result<Vec<u8>, &'static str>> {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        native::render(html, assets, directory, true, window, cx)
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {

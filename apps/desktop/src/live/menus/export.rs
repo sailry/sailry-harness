@@ -165,15 +165,10 @@ fn start(
         .spawn(cx, async move |cx| {
             let result = match job.await {
                 Ok(Ok(prepared)) => {
-                    let rendered = if format == Format::Image {
+                    let rendered = if format != Format::Markdown {
                         match cx.update(|window, cx| {
-                            image::render(
-                                prepared.html.clone(),
-                                prepared.assets.clone(),
-                                prepared.staging.path().to_owned(),
-                                window,
-                                cx,
-                            )
+                            let render = if format == Format::Html { image::render_html } else { image::render };
+                            render(prepared.html.clone(), prepared.assets.clone(), prepared.staging.path().to_owned(), window, cx)
                         }) {
                             Ok(task) => tokio::select! { result = task => result, _ = cancel.cancelled() => Err("files_download_cancelled") },
                             Err(_) => Err("conversation_export_failed"),
@@ -301,7 +296,7 @@ async fn prepare(
             image::decorate(&document.content, &assets)
         },
         has_assets: format != Format::Markdown || !document.attachments.is_empty(),
-        image: format == Format::Image,
+        standalone: format != Format::Markdown,
         parent: parent.to_owned(),
     })
 }
@@ -312,7 +307,7 @@ struct Prepared {
     assets: String,
     html: String,
     has_assets: bool,
-    image: bool,
+    standalone: bool,
     parent: PathBuf,
 }
 
@@ -327,10 +322,10 @@ async fn publish(
         assets,
         parent,
         has_assets,
-        image,
+        standalone,
         ..
     } = prepared;
-    let has_assets = has_assets && !image;
+    let has_assets = has_assets && !standalone;
     let published = parent.join(&assets);
     let mut writer = tokio::fs::File::from_std(destination.writer()?);
     writer

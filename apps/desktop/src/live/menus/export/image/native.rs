@@ -10,10 +10,11 @@ pub(super) fn render(
     html: String,
     assets: String,
     directory: PathBuf,
+    static_html: bool,
     window: &mut Window,
     cx: &mut App,
 ) -> Task<Result<Vec<u8>, &'static str>> {
-    let result = create(html, assets, directory, window);
+    let result = create(html, assets, directory, static_html, window);
     let Ok((view, mut receiver)) = result else {
         return Task::ready(Err("conversation_export_failed"));
     };
@@ -22,7 +23,7 @@ pub(super) fn render(
         let _view = view;
         let timer = cx.background_executor().timer(Duration::from_secs(90));
         let value = tokio::select! { message = receiver.recv() => message.ok_or("conversation_export_failed")?, _ = timer => return Err("conversation_export_failed") };
-        cx.background_executor().spawn(async move { decode(value) }).await
+        cx.background_executor().spawn(async move { decode(value, static_html) }).await
     })
 }
 
@@ -30,6 +31,7 @@ fn create(
     html: String,
     assets: String,
     directory: PathBuf,
+    static_html: bool,
     window: &mut Window,
 ) -> Result<(wry::WebView, tokio::sync::mpsc::Receiver<String>), String> {
     let mut files = BTreeMap::new();
@@ -41,9 +43,14 @@ fn create(
         );
     }
     let (body, end) = html.rsplit_once("</body>").ok_or("Missing document body")?;
-    let html = format!(
-        "{body}<script src=\"{assets}/html2canvas.js\"></script><script src=\"{assets}/capture.js\"></script></body>{end}"
-    );
+    let capture = if static_html {
+        format!("<script src=\"{assets}/static.js\"></script>")
+    } else {
+        format!(
+            "<script src=\"{assets}/html2canvas.js\"></script><script src=\"{assets}/capture.js\"></script>"
+        )
+    };
+    let html = format!("{body}{capture}</body>{end}");
     let (send, receive) = tokio::sync::mpsc::channel(1);
     let handle = HasWindowHandle::window_handle(window).map_err(|error| error.to_string())?;
     let view = wry::WebViewBuilder::new()
@@ -107,7 +114,20 @@ fn create(
     Ok((view, receive))
 }
 
-fn decode(value: String) -> Result<Vec<u8>, &'static str> {
+fn decode(value: String, static_html: bool) -> Result<Vec<u8>, &'static str> {
+    if static_html {
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Document {
+            html: String,
+        }
+        let document: Document =
+            serde_json::from_str(&value).map_err(|_| "conversation_export_failed")?;
+        if document.html.len() > 64 * 1024 * 1024 || !document.html.starts_with("<!doctype html>") {
+            return Err("conversation_export_failed");
+        }
+        return Ok(document.html.into_bytes());
+    }
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Tiles {

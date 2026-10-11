@@ -28,6 +28,68 @@ use std::{
 
 const BODY: &[u8] = b"Published attachment bytes\n";
 
+#[test]
+fn prepares_html_assets_on_both_nodes() {
+    let fixture = Fixture::new();
+    for index in 0..2 {
+        let attachment = seed(&fixture, index);
+        let output = tempfile::tempdir().unwrap();
+        let prepared = fixture
+            .runtime
+            .block_on(super::prepare(
+                client(&fixture, index),
+                fixture.sessions[index].clone().into(),
+                "Captured export".into(),
+                Format::Html,
+                output.path().join("reply.html"),
+                CancellationToken::new(),
+            ))
+            .unwrap();
+        assert!(
+            prepared
+                .html
+                .contains(&format!("Captured export from Node {index}"))
+        );
+        assert!(
+            !prepared
+                .html
+                .contains(&format!("Captured export from Node {}", 1 - index))
+        );
+        assert!(prepared.html.contains("<section class=\"message user\">"));
+        assert!(
+            prepared
+                .html
+                .contains("<section class=\"message assistant\">")
+        );
+        assert_eq!(
+            std::fs::read(prepared.staging.path().join(
+                sailry_client::conversation::export::attachment_name(&attachment)
+            ))
+            .unwrap(),
+            BODY
+        );
+        for asset in ["mathjax.js", "mermaid.js", "echarts.js", "static.js"] {
+            assert!(prepared.staging.path().join(asset).is_file());
+        }
+        // Publication receives the native renderer's standalone document, not its assets.
+        let document = b"<!doctype html><html><body><svg></svg></body></html>".to_vec();
+        fixture
+            .runtime
+            .block_on(super::publish(
+                prepared,
+                document.clone(),
+                CancellationToken::new(),
+            ))
+            .unwrap();
+        assert_eq!(entries(output.path()), [output.path().join("reply.html")]);
+        assert_eq!(
+            std::fs::read(output.path().join("reply.html")).unwrap(),
+            document
+        );
+    }
+    fixture.close();
+}
+
 fn client(fixture: &Fixture, index: usize) -> Arc<Client> {
     Arc::new(Client::new(transport(fixture, index)))
 }
@@ -221,10 +283,9 @@ fn captures_nodes_and_publishes_attachment_links(cx: &mut TestAppContext) {
     let output = tempfile::tempdir().unwrap();
     let (shell, visual) = mount(&fixture, cx);
     for (index, attachment) in attachments.iter().enumerate() {
-        for (format, action) in [
-            (Format::Markdown, Action::ExportMarkdown),
-            (Format::Html, Action::ExportHtml),
-        ] {
+        let format = Format::Markdown;
+        let action = Action::ExportMarkdown;
+        {
             let destination = output
                 .path()
                 .join(format!("node-{index}.{}", format.extension()));
@@ -271,19 +332,9 @@ fn captures_nodes_and_publishes_attachment_links(cx: &mut TestAppContext) {
             assert!(document.contains(&format!("Captured export from Node {index}")));
             assert!(!document.contains(&format!("Captured export from Node {}", 1 - index)));
             assert!(document.contains("report.txt"));
-            match format {
-                Format::Image => unreachable!("Portable export fixture"),
-                Format::Markdown => assert!(
-                    document.starts_with("## ")
-                        && document.contains("[report.txt](<sailry-assets-")
-                ),
-                Format::Html => assert!(
-                    document.starts_with("<!doctype html>")
-                        && document.contains("href=\"sailry-assets-")
-                        && document.contains("<section class=\"message user\">")
-                        && document.contains("<section class=\"message assistant\">")
-                ),
-            }
+            assert!(
+                document.starts_with("## ") && document.contains("[report.txt](<sailry-assets-")
+            );
             let asset = sailry_client::conversation::export::attachment_name(attachment);
             let published = entries(output.path())
                 .into_iter()
@@ -299,7 +350,7 @@ fn captures_nodes_and_publishes_attachment_links(cx: &mut TestAppContext) {
             );
         }
     }
-    assert_eq!(entries(output.path()).len(), 8);
+    assert_eq!(entries(output.path()).len(), 4);
     visual.update(|window, _| window.remove_window());
     drop(shell);
     fixture.close();
@@ -444,7 +495,7 @@ fn preserves_changed_destinations_and_cleans_assets(cx: &mut TestAppContext) {
     for index in 0..2 {
         seed(&fixture, index);
         let output = tempfile::tempdir().unwrap();
-        let destination = output.path().join("retained.html");
+        let destination = output.path().join("retained.md");
         std::fs::write(&destination, "Original destination").unwrap();
         let held = Held::new(transport(&fixture, index));
         let before = visual.update(|window, cx| {
@@ -455,7 +506,7 @@ fn preserves_changed_destinations_and_cleans_assets(cx: &mut TestAppContext) {
                 Arc::new(Client::new(held.clone())),
                 fixture.runtime.clone(),
                 fixture.sessions[index].clone(),
-                Format::Html,
+                Format::Markdown,
                 window,
                 cx,
             )
