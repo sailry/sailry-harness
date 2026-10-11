@@ -52,9 +52,14 @@ fn plaza_resolves_through_shared_controls(cx: &mut TestAppContext) {
         wait(visual, |_| pending(&fixture).is_some());
         let approval = pending(&fixture).unwrap();
         // The scene follows the canonical waiting projection without a walking phase.
-        wait(visual, |cx| snapshot(&panel, cx).contains("Approval 1"));
+        wait(visual, |cx| snapshot(&panel, cx).contains("Approvals 1"));
         let plaza = visual.debug_bounds("plaza-atrium").unwrap();
         assert!(plaza.contains(&visual.debug_bounds(position).unwrap().center()));
+        assert!(
+            visual
+                .debug_bounds(selector(format!("plaza-{}-status", fixture.session.id)))
+                .is_some()
+        );
         click(visual, id);
         wait(visual, |cx| {
             chat(&panel, cx).is_some_and(|chat| chat.read(cx).connected())
@@ -128,7 +133,7 @@ fn plaza_resolves_through_shared_controls(cx: &mut TestAppContext) {
         );
         click(visual, "plaza-detail-close");
         wait(visual, |cx| {
-            chat(&panel, cx).is_none() && snapshot(&panel, cx).contains("Approval 0")
+            chat(&panel, cx).is_none() && !snapshot(&panel, cx).contains("Approvals 1")
         });
         assert_eq!(visual.debug_bounds(position).unwrap(), seated);
         visual.update(|window, _| window.remove_window());

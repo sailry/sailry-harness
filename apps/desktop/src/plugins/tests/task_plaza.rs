@@ -109,7 +109,7 @@ fn rooms_sidebar_and_lifecycle(cx: &mut TestAppContext) {
             visual.update(|window, cx| window.draw(cx).clear(cx));
             let world = visual.debug_bounds("plaza-world").unwrap();
             let plaza = visual.debug_bounds("plaza-atrium").unwrap();
-            assert!((world.size.width / world.size.height - 1120. / 780.).abs() < 0.01);
+            assert!((world.size.width / world.size.height - 1120. / 860.).abs() < 0.01);
             assert!(
                 (visual.debug_bounds(initial).unwrap().size.width
                     - world.size.width * (60. / 1120.))
@@ -134,6 +134,21 @@ fn rooms_sidebar_and_lifecycle(cx: &mut TestAppContext) {
                 }
             }
             assert!(visual.debug_bounds(room).is_some());
+            let board = visual.debug_bounds(room).unwrap();
+            assert!(board.size.height >= px(64.));
+            let first = visual
+                .debug_bounds(selector(format!("plaza-room-{project}-row-0")))
+                .unwrap();
+            let second = visual
+                .debug_bounds(selector(format!("plaza-room-{project}-row-1")))
+                .unwrap();
+            assert!(board.top() <= first.top() && first.bottom() <= second.top());
+            assert!(second.bottom() <= board.bottom());
+            assert!(
+                visual
+                    .debug_bounds(selector(format!("plaza-{}-status", fixture.session.id)))
+                    .is_some()
+            );
             assert!(visual.debug_bounds("shell-feature-rail").is_some());
             assert!(visual.debug_bounds("plaza-host-filter").is_none());
             assert!(panel.read_with(visual, |_, cx| !snapshot(&panel, cx).contains("plaza-zoom")));
