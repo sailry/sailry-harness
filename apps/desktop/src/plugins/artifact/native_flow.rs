@@ -175,10 +175,22 @@ fn copy(source: &Path, destination: &Path) {
 }
 
 fn calls(id: Option<ArtifactId>, revision: Option<u32>) -> Vec<(String, Value)> {
+    let html = if export_reproduction() {
+        let rows = (0..100)
+            .map(|index| {
+                format!("<p>Long document row {index}: local and remote captured resources</p>")
+            })
+            .collect::<String>();
+        format!(
+            "{HTML}<section data-title=\"Appendix\"><h2>Appendix</h2>{rows}<p>Export end marker</p></section>"
+        )
+    } else {
+        HTML.to_owned()
+    };
     vec![(
         crate::agent_fixture::plugin_tool(PACKAGE, "write_brief"),
         json!({"id":id,"expected_revision":revision,"title":"HTML brief","summary":"Captured resources",
-            "html":HTML}),
+            "html":html}),
     )]
 }
 
@@ -446,6 +458,9 @@ pub(in crate::plugins) async fn verify(
         assert!(!captured.contains("<form"));
         assert!(captured.contains("sailry.dev"));
         std::fs::write(output.join(format!("brief-flow-{route}.html")), captured).unwrap();
+        if export_reproduction() {
+            reproduce_export(output, route, node, &second, &view, cx).await;
+        }
         stage(output, route, "select_version_1", node, &first);
         until(
             cx,
@@ -483,6 +498,96 @@ pub(in crate::plugins) async fn verify(
         cx.background_executor()
             .timer(Duration::from_secs(seconds.min(300)))
             .await;
+    }
+}
+
+fn export_reproduction() -> bool {
+    std::env::var("SAILRY_WORKLOAD_EXPORT_REPRO").as_deref() == Ok("1")
+}
+
+async fn reproduce_export(
+    output: &Path,
+    route: &str,
+    node: NodeId,
+    artifact: &Summary,
+    view: &Entity<surface::View>,
+    cx: &mut AsyncWindowContext,
+) {
+    use gpui_kit::component::{ThemeMode, WindowExt, notification::Notification};
+    until(cx, "live snapshot cache warmed", |_, cx| {
+        view.read(cx)
+            .native_fixture()
+            .is_some_and(|native| native.cache_state().1)
+    })
+    .await;
+    cx.update(|window, cx| {
+        window.clear_notifications(cx);
+        window.push_notification(Notification::info("Export fixture").autohide(false), cx);
+        window.refresh();
+    })
+    .unwrap();
+    until(cx, "live page substituted beneath toast", |_, cx| {
+        view.read(cx)
+            .native_fixture()
+            .is_some_and(|native| native.substituted())
+    })
+    .await;
+    let started = Instant::now();
+    let captured = cx
+        .update(|window, cx| view.update(cx, |view, cx| view.capture(2, window, cx)))
+        .unwrap()
+        .await
+        .expect("live capture must complete while the normal-policy page is substituted");
+    assert!(captured.contains("Export end marker"));
+    println!(
+        "Brief {route}: normal-policy hidden live capture completed in {:?}",
+        started.elapsed()
+    );
+    cx.update(|window, cx| window.clear_notifications(cx))
+        .unwrap();
+    for (mode, theme) in [(ThemeMode::Dark, "dark"), (ThemeMode::Light, "light")] {
+        cx.update(|window, cx| crate::theme::select(Some(mode), window, cx))
+            .unwrap();
+        for extension in ["html", "png"] {
+            let destination = output.join(format!("brief-menu-{route}-{theme}.{extension}"));
+            assert!(
+                !destination.exists(),
+                "export reproduction needs an isolated destination"
+            );
+            std::fs::write(
+                output.join("brief-flow-stage.json"),
+                serde_json::to_vec_pretty(&json!({
+                    "stage":"export_picker", "route":route, "node":node, "artifact":artifact.id,
+                    "revision":artifact.revision, "theme":theme, "format":extension,
+                    "destination":destination,
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            until(cx, "actual Picker export saved", |_, _| {
+                destination.is_file()
+            })
+            .await;
+            let bytes = std::fs::read(&destination).unwrap();
+            if extension == "html" {
+                let html = String::from_utf8(bytes).unwrap();
+                assert!(html.contains("Export end marker") && html.contains("<svg"));
+                assert!(!html.contains("<script") && !html.contains("<form"));
+                assert!(!html.contains("script src=") && !html.contains("connect-src http"));
+                assert!(html.contains("sailry.dev"));
+            } else {
+                let bitmap = ::image::load_from_memory(&bytes).unwrap();
+                assert_eq!(bitmap.width(), 960);
+                assert!(
+                    bitmap.height() > 3000,
+                    "the long document must not be clipped to the viewport"
+                );
+            }
+            println!(
+                "Brief {route}: actual {theme} {extension} Picker export verified at {}",
+                destination.display()
+            );
+        }
     }
 }
 

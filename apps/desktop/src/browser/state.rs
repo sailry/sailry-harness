@@ -36,7 +36,7 @@ impl Browser {
             "cursor": self.cursor.to_string(),
             "tabs": self.tabs.iter().map(|tab| json!({
                 "id":tab.id,"title":tab.title.as_str(),"url":tab.url,
-                "loading":tab.loading,"loaded":tab.loaded(),"error":tab.error,
+                "loading":tab.loading,"loaded":tab.loaded(),"error":tab.error,"background":tab.background,
             })).collect::<Vec<_>>(),
             "selected": self.tabs.get(self.selected).map(|tab| tab.id),
             "history": history,

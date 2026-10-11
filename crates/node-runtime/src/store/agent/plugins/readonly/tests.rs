@@ -39,6 +39,7 @@ fn rejects_actual_mutations_despite_read_labels() {
             sailry_protocol::browser::Action::Navigate {
                 url: "https://example.com".into(),
                 tab: None,
+                background: false,
             },
             true,
         ),

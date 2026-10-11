@@ -166,6 +166,7 @@ impl Header {
             .w_full()
             .min_w_0()
             .gap_1()
+            .when(self.trailing, |row| row.justify_end())
             .debug_selector(|| "plugin-header-filters".into())
             .on_prepaint(move |bounds, _, cx| {
                 let owner = owner.clone();

@@ -45,11 +45,23 @@ impl Drop for WebView {
 impl WebView {
     /// Create a new WebView from a wry WebView.
     pub fn new(webview: wry::WebView, _: &mut Window, cx: &mut App) -> Self {
+        Self::construct(webview, true, cx)
+    }
+
+    /// Create an initially hidden webview without changing keyboard focus.
+    pub fn new_hidden(webview: wry::WebView, _: &mut Window, cx: &mut App) -> Self {
+        Self::construct(webview, false, cx)
+    }
+
+    fn construct(webview: wry::WebView, visible: bool, cx: &mut App) -> Self {
         let _ = webview.set_bounds(Rect::default());
+        if !visible {
+            let _ = webview.set_visible(false);
+        }
 
         Self {
             focus_handle: cx.focus_handle(),
-            visible: true,
+            visible,
             bounds: Bounds::default(),
             webview: Rc::new(webview),
         }
@@ -63,7 +75,11 @@ impl WebView {
 
     /// Hide the webview.
     pub fn hide(&mut self) {
-        _ = self.webview.focus_parent();
+        // Already-hidden background views must not take another view's focus,
+        // including when the entity is dropped before ever being shown.
+        if self.visible {
+            _ = self.webview.focus_parent();
+        }
         _ = self.webview.set_visible(false);
         self.visible = false;
     }

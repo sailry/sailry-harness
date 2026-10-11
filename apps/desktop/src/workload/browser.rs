@@ -1,11 +1,22 @@
 //! Real WebKit interactions over both Client routes, with a deterministic model endpoint.
+#[path = "browser/focus.rs"]
+mod focus;
+
 use super::*;
-use crate::{backend::Services, shell::Shell};
+use crate::{
+    backend::Services,
+    browser::{Browser, state},
+    plugins::Panel,
+    resources::SideResource,
+    shell::{Shell, session_scope::Key},
+};
 use sailry_client::{Client, conversation::Projection};
 use sailry_protocol::{
     Command, Output,
+    browser::Action,
     conversation::{Part, Status},
 };
+use std::cell::RefCell;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -51,6 +62,7 @@ const PAGE: &str = r#"<!doctype html><html><head><title>Browser fixture</title><
 <button aria-label="Hover" id="hover">Hover</button><p id="status">Pending</p>
 <iframe title="Same origin" srcdoc="<html><body><input aria-label='Frame input' oninput='document.querySelector(&quot;output&quot;).textContent = this.value'><output></output></body></html>"></iframe>
 <iframe title="Cross origin" sandbox srcdoc="<html><body>Opaque frame</body></html>"></iframe>
+<a href="/second">Second page</a>
 <script>
 let hovered = false;
 hover.addEventListener('mouseenter', () => { hovered = true; });
@@ -94,12 +106,17 @@ pub(super) async fn run(scenario: Scenario, shell: Entity<Shell>, cx: &mut Async
             shell.read(cx).browsers.connected(node)
         })
         .await;
-        let client = cx
-            .update(|_, cx| Client::new(shell.read(cx).live.as_ref().unwrap().transport.clone()))
-            .unwrap();
-        let result = services
+        let client = Arc::new(
+            cx.update(|_, cx| Client::new(shell.read(cx).live.as_ref().unwrap().transport.clone()))
+                .unwrap(),
+        );
+        let execution = client.clone();
+        let turn_session = session.clone();
+        let results = services
             .runtime
             .spawn(async move {
+                let client = execution;
+                let session = turn_session;
                 let mut subscription = client.subscribe_conversation(session.id).await.unwrap();
                 let mut projection = Projection::new(client.target(), session.id, 1);
                 projection
@@ -144,45 +161,10 @@ pub(super) async fn run(scenario: Scenario, shell: Entity<Shell>, cx: &mut Async
                                 })
                                 .collect();
                             verify(&results, capture_enabled);
-                            if !capture_enabled {
-                                return results.len();
+                            if capture_enabled {
+                                download(&client, &session, &results[24]).await;
                             }
-                            let capture = &results[24];
-                            let Output::FileDownload(download) = fixture::execute(
-                                &client,
-                                Command::DownloadFile {
-                                    worktree: session.worktree,
-                                    path: capture["path"].as_str().unwrap().into(),
-                                },
-                            )
-                            .await
-                            else {
-                                panic!("capture download expected")
-                            };
-                            let mut bytes = Vec::new();
-                            client
-                                .download(
-                                    &download,
-                                    &mut bytes,
-                                    sailry_link::CancellationToken::new(),
-                                    |_| {},
-                                )
-                                .await
-                                .unwrap();
-                            assert_eq!(
-                                image::guess_format(&bytes).unwrap(),
-                                image::ImageFormat::Jpeg
-                            );
-                            let image = image::load_from_memory(&bytes).unwrap();
-                            assert_eq!(Some(u64::from(image.width())), capture["width"].as_u64());
-                            assert_eq!(Some(u64::from(image.height())), capture["height"].as_u64());
-                            assert!(
-                                image.width() > 0
-                                    && image.height() > 0
-                                    && bytes.len() <= 180 * 1024
-                            );
-                            assert!(capture.get("base64_image").is_none());
-                            return results.len();
+                            return results;
                         }
                     }
                 })
@@ -191,16 +173,404 @@ pub(super) async fn run(scenario: Scenario, shell: Entity<Shell>, cx: &mut Async
             })
             .await
             .unwrap();
-        println!("Browser workflow {route}: {result} real WebView tool results verified");
+        background(
+            &client,
+            &services,
+            &session,
+            results[0]["url"].as_str().unwrap(),
+            &shell,
+            cx,
+        )
+        .await;
+        println!(
+            "Browser workflow {route}: {} real WebView tool results and background tab interactions verified",
+            results.len()
+        );
     }
     std::fs::write(
         scenario.output.join("browser.json"),
         serde_json::json!({"local": true, "remote": true, "model": "fixture",
-            "screenshots": if capture_enabled { "captured and downloaded" } else { "not run" }
+            "screenshots": "captured and downloaded", "foreground_capture": capture_enabled,
+            "background": {"sidebar_preserved": true, "selection_preserved": true,
+                "read_click_navigation": true, "selection_promotes": true, "focus_promotes": true,
+                "native_focus_preserved": true, "background_close": true}
         })
         .to_string(),
     )
     .unwrap();
+}
+
+async fn background(
+    client: &Arc<Client>,
+    services: &Services,
+    session: &Session,
+    url: &str,
+    shell: &Entity<Shell>,
+    cx: &mut AsyncWindowContext,
+) {
+    let browser = cx
+        .update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.browser_for(Key::Session(client.target(), session.id), window, cx)
+            })
+        })
+        .unwrap();
+    until(cx, "browser panel", |_, cx| {
+        matches!(&shell.read(cx).side_resource, Some(SideResource::Plugin(panel))
+            if panel.read(cx).browser_view().as_ref() == Some(&browser)
+                && panel.read(cx).resource_active())
+    })
+    .await;
+    let (panel, selected) = cx
+        .update(|_, cx| {
+            let Some(SideResource::Plugin(panel)) = &shell.read(cx).side_resource else {
+                panic!("browser panel expected")
+            };
+            (
+                panel.clone(),
+                browser.read(cx).snapshot(cx)["selected"].as_u64().unwrap(),
+            )
+        })
+        .unwrap();
+    let native_focus = focus::State::foreground(&browser, selected, cx).await;
+    let opened = call(
+        client,
+        services,
+        session,
+        Action::Open {
+            url: url.into(),
+            background: true,
+        },
+    )
+    .await;
+    let hidden = opened["tab"].as_u64().unwrap();
+    assert_ne!(hidden, selected);
+    assert_eq!(
+        tab(
+            &retained(shell, &browser, Some(&panel), selected, cx),
+            hidden
+        )["background"],
+        true
+    );
+    native_focus.check(&browser, Some(hidden), "background open", cx);
+    let read = call(
+        client,
+        services,
+        session,
+        Action::Read { tab: Some(hidden) },
+    )
+    .await;
+    assert!(read["text"].as_str().unwrap().contains("Pending"));
+    let link = read["elements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|element| element["label"] == "Second page")
+        .expect("background page link");
+    retained(shell, &browser, Some(&panel), selected, cx);
+    native_focus.check(&browser, Some(hidden), "background read", cx);
+    let clicked = call(
+        client,
+        services,
+        session,
+        Action::Click {
+            tab: hidden,
+            snapshot: read["snapshot"].as_str().unwrap().into(),
+            element: link["id"].as_u64().unwrap(),
+        },
+    )
+    .await;
+    assert!(clicked["url"].as_str().unwrap().ends_with("/second"));
+    assert!(clicked["text"].as_str().unwrap().contains("Second page"));
+    assert_eq!(
+        tab(
+            &retained(shell, &browser, Some(&panel), selected, cx),
+            hidden
+        )["background"],
+        true
+    );
+    native_focus.check(&browser, Some(hidden), "background click", cx);
+    let navigated = call(
+        client,
+        services,
+        session,
+        Action::Navigate {
+            url: url.into(),
+            tab: Some(hidden),
+            background: true,
+        },
+    )
+    .await;
+    assert_eq!(navigated["url"], url);
+    assert!(navigated["text"].as_str().unwrap().contains("Pending"));
+    retained(shell, &browser, Some(&panel), selected, cx);
+    native_focus.check(&browser, Some(hidden), "background navigation", cx);
+    let capture = call(
+        client,
+        services,
+        session,
+        Action::Screenshot { tab: hidden },
+    )
+    .await;
+    assert_eq!(capture["tab"], hidden);
+    let download_client = client.clone();
+    let download_session = session.clone();
+    services
+        .runtime
+        .spawn(async move {
+            download(&download_client, &download_session, &capture).await;
+        })
+        .await
+        .unwrap();
+    retained(shell, &browser, Some(&panel), selected, cx);
+    native_focus.check(&browser, Some(hidden), "background capture", cx);
+    let tabs = call(client, services, session, Action::Tabs).await;
+    assert_eq!(tab(&tabs, hidden)["background"], true);
+    assert_eq!(tab(&tabs, selected)["background"], false);
+    retained(shell, &browser, Some(&panel), selected, cx);
+    native_focus.check(&browser, Some(hidden), "background tabs", cx);
+
+    let closed = call(client, services, session, Action::Close { tab: hidden }).await;
+    assert_eq!(closed["closed"], hidden);
+    retained(shell, &browser, Some(&panel), selected, cx);
+    native_focus.check(&browser, None, "background close", cx);
+    let opened = call(
+        client,
+        services,
+        session,
+        Action::Open {
+            url: url.into(),
+            background: true,
+        },
+    )
+    .await;
+    let hidden = opened["tab"].as_u64().unwrap();
+    retained(shell, &browser, Some(&panel), selected, cx);
+    native_focus.check(&browser, Some(hidden), "replacement background open", cx);
+
+    let (reply, receive) = tokio::sync::oneshot::channel();
+    cx.update(|_, cx| {
+        browser.update(cx, |_, cx| {
+            cx.emit(state::Request {
+                action: state::Action::Select {
+                    id: usize::try_from(hidden).unwrap(),
+                },
+                stop: sailry_link::CancellationToken::new(),
+                reply: RefCell::new(Some(reply)),
+            });
+        });
+    })
+    .unwrap();
+    let promoted = receive.await.unwrap().unwrap();
+    assert_eq!(promoted["selected"], hidden);
+    assert_eq!(tab(&promoted, hidden)["background"], false);
+    retained(shell, &browser, Some(&panel), hidden, cx);
+
+    cx.update(|_, cx| {
+        shell.update(cx, |shell, cx| shell.close_resource_panel(cx));
+    })
+    .unwrap();
+    let composer_focus = focus::State::composer(shell, &browser, hidden, cx);
+    let opened = call(
+        client,
+        services,
+        session,
+        Action::Open {
+            url: url.into(),
+            background: true,
+        },
+    )
+    .await;
+    let focus = opened["tab"].as_u64().unwrap();
+    assert_eq!(
+        tab(&retained(shell, &browser, None, hidden, cx), focus)["background"],
+        true
+    );
+    composer_focus.check(&browser, Some(focus), "closed-sidebar background open", cx);
+    let read = call(client, services, session, Action::Read { tab: Some(focus) }).await;
+    assert!(read["text"].as_str().unwrap().contains("Pending"));
+    retained(shell, &browser, None, hidden, cx);
+    composer_focus.check(&browser, Some(focus), "closed-sidebar background read", cx);
+    let link = read["elements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|element| element["label"] == "Second page")
+        .expect("background page link");
+    let clicked = call(
+        client,
+        services,
+        session,
+        Action::Click {
+            tab: focus,
+            snapshot: read["snapshot"].as_str().unwrap().into(),
+            element: link["id"].as_u64().unwrap(),
+        },
+    )
+    .await;
+    assert!(clicked["text"].as_str().unwrap().contains("Second page"));
+    retained(shell, &browser, None, hidden, cx);
+    composer_focus.check(&browser, Some(focus), "closed-sidebar background click", cx);
+    let capture = call(client, services, session, Action::Screenshot { tab: focus }).await;
+    assert_eq!(capture["tab"], focus);
+    let download_client = client.clone();
+    let download_session = session.clone();
+    services
+        .runtime
+        .spawn(async move {
+            download(&download_client, &download_session, &capture).await;
+        })
+        .await
+        .unwrap();
+    retained(shell, &browser, None, hidden, cx);
+    composer_focus.check(
+        &browser,
+        Some(focus),
+        "closed-sidebar background capture",
+        cx,
+    );
+    call(
+        client,
+        services,
+        session,
+        Action::Navigate {
+            url: format!("{url}second"),
+            tab: Some(focus),
+            background: true,
+        },
+    )
+    .await;
+    retained(shell, &browser, None, hidden, cx);
+    composer_focus.check(
+        &browser,
+        Some(focus),
+        "closed-sidebar background navigation",
+        cx,
+    );
+    let closed = call(client, services, session, Action::Close { tab: focus }).await;
+    assert_eq!(closed["closed"], focus);
+    retained(shell, &browser, None, hidden, cx);
+    composer_focus.check(&browser, None, "closed-sidebar background close", cx);
+    let opened = call(
+        client,
+        services,
+        session,
+        Action::Open {
+            url: format!("{url}second"),
+            background: true,
+        },
+    )
+    .await;
+    let focus = opened["tab"].as_u64().unwrap();
+    retained(shell, &browser, None, hidden, cx);
+    composer_focus.check(&browser, Some(focus), "closed-sidebar replacement open", cx);
+    let focused = call(client, services, session, Action::Focus { tab: focus }).await;
+    assert_eq!(focused["tab"], focus);
+    assert!(focused["text"].as_str().unwrap().contains("Second page"));
+    until(cx, "focused browser panel", |_, cx| {
+        let shell = shell.read(cx);
+        shell.layout.panel_open[0]
+            && matches!(&shell.side_resource, Some(SideResource::Plugin(panel))
+                if panel.read(cx).browser_view().as_ref() == Some(&browser)
+                    && panel.read(cx).resource_active())
+    })
+    .await;
+    cx.update(|_, cx| {
+        let state = browser.read(cx).snapshot(cx);
+        assert_eq!(state["selected"], focus);
+        assert_eq!(tab(&state, focus)["background"], false);
+    })
+    .unwrap();
+}
+
+fn retained(
+    shell: &Entity<Shell>,
+    browser: &Entity<Browser>,
+    panel: Option<&Entity<Panel>>,
+    selected: u64,
+    cx: &mut AsyncWindowContext,
+) -> serde_json::Value {
+    cx.update(|_, cx| {
+        let shell = shell.read(cx);
+        assert_eq!(shell.layout.panel_open[0], panel.is_some());
+        match (&shell.side_resource, panel) {
+            (Some(SideResource::Plugin(current)), Some(expected)) => assert_eq!(current, expected),
+            (None, None) => {}
+            _ => panic!("background operation replaced the resource panel"),
+        }
+        let state = browser.read(cx).snapshot(cx);
+        assert_eq!(
+            state["selected"], selected,
+            "background operation selected another tab"
+        );
+        state
+    })
+    .unwrap()
+}
+
+fn tab(state: &serde_json::Value, id: u64) -> &serde_json::Value {
+    state["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["id"].as_u64() == Some(id))
+        .expect("retained browser tab")
+}
+
+async fn call(
+    client: &Arc<Client>,
+    services: &Services,
+    session: &Session,
+    action: Action,
+) -> serde_json::Value {
+    let client = client.clone();
+    let command = Command::UseBrowser {
+        session: session.id,
+        worktree: session.worktree,
+        action,
+    };
+    let Output::Browser(value) = services
+        .runtime
+        .spawn(async move { fixture::execute(&client, command).await })
+        .await
+        .unwrap()
+    else {
+        panic!("browser result expected")
+    };
+    value
+}
+
+async fn download(client: &Client, session: &Session, capture: &serde_json::Value) {
+    let Output::FileDownload(download) = fixture::execute(
+        client,
+        Command::DownloadFile {
+            worktree: session.worktree,
+            path: capture["path"].as_str().unwrap().into(),
+        },
+    )
+    .await
+    else {
+        panic!("capture download expected")
+    };
+    let mut bytes = Vec::new();
+    client
+        .download(
+            &download,
+            &mut bytes,
+            sailry_link::CancellationToken::new(),
+            |_| {},
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        image::guess_format(&bytes).unwrap(),
+        image::ImageFormat::Jpeg
+    );
+    let image = image::load_from_memory(&bytes).unwrap();
+    assert_eq!(Some(u64::from(image.width())), capture["width"].as_u64());
+    assert_eq!(Some(u64::from(image.height())), capture["height"].as_u64());
+    assert!(image.width() > 0 && image.height() > 0 && bytes.len() <= 180 * 1024);
+    assert!(capture.get("base64_image").is_none());
 }
 
 fn verify(results: &[serde_json::Value], capture: bool) {

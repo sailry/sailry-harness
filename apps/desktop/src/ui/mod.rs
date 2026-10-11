@@ -12,6 +12,7 @@ pub(crate) mod settings_page;
 pub(crate) mod status_list;
 pub(crate) mod thinking;
 pub(crate) mod webview_capture;
+pub(crate) mod webview_snapshot;
 
 #[cfg(test)]
 mod control_tests;

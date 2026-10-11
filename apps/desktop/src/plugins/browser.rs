@@ -26,17 +26,14 @@ pub(super) fn surface(module: HostModule, scope: &Scope, host: Arc<Host>, cx: &A
     let preview_host = host.clone();
     let lease = browser.as_ref().map(|browser| browser.read(cx).lease);
     module
-        .component("BrowserSurface", move |args, window, cx| {
+        .component("BrowserSurface", move |_, _, cx| {
             let Some(browser) = browser.as_ref().filter(|_| host.check().is_ok()) else {
                 return div().into_any_element();
             };
-            let Some(lease) = lease.filter(|lease| browser.read(cx).lease == *lease) else {
+            let Some(_lease) = lease.filter(|lease| browser.read(cx).lease == *lease) else {
                 return div().into_any_element();
             };
-            // Wry is an OS child view: embedded Kit dialogs cannot occlude it.
-            // The package declares coverage; mounting and capture stay intact.
-            let covered = args.props().get("covered").and_then(HostValue::as_bool) == Some(true);
-            browser.update(cx, |browser, cx| browser.cover(lease, covered, window, cx));
+            // The native paint adapter substitutes only intersecting overlays.
             div()
                 .size_full()
                 .min_w_0()

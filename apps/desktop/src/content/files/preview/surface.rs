@@ -1,27 +1,39 @@
 use super::*;
-#[path = "snapshot.rs"]
-mod snapshot;
+use crate::ui::webview_snapshot::Snapshot;
+#[cfg(test)]
+#[path = "overlay_tests.rs"]
+mod overlays;
 
 pub(crate) struct Native {
     pub(crate) page: wry::WebView,
     pub(super) frame: Cell<Option<(Bounds<Pixels>, Bounds<Pixels>)>>,
     visible: Cell<bool>,
-    mounted: Cell<bool>,
-    snapshot: snapshot::Snapshot,
+    snapshot: Rc<Snapshot>,
     #[cfg(target_os = "macos")]
     _pointer: Rc<pointer::Pointer>,
 }
 impl Native {
     pub(super) fn new(html: &str, window: &Window) -> Result<Self, ()> {
+        let snapshot = Snapshot::new();
+        let signals = snapshot.signals();
         Self::build(
             wry::WebViewBuilder::new()
                 .with_html(document(html))
+                .with_ipc_handler(move |request| {
+                    signals.receive(request.body());
+                })
                 .with_navigation_handler(|url| url == "about:blank" || url == "about:srcdoc"),
             window,
+            snapshot,
         )
     }
 
-    pub(crate) fn build(builder: wry::WebViewBuilder<'_>, window: &Window) -> Result<Self, ()> {
+    pub(crate) fn build(
+        builder: wry::WebViewBuilder<'_>,
+        window: &Window,
+        snapshot: Rc<Snapshot>,
+    ) -> Result<Self, ()> {
+        let builder = snapshot.signals().prepare(builder);
         #[cfg(all(feature = "workload-tests", target_os = "macos"))]
         let builder = super::check::prepare(builder);
         let handle = HasWindowHandle::window_handle(window).map_err(|_| ())?;
@@ -38,8 +50,7 @@ impl Native {
             page,
             frame: Cell::new(None),
             visible: Cell::new(false),
-            mounted: Cell::new(false),
-            snapshot: snapshot::Snapshot::default(),
+            snapshot,
         })
     }
     fn show(&self, visible: bool) {
@@ -57,12 +68,17 @@ impl Native {
         self.show(false);
     }
     #[cfg(all(feature = "workload-tests", target_os = "macos"))]
-    pub(super) fn substituted(&self) -> bool {
+    pub(crate) fn substituted(&self) -> bool {
         self.snapshot.shown.get()
+    }
+    #[cfg(all(feature = "workload-tests", target_os = "macos"))]
+    pub(crate) fn cache_state(&self) -> (u64, bool) {
+        (self.snapshot.generation(), self.snapshot.current())
     }
 }
 impl Drop for Native {
     fn drop(&mut self) {
+        self.snapshot.unmount();
         self.hide();
     }
 }
@@ -70,12 +86,13 @@ impl Drop for Native {
 struct Mount(Rc<Native>);
 impl Drop for Mount {
     fn drop(&mut self) {
-        self.0.mounted.set(false);
+        self.0.snapshot.unmount();
         self.0.hide();
     }
 }
 
 pub(crate) fn render(native: Rc<Native>, window: &mut Window, cx: &mut App) -> AnyElement {
+    native.snapshot.bind(window, cx);
     let mounted = native.clone();
     // Kit element state lasts through cached frames and is released on unmount,
     // even when the owning session retains its preview entity in the background.
@@ -85,8 +102,7 @@ pub(crate) fn render(native: Rc<Native>, window: &mut Window, cx: &mut App) -> A
         let blocked = window.is_hitbox_occluded(&hitbox);
         let clip = bounds.intersect(&window.content_mask().bounds);
         if clip.size.width <= px(0.) || clip.size.height <= px(0.) {
-            native.mounted.set(false);
-            native.snapshot.shown.set(false);
+            native.snapshot.unmount();
             native.hide(); return;
         }
         let previous = native.frame.get();
@@ -102,9 +118,11 @@ pub(crate) fn render(native: Rc<Native>, window: &mut Window, cx: &mut App) -> A
             let _ = native.page.evaluate_script(&script);
         }
         native.frame.set(Some((bounds, clip)));
-        native.mounted.set(true);
-        native.snapshot.request(&native, blocked, window, cx);
-        let substituted = blocked && native.snapshot.paint((bounds, clip), window);
+        native.snapshot.mount((bounds, clip));
+        #[cfg(target_os = "macos")]
+        native.snapshot.refresh(blocked, || crate::ui::webview_capture::snapshot_now(&native.page), window);
+        native.snapshot.request(|| crate::ui::webview_capture::snapshot(&native.page), window, cx);
+        let substituted = blocked && native.snapshot.paint(window);
         native.snapshot.shown.set(substituted);
         if substituted {
             native.hide();

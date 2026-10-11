@@ -20,10 +20,10 @@ impl Browser {
         }
         if matches!(action, Action::Tabs) {
             return Task::ready(Ok(
-                json!({"tabs": self.tabs.iter().map(|tab| json!({"id":tab.id,"url":tab.url,"title":tab.title.as_str(),"loading":tab.loading})).collect::<Vec<_>>()}),
+                json!({"tabs": self.tabs.iter().map(|tab| json!({"id":tab.id,"url":tab.url,"title":tab.title.as_str(),"loading":tab.loading,"background":tab.background})).collect::<Vec<_>>()}),
             ));
         }
-        if let Action::Navigate { url, .. } | Action::Open { url } = &action
+        if let Action::Navigate { url, .. } | Action::Open { url, .. } = &action
             && !url::Url::parse(url).is_ok_and(|u| {
                 matches!(u.scheme(), "http" | "https")
                     && u.username().is_empty()
@@ -34,11 +34,17 @@ impl Browser {
                 "browser URL must use HTTP or HTTPS without embedded credentials",
             )));
         }
-        if let Action::Open { url } = action {
-            self.add(window, cx);
+        if let Action::Open { url, background } = action {
+            let index = self.tabs.len();
+            self.tabs.push(Tab::empty(self.serial));
+            self.serial += 1;
+            if !background {
+                self.select(index, window, cx);
+            }
             action = Action::Navigate {
                 url,
-                tab: Some(self.tabs[self.selected].id as u64),
+                tab: Some(self.tabs[index].id as u64),
+                background,
             };
         }
         if self.tabs.is_empty() {
@@ -85,12 +91,20 @@ impl Browser {
                 "browser tab is empty; navigate to a URL before reading or interacting",
             )));
         }
-        if !matches!(action, Action::Navigate { .. }) {
+        if matches!(action, Action::Focus { .. }) {
             self.select(index, window, cx);
+        } else if !matches!(action, Action::Navigate { .. }) && self.tabs[index].page.is_none() {
+            self.load_at(index, self.tabs[index].url.clone(), window, cx);
         }
-        if let Action::Navigate { url, .. } = &action {
-            self.selected = index;
-            self.load(url.clone(), window, cx);
+        if let Action::Navigate {
+            url, background, ..
+        } = &action
+        {
+            if !background {
+                self.select(index, window, cx);
+            }
+            self.tabs[index].background = *background;
+            self.load_at(index, url.clone(), window, cx);
         }
         if let Action::Input { text, .. } = &action
             && text.len() > 16000

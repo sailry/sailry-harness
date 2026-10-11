@@ -285,6 +285,7 @@ fn install_review(fixture: &Fixture) {
 
 #[gpui::test]
 fn reviews_captured_elements_on_each_path(cx: &mut TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
     use std::{cell::Cell, rc::Rc};
     init(cx);
     for remote in [false, true] {
@@ -344,7 +345,21 @@ fn reviews_captured_elements_on_each_path(cx: &mut TestAppContext) {
         let browser = panel.read_with(visual, |panel, _| panel.browser_view().unwrap());
         let count = Rc::new(Cell::new(0));
         let observed = count.clone();
-        visual.update(|_, cx| {
+        let cancelled = Rc::new(Cell::new(0));
+        let cancellation = cancelled.clone();
+        let (lease, token) = visual.update(|_, cx| {
+            cx.subscribe(
+                &browser,
+                move |_, request: &crate::browser::state::Request, _| {
+                    if matches!(
+                        &request.action,
+                        crate::browser::state::Action::CancelAnnotation { .. }
+                    ) {
+                        cancellation.set(cancellation.get() + 1);
+                    }
+                },
+            )
+            .detach();
             cx.subscribe(
                 &browser,
                 move |_, request: &crate::browser::annotation::Transfer, _| {
@@ -355,28 +370,77 @@ fn reviews_captured_elements_on_each_path(cx: &mut TestAppContext) {
             )
             .detach();
             browser.update(cx, |browser, cx| {
-                browser.capture_fixture(cx);
-            });
-        });
-        wait(visual, |cx| {
-            snapshot(&panel, cx).contains("browser-annotation-image")
-        });
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
-        browser.read_with(visual, |browser, _| assert!(!browser.surface_visible()));
-        click(visual, "browser-annotation-cancel");
-        wait(visual, |cx| {
-            !snapshot(&panel, cx).contains("browser-annotation-image")
-        });
-        assert_eq!(count.get(), 0);
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
-        browser.read_with(visual, |browser, _| assert!(browser.surface_visible()));
-        visual.update(|_, cx| {
-            browser.update(cx, |browser, cx| {
-                browser.capture_fixture(cx);
+                (browser.lease, browser.capture_fixture(cx))
             })
         });
         wait(visual, |cx| {
             snapshot(&panel, cx).contains("browser-annotation-image")
+        });
+        browser.read_with(visual, |browser, _| {
+            assert_eq!(browser.lease, lease);
+            assert_eq!(browser.annotation_snapshot().unwrap()["token"], token);
+            assert!(browser.annotation_preview(&token).is_some());
+        });
+        // Mirror the real click helper while recording geometry across its frames.
+        visual.update(|window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+        });
+        let bounds = visual.debug_bounds("browser-annotation-cancel").unwrap();
+        visual.simulate_mouse_move(bounds.center(), None, Modifiers::default());
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+        });
+        let before = visual.debug_bounds("browser-annotation-cancel").unwrap();
+        visual.simulate_mouse_down(before.center(), MouseButton::Left, Modifiers::default());
+        visual.update(|window, cx| window.render_frame(cx));
+        let after = visual.debug_bounds("browser-annotation-cancel");
+        visual.simulate_mouse_up(before.center(), MouseButton::Left, Modifiers::default());
+        visual.update(|window, cx| window.render_frame(cx));
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+        });
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|_, cx| {
+            eprintln!(
+                "browser review cancel: remote={remote}, before={before:?}, after={after:?}, requests={}, captured={}, rendered={}",
+                cancelled.get(),
+                browser.read(cx).annotation_snapshot().is_some(),
+                snapshot(&panel, cx).contains("browser-annotation-image")
+            );
+        });
+        let deadline = Instant::now() + Duration::from_secs(9);
+        let reported = Cell::new(false);
+        wait(visual, |cx| {
+            let rendered = snapshot(&panel, cx);
+            if Instant::now() >= deadline && !reported.replace(true) {
+                eprintln!(
+                    "browser review cancel: remote={remote}, requests={}, capture={:?}, snapshot={rendered}",
+                    cancelled.get(),
+                    browser.read(cx).annotation_snapshot()
+                );
+            }
+            !rendered.contains("browser-annotation-image")
+        });
+        assert_eq!(count.get(), 0);
+        browser.read_with(visual, |browser, _| {
+            assert_eq!(browser.lease, lease);
+            assert!(browser.annotation_snapshot().is_none());
+            assert!(browser.annotation_preview(&token).is_none());
+        });
+        let token =
+            visual.update(|_, cx| browser.update(cx, |browser, cx| browser.capture_fixture(cx)));
+        wait(visual, |cx| {
+            snapshot(&panel, cx).contains("browser-annotation-image")
+        });
+        browser.read_with(visual, |browser, _| {
+            assert_eq!(browser.lease, lease);
+            assert_eq!(browser.annotation_snapshot().unwrap()["token"], token);
         });
         click(visual, "browser-annotation-note");
         visual.simulate_input("Keep annotation");
@@ -386,8 +450,15 @@ fn reviews_captured_elements_on_each_path(cx: &mut TestAppContext) {
                 && browser.read(cx).snapshot(cx)["annotating"] == false
         });
         assert_eq!(count.get(), 1);
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
-        browser.read_with(visual, |browser, _| assert!(browser.surface_visible()));
+        browser.read_with(visual, |browser, _| {
+            assert_eq!(browser.lease, lease);
+            assert!(browser.annotation_snapshot().is_none());
+            assert!(browser.annotation_preview(&token).is_none());
+        });
+        assert_eq!(
+            panel.read_with(visual, |panel, _| panel.browser_view().unwrap()),
+            browser
+        );
         visual.update(|window, _| window.remove_window());
         drop(panel);
         drop(browser);

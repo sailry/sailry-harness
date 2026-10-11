@@ -288,7 +288,7 @@ fn transfers_exact_capture_and_rejects_stale_targets(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
-fn covered_surface_preserves_capture_and_checks_lease(cx: &mut TestAppContext) {
+fn retained_capture_checks_lease(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::theme::init(cx);
@@ -302,24 +302,15 @@ fn covered_surface_preserves_capture_and_checks_lease(cx: &mut TestAppContext) {
         browser.update(cx, |browser, cx| {
             let token = browser.capture_fixture(cx);
             let lease = browser.lease;
-            browser.cover(lease, true, window, cx);
             assert!(browser.annotation.active());
             assert_eq!(browser.annotation_snapshot().unwrap()["token"], token);
             assert!(browser.annotation_preview(&token).is_some());
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
-            assert!(!browser.surface_visible());
-            browser.cover(lease + 1, false, window, cx);
-            assert!(browser.covered);
-            browser.cover(lease, false, window, cx);
+            browser.visibility(true, window, cx);
             assert!(browser.annotation.active());
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
-            assert!(browser.surface_visible());
-            browser.cover(lease, true, window, cx);
             browser.acquire_lease(cx);
-            assert!(!browser.covered);
-            browser.cover(lease, true, window, cx);
-            assert!(!browser.covered);
+            assert_ne!(browser.lease, lease);
             assert!(!browser.annotation.active());
+            assert!(browser.annotation_preview(&token).is_none());
         });
     });
 }

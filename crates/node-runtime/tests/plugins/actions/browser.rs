@@ -152,6 +152,7 @@ async fn distinguishes_grants_scope_and_uncertain_navigation() {
                 BrowserAction::Navigate {
                     url: "https://example.com".into(),
                     tab: None,
+                    background: false,
                 },
                 ErrorCode::OutcomeUnknown,
             ),
@@ -221,7 +222,8 @@ async fn distinguishes_grants_scope_and_uncertain_navigation() {
                     &context,
                     BrowserAction::Navigate {
                         url: "file:///outside".into(),
-                        tab: None
+                        tab: None,
+                        background: false,
                     }
                 ))
                 .await

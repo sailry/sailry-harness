@@ -200,7 +200,7 @@ impl Browser {
     }
     fn annotation_matches(&self, target: &Target) -> bool {
         !target.stop.is_cancelled()
-            && self.mounted
+            && self.mounted.get()
             && self.lease == target.lease
             && self
                 .annotation

@@ -189,7 +189,17 @@ impl Shell {
     ) -> Task<sailry_protocol::browser::Result> {
         let key = Key::Session(node, call.session);
         let browser = self.browser_for(key, window, cx);
-        if self.session_scope.active == key {
+        let foreground = matches!(
+            call.action,
+            sailry_protocol::browser::Action::Open {
+                background: false,
+                ..
+            } | sailry_protocol::browser::Action::Navigate {
+                background: false,
+                ..
+            } | sailry_protocol::browser::Action::Focus { .. }
+        );
+        if self.session_scope.active == key && foreground {
             self.reveal_browser(browser.clone(), window, cx);
         }
         browser.update(cx, |browser, cx| browser.execute(call.action, window, cx))

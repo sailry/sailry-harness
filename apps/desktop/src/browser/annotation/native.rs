@@ -11,7 +11,9 @@ impl Browser {
         let tab = self
             .tabs
             .get(self.selected)
-            .filter(|tab| !self.preview && self.mounted && !tab.loading && tab.error.is_none())
+            .filter(|tab| {
+                !self.preview && self.mounted.get() && !tab.loading && tab.error.is_none()
+            })
             .ok_or("browser_annotation_unavailable")?;
         let page = tab.page.as_ref().ok_or("browser_annotation_unavailable")?;
         if destination(&tab.url).is_none() {

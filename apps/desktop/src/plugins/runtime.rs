@@ -89,7 +89,7 @@ impl Mounted {
         // native image renderer and admit only declared SVG and validated PNG resources.
         let images = cache.images.clone();
         let tabs = super::controls::tabs::Controls::new(host.stop_token());
-        let (header, with_header) = super::header::create(tabs.clone(), cx);
+        let (header, with_header) = super::header::create(tabs.clone(), document.is_some(), cx);
         let conversations = super::conversation::Conversations::default();
         let terminals = super::terminals::Terminals::default();
         let module = terminals

@@ -59,6 +59,7 @@ struct Action {
 
 pub(crate) struct Header {
     content: Content,
+    trailing: bool,
     filters: filters::Controls,
     tabs: super::controls::tabs::Controls,
     actions: tokio::sync::mpsc::Sender<String>,
@@ -66,11 +67,13 @@ pub(crate) struct Header {
 
 pub(super) fn create(
     tabs: super::controls::tabs::Controls,
+    trailing: bool,
     cx: &mut App,
 ) -> (Entity<Header>, impl FnOnce(HostModule) -> HostModule) {
     let (sender, receiver) = tokio::sync::mpsc::channel(8);
     let header = cx.new(|_| Header {
         content: Content::default(),
+        trailing,
         filters: Default::default(),
         tabs,
         actions: sender,
@@ -144,6 +147,15 @@ impl Header {
 
     pub(super) fn min_content_height(&self) -> Pixels {
         px(self.content.min_content_height)
+    }
+
+    #[cfg(test)]
+    pub(super) fn action_disabled(&self, id: &str) -> Option<bool> {
+        self.content
+            .actions
+            .iter()
+            .find(|action| action.id == id)
+            .map(|action| action.disabled)
     }
 
     #[cfg(test)]

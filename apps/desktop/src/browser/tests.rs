@@ -3,6 +3,121 @@ use core::prelude::v1::test;
 use gpui_kit::component::input::{Input, InputState};
 use std::{cell::Cell, rc::Rc};
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+mod occlusion {
+    use super::*;
+    use gpui_kit::prelude::FluentBuilder as _;
+
+    #[derive(Clone, Copy, Debug)]
+    struct Frame {
+        bounds: Bounds<Pixels>,
+        full_blocked: bool,
+        native_blocked: bool,
+        center_blocked: bool,
+    }
+
+    struct View {
+        state: Entity<ResizableState>,
+        frame: Rc<Cell<Option<Frame>>>,
+        covered: bool,
+    }
+
+    impl Render for View {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let frame = self.frame.clone();
+            div()
+                .relative()
+                .w(px(400.))
+                .h(px(200.))
+                .child(
+                    h_resizable("native-panels")
+                        .with_state(&self.state)
+                        .child(resizable_panel().size(px(150.)).child(div().size_full()))
+                        .child(
+                            resizable_panel().size(px(250.)).child(
+                                div().size_full().p(surface::RESIZE_INSET).child(
+                                    canvas(
+                                        |bounds, window, _| {
+                                            let native = window
+                                                .insert_hitbox(bounds, HitboxBehavior::Normal);
+                                            let full = window.insert_hitbox(
+                                                bounds.dilate(surface::RESIZE_INSET),
+                                                HitboxBehavior::Normal,
+                                            );
+                                            (native, full)
+                                        },
+                                        move |bounds, (native, full), window, _| {
+                                            let mut center = native.clone();
+                                            center.bounds =
+                                                Bounds::new(bounds.center(), size(px(1.), px(1.)));
+                                            frame.set(Some(Frame {
+                                                bounds,
+                                                full_blocked: window.is_hitbox_occluded(&full),
+                                                native_blocked: window.is_hitbox_occluded(&native),
+                                                center_blocked: window.is_hitbox_occluded(&center),
+                                            }));
+                                        },
+                                    )
+                                    .size_full(),
+                                ),
+                            ),
+                        ),
+                )
+                .when(self.covered, |view| {
+                    view.child(div().absolute().inset_0().occlude())
+                })
+        }
+    }
+
+    #[gpui::test]
+    fn preserves_dividers_and_covering_overlays(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::init(cx);
+        });
+        let frame = Rc::new(Cell::new(None));
+        let (view, visual) = cx.add_window_view({
+            let frame = frame.clone();
+            move |_, cx| View {
+                state: cx.new(|_| ResizableState::default()),
+                frame,
+                covered: false,
+            }
+        });
+        for _ in 0..2 {
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        let clear = frame.get().unwrap();
+        assert!(clear.bounds.size.width > px(0.) && clear.bounds.size.height > px(0.));
+        assert!(
+            clear.full_blocked,
+            "the real Kit divider must overlap the full panel"
+        );
+        assert!(
+            !clear.center_blocked,
+            "the divider must leave the panel center clear"
+        );
+        assert!(
+            !clear.native_blocked,
+            "the native frame must leave the divider accessible"
+        );
+
+        view.update(visual, |view, cx| {
+            view.covered = true;
+            cx.notify();
+        });
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let covered = frame.get().unwrap();
+        assert_eq!(covered.bounds, clear.bounds);
+        assert!(
+            covered.native_blocked,
+            "a covering overlay must still occlude native content"
+        );
+        assert!(covered.center_blocked);
+    }
+}
+
 struct Tabs {
     browser: Entity<Browser>,
     address: Entity<InputState>,

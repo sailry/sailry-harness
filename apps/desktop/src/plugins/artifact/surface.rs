@@ -312,10 +312,15 @@ impl View {
             return;
         };
         let (sender, mut receiver) = tokio::sync::mpsc::channel::<String>(4);
+        let snapshot = crate::ui::webview_snapshot::Snapshot::new();
+        let signals = snapshot.signals();
         let builder = wry::WebViewBuilder::new()
             .with_html(html)
             .with_navigation_handler(|url| url == "about:blank")
             .with_ipc_handler(move |request| {
+                if signals.receive(request.body()) {
+                    return;
+                }
                 if request.body().len() <= 16 * 1024 * 1024 {
                     let export = serde_json::from_str::<Value>(request.body())
                         .ok()
@@ -330,7 +335,8 @@ impl View {
                     }
                 }
             });
-        let Ok(native) = crate::content::files::html::surface::Native::build(builder, window)
+        let Ok(native) =
+            crate::content::files::html::surface::Native::build(builder, window, snapshot)
         else {
             self.error = Some("artifact_preview_failed");
             return;

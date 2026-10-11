@@ -14,16 +14,14 @@ impl Render for Browser {
                 self.load(url, window, cx);
             }
         }
-        self.visibility(self.mounted, window, cx);
+        self.visibility(self.mounted.get(), window, cx);
         let mut body = div().into_any_element();
         let tab = &self.tabs[self.selected];
         #[cfg(any(target_os = "macos", target_os = "windows"))]
-        if let Some(page) = &tab.page {
-            body = page.clone().into_any_element();
-        }
-        #[cfg(target_os = "macos")]
-        if let (Some(surface), Some(page)) = (&tab.surface, &tab.page) {
-            body = surface.element(page, cx);
+        if let Some(page) = &tab.page
+            && !tab.background
+        {
+            body = surface::render(tab, page, &mut self.mounted, window, cx);
         }
         let panel = div().id("browser-surface").key_context("SailryBrowser");
         #[cfg(target_os = "macos")]

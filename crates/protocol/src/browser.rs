@@ -12,6 +12,8 @@ pub enum Action {
     Navigate {
         url: String,
         tab: Option<u64>,
+        #[serde(default)]
+        background: bool,
     },
     Click {
         tab: u64,
@@ -39,6 +41,8 @@ pub enum Action {
     },
     Open {
         url: String,
+        #[serde(default)]
+        background: bool,
     },
     Close {
         tab: u64,

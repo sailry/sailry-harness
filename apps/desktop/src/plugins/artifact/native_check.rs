@@ -103,6 +103,7 @@ pub(in crate::plugins) fn run(output: &Path) {
                 Theme::change(ThemeMode::Light,Some(window),cx);
                 let html=page::document(&initial,page::theme(cx),page::labels(),true,vec![]).unwrap();
                 let events=Rc::new(RefCell::new(Vec::<Value>::new()));let posts=events.clone();let loaded=events.clone();
+                let snapshot=crate::ui::webview_snapshot::Snapshot::new();let signals=snapshot.signals();
                 let builder=wry::WebViewBuilder::new().with_html(html)
                     .with_background_throttling(wry::BackgroundThrottlingPolicy::Disabled)
                     .with_initialization_script("window.requestAnimationFrame=callback=>setTimeout(()=>callback(performance.now()),16);window.cancelAnimationFrame=id=>clearTimeout(id);")
@@ -111,9 +112,10 @@ pub(in crate::plugins) fn run(output: &Path) {
                         if matches!(event,wry::PageLoadEvent::Finished) {loaded.borrow_mut().push(json!({"kind":"loaded"}));}
                     })
                     .with_ipc_handler(move|request| {
+                        if signals.receive(request.body()){return;}
                         if let Ok(event)=serde_json::from_str(request.body()){posts.borrow_mut().push(event);}
                     });
-                let native=Rc::new(crate::content::files::html::surface::Native::build(builder,window).unwrap());
+                let native=Rc::new(crate::content::files::html::surface::Native::build(builder,window,snapshot).unwrap());
                 let view=cx.new(|_|Harness{native,events});*capture.borrow_mut()=Some(view.clone());
                 cx.new(|cx|Root::new(view,window,cx))
             }).unwrap();

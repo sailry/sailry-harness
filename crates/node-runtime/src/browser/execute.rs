@@ -6,7 +6,7 @@ use sailry_protocol::{Command, Output, Request, WorktreeId};
 use serde_json::Value;
 
 pub(crate) fn validate(action: &Action) -> Result<(), Fault> {
-    if let Action::Navigate { url, .. } | Action::Open { url } = action
+    if let Action::Navigate { url, .. } | Action::Open { url, .. } = action
         && !url::Url::parse(url).is_ok_and(|url| {
             matches!(url.scheme(), "http" | "https")
                 && url.username().is_empty()

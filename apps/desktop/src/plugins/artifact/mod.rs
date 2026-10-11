@@ -200,8 +200,13 @@ pub(super) fn module(resource: Option<Resource>, host: Arc<Host>, window: &Windo
             let host = export_host.clone();
             let live = live.borrow().clone();
             let (sender, receiver) = tokio::sync::oneshot::channel();
-            gpui_shell::with_current_app(|cx| cx.update_window(handle, move |_, window, cx| export::choose(resource, host, options, live, sender, window, cx)))
-                .ok_or_else(|| HostError::new("export requires an active view"))?.map_err(|_| HostError::new("export window is closed"))?;
+            gpui_shell::with_current_app(move |cx| cx.defer(move |cx| {
+                if host.check().is_err() {
+                    return;
+                }
+                // The script task already borrows this window until its scope returns.
+                let _ = cx.update_window(handle, move |_, window, cx| export::choose(resource, host, options, live, sender, window, cx));
+            })).ok_or_else(|| HostError::new("export requires an active view"))?;
             Ok(async move { Ok(HostValue::Bool(receiver.await.unwrap_or(false))) })
         })
         .declarations(include_str!("api.d.ts"))

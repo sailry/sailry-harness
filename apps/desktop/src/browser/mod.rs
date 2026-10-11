@@ -6,6 +6,7 @@ pub(crate) mod bridge;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod capture;
 use gpui_kit::{component::*, *};
+use std::{cell::Cell, rc::Rc};
 
 #[cfg(target_os = "macos")]
 pub(crate) mod chrome;
@@ -21,6 +22,8 @@ pub(crate) mod settings;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod shortcuts;
 pub(crate) mod state;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+mod surface;
 #[cfg(test)]
 mod tests;
 mod view;
@@ -30,6 +33,7 @@ struct Tab {
     title: SharedString,
     url: String,
     loading: bool,
+    background: bool,
     error: Option<&'static str>,
     #[cfg(target_os = "macos")]
     navigation: Option<objc2::rc::Retained<navigation::Observer>>,
@@ -37,6 +41,8 @@ struct Tab {
     surface: Option<std::rc::Rc<inspector::Surface>>,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     page: Option<Entity<gpui_wry::WebView>>,
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    snapshot: std::rc::Rc<crate::ui::webview_snapshot::Snapshot>,
 }
 
 pub(crate) struct Browser {
@@ -50,8 +56,7 @@ pub(crate) struct Browser {
     changes: tokio::sync::watch::Sender<serde_json::Value>,
     cursor: u64,
     pub(crate) lease: u64,
-    mounted: bool,
-    covered: bool,
+    mounted: Rc<Cell<bool>>,
     preview: bool,
     annotation: annotation::State,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -65,7 +70,6 @@ impl EventEmitter<annotation::Transfer> for Browser {}
 impl Browser {
     pub(crate) fn acquire_lease(&mut self, cx: &mut Context<Self>) -> u64 {
         self.lease += 1;
-        self.covered = false;
         self.cancel_annotation(cx);
         self.changed(cx);
         self.lease
@@ -114,7 +118,7 @@ impl Browser {
         });
         if let Some(Some(root)) = window.root::<Root>() {
             cx.observe_in(&root, window, |this, _, window, cx| {
-                this.visibility(this.mounted, window, cx);
+                this.visibility(this.mounted.get(), window, cx);
             })
             .detach();
         }
@@ -129,6 +133,7 @@ impl Browser {
                     tab.surface = None;
                     tab.navigation = None;
                     tab.page = None;
+                    tab.snapshot = crate::ui::webview_snapshot::Snapshot::new();
                     // Drop callbacks queued by the old website data store.
                     tab.id = this.serial;
                     this.serial += 1;
@@ -152,8 +157,7 @@ impl Browser {
             changes: tokio::sync::watch::channel(serde_json::Value::Null).0,
             cursor: 0,
             lease: 0,
-            mounted: true,
-            covered: false,
+            mounted: Rc::new(Cell::new(true)),
             preview,
             annotation: annotation::State::default(),
             #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -188,13 +192,14 @@ impl Browser {
             self.cancel_annotation(cx);
         }
         self.selected = index;
+        self.tabs[index].background = false;
         let url = self.tabs[index].url.clone();
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         if self.tabs[index].page.is_none() && !url.is_empty() && !self.preview {
             self.load(url, window, cx);
             return;
         }
-        self.visibility(self.mounted, window, cx);
+        self.visibility(self.mounted.get(), window, cx);
         self.changed(cx);
     }
 
@@ -236,28 +241,29 @@ impl Browser {
     pub(crate) fn visibility(
         &mut self,
         mounted: bool,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !mounted && self.mounted {
+        if !mounted && self.mounted.get() {
             self.cancel_annotation(cx);
         }
-        self.mounted = mounted;
+        self.mounted.set(mounted);
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
-            let visible = self.surface_visible() && !window.has_active_dialog(cx);
+            let visible = self.mounted.get();
             for (index, tab) in self.tabs.iter().enumerate() {
                 if let Some(page) = &tab.page {
                     page.update(cx, |page, _| {
-                        let show = visible && index == self.selected;
+                        let show = visible && index == self.selected && !tab.background;
                         #[cfg(target_os = "macos")]
-                        if let Some(surface) = &tab.surface {
+                        if !show && let Some(surface) = &tab.surface {
                             surface.visible(show);
                         }
-                        if show != page.visible() {
-                            if show {
-                                page.show();
-                            } else {
+                        // The selected paint adapter decides overlay substitution.
+                        // Inactive tabs retain their page and cache while hidden.
+                        if !show {
+                            tab.snapshot.unmount();
+                            if page.visible() {
                                 page.hide();
                             }
                         }
@@ -265,26 +271,6 @@ impl Browser {
                 }
             }
         }
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    pub(crate) fn surface_visible(&self) -> bool {
-        self.mounted && !self.covered
-    }
-
-    pub(crate) fn cover(
-        &mut self,
-        lease: u64,
-        covered: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.lease != lease || self.covered == covered {
-            return;
-        }
-        self.covered = covered;
-        self.visibility(self.mounted, window, cx);
-        cx.notify();
     }
 
     fn navigate(&mut self, value: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -327,6 +313,7 @@ impl Tab {
             title: "".into(),
             url: String::new(),
             loading: false,
+            background: false,
             error: None,
             #[cfg(target_os = "macos")]
             navigation: None,
@@ -334,6 +321,8 @@ impl Tab {
             surface: None,
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             page: None,
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            snapshot: crate::ui::webview_snapshot::Snapshot::new(),
         }
     }
 }

@@ -84,7 +84,7 @@ zeroize.workspace = true
 dirs.workspace = true
 objc2.workspace = true
 objc2-av-foundation.workspace = true
-objc2-app-kit = { workspace = true, features = ["NSApplication", "NSRunningApplication", "NSWorkspace", "block2", "NSEvent", "NSTrackingArea", "NSGraphicsContext", "NSMenu", "NSMenuItem"] }
+objc2-app-kit = { workspace = true, features = ["NSApplication", "NSRunningApplication", "NSWorkspace", "block2", "NSEvent", "NSTrackingArea", "NSGraphicsContext", "NSMenu", "NSMenuItem", "NSBitmapImageRep", "NSImageRep", "NSColorSpace"] }
 objc2-web-kit.workspace = true
 objc2-foundation.workspace = true
 core-foundation = "=0.10.1"

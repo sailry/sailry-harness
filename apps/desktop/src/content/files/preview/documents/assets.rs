@@ -126,6 +126,8 @@ pub(in crate::content::files::html) fn native(
     // Wry maps this scheme to http://sailry-preview.localhost on Windows.
     let url = format!("sailry-preview://localhost/index.html#{format}");
     let mime = mime.to_owned();
+    let snapshot = crate::ui::webview_snapshot::Snapshot::new();
+    let signals = snapshot.signals();
     let builder = wry::WebViewBuilder::new()
         .with_initialization_script(format!(
             "window.previewBackground={};",
@@ -150,11 +152,15 @@ pub(in crate::content::files::html) fn native(
                 .body(body)
                 .unwrap()
         })
-        .with_ipc_handler(move |request| status(request.body()))
+        .with_ipc_handler(move |request| {
+            if !signals.receive(request.body()) {
+                status(request.body());
+            }
+        })
         .with_navigation_handler(|url| {
             url.starts_with("sailry-preview://localhost/index.html#")
                 || url.starts_with("http://sailry-preview.localhost/index.html#")
         })
         .with_url(&url);
-    surface::Native::build(builder, window)
+    surface::Native::build(builder, window, snapshot)
 }

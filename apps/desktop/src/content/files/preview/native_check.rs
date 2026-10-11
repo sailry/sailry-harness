@@ -6,8 +6,11 @@ use objc2_foundation::NSPoint;
 use std::{path::Path, time::Duration};
 use wry::WebViewExtMacOS;
 
-const HTML: &str = r#"<!doctype html><html><body><button id="run" onclick="this.textContent='Done';parent.postMessage('fixture-clicked','*')">Run</button><script>
-addEventListener('message', event => { if(event.data==='fixture-click')document.querySelector('#run').click(); });
+const HTML: &str = r#"<!doctype html><html><body><button id="run" onclick="this.textContent='Done';parent.postMessage('fixture-clicked','*')">Run</button><div style="height:2000px">Scrollable document</div><script>
+addEventListener('message', event => {
+ if(event.data==='fixture-click')document.querySelector('#run').click();
+ if(event.data==='fixture-scroll'){scrollTo(0,300);parent.postMessage('fixture-scrolled','*');}
+});
 setInterval(()=>parent.postMessage('fixture-ready','*'),100);
 </script></body></html>"#;
 
@@ -35,6 +38,9 @@ struct Harness {
     hovered: Rc<Cell<bool>>,
     trigger: Rc<Cell<Bounds<Pixels>>>,
     overlay: Option<Pixels>,
+    height: Pixels,
+    width: Pixels,
+    viewport: Pixels,
 }
 impl Render for Harness {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -45,16 +51,16 @@ impl Render for Harness {
             .child(
                 div()
                     .relative()
-                    .w(px(300.))
-                    .h(px(100.))
+                    .w(self.width)
+                    .h(self.viewport)
                     .overflow_hidden()
                     .when(self.mounted, |region| {
                         region.child(
                             div()
                                 .absolute()
                                 .top(if self.crop { px(-40.) } else { px(0.) })
-                                .w(px(300.))
-                                .h(px(180.))
+                                .w(self.width)
+                                .h(self.height)
                                 .child(surface::render(
                                     self.native.as_ref().unwrap().clone(),
                                     window,
@@ -109,7 +115,7 @@ pub(in crate::content::files) fn run(output: &Path) {
                 window.set_window_title("Sailry — file preview fixture");
                 window.activate_window();
                 let native = Rc::new(surface::Native::new(HTML, window).unwrap());
-                let view = cx.new(|_| Harness { native: Some(native), mounted: true, crop: true, hovered: Rc::default(), trigger: Rc::default(), overlay: None });
+                let view = cx.new(|_| Harness { native: Some(native), mounted: true, crop: true, hovered: Rc::default(), trigger: Rc::default(), overlay: None, height: px(180.), width: px(300.), viewport: px(100.) });
                 let probe = view.clone();
                 window.spawn(cx, async move |cx| {
                     let _ = crate::workload::check(async {
@@ -351,6 +357,7 @@ async fn verify(view: &Entity<Harness>, cx: &mut AsyncWindowContext) {
         );
     })
     .unwrap();
+    verify_freshness(view, cx).await;
     cx.update(|window, cx| {
         view.read(cx).native.as_ref().unwrap().page.focus().unwrap();
         window.open_dialog(cx, |dialog, _, _| dialog.title("Preview fixture"));
@@ -385,6 +392,9 @@ async fn verify(view: &Entity<Harness>, cx: &mut AsyncWindowContext) {
     pause(cx).await;
     assert!(!hidden(view, cx));
     verify_surfaces(view, cx).await;
+    println!(
+        "File preview: clipped modal, menu, toast and event-driven load/resize/scroll cache verified"
+    );
     check_pointer(view, cx).await;
     view.update(cx, |view, cx| {
         view.crop = false;
@@ -407,6 +417,53 @@ async fn verify(view: &Entity<Harness>, cx: &mut AsyncWindowContext) {
     });
     pause(cx).await;
     assert!(!hidden(view, cx));
+}
+
+async fn fresh(view: &Entity<Harness>, previous: Option<u64>, cx: &mut AsyncWindowContext) -> u64 {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let (generation, current) =
+            view.read_with(cx, |view, _| view.native.as_ref().unwrap().cache_state());
+        if current && previous.is_none_or(|previous| generation > previous) {
+            return generation;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "native snapshot did not refresh after content settled"
+        );
+        pause(cx).await;
+    }
+}
+
+async fn verify_freshness(view: &Entity<Harness>, cx: &mut AsyncWindowContext) {
+    let loaded = fresh(view, None, cx).await;
+    assert!(
+        loaded > 1,
+        "native page completion must invalidate the initial layout cache"
+    );
+    evaluate(
+        view,
+        "document.querySelector('iframe').contentWindow.postMessage('fixture-scroll','*');true",
+        cx,
+    )
+    .await;
+    let scrolled = fresh(view, Some(loaded), cx).await;
+    view.update(cx, |view, cx| {
+        view.height = px(200.);
+        cx.notify();
+    });
+    pause(cx).await;
+    let resized = fresh(view, Some(scrolled), cx).await;
+    assert!(
+        !hidden(view, cx),
+        "a visible page stays native while its cache warms"
+    );
+    view.update(cx, |view, cx| {
+        view.height = px(180.);
+        cx.notify();
+    });
+    pause(cx).await;
+    fresh(view, Some(resized), cx).await;
 }
 
 async fn verify_surfaces(view: &Entity<Harness>, cx: &mut AsyncWindowContext) {

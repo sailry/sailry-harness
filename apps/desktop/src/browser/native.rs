@@ -18,6 +18,38 @@ pub(super) enum Event {
 }
 
 impl Browser {
+    #[cfg(feature = "workload-tests")]
+    pub(crate) fn visibility_state(&self, id: u64, cx: &App) -> serde_json::Value {
+        let tab = self.tabs.iter().find(|tab| tab.id as u64 == id);
+        let page = tab
+            .and_then(|tab| tab.page.as_ref())
+            .map(|page| page.read(cx));
+        #[cfg(target_os = "macos")]
+        let hidden = page.map(|page| {
+            use wry::WebViewExtMacOS as _;
+            page.raw().webview().isHidden()
+        });
+        #[cfg(target_os = "windows")]
+        let hidden = page.and_then(|page| {
+            use wry::WebViewExtWindows as _;
+            let mut visible = windows_webview::core::BOOL::default();
+            // SAFETY: the retained controller and output pointer are valid on this UI thread.
+            unsafe { page.raw().controller().IsVisible(&mut visible).ok() }?;
+            Some(!visible.as_bool())
+        });
+        serde_json::json!({
+            "mounted": self.mounted.get(),
+            "lease": self.lease,
+            "selected": self.tabs.get(self.selected).map(|tab| tab.id),
+            "requested": id,
+            "background": tab.map(|tab| tab.background),
+            "loading": tab.map(|tab| tab.loading),
+            "kit_visible": page.map(|page| page.visible()),
+            "raw_hidden": hidden,
+            "snapshot": tab.map(|tab| tab.snapshot.state()),
+        })
+    }
+
     pub(super) fn focus_selected(&self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tab) = self
             .tabs
@@ -40,7 +72,7 @@ impl Browser {
             };
             let page = {
                 let browser = browser.read(cx);
-                if browser.lease != lease || !browser.mounted {
+                if browser.lease != lease || !browser.mounted.get() {
                     return;
                 }
                 let Some(tab) = browser
@@ -63,8 +95,20 @@ impl Browser {
     }
 
     pub(super) fn load(&mut self, url: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.cancel_annotation(cx);
-        let tab = &mut self.tabs[self.selected];
+        self.load_at(self.selected, url, window, cx);
+    }
+
+    pub(super) fn load_at(
+        &mut self,
+        index: usize,
+        url: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.annotation.tab() == Some(self.tabs[index].id) {
+            self.cancel_annotation(cx);
+        }
+        let tab = &mut self.tabs[index];
         tab.error = None;
         if let Some(page) = &tab.page {
             if let Err(error) = page.read(cx).raw().load_url(&url) {
@@ -80,14 +124,20 @@ impl Browser {
             let navigation = self.events.clone();
             let shortcuts = self.events.clone();
             let shortcut = super::shortcuts::script(cx);
+            let signals = tab.snapshot.signals();
             let page = window
                 .window_handle()
                 .map_err(|error| error.to_string())
                 .and_then(|handle| {
                     let builder = wry::WebViewBuilder::new()
+                        .with_background_throttling(wry::BackgroundThrottlingPolicy::Disabled)
+                        .with_focused(!tab.background)
                         .with_url(&url)
                         .with_initialization_script(&shortcut)
                         .with_ipc_handler(move |request| {
+                            if signals.receive(request.body()) {
+                                return;
+                            }
                             #[cfg(target_os = "macos")]
                             if request.body() == "inspect" {
                                 let _ = shortcuts.send((id, Event::Inspect));
@@ -130,6 +180,7 @@ impl Browser {
                             let _ = popups.send((id, Event::Open(url)));
                             wry::NewWindowResponse::Deny
                         });
+                    let builder = tab.snapshot.signals().prepare(builder);
                     #[cfg(target_os = "macos")]
                     let builder = {
                         use wry::WebViewBuilderExtMacos as _;
@@ -172,9 +223,17 @@ impl Browser {
                             self.events.clone(),
                         ));
                     }
+                    let background = tab.background;
                     tab.page = Some(cx.new(|cx| {
-                        let mut page = WebView::new(page, window, cx);
-                        page.hide();
+                        let page = if background {
+                            // Pinned Kit's new()+hide() moves native keyboard focus
+                            // even when Wry already created this view invisible.
+                            WebView::new_hidden(page, window, cx)
+                        } else {
+                            let mut page = WebView::new(page, window, cx);
+                            page.hide();
+                            page
+                        };
                         // Kit initializes zero bounds and has no layout for unmounted tabs.
                         // Background browser tools still need a viewport; visible layout takes over.
                         let viewport = window.viewport_size();
@@ -197,8 +256,17 @@ impl Browser {
         }
         tab.url = url.clone();
         tab.loading = tab.error.is_none();
-        self.visibility(self.mounted, window, cx);
+        self.visibility(self.mounted.get(), window, cx);
         self.changed(cx);
+    }
+
+    #[cfg(feature = "workload-tests")]
+    pub(crate) fn handle(&self, tab: u64, cx: &App) -> Option<gpui_wry::WebViewHandle> {
+        self.tabs
+            .iter()
+            .find(|entry| entry.id as u64 == tab)
+            .and_then(|entry| entry.page.as_ref())
+            .map(|page| page.read(cx).handle())
     }
 
     pub(super) fn accept(
@@ -257,8 +325,17 @@ impl Browser {
             }
             Event::Open(url) => {
                 if let Some(url) = destination(&url) {
-                    self.add(window, cx);
-                    self.load(url, window, cx);
+                    if self.tabs[index].background {
+                        let index = self.tabs.len();
+                        let mut tab = Tab::empty(self.serial);
+                        tab.background = true;
+                        self.serial += 1;
+                        self.tabs.push(tab);
+                        self.load_at(index, url, window, cx);
+                    } else {
+                        self.add(window, cx);
+                        self.load(url, window, cx);
+                    }
                 }
             }
         }

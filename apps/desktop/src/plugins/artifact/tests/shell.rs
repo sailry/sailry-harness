@@ -56,15 +56,14 @@ fn mounts_captured_header(cx: &mut TestAppContext) {
             (shell.current_chat().unwrap().clone(), panel.clone())
         });
         version(&panel, visual, 1);
-        let header = visual.debug_bounds("plugin-header").unwrap();
-        assert_eq!(header.size.height, px(crate::preview::HEADER_HEIGHT));
-        assert!(header.left() > visual.debug_bounds("main-content").unwrap().left());
-        for selector in ["brief-version", "brief-export"] {
-            let bounds = visual.debug_bounds(selector).unwrap();
-            assert!(bounds.size.width > px(0.) && bounds.size.height > px(0.));
-            assert!(bounds.left() >= header.left() && bounds.right() <= header.right());
-            assert!(bounds.top() >= header.top() && bounds.bottom() <= header.bottom());
+        let mut widths = Vec::new();
+        for width in [1440., 1680., 1440.] {
+            visual.simulate_window_resize(handle, size(px(width), px(900.)));
+            wait(visual, |_| true);
+            widths.push(controls(visual));
         }
+        assert!(widths[1] > widths[0]);
+        assert_eq!(widths[2], widths[0]);
         let host = panel.read_with(visual, |panel, _| panel.mounted.as_ref().unwrap().host());
         assert_eq!(host.target(), fixture.node.id());
         assert_eq!(host.context().session, Some(first.session));
@@ -89,6 +88,7 @@ fn mounts_captured_header(cx: &mut TestAppContext) {
         wait(visual, |_| *status.borrow() == Some(true));
         assert_eq!(published(&fixture, 2).id, first.id);
         version(&panel, visual, 2);
+        controls(visual);
         visual.update(|window, cx| window.clear_notifications(cx));
         crate::feedback::tests::settle(visual);
         visual.update(|window, cx| {
@@ -116,11 +116,22 @@ fn mounts_captured_header(cx: &mut TestAppContext) {
             window.press("enter", cx);
         });
         version(&panel, visual, 1);
+        controls(visual);
 
         chat::tap(visual, "brief-export");
         shown(visual, "brief-export-picker");
         assert!(visual.debug_bounds("brief-export-html").is_some());
         assert!(visual.debug_bounds("brief-export-image").is_some());
+        chat::tap(visual, "brief-export-html");
+        let platform = visual.cx.clone();
+        wait(visual, |_| platform.did_prompt_for_new_path());
+        wait(visual, |cx| export_disabled(&panel, cx) == Some(true));
+        assert!(visual.debug_bounds("brief-export-picker").is_none());
+        visual.simulate_new_path_selection(|_| None);
+        wait(visual, |cx| export_disabled(&panel, cx) == Some(false));
+        assert!(!visual.did_prompt_for_new_path());
+        chat::tap(visual, "brief-export");
+        shown(visual, "brief-export-picker");
         visual.update(|window, cx| window.press("escape", cx));
         visual.update(|window, _| window.remove_window());
         drop(panel);
@@ -131,6 +142,31 @@ fn mounts_captured_header(cx: &mut TestAppContext) {
         cx.update(|cx| cx.remove_global::<Services>());
         fixture.close();
     }
+}
+
+fn export_disabled(panel: &Entity<Panel>, cx: &App) -> Option<bool> {
+    panel
+        .read(cx)
+        .header()
+        .and_then(|header| header.read(cx).action_disabled("brief-export"))
+}
+
+fn controls(visual: &mut VisualTestContext) -> Pixels {
+    let header = visual.debug_bounds("plugin-header").unwrap();
+    assert_eq!(header.size.height, px(crate::preview::HEADER_HEIGHT));
+    assert!(header.left() > visual.debug_bounds("main-content").unwrap().left());
+    for selector in ["brief-version", "brief-export"] {
+        let bounds = visual.debug_bounds(selector).unwrap();
+        assert!(bounds.size.width > px(0.) && bounds.size.height > px(0.));
+        assert!(bounds.left() >= header.left() && bounds.right() <= header.right());
+        assert!(bounds.top() >= header.top() && bounds.bottom() <= header.bottom());
+    }
+    let version = visual.debug_bounds("brief-version").unwrap();
+    let export = visual.debug_bounds("brief-export").unwrap();
+    let gap = visual.update(|window, _| window.rem_size() * 0.75);
+    assert!((export.left() - version.right() - gap).abs() < px(1.));
+    assert!((header.right() - export.right() - gap).abs() < px(1.));
+    header.size.width
 }
 
 fn shown(visual: &mut VisualTestContext, selector: &'static str) {
