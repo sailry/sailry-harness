@@ -8,14 +8,32 @@ use sailry_protocol::plugin::{
     updates::{Candidate, Report},
 };
 
+pub(crate) struct Catalog {
+    entries: Vec<Entry>,
+    repository: tokio::sync::OnceCell<Result<Repository, Fault>>,
+}
+
+struct Repository {
+    _directory: tempfile::TempDir,
+    root: PathBuf,
+    links: Vec<String>,
+}
+
 impl Host {
     pub(crate) async fn update_catalog(
         &self,
         packages: &[Info],
         stop: &CancellationToken,
-    ) -> Option<Result<Vec<Entry>, Fault>> {
+    ) -> Option<Result<Catalog, Fault>> {
         if packages.iter().any(catalog::official::owns) {
-            Some(catalog::official::fetch(self, stop).await)
+            Some(
+                catalog::official::fetch(self, stop)
+                    .await
+                    .map(|entries| Catalog {
+                        entries,
+                        repository: tokio::sync::OnceCell::new(),
+                    }),
+            )
         } else {
             None
         }
@@ -61,40 +79,51 @@ impl Host {
         current: Info,
         root: Option<PathBuf>,
         stop: CancellationToken,
-        catalog: Option<&Result<Vec<Entry>, Fault>>,
+        catalog: Option<&Result<Catalog, Fault>>,
     ) -> Result<Report, Fault> {
         if catalog::official::owns(&current) {
-            let bundled = self.bundled_update(&current, stop).await?;
+            let bundled = self.bundled_update(&current, stop.clone()).await?;
             let entry = catalog
                 .ok_or_else(|| Fault::invalid("official plugin catalog is unavailable"))
-                .and_then(|entries| entries.as_ref().map_err(Clone::clone))
-                .and_then(|entries| {
-                    entries
+                .and_then(|catalog| catalog.as_ref().map_err(Clone::clone))
+                .and_then(|catalog| {
+                    catalog
+                        .entries
                         .iter()
                         .find(|entry| entry.id == current.summary.name)
+                        .map(|entry| (catalog, entry))
                         .ok_or_else(|| {
                             Fault::new(ErrorCode::NotFound, "official plugin is unavailable")
                         })
                 });
-            let available = match (entry, bundled) {
-                (Err(error), _)
+            let available = match entry {
+                Err(error)
                     if !matches!(error.code, ErrorCode::Unavailable | ErrorCode::NotFound) =>
                 {
                     return Err(error);
                 }
-                (Ok(entry), Some(bundled)) => {
-                    if newer(entry.version.as_deref(), bundled.summary.version.as_deref())? {
-                        Some(Candidate::Official(Box::new(entry.clone())))
-                    } else {
-                        Some(Candidate::Package(Box::new(bundled)))
+                Ok((catalog, entry)) => {
+                    match self.official_update(&current, catalog, entry, stop).await {
+                        Ok(available) => available.or_else(|| {
+                            bundled.map(|package| Candidate::Package(Box::new(package)))
+                        }),
+                        Err(error) if catalog::official::unavailable(&error) => {
+                            if let Some(bundled) = bundled {
+                                Some(Candidate::Package(Box::new(bundled)))
+                            } else {
+                                return Err(error);
+                            }
+                        }
+                        Err(error) => return Err(error),
                     }
                 }
-                (Err(_), Some(bundled)) => Some(Candidate::Package(Box::new(bundled))),
-                (Ok(entry), None) => {
-                    newer(entry.version.as_deref(), current.summary.version.as_deref())?
-                        .then(|| Candidate::Official(Box::new(entry.clone())))
+                Err(error) => {
+                    if let Some(bundled) = bundled {
+                        Some(Candidate::Package(Box::new(bundled)))
+                    } else {
+                        return Err(error);
+                    }
                 }
-                (Err(error), None) => return Err(error),
             };
             return Ok(Report {
                 available,
@@ -175,6 +204,66 @@ impl Host {
         })
     }
 
+    async fn official_update(
+        &self,
+        current: &Info,
+        catalog: &Catalog,
+        entry: &Entry,
+        stop: CancellationToken,
+    ) -> Result<Option<Candidate>, Fault> {
+        version(entry.version.as_deref())?;
+        let _permit = self
+            .reads
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Fault::new(ErrorCode::Busy, "plugin inspection is busy"))?;
+        let repository = catalog
+            .repository
+            .get_or_init(|| async { self.update_source(entry, stop.clone()).await })
+            .await
+            .as_ref()
+            .map_err(Clone::clone)?;
+        let root = repository.root.clone();
+        let links = repository.links.clone();
+        let path = entry.id.clone();
+        let selected =
+            tokio::task::spawn_blocking(move || sources::inspect_root(&root, &path, &links, stop))
+                .await
+                .map_err(|_| github::unavailable())??;
+        if selected.summary.name != current.summary.name {
+            return Err(Fault::invalid("plugin update has a different identity"));
+        }
+        version(selected.summary.version.as_deref())?;
+        Ok((selected.summary.digest != current.summary.digest)
+            .then(|| Candidate::Official(Box::new(entry.clone()))))
+    }
+
+    async fn update_source(
+        &self,
+        entry: &Entry,
+        stop: CancellationToken,
+    ) -> Result<Repository, Fault> {
+        let source = repository::source::Selection::parse(&Source {
+            repository: entry
+                .repository
+                .clone()
+                .ok_or_else(|| Fault::invalid("official plugin repository is unavailable"))?,
+            git_ref: Some("main".into()),
+            path: None,
+        })?;
+        let (archive, _) = self.source_archive(&source, None, stop.clone()).await?;
+        tokio::task::spawn_blocking(move || {
+            let (directory, root, links) = archive::unpack_source(archive, &stop, 10_000)?;
+            Ok(Repository {
+                _directory: directory,
+                root,
+                links,
+            })
+        })
+        .await
+        .map_err(|_| github::unavailable())?
+    }
+
     async fn bundled_update(
         &self,
         current: &Info,
@@ -192,10 +281,11 @@ impl Host {
                 Err(error) => return Err(error),
             };
         if bundled.summary.digest == current.summary.digest
-            || !newer(
-                bundled.summary.version.as_deref(),
-                current.summary.version.as_deref(),
-            )?
+            || (current.origin != Some(Origin::Bundled)
+                && !newer(
+                    bundled.summary.version.as_deref(),
+                    current.summary.version.as_deref(),
+                )?)
         {
             return Ok(None);
         }
@@ -205,14 +295,15 @@ impl Host {
 }
 
 fn newer(candidate: Option<&str>, current: Option<&str>) -> Result<bool, Fault> {
-    let parse = |version: Option<&str>| {
-        version
-            .and_then(|version| semver::Version::parse(version).ok())
-            .ok_or_else(|| {
-                sailry_protocol::Fault::invalid("official plugin version is unavailable")
-            })
-    };
-    Ok(parse(candidate)?.cmp_precedence(&parse(current)?).is_gt())
+    Ok(version(candidate)?
+        .cmp_precedence(&version(current)?)
+        .is_gt())
+}
+
+fn version(value: Option<&str>) -> Result<semver::Version, Fault> {
+    value
+        .and_then(|value| semver::Version::parse(value).ok())
+        .ok_or_else(|| sailry_protocol::Fault::invalid("official plugin version is unavailable"))
 }
 
 #[cfg(test)]

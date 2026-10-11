@@ -19,6 +19,16 @@ impl Server {
     fn official() -> Self {
         Self::start(true)
     }
+    fn checked(&self) {
+        assert_eq!(
+            *self.requests.lock().unwrap(),
+            [
+                "/catalog.json".to_owned(),
+                "/repos/sailry/sailry-plugins/commits/main".to_owned(),
+                format!("/sailry/sailry-plugins/zip/{}", "a".repeat(40)),
+            ]
+        );
+    }
     fn start(official: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
@@ -53,9 +63,8 @@ impl Server {
             )
             .unwrap();
             zip.write_all(b"Official repository update").unwrap();
-            let mut reminders: serde_json::Value =
+            let reminders: serde_json::Value =
                 serde_json::from_slice(&std::fs::read(root.join("plugin.json")).unwrap()).unwrap();
-            reminders["version"] = "0.2.0".into();
             let official_archive = zip.finish().unwrap().into_inner();
             for stream in listener.incoming() {
                 if stopped.load(Ordering::SeqCst) {
@@ -153,14 +162,7 @@ fn add_files(
             )
             .unwrap();
             let bytes = std::fs::read(path).unwrap();
-            if relative == "plugin.json" {
-                let mut manifest: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-                manifest["version"] = "0.2.0".into();
-                zip.write_all(&serde_json::to_vec(&manifest).unwrap())
-                    .unwrap();
-            } else {
-                zip.write_all(&bytes).unwrap();
-            }
+            zip.write_all(&bytes).unwrap();
         }
     }
 }
@@ -294,7 +296,7 @@ fn preinstalled_updates(cx: &mut TestAppContext) {
         });
         shown(visual, "plugin-update-reminders", true);
         shown(visual, "plugins-update-all", true);
-        assert_eq!(*server.requests.lock().unwrap(), ["/catalog.json"]);
+        server.checked();
         assert!(fixture.transport.requests.lock().unwrap().is_empty());
         fixture.transport.mode.store(1, Ordering::SeqCst);
         tap(visual, "plugins-update-all");
@@ -325,7 +327,7 @@ fn preinstalled_updates(cx: &mut TestAppContext) {
             panic!("package expected");
         };
         assert!(!info.summary.enabled);
-        assert_eq!(info.summary.version.as_deref(), Some("0.2.0"));
+        assert_eq!(info.summary.version.as_deref(), Some("0.1.0"));
         let Some(sailry_protocol::plugin::Origin::Online { source, path }) = info.origin else {
             panic!("official source expected");
         };
@@ -351,7 +353,7 @@ fn failed_inspection_preserves_official_candidate(cx: &mut TestAppContext) {
         updates::ready(&owner, visual, "reminders", 1);
         tap(visual, "plugins-check-updates");
         shown(visual, "plugin-update-reminders", true);
-        assert_eq!(*server.requests.lock().unwrap(), ["/catalog.json"]);
+        server.checked();
         server.unavailable.store(true, Ordering::SeqCst);
         tap(visual, "plugin-update-reminders");
         wait(visual, |cx| !owner.read(cx).plugin_catalog.busy());
@@ -368,7 +370,7 @@ fn failed_inspection_preserves_official_candidate(cx: &mut TestAppContext) {
             .into_iter()
             .find(|package| package.name == "reminders")
             .unwrap();
-        assert_eq!(current.version.as_deref(), Some("0.2.0"));
+        assert_eq!(current.version.as_deref(), Some("0.1.0"));
         assert_eq!(fixture.transport.requests.lock().unwrap().len(), 1);
         assert!(!visual.did_prompt_for_paths());
         fixture.close(visual);

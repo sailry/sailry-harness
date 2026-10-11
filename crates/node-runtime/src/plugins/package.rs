@@ -13,6 +13,30 @@ const MAX_ENTRIES: usize = 1024;
 const MAX_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_DEPTH: usize = 32;
 
+pub(super) fn digest(files: &[(&str, &[u8])]) -> String {
+    let mut entries = std::collections::BTreeMap::new();
+    for &(path, bytes) in files {
+        for (index, _) in path.match_indices('/') {
+            entries.entry(&path[..index]).or_insert(None);
+        }
+        entries.insert(path, Some(bytes));
+    }
+    let mut entries = entries.into_iter().collect::<Vec<_>>();
+    entries.sort_by(|(left, _), (right, _)| left.split('/').cmp(right.split('/')));
+    let mut tree = Tree::default();
+    for (path, bytes) in entries {
+        if let Some(bytes) = bytes {
+            tree.entry(path, b"file");
+            tree.hash.update(&[0]);
+            tree.hash.update(&(bytes.len() as u64).to_le_bytes());
+            tree.hash.update(bytes);
+        } else {
+            tree.entry(path, b"directory");
+        }
+    }
+    tree.digest()
+}
+
 pub(super) fn names(directory: &Dir) -> Result<Vec<String>, Fault> {
     let mut names = Vec::new();
     for entry in directory.entries().map_err(io_error)? {
@@ -81,6 +105,12 @@ impl Tree {
         self.hash.finalize().to_hex().to_string()
     }
 
+    fn entry(&mut self, path: &str, kind: &[u8]) {
+        self.hash.update(&(path.len() as u64).to_le_bytes());
+        self.hash.update(path.as_bytes());
+        self.hash.update(kind);
+    }
+
     pub fn walk(
         &mut self,
         source: &Dir,
@@ -116,10 +146,8 @@ impl Tree {
                 });
                 continue;
             }
-            self.hash.update(&(path.len() as u64).to_le_bytes());
-            self.hash.update(path.as_bytes());
             if metadata.is_dir() {
-                self.hash.update(b"directory");
+                self.entry(&path, b"directory");
                 let source = source.open_dir_nofollow(&name).map_err(io_error)?;
                 crate::files::path::identity::directory(&source)?;
                 let target = target
@@ -153,7 +181,7 @@ impl Tree {
                         sailry_protocol::Fault::invalid("plugin package exceeds the size limit")
                     })?;
                 let executable = executable(&before);
-                self.hash.update(b"file");
+                self.entry(&path, b"file");
                 self.hash.update(&[executable as u8]);
                 self.hash.update(&size.to_le_bytes());
                 let mut output = target

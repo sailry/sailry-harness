@@ -34,6 +34,172 @@ fn stored(node: &Node) -> std::collections::BTreeSet<std::ffi::OsString> {
         .collect()
 }
 
+async fn install_official(client: &Client, current: &Summary) -> Info {
+    let Output::PluginSource(selected) = execute(
+        client,
+        Command::InspectPluginSource {
+            source: plugin::skills::Source {
+                repository: "https://github.com/sailry/sailry-plugins".into(),
+                git_ref: Some("main".into()),
+                path: Some(current.name.clone()),
+            },
+        },
+    )
+    .await
+    else {
+        panic!("immutable source selection expected");
+    };
+    info(
+        execute(
+            client,
+            Command::InstallPluginSource {
+                source: selected.source,
+                path: selected.path,
+                name: current.name.clone(),
+                expected_revision: current.revision,
+            },
+        )
+        .await,
+    )
+}
+
+#[tokio::test]
+async fn detects_content_without_version_bumps() {
+    for (remote, initial) in [
+        (false, "0.1.0"),
+        (true, "0.1.0"),
+        (false, "0.3.0"),
+        (true, "0.3.0"),
+    ] {
+        let catalog = Catalog::with_content_updates(initial).await;
+        let (_directory, node, controller, client) = connection(remote, &catalog).await;
+        let bundled = installed(&client)
+            .await
+            .into_iter()
+            .find(|package| package.name == "reminders")
+            .unwrap();
+        let installed = install_official(&client, &bundled).await;
+        assert_eq!(installed.summary.version.as_deref(), Some(initial));
+        assert!(matches!(
+            &installed.origin,
+            Some(plugin::Origin::Online { .. })
+        ));
+        assert_ne!(installed.summary.digest, bundled.digest);
+        let current = info(
+            execute(
+                &client,
+                Command::SetPluginEnabled {
+                    name: "reminders".into(),
+                    expected_revision: installed.summary.revision,
+                    enabled: false,
+                },
+            )
+            .await,
+        );
+        let before = stored(&node);
+        let unchanged = check(&client, std::slice::from_ref(&current.summary)).await;
+        assert!(unchanged.failures.is_empty());
+        assert!(unchanged.reports[0].available.is_none());
+        catalog.status.store(503, Ordering::SeqCst);
+        let offline = check(&client, std::slice::from_ref(&current.summary)).await;
+        assert!(offline.reports.is_empty());
+        assert_eq!(offline.failures[0].error.code, ErrorCode::Unavailable);
+        catalog.status.store(200, Ordering::SeqCst);
+        catalog.updated.store(true, Ordering::SeqCst);
+        catalog.requests.lock().unwrap().clear();
+        let changed = check(&client, std::slice::from_ref(&current.summary)).await;
+        assert!(changed.failures.is_empty());
+        let Some(Candidate::Official(candidate)) = &changed.reports[0].available else {
+            panic!("official content update expected");
+        };
+        assert_eq!(candidate.version.as_deref(), Some("0.1.0"));
+        assert_eq!(
+            *catalog.requests.lock().unwrap(),
+            [
+                "/catalog.json".to_owned(),
+                "/repos/sailry/sailry-plugins/commits/main".into(),
+                format!("/sailry/sailry-plugins/zip/{SECOND}"),
+            ]
+        );
+        assert_eq!(stored(&node), before);
+        assert_eq!(
+            info(
+                execute(
+                    &client,
+                    Command::ReadPlugin {
+                        name: "reminders".into()
+                    }
+                )
+                .await
+            ),
+            current
+        );
+        let updated = install_official(&client, &current.summary).await;
+        assert_eq!(updated.summary.version.as_deref(), Some("0.1.0"));
+        assert_ne!(updated.summary.digest, current.summary.digest);
+        assert!(!updated.summary.enabled);
+        assert_eq!(
+            updated.summary.settings_revision,
+            current.summary.settings_revision
+        );
+        let latest = check(&client, std::slice::from_ref(&updated.summary)).await;
+        assert!(latest.failures.is_empty());
+        assert!(latest.reports[0].available.is_none());
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn offers_same_version_bundled_content() {
+    for remote in [false, true] {
+        let catalog = Catalog::with_content_updates("0.1.0").await;
+        let (_directory, node, controller, client) = connection(remote, &catalog).await;
+        let bundled = installed(&client)
+            .await
+            .into_iter()
+            .find(|package| package.name == "reminders")
+            .unwrap();
+        let mut current = install_official(&client, &bundled).await;
+        assert_eq!(current.summary.version, bundled.version);
+        assert_ne!(current.summary.digest, bundled.digest);
+        current.origin = Some(plugin::Origin::Bundled);
+        let database =
+            rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
+        database
+            .execute(
+                "UPDATE plugins SET body=?1 WHERE name='reminders'",
+                [serde_json::to_vec(&current).unwrap()],
+            )
+            .unwrap();
+        catalog.status.store(503, Ordering::SeqCst);
+        let before = stored(&node);
+        let batch = check(&client, std::slice::from_ref(&current.summary)).await;
+        assert!(batch.failures.is_empty());
+        let Some(Candidate::Package(candidate)) = &batch.reports[0].available else {
+            panic!("same-version bundled content update expected");
+        };
+        assert_eq!(candidate.origin, Some(plugin::Origin::Bundled));
+        assert_eq!(candidate.summary.version, current.summary.version);
+        assert_eq!(candidate.summary.digest, bundled.digest);
+        assert_eq!(stored(&node), before);
+        assert_eq!(
+            info(
+                execute(
+                    &client,
+                    Command::ReadPlugin {
+                        name: "reminders".into()
+                    }
+                )
+                .await
+            ),
+            current
+        );
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
 #[tokio::test]
 async fn offers_bundled_updates_when_offline() {
     for remote in [false, true] {
@@ -215,20 +381,34 @@ async fn offers_bundled_updates_when_offline() {
         catalog.updated.store(false, Ordering::SeqCst);
         let final_check = check(&client, std::slice::from_ref(&updated.summary)).await;
         assert!(final_check.failures.is_empty());
-        assert!(final_check.reports[0].available.is_none());
+        assert!(matches!(
+            final_check.reports[0].available,
+            Some(Candidate::Official(_))
+        ));
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }
 }
 
 #[tokio::test]
-async fn checks_one_index_without_acquiring_packages() {
+async fn checks_one_index_without_installing_packages() {
     for remote in [false, true] {
         let catalog = Catalog::start().await;
         let (_directory, node, controller, client) = connection(remote, &catalog).await;
+        catalog.updated.store(true, Ordering::SeqCst);
+        let bundled = installed(&client)
+            .await
+            .into_iter()
+            .find(|package| package.name == "files")
+            .unwrap();
+        let online = install_official(&client, &bundled).await;
+        assert_eq!(online.summary.digest, bundled.digest);
+        assert!(matches!(
+            &online.origin,
+            Some(plugin::Origin::Online { .. })
+        ));
         let packages = installed(&client).await;
         let before = stored(&node);
-        catalog.updated.store(true, Ordering::SeqCst);
         let Output::PluginCatalog(page) = execute(&client, search("reminders")).await else {
             panic!("official catalog expected");
         };
@@ -241,7 +421,14 @@ async fn checks_one_index_without_acquiring_packages() {
         let batch = check(&client, &packages).await;
         assert!(batch.failures.is_empty(), "{:?}", batch.failures);
         assert_eq!(batch.reports.len(), packages.len());
-        assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+        assert_eq!(
+            *catalog.requests.lock().unwrap(),
+            [
+                "/catalog.json".to_owned(),
+                "/repos/sailry/sailry-plugins/commits/main".into(),
+                format!("/sailry/sailry-plugins/zip/{SECOND}"),
+            ]
+        );
         for report in batch.reports {
             assert!(packages.contains(&report.current));
             assert!(!report.manual);
@@ -251,7 +438,13 @@ async fn checks_one_index_without_acquiring_packages() {
                     Some(Candidate::Official(Box::new(listing.clone())))
                 );
             } else {
-                assert!(report.available.is_none());
+                assert!(
+                    report.available.is_none(),
+                    "unexpected update for {} (installed digest {}): {:?}",
+                    report.current.name,
+                    report.current.digest,
+                    report.available
+                );
             }
         }
         assert_eq!(installed(&client).await, packages);
@@ -292,7 +485,7 @@ async fn reports_offline_and_invalid_indexes() {
 }
 
 #[tokio::test]
-async fn compares_versions_without_downgrading() {
+async fn checks_content_with_valid_catalog_versions() {
     for remote in [false, true] {
         let catalog = Catalog::start().await;
         let (_directory, node, controller, client) = connection(remote, &catalog).await;
@@ -302,10 +495,10 @@ async fn compares_versions_without_downgrading() {
             .find(|package| package.name == "reminders")
             .unwrap();
         for (version, expected) in [
-            ("0.1.0", Some(false)),
-            ("0.0.9", Some(false)),
-            ("0.1.0+build", Some(false)),
-            ("0.1.0-rc.1", Some(false)),
+            ("0.1.0", Some(true)),
+            ("0.0.9", Some(true)),
+            ("0.1.0+build", Some(true)),
+            ("0.1.0-rc.1", Some(true)),
             ("0.2.0", Some(true)),
             ("", None),
             ("invalid", None),
@@ -326,7 +519,12 @@ async fn compares_versions_without_downgrading() {
                     assert_eq!(batch.failures[0].error.code, ErrorCode::InvalidRequest);
                 }
             }
-            assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+            let mut requests = vec!["/catalog.json".to_owned()];
+            if expected == Some(true) {
+                requests.push("/repos/sailry/sailry-plugins/commits/main".into());
+                requests.push(format!("/sailry/sailry-plugins/zip/{FIRST}"));
+            }
+            assert_eq!(*catalog.requests.lock().unwrap(), requests);
         }
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();

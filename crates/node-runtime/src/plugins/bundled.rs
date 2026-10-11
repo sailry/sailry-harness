@@ -55,16 +55,12 @@ pub(super) fn entries() -> Result<Vec<sailry_protocol::plugin::catalog::Entry>, 
 }
 
 impl Host {
-    pub(crate) fn bundled_version(name: &str) -> Result<Option<String>, Fault> {
+    pub(crate) fn bundled_digest(name: &str) -> Result<String, Fault> {
         let (_, files) = PACKAGES
             .iter()
             .find(|(id, _)| *id == name)
             .ok_or_else(|| Fault::new(ErrorCode::NotFound, "bundled plugin is unavailable"))?;
-        let bytes = files
-            .iter()
-            .find(|(path, _)| *path == "plugin.json")
-            .expect("bundled plugin manifest");
-        Ok(manifest::parse(bytes.1)?.version)
+        Ok(package::digest(files))
     }
 
     fn bundled_source(name: &str) -> Result<tempfile::TempDir, Fault> {
@@ -137,7 +133,10 @@ mod tests {
             let info = host.install_bundled(&entry.name).unwrap();
             assert_eq!(info.summary.name, entry.name);
             assert!(info.summary.enabled);
-            assert!(!info.summary.digest.is_empty());
+            assert_eq!(
+                info.summary.digest,
+                Host::bundled_digest(&entry.name).unwrap()
+            );
             assert!(info.issues.is_empty(), "{}: {:?}", entry.name, info.issues);
             let glyph = entry
                 .display

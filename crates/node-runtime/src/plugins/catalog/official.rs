@@ -59,7 +59,7 @@ pub(super) async fn source(
     })
 }
 
-pub(super) fn unavailable(error: &Fault) -> bool {
+pub(in crate::plugins) fn unavailable(error: &Fault) -> bool {
     matches!(error.code, ErrorCode::Unavailable | ErrorCode::NotFound)
 }
 

@@ -367,10 +367,12 @@ change a user's selected or installed theme.
 
 The application lives in `sailry-harness`; official plugin source lives only in
 `sailry-plugins`. The `plugins/` Git submodule pins a reviewed plugin commit.
-Builds embed that snapshot as ordinary package assets for offline use; new Node
-profiles install the selected defaults once, without resurrecting removed packages.
-Startup refreshes already installed bundled packages when their shipped versions
-increase, preserving their enable choices and settings.
+Builds embed that snapshot as ordinary package assets for offline use. Startup
+adds missing selected defaults without resurrecting removed packages.
+Startup refreshes already installed bundled packages when their shipped content
+digest changes, preserving their enable choices and settings. Before the first
+release, official package versions remain `0.1.0`; immutable content and captured
+Git commits distinguish changes.
 Removed packages and packages from other sources are not changed by this refresh.
 The online official marketplace reads the plugin repository's `catalog.json`;
 unavailable networks leave the bundled snapshot installable. Invalid indexes are

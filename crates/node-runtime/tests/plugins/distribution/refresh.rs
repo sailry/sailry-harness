@@ -15,6 +15,7 @@ async fn previous(
     let bytes = match name {
         "code" => include_bytes!("../../../../../plugins/code/plugin.json").as_slice(),
         "web-search" => include_bytes!("../../../../../plugins/web-search/plugin.json").as_slice(),
+        "browser" => include_bytes!("../../../../../plugins/browser/plugin.json").as_slice(),
         _ => unreachable!(),
     };
     let mut manifest: serde_json::Value = serde_json::from_slice(bytes).unwrap();
@@ -417,6 +418,18 @@ async fn retains_disabled_configuration_on_each_path() {
             );
         }
         let retained = records(&path);
+        let assets = previous
+            .iter()
+            .map(|previous| {
+                fs::read(
+                    profile
+                        .join("plugins/packages")
+                        .join(&previous.summary.digest)
+                        .join("plugin.json"),
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
         let secret: Vec<u8> = Connection::open(&path)
             .unwrap()
             .query_row("SELECT body FROM search_settings", [], |row| row.get(0))
@@ -430,7 +443,7 @@ async fn retains_disabled_configuration_on_each_path() {
             node.local()
         });
         let mut refreshed = Vec::new();
-        for (previous, version) in [(&previous[0], "0.1.4"), (&previous[1], "0.2.2")] {
+        for (previous, asset) in previous.iter().zip(&assets) {
             let current = info(
                 execute(
                     &client,
@@ -440,7 +453,7 @@ async fn retains_disabled_configuration_on_each_path() {
                 )
                 .await,
             );
-            assert_eq!(current.summary.version.as_deref(), Some(version));
+            assert_eq!(current.summary.version.as_deref(), Some("0.1.0"));
             assert_eq!(current.origin, Some(plugin::Origin::Bundled));
             assert_eq!(current.summary.revision, previous.summary.revision + 1);
             assert_eq!(current.summary.settings_revision, 1);
@@ -478,6 +491,16 @@ async fn retains_disabled_configuration_on_each_path() {
             assert_eq!(captured.summary.digest, previous.summary.digest);
             assert_eq!(captured.summary.version, previous.summary.version);
             assert!(captured.extension.as_ref().unwrap().settings_page.is_none());
+            assert_eq!(
+                fs::read(
+                    profile
+                        .join("plugins/packages")
+                        .join(&previous.summary.digest)
+                        .join("plugin.json")
+                )
+                .unwrap(),
+                *asset
+            );
             refreshed.push(current);
         }
         assert_eq!(records(&path), retained);
@@ -549,6 +572,18 @@ async fn retains_disabled_configuration_on_each_path() {
                 current
             );
         }
+        for (previous, asset) in previous.iter().zip(&assets) {
+            assert_eq!(
+                fs::read(
+                    profile
+                        .join("plugins/packages")
+                        .join(&previous.summary.digest)
+                        .join("plugin.json")
+                )
+                .unwrap(),
+                *asset
+            );
+        }
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }
@@ -557,7 +592,7 @@ async fn retains_disabled_configuration_on_each_path() {
 #[tokio::test]
 async fn retains_browser_configuration_on_each_path() {
     for remote in [false, true] {
-        let (directory, node, controller, client, _) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = fixture(remote).await;
         let current = info(
             execute(
                 &client,
@@ -568,8 +603,9 @@ async fn retains_browser_configuration_on_each_path() {
             .await,
         );
         let version = current.summary.version.clone();
-        let mut previous = disable(&client, current).await;
-        previous.summary.version = Some("0.1.1".into());
+        let shipped_digest = current.summary.digest;
+        let previous = previous(directory.path(), &client, worktree, "browser", "0.1.1").await;
+        let previous = disable(&client, previous).await;
         let profile = directory.path().join("node");
         let path = profile.join("storage/node.sqlite3");
         node.shutdown().await.unwrap();
@@ -593,6 +629,8 @@ async fn retains_browser_configuration_on_each_path() {
             .await,
         );
         assert_eq!(current.summary.version, version);
+        assert_eq!(current.summary.digest, shipped_digest);
+        assert_ne!(current.summary.digest, previous.summary.digest);
         assert_eq!(current.origin, Some(plugin::Origin::Bundled));
         assert_eq!(current.summary.revision, previous.summary.revision + 1);
         assert_eq!(

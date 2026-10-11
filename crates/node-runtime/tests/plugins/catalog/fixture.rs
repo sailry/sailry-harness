@@ -38,7 +38,17 @@ impl Catalog {
         Self::with_configuration(reminders, true).await
     }
 
+    pub async fn with_content_updates(reminders: &str) -> Self {
+        let catalog = Self::with_versions(reminders, "0.1.0", false).await;
+        *catalog.version.lock().unwrap() = Some("0.1.0".into());
+        catalog
+    }
+
     async fn with_configuration(reminders: &str, mcp: bool) -> Self {
+        Self::with_versions(reminders, "0.2.0", mcp).await
+    }
+
+    async fn with_versions(reminders: &str, updated_version: &str, mcp: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}/", listener.local_addr().unwrap());
         let updated = Arc::new(AtomicBool::new(false));
@@ -54,7 +64,7 @@ impl Catalog {
         let version = Arc::new(Mutex::new(None::<String>));
         let selected_version = version.clone();
         let first = archive("1.0.0", reminders, mcp);
-        let second = archive("2.0.0", "0.2.0", mcp);
+        let second = archive("2.0.0", updated_version, mcp);
         let worker = tokio::spawn(async move {
             loop {
                 let (mut socket, _) = listener.accept().await.unwrap();
@@ -184,8 +194,20 @@ fn archive(version: &str, reminders: &str, mcp: bool) -> Vec<u8> {
     zip.start_file("repo-source/official-new/LICENSE", options)
         .unwrap();
     zip.write_all(b"Fixture package license").unwrap();
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/reminders");
-    files(&root, &root, &mut zip, reminders);
+    let index: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../plugins/catalog.json")).unwrap();
+    for package in index["packages"].as_array().unwrap() {
+        let name = package["id"].as_str().unwrap();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../plugins")
+            .join(name);
+        files(
+            &root,
+            &root,
+            &mut zip,
+            (name == "reminders").then_some(reminders),
+        );
+    }
     if mcp {
         zip.start_file("repo-source/reminders/mcp.json", options)
             .unwrap();
@@ -205,7 +227,12 @@ fn archive(version: &str, reminders: &str, mcp: bool) -> Vec<u8> {
     zip.finish().unwrap().into_inner()
 }
 
-fn files(root: &Path, directory: &Path, zip: &mut zip::ZipWriter<Cursor<Vec<u8>>>, version: &str) {
+fn files(
+    root: &Path,
+    directory: &Path,
+    zip: &mut zip::ZipWriter<Cursor<Vec<u8>>>,
+    version: Option<&str>,
+) {
     let mut entries = std::fs::read_dir(directory)
         .unwrap()
         .map(Result::unwrap)
@@ -224,12 +251,17 @@ fn files(root: &Path, directory: &Path, zip: &mut zip::ZipWriter<Cursor<Vec<u8>>
                 .unwrap()
                 .replace('\\', "/");
             zip.start_file(
-                format!("repo-source/reminders/{relative}"),
+                format!(
+                    "repo-source/{}/{relative}",
+                    root.file_name().unwrap().to_str().unwrap()
+                ),
                 zip::write::SimpleFileOptions::default().unix_permissions(0o644),
             )
             .unwrap();
             let mut bytes = std::fs::read(path).unwrap();
-            if relative == "plugin.json" {
+            if relative == "plugin.json"
+                && let Some(version) = version
+            {
                 let mut manifest: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
                 manifest["version"] = version.into();
                 bytes = serde_json::to_vec(&manifest).unwrap();

@@ -13,7 +13,7 @@ pub struct Request {
 #[serde(tag = "kind", content = "package", rename_all = "snake_case")]
 pub enum Candidate {
     Package(Box<Info>),
-    /// Repository inspection is deferred until an explicit update.
+    /// Changed official contents; installation still captures its own immutable selection.
     Official(Box<catalog::Entry>),
 }
 

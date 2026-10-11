@@ -60,23 +60,12 @@ fn refresh(db: &Connection, host: &crate::plugins::Host) -> Result<(), Fault> {
         if current.origin != Some(plugin::Origin::Bundled) {
             continue;
         }
-        let bundled = match crate::plugins::Host::bundled_version(name) {
-            Ok(version) => version,
+        let digest = match crate::plugins::Host::bundled_digest(name) {
+            Ok(digest) => digest,
             Err(error) if error.code == ErrorCode::NotFound => continue,
             Err(error) => return Err(error),
         };
-        let versions = current
-            .summary
-            .version
-            .as_deref()
-            .zip(bundled.as_deref())
-            .and_then(|(current, bundled)| {
-                Some((
-                    semver::Version::parse(current).ok()?,
-                    semver::Version::parse(bundled).ok()?,
-                ))
-            });
-        if !versions.is_some_and(|(current, bundled)| bundled.cmp_precedence(&current).is_gt()) {
+        if current.summary.digest == digest {
             continue;
         }
         let mut result = Ok(Output::Plugin(host.install_bundled(name)?));

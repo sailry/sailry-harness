@@ -14,12 +14,35 @@ fn fixture() -> (tempfile::TempDir, crate::plugins::Host, Connection) {
     (directory, host, db)
 }
 
-fn older(db: &Connection, name: &str) -> Info {
+fn changed(db: &Connection, name: &str) -> Info {
     let mut info = required(db, name).unwrap();
-    info.summary.version = Some("0.0.1".into());
     info.extension.as_mut().unwrap().settings_page = None;
+    // Simulate a previous bundle and retain its immutable parsed metadata.
+    let digest = blake3::hash(&encode(&info).unwrap()).to_hex().to_string();
+    assert_ne!(digest, info.summary.digest);
+    info.summary.digest = digest;
+    let mut package = info.clone();
+    package.origin = None;
+    db.execute(
+        "INSERT INTO plugin_packages(digest,name,body) VALUES(?1,?2,?3)",
+        params![package.summary.digest, name, encode(&package).unwrap()],
+    )
+    .unwrap();
     save(db, &info, true).unwrap();
     info
+}
+
+fn captured(db: &Connection, info: &Info) -> Info {
+    let (Output::Plugin(package), _) = execute(
+        db,
+        &Command::ReadPluginVersion {
+            package: info.summary.reference(),
+        },
+    )
+    .unwrap() else {
+        panic!("captured plugin expected")
+    };
+    package
 }
 
 #[test]
@@ -91,7 +114,7 @@ fn adds_missing_defaults_without_reinstalling_records() {
 #[test]
 fn refresh_preserves_configuration_and_private_records() {
     let (_directory, host, mut db) = fixture();
-    let mut before = older(&db, "code");
+    let mut before = changed(&db, "code");
     before.summary.enabled = false;
     before.summary.settings_revision = 7;
     save(&db, &before, true).unwrap();
@@ -110,16 +133,20 @@ fn refresh_preserves_configuration_and_private_records() {
         [&b"{\"text\":\"retained\"}"[..]],
     )
     .unwrap();
+    let retained = captured(&db, &before);
     install(&mut db, &host).unwrap();
     let after = required(&db, "code").unwrap();
     assert_eq!(after.summary.revision, before.summary.revision + 1);
     assert_eq!(after.summary.settings_revision, 7);
     assert!(!after.summary.enabled);
     assert_eq!(after.origin, Some(plugin::Origin::Bundled));
+    assert_eq!(after.summary.version.as_deref(), Some("0.1.0"));
     assert_eq!(
-        after.summary.version,
-        crate::plugins::Host::bundled_version("code").unwrap()
+        after.summary.digest,
+        crate::plugins::Host::bundled_digest("code").unwrap()
     );
+    assert_ne!(after.summary.digest, before.summary.digest);
+    assert_eq!(captured(&db, &before), retained);
     assert_eq!(
         after
             .extension
@@ -149,7 +176,7 @@ fn refresh_preserves_configuration_and_private_records() {
 }
 
 #[test]
-fn skips_custom_newer_unchanged_and_removed_packages() {
+fn skips_custom_unchanged_and_removed_packages() {
     let (_directory, host, mut db) = fixture();
     for name in [
         "code",
@@ -159,8 +186,10 @@ fn skips_custom_newer_unchanged_and_removed_packages() {
         "office",
         "commands",
         "memory",
+        "brief",
     ] {
         let original = required(&db, name).unwrap();
+        let previous = changed(&db, name);
         for origin in [
             None,
             Some(plugin::Origin::Directory),
@@ -178,7 +207,7 @@ fn skips_custom_newer_unchanged_and_removed_packages() {
                 path: name.into(),
             }),
         ] {
-            let mut custom = original.clone();
+            let mut custom = previous.clone();
             custom.summary.version = Some("0.0.1".into());
             custom.origin = origin;
             save(&db, &custom, true).unwrap();
@@ -193,6 +222,8 @@ fn skips_custom_newer_unchanged_and_removed_packages() {
                 .as_ref()
                 .map(|version| format!("{version}+retained")),
             Some("99.0.0".into()),
+            Some("0.1.1".into()),
+            Some("0.0.1".into()),
             Some("not-semver".into()),
             None,
         ] {
@@ -203,7 +234,7 @@ fn skips_custom_newer_unchanged_and_removed_packages() {
             install(&mut db, &host).unwrap();
             assert_eq!(required(&db, name).unwrap(), custom);
         }
-        let removed = older(&db, name);
+        let removed = changed(&db, name);
         save(&db, &removed, false).unwrap();
         install(&mut db, &host).unwrap();
         assert!(get(&db, name).unwrap().is_none());
@@ -218,10 +249,56 @@ fn skips_custom_newer_unchanged_and_removed_packages() {
 }
 
 #[test]
+fn refreshes_changed_content_regardless_of_version() {
+    let (_directory, host, mut db) = fixture();
+    let bundled = required(&db, "brief").unwrap();
+    assert_eq!(bundled.summary.version.as_deref(), Some("0.1.0"));
+    for version in ["0.1.0", "0.1.1"] {
+        let mut current = required(&db, "brief").unwrap();
+        current.summary.version = Some(version.into());
+        save(&db, &current, true).unwrap();
+        let previous = changed(&db, "brief");
+        let retained = captured(&db, &previous);
+        let events: i64 = db
+            .query_row("SELECT count(*) FROM events", [], |row| row.get(0))
+            .unwrap();
+        install(&mut db, &host).unwrap();
+        let refreshed = required(&db, "brief").unwrap();
+        assert_eq!(refreshed.summary.version, bundled.summary.version);
+        assert_eq!(refreshed.summary.digest, bundled.summary.digest);
+        assert_eq!(refreshed.summary.revision, previous.summary.revision + 1);
+        assert_eq!(refreshed.summary.enabled, previous.summary.enabled);
+        assert_eq!(
+            refreshed.summary.settings_revision,
+            previous.summary.settings_revision
+        );
+        assert_eq!(refreshed.origin, Some(plugin::Origin::Bundled));
+        assert_eq!(captured(&db, &previous), retained);
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM events", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            events + 1
+        );
+        install(&mut db, &host).unwrap();
+        assert_eq!(required(&db, "brief").unwrap(), refreshed);
+        assert_eq!(captured(&db, &previous), retained);
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM events", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            events + 1
+        );
+    }
+}
+
+#[test]
 fn refresh_rolls_back_and_remains_idempotent() {
     let (_directory, host, mut db) = fixture();
-    let code = older(&db, "code");
-    let search = older(&db, "web-search");
+    let code = changed(&db, "code");
+    let search = changed(&db, "web-search");
+    let retained_code = captured(&db, &code);
+    let retained_search = captured(&db, &search);
     let count = |db: &Connection| {
         db.query_row("SELECT count(*) FROM events", [], |row| {
             row.get::<_, i64>(0)
@@ -233,15 +310,26 @@ fn refresh_rolls_back_and_remains_idempotent() {
     assert!(install(&mut db, &host).is_err());
     assert_eq!(required(&db, "code").unwrap(), code);
     assert_eq!(required(&db, "web-search").unwrap(), search);
+    assert_eq!(captured(&db, &code), retained_code);
+    assert_eq!(captured(&db, &search), retained_search);
     assert_eq!(count(&db), before);
     db.execute_batch("DROP TRIGGER fail_refresh").unwrap();
     install(&mut db, &host).unwrap();
-    let code = required(&db, "code").unwrap();
-    let search = required(&db, "web-search").unwrap();
+    let refreshed_code = required(&db, "code").unwrap();
+    let refreshed_search = required(&db, "web-search").unwrap();
+    assert_eq!(refreshed_code.summary.revision, code.summary.revision + 1);
+    assert_eq!(
+        refreshed_search.summary.revision,
+        search.summary.revision + 1
+    );
+    assert_eq!(captured(&db, &code), retained_code);
+    assert_eq!(captured(&db, &search), retained_search);
     assert_eq!(count(&db), before + 2);
     install(&mut db, &host).unwrap();
-    assert_eq!(required(&db, "code").unwrap(), code);
-    assert_eq!(required(&db, "web-search").unwrap(), search);
+    assert_eq!(required(&db, "code").unwrap(), refreshed_code);
+    assert_eq!(required(&db, "web-search").unwrap(), refreshed_search);
+    assert_eq!(captured(&db, &code), retained_code);
+    assert_eq!(captured(&db, &search), retained_search);
     assert_eq!(count(&db), before + 2);
 }
 

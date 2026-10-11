@@ -21,20 +21,8 @@ impl Host {
         let selected = source::Selection::parse(source)?;
         let (archive, source) = self.source_archive(&selected, None, stop.clone()).await?;
         tokio::task::spawn_blocking(move || {
-            let (_temporary, root) = selected_root(archive, &selected.path, &stop)?;
-            let directory = crate::files::path::root(&root)?;
-            let bytes = package::read(&directory, "plugin.json", 64 * 1024)?.ok_or_else(|| {
-                sailry_protocol::Fault::invalid("plugin.json is required at the selected directory")
-            })?;
-            let mut tree = package::Tree::default();
-            tree.stop = stop;
-            tree.walk(&directory, None, "", 0)?;
-            let info = describe(
-                &directory,
-                manifest::parse(&bytes)?,
-                tree.digest(),
-                tree.issues,
-            )?;
+            let (_temporary, root, links) = archive::unpack_source(archive, &stop, 10_000)?;
+            let info = inspect_root(&root, &selected.path, &links, stop)?;
             Ok(Selection {
                 source,
                 path: selected.path,
@@ -67,12 +55,37 @@ impl Host {
     }
 }
 
+pub(super) fn inspect_root(
+    root: &Path,
+    path: &str,
+    links: &[String],
+    stop: CancellationToken,
+) -> Result<Info, Fault> {
+    let directory = crate::files::path::root(&package_root(root, path, links)?)?;
+    let bytes = package::read(&directory, "plugin.json", 64 * 1024)?.ok_or_else(|| {
+        sailry_protocol::Fault::invalid("plugin.json is required at the selected directory")
+    })?;
+    let mut tree = package::Tree::default();
+    tree.stop = stop;
+    tree.walk(&directory, None, "", 0)?;
+    describe(
+        &directory,
+        manifest::parse(&bytes)?,
+        tree.digest(),
+        tree.issues,
+    )
+}
+
 fn selected_root(
     file: std::fs::File,
     path: &str,
     stop: &CancellationToken,
 ) -> Result<(tempfile::TempDir, PathBuf), Fault> {
     let (temporary, root, links) = archive::unpack_source(file, stop, 10_000)?;
+    Ok((temporary, package_root(&root, path, &links)?))
+}
+
+fn package_root(root: &Path, path: &str, links: &[String]) -> Result<PathBuf, Fault> {
     if links.iter().any(|link| {
         path.is_empty()
             || path == link
@@ -84,9 +97,9 @@ fn selected_root(
         ));
     }
     let directory = crate::files::path::descend(
-        crate::files::path::root(&root)?,
+        crate::files::path::root(root)?,
         &crate::files::path::components(path, true)?,
     )?;
     drop(directory);
-    Ok((temporary, root.join(path)))
+    Ok(root.join(path))
 }
