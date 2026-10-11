@@ -2,6 +2,8 @@ use super::*;
 use crate::conversation::live::tests::wait;
 use gpui_kit::component::WindowExt;
 
+const VISUAL_FEEDBACK: &str = "Package visual feedback";
+
 pub(in crate::plugins::artifact) struct Draft {
     surface: Entity<View>,
     events: tokio::sync::mpsc::Receiver<Value>,
@@ -26,7 +28,7 @@ impl Draft {
                     Props {
                         artifact: id,
                         revision: None,
-                        labels: [("render_error".into(), "Could not render visual".into())]
+                        labels: [("render_error".into(), VISUAL_FEEDBACK.into())]
                             .into_iter()
                             .collect(),
                     },
@@ -70,18 +72,36 @@ impl Draft {
         let content = self
             .surface
             .read_with(visual, |view, _| view.content.clone().unwrap());
-        for (kind, message) in [
-            ("required", crate::tr("artifact_form_required")),
-            ("invalid_form", crate::tr("artifact_form_invalid")),
-            ("submit", crate::tr("artifact_form_invalid")),
-            ("render_error", "Could not render visual".into()),
+        let fallback = crate::tr("artifact_render_failed");
+        assert_ne!(fallback.as_ref(), "artifact_render_failed");
+        assert_ne!(fallback.as_ref(), VISUAL_FEEDBACK);
+        let fallback_count =
+            visual.update(|window, cx| crate::feedback::tests::count(window, &fallback, cx));
+        for (kind, message, label) in [
+            ("required", crate::tr("artifact_form_required"), None),
+            ("invalid_form", crate::tr("artifact_form_invalid"), None),
+            ("submit", crate::tr("artifact_form_invalid"), None),
+            (
+                "render_error",
+                VISUAL_FEEDBACK.into(),
+                Some(VISUAL_FEEDBACK),
+            ),
+            ("render_error", fallback.clone(), None),
         ] {
             let initial =
                 visual.update(|window, cx| crate::feedback::tests::count(window, &message, cx));
+            let custom_count = visual
+                .update(|window, cx| crate::feedback::tests::count(window, VISUAL_FEEDBACK, cx));
             for expected in 1..=2 {
                 visual.update(|window, cx| {
                     window.clear_notifications(cx);
                     self.surface.update(cx, |view, cx| {
+                        if kind == "render_error" {
+                            view.labels.remove("render_error");
+                            if let Some(label) = label {
+                                view.labels.insert("render_error".into(), label.into());
+                            }
+                        }
                         view.event(
                             json!({"kind":kind,"artifact":self.id,
                                 "session":content.artifact.session,"revision":self.revision})
@@ -102,6 +122,19 @@ impl Draft {
                         "each failed attempt must show feedback"
                     );
                     assert_eq!(crate::feedback::tests::summary(window, cx), message);
+                    if label.is_some() {
+                        assert_eq!(
+                            crate::feedback::tests::count(window, &fallback, cx),
+                            fallback_count,
+                            "the package label must take priority over core feedback"
+                        );
+                    } else if kind == "render_error" {
+                        assert_eq!(
+                            crate::feedback::tests::count(window, VISUAL_FEEDBACK, cx),
+                            custom_count,
+                            "an absent package label must use only core feedback"
+                        );
+                    }
                     assert_eq!(
                         crate::feedback::tests::count(
                             window,
@@ -114,6 +147,10 @@ impl Draft {
                 });
             }
         }
+        self.surface.update(visual, |view, _| {
+            view.labels
+                .insert("render_error".into(), VISUAL_FEEDBACK.into());
+        });
         let required = crate::tr("artifact_form_required");
         let initial =
             visual.update(|window, cx| crate::feedback::tests::count(window, &required, cx));
@@ -196,6 +233,53 @@ impl Draft {
                 assert_eq!(view.content.as_ref(), Some(&content));
             });
         });
+        let stale = crate::tr("artifact_form_stale");
+        assert_ne!(stale.as_ref(), "artifact_form_stale");
+        let failure = crate::tr("chat_action_failed");
+        let (stale_count, failure_count) = visual.update(|window, cx| {
+            (
+                crate::feedback::tests::count(window, &stale, cx),
+                crate::feedback::tests::count(window, &failure, cx),
+            )
+        });
+        for expected in 1..=2 {
+            visual.update(|window, cx| {
+                window.clear_notifications(cx);
+                self.surface.update(cx, |view, cx| {
+                    let content = view.content.clone().unwrap();
+                    assert!(content.latest_revision > content.artifact.revision);
+                    let generation = view.generation;
+                    view.event(
+                        json!({"kind":"submit","artifact":self.id,
+                            "session":content.artifact.session,"revision":self.revision,
+                            "form":"decisions","fields":[{"name":"storage",
+                                "label":"Storage","values":[{"value":"node","label":"Node"}]}]})
+                        .to_string(),
+                        window,
+                        cx,
+                    );
+                    assert!(view.dirty, "a stale submission must retain the draft");
+                    assert_eq!(view.revision, Some(self.revision));
+                    assert_eq!(view.content.as_ref(), Some(&content));
+                    assert_eq!(view.generation, generation);
+                    assert_eq!(view.error, None, "a stale submission is not a page failure");
+                });
+            });
+            visual.run_until_parked();
+            visual.update(|window, cx| {
+                assert_eq!(
+                    crate::feedback::tests::count(window, &stale, cx),
+                    stale_count + expected,
+                    "each stale submission must show feedback"
+                );
+                assert_eq!(crate::feedback::tests::summary(window, cx), stale);
+                assert_eq!(
+                    crate::feedback::tests::count(window, &failure, cx),
+                    failure_count,
+                    "a stale submission must not report a generic action failure"
+                );
+            });
+        }
         assert_eq!(
             self.events.try_recv().unwrap(),
             json!({"kind":"edited","artifact":self.id,"revision":self.revision})

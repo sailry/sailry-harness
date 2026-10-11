@@ -1,8 +1,8 @@
 use std::{hash::Hash, rc::Rc};
 
 use gpui::{
-    AnyElement, App, Bounds, ElementId, Hsla, IntoElement, Pixels, Point, SharedString, Window,
-    fill, point, px,
+    AnyElement, App, Bounds, ElementId, Hsla, IntoElement, Pixels, Point, SharedString, Size,
+    Window, fill, point, px,
 };
 use gpui_component_macros::IntoPlot;
 use rust_i18n::t;
@@ -10,14 +10,15 @@ use rust_i18n::t;
 use crate::{
     ActiveTheme,
     plot::{
-        Grid, Plot, PlotAxis, origin_point,
+        Plot, PlotAxis, origin_point,
         scale::{PlotValue, Scale, ScaleBand, ScaleLinear},
         tooltip::{CrossLine, Tooltip, TooltipState},
     },
 };
 
 use super::{
-    AXIS_GAP, MAX_BAND_WIDTH, TooltipContent, build_band_labels, caller_id, labeled_items,
+    AXIS_GAP, MAX_BAND_WIDTH, PointAxes, TooltipContent, ValueExtent, build_band_labels, caller_id,
+    labeled_items,
 };
 
 #[derive(IntoPlot)]
@@ -38,6 +39,7 @@ where
     max_band_width: Pixels,
     x_axis: bool,
     grid: bool,
+    axes: PointAxes,
     bullish: Option<Hsla>,
     bearish: Option<Hsla>,
     id: ElementId,
@@ -67,6 +69,7 @@ where
             max_band_width: px(MAX_BAND_WIDTH),
             x_axis: true,
             grid: true,
+            axes: PointAxes::default(),
             bullish: None,
             bearish: None,
             id: caller_id(),
@@ -204,6 +207,22 @@ where
         self
     }
 
+    /// Show the y-axis tick labels in a gutter left of the plot.
+    ///
+    /// Default is false.
+    pub fn y_axis(mut self, y_axis: bool) -> Self {
+        self.axes.y_axis = y_axis;
+        self
+    }
+
+    /// Divide the plot into `count` columns with vertical grid lines.
+    ///
+    /// Default is 0, no vertical lines.
+    pub fn grid_columns(mut self, count: usize) -> Self {
+        self.axes.grid_columns = count;
+        self
+    }
+
     /// Set the color of a candle that closed above its open.
     ///
     /// Defaults to the theme's `chart.bullish` color. Markets that read a rise
@@ -236,7 +255,10 @@ where
         Some(
             ScaleBand::new(
                 self.data.iter().map(|v| x_fn(v)),
-                [0., bounds.size.width.as_f32()],
+                [
+                    0.,
+                    (bounds.size.width.as_f32() - self.axes.plot_left()).max(0.),
+                ],
             )
             .max_band_width(self.max_band_width.as_f32())
             .padding_inner(0.4)
@@ -248,6 +270,37 @@ where
     fn plot_height(&self, bounds: Bounds<Pixels>) -> f32 {
         bounds.size.height.as_f32() - if self.x_axis { AXIS_GAP } else { 0. }
     }
+
+    /// Fit all four prices to one scale without introducing a zero baseline.
+    fn y_scale(&self, bounds: Bounds<Pixels>) -> Option<(ScaleLinear<Y>, ValueExtent)> {
+        let (open, high, low, close) = (
+            self.open.as_ref()?,
+            self.high.as_ref()?,
+            self.low.as_ref()?,
+            self.close.as_ref()?,
+        );
+        let values = self
+            .data
+            .iter()
+            .flat_map(|datum| [open(datum), high(datum), low(datum), close(datum)])
+            .collect::<Vec<_>>();
+        let (lo, hi) = values
+            .iter()
+            .filter_map(|value| value.to_f64())
+            .fold((f64::MAX, f64::MIN), |(lo, hi), value| {
+                (lo.min(value), hi.max(value))
+            });
+        let bottom = self.plot_height(bounds);
+        Some((
+            ScaleLinear::new(values, [bottom, 10.]),
+            ValueExtent {
+                lo,
+                hi,
+                bottom,
+                top: 10.,
+            },
+        ))
+    }
 }
 
 impl<T, X, Y> Plot for CandlestickChart<T, X, Y>
@@ -255,6 +308,21 @@ where
     X: Eq + Hash + Into<SharedString> + 'static,
     Y: PlotValue,
 {
+    fn prepaint(
+        &mut self,
+        bounds: Bounds<Pixels>,
+        window: &mut Window,
+        _cx: &mut App,
+    ) -> Vec<AnyElement> {
+        if self.axes.y_axis
+            && let Some((_, extent)) = self.y_scale(bounds)
+        {
+            let height = self.plot_height(bounds);
+            self.axes.measure_y_labels(extent, height, window);
+        }
+        vec![]
+    }
+
     fn paint(&mut self, bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
         let (Some(x_fn), Some(open_fn), Some(high_fn), Some(low_fn), Some(close_fn)) = (
             self.x.as_ref(),
@@ -274,13 +342,14 @@ where
         };
         let band_width = x.band_width();
 
-        // Y scale
-        let all_values: Vec<Y> = self
-            .data
-            .iter()
-            .flat_map(|d| vec![high_fn(d), low_fn(d), open_fn(d), close_fn(d)])
-            .collect();
-        let y = ScaleLinear::new(all_values, [height, 10.]);
+        let Some((y, extent)) = self.y_scale(bounds) else {
+            return;
+        };
+        let left = self.axes.plot_left();
+        let axis_bounds = Bounds {
+            origin: bounds.origin + point(px(left), px(0.)),
+            size: Size::new(bounds.size.width - px(left), bounds.size.height),
+        };
 
         // Draw X axis
         let mut axis = PlotAxis::new().stroke(cx.theme().border);
@@ -295,15 +364,11 @@ where
             );
             axis = axis.x(height).x_label(labels);
         }
-        axis.paint(&bounds, window, cx);
+        axis.paint(&axis_bounds, window, cx);
 
         // Draw grid
         if self.grid {
-            Grid::new()
-                .y((0..=3).map(|i| height * i as f32 / 4.0))
-                .stroke(cx.theme().border)
-                .dash_array(&[px(4.), px(2.)])
-                .paint(&bounds, window);
+            self.axes.paint_grid(bounds, height, window, cx);
         }
 
         // Draw candlesticks
@@ -344,7 +409,7 @@ where
             let color = if is_bullish { bullish } else { bearish };
 
             // Calculate candlestick body dimensions
-            let center_x = x_tick + band_width / 2.;
+            let center_x = left + x_tick + band_width / 2.;
             let body_width = band_width * self.body_width_ratio;
             let body_left = center_x - body_width / 2.;
             let body_right = center_x + body_width / 2.;
@@ -373,6 +438,7 @@ where
 
             window.paint_quad(fill(body_bounds, color));
         }
+        self.axes.paint_y_labels(extent, bounds, height, window, cx);
     }
 
     fn id(&self) -> Option<ElementId> {
@@ -389,13 +455,14 @@ where
         let x = self.x_scale(bounds)?;
 
         // Ignore the x-axis label gutter so hovering the labels doesn't show a tooltip.
-        if position.y.as_f32() > self.plot_height(bounds) {
+        let left = self.axes.plot_left();
+        if position.y.as_f32() > self.plot_height(bounds) || position.x.as_f32() < left {
             return None;
         }
 
-        let index = x.nearest_index(position.x.as_f32());
+        let index = x.nearest_index(position.x.as_f32() - left);
         let d = self.data.get(index)?;
-        let center = x.tick(&x_fn(d))? + x.band_width() / 2.;
+        let center = left + x.tick(&x_fn(d))? + x.band_width() / 2.;
 
         Some(TooltipState::new(
             index,

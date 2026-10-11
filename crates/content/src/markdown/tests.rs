@@ -8,6 +8,8 @@ use gpui_kit::{
     Window, div, prelude::*, px,
 };
 
+mod tables;
+
 mod parsing {
     use super::*;
 

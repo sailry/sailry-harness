@@ -59,6 +59,7 @@ where
     band_count: Option<usize>,
     band_tick_count: Option<usize>,
     grid: bool,
+    grid_columns: usize,
     grid_dashed: bool,
     alignment: BarAlignment,
     corner_radii: Corners<Pixels>,
@@ -106,6 +107,7 @@ where
             band_count: None,
             band_tick_count: None,
             grid: true,
+            grid_columns: 0,
             grid_dashed: true,
             alignment: BarAlignment::default(),
             corner_radii: Corners::all(px(0.)),
@@ -390,6 +392,15 @@ where
 
     pub fn grid(mut self, grid: bool) -> Self {
         self.grid = grid;
+        self
+    }
+
+    /// Divide the band axis into `count` columns with grid lines perpendicular
+    /// to the value-axis grid. Horizontal bars use rows instead of columns.
+    ///
+    /// Default is 0, no band-axis grid lines.
+    pub fn grid_columns(mut self, count: usize) -> Self {
+        self.grid_columns = count;
         self
     }
 
@@ -860,13 +871,35 @@ where
             } else {
                 grid
             };
-            let lines = value_ticks[..steps].to_vec();
-            let grid = if is_horizontal {
-                grid.x(lines)
+            let mut grid_bounds = plot_bounds;
+            let mut lines = value_ticks[..steps].to_vec();
+            let cross_lines = if self.grid_columns > 0 {
+                let (start, length) = self.value_extent(bounds);
+                if is_horizontal {
+                    grid_bounds.origin.x += px(start);
+                    grid_bounds.size.width = px(length);
+                } else {
+                    grid_bounds.origin.y += px(start);
+                    grid_bounds.size.height = px(length);
+                }
+                lines.iter_mut().for_each(|line| *line -= start);
+                let extent = if is_horizontal {
+                    grid_bounds.size.height.as_f32()
+                } else {
+                    grid_bounds.size.width.as_f32()
+                };
+                (0..self.grid_columns)
+                    .map(|column| extent * column as f32 / self.grid_columns as f32)
+                    .collect::<Vec<_>>()
             } else {
-                grid.y(lines)
+                vec![]
             };
-            grid.paint(&plot_bounds, window);
+            let grid = if is_horizontal {
+                grid.x(lines).y(cross_lines)
+            } else {
+                grid.y(lines).x(cross_lines)
+            };
+            grid.paint(&grid_bounds, window);
         }
 
         // Labels inside the plot are painted after the bars, so no bar covers them.

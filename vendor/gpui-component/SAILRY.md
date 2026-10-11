@@ -83,6 +83,18 @@ for incoming/outgoing transfer areas, removing its custom Plot implementation.
 The focused native test covers the default, zero and nonzero projected values.
 Retire this patch when upstream exposes an equivalent fill-baseline API.
 
+The pinned `BarChart` has value-axis grid lines but no perpendicular grid option,
+and `CandlestickChart` lacks value-axis labels and vertical grid builders.
+Opt-in `grid_columns` extends both controls through native `Grid` rendering;
+the candle's opt-in `y_axis` reuses `PointAxes` label measurement and painting.
+Their defaults retain zero perpendicular lines and hidden candle value labels.
+The candle grid now uses the existing `chart_grid` semantic color consistently
+with line, area and bar charts. Price scales, native hover, and bullish/bearish
+colors remain owned by Kit. Sailry's Cartesian chat charts enable the options;
+their focused interaction test checks both grid directions, label gutters,
+theme changes, resizing and native hover. Retire these builders when upstream
+provides equivalent options.
+
 ## GroupBox
 
 Kit 0.7.0 adds an auto-height footer-slot wrapper even when there is no footer.
@@ -142,6 +154,14 @@ scrolling. Retire this patch when upstream keeps direct helper tracks anchored
 to the handle viewport.
 
 ## Input
+
+The pinned Radio gives its label the full row width beside a fixed indicator
+and gap, letting long options overflow their available space. The label column
+now flexes within the remaining width, can shrink to zero, and wraps normally.
+The indicator keeps its existing first-line alignment; focus, keyboard,
+accessibility, and checked state remain in Kit. Desktop question interaction
+tests cover long Unicode options, bounds, alignment, and selection on local and
+remote Nodes. Retire this patch when upstream constrains radio label width.
 
 The pinned Input applies fixed single-line frame heights, size-dependent vertical
 padding and a 1.25 rem line height together. The remaining interior is shorter

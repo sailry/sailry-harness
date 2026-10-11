@@ -177,6 +177,8 @@ impl RenderOnce for Radio {
             .clone();
         let is_focused = focus_handle.is_focused(window);
         let disabled = self.disabled;
+        let indicator_id = self.id.clone();
+        let label_id = self.id.clone();
         let accessibility_label = self
             .accessibility_label
             .clone()
@@ -226,6 +228,7 @@ impl RenderOnce for Radio {
             .child(
                 div()
                     .relative()
+                    .debug_selector(move || format!("radio-indicator-{indicator_id}"))
                     .size(indicator_size)
                     // Center on the first 1.25em line, including when the label wraps.
                     .when(has_content, |this| this.mt(indicator_size * 0.125))
@@ -245,13 +248,16 @@ impl RenderOnce for Radio {
             .when(!self.children.is_empty() || self.label.is_some(), |this| {
                 this.child(
                     v_flex()
-                        .w_full()
+                        .flex_1()
+                        .min_w_0()
+                        .whitespace_normal()
                         .line_height(relative(1.25))
                         .gap_1()
                         .when_some(self.label, |this, label| {
                             this.child(
                                 div()
                                     .size_full()
+                                    .debug_selector(move || format!("radio-label-{label_id}"))
                                     .when(self.disabled, |this| {
                                         this.text_color(cx.theme().muted_foreground)
                                     })

@@ -429,6 +429,28 @@ void main() {
         } else {
           expect(find.byKey(const ValueKey('sankey-plot')), findsOneWidget);
         }
+        if (['line', 'area', 'bar', 'candlestick'].contains(type)) {
+          final AxisChartData data = switch (type) {
+            'bar' => tester.widget<BarChart>(find.byType(BarChart)).data,
+            'candlestick' =>
+              tester
+                  .widget<CandlestickChart>(find.byType(CandlestickChart))
+                  .data,
+            _ => tester.widget<LineChart>(find.byType(LineChart)).data,
+          };
+          expect(data.gridData.drawHorizontalLine, isTrue, reason: type);
+          expect(data.gridData.drawVerticalLine, isTrue, reason: type);
+          expect(
+            data.gridData.getDrawingHorizontalLine(0).color,
+            theme.colorScheme.outlineVariant,
+            reason: type,
+          );
+          expect(
+            data.gridData.getDrawingVerticalLine(0).color,
+            theme.colorScheme.outlineVariant,
+            reason: type,
+          );
+        }
         final semantics = tester
             .widgetList<Semantics>(find.byType(Semantics))
             .map((widget) => widget.properties.label)

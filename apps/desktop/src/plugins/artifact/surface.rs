@@ -380,11 +380,18 @@ impl View {
             }
             Some("submit") => {
                 if content.artifact.revision != content.latest_revision {
-                    crate::feedback::error("", &crate::tr("chat_action_failed"), window, cx);
+                    crate::feedback::error("", &crate::tr("artifact_form_stale"), window, cx);
+                    self.ack(
+                        event
+                            .get("form")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default(),
+                        false,
+                    );
                     return;
                 }
                 let Ok(message) = form_message(content, &event) else {
-                    self.report("invalid_form", Some("artifact_form_invalid"), window, cx);
+                    self.report("invalid_form", "artifact_form_invalid", window, cx);
                     return;
                 };
                 let Some(source) = self.resource.source.upgrade() else {
@@ -420,28 +427,26 @@ impl View {
                 }).detach();
             }
             Some("required") => {
-                self.report("required", Some("artifact_form_required"), window, cx);
+                self.report("required", "artifact_form_required", window, cx);
             }
             Some("invalid_form") => {
-                self.report("invalid_form", Some("artifact_form_invalid"), window, cx);
+                self.report("invalid_form", "artifact_form_invalid", window, cx);
             }
             Some("render_error") => {
-                self.report("render_error", None, window, cx);
+                self.report("render_error", "artifact_render_failed", window, cx);
             }
             _ => (),
         }
     }
 
     #[cfg(any(target_os = "macos", target_os = "windows"))]
-    fn report(&self, label: &str, fallback: Option<&str>, window: &mut Window, cx: &mut App) {
+    fn report(&self, label: &str, fallback: &str, window: &mut Window, cx: &mut App) {
         let message = self
             .labels
             .get(label)
             .map(|message| SharedString::from(message.clone()))
-            .or_else(|| fallback.map(crate::tr));
-        if let Some(message) = message {
-            crate::feedback::error("", &message, window, cx);
-        }
+            .unwrap_or_else(|| crate::tr(fallback));
+        crate::feedback::error("", &message, window, cx);
     }
 
     #[cfg(any(target_os = "macos", target_os = "windows"))]

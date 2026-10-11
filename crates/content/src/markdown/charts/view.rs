@@ -22,16 +22,24 @@ pub(in crate::markdown) fn render(
             .id(id)
             .x(|point| SharedString::from(point.label.clone()))
             .y(|point| point.value)
+            .linear()
+            .y_axis(true)
+            .grid_columns(4)
             .into_any_element(),
         Data::Bar { data } => BarChart::new(data)
             .id(id)
             .band(|point| SharedString::from(point.label.clone()))
             .value(|point| point.value)
+            .value_axis(true)
+            .grid_columns(4)
             .into_any_element(),
         Data::Area { data } => AreaChart::new(data)
             .id(id)
             .x(|point| SharedString::from(point.label.clone()))
             .y(|point| point.value)
+            .linear()
+            .y_axis(true)
+            .grid_columns(4)
             .into_any_element(),
         Data::Pie { data } => {
             let colors = [
@@ -62,6 +70,8 @@ pub(in crate::markdown) fn render(
             .high(|point| point.high)
             .low(|point| point.low)
             .close(|point| point.close)
+            .y_axis(true)
+            .grid_columns(4)
             .into_any_element(),
         Data::Sankey { nodes, links } => {
             let ids: std::collections::HashMap<_, _> = nodes
@@ -94,6 +104,7 @@ pub(in crate::markdown) fn render(
             .child(
                 div()
                     .id(format!("markdown-chart-frame-{block}"))
+                    .debug_selector(move || format!("markdown-chart-frame-{block}"))
                     .aria_label(if title.is_empty() {
                         description.clone()
                     } else {

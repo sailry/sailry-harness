@@ -18,6 +18,7 @@ test-source:
     bash scripts/python.sh -m unittest discover -s apps/desktop/src/content/files/preview/web -v
     bash scripts/python.sh themes/scripts/catalog.py --check
     bash scripts/python.sh -m unittest discover -s themes/scripts/tests -v
+    node --test crates/content/src/markdown/visuals/render.test.mjs
 
 test-plugins:
     bash scripts/python.sh scripts/test-plugins.py

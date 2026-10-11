@@ -13,6 +13,34 @@
       throw new Error('Invalid visual request');
     }
   };
+  // Native diagrams use the current text color and a transparent surface.
+  const monochrome = (svg, foreground, fontSize) => {
+    const paint = (selector, fill, stroke) => {
+      for (const element of svg.querySelectorAll(selector)) {
+        element.setAttribute('fill', fill);
+        element.setAttribute('stroke', stroke);
+        element.style.setProperty('fill', fill, 'important');
+        element.style.setProperty('stroke', stroke, 'important');
+      }
+    };
+    for (const element of svg.querySelectorAll('*')) {
+      element.setAttribute('filter', 'none');
+      element.style.setProperty('filter', 'none', 'important');
+      element.style.setProperty('box-shadow', 'none', 'important');
+      element.style.setProperty('text-shadow', 'none', 'important');
+    }
+    paint('.node rect,.node circle,.node ellipse,.node polygon,.node path,.node line,.node polyline,.cluster rect', 'none', foreground);
+    paint('.flowchart-link,.edgePath path', 'none', foreground);
+    paint('marker path,marker circle,marker polygon', foreground, foreground);
+    paint('text,tspan', foreground, 'none');
+    paint('.label rect,.edgeLabel rect,.labelBkg', 'none', 'none');
+    for (const rect of svg.querySelectorAll('.node rect')) {
+      if (!(parseFloat(rect.getAttribute('rx')) > 0) && !(parseFloat(rect.getAttribute('ry')) > 0)) {
+        rect.setAttribute('rx', String(fontSize * 0.35));
+        rect.setAttribute('ry', String(fontSize * 0.35));
+      }
+    }
+  };
   const finish = (svg, request, baseline) => {
     svg.style.color = request.foreground;
     svg.setAttribute('color', request.foreground);
@@ -25,6 +53,13 @@
     svg.setAttribute('width', String(width));
     svg.setAttribute('height', String(height));
     svg.removeAttribute('style');
+    if (request.kind === 'mermaid') {
+      svg.setAttribute('filter', 'none');
+      svg.style.setProperty('background', 'transparent', 'important');
+      svg.style.setProperty('filter', 'none', 'important');
+      svg.style.setProperty('box-shadow', 'none', 'important');
+      svg.style.setProperty('text-shadow', 'none', 'important');
+    }
     let source = new XMLSerializer().serializeToString(svg).replace(/currentColor/gi, request.foreground);
     if (new TextEncoder().encode(source).length > 2097152) {
       throw new Error('Rendered visual exceeds the supported size');
@@ -44,12 +79,13 @@
           throw new Error('Diagram configuration directives are unsupported');
         }
         mermaid.initialize({startOnLoad:false,securityLevel:'strict',htmlLabels:false,maxTextSize:65536,maxEdges:500,
-          theme:'base',themeVariables:{darkMode:request.dark,primaryColor:request.background,primaryTextColor:request.foreground,lineColor:request.foreground,primaryBorderColor:request.accent,fontSize:`${request.font_size}px`},
+          theme:'base',themeVariables:{darkMode:request.dark,primaryColor:request.background,primaryTextColor:request.foreground,lineColor:request.foreground,primaryBorderColor:request.foreground,fontSize:`${request.font_size}px`},
           flowchart:{htmlLabels:false},secure:['securityLevel','startOnLoad','maxTextSize','maxEdges','htmlLabels']});
         const result = await mermaid.render(`diagram-${++serial}`, request.source);
         host.innerHTML = result.svg;
         const svg = host.querySelector('svg');
         if (!svg) throw new Error('Diagram did not produce SVG');
+        monochrome(svg, request.foreground, request.font_size);
         return finish(svg, request, null);
       }
       await MathJax.startup.promise;

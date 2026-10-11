@@ -72,11 +72,6 @@ const CAPTION_GAP: f32 = 4.0;
 /// chrome — no outer box, no header fill, no rounding.
 const TABLE_CELL_PADDING: f32 = 12.0;
 const TABLE_DIVIDER: f32 = 1.0;
-/// Floor for a column's max-content share, so a short column ("1k") beside a
-/// prose column keeps a readable width.
-const TABLE_MIN_COLUMN_CONTENT: f32 = 48.0;
-/// Narrowest a column wraps down to before the table scrolls instead.
-const TABLE_MIN_COLUMN_WIDTH: f32 = 96.0;
 
 /// Links are delegated to the owning surface so citations and file links can
 /// use application navigation instead of opening an external browser.
@@ -912,7 +907,7 @@ fn block_element(
             align,
             header,
             rows,
-        } => table(align, header, rows, overlay, typography, theme, window, cx),
+        } => table(align, header, rows, overlay, typography, theme),
         BlockKind::Rule => div()
             .h(px(1.0))
             .w_full()
@@ -1102,8 +1097,8 @@ fn visual(kind: super::visuals::Kind, source: &str, overlay: Overlay) -> Option<
 /// Shaped inline content with the editing overlay under it: the selection, the
 /// caret, the inline-code wash, and the layout a click resolves against.
 ///
-/// Takes a [`Flat`] rather than a [`Text`] because a table has to shape every
-/// cell to measure the columns before it can paint one.
+/// Takes a [`Flat`] rather than a [`Text`] so tables can reuse the same inline
+/// presentation and source mapping as ordinary document text.
 fn painted_text(
     flat: Flat,
     len: usize,
@@ -1873,14 +1868,8 @@ fn initial(host: &str, size: f32, color: Hsla, wash: Hsla) -> AnyElement {
 
 /// A GFM table.
 ///
-/// Columns are content-proportional with a per-column floor: each cell is
-/// shaped unwrapped to get its max-content width, and the flex resolution does
-/// the rest. When even the floors no longer fit, the table scrolls sideways
-/// rather than crushing every column into per-character wrapping.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "a table, its overlay, and what paints them"
-)]
+/// Columns share the available width evenly. Long content cannot squeeze another
+/// column below one glyph; cells wrap while the table stays inside its document.
 fn table(
     align: &[Align],
     header: &[Text],
@@ -1888,8 +1877,6 @@ fn table(
     overlay: Overlay,
     typography: &Typography,
     theme: &Theme,
-    window: &mut Window,
-    _cx: &App,
 ) -> AnyElement {
     let ix = overlay.block;
     let all: Vec<&[Text]> = std::iter::once(header)
@@ -1902,69 +1889,33 @@ fn table(
     }
     let has_header = !header.is_empty();
 
-    let text_system = window.text_system();
-    let mut flats: Vec<Vec<Option<Flat>>> = Vec::with_capacity(all.len());
-    let mut content = vec![0.0f32; columns];
-    for (r, row) in all.iter().enumerate() {
-        let weight = if has_header && r == 0 {
+    let flats = all.iter().enumerate().map(|(row_index, row)| {
+        let weight = if has_header && row_index == 0 {
             FontWeight::BOLD
         } else {
             FontWeight::NORMAL
         };
-        let mut out = Vec::with_capacity(columns);
-        for (c, natural) in content.iter_mut().enumerate() {
-            let Some(cell) = row.get(c) else {
-                out.push(None);
-                continue;
-            };
-            let flat = flatten(cell, weight, theme);
-            if !flat.text.is_empty() {
-                let width = f32::from(
-                    text_system
-                        .shape_line(
-                            flat.text.clone(),
-                            px(typography.body.size()),
-                            &flat.runs,
-                            None,
-                        )
-                        .width(),
-                );
-                *natural = natural.max(width);
-            }
-            out.push(Some(flat));
-        }
-        flats.push(out);
-    }
-
-    let naturals: Vec<f32> = content
-        .iter()
-        .map(|width| width.max(TABLE_MIN_COLUMN_CONTENT) + 2.0 * TABLE_CELL_PADDING)
-        .collect();
-    let minimums: Vec<f32> = naturals
-        .iter()
-        .map(|natural| natural.min(TABLE_MIN_COLUMN_WIDTH))
-        .collect();
+        (0..columns)
+            .map(|column| row.get(column).map(|cell| flatten(cell, weight, theme)))
+            .collect::<Vec<_>>()
+    });
     let hairline = theme.hairline(0.10);
 
-    let mut inner = div()
-        .flex()
-        .flex_col()
-        .w_full()
-        .min_w(px(minimums.iter().sum::<f32>()));
-    for (r, row) in flats.into_iter().enumerate() {
+    let mut inner = div().flex().flex_col().w_full().min_w_0();
+    for (r, row) in flats.enumerate() {
         if r > 0 {
             inner = inner.child(div().flex_none().h(px(TABLE_DIVIDER)).w_full().bg(hairline));
         }
-        let mut row_el = div().flex().flex_row();
+        let mut row_el = div().flex().flex_row().w_full().min_w_0();
         for (c, cell) in row.into_iter().enumerate() {
             let mut cell_el = div()
-                .flex_grow(naturals[c])
-                .flex_shrink(naturals[c])
-                .flex_basis(px(0.0))
-                .min_w(px(minimums[c]))
+                .flex_1()
+                .min_w_0()
+                .whitespace_normal()
                 .p(px(TABLE_CELL_PADDING))
                 .text_size(px(typography.body.size()))
-                .line_height(px(typography.body.line_height()));
+                .line_height(px(typography.body.line_height()))
+                .debug_selector(move || format!("markdown-table-cell-{ix}-{r}-{c}"));
             cell_el = match align.get(c).copied().unwrap_or_default() {
                 Align::Left => cell_el,
                 Align::Center => cell_el.text_center(),
@@ -1990,12 +1941,10 @@ fn table(
         inner = inner.child(row_el);
     }
 
-    super::scroll::horizontal(
-        format!("md-table-scroll-{ix}"),
-        div()
-            .id(ElementId::named_usize("md-table", ix))
-            .w_full()
-            .child(inner),
-    )
-    .into_any_element()
+    div()
+        .id(ElementId::named_usize("md-table", ix))
+        .w_full()
+        .min_w_0()
+        .child(inner)
+        .into_any_element()
 }

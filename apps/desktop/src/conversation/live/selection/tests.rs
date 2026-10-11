@@ -118,9 +118,23 @@ fn folds_wrapped_prompts(cx: &mut TestAppContext) {
             assert!((collapsed.size.height - px(f32::from(size) * 1.6 * 5.)).abs() <= px(1.));
             let control = bounds(visual, format!("message-expand-{turn}"));
             assert!((control.center().x - collapsed.center().x).abs() <= px(1.));
+            let background = bounds(visual, format!("message-expand-background-{turn}"));
+            assert!(background.top() >= collapsed.bottom());
+            assert!(control.left() >= background.left());
+            assert!(control.right() <= background.right());
+            assert!(control.top() >= background.top());
+            assert!(control.bottom() <= background.bottom());
+            assert!(visual.debug_bounds("message-preview-fade").is_none());
             toggle(&view, visual, turn);
             let expanded = bounds(visual, format!("message-preview-{turn}"));
             assert!(expanded.size.height > collapsed.size.height);
+            assert!(
+                visual
+                    .debug_bounds(Box::leak(
+                        format!("message-expand-background-{turn}").into_boxed_str()
+                    ))
+                    .is_none()
+            );
             assert_eq!(
                 expanded.size.height,
                 bounds(visual, format!("message-text-{turn}")).size.height

@@ -87,8 +87,9 @@ class AxisPlot extends StatelessWidget {
       ),
     );
     final grid = FlGridData(
-      drawVerticalLine: false,
       getDrawingHorizontalLine: (_) =>
+          FlLine(color: colors.outlineVariant, strokeWidth: 1),
+      getDrawingVerticalLine: (_) =>
           FlLine(color: colors.outlineVariant, strokeWidth: 1),
     );
     final border = FlBorderData(show: false);
