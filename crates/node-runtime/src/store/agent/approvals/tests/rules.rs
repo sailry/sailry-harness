@@ -119,6 +119,133 @@ fn preserves_user_source_and_matches_owner() {
 }
 
 #[test]
+fn applies_session_choice_to_pending_matches() {
+    let mut fixture = Fixture::new();
+    let binding = binding(&fixture);
+    let first = begin_owned(&mut fixture, &binding);
+    append_call(&mut fixture, "second-write");
+    let second = begin_owned(&mut fixture, &binding);
+    append_call(&mut fixture, "third-write");
+    let third = begin_owned(&mut fixture, &binding);
+    assert_eq!(second.state, ApprovalState::Pending);
+    assert_eq!(third.state, ApprovalState::Pending);
+    resolve(
+        &fixture.database.connection,
+        fixture.session,
+        first.id,
+        Decision::ApproveSession,
+    )
+    .unwrap();
+    for id in [second.id, third.id] {
+        let approval = get(&fixture.database.connection, id).unwrap();
+        assert_eq!(approval.state, ApprovalState::Approved);
+        assert_eq!(approval.source, ApprovalSource::SessionRule);
+        assert_eq!(approval.choice, Some(ApprovalChoice::Session));
+    }
+}
+
+#[test]
+fn releases_matching_waiters_and_updates() {
+    let mut fixture = Fixture::new();
+    let binding = binding(&fixture);
+    let first = begin_owned(&mut fixture, &binding);
+    append_call(&mut fixture, "second-write");
+    let second = begin_owned(&mut fixture, &binding);
+    append_call(&mut fixture, "third-write");
+    let third = begin_owned(&mut fixture, &binding);
+    fixture.request.tool_name = crate::plugins::tools::alias("files", "create_directory");
+    fixture.request.args = json!({"path":"unrelated"});
+    append_call(&mut fixture, "other-tool");
+    let other_binding = Binding {
+        owner: binding.owner.clone(),
+        tool: fixture.request.tool_name.clone(),
+        operation: Some(sailry_protocol::tool::Operation::CreateDirectory),
+    };
+    let unrelated = begin_owned(&mut fixture, &other_binding);
+    fixture.request.tool_name = "install_skill".into();
+    append_call(&mut fixture, "unowned-tool");
+    let unowned = fixture.begin();
+    let mut matching = Vec::new();
+    let mut unmatched = Vec::new();
+    for approval in [&first, &second, &third, &unrelated, &unowned] {
+        let (reply, response) = oneshot::channel();
+        fixture
+            .database
+            .approvals
+            .insert(approval.id, (approval.turn, reply));
+        if [first.id, second.id, third.id].contains(&approval.id) {
+            matching.push(response);
+        } else {
+            unmatched.push(response);
+        }
+    }
+    let mut subscription = fixture.database.feeds.subscribe(
+        fixture.database.node,
+        history::pages::read(&fixture.database.connection, fixture.session, None, 100).unwrap(),
+        Default::default(),
+        Default::default(),
+        sailry_link::CancellationToken::new(),
+    );
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .unwrap();
+    assert!(matches!(
+        runtime.block_on(subscription.next()).unwrap(),
+        Update::ConversationSnapshot(_)
+    ));
+    let Output::Approval(resolved) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::ResolveApproval {
+            session: fixture.session,
+            approval: first.id,
+            decision: Decision::ApproveSession,
+        },
+    ) else {
+        panic!("approval expected")
+    };
+    assert_eq!(resolved.source, ApprovalSource::User);
+    for response in &mut matching {
+        assert_eq!(response.try_recv().unwrap().unwrap(), Decision::Approve);
+    }
+    for response in &mut unmatched {
+        assert!(matches!(
+            response.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+    }
+    for approval in [&unrelated, &unowned] {
+        assert!(fixture.database.approvals.contains_key(&approval.id));
+        assert_eq!(
+            get(&fixture.database.connection, approval.id)
+                .unwrap()
+                .state,
+            ApprovalState::Pending
+        );
+    }
+    let updates = runtime.block_on(async {
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            let mut ids = std::collections::BTreeSet::new();
+            for _ in 0..3 {
+                let Update::ConversationFrame(frame) = subscription.next().await.unwrap() else {
+                    panic!("conversation frame expected")
+                };
+                let Change::Approval(approval) = frame.change else {
+                    panic!("approval update expected")
+                };
+                assert_eq!(approval.state, ApprovalState::Approved);
+                ids.insert(approval.id);
+            }
+            ids
+        })
+        .await
+        .unwrap()
+    });
+    assert_eq!(updates, [first.id, second.id, third.id].into());
+}
+
+#[test]
 fn requires_every_captured_dimension() {
     let mut fixture = Fixture::new();
     let binding = binding(&fixture);

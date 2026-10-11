@@ -91,6 +91,50 @@ pub(super) fn insert(
     Ok(())
 }
 
+pub(super) fn apply_session(db: &Connection, source: &Run, binding: &Binding) -> Result<(), Fault> {
+    let mut query = db.prepare("SELECT body FROM agent_approvals WHERE json_extract(body,'$.session')=?1 AND binding=?2 AND json_extract(body,'$.state')='pending' ORDER BY rowid").map_err(storage_error)?;
+    let approvals = query
+        .query_map(
+            params![source.session.to_string(), encode(binding)?],
+            |row| row.get::<_, Vec<u8>>(0),
+        )
+        .map_err(storage_error)?
+        .map(|body| {
+            serde_json::from_slice::<Approval>(&body.map_err(storage_error)?).map_err(storage_error)
+        })
+        .collect::<Result<Vec<_>, Fault>>()?;
+    let resource = super::super::permissions::config(db, source.turn)?.resource;
+    for mut approval in approvals {
+        if !approval.can_remember
+            || approval.source != ApprovalSource::User
+            || approval.startup.is_some()
+        {
+            continue;
+        }
+        let run = super::super::runs::get(db, approval.turn)?;
+        if run.kind != RunKind::Task
+            || run.status != Status::Running
+            || run.session != source.session
+            || run.worktree != source.worktree
+            || super::super::permissions::config(db, run.turn)?.resource != resource
+        {
+            continue;
+        }
+        let request = super::request(db, &approval)?;
+        validate(db, approval.turn, &request, binding)?;
+        if matching(db, &run, binding, &request)?
+            != Some((ApprovalSource::SessionRule, ApprovalChoice::Session))
+        {
+            continue;
+        }
+        approval.state = ApprovalState::Approved;
+        approval.source = ApprovalSource::SessionRule;
+        approval.choice = Some(ApprovalChoice::Session);
+        super::put(db, &approval)?;
+    }
+    Ok(())
+}
+
 pub(super) fn check_prepared(approval: &Approval, prepared: Option<&Command>) -> Result<(), Fault> {
     if let Some(ApprovalChoice::Prefix(prefix)) = &approval.choice {
         let Some(Command::RunCommand { command, .. }) = prepared else {

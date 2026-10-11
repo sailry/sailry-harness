@@ -288,6 +288,9 @@ pub(in crate::store) fn resolve(
             .ok_or_else(|| Fault::invalid("tool approval has no captured owner"))?;
         rules::validate(db, approval.turn, &request(db, &approval)?, &binding)?;
         rules::insert(db, &run, &binding, choice, id)?;
+        if *choice == ApprovalChoice::Session {
+            rules::apply_session(db, &run, &binding)?;
+        }
     }
     approval.state = state;
     approval.choice = choice;
@@ -430,7 +433,7 @@ pub(super) fn list(
         .collect()
 }
 
-fn get(db: &Connection, id: ApprovalId) -> Result<Approval, Fault> {
+pub(super) fn get(db: &Connection, id: ApprovalId) -> Result<Approval, Fault> {
     let body: Option<Vec<u8>> = db
         .query_row(
             "SELECT body FROM agent_approvals WHERE id=?1",

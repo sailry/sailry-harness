@@ -158,6 +158,161 @@ pub(crate) fn results(page: &Page, turn: TurnId) -> Vec<(Option<String>, String,
 }
 
 #[tokio::test]
+async fn releases_matching_pending_calls() {
+    for remote in [false, true] {
+        let write = plugin_tool("files", "write_file");
+        let mut calls = vec![(
+            plugin_tool("files", "create_directory"),
+            json!({"path":"waiting"}),
+        )];
+        calls.extend(["first", "second", "third"].map(|name| {
+            (
+                write.clone(),
+                json!({"path":format!("{name}.txt"),"text":name,"expected_revision":null}),
+            )
+        }));
+        let server = Server::batch(calls.clone()).await;
+        let fixture = Fixture::new(remote, &server).await;
+        let turn = submit(&fixture.client, &fixture.session).await;
+        let unrelated = pending(&fixture.client, fixture.session.id).await;
+        let Output::Plugin(package) = execute(
+            &fixture.client,
+            Command::ReadPlugin {
+                name: "files".into(),
+            },
+        )
+        .await
+        else {
+            panic!("plugin expected")
+        };
+        let context = plugin::Context {
+            invocation: None,
+            turn: Some(turn.id),
+            surface: plugin::desktop::Surface::Workspace,
+            package: package.summary.reference(),
+            worktree: Some(fixture.session.worktree),
+            session: Some(fixture.session.id),
+        };
+        // Keep ADK's first unsafe call paused while the real Node owns concurrent
+        // waiters for the other canonical calls in this captured model batch.
+        let waiters = calls
+            .iter()
+            .enumerate()
+            .skip(1)
+            .map(|(index, (name, args))| {
+                let request = fixture
+                    .client
+                    .prepare(Command::WriteFile {
+                        worktree: fixture.session.worktree,
+                        path: args["path"].as_str().unwrap().into(),
+                        text: args["text"].as_str().unwrap().into(),
+                        expected_revision: None,
+                    })
+                    .with_plugin(context.clone());
+                fixture.node.authorize_tool_fixture(
+                    adk_core::ToolConfirmationRequest {
+                        tool_name: name.clone(),
+                        function_call_id: Some(format!("call-fixture-{index}")),
+                        args: args.clone(),
+                    },
+                    sailry_protocol::tool::Operation::WriteFile,
+                    request,
+                )
+            });
+        let mut waiters = Box::pin(futures::future::join_all(waiters));
+        let page = tokio::select! {
+            page = observe(&fixture.client, fixture.session.id, |page| {
+                page.approvals.len() == 4
+                    && page.approvals.iter().all(|approval| approval.state == ApprovalState::Pending)
+            }) => page,
+            replies = &mut waiters => panic!("pending waiters completed early: {replies:?}"),
+        };
+        let matching: Vec<_> = page
+            .approvals
+            .iter()
+            .filter(|approval| approval.id != unrelated.id)
+            .cloned()
+            .collect();
+        assert_eq!(matching.len(), 3);
+        assert!(matching.iter().all(|approval| approval.can_remember));
+        for name in ["first", "second", "third"] {
+            assert!(!fixture.root.join(format!("{name}.txt")).exists());
+        }
+        process::decide(&fixture.client, &matching[0], Decision::ApproveSession).await;
+        let requests = tokio::time::timeout(Duration::from_secs(10), waiters)
+            .await
+            .expect("matching approval waiter deadline")
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let outputs = futures::future::join_all(
+            requests
+                .iter()
+                .map(|request| fixture.client.execute(request.clone())),
+        )
+        .await;
+        for (request, output) in requests.iter().zip(outputs) {
+            let output = output.unwrap();
+            assert!(matches!(output, Output::FileWritten(_)));
+            assert_eq!(
+                fixture.client.outcome(request).await.unwrap(),
+                RequestOutcome::Completed(Box::new(Ok(output)))
+            );
+        }
+        let page = observe(&fixture.client, fixture.session.id, |page| {
+            matching.iter().all(|pending| {
+                page.approvals.iter().any(|approval| {
+                    approval.id == pending.id && approval.state == ApprovalState::Approved
+                })
+            })
+        })
+        .await;
+        let request_ids: std::collections::BTreeSet<_> =
+            requests.iter().map(|request| request.id).collect();
+        assert_eq!(request_ids.len(), 3);
+        for pending in &matching {
+            let approval = page
+                .approvals
+                .iter()
+                .find(|approval| approval.id == pending.id)
+                .unwrap();
+            assert_eq!(
+                approval.source,
+                if approval.id == matching[0].id {
+                    ApprovalSource::User
+                } else {
+                    ApprovalSource::SessionRule
+                }
+            );
+            assert_eq!(approval.choice, Some(ApprovalChoice::Session));
+            let (request, consumed) = claimed(&fixture.node, approval);
+            assert!(consumed);
+            assert!(request_ids.contains(&request));
+        }
+        assert_eq!(
+            page.approvals
+                .iter()
+                .find(|approval| approval.id == unrelated.id)
+                .unwrap(),
+            &unrelated
+        );
+        assert!(!claimed(&fixture.node, &unrelated).1);
+        assert!(!fixture.root.join("waiting").exists());
+        for name in ["first", "second", "third"] {
+            assert_eq!(
+                std::fs::read_to_string(fixture.root.join(format!("{name}.txt"))).unwrap(),
+                name
+            );
+        }
+        execute(&fixture.client, Command::StopTurn { turn: turn.id }).await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(page.runs[0].status, Status::Cancelled);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn remembers_across_turns_and_restart() {
     for remote in [false, true] {
         let first_server = Server::turn_tools(vec![(

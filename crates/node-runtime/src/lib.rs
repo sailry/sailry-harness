@@ -298,6 +298,48 @@ impl Node {
             .register_python_environment_fixture(name, &self.ingress.environment)
     }
 
+    /// Confirms and claims an exact captured tool call through the real approval owner.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn authorize_tool_fixture(
+        &self,
+        confirmation: adk_core::ToolConfirmationRequest,
+        operation: sailry_protocol::tool::Operation,
+        mut request: sailry_protocol::Request,
+    ) -> Result<sailry_protocol::Request, sailry_protocol::Fault> {
+        let context = request
+            .plugin
+            .as_ref()
+            .ok_or_else(|| sailry_protocol::Fault::invalid("tool fixture requires a plugin"))?;
+        let turn = context
+            .turn
+            .ok_or_else(|| sailry_protocol::Fault::invalid("tool fixture requires a turn"))?;
+        let binding = store::agent::ApprovalBinding {
+            owner: context.package.clone(),
+            tool: confirmation.tool_name.clone(),
+            operation: Some(operation),
+        };
+        let decision = self
+            .ingress
+            .confirm(turn, confirmation.clone(), Some(binding))
+            .await?;
+        if !matches!(
+            decision,
+            sailry_protocol::conversation::Decision::Approve
+                | sailry_protocol::conversation::Decision::ApproveSession
+                | sailry_protocol::conversation::Decision::ApprovePrefix(_)
+        ) {
+            return Err(sailry_protocol::Fault::new(
+                sailry_protocol::ErrorCode::PermissionDenied,
+                "tool fixture was denied",
+            ));
+        }
+        request.id = self
+            .ingress
+            .authorize(turn, confirmation, Some(request.command.clone()))
+            .await?;
+        Ok(request)
+    }
+
     #[cfg(feature = "test-support")]
     pub fn set_web_proxy_fixture(
         &self,

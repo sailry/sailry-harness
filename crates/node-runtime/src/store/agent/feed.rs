@@ -370,21 +370,22 @@ pub(in crate::store) fn command(database: &mut Database, output: &Output) {
         return;
     }
     if let Output::Approval(approval) = output {
-        database.feeds.publish(
-            database.node,
-            approval.session,
-            Change::Approval(approval.clone()),
-        );
-        if let Some((_, reply)) = database.approvals.remove(&approval.id) {
-            let decision = match approval.state {
-                ApprovalState::Approved => Decision::Approve,
-                ApprovalState::Denied => approval
-                    .reason
-                    .clone()
-                    .map_or(Decision::Deny, Decision::DenyWithReason),
-                _ => unreachable!("only resolved approvals are command results"),
-            };
-            let _ = reply.send(Ok(decision));
+        resolved(database, approval);
+        if approval.choice == Some(ApprovalChoice::Session) {
+            let approved: Vec<_> = database
+                .approvals
+                .keys()
+                .filter_map(|id| approvals::get(&database.connection, *id).ok())
+                .filter(|pending| {
+                    pending.session == approval.session
+                        && pending.state == ApprovalState::Approved
+                        && pending.source == ApprovalSource::SessionRule
+                        && pending.choice == Some(ApprovalChoice::Session)
+                })
+                .collect();
+            for approval in approved {
+                resolved(database, &approval);
+            }
         }
         return;
     }
@@ -420,5 +421,24 @@ pub(in crate::store) fn command(database: &mut Database, output: &Output) {
         database
             .feeds
             .publish(database.node, run.session, Change::Run(run));
+    }
+}
+
+fn resolved(database: &mut Database, approval: &Approval) {
+    database.feeds.publish(
+        database.node,
+        approval.session,
+        Change::Approval(approval.clone()),
+    );
+    if let Some((_, reply)) = database.approvals.remove(&approval.id) {
+        let decision = match approval.state {
+            ApprovalState::Approved => Decision::Approve,
+            ApprovalState::Denied => approval
+                .reason
+                .clone()
+                .map_or(Decision::Deny, Decision::DenyWithReason),
+            _ => unreachable!("only resolved approvals are command results"),
+        };
+        let _ = reply.send(Ok(decision));
     }
 }
