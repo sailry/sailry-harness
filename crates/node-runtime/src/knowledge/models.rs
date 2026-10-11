@@ -709,13 +709,13 @@ fn asset_failure(error: sailry_model_assets::Error) -> Fault {
         sailry_model_assets::Error::InvalidAsset => {
             Fault::invalid("embedding model files failed size or SHA-256 validation")
         }
-        sailry_model_assets::Error::Storage => Fault::new(
+        sailry_model_assets::Error::Storage(reason) => Fault::new(
             ErrorCode::Unavailable,
-            "embedding model files could not be saved",
+            format!("embedding model files could not be saved: {reason}"),
         ),
-        sailry_model_assets::Error::Download => Fault::new(
+        sailry_model_assets::Error::Download(reason) => Fault::new(
             ErrorCode::Unavailable,
-            "embedding model could not be downloaded",
+            format!("embedding model could not be downloaded: {reason}"),
         ),
     }
 }

@@ -295,11 +295,16 @@ async fn restarts_damaged_prefix_or_checkpoint() {
 async fn preserves_prefix_after_connection_failure() {
     let root = directory();
     let endpoint = Endpoint::start(vec![Response::interrupted(), Response::range()]).await;
-    assert_eq!(
-        endpoint
-            .acquire(root.path(), &CancellationToken::new(), |_| {})
-            .await,
-        Err(Error::Download)
+    let Error::Download(reason) = endpoint
+        .acquire(root.path(), &CancellationToken::new(), |_| {})
+        .await
+        .unwrap_err()
+    else {
+        panic!("download failure expected")
+    };
+    assert!(
+        reason.contains("body") || reason.contains("connection"),
+        "{reason}"
     );
     assert_eq!(std::fs::read(partial(root.path())).unwrap(), b"abc");
     endpoint

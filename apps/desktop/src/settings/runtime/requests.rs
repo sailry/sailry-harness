@@ -45,8 +45,11 @@ impl Panel {
                             panel.submit(Command::RegisterOcrModel { definition }, window, cx);
                         }
                     }
-                    Ok(Err(error)) => panel.error = Some(super::error_key(error.code)),
-                    _ => panel.error = Some("runtime_failed"),
+                    Ok(Err(error)) => panel.fail(error, false),
+                    Ok(Ok(_)) => panel.fail(Fault::invalid("unexpected runtime response"), false),
+                    Err(error) => {
+                        panel.fail(Fault::new(ErrorCode::Unavailable, error.to_string()), false)
+                    }
                 }
                 cx.notify();
             });
@@ -106,9 +109,13 @@ impl Panel {
                         panel.models = models;
                         panel.choices(window, cx);
                         panel.error = None;
+                        panel.fault = None;
                     }
-                    Ok(Err(error)) => panel.error = Some(super::error_key(error.code)),
-                    _ => panel.error = Some("runtime_failed"),
+                    Ok(Err(error)) => panel.fail(error, false),
+                    Ok(Ok(_)) => panel.fail(Fault::invalid("unexpected runtime response"), false),
+                    Err(error) => {
+                        panel.fail(Fault::new(ErrorCode::Unavailable, error.to_string()), false)
+                    }
                 }
                 if panel.refresh {
                     panel.load(window, cx);
@@ -129,6 +136,7 @@ impl Panel {
         if self.locked() {
             return;
         }
+        self.retry_install = None;
         self.request = Some(self.binding.client.prepare(command));
         self.retry(window, cx);
     }
@@ -141,9 +149,14 @@ impl Panel {
             return;
         };
         let registering = matches!(request.command, Command::RegisterOcrModel { .. });
+        let install = match &request.command {
+            Command::InstallOcrModel { id } => Some(id.clone()),
+            _ => None,
+        };
         let binding = self.binding.clone();
         self.pending = true;
         self.error = None;
+        self.fault = None;
         let job = self.binding.runtime.spawn(async move {
             super::super::knowledge::requests::execute(&binding, request).await
         });
@@ -154,6 +167,7 @@ impl Panel {
                 match result {
                     Ok((Ok(output), _)) => {
                         panel.request = None;
+                        panel.retry_install = None;
                         match output {
                             Output::PythonSettings(settings) => panel.python = Some(settings),
                             Output::OcrSettings(settings) => panel.settings = Some(settings),
@@ -167,24 +181,37 @@ impl Panel {
                         panel.load(window, cx);
                     }
                     Ok((Err(error), confirmed)) => {
-                        if confirmed && error.code != ErrorCode::OutcomeUnknown {
+                        let uncertain = !confirmed || error.code == ErrorCode::OutcomeUnknown;
+                        if !uncertain {
                             panel.request = None;
+                            if error.code != ErrorCode::Cancelled {
+                                panel.retry_install = install;
+                            }
                         }
                         if error.code != ErrorCode::Cancelled {
-                            panel.error = Some(if panel.request.is_some() {
-                                "runtime_unknown"
-                            } else {
-                                super::error_key(error.code)
-                            });
+                            panel.fail(error, uncertain);
                         }
                     }
-                    Err(_) => panel.error = Some("runtime_unknown"),
+                    Err(error) => panel.fail(
+                        Fault::new(ErrorCode::OutcomeUnknown, error.to_string()),
+                        true,
+                    ),
                 }
                 cx.notify();
             });
         })
         .detach();
         cx.notify();
+    }
+
+    fn fail(&mut self, error: Fault, uncertain: bool) {
+        eprintln!("sailry-desktop: runtime operation failed: {error}");
+        self.error = Some(if uncertain {
+            "runtime_unknown"
+        } else {
+            super::error_key(error.code)
+        });
+        self.fault = Some(error);
     }
 
     pub(super) fn cancel_transfer(
@@ -213,7 +240,10 @@ impl Panel {
                         window,
                         cx,
                     ),
-                    _ => panel.error = Some("runtime_failed"),
+                    Ok(Err(error)) => panel.fail(error, false),
+                    Err(error) => {
+                        panel.fail(Fault::new(ErrorCode::Unavailable, error.to_string()), false)
+                    }
                 }
                 cx.notify();
             });

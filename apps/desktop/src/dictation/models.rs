@@ -367,8 +367,8 @@ fn files(definition: &Definition) -> Vec<File<'_>> {
 
 fn asset_error(error: sailry_model_assets::Error) -> &'static str {
     match error {
-        sailry_model_assets::Error::Storage => "dictation_storage",
-        sailry_model_assets::Error::Download => "dictation_download",
+        sailry_model_assets::Error::Storage(_) => "dictation_storage",
+        sailry_model_assets::Error::Download(_) => "dictation_download",
         sailry_model_assets::Error::InvalidAsset => "dictation_model_invalid",
         sailry_model_assets::Error::Cancelled => "dictation_cancelled",
     }

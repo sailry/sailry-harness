@@ -13,9 +13,7 @@ pub(super) fn open(path: &Path, create: bool) -> Result<Dir> {
     let absolute = if path.is_absolute() {
         path.to_owned()
     } else {
-        std::env::current_dir()
-            .map_err(|_| Error::Storage)?
-            .join(path)
+        std::env::current_dir().map_err(Error::storage)?.join(path)
     };
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     let absolute = {
@@ -26,8 +24,8 @@ pub(super) fn open(path: &Path, create: bool) -> Result<Dir> {
             if let Ok(relative) = absolute.strip_prefix(alias)
                 && alias.is_symlink()
             {
-                if alias.canonicalize().map_err(|_| Error::Storage)? != Path::new(destination) {
-                    return Err(Error::Storage);
+                if alias.canonicalize().map_err(Error::storage)? != Path::new(destination) {
+                    return Err(Error::Storage("system directory alias is invalid".into()));
                 }
                 absolute = Path::new(destination).join(relative);
                 break;
@@ -41,14 +39,20 @@ pub(super) fn open(path: &Path, create: bool) -> Result<Dir> {
         match component {
             Component::Prefix(_) | Component::RootDir => base.push(component),
             Component::Normal(name) => names.push(name),
-            _ => return Err(Error::Storage),
+            _ => {
+                return Err(Error::Storage(
+                    "model asset directory path is invalid".into(),
+                ));
+            }
         }
     }
     if names.is_empty() {
-        return Err(Error::Storage);
+        return Err(Error::Storage(
+            "model asset directory path is incomplete".into(),
+        ));
     }
     let mut directory =
-        Dir::open_ambient_dir(base, cap_std::ambient_authority()).map_err(|_| Error::Storage)?;
+        Dir::open_ambient_dir(base, cap_std::ambient_authority()).map_err(Error::storage)?;
     for name in names {
         match directory.open_dir_nofollow(name) {
             Ok(next) => {
@@ -56,7 +60,7 @@ pub(super) fn open(path: &Path, create: bool) -> Result<Dir> {
                 continue;
             }
             Err(error) if create && error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return Err(Error::Storage),
+            Err(error) => return Err(Error::storage(error)),
         }
         {
             let builder = DirBuilder::new();
@@ -70,12 +74,10 @@ pub(super) fn open(path: &Path, create: bool) -> Result<Dir> {
             match directory.create_dir_with(name, &builder) {
                 Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(_) => return Err(Error::Storage),
+                Err(error) => return Err(Error::storage(error)),
             }
         }
-        directory = directory
-            .open_dir_nofollow(name)
-            .map_err(|_| Error::Storage)?;
+        directory = directory.open_dir_nofollow(name).map_err(Error::storage)?;
     }
     Ok(directory)
 }
@@ -84,18 +86,21 @@ pub(super) fn target(directory: &Dir, name: &str) -> Result<()> {
     match directory.symlink_metadata(name) {
         Ok(metadata) if metadata.is_file() && !metadata.is_symlink() => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        _ => Err(Error::Storage),
+        Ok(_) => Err(Error::Storage(
+            "model asset destination is not a regular file".into(),
+        )),
+        Err(error) => Err(Error::storage(error)),
     }
 }
 
 pub(super) fn temporary(directory: &Dir) -> Result<TempFile<'_>> {
-    let file = TempFile::new(directory).map_err(|_| Error::Storage)?;
+    let file = TempFile::new(directory).map_err(Error::storage)?;
     #[cfg(unix)]
     {
         use cap_std::fs::PermissionsExt;
         file.as_file()
             .set_permissions(cap_std::fs::Permissions::from_mode(0o600))
-            .map_err(|_| Error::Storage)?;
+            .map_err(Error::storage)?;
     }
     Ok(file)
 }

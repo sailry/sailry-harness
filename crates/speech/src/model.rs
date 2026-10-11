@@ -45,8 +45,8 @@ pub async fn prepare_with_progress(
     sailry_model_assets::prepare(directory, &downloads, cancel, progress)
         .await
         .map_err(|error| match error {
-            sailry_model_assets::Error::Storage => Error::Storage,
-            sailry_model_assets::Error::Download => Error::Download,
+            sailry_model_assets::Error::Storage(_) => Error::Storage,
+            sailry_model_assets::Error::Download(_) => Error::Download,
             sailry_model_assets::Error::InvalidAsset => Error::InvalidModel,
             sailry_model_assets::Error::Cancelled => Error::Cancelled,
         })

@@ -15,16 +15,39 @@ pub use urls::url;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
-    #[error("model asset storage failed")]
-    Storage,
-    #[error("model asset download failed")]
-    Download,
+    #[error("model asset storage failed: {0}")]
+    Storage(String),
+    #[error("model asset download failed: {0}")]
+    Download(String),
     #[error("model asset validation failed")]
     InvalidAsset,
     #[error("model asset download cancelled")]
     Cancelled,
+}
+
+impl Error {
+    fn storage(error: impl std::fmt::Display) -> Self {
+        Self::Storage(error.to_string())
+    }
+
+    fn download(error: reqwest::Error) -> Self {
+        // The public download identity is already captured by its owner. Redirect
+        // URLs may contain temporary credentials and do not belong in diagnostics.
+        let error = error.without_url();
+        let mut detail = error.to_string();
+        let mut source = std::error::Error::source(&error);
+        while let Some(cause) = source {
+            let text = cause.to_string();
+            if !detail.ends_with(&text) {
+                detail.push_str(": ");
+                detail.push_str(&text);
+            }
+            source = cause.source();
+        }
+        Self::Download(detail)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

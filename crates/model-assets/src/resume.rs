@@ -21,12 +21,12 @@ pub(super) async fn lock(
 ) -> Result<OwnedMutexGuard<()>> {
     type Locks = BTreeMap<PathBuf, Weak<AsyncMutex<()>>>;
     static LOCKS: OnceLock<Mutex<Locks>> = OnceLock::new();
-    let key = path.canonicalize().map_err(|_| Error::Storage)?.join(name);
+    let key = path.canonicalize().map_err(Error::storage)?.join(name);
     let lock = {
         let mut locks = LOCKS
             .get_or_init(Mutex::default)
             .lock()
-            .map_err(|_| Error::Storage)?;
+            .map_err(Error::storage)?;
         locks.retain(|_, lock| lock.strong_count() > 0);
         let lock = locks
             .get(&key)
@@ -129,10 +129,12 @@ impl Part {
         }
         let mut file = directory
             .open_with(&name, &options)
-            .map_err(|_| Error::Storage)?
+            .map_err(Error::storage)?
             .into_std();
-        if !file.metadata().map_err(|_| Error::Storage)?.is_file() {
-            return Err(Error::Storage);
+        if !file.metadata().map_err(Error::storage)?.is_file() {
+            return Err(Error::Storage(
+                "model asset checkpoint is not a regular file".into(),
+            ));
         }
         let mut read = OpenOptions::new();
         read.read(true).follow(FollowSymlinks::No);
@@ -173,11 +175,11 @@ impl Part {
                 return Err(Error::Cancelled);
             }
             let limit = remaining.min(buffer.len() as u64) as usize;
-            let count = file
-                .read(&mut buffer[..limit])
-                .map_err(|_| Error::Storage)?;
+            let count = file.read(&mut buffer[..limit]).map_err(Error::storage)?;
             if count == 0 {
-                return Err(Error::Storage);
+                return Err(Error::Storage(
+                    "model asset checkpoint ended unexpectedly".into(),
+                ));
             }
             hash.update(&buffer[..count]);
             remaining -= count as u64;
@@ -189,9 +191,9 @@ impl Part {
             received = 0;
             hash = Sha256::new();
         }
-        file.set_len(received).map_err(|_| Error::Storage)?;
+        file.set_len(received).map_err(Error::storage)?;
         file.seek(SeekFrom::Start(received))
-            .map_err(|_| Error::Storage)?;
+            .map_err(Error::storage)?;
         Ok(Self {
             file,
             received,
@@ -220,10 +222,8 @@ impl Part {
     }
 
     pub fn reset(&mut self) -> Result<()> {
-        self.file.set_len(0).map_err(|_| Error::Storage)?;
-        self.file
-            .seek(SeekFrom::Start(0))
-            .map_err(|_| Error::Storage)?;
+        self.file.set_len(0).map_err(Error::storage)?;
+        self.file.seek(SeekFrom::Start(0)).map_err(Error::storage)?;
         self.received = 0;
         self.hash = Sha256::new();
         self.validator = None;
@@ -255,17 +255,15 @@ impl Part {
             sha256: format!("{:x}", self.hash.clone().finalize()),
             validator: self.validator.clone(),
         })
-        .map_err(|_| Error::Storage)?;
+        .map_err(Error::storage)?;
         let temporary = storage::temporary(&self.directory)?;
         temporary
             .as_file()
             .write_all(&bytes)
-            .map_err(|_| Error::Storage)?;
-        temporary.as_file().sync_all().map_err(|_| Error::Storage)?;
+            .map_err(Error::storage)?;
+        temporary.as_file().sync_all().map_err(Error::storage)?;
         storage::target(&self.directory, &self.marker)?;
-        temporary
-            .replace(&self.marker)
-            .map_err(|_| Error::Storage)?;
+        temporary.replace(&self.marker).map_err(Error::storage)?;
         Ok(())
     }
 
@@ -274,11 +272,11 @@ impl Part {
         storage::target(&self.directory, target)?;
         self.directory
             .rename(&self.name, &self.directory, target)
-            .map_err(|_| Error::Storage)?;
+            .map_err(Error::storage)?;
         match self.directory.remove_file(&self.marker) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return Err(Error::Storage),
+            Err(error) => return Err(Error::storage(error)),
         }
         Ok(())
     }
@@ -289,7 +287,7 @@ impl Part {
             match self.directory.remove_file(name) {
                 Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(_) => return Err(Error::Storage),
+                Err(error) => return Err(Error::storage(error)),
             }
         }
         Ok(())

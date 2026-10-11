@@ -94,7 +94,10 @@ pub(crate) fn diagnostic(message: SharedString) -> Notification {
         .content(move |_, _, _| {
             div()
                 .id("error-detail")
+                .test_support()
                 .debug_selector(|| "error-toast-detail".into())
+                .role(Role::Label)
+                .aria_label(message.clone())
                 .max_h_24()
                 .overflow_y_scroll()
                 .text_sm()

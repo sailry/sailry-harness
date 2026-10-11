@@ -20,6 +20,7 @@ enum Reply {
     Body(Vec<u8>),
     Chunks(Vec<Vec<u8>>, Duration),
     Stall,
+    Unavailable,
 }
 
 struct Server {
@@ -61,6 +62,9 @@ impl Server {
                 recorded.lock().unwrap().push(path);
                 counter.fetch_add(1, Ordering::SeqCst);
                 match &reply {
+                    Reply::Unavailable => {
+                        let _ = socket.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+                    }
                     Reply::Body(body) => {
                         let header = format!(
                             "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -427,11 +431,13 @@ async fn inactivity_times_out_without_publishing() {
         sha256: &expected,
     }];
     let server = Server::start(Reply::Stall).await;
+    let mut sources = downloads(&server, &files);
+    sources[0].url.set_query(Some("temporary=private-token"));
     let result = tokio::time::timeout(
         Duration::from_secs(2),
         transfer::acquire(
             directory.path(),
-            &downloads(&server, &files),
+            &sources,
             &CancellationToken::new(),
             |_| {},
             &client(Duration::from_millis(100)),
@@ -439,7 +445,12 @@ async fn inactivity_times_out_without_publishing() {
     )
     .await
     .unwrap();
-    assert_eq!(result, Err(Error::Download));
+    let Error::Download(reason) = result.unwrap_err() else {
+        panic!("download failure expected")
+    };
+    assert!(reason.contains("timed out"), "{reason}");
+    assert!(!reason.contains("private-token"));
+    assert!(!reason.contains(server.url.as_str()));
     assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
 }
 
@@ -529,10 +540,14 @@ async fn refuses_symlinked_directories_and_files() {
     let server = Server::start(Reply::Body(b"model".to_vec())).await;
     for path in [root.path().join("linked"), root.path().to_owned()] {
         assert!(!ready(&path, &files));
-        assert_eq!(
-            download(&path, &server, &files, &CancellationToken::new(), |_| {}).await,
-            Err(Error::Storage)
-        );
+        let Error::Storage(reason) =
+            download(&path, &server, &files, &CancellationToken::new(), |_| {})
+                .await
+                .unwrap_err()
+        else {
+            panic!("storage failure expected")
+        };
+        assert!(!reason.trim().is_empty());
     }
     assert_eq!(server.requests.load(Ordering::SeqCst), 0);
     assert_eq!(std::fs::read(target).unwrap(), b"model");
@@ -655,4 +670,32 @@ async fn accepts_queries_for_pinned_assets() {
         std::fs::read(directory.path().join("model")).unwrap(),
         b"model"
     );
+}
+
+#[tokio::test]
+async fn reports_remote_status_without_publishing() {
+    let directory = directory();
+    let expected = checksum(b"model");
+    let files = [File {
+        name: "model",
+        size: 5,
+        sha256: &expected,
+    }];
+    let server = Server::start(Reply::Unavailable).await;
+    let error = download(
+        directory.path(),
+        &server,
+        &files,
+        &CancellationToken::new(),
+        |_| {},
+    )
+    .await
+    .unwrap_err();
+    let Error::Download(reason) = error else {
+        panic!("download failure expected")
+    };
+    assert!(reason.contains("503"), "{reason}");
+    assert!(reason.contains("model"), "{reason}");
+    assert!(!directory.path().join("model").exists());
+    assert_eq!(server.requests.load(Ordering::SeqCst), 1);
 }

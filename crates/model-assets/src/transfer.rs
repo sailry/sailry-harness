@@ -34,7 +34,7 @@ pub async fn prepare(
         .connect_timeout(Duration::from_secs(15))
         .read_timeout(Duration::from_secs(60))
         .build()
-        .map_err(|_| Error::Download)?;
+        .map_err(Error::download)?;
     acquire(directory, downloads, cancel, progress, &client).await
 }
 
@@ -61,7 +61,7 @@ pub(super) async fn acquire(
         }
         let _lease = resume::lock(path, specification.name, cancel).await?;
         storage::target(&directory, specification.name)?;
-        let check = directory.try_clone().map_err(|_| Error::Storage)?;
+        let check = directory.try_clone().map_err(Error::storage)?;
         let name = specification.name.to_owned();
         let checksum = specification.sha256.to_owned();
         let size = specification.size;
@@ -78,7 +78,7 @@ pub(super) async fn acquire(
             )
         })
         .await
-        .map_err(|_| Error::Storage)?;
+        .map_err(Error::storage)?;
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
@@ -87,7 +87,7 @@ pub(super) async fn acquire(
             notify(progress(completed, total, transferred, started.elapsed()));
             continue;
         }
-        let checkpoint = directory.try_clone().map_err(|_| Error::Storage)?;
+        let checkpoint = directory.try_clone().map_err(Error::storage)?;
         let name = specification.name.to_owned();
         let checksum = specification.sha256.to_owned();
         let size = specification.size;
@@ -108,7 +108,7 @@ pub(super) async fn acquire(
             )
         })
         .await
-        .map_err(|_| Error::Storage)??;
+        .map_err(Error::storage)??;
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
@@ -121,8 +121,7 @@ pub(super) async fn acquire(
             notify(progress(completed, total, transferred, started.elapsed()));
             continue;
         }
-        let mut output =
-            tokio::fs::File::from_std(part.file.try_clone().map_err(|_| Error::Storage)?);
+        let mut output = tokio::fs::File::from_std(part.file.try_clone().map_err(Error::storage)?);
         let result = receive(
             download,
             &mut part,
@@ -140,8 +139,8 @@ pub(super) async fn acquire(
             },
         )
         .await;
-        output.flush().await.map_err(|_| Error::Storage)?;
-        output.sync_all().await.map_err(|_| Error::Storage)?;
+        output.flush().await.map_err(Error::storage)?;
+        output.sync_all().await.map_err(Error::storage)?;
         drop(output);
         if let Err(error) = result {
             if error == Error::InvalidAsset || part.received == 0 {
@@ -196,7 +195,7 @@ async fn receive(
         let mut response = tokio::select! {
             biased;
             _ = cancel.cancelled() => return Err(Error::Cancelled),
-            response = request.send() => response.map_err(|_| Error::Download)?,
+            response = request.send() => response.map_err(Error::download)?,
         };
         match response.status() {
             StatusCode::PARTIAL_CONTENT
@@ -228,7 +227,13 @@ async fn receive(
                 part.reset()?;
                 continue;
             }
-            _ => return Err(Error::Download),
+            _ => {
+                return Err(Error::Download(format!(
+                    "HTTP {} for {}",
+                    response.status(),
+                    download.file.name
+                )));
+            }
         }
         if response
             .headers()
@@ -245,7 +250,7 @@ async fn receive(
             let chunk = tokio::select! {
                 biased;
                 _ = cancel.cancelled() => return Err(Error::Cancelled),
-                chunk = response.chunk() => chunk.map_err(|_| Error::Download)?,
+                chunk = response.chunk() => chunk.map_err(Error::download)?,
             };
             let Some(chunk) = chunk else {
                 return Ok(());
@@ -257,11 +262,11 @@ async fn receive(
                 .ok_or(Error::InvalidAsset)?;
             // Finish each bounded body write before recording its prefix hash.
             // Dropping write_all on cancellation could leave a half-written chunk.
-            output.write_all(&chunk).await.map_err(|_| Error::Storage)?;
+            output.write_all(&chunk).await.map_err(Error::storage)?;
             part.received = received;
             part.hash.update(&chunk);
             if received - checkpoint >= 8 * 1024 * 1024 {
-                output.flush().await.map_err(|_| Error::Storage)?;
+                output.flush().await.map_err(Error::storage)?;
                 part.checkpoint()?;
                 checkpoint = received;
             }

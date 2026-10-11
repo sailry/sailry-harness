@@ -52,6 +52,8 @@ pub(super) struct Panel {
     stop: Option<CancellationToken>,
     generation: u64,
     error: Option<&'static str>,
+    fault: Option<sailry_protocol::Fault>,
+    retry_install: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -89,17 +91,26 @@ impl Panel {
             window,
             cx,
             |panel: &Self, _| panel.error.into_iter().collect(),
-            |_, key, cx| {
+            |panel, key, cx| {
                 let owner = cx.weak_entity();
-                notification::Notification::error(crate::tr(key)).action(move |_, _, cx| {
+                let notice = panel.fault.as_ref().map_or_else(
+                    || notification::Notification::error(crate::tr(key)),
+                    |fault| {
+                        crate::feedback::diagnostic(fault.message.clone().into())
+                            .title(crate::tr(key))
+                    },
+                );
+                notice.action(move |_, _, cx| {
                     let owner = owner.clone();
-                    button::Button::new("runtime-retry")
-                        .label(crate::tr("knowledge_retry"))
+                    crate::feedback::retry("runtime-retry")
+                        .debug_selector(|| "runtime-retry".into())
                         .on_click(cx.listener(move |toast, _, window, cx| {
                             toast.dismiss(window, cx);
                             _ = owner.update(cx, |panel, cx| {
                                 if panel.request.is_some() {
                                     panel.retry(window, cx);
+                                } else if let Some(id) = panel.retry_install.take() {
+                                    panel.submit(Command::InstallOcrModel { id }, window, cx);
                                 } else {
                                     panel.load(window, cx);
                                 }
@@ -170,6 +181,8 @@ impl Panel {
             stop: None,
             generation: 0,
             error: None,
+            fault: None,
+            retry_install: None,
         }
     }
 

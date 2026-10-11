@@ -4,6 +4,8 @@ use core::prelude::v1::test;
 use gpui_kit::test::TestWindowExt;
 use sailry_protocol::Output;
 
+mod failures;
+
 #[gpui::test]
 fn autosaves_runtime_settings_on_the_selected_node(cx: &mut TestAppContext) {
     init(cx);
