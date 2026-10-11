@@ -7,7 +7,11 @@ use gpui_kit::component::ThemeMode;
 use sailry_protocol::Command;
 use serde_json::json;
 
-pub(super) async fn run(scenario: Scenario, shell: Entity<Shell>, cx: &mut AsyncWindowContext) {
+pub(super) async fn run(
+    scenario: Scenario,
+    shell: Entity<Shell>,
+    cx: &mut AsyncWindowContext,
+) -> Result<(), String> {
     let services = cx
         .read_global::<Services, _>(|services, _, _| services.clone())
         .unwrap();
@@ -100,7 +104,7 @@ pub(super) async fn run(scenario: Scenario, shell: Entity<Shell>, cx: &mut Async
                 let session = session.clone();
                 async move { fixture::turns(&client, &session, "Live ", 4).await }
             });
-            records.push(measure(cx, &shell, job, route, &format!("conversation-{name}")).await);
+            records.push(measure(cx, &shell, job, route, &format!("conversation-{name}")).await?);
             until(cx, "completed conversation projection", |_, cx| {
                 shell.read(cx).current_chat().is_some_and(|chat| {
                     let chat = chat.read(cx);
@@ -120,7 +124,7 @@ pub(super) async fn run(scenario: Scenario, shell: Entity<Shell>, cx: &mut Async
                 async move { fixture::terminal(&client, &session).await }
             })
             .await
-            .unwrap();
+            .map_err(|error| format!("{route} terminal setup failed: {error}"))?;
         cx.update(|window, cx| {
             shell.update(cx, |shell, cx| {
                 shell.reveal_terminal(session.project, &info, window, cx)
@@ -133,7 +137,7 @@ pub(super) async fn run(scenario: Scenario, shell: Entity<Shell>, cx: &mut Async
             let info = info.clone();
             async move { fixture::output(&client, &info).await }
         });
-        records.push(measure(cx, &shell, job, route, "terminal").await);
+        records.push(measure(cx, &shell, job, route, "terminal").await?);
         pause(cx, Duration::from_millis(100)).await;
         services
             .runtime
@@ -148,14 +152,15 @@ pub(super) async fn run(scenario: Scenario, shell: Entity<Shell>, cx: &mut Async
                 .await;
             })
             .await
-            .unwrap();
+            .map_err(|error| format!("{route} terminal cleanup failed: {error}"))?;
     }
     std::fs::write(
         scenario.output.join("workload.json"),
         serde_json::to_vec_pretty(&records).unwrap(),
     )
-    .unwrap();
+    .map_err(|error| format!("workload results could not be saved: {error}"))?;
     println!("Native desktop workloads complete");
+    Ok(())
 }
 
 async fn measure(
@@ -164,7 +169,7 @@ async fn measure(
     job: tokio::task::JoinHandle<()>,
     route: &str,
     workload: &str,
-) -> serde_json::Value {
+) -> Result<serde_json::Value, String> {
     println!("Workload start: {route}/{workload}");
     eprintln!("workload-start: {route}/{workload}");
     let started = Instant::now();
@@ -188,17 +193,18 @@ async fn measure(
             })
             .await;
         }
-        assert!(
-            started.elapsed() < Duration::from_secs(60),
-            "native workload completion deadline"
-        );
+        if started.elapsed() >= Duration::from_secs(60) {
+            job.abort();
+            return Err(format!("{route}/{workload} completion deadline"));
+        }
     }
-    job.await.unwrap();
+    job.await
+        .map_err(|error| format!("{route}/{workload} worker failed: {error}"))?;
     delays.sort_by(f64::total_cmp);
     assert!(!delays.is_empty());
     let record = json!({"route":route,"workload":workload,"seconds":started.elapsed().as_secs_f64(),
         "foreground_samples":delays.len(), "timer_delay_p95_ms":delays[(delays.len()-1)*95/100], "timer_delay_max_ms":delays.last()});
     println!("Workload end: {record}");
     eprintln!("workload-end: {route}/{workload}");
-    record
+    Ok(record)
 }

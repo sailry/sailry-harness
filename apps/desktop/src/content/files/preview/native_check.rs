@@ -88,13 +88,16 @@ pub(in crate::content::files) fn run(output: &Path) {
         cx.activate(true);
         let documents = documents.borrow_mut().take().unwrap();
         cx.spawn(async move |cx| {
-            cx.open_window(WindowOptions::default(), |window, cx| {
+            let _ = crate::workload::check(async {
+            let (finished, completion) = tokio::sync::oneshot::channel();
+            cx.open_window(WindowOptions::default(), move |window, cx| {
                 window.set_window_title("Sailry — file preview fixture");
                 window.activate_window();
                 let native = Rc::new(surface::Native::new(HTML, window).unwrap());
                 let view = cx.new(|_| Harness { native: Some(native), mounted: true, crop: true, hovered: Rc::default(), trigger: Rc::default() });
                 let probe = view.clone();
                 window.spawn(cx, async move |cx| {
+                    let _ = crate::workload::check(async {
                     verify(&probe, cx).await;
                     verify_documents(&probe, documents, cx).await;
                     verify_unattached(&probe, cx);
@@ -102,10 +105,15 @@ pub(in crate::content::files) fn run(output: &Path) {
                     println!("File preview: HTML, PDF, DOCX, XLSX, PPTX, pagination, zoom, host hover, clipping, overlays, unmount and unattached failure verified");
                     probe.update(cx, |view, cx| { view.mounted = false; view.native.take(); cx.notify(); });
                     pause(cx).await;
-                    cx.update(|window, cx| { window.refresh(); window.draw(cx).clear(cx); cx.quit(); }).unwrap();
+                    cx.update(|window, cx| { window.refresh(); window.draw(cx).clear(cx); }).unwrap();
+                    }).await;
+                    let _ = finished.send(());
                 }).detach();
                 cx.new(|cx| Root::new(view, window, cx))
             }).unwrap();
+            completion.await.expect("native file preview fixture closed before completion");
+            }).await;
+            cx.update(|cx| cx.quit());
         }).detach();
     });
 }

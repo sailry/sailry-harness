@@ -111,11 +111,17 @@ fn launch() {
     }
     #[cfg(feature = "workload-tests")]
     {
+        workload::install_exit();
         let output =
             std::env::var_os("SAILRY_WORKLOAD_OUTPUT").expect("workload output directory required");
         let output = std::path::PathBuf::from(output);
         std::fs::create_dir_all(&output).unwrap();
-        workload::run(&output);
+        let _ = workload::setup(|| {
+            workload::run(&output);
+        });
+        if workload::failed() {
+            std::process::exit(1);
+        }
     }
     #[cfg(not(feature = "workload-tests"))]
     run();
@@ -182,29 +188,37 @@ fn run(#[cfg(feature = "workload-tests")] workload: workload::Scenario) {
         .detach();
         let options = window_options(cx);
         cx.spawn(async move |cx| {
-            cx.open_window(options, |window, cx| {
-                #[cfg(target_os = "macos")]
-                macos::configure_backdrop(window);
-                let live = cx.try_global::<backend::Services>().is_some();
-                window.set_window_title(&if live {
-                    tr("app").to_string()
-                } else {
-                    format!("{} - {}", tr("app"), tr("preview"))
+            let opening = async {
+                cx.open_window(options, |window, cx| {
+                    #[cfg(target_os = "macos")]
+                    macos::configure_backdrop(window);
+                    let live = cx.try_global::<backend::Services>().is_some();
+                    window.set_window_title(&if live {
+                        tr("app").to_string()
+                    } else {
+                        format!("{} - {}", tr("app"), tr("preview"))
+                    });
+                    let view = cx.new(|cx| shell::Shell::new(window, cx));
+                    #[cfg(feature = "workload-tests")]
+                    workload::attach(workload, view.clone(), window, cx);
+                    cx.new(|cx| Root::new(view, window, cx).bg(transparent_black()))
+                })
+                .expect("failed to open desktop window");
+                cx.update(|cx| cx.activate(true));
+                cx.update(|cx| {
+                    if cx.try_global::<backend::Services>().is_some() {
+                        println!("Desktop window ready");
+                    } else {
+                        println!("Preview window ready");
+                    }
                 });
-                let view = cx.new(|cx| shell::Shell::new(window, cx));
-                #[cfg(feature = "workload-tests")]
-                workload::attach(workload, view.clone(), window, cx);
-                cx.new(|cx| Root::new(view, window, cx).bg(transparent_black()))
-            })
-            .expect("failed to open desktop window");
-            cx.update(|cx| cx.activate(true));
-            cx.update(|cx| {
-                if cx.try_global::<backend::Services>().is_some() {
-                    println!("Desktop window ready");
-                } else {
-                    println!("Preview window ready");
-                }
-            });
+            };
+            #[cfg(feature = "workload-tests")]
+            if workload::check(opening).await.is_none() {
+                cx.update(|cx| cx.quit());
+            }
+            #[cfg(not(feature = "workload-tests"))]
+            opening.await;
         })
         .detach();
     });

@@ -9,10 +9,15 @@ use std::{
 
 #[path = "workload/browser.rs"]
 mod browser;
+#[path = "workload/check.rs"]
+mod check;
 #[path = "workload/driver.rs"]
 mod driver;
 #[path = "workload/fixture.rs"]
 mod fixture;
+
+pub(crate) use check::{check, fail, setup};
+pub(super) use check::{failed, install_exit};
 
 pub(crate) struct Scenario {
     pub profile: PathBuf,
@@ -104,25 +109,27 @@ pub(crate) fn attach(
 ) {
     window
         .spawn(cx, async move |cx| {
-            #[cfg(target_os = "macos")]
-            if let Some(server) = scenario.document.clone() {
-                crate::plugins::verify_document_flow(
-                    &scenario.output,
-                    scenario.sessions,
-                    server,
-                    shell,
-                    cx,
-                )
-                .await;
-                cx.update(|_, cx| cx.quit()).unwrap();
-                return;
-            }
-            if scenario.browser {
-                browser::run(scenario, shell, cx).await;
-            } else {
-                driver::run(scenario, shell, cx).await;
-            }
-            cx.update(|_, cx| cx.quit()).unwrap();
+            let _ = check(async {
+                #[cfg(target_os = "macos")]
+                if let Some(server) = scenario.document.clone() {
+                    crate::plugins::verify_document_flow(
+                        &scenario.output,
+                        scenario.sessions,
+                        server,
+                        shell,
+                        cx,
+                    )
+                    .await;
+                    return;
+                }
+                if scenario.browser {
+                    browser::run(scenario, shell, cx).await;
+                } else if let Err(error) = driver::run(scenario, shell, cx).await {
+                    fail(error);
+                }
+            })
+            .await;
+            cx.update(|_, cx| cx.quit()).ok();
         })
         .detach();
 }

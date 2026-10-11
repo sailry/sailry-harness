@@ -51,6 +51,7 @@ pub(in crate::content::visuals) fn run(output: &Path) {
         trace(records.clone(), cx);
         let output = output.clone();
         cx.spawn(async move |cx| {
+            let _ = crate::workload::check(async {
             let first_state = Rc::new(RefCell::new(None));
             let state = first_state.clone();
             let first = cx.open_window(WindowOptions::default(), move |window, cx| {
@@ -129,6 +130,7 @@ pub(in crate::content::visuals) fn run(output: &Path) {
                 "requests": records.borrow().len()
             })).unwrap()).unwrap();
             println!("Native visuals: bundled Mermaid and formulas, hidden SVG preparation, cache, theme, raw fallback and parent recreation verified");
+            }).await;
             cx.update(|cx| cx.quit());
         }).detach();
     });
@@ -145,9 +147,20 @@ fn trace(records: Records, cx: &mut App) {
         let task = (renderer.0)(request, window, cx);
         let records = records.clone();
         cx.spawn(async move |_| {
-            let result = task.await;
-            records.borrow_mut()[index].result = Some(result.clone());
-            result
+            let result = crate::workload::check(async {
+                let result = task.await;
+                records.borrow_mut()[index].result = Some(result.clone());
+                result
+            })
+            .await;
+            match result {
+                Some(result) => result,
+                None => {
+                    let result = Err("native visual fixture failed".into());
+                    records.borrow_mut()[index].result = Some(result.clone());
+                    result
+                }
+            }
         })
     })));
 }

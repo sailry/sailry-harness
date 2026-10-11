@@ -90,6 +90,7 @@ pub(in crate::plugins) fn run(output: &Path) {
         gpui_kit::init(cx);crate::theme::init(cx);rust_i18n::set_locale("en");cx.activate(true);
         let output=output.clone();
         cx.spawn(async move|cx| {
+            let _ = crate::workload::check(async {
             let content=fixture();let mounted=Rc::new(RefCell::new(None));let capture=mounted.clone();
             let initial=content.clone();
             let window=cx.open_window(WindowOptions::default(),move|window,cx| {
@@ -113,6 +114,7 @@ pub(in crate::plugins) fn run(output: &Path) {
             }).unwrap();
             let view=mounted.borrow_mut().take().unwrap();
             let task=window.update(cx,|_,window,cx|window.spawn(cx,async move|cx| {
+                let _ = crate::workload::check(async {
                 verify(&view,&content,cx).await;
                 let fallback=cx.update(|window,cx|page::capture(content.clone(),window,cx)).unwrap().await.unwrap();
                 assert!(fallback.contains("<svg"));
@@ -139,9 +141,12 @@ pub(in crate::plugins) fn run(output: &Path) {
                 std::fs::write(output.join("brief.png"),png).unwrap();
                 std::fs::write(output.join("brief-native.json"),"{\"webkit\":true,\"offline\":true,\"charts\":7,\"mermaid\":true,\"mathjax\":true,\"form_capture\":true,\"pending_preserved\":true,\"theme_preserved\":true,\"diagram_zoom\":true,\"readonly_export\":true,\"png_export\":true,\"branding\":true}\n").unwrap();
                 println!("HTML document: local charts, Mermaid, MathJax, captured forms, pending answers, theme changes, zoom and branded export verified");
-                cx.update(|window,cx|{window.remove_window();cx.quit();}).unwrap();
+                cx.update(|window,_|window.remove_window()).unwrap();
+                }).await;
             })).unwrap();
             task.await;
+            }).await;
+            cx.update(|cx|cx.quit());
         }).detach();
     });
 }
@@ -271,6 +276,15 @@ fn events(view: &Entity<Harness>, cx: &mut AsyncWindowContext) -> Vec<Value> {
         .unwrap()
 }
 async fn evaluate(view: &Entity<Harness>, script: &str, cx: &mut AsyncWindowContext) -> String {
+    evaluate_result(view, script, cx)
+        .await
+        .expect("native JavaScript evaluation must complete")
+}
+async fn evaluate_result(
+    view: &Entity<Harness>,
+    script: &str,
+    cx: &mut AsyncWindowContext,
+) -> anyhow::Result<String> {
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let sender = std::sync::Mutex::new(Some(sender));
     cx.update(|_, cx| {
@@ -282,10 +296,10 @@ async fn evaluate(view: &Entity<Harness>, script: &str, cx: &mut AsyncWindowCont
                     let _ = sender.send(value);
                 }
             })
-            .unwrap()
-    })
-    .unwrap();
-    receiver.await.unwrap()
+    })??;
+    receiver
+        .await
+        .map_err(|error| anyhow::anyhow!("native JavaScript callback closed: {error}"))
 }
 async fn until(view: &Entity<Harness>, script: &str, cx: &mut AsyncWindowContext) {
     let deadline = Instant::now() + Duration::from_secs(60);

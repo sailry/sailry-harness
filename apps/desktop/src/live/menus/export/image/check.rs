@@ -8,6 +8,7 @@ pub(crate) fn run(output: &std::path::Path) {
         gpui_kit::init(cx);
         let output = output.clone();
         cx.spawn(async move |cx| {
+            let _ = crate::workload::check(async {
             let window = cx.open_window(WindowOptions::default(), |window, cx| {
                 let content = cx.new(|_| Empty);
                 cx.new(|cx| Root::new(content, window, cx))
@@ -27,6 +28,7 @@ pub(crate) fn run(output: &std::path::Path) {
             std::fs::create_dir_all(&output).unwrap();
             std::fs::write(output.join("reply.png"), bytes).unwrap();
             println!("Native HTML export passed: 960 x {} pixels, Unicode, formula, chart and tiled table", bitmap.height());
+            }).await;
             cx.update(|cx| cx.quit());
         }).detach();
     });

@@ -18,13 +18,16 @@ pub(crate) fn run(output: &Path) {
             let output = output.clone();
             let options = crate::window_options(cx);
             cx.spawn(async move |cx| {
-                cx.open_window(options, |window, cx| {
+                let _ = crate::workload::check(async {
+                let (finished, completion) = tokio::sync::oneshot::channel();
+                cx.open_window(options, move |window, cx| {
                     window.set_window_title("Sailry — native menu fixture");
                     window.activate_window();
                     let shell = cx.new(|cx| Shell::new(window, cx));
                     let probe = shell.clone();
                     window
                         .spawn(cx, async move |cx| {
+                            let _ = crate::workload::check(async {
                             if actions {
                                 pause(cx).await;
                                 assert!(
@@ -77,13 +80,17 @@ pub(crate) fn run(output: &Path) {
                             if actions {
                                 println!("Native menu actions and clipboard verified");
                             }
-                            cx.update(|_, cx| cx.quit()).unwrap();
+                            }).await;
+                            let _ = finished.send(());
                         })
                         .detach();
                     cx.new(|cx| gpui_kit::component::Root::new(shell, window, cx))
                 })
                 .unwrap();
                 cx.update(|cx| cx.activate(true));
+                completion.await.expect("native menu fixture closed before completion");
+                }).await;
+                cx.update(|cx| cx.quit());
             })
             .detach();
         });
