@@ -50,6 +50,73 @@ fn quote(path: &Path) -> String {
 }
 
 #[tokio::test]
+async fn protects_future_checkouts() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("work");
+    let home = directory.path().join("home");
+    let profile = directory.path().join("profile");
+    for path in [&root, &home, &profile] {
+        std::fs::create_dir(path).unwrap();
+    }
+    git(&root, &["init", "--quiet"]);
+    assert!(!root.join(".sailry/worktrees").exists());
+    let output = run(
+        &root,
+        &profile,
+        &home,
+        String::from(
+            "if mkdir -p .sailry/worktrees/future; then exit 90; fi; \
+         printf allowed > .sailry/notes.txt || exit 91; printf protected",
+        ),
+    )
+    .await;
+    assert_eq!(output.outcome, Outcome::Exited(0), "{output:?}");
+    assert_eq!(output.stdout.text, "protected");
+    assert!(root.join(".sailry/worktrees").is_dir());
+    assert!(!root.join(".sailry/worktrees/future").exists());
+    assert_eq!(
+        std::fs::read_to_string(root.join(".sailry/notes.txt")).unwrap(),
+        "allowed"
+    );
+}
+
+#[tokio::test]
+async fn supports_symbolic_markers() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("work");
+    let repository = directory.path().join("repository");
+    let home = directory.path().join("home");
+    let profile = directory.path().join("profile");
+    for path in [&root, &repository, &home, &profile] {
+        std::fs::create_dir(path).unwrap();
+    }
+    git(&repository, &["init", "--quiet"]);
+    std::os::unix::fs::symlink(repository.join(".git"), root.join(".git")).unwrap();
+    let config = std::fs::read(repository.join(".git/config")).unwrap();
+    let output = run(
+        &root,
+        &profile,
+        &home,
+        String::from(
+            "printf allowed > ordinary.txt || exit 90; \
+         if printf changed > .git/config; then exit 91; fi; printf protected",
+        ),
+    )
+    .await;
+    assert_eq!(output.outcome, Outcome::Exited(0), "{output:?}");
+    assert_eq!(output.stdout.text, "protected");
+    assert_eq!(
+        std::fs::read_to_string(root.join("ordinary.txt")).unwrap(),
+        "allowed"
+    );
+    assert_eq!(
+        std::fs::read(repository.join(".git/config")).unwrap(),
+        config
+    );
+    assert!(!root.join(".sailry").exists());
+}
+
+#[tokio::test]
 async fn preserves_metadata_and_workspace_edits() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("work");
@@ -102,10 +169,11 @@ async fn preserves_metadata_and_workspace_edits() {
 #[tokio::test]
 async fn captures_nested_and_linked_metadata() {
     let directory = tempfile::tempdir().unwrap();
-    let root = directory.path().join("work");
-    let repository = directory.path().join("repository");
-    let home = directory.path().join("home");
-    let profile = directory.path().join("profile");
+    let base = directory.path().canonicalize().unwrap();
+    let root = base.join("work");
+    let repository = base.join("repository");
+    let home = base.join("home");
+    let profile = base.join("profile");
     for path in [&root, &repository, &home, &profile] {
         std::fs::create_dir(path).unwrap();
     }
@@ -175,9 +243,10 @@ async fn captures_nested_and_linked_metadata() {
 #[tokio::test]
 async fn protects_ancestor_and_symlink_targets() {
     let directory = tempfile::tempdir().unwrap();
-    let repository = directory.path().join("repository");
-    let home = directory.path().join("home");
-    let profile = directory.path().join("profile");
+    let base = directory.path().canonicalize().unwrap();
+    let repository = base.join("repository");
+    let home = base.join("home");
+    let profile = base.join("profile");
     for path in [&repository, &home, &profile] {
         std::fs::create_dir(path).unwrap();
     }

@@ -64,19 +64,30 @@ impl Database {
     }
 
     fn managed(&self, root: &Path, trees: &[Worktree]) -> Result<bool, Fault> {
-        let Some(profile) = &self.profile else {
-            return Ok(false);
-        };
         let Some(tree) = trees
             .iter()
             .find(|tree| !tree.main && Path::new(&tree.path) == root)
         else {
             return Ok(false);
         };
-        if root == profile.join("worktrees").join(tree.id.to_string()) {
+        if self
+            .profile
+            .as_ref()
+            .is_some_and(|profile| root == profile.join("worktrees").join(tree.id.to_string()))
+        {
             return Ok(true);
         }
-        if tree.project.is_some() || !crate::workspaces::managed(root, profile) {
+        if let Some(project) = tree.project {
+            let main = super::super::worktrees::project_root(&self.connection, project)?;
+            return Ok(
+                root == crate::workspaces::worktrees(&main).join(tree.id.to_string())
+                    && crate::workspaces::managed(root, &main),
+            );
+        }
+        let Some(profile) = &self.profile else {
+            return Ok(false);
+        };
+        if !crate::workspaces::managed(root, profile) {
             return Ok(false);
         }
         let mut query = self.connection.prepare(
@@ -491,6 +502,58 @@ mod tests {
         .unwrap();
         assert_eq!(
             check(&root, "nested").unwrap_err().code,
+            ErrorCode::Conflict
+        );
+        database.close().unwrap();
+    }
+
+    #[test]
+    fn recognizes_project_checkouts() {
+        let temp = tempfile::tempdir().unwrap();
+        let base = temp.path().canonicalize().unwrap();
+        let main = base.join("project");
+        let profile = base.join("node");
+        std::fs::create_dir(&main).unwrap();
+        std::fs::create_dir_all(profile.join("storage")).unwrap();
+        let database = Database::open(
+            &profile.join("storage/node.sqlite3"),
+            NodeId([49; 32]),
+            Some(profile),
+        )
+        .unwrap();
+        let (Output::Project(project), _) = crate::store::projects::register(
+            &database.connection,
+            "Project",
+            main.to_str().unwrap(),
+            projects::Appearance::default(),
+        )
+        .unwrap() else {
+            panic!("project expected")
+        };
+        let id = WorktreeId::new();
+        let root = crate::workspaces::worktrees(&main).join(id.to_string());
+        std::fs::create_dir_all(&root).unwrap();
+        let tree = Worktree {
+            id,
+            project: Some(project.id),
+            path: root.to_str().unwrap().into(),
+            main: false,
+        };
+        crate::store::worktrees::register(&database.connection, &tree).unwrap();
+        let trees = crate::store::worktrees::list(&database.connection).unwrap();
+        assert!(database.managed(&root, &trees).unwrap());
+        assert!(!database.managed(&root.join("nested"), &trees).unwrap());
+        assert_eq!(
+            database
+                .validate_relocation(&[(root.clone(), "new.txt".into())])
+                .unwrap(),
+            [root.join("new.txt")]
+        );
+        assert_eq!(
+            database
+                .validate_relocation(&[(main, ".sailry".into())])
+                .unwrap_err()
+                .code,
             ErrorCode::Conflict
         );
         database.close().unwrap();

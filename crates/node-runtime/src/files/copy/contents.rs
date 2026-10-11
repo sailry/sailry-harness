@@ -19,6 +19,7 @@ impl Copier {
         name: &str,
         target: &Dir,
         destination: &str,
+        relative: &str,
         depth: usize,
     ) -> Result<Option<Evidence>, Fault> {
         self.count += 1;
@@ -49,10 +50,21 @@ impl Copier {
                 if !self.moving && name.eq_ignore_ascii_case(".git") {
                     continue;
                 }
+                if path::worktrees(relative, &name) {
+                    if self.moving {
+                        return Err(Fault::new(
+                            ErrorCode::PermissionDenied,
+                            "managed worktrees cannot be moved through file operations",
+                        ));
+                    }
+                    continue;
+                }
                 // Whole-tree moves must preserve metadata that copies skip.
                 // Direct file requests to Git metadata remain forbidden.
                 path::components(&name, false)?;
-                if let Some(evidence) = self.copy(&source, &name, &target, &name, depth + 1)?
+                let relative = format!("{relative}/{name}");
+                if let Some(evidence) =
+                    self.copy(&source, &name, &target, &name, &relative, depth + 1)?
                     && children.insert(name, evidence).is_some()
                 {
                     return Err(changed());

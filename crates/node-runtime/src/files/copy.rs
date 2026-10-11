@@ -114,7 +114,7 @@ fn publish(
             count: 0,
             moving: recycle.is_some(),
         }
-        .copy(&source_dir, source_name, &staging, "entry", 0)?;
+        .copy(&source_dir, source_name, &staging, "entry", from, 0)?;
         let staged = self::object(&staging, "entry")?;
         #[cfg(test)]
         hook(Phase::Prepared);

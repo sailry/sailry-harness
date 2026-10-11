@@ -105,12 +105,17 @@ impl Sandbox {
                 .map(Path::canonicalize)
                 .transpose()
                 .map_err(runtime::failure)?;
-            let protected = repositories::capture(
+            let mut protected = repositories::capture(
                 &launch.root,
                 &mut policy,
                 home.as_deref(),
                 profile.as_deref(),
             )?;
+            // Linux needs an existing mount target before the first child
+            // checkout is created; macOS uses the same captured boundary.
+            if let Some(path) = crate::git::worktrees::capture(&launch.root)? {
+                protected.push(path);
+            }
             Ok(Some(Self {
                 policy,
                 variables,

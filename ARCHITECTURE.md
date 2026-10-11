@@ -86,6 +86,10 @@ configuration database, never public events, logs or UI caches. Projects remain
 at registered paths; profiles contain Node storage, plugin packages/data and
 uploaded attachments.
 
+New managed project checkouts live under the main worktree's
+`.sailry/worktrees/<id>`; existing profile-owned checkouts retain their registered
+paths. Git excludes `.sailry/` through `info/exclude`, preserving user ignore files.
+
 Manual profile backups use the execution Node's consistent SQLite snapshot,
 referenced plugin packages, attachments and session HTML documents, and registered managed workspaces.
 External project paths remain references. WebDAV and S3 exports publish verified
@@ -278,6 +282,9 @@ metadata and common directories. Git writes use complete access. macOS also deni
 creating new `.git` paths. Linux protects existing metadata through read-only mounts;
 new metadata paths and replacement of symbolic Git pointers remain outside that
 mount-based protection.
+Repository workspace commands also protect their root's `.sailry/worktrees`
+subtree, which file operations and discovery exclude. Each child retains its own
+checkout scope.
 
 File discovery and content searches run inside Node with confined paths,
 ignore rules and bounded result pages, without requiring a system ripgrep.

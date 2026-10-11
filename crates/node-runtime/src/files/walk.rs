@@ -280,7 +280,7 @@ where
                     continue;
                 }
             };
-            if name.eq_ignore_ascii_case(".git") {
+            if name.eq_ignore_ascii_case(".git") || path::worktrees(prefix, &name) {
                 continue;
             }
             if path::components(&name, false).is_err() {

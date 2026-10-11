@@ -477,15 +477,8 @@ impl Database {
                     super::worktrees::select(&self.connection, project, Some(source))
                         .and_then(|source| self.worktree_root(source))
                         .and_then(|source| {
-                            self.profile
-                                .as_ref()
-                                .map(|profile| (source, profile.join("worktrees")))
-                                .ok_or_else(|| {
-                                    Fault::new(
-                                        ErrorCode::Unavailable,
-                                        "Node profile is unavailable",
-                                    )
-                                })
+                            super::worktrees::project_root(&self.connection, project)
+                                .map(|root| (source, crate::workspaces::worktrees(&root)))
                         })
                 }
                 mutations::Target::Host => {

@@ -4,6 +4,22 @@ use std::fs;
 mod relocate;
 
 #[test]
+fn excludes_managed_checkouts() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    fs::create_dir_all(root.join(".sailry/worktrees/child")).unwrap();
+    fs::write(root.join(".sailry/worktrees/child/private.txt"), "child").unwrap();
+    fs::write(root.join(".sailry/notes.txt"), "notes").unwrap();
+    entry(&root, ".sailry", "copied").unwrap();
+    assert_eq!(
+        fs::read_to_string(root.join("copied/notes.txt")).unwrap(),
+        "notes"
+    );
+    assert!(!root.join("copied/worktrees").exists());
+    assert!(root.join(".sailry/worktrees/child/private.txt").is_file());
+}
+
+#[test]
 fn confines_cross_root_copies() {
     let temp = tempfile::tempdir().unwrap();
     let base = temp.path().canonicalize().unwrap();
@@ -182,7 +198,7 @@ fn bounds_tree_depth() {
             count: 100_000,
             moving: false
         }
-        .copy(&source, "source", &staging, "entry", 0)
+        .copy(&source, "source", &staging, "entry", "source", 0)
         .is_err()
     );
     drop(staging);

@@ -6,6 +6,8 @@ use std::path::Path;
 
 mod managed;
 pub(crate) use managed::create as managed;
+mod location;
+pub(crate) use location::capture;
 mod creation;
 pub(crate) use creation::create;
 mod discovery;

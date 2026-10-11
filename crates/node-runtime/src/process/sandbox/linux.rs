@@ -100,11 +100,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mounts_metadata_after_workspace() {
+    fn mounts_protected_paths_after_workspace() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().canonicalize().unwrap();
         let metadata = root.join(".git");
         std::fs::create_dir(&metadata).unwrap();
+        let worktrees = crate::workspaces::worktrees(&root);
+        std::fs::create_dir_all(&worktrees).unwrap();
         let mut args = vec![
             "--bind".into(),
             root.as_os_str().to_owned(),
@@ -116,13 +118,21 @@ mod tests {
             &mut args,
             OsStr::new("/bin/sh"),
             &BTreeMap::new(),
-            std::slice::from_ref(&metadata),
+            &[metadata.clone(), worktrees.clone()],
         )
         .unwrap();
         let separator = args.iter().position(|argument| argument == "--").unwrap();
         assert_eq!(args[0], "--bind");
         assert_eq!(
             &args[separator - 3..separator],
+            &[
+                OsString::from("--ro-bind"),
+                worktrees.as_os_str().to_owned(),
+                worktrees.as_os_str().to_owned()
+            ]
+        );
+        assert_eq!(
+            &args[separator - 6..separator - 3],
             &[
                 OsString::from("--ro-bind"),
                 metadata.as_os_str().to_owned(),

@@ -41,7 +41,17 @@ pub(crate) fn components(path: &str, allow_root: bool) -> Result<Vec<&str>, Faul
     if parts.iter().any(|part| !windows_component(part)) {
         return Err(invalid());
     }
+    if parts.len() >= 2 && worktrees(parts[0], parts[1]) {
+        return Err(Fault::new(
+            ErrorCode::PermissionDenied,
+            "managed worktrees require their own file scope",
+        ));
+    }
     Ok(parts)
+}
+
+pub(crate) fn worktrees(parent: &str, name: &str) -> bool {
+    parent.eq_ignore_ascii_case(".sailry") && name.eq_ignore_ascii_case("worktrees")
 }
 
 pub(crate) fn root(path: &Path) -> Result<Dir, Fault> {
@@ -181,6 +191,28 @@ mod tests {
         }
         for name in ["COM10", "console.rs", "文件.txt", "my file", ".gitignore"] {
             assert!(windows_component(name), "rejected {name:?}");
+        }
+    }
+
+    #[test]
+    fn confines_managed_checkouts() {
+        for path in [
+            ".sailry/worktrees",
+            ".sailry/worktrees/id/file",
+            ".SAILRY/WORKTREES/id",
+        ] {
+            assert_eq!(
+                components(path, false).unwrap_err().code,
+                ErrorCode::PermissionDenied
+            );
+        }
+        for path in [
+            ".sailry",
+            ".sailry/notes.txt",
+            "nested/.sailry/worktrees/file",
+            "worktrees/file",
+        ] {
+            assert!(components(path, false).is_ok(), "{path}");
         }
     }
 

@@ -5,6 +5,10 @@ use sailry_protocol::{
 };
 use std::path::{Path, PathBuf};
 
+pub(crate) fn worktrees(root: &Path) -> PathBuf {
+    root.join(".sailry").join("worktrees")
+}
+
 pub(crate) fn session(profile: &Path, id: SessionId) -> PathBuf {
     profile
         .join("workspaces")
@@ -57,6 +61,10 @@ pub(crate) fn managed(root: &Path, profile: &Path) -> bool {
             .parse::<WorktreeId>()
             .ok()
             .map(|id| profile.join("worktrees").join(id.to_string())),
+        [".sailry", "worktrees", name] => name
+            .parse::<WorktreeId>()
+            .ok()
+            .map(|id| worktrees(profile).join(id.to_string())),
         ["workspaces", "sessions", name] => name
             .parse::<SessionId>()
             .ok()
@@ -126,6 +134,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let profile = temp.path().canonicalize().unwrap();
         let roots = [
+            worktrees(&profile).join(WorktreeId::new().to_string()),
             profile
                 .join("worktrees")
                 .join(WorktreeId::new().to_string()),
@@ -144,6 +153,9 @@ mod tests {
             "plugins/data",
             "tmp",
             "worktrees/invalid",
+            ".sailry/worktrees/invalid",
+            ".sailry/worktrees/00000000-0000-0000-0000-000000000000",
+            ".sailry/worktrees/0ED44566-789B-4ABC-9ABC-DEF123456789",
             "worktrees/00000000-0000-0000-0000-000000000000",
             "workspaces/sessions/00000000-0000-0000-0000-000000000000",
             "connections/ssh/00000000-0000-0000-0000-000000000000/workspace",

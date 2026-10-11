@@ -1,5 +1,5 @@
 //! Managed checkouts copy a Git snapshot without stashing or modifying the source.
-use super::super::{fault, index, io_error, open, revision};
+use super::super::{fault, index, open, revision};
 use git2::{ApplyLocation, DiffOptions, IndexAddOption};
 use sailry_protocol::{ErrorCode, Fault};
 use std::path::Path;
@@ -27,6 +27,13 @@ pub(crate) fn create(
             ErrorCode::Conflict,
             "resolve index conflicts before creating a worktree",
         ));
+    }
+    let root = directory
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| Fault::invalid("managed worktree directory is unavailable"))?;
+    if super::location::prepare(root)? != directory {
+        return Err(Fault::invalid("managed worktree directory is invalid"));
     }
     let changes = if include_changes {
         let base = commit.tree().map_err(fault)?;
@@ -60,7 +67,6 @@ pub(crate) fn create(
     } else {
         None
     };
-    std::fs::create_dir_all(directory).map_err(io_error)?;
     let destination = directory.join(id);
     let destination = destination
         .to_str()

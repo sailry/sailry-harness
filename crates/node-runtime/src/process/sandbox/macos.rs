@@ -33,6 +33,19 @@ pub(super) fn protect(command: &mut WrappedCommand, paths: &[PathBuf]) -> Result
             path_literal(path)
         )
         .expect("writing to a String cannot fail");
+        if path.file_name() == Some(std::ffi::OsStr::new("worktrees"))
+            && let Some(parent) = path.parent()
+            && parent.file_name() == Some(std::ffi::OsStr::new(".sailry"))
+        {
+            // Renaming the ancestor would move child files outside the subpath
+            // denial. Its other entries retain their ordinary workspace access.
+            writeln!(
+                policy,
+                "(deny file-write-unlink (literal {}))",
+                path_literal(parent)
+            )
+            .expect("writing to a String cannot fail");
+        }
     }
     *profile = policy.into();
     Ok(())
@@ -193,13 +206,22 @@ mod tests {
     fn appends_metadata_denials_after_grants() {
         let mut wrapped = command();
         let original = wrapped.args[1].to_str().unwrap().to_owned();
-        protect(&mut wrapped, &[PathBuf::from("/work/metadata\"\\name")]).unwrap();
+        protect(
+            &mut wrapped,
+            &[
+                PathBuf::from("/work/metadata\"\\name"),
+                PathBuf::from("/work/.sailry/worktrees"),
+            ],
+        )
+        .unwrap();
         let profile = wrapped.args[1].to_str().unwrap();
         assert_eq!(
             profile.strip_prefix(&original).unwrap(),
             concat!(
                 "(deny file-write* (regex #\"(^|/)\\.[gG][iI][tT](/|$)\"))\n",
-                "(deny file-write* (subpath \"/work/metadata\\\"\\\\name\"))\n"
+                "(deny file-write* (subpath \"/work/metadata\\\"\\\\name\"))\n",
+                "(deny file-write* (subpath \"/work/.sailry/worktrees\"))\n",
+                "(deny file-write-unlink (literal \"/work/.sailry\"))\n"
             )
         );
         assert_eq!(wrapped.args[2], "/bin/zsh");
