@@ -81,6 +81,51 @@ fn accepts_fields_and_secret_slots() {
 }
 
 #[test]
+fn confines_application_and_oauth_clients() {
+    let servers = mcp::parse(&serde_json::to_vec(&json!({"$schema":mcp::SCHEMA,"mcpServers":{
+        "feishu":{"type":"streamable-http","url":"https://mcp.feishu.cn/mcp","headers":{"X-Lark-MCP-TAT":""}},
+        "other":{"type":"streamable-http","url":"https://example.com/mcp","headers":{"X-Lark-MCP-TAT":""}},
+        "slack":{"type":"streamable-http","url":"https://mcp.slack.com/mcp"},
+        "local":{"type":"stdio","command":"tool"}
+    }})).unwrap(), &mut Vec::new()).unwrap();
+    let valid = [
+        json!({"server":"feishu","header":"X-Lark-MCP-TAT","application":{"provider":"feishu","client_id":"id"}}),
+        json!({"origin":"https://api.dingtalk.com","header":"x-acs-dingtalk-access-token","application":{"provider":"dingtalk","client_id":"id"}}),
+        json!({"server":"slack","oauth":{"client_id":"id"}}),
+    ];
+    for binding in &valid {
+        let value = schema(
+            json!({"id":{"type":"string"},"secret":{"type":"string","x-sailry-secret":binding}}),
+        );
+        assert!(validation::parse(&serde_json::to_vec(&value).unwrap(), &servers).is_ok());
+        for field in [
+            json!({"type":"boolean"}),
+            json!({"type":"string","x-sailry-secret":{"server":"slack","oauth":{"client_id":"absent"}}}),
+        ] {
+            let value =
+                schema(json!({"id":field,"secret":{"type":"string","x-sailry-secret":binding}}));
+            assert!(validation::parse(&serde_json::to_vec(&value).unwrap(), &servers).is_err());
+        }
+    }
+    for binding in [
+        json!({"server":"other","header":"X-Lark-MCP-TAT","application":{"provider":"feishu","client_id":"id"}}),
+        json!({"origin":"https://example.com","header":"x-acs-dingtalk-access-token","application":{"provider":"dingtalk","client_id":"id"}}),
+        json!({"server":"feishu","header":"X-Lark-MCP-TAT","prefix":"Bearer ","application":{"provider":"feishu","client_id":"id"}}),
+        json!({"server":"slack","header":"Authorization","oauth":{"client_id":"id"}}),
+        json!({"server":"local","oauth":{"client_id":"id"}}),
+        json!({"server":"slack","oauth":{"client_id":"id"},"application":{"provider":"feishu","client_id":"id"}}),
+    ] {
+        let value = schema(
+            json!({"id":{"type":"string"},"secret":{"type":"string","x-sailry-secret":binding}}),
+        );
+        assert!(
+            validation::parse(&serde_json::to_vec(&value).unwrap(), &servers).is_err(),
+            "accepted {binding}"
+        );
+    }
+}
+
+#[test]
 fn rejects_unsupported_shapes() {
     for property in [
         json!({"type":"object", "properties":{}}),

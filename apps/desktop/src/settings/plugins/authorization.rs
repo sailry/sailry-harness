@@ -23,6 +23,24 @@ mod issuer;
 mod tests;
 mod view;
 
+pub(in crate::settings) fn action(
+    binding: Binding,
+    package: Reference,
+    server: String,
+    selector: String,
+) -> Button {
+    Button::new(SharedString::from(selector.clone()))
+        .debug_selector(move || selector.clone())
+        .ghost()
+        .small()
+        .icon(IconName::ExternalLink)
+        .tooltip(tr("mcp_oauth_title"))
+        .accessibility_label(tr("mcp_oauth_title"))
+        .on_click(move |_, window, cx| {
+            open(binding.clone(), package.clone(), server.clone(), window, cx);
+        })
+}
+
 pub(in crate::settings) fn open(
     binding: Binding,
     package: Reference,

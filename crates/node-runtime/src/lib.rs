@@ -282,6 +282,19 @@ impl Node {
     }
 
     #[cfg(any(test, feature = "test-support"))]
+    pub fn set_plugin_application_fixture(
+        &self,
+        provider: sailry_protocol::plugin::settings::Provider,
+        token_url: &str,
+        resource_origin: &str,
+    ) {
+        self.ingress
+            .plugins
+            .applications
+            .fixture(provider, token_url, resource_origin);
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
     pub fn set_python_runtime_fixture(&self, path: &Path) -> Result<(), sailry_protocol::Fault> {
         self.ingress.plugins.set_python_runtime_fixture(path)
     }

@@ -7,6 +7,8 @@ use sailry_protocol::{
     plugin::{self, settings::SecretUpdate},
 };
 use std::{collections::BTreeMap, time::Duration};
+#[path = "github/automatic.rs"]
+mod automatic;
 #[path = "support/github.rs"]
 mod cli;
 
@@ -112,6 +114,7 @@ async fn imports_explicitly_and_replays_without_token_output() {
             panic!("CLI status expected")
         };
         assert!(status.available && status.authenticated);
+        assert_eq!(status.account.as_deref(), Some("fixture-user"));
         assert!(!status.bound);
         assert!(!serde_json::to_string(&status).unwrap().contains(cli::TOKEN));
         assert_eq!(fixture.cli.calls("token"), 0);
@@ -352,6 +355,7 @@ async fn discards_status_and_failure_streams() {
             panic!("status expected")
         };
         assert!(status.available && !status.authenticated);
+        assert!(status.account.is_none());
         assert!(!status.bound);
         assert_eq!(fixture.cli.calls("token"), 0);
         fixture.cli.clear("signed-out");

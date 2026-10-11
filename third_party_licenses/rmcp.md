@@ -34,3 +34,12 @@ The reqwest transport preserves HTTP 429 and server-error status with bounded Re
 in a typed error before reading a response body. Sailry's search owner uses that
 metadata to cool down the affected driver. The error contains no response body
 or authentication value, and does not change transport retry behavior.
+
+The dynamic registration patch selects `none` when advertised, otherwise
+`client_secret_basic`, then `client_secret_post`, matching the SDK's token
+exchange preference. The pinned SDK always requested `none`, preventing
+registration with servers advertising only confidential methods. Omitted
+authentication-method metadata keeps its existing public-client behavior.
+Explicit unsupported methods fail before registration, and confidential
+registration requires a returned nonempty client secret. The public API,
+dependency version and Node's private credential storage remain unchanged.

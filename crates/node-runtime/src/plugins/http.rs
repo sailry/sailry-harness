@@ -20,6 +20,7 @@ pub(crate) struct Input {
     body: Option<String>,
     timeout: Duration,
     pub(crate) oauth: Option<super::oauth::Target>,
+    application: Option<super::applications::Target>,
 }
 
 fn unknown(message: &str) -> Fault {
@@ -68,10 +69,13 @@ pub(crate) fn binding(binding: &Binding) -> Result<(Url, HeaderName, &str), Faul
             "unsupported protected setting binding",
         ));
     }
-    if binding.server.is_some() || binding.env.is_some() {
+    if binding.server.is_some() || binding.env.is_some() || binding.oauth.is_some() {
         return Err(sailry_protocol::Fault::invalid(
             "HTTP credentials cannot target an MCP slot",
         ));
+    }
+    if let Some(application) = &binding.application {
+        super::applications::validate(application.provider, binding, &BTreeMap::new())?;
     }
     let origin = url(binding
         .origin
@@ -99,6 +103,7 @@ pub(crate) fn prepare(
     request: &http::Request,
     schema: Option<&Schema>,
     settings: Option<&super::settings::Resolved>,
+    reference: &sailry_protocol::plugin::Reference,
 ) -> Result<Input, Fault> {
     let url = url(&request.url)?;
     if !(1..=http::MAX_TIMEOUT_MS).contains(&request.timeout_ms)
@@ -133,6 +138,7 @@ pub(crate) fn prepare(
             ));
         }
     }
+    let mut application = None;
     if let Some(field) = &request.credential {
         let binding = schema
             .and_then(|schema| schema.properties.get(field))
@@ -158,12 +164,27 @@ pub(crate) fn prepare(
                     "HTTP credential is not configured",
                 )
             })?;
-        let mut value =
-            HeaderValue::from_str(&format!("{prefix}{}", secret.expose())).map_err(|_| {
-                sailry_protocol::Fault::invalid("HTTP credential is not a valid header value")
-            })?;
-        value.set_sensitive(true);
-        headers.insert(name, value);
+        if binding.application.is_some() {
+            application = Some(super::applications::Target::resolve(
+                reference,
+                binding,
+                settings.ok_or_else(|| {
+                    Fault::new(
+                        ErrorCode::NotConfigured,
+                        "application settings are unavailable",
+                    )
+                })?,
+                &request.url,
+                secret,
+            )?);
+        } else {
+            let mut value = HeaderValue::from_str(&format!("{prefix}{}", secret.expose()))
+                .map_err(|_| {
+                    sailry_protocol::Fault::invalid("HTTP credential is not a valid header value")
+                })?;
+            value.set_sensitive(true);
+            headers.insert(name, value);
+        }
     }
     Ok(Input {
         url,
@@ -172,6 +193,7 @@ pub(crate) fn prepare(
         body: request.body.clone(),
         timeout: Duration::from_millis(request.timeout_ms.into()),
         oauth: None,
+        application,
     })
 }
 
@@ -180,6 +202,21 @@ pub(crate) async fn run(
     ingress: &crate::store::Ingress,
     stop: CancellationToken,
 ) -> Result<http::Response, Fault> {
+    if let Some(target) = &input.application {
+        let value = tokio::select! {
+            biased;
+            _ = stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "application token request cancelled")),
+            result = ingress.plugins.applications.access(target) => result?,
+        };
+        input.headers.insert(target.header.clone(), value);
+        input.url = Url::parse(
+            &ingress
+                .plugins
+                .applications
+                .resource(target, input.url.as_str())?,
+        )
+        .map_err(|_| Fault::invalid("invalid application resource URL"))?;
+    }
     if let Some(target) = &input.oauth {
         let value = ingress.oauth.access(ingress, target, &stop).await?;
         input.headers.insert(target.header.clone(), value);

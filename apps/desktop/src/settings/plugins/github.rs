@@ -173,15 +173,30 @@ impl Editor {
         };
         Some(
             h_flex()
+                .id("github-login-card")
+                .debug_selector(|| "github-login-card".into())
+                .border_1()
+                .border_color(cx.theme().border)
+                .rounded_md()
+                .p_3()
                 .gap_2()
                 .items_center()
                 .justify_between()
+                .child(Icon::new(IconName::Github))
                 .child(
                     v_flex().gap_1().child(tr("github_login_title")).child(
                         div()
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
-                            .child(tr(state)),
+                            .child(
+                                if let Some(account) =
+                                    status.and_then(|status| status.account.as_ref())
+                                {
+                                    format!("{} · {}", tr(state), account).into()
+                                } else {
+                                    tr(state)
+                                },
+                            ),
                     ),
                 )
                 .child(
@@ -208,7 +223,10 @@ impl Editor {
                         )
                         .child(
                             Button::new("github-login-import")
-                                .label(tr(label))
+                                .ghost()
+                                .icon(Icon::empty().path("icons/download.svg"))
+                                .tooltip(tr(label))
+                                .accessibility_label(tr(label))
                                 .debug_selector(|| "github-login-import".into())
                                 .disabled(
                                     login.pending

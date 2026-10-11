@@ -94,21 +94,40 @@ fn edit(cx: &mut VisualTestContext, configuration: &Configuration) {
 #[gpui::test]
 fn bundled_cards_open_bound_configuration(cx: &mut TestAppContext) {
     init(cx);
-    let fixture = Fixture::new(false);
-    let (owner, visual) = fixture.mount(cx);
-    owner.update(visual, |owner, cx| owner.select(Section::Mcp, cx));
-    shown(visual, "mcp-card-context7", true);
-    shown(visual, "mcp-card-github", true);
-    tap(visual, "mcp-edit-context7");
-    shown(visual, "mcp-configuration-document", true);
-    shown(visual, "mcp-editor", false);
-    tap(visual, "mcp-configuration-cancel");
-    tap(visual, "mcp-edit-github");
-    shown(visual, "plugin-settings-form", true);
-    shown(visual, "github-login-import", true);
-    shown(visual, "mcp-configuration-document", false);
-    tap(visual, "plugin-settings-cancel");
-    fixture.close(visual);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let Output::Plugin(installed) = fixture.execute(Command::InstallBundledPlugin {
+            name: "slack".into(),
+            expected_revision: 0,
+        }) else {
+            panic!("Slack package expected")
+        };
+        assert_eq!(installed.summary.name, "slack");
+        assert!(!installed.mcp.is_empty());
+        let (owner, visual) = fixture.mount(cx);
+        owner.update(visual, |owner, cx| owner.select(Section::Mcp, cx));
+        shown(visual, "mcp-card-context7", true);
+        shown(visual, "mcp-card-github", true);
+        tap(visual, "mcp-edit-context7");
+        shown(visual, "mcp-configuration-document", true);
+        shown(visual, "mcp-editor", false);
+        tap(visual, "mcp-configuration-cancel");
+        tap(visual, "mcp-edit-github");
+        shown(visual, "plugin-settings-form", true);
+        shown(visual, "github-login-import", true);
+        shown(visual, "mcp-configuration-document", false);
+        tap(visual, "plugin-settings-cancel");
+        tap(visual, "mcp-edit-slack");
+        shown(visual, "plugin-settings-form", true);
+        shown(visual, "plugin-settings-help", true);
+        shown(visual, "plugin-secret-client_secret", true);
+        shown(visual, "mcp-configuration-document", false);
+        tap(visual, "plugin-settings-cancel");
+        tap(visual, "mcp-login-slack-slack");
+        shown(visual, "mcp-oauth-connect", true);
+        tap(visual, "mcp-oauth-cancel");
+        fixture.close(visual);
+    }
 }
 
 #[gpui::test]

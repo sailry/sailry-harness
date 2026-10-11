@@ -132,6 +132,7 @@ impl Ingress {
             package: package.clone(),
             available,
             authenticated: identity.is_some(),
+            account: identity.as_ref().map(|identity| identity.login.clone()),
             bound: binding.is_some() && binding == identity,
         })));
         Ok(sailry_link::Admission {

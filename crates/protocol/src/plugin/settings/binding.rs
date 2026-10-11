@@ -13,6 +13,10 @@ pub struct Binding {
     pub origin: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prefix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub application: Option<Application>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oauth: Option<OAuth>,
     /// Unknown declaration fields are never interpreted as a supported credential target.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub unsupported: bool,
@@ -27,6 +31,8 @@ impl<'de> Deserialize<'de> for Binding {
             header: Option<String>,
             origin: Option<String>,
             prefix: Option<String>,
+            application: Option<Application>,
+            oauth: Option<OAuth>,
             #[serde(default)]
             unsupported: bool,
             #[serde(flatten)]
@@ -40,9 +46,34 @@ impl<'de> Deserialize<'de> for Binding {
             header: raw.header,
             origin: raw.origin,
             prefix: raw.prefix,
+            application: raw.application,
+            oauth: raw.oauth,
             unsupported: raw.unsupported || !raw.extra.is_empty(),
         })
     }
+}
+
+/// A fixed provider exchanges this protected value for a scoped application token.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Application {
+    pub provider: Provider,
+    /// The declared public string setting containing the application ID.
+    pub client_id: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Provider {
+    Feishu,
+    Dingtalk,
+}
+
+/// A registered OAuth client secret, never an MCP request header.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OAuth {
+    pub client_id: String,
 }
 
 #[cfg(test)]
@@ -55,6 +86,8 @@ mod tests {
         for value in [
             json!({"server": "fixture", "env": "TOKEN", "header": null}),
             json!({"header": "Authorization", "origin": "https://example.test", "prefix": "Bearer "}),
+            json!({"server":"feishu","header":"X-Lark-MCP-TAT","application":{"provider":"feishu","client_id":"app_id"}}),
+            json!({"server":"slack","oauth":{"client_id":"client_id"}}),
         ] {
             let binding: Binding = serde_json::from_value(value).unwrap();
             assert!(!binding.unsupported);
@@ -96,7 +129,15 @@ mod tests {
 
     #[test]
     fn rejects_malformed_known_fields() {
-        for key in ["server", "env", "header", "origin", "prefix"] {
+        for key in [
+            "server",
+            "env",
+            "header",
+            "origin",
+            "prefix",
+            "application",
+            "oauth",
+        ] {
             for invalid in [json!(true), json!(1), json!({}), json!([])] {
                 assert!(
                     serde_json::from_value::<Binding>(json!({key: invalid, "unknown": true}))
@@ -106,5 +147,12 @@ mod tests {
             }
         }
         assert!(serde_json::from_value::<Binding>(json!({"unsupported": "true"})).is_err());
+        for value in [
+            json!({"application":{"provider":"unknown","client_id":"app_id"}}),
+            json!({"application":{"provider":"feishu","client_id":"app_id","endpoint":"https://example.test"}}),
+            json!({"oauth":{"client_id":"client_id","secret":"private-marker"}}),
+        ] {
+            assert!(serde_json::from_value::<Binding>(value).is_err());
+        }
     }
 }

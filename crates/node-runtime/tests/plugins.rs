@@ -9,6 +9,9 @@ use std::{fs, path::Path, time::Duration};
 use support::{execute, fixture, info, install, package};
 #[path = "plugins/actions.rs"]
 mod actions;
+#[cfg(feature = "test-support")]
+#[path = "plugins/applications.rs"]
+mod applications;
 #[path = "plugins/catalog/mod.rs"]
 mod catalog;
 #[path = "plugins/completion.rs"]

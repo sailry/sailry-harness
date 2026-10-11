@@ -8,6 +8,51 @@ use std::{collections::BTreeMap, sync::atomic::Ordering};
 mod lifecycle;
 mod models;
 
+#[gpui::test]
+fn shows_captured_setup_help(cx: &mut TestAppContext) {
+    init(cx);
+    rust_i18n::set_locale("en");
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let installed = install(&fixture, "TOKEN", 0);
+        let path = fixture
+            .directory
+            .path()
+            .join("project/package/dev.sailry.platform/settings.json");
+        let mut schema: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        schema["description"] =
+            json!("Create an application in the [developer portal](https://example.invalid/apps)");
+        schema["x-sailry-locales"] = json!({"en":{"description":"Create, configure and publish your application in the [developer portal](https://example.invalid/apps)"}});
+        std::fs::write(path, schema.to_string()).unwrap();
+        fixture.execute(Command::InstallPlugin {
+            worktree: fixture.worktree,
+            path: "package".into(),
+            name: "example".into(),
+            expected_revision: installed.revision,
+            expected_digest: None,
+        });
+        let (owner, visual) = fixture.mount(cx);
+        let editor = open(&fixture, &owner, visual);
+        shown(visual, "plugin-settings-help", true);
+        shown(visual, "plugin-secret-token", true);
+        shown(visual, "plugin-intent-token", false);
+        assert!(editor.read_with(visual, |editor, _| {
+            editor
+                .info
+                .as_ref()
+                .unwrap()
+                .settings
+                .as_ref()
+                .unwrap()
+                .locales["en"]["description"]
+                .starts_with("Create, configure")
+        }));
+        tap(visual, "plugin-settings-cancel");
+        fixture.close(visual);
+    }
+}
+
 fn install(fixture: &Fixture, binding: &str, revision: u64) -> Summary {
     fixture.package("1.0.0");
     let root = fixture.directory.path().join("project/package");
@@ -120,7 +165,7 @@ fn details_keep_the_captured_node(cx: &mut TestAppContext) {
         shown(visual, "plugin-live-details", false);
         assert!(visual.debug_bounds("dialog-1").is_none());
         input(visual, "plugin-setting-label", "Captured node");
-        next(visual, "plugin-intent-token");
+        shown(visual, "plugin-intent-token", false);
         input(visual, "plugin-secret-token", "fixture-private-token");
         tap(visual, "plugin-settings-save");
         shown(visual, "plugin-settings-form", false);
@@ -147,7 +192,7 @@ fn saves_typed_values(cx: &mut TestAppContext) {
         input(visual, "plugin-setting-limit", "9007199254740995");
         next(visual, "plugin-setting-mode");
         tap(visual, "plugin-boolean-notify");
-        next(visual, "plugin-intent-token");
+        shown(visual, "plugin-intent-token", false);
         shown(visual, "plugin-secret-token", true);
         input(visual, "plugin-secret-token", "fixture-private-token");
         visual.update(|_, cx| cx.write_to_clipboard(ClipboardItem::new_string("sentinel".into())));
@@ -309,7 +354,7 @@ fn menu_opens_configuration_without_details(cx: &mut TestAppContext) {
                 .as_ref()
                 .is_some_and(|metadata| metadata.read(cx).entries.contains_key("example"))
         });
-        wait(visual, |cx| !owner.read(cx).plugin_catalog.busy());
+        wait(visual, |cx| !owner.read(cx).plugin_catalog.busy(cx));
         tap(visual, "plugin-menu-example");
         visual.update(|window, cx| {
             use gpui_kit::test::TestWindowExt as _;
@@ -324,7 +369,7 @@ fn menu_opens_configuration_without_details(cx: &mut TestAppContext) {
             crate::settings::Section::Plugins
         );
         input(visual, "plugin-setting-label", "Configured from menu");
-        next(visual, "plugin-intent-token");
+        shown(visual, "plugin-intent-token", false);
         input(visual, "plugin-secret-token", "fixture-token");
         tap(visual, "plugin-settings-save");
         shown(visual, "plugin-settings-form", false);

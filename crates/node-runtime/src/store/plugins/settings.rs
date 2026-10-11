@@ -288,11 +288,9 @@ pub(in crate::store) fn save(
                     ));
                 }
                 validate_value(fields[name], &Value::String(value.expose().into()))?;
-                if fields[name]
-                    .secret
-                    .as_ref()
-                    .is_some_and(|binding| binding.header.is_some())
-                {
+                if fields[name].secret.as_ref().is_some_and(|binding| {
+                    binding.header.is_some() && binding.application.is_none()
+                }) {
                     reqwest::header::HeaderValue::from_str(value.expose()).map_err(|_| {
                         sailry_protocol::Fault::invalid("invalid secret header value")
                     })?;

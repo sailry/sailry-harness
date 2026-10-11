@@ -1,4 +1,5 @@
 //! Isolated OAuth issuer and authenticated proxy for the shared MCP peer.
+use base64::Engine as _;
 use sailry_link::CancellationToken;
 use serde_json::{Value, json};
 use std::{
@@ -18,8 +19,25 @@ pub struct Server {
     pub endpoint: String,
     pub exchanges: Arc<AtomicUsize>,
     pub refreshes: Arc<AtomicUsize>,
+    pub registrations: Arc<AtomicUsize>,
     token: Arc<Mutex<String>>,
+    secret: Option<Arc<Mutex<String>>>,
     stop: CancellationToken,
+}
+
+#[derive(Clone, Copy)]
+pub enum Authentication {
+    Basic,
+    Post,
+}
+
+impl Authentication {
+    fn method(self) -> &'static str {
+        match self {
+            Self::Basic => "client_secret_basic",
+            Self::Post => "client_secret_post",
+        }
+    }
 }
 
 impl Drop for Server {
@@ -30,6 +48,30 @@ impl Drop for Server {
 
 impl Server {
     pub async fn start(upstream: &str) -> Self {
+        Self::configured(upstream, None, false, None).await
+    }
+
+    pub async fn confidential(
+        upstream: &str,
+        registered: bool,
+        authentication: Authentication,
+    ) -> Self {
+        Self::configured(
+            upstream,
+            Some("client-private-marker".into()),
+            registered,
+            Some(authentication),
+        )
+        .await
+    }
+
+    async fn configured(
+        upstream: &str,
+        secret: Option<String>,
+        registered: bool,
+        authentication: Option<Authentication>,
+    ) -> Self {
+        let secret = secret.map(|secret| Arc::new(Mutex::new(secret)));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let endpoint = format!("{origin}/mcp");
@@ -37,6 +79,7 @@ impl Server {
         let target = format!("{}:{}", target.host_str().unwrap(), target.port().unwrap());
         let exchanges = Arc::new(AtomicUsize::new(0));
         let refreshes = Arc::new(AtomicUsize::new(0));
+        let registrations = Arc::new(AtomicUsize::new(0));
         let token = Arc::new(Mutex::new("access-initial".to_owned()));
         let stop = CancellationToken::new();
         let shutdown = stop.clone();
@@ -44,6 +87,10 @@ impl Server {
             origin,
             exchanges: exchanges.clone(),
             refreshes: refreshes.clone(),
+            registrations: registrations.clone(),
+            secret: secret.clone(),
+            registered,
+            authentication,
             token: token.clone(),
             refresh: Mutex::new("refresh-initial".into()),
             callback: Mutex::new(None),
@@ -67,13 +114,24 @@ impl Server {
             endpoint,
             exchanges,
             refreshes,
+            registrations,
             token,
+            secret,
             stop,
         }
     }
 
     pub fn expire(&self) {
         *self.token.lock().unwrap() = "expired-access".into();
+    }
+
+    pub fn replace_secret(&self, value: &str) {
+        *self
+            .secret
+            .as_ref()
+            .expect("confidential fixture expected")
+            .lock()
+            .unwrap() = value.into();
     }
 
     pub async fn callback(url: &str) -> String {
@@ -90,6 +148,10 @@ struct Issuer {
     origin: String,
     exchanges: Arc<AtomicUsize>,
     refreshes: Arc<AtomicUsize>,
+    registrations: Arc<AtomicUsize>,
+    secret: Option<Arc<Mutex<String>>>,
+    registered: bool,
+    authentication: Option<Authentication>,
     token: Arc<Mutex<String>>,
     refresh: Mutex<String>,
     callback: Mutex<Option<String>>,
@@ -164,21 +226,48 @@ impl Issuer {
         let url = url::Url::parse(&format!("{}{target_path}", self.origin)).unwrap();
         let body = &bytes[end..end + length];
         let origin = &self.origin;
+        let auth_method = self
+            .authentication
+            .map(Authentication::method)
+            .unwrap_or("none");
         let result = match url.path() {
             "/.well-known/oauth-protected-resource/mcp"
             | "/.well-known/oauth-protected-resource" => {
                 json!({"resource":format!("{origin}/mcp"),"authorization_servers":[origin],"scopes_supported":["tools"]})
             }
             "/.well-known/oauth-authorization-server" | "/.well-known/openid-configuration" => {
-                json!({"issuer":origin,"authorization_endpoint":format!("{origin}/authorize"),"token_endpoint":format!("{origin}/token"),"registration_endpoint":format!("{origin}/register"),"response_types_supported":["code"],"grant_types_supported":["authorization_code","refresh_token"],"code_challenge_methods_supported":["S256"],"token_endpoint_auth_methods_supported":["none"],"scopes_supported":["tools"]})
+                let mut metadata = json!({"issuer":origin,"authorization_endpoint":format!("{origin}/authorize"),"token_endpoint":format!("{origin}/token"),"response_types_supported":["code"],"grant_types_supported":["authorization_code","refresh_token"],"code_challenge_methods_supported":["S256"],"token_endpoint_auth_methods_supported":[auth_method],"scopes_supported":["tools"]});
+                if matches!(self.authentication, Some(Authentication::Basic)) {
+                    metadata["token_endpoint_auth_methods_supported"] =
+                        json!(["client_secret_basic", "client_secret_post"]);
+                }
+                if !self.registered {
+                    metadata["registration_endpoint"] = json!(format!("{origin}/register"));
+                }
+                metadata
             }
             "/register" => {
+                assert!(!self.registered);
+                self.registrations.fetch_add(1, Ordering::SeqCst);
                 let mut registration: Value = serde_json::from_slice(body).unwrap();
+                if registration["token_endpoint_auth_method"] != auth_method {
+                    return reply(
+                        &mut stream,
+                        400,
+                        "",
+                        json!({"error":"invalid_client_metadata"}),
+                    )
+                    .await;
+                }
                 registration["client_id"] = json!("fixture-client");
+                if let Some(secret) = &self.secret {
+                    registration["client_secret"] = json!(*secret.lock().unwrap());
+                }
                 return reply(&mut stream, 201, "", registration).await;
             }
             "/authorize" => {
                 let params: BTreeMap<_, _> = url.query_pairs().into_owned().collect();
+                assert_eq!(params["client_id"], "fixture-client");
                 assert_eq!(params["code_challenge_method"], "S256");
                 assert!(!params["code_challenge"].is_empty());
                 let mut callback = url::Url::parse(&params["redirect_uri"]).unwrap();
@@ -200,6 +289,26 @@ impl Issuer {
                 let mut form = url::Url::parse("http://fixture/").unwrap();
                 form.set_query(Some(std::str::from_utf8(body).unwrap()));
                 let params: BTreeMap<_, _> = form.query_pairs().into_owned().collect();
+                if let Some(secret) = &self.secret {
+                    let secret = secret.lock().unwrap();
+                    match self.authentication.unwrap() {
+                        Authentication::Basic => {
+                            let value = base64::engine::general_purpose::STANDARD
+                                .encode(format!("fixture-client:{secret}"));
+                            assert_eq!(
+                                headers.get("authorization"),
+                                Some(&format!("Basic {value}"))
+                            );
+                            assert!(!params.contains_key("client_id"));
+                            assert!(!params.contains_key("client_secret"));
+                        }
+                        Authentication::Post => {
+                            assert_eq!(params["client_id"], "fixture-client");
+                            assert_eq!(params["client_secret"], *secret);
+                            assert!(!headers.contains_key("authorization"));
+                        }
+                    }
+                }
                 if params["grant_type"] == "authorization_code" {
                     assert_eq!(params["code"], "fixture-code");
                     assert!(!params["code_verifier"].is_empty());

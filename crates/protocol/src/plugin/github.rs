@@ -8,5 +8,7 @@ pub struct Status {
     pub available: bool,
     pub authenticated: bool,
     #[serde(default)]
+    pub account: Option<String>,
+    #[serde(default)]
     pub bound: bool,
 }

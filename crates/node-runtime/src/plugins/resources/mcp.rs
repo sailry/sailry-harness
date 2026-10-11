@@ -27,6 +27,8 @@ pub(crate) enum Launch {
         headers: BTreeMap<String, String>,
         sse: bool,
         authorization: Option<sailry_protocol::CredentialId>,
+        registered: Option<crate::plugins::authorization::Registered>,
+        application: Option<crate::plugins::applications::Authorization>,
         github: Option<crate::plugins::github::login::Binding>,
     },
 }
@@ -43,6 +45,7 @@ impl Resources {
             url,
             headers,
             authorization: Some(id),
+            registered,
             ..
         } = launch
         else {
@@ -71,7 +74,7 @@ impl Resources {
         }
         self.host
             .authorizations
-            .client(ingress, target)
+            .client(ingress, target, registered.clone())
             .await
             .map(Some)
     }
@@ -134,6 +137,32 @@ impl Resources {
                     }
                 })?;
                 let mut settings = settings;
+                if settings.github.is_none()
+                    && !settings.secrets.contains_key("token")
+                    && !settings.authorizations.contains_key("github")
+                    && settings
+                        .mcp
+                        .as_ref()
+                        .and_then(|configuration| configuration.servers.get("github"))
+                        .is_none_or(|server| match server {
+                            Server::Http { headers, .. } | Server::Sse { headers, .. } => {
+                                headers.iter().all(|(name, value)| {
+                                    !name.eq_ignore_ascii_case("authorization")
+                                        || value.trim().is_empty()
+                                })
+                            }
+                            Server::Stdio { .. } => true,
+                        })
+                    && package.extension.as_ref().is_some_and(|extension| {
+                        extension.credential_source
+                            == Some(sailry_protocol::plugin::CredentialSource::GithubCli)
+                    })
+                {
+                    settings.github =
+                        crate::plugins::github::login::status(environment, &self.stop)
+                            .await?
+                            .1;
+                }
                 if let Some(identity) = &settings.github {
                     let token = crate::plugins::github::login::credential(
                         environment,
@@ -340,6 +369,9 @@ fn prepare(
             } else {
                 None
             };
+            let registered =
+                crate::plugins::authorization::Registered::resolve(schema, settings, server_name)?;
+            let mut applications = Vec::new();
             for (field, secret) in &settings.secrets {
                 let binding = schema
                     .and_then(|schema| schema.properties.get(field))
@@ -348,6 +380,16 @@ fn prepare(
                 if binding.server.as_deref() == Some(server_name)
                     && let Some(header) = &binding.header
                 {
+                    if binding.application.is_some() {
+                        applications.push(crate::plugins::applications::Target::resolve(
+                            &info.summary.reference(),
+                            binding,
+                            settings,
+                            &url,
+                            secret,
+                        )?);
+                        continue;
+                    }
                     let value = headers
                         .iter_mut()
                         .find(|(name, _)| name.eq_ignore_ascii_case(header))
@@ -365,6 +407,11 @@ fn prepare(
                 headers,
                 sse,
                 authorization: settings.authorizations.get(server_name).copied(),
+                registered,
+                application: crate::plugins::applications::Authorization::new(
+                    host.applications.clone(),
+                    applications,
+                ),
                 github,
             })
         }

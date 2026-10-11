@@ -1,6 +1,7 @@
 use super::*;
 use crate::theme::DialogStyle as _;
 use gpui_kit::component::spinner::Spinner;
+use gpui_kit::component::{alert::Alert, text::markdown};
 
 pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
     window.open_dialog(cx, move |dialog, window, cx| {
@@ -126,6 +127,7 @@ impl Render for Editor {
             .gap_4()
             .min_w_0()
             .when(self.loading, |view| view.child(Spinner::new().small()))
+            .children(self.help())
             .children(self.tab_bar(cx))
             .child(
                 gpui_kit::component::form::Form::vertical()
@@ -181,6 +183,22 @@ impl Render for Editor {
 }
 
 impl Editor {
+    fn help(&self) -> Option<AnyElement> {
+        let schema = self.info.as_ref()?.settings.as_ref()?;
+        let text = schema
+            .locales
+            .get::<str>(&rust_i18n::locale())
+            .and_then(|labels| labels.get("description"))
+            .or(schema.description.as_ref())
+            .filter(|text| !text.trim().is_empty())?;
+        Some(
+            div()
+                .debug_selector(|| "plugin-settings-help".into())
+                .child(Alert::info("plugin-settings-help", markdown(text.clone())).small())
+                .into_any_element(),
+        )
+    }
+
     fn oauth_row(&self, _: &App) -> Option<AnyElement> {
         let info = self.info.as_ref()?;
         let provider = info.extension.as_ref()?.oauth.as_ref()?.provider;

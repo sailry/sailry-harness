@@ -38,6 +38,20 @@ fn open(
             .unwrap()
             .authenticated
     }));
+    assert_eq!(
+        editor
+            .read_with(cx, |editor, _| editor
+                .github
+                .as_ref()
+                .unwrap()
+                .status
+                .as_ref()
+                .unwrap()
+                .account
+                .clone())
+            .as_deref(),
+        Some("fixture-user")
+    );
     draw(cx);
     editor
 }

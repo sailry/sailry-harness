@@ -2,6 +2,8 @@ use super::*;
 use serde_json::{Value, json};
 use std::{fs, path::Path};
 mod admission;
+#[cfg(feature = "test-support")]
+mod applications;
 mod authorization;
 mod connections;
 mod content;

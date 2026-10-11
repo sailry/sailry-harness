@@ -93,21 +93,23 @@ impl Render for Setting {
                 let action = intent.read(cx).selected_value().and_then(Json::as_str);
                 v_flex()
                     .gap_2()
-                    .child(
-                        div()
-                            .debug_selector({
-                                let name = self.name.clone();
-                                move || format!("plugin-intent-{name}")
-                            })
-                            .child(
-                                Select::new(intent)
-                                    .disabled(self.locked)
-                                    .placeholder(tr("plugins_settings_choose"))
-                                    .accessibility_label(label.clone())
-                                    .w_full(),
-                            ),
-                    )
-                    .when(action == Some("replace"), |view| {
+                    .when(*configured, |view| {
+                        view.child(
+                            div()
+                                .debug_selector({
+                                    let name = self.name.clone();
+                                    move || format!("plugin-intent-{name}")
+                                })
+                                .child(
+                                    Select::new(intent)
+                                        .disabled(self.locked)
+                                        .placeholder(tr("plugins_settings_choose"))
+                                        .accessibility_label(label.clone())
+                                        .w_full(),
+                                ),
+                        )
+                    })
+                    .when(!*configured || action == Some("replace"), |view| {
                         view.child(
                             div()
                                 .debug_selector({
@@ -121,16 +123,12 @@ impl Render for Setting {
                                 ),
                         )
                     })
-                    .when(action == Some("keep"), |view| {
+                    .when(*configured && action == Some("keep"), |view| {
                         view.child(
                             div()
                                 .text_sm()
                                 .text_color(cx.theme().muted_foreground)
-                                .child(tr(if *configured {
-                                    "plugins_settings_configured"
-                                } else {
-                                    "plugins_settings_unset"
-                                })),
+                                .child(tr("plugins_settings_configured")),
                         )
                     })
                     .when(action == Some("clear"), |view| {

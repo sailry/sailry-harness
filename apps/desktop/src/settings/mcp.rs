@@ -36,7 +36,10 @@ pub(super) fn form_bound(info: &Info) -> bool {
     info.settings.as_ref().is_some_and(|schema| {
         schema.properties.values().any(|field| {
             field.secret.as_ref().is_some_and(|binding| {
-                binding.server.is_some() && (binding.env.is_some() || binding.header.is_some())
+                binding.server.is_some()
+                    && (binding.env.is_some()
+                        || binding.header.is_some()
+                        || binding.oauth.is_some())
             })
         })
     })
@@ -175,6 +178,17 @@ impl Workspace {
                         )
                     }),
             )
+            .children(info.mcp.iter().filter_map(|server| {
+                (server.transport != McpTransport::Stdio).then(|| {
+                    plugins::authorization::action(
+                        live.binding.clone(),
+                        info.summary.reference(),
+                        server.name.clone(),
+                        format!("mcp-login-{name}-{}", server.name),
+                    )
+                    .disabled(busy)
+                })
+            }))
             .child(
                 div().debug_selector(move || toggle_id.clone()).child(
                     Switch::new(SharedString::from(format!("mcp-toggle-{name}")))

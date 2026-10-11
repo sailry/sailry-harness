@@ -59,13 +59,18 @@ fn requires_binding_intent(cx: &mut TestAppContext) {
         tap(visual, "plugin-settings-reload");
         wait(visual, |cx| !editor.read(cx).loading);
         assert!(editor.read_with(visual, |editor, _| editor.changed));
-        assert!(state(&fixture).keepable.is_empty());
+        let changed = state(&fixture);
+        assert!(changed.keepable.is_empty());
+        assert!(changed.configured.is_empty());
+        assert!(!changed.ready);
         tap(visual, "plugin-settings-save");
         assert_eq!(
             editor.read_with(visual, |editor, _| editor.error),
-            Some("plugins_settings_secret_intent")
+            Some("plugins_settings_secret_required")
         );
-        next(visual, "plugin-intent-token");
+        assert!(editor.read_with(visual, |editor, _| editor.request.is_none()));
+        assert!(fixture.transport.requests.lock().unwrap().is_empty());
+        shown(visual, "plugin-intent-token", false);
         shown(visual, "plugin-secret-token", true);
         visual.simulate_event(ScrollWheelEvent {
             position: point(px(600.), px(300.)),
@@ -116,7 +121,7 @@ fn releases_invalid_forms(cx: &mut TestAppContext) {
         install(&fixture, "TOKEN", 0);
         let (owner, visual) = fixture.mount(cx);
         let editor = open(&fixture, &owner, visual);
-        next(visual, "plugin-intent-token");
+        shown(visual, "plugin-intent-token", false);
         input(visual, "plugin-secret-token", "discarded-private-draft");
         let fields = editor.read_with(visual, |editor, _| editor.fields.clone());
         std::fs::write(
@@ -189,9 +194,8 @@ fn scrolls_long_forms(cx: &mut TestAppContext) {
             modifiers: Modifiers::default(),
         });
         draw(visual);
-        let last = visual.debug_bounds("plugin-intent-token").unwrap();
+        let last = visual.debug_bounds("plugin-secret-token").unwrap();
         assert!(last.origin.y > px(0.) && last.bottom() <= save.origin.y);
-        next(visual, "plugin-intent-token");
         visual.simulate_event(ScrollWheelEvent {
             position: point(px(600.), px(300.)),
             delta: ScrollDelta::Pixels(point(px(0.), px(-1000.))),

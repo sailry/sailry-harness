@@ -214,6 +214,8 @@ async fn loads_bundled_documents() {
                         header: Some("Authorization".into()),
                         origin: None,
                         prefix: Some("Bearer ".into()),
+                        application: None,
+                        oauth: None,
                         unsupported: false,
                     })
                 );

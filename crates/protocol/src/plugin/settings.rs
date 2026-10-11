@@ -4,7 +4,7 @@ use serde_json::{Number, Value};
 use std::collections::BTreeMap;
 
 mod binding;
-pub use binding::Binding;
+pub use binding::{Application, Binding, OAuth, Provider};
 
 pub const SCHEMA: &str = "https://json-schema.org/draft/2020-12/schema";
 pub const MAX_FIELDS: usize = 32;

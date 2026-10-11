@@ -349,7 +349,23 @@ impl Setting {
     }
 
     pub fn value(&self, cx: &App) -> Result<Value, &'static str> {
-        if let Control::Secret { input, intent, .. } = &self.control {
+        if let Control::Secret {
+            input,
+            intent,
+            configured,
+        } = &self.control
+        {
+            if !configured {
+                let value = input.read(cx).value();
+                if !value.is_empty() {
+                    return Ok(Value::Secret(SecretUpdate::Replace(Secret::new(
+                        value.to_string(),
+                    ))));
+                }
+                if intent.read(cx).selected_value().and_then(Json::as_str) != Some("keep") {
+                    return Err("plugins_settings_secret_required");
+                }
+            }
             return Ok(Value::Secret(
                 match intent.read(cx).selected_value().and_then(Json::as_str) {
                     Some("keep") => SecretUpdate::Keep,

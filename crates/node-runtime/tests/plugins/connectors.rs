@@ -55,7 +55,6 @@ async fn installs_and_configures_declared_connectors() {
             let expected = match name {
                 "google-workspace" => Some(Provider::Google),
                 "microsoft-365" => Some(Provider::Microsoft),
-                "dingtalk" => Some(Provider::Dingtalk),
                 _ => None,
             };
             assert_eq!(
@@ -87,11 +86,25 @@ async fn installs_and_configures_declared_connectors() {
                         )
                     })
                     .collect();
+                let mut values = initial.values;
+                for field in schema.properties.values() {
+                    if let Some(binding) = &field.secret
+                        && let Some(client_id) = binding
+                            .application
+                            .as_ref()
+                            .map(|value| &value.client_id)
+                            .or_else(|| binding.oauth.as_ref().map(|value| &value.client_id))
+                    {
+                        values
+                            .entry(client_id.clone())
+                            .or_insert_with(|| serde_json::json!("connector-public-marker"));
+                    }
+                }
                 let Output::PluginSettings(saved) = execute(
                     &client,
                     Command::SavePluginSettings {
                         package: initial.package,
-                        values: initial.values,
+                        values,
                         secrets,
                     },
                 )

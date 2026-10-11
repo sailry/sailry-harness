@@ -210,7 +210,11 @@ impl Connection {
                 .await
             }
             Launch::Http {
-                url, headers, sse, ..
+                url,
+                headers,
+                sse,
+                application,
+                ..
             } => {
                 let client = reqwest::Client::builder()
                     .redirect(reqwest::redirect::Policy::none())
@@ -235,7 +239,23 @@ impl Connection {
                         ))
                     })
                     .collect::<Result<_, Fault>>()?;
-                if let Some(client) = authorized {
+                if let Some(application) = application {
+                    if authorized.is_some() {
+                        return Err(Fault::new(
+                            ErrorCode::Conflict,
+                            "MCP OAuth conflicts with application authentication",
+                        ));
+                    }
+                    Self::http(
+                        application.client(client),
+                        url,
+                        headers,
+                        sse,
+                        turn_stop,
+                        handler,
+                    )
+                    .await
+                } else if let Some(client) = authorized {
                     Self::http(client, url, headers, sse, turn_stop, handler).await
                 } else {
                     Self::http(client, url, headers, sse, turn_stop, handler).await

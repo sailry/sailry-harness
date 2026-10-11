@@ -498,7 +498,8 @@ a separate decision.
 Plugin configuration follows its declared settings surface. Plugins with settings
 pages open their existing panels from configuration actions and
 settings navigation. Other configurable plugins use the shared schema form dialog,
-with the Node and package captured when opened. MCP authorization remains in details.
+with the Node and package captured when opened. MCP authorization is available
+from connection cards and plugin details.
 Plugins without configuration fields or a settings surface have no configuration action.
 Scripted settings pages preload up to four validated resource bundles per captured
 Node, warming on settings entry and navigation hover. Preloading never executes

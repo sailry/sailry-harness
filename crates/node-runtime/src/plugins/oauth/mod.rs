@@ -26,6 +26,11 @@ pub(crate) fn validate(declaration: &Declaration, schema: Option<&Schema>) -> Re
             .get(name)
             .and_then(|field| field.secret.as_ref())
             .ok_or_else(|| Fault::invalid("OAuth credential field is not declared"))?;
+        if binding.application.is_some() || binding.oauth.is_some() {
+            return Err(Fault::invalid(
+                "OAuth credentials cannot also bind application or MCP client secrets",
+            ));
+        }
         let (origin, header, prefix) = super::http::binding(binding)?;
         if !providers::binding(
             declaration.provider,

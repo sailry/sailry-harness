@@ -416,22 +416,13 @@ impl Render for Details {
                         installed && server.transport != McpTransport::Stdio,
                         |entry| {
                             entry.action(
-                                Button::new(SharedString::from(format!("mcp-oauth-{name}")))
-                                    .debug_selector({
-                                        let name = name.clone();
-                                        move || format!("plugin-authorize-{name}")
-                                    })
-                                    .label(tr("mcp_oauth_title"))
-                                    .disabled(pending)
-                                    .on_click(move |_, window, cx| {
-                                        authorization::open(
-                                            binding.clone(),
-                                            package.clone(),
-                                            name.clone(),
-                                            window,
-                                            cx,
-                                        );
-                                    }),
+                                authorization::action(
+                                    binding,
+                                    package,
+                                    name.clone(),
+                                    format!("plugin-authorize-{name}"),
+                                )
+                                .disabled(pending),
                             )
                         },
                     ),

@@ -138,9 +138,34 @@ impl Worker {
                     "MCP authorization is already active or capacity is exhausted",
                 ));
             }
-            Ok(info)
+            let registered = if info.settings.as_ref().is_some_and(|schema| {
+                schema.properties.values().any(|field| {
+                    field.secret.as_ref().is_some_and(|binding| {
+                        binding.server.as_deref() == Some(server) && binding.oauth.is_some()
+                    })
+                })
+            }) {
+                let settings =
+                    crate::store::plugins::settings::resolve(&database.connection, &info)?;
+                crate::plugins::authorization::Registered::resolve(
+                    info.settings.as_ref(),
+                    &settings,
+                    server,
+                )?
+            } else {
+                None
+            };
+            if registered
+                .as_ref()
+                .is_some_and(|registered| client_id.is_some_and(|id| id != registered.id))
+            {
+                return Err(Fault::invalid(
+                    "MCP OAuth client ID differs from its configured secret",
+                ));
+            }
+            Ok((info, registered))
         })();
-        let info = match prepared {
+        let (info, registered) = match prepared {
             Ok(info) => info,
             Err(error) => return database.finish_external(caller, request, Err(error), events),
         };
@@ -199,7 +224,7 @@ impl Worker {
             let operation = async {
                 let expires_at_ms = SystemTime::now().duration_since(UNIX_EPOCH).map_err(storage_error)?.as_millis() as u64 + 900_000;
                 let endpoint = resources.mcp_endpoint(&attempt.package.name, &attempt.server).await?;
-                let flow = Flow::begin(&endpoint, &redirect, client_id.as_deref()).await?;
+                let flow = Flow::begin(&endpoint, &redirect, client_id.as_deref(), registered).await?;
                 sender.send(Job::Login(Box::new(super::Progress::Mcp(Progress::Prompt { caller, id, url: flow.url().into(), expires_at_ms })))).await.map_err(|_| super::super::unavailable())?;
                 let callback = returned.await.map_err(|_| super::super::unavailable())?;
                 let credentials = flow.complete(&callback).await?;

@@ -1,6 +1,7 @@
 //! Node-owned immutable packages. Behavioral references: Code 67ae9fa0
 //! production/storage/packages.rs, production/mcp.rs and Platform 727ce0a harbor-agent-plugins
 //! (Apache-2.0). No historical UI or parallel execution host is imported.
+pub(crate) mod applications;
 mod archive;
 pub(crate) mod authorization;
 mod bundled;
@@ -41,6 +42,7 @@ pub(crate) struct Host {
     pub(crate) scripts: std::sync::Arc<tokio::sync::Semaphore>,
     reads: std::sync::Arc<tokio::sync::Semaphore>,
     authorizations: std::sync::Arc<authorization::Clients>,
+    pub(crate) applications: std::sync::Arc<applications::Service>,
     github: github::Github,
     python: std::sync::Arc<tokio::sync::OnceCell<std::sync::Arc<crate::python::Manager>>>,
     python_index: std::sync::Arc<std::sync::Mutex<Option<String>>>,
@@ -91,6 +93,7 @@ impl Host {
             scripts: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
             reads: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
             authorizations: Default::default(),
+            applications: Default::default(),
             github: Default::default(),
             python: Default::default(),
             python_index: Default::default(),

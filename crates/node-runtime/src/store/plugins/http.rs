@@ -20,7 +20,12 @@ pub(super) fn prepare(
         .as_ref()
         .map(|_| settings::resolve(&db.connection, &info))
         .transpose()?;
-    let mut input = crate::plugins::http::prepare(http, info.settings.as_ref(), resolved.as_ref())?;
+    let mut input = crate::plugins::http::prepare(
+        http,
+        info.settings.as_ref(),
+        resolved.as_ref(),
+        &info.summary.reference(),
+    )?;
     if let Some(field) = &http.credential {
         let stored = settings::stored(&db.connection, &info)?;
         if let Some(authorization) = stored.oauth

@@ -1,6 +1,7 @@
 use super::*;
 use sailry_protocol::plugin::authorization::{Attempt, State};
 use std::sync::atomic::Ordering;
+mod confidential;
 #[path = "../../support/mcp_oauth.rs"]
 mod issuer;
 

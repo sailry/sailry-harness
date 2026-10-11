@@ -6,11 +6,15 @@ use rmcp::transport::auth::{
 use sailry_protocol::{ErrorCode, Fault, Secret};
 use std::time::Duration;
 mod clients;
+mod credentials;
 pub(crate) use clients::{Clients, Target};
+use credentials::Credentials;
+pub(crate) use credentials::Registered;
 
 pub(crate) struct Flow {
     session: AuthorizationSession,
     credentials: InMemoryCredentialStore,
+    client_secret: Option<Secret>,
 }
 
 impl Flow {
@@ -18,13 +22,44 @@ impl Flow {
         endpoint: &str,
         redirect: &str,
         client_id: Option<&str>,
+        registered: Option<Registered>,
     ) -> Result<Self, Fault> {
         let credentials = InMemoryCredentialStore::new();
-        let manager = manager(endpoint, credentials.clone()).await?;
+        let mut manager = manager(endpoint, credentials.clone()).await?;
         let mut request = AuthorizationRequest::new(redirect).with_client_name("Sailry");
-        if let Some(client_id) = client_id {
+        let client_secret = if let Some(registered) = registered {
+            if client_id.is_some_and(|id| id != registered.id) {
+                return Err(Fault::invalid(
+                    "MCP OAuth client ID differs from its configured secret",
+                ));
+            }
+            request = request
+                .with_preregistered_client(registered.id)
+                .with_client_secret(registered.secret.expose());
+            Some(registered.secret)
+        } else if let Some(client_id) = client_id {
             request = request.with_preregistered_client(client_id);
-        }
+            None
+        } else {
+            // Capture the SDK registration result before its StoredCredentials drops the secret.
+            let scopes = manager.select_scopes(None, &[]);
+            let references = scopes.iter().map(String::as_str).collect::<Vec<_>>();
+            let registered = manager
+                .register_client("Sailry", redirect, &references)
+                .await
+                .map_err(unavailable)?;
+            request = request
+                .with_preregistered_client(registered.client_id)
+                .with_scopes(scopes);
+            if let Some(application_type) = registered.application_type {
+                request = request.with_application_type(application_type);
+            }
+            let secret = registered.client_secret.map(Secret::new);
+            if let Some(secret) = &secret {
+                request = request.with_client_secret(secret.expose());
+            }
+            secret
+        };
         let session = AuthorizationSession::new(manager, request)
             .await
             .map_err(|(_, error)| unavailable(error))?;
@@ -37,6 +72,7 @@ impl Flow {
         Ok(Self {
             session,
             credentials,
+            client_secret,
         })
     }
 
@@ -58,7 +94,7 @@ impl Flow {
             .handle_callback_url(callback.expose())
             .await
             .map_err(unavailable)?;
-        encode(&self.credentials).await
+        encode(&self.credentials, self.client_secret.clone()).await
     }
 }
 
@@ -95,7 +131,10 @@ async fn manager(
     Ok(manager)
 }
 
-async fn encode(credentials: &InMemoryCredentialStore) -> Result<Secret, Fault> {
+async fn encode(
+    credentials: &InMemoryCredentialStore,
+    client_secret: Option<Secret>,
+) -> Result<Secret, Fault> {
     let stored = credentials
         .load()
         .await
@@ -106,9 +145,12 @@ async fn encode(credentials: &InMemoryCredentialStore) -> Result<Secret, Fault> 
                 "MCP authorization has no credentials",
             )
         })?;
-    serde_json::to_string(&stored)
-        .map(Secret::new)
-        .map_err(unavailable)
+    serde_json::to_string(&Credentials {
+        state: stored,
+        client_secret,
+    })
+    .map(Secret::new)
+    .map_err(unavailable)
 }
 
 fn unavailable(_: impl std::fmt::Display) -> Fault {
