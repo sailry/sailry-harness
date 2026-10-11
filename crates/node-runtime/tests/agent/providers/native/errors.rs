@@ -3,6 +3,54 @@ use serde_json::{Value, json};
 
 const PRIVATE: &str = "private echoed provider credential";
 
+#[tokio::test]
+async fn retains_status_for_nonstandard_error_bodies() {
+    for remote in [false, true] {
+        for (status, category, attempts) in [
+            (401, "unauthorized", 1),
+            (403, "forbidden", 1),
+            (429, "rate_limited", 6),
+        ] {
+            let raw = format!(
+                "HTTP/1.1 {status} Fixture error\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{{\"message\":\"{PRIVATE}\"}}"
+            );
+            let server =
+                Server::start(ModelApi::Responses, Reply::Raw(Arc::new(raw.into_bytes()))).await;
+            let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+            let turn = fixture.submit("Answer the task").await;
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            let run = page.runs.last().unwrap();
+            assert_eq!(run.status, Status::Failed);
+            let error = run.error.as_ref().unwrap();
+            assert!(
+                error
+                    .message
+                    .contains(&format!("model.openai_responses.{category}")),
+                "{error:?}"
+            );
+            assert!(
+                error.message.contains(&format!("HTTP {status}")),
+                "{error:?}"
+            );
+            let serialized = serde_json::to_string(&page).unwrap();
+            assert!(!serialized.contains(PRIVATE));
+            assert!(!serialized.contains(server::KEY));
+            // Node retries a rate-limited opening five times before any output.
+            // The Responses transport and client have no additional retry layer.
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), attempts, "status={status}, remote={remote}");
+            assert!(
+                requests
+                    .iter()
+                    .all(|request| request.body == requests[0].body)
+            );
+            drop(requests);
+            fixture.controller.close().await.unwrap();
+            fixture.node.shutdown().await.unwrap();
+        }
+    }
+}
+
 fn failure(code: &str, kind: &str) -> Value {
     let detail = json!({"type":"invalid_request_error", "code":code,
         "message":PRIVATE, "param":format!("Bearer {}", server::KEY)});

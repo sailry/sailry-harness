@@ -655,6 +655,10 @@ pub(super) fn failure_key(error: &sailry_protocol::Fault) -> &'static str {
     }
     let (code, category) = model_failure(&error.message).unwrap_or_default();
     match code {
+        "model.openai_responses.unauthorized" | "model.openai_responses.forbidden" => {
+            return "chat_model_unauthorized";
+        }
+        "model.openai_responses.rate_limited" => return "chat_model_rate_limited",
         "model.openai_responses.subscription_sharing_usage_limit_exceeded" => {
             return "chat_subscription_limit";
         }
@@ -695,6 +699,18 @@ mod tests {
 
     #[test]
     fn classifies_response_failures() {
+        for (code, status, key) in [
+            ("unauthorized", 401, "chat_model_unauthorized"),
+            ("forbidden", 403, "chat_model_unauthorized"),
+            ("rate_limited", 429, "chat_model_rate_limited"),
+        ] {
+            let message =
+                format!("Agent execution failed (model.openai_responses.{code}); HTTP {status}");
+            assert_eq!(
+                failure_key(&Fault::new(ErrorCode::Unavailable, message)),
+                key
+            );
+        }
         for (message, key) in [
             (
                 "Agent execution failed (model.openai_responses.subscription_sharing_usage_limit_exceeded)",

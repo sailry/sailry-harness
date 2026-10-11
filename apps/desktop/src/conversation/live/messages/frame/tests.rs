@@ -2,6 +2,66 @@ use super::*;
 use core::prelude::v1::test;
 use sailry_protocol::{SessionId, TurnId};
 
+#[gpui_kit::test]
+fn keeps_credential_diagnostics_in_details(cx: &mut gpui_kit::TestAppContext) {
+    use crate::conversation::live::{
+        tests::{fixture, wait},
+        *,
+    };
+    use sailry_protocol::conversation::ModelApi;
+    fixture::init(cx);
+    for remote in [false, true] {
+        let fixture = fixture::Fixture::with_server(remote, |runtime| {
+            runtime.block_on(crate::agent_fixture::Server::http(usize::MAX, 401))
+        });
+        let Output::Snapshot(snapshot) = fixture.execute(Command::Snapshot) else {
+            panic!("snapshot expected")
+        };
+        let mut provider = snapshot
+            .providers
+            .iter()
+            .find(|provider| provider.id == fixture.session.config.provider)
+            .unwrap()
+            .clone();
+        provider.api = ModelApi::Responses;
+        fixture.execute(Command::PutProvider {
+            expected_revision: provider.revision,
+            provider,
+        });
+        let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
+        fixture.start();
+        wait(visual, |cx| {
+            view.read(cx)
+                .history
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot
+                        .page
+                        .runs
+                        .first()
+                        .is_some_and(|run| run.status == Status::Failed)
+                })
+        });
+        let turn = view.read_with(visual, |view, _| {
+            let run = &view.history.snapshot.as_ref().unwrap().page.runs[0];
+            let error = run.error.as_ref().unwrap();
+            assert_eq!(super::super::failure_key(error), "chat_model_unauthorized");
+            assert!(error.message.contains("HTTP 401"));
+            run.turn
+        });
+        let reason: &'static str =
+            Box::leak(format!("live-turn-error-reason-{turn}").into_boxed_str());
+        assert!(visual.debug_bounds(reason).is_none());
+        fixture::tap(visual, &format!("live-turn-error-{turn}"));
+        assert!(visual.debug_bounds(reason).is_some());
+        fixture::tap(visual, &format!("live-turn-error-{turn}"));
+        assert!(visual.debug_bounds(reason).is_none());
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
 fn run() -> Run {
     Run {
         worktree: sailry_protocol::WorktreeId::new(),

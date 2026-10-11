@@ -360,13 +360,8 @@ async fn normalize_responses_response(
 ) -> Result<reqwest_openai::Response, async_openai::error::OpenAIError> {
     use reqwest_openai::ResponseBuilderExt;
 
-    if !response.status().is_success()
-        && (open_responses_mode || response.status().is_server_error())
-    {
-        return normalize_error_response(response, open_responses_mode).await;
-    }
     if !response.status().is_success() {
-        return Ok(response);
+        return normalize_error_response(response, open_responses_mode).await;
     }
 
     // Codex can omit Content-Type while sending SSE. The captured request's
@@ -449,18 +444,11 @@ async fn normalize_error_response(
     open_responses_mode: bool,
 ) -> Result<reqwest_openai::Response, async_openai::error::OpenAIError> {
     use async_openai::error::{ApiError, ApiErrorResponse, OpenAIError, WrappedError};
-    use reqwest_openai::ResponseBuilderExt;
-
     let status = response.status();
-    let version = response.version();
-    let url = response.url().clone();
-    let headers = response.headers().clone();
-    let bytes = response.bytes().await.map_err(OpenAIError::Reqwest)?;
-    // async-openai 0.41.3 discards structured codes on HTTP 5xx. Preserve only
-    // recognized sharing failures before that parser can make them retryable.
-    if let Ok(wrapped) = serde_json::from_slice::<WrappedError>(&bytes)
-        && errors::sharing_error(wrapped.error.code.as_deref()).is_some()
-    {
+    // A malformed or interrupted error body cannot replace a received HTTP status
+    // with a parsing failure. Preserve standard envelopes and their provider codes.
+    let bytes = response.bytes().await.unwrap_or_default();
+    if let Ok(wrapped) = serde_json::from_slice::<WrappedError>(&bytes) {
         return Err(OpenAIError::ApiError(ApiErrorResponse {
             status_code: status,
             api_error: wrapped.error,
@@ -482,14 +470,15 @@ async fn normalize_error_response(
             },
         }));
     }
-    let mut rebuilt = http::Response::builder()
-        .status(status)
-        .version(version)
-        .url(url)
-        .body(reqwest_openai::Body::from(bytes))
-        .map_err(|_| OpenAIError::InvalidArgument("failed to rebuild Responses error".into()))?;
-    *rebuilt.headers_mut() = headers;
-    Ok(reqwest_openai::Response::from(rebuilt))
+    Err(OpenAIError::ApiError(ApiErrorResponse {
+        status_code: status,
+        api_error: ApiError {
+            message: format!("HTTP {status}"),
+            r#type: None,
+            param: None,
+            code: None,
+        },
+    }))
 }
 
 fn normalize_responses_bytes(
@@ -986,6 +975,49 @@ mod tests {
     use serde_json::json;
 
     const FIRST_ARGUMENTS: &str = r#"{"path":"first.txt"}"#;
+
+    #[tokio::test]
+    async fn retains_every_non_success_status() {
+        for mode in [false, true] {
+            for status in [302, 400, 401, 403, 429, 503] {
+                for body in [
+                    b"not JSON".as_slice(),
+                    b"{\"message\":\"rejected\"}".as_slice(),
+                ] {
+                    let response = http::Response::builder()
+                        .status(status)
+                        .body(reqwest_openai::Body::from(body.to_vec()))
+                        .unwrap();
+                    let error = normalize_responses_response(response.into(), false, mode, true)
+                        .await
+                        .unwrap_err();
+                    let OpenAIError::ApiError(error) = error else {
+                        panic!("structured API error expected");
+                    };
+                    assert_eq!(error.status_code.as_u16(), status);
+                    assert!(error.api_error.message.starts_with("HTTP "));
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn preserves_standard_error_envelopes() {
+        let body = json!({"error":{"message":"rejected","type":"invalid_request_error","code":"unsupported_model","param":null}}).to_string();
+        let response = http::Response::builder()
+            .status(403)
+            .body(reqwest_openai::Body::from(body))
+            .unwrap();
+        let error = normalize_responses_response(response.into(), false, false, false)
+            .await
+            .unwrap_err();
+        let OpenAIError::ApiError(error) = error else {
+            panic!("structured API error expected");
+        };
+        assert_eq!(error.status_code.as_u16(), 403);
+        assert_eq!(error.api_error.code.as_deref(), Some("unsupported_model"));
+        assert_eq!(error.api_error.message, "rejected");
+    }
 
     fn completed(output: serde_json::Value) -> async_openai::types::responses::Response {
         serde_json::from_value(json!({

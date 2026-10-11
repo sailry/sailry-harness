@@ -33,3 +33,10 @@ SSE bodies, including Codex responses without a Content-Type header. Normalizati
 preserves incremental delivery with LF, CRLF and CR line endings across split
 HTTP chunks. Explicit nonstreaming requests retain JSON response normalization.
 Remove this patch when the pinned upstream transport preserves these contracts.
+
+Responses transport normalizes every non-success HTTP response into the native
+structured API error before async-openai parses its body. Standard error envelopes
+retain their codes; nonstandard, malformed and interrupted bodies retain the HTTP
+status without exposing their contents. This preserves authentication, quota and
+server-error classification for compatible providers. Remove this patch when the
+pinned upstream adapter preserves statuses independently of provider error bodies.
