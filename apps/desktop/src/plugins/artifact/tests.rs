@@ -600,6 +600,51 @@ fn mounts_package_and_reads_captured_versions(cx: &mut TestAppContext) {
         }) else {
             panic!("conversation expected");
         };
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            visual.update(|window, cx| window.clear_notifications(cx));
+            retained.answer(visual);
+            crate::feedback::tests::shown(visual);
+            visual.update(|window, cx| {
+                assert_eq!(
+                    crate::feedback::tests::summary(window, cx),
+                    crate::tr("chat_action_failed")
+                );
+            });
+            let Output::Conversation(rejected) = fixture.execute(Command::ReadConversation {
+                session: fork_id,
+                before: None,
+                limit: 100,
+            }) else {
+                panic!("conversation expected");
+            };
+            assert_eq!(rejected.page.runs, before.page.runs);
+        }
+        let directory = fixture
+            .node
+            .profile()
+            .join("artifacts")
+            .join(first.session.to_string());
+        assert!(directory.is_dir());
+        let Output::Session(original) = fixture.execute(Command::ReadSession {
+            session: first.session,
+        }) else {
+            panic!("session expected");
+        };
+        fixture.execute(Command::RemoveSession {
+            session: original.id,
+            expected_revision: original.revision,
+        });
+        assert!(directory.is_dir());
+        let retained_content = fixture
+            .runtime
+            .block_on(
+                host.read_artifact(first.id, Some(1), first.session)
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(retained_content.html, content.html);
+        assert_eq!(retained_content.view, content.view);
         visual.update(|window, cx| window.clear_notifications(cx));
         fixture.execute(Command::RemovePlugin {
             name: package.summary.name.clone(),
@@ -667,6 +712,28 @@ fn mounts_package_and_reads_captured_versions(cx: &mut TestAppContext) {
         });
         visual.update(|window, _| window.remove_window());
         drop(panel);
+        let Output::Session(fork) = fixture.execute(Command::ReadSession { session: fork_id })
+        else {
+            panic!("session expected");
+        };
+        fixture.execute(Command::RemoveSession {
+            session: fork.id,
+            expected_revision: fork.revision,
+        });
+        assert!(!directory.exists());
+        assert_eq!(
+            fixture
+                .runtime
+                .block_on(
+                    fixture
+                        .binding
+                        .client
+                        .read_artifact_in(fork_id, first.id, Some(1))
+                )
+                .unwrap_err()
+                .code,
+            sailry_protocol::ErrorCode::NotFound
+        );
         fixture.close();
     }
 }

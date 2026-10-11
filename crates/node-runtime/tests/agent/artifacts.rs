@@ -10,6 +10,8 @@ mod backup_server;
 
 #[path = "artifact/declarations.rs"]
 mod declarations;
+#[path = "artifact/lifecycle.rs"]
+mod lifecycle;
 
 const PACKAGE: &str = "document-fixture";
 
