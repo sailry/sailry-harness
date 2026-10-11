@@ -2620,3 +2620,4 @@ approval_code_start: "%{worktree}에서 %{server} 시작"
 
 tool_directory_missing: "디렉터리를 찾을 수 없습니다"
 tool_file_missing: "파일을 찾을 수 없습니다"
+queue_draft_present: "입력창에 초안이 있습니다"

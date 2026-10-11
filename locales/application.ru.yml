@@ -2620,3 +2620,4 @@ approval_code_start: "Запустить %{server} в %{worktree}"
 
 tool_directory_missing: "Каталог не найден"
 tool_file_missing: "Файл не найден"
+queue_draft_present: "В поле ввода есть черновик"

@@ -2322,3 +2322,4 @@ approval_code_start: "Start %{server} in %{worktree}"
 
 tool_directory_missing: "Directory not found"
 tool_file_missing: "File not found"
+queue_draft_present: "Composer has a draft"

@@ -21,6 +21,7 @@ pub(super) struct Panel {
     connected: bool,
     guidance_blocked: bool,
     guidance_pending: Rc<Cell<bool>>,
+    edit_pending: Rc<Cell<bool>>,
     editing: Option<Editing>,
     pending: bool,
     retry: Option<actions::Attempt>,
@@ -41,6 +42,7 @@ struct Editing {
 impl Drop for Panel {
     fn drop(&mut self) {
         self.guidance_pending.set(false);
+        self.edit_pending.set(false);
     }
 }
 
@@ -58,6 +60,23 @@ impl Panel {
         }
     }
 
+    fn sync_editing(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let pending = self.retry.as_ref().is_some_and(|attempt| attempt.extract);
+        let was_pending = self.edit_pending.replace(pending);
+        if !pending && !was_pending {
+            return;
+        }
+        _ = self.owner.update(cx, |view, cx| {
+            view.input.update(cx, |input, cx| {
+                input.set_readonly(pending || view.readonly(), cx)
+            });
+            if !pending {
+                view.input.update(cx, |input, cx| input.focus(window, cx));
+            }
+            cx.notify();
+        });
+    }
+
     pub(super) fn update_pending(&self) -> bool {
         self.pending || self.retry.is_some()
     }
@@ -69,6 +88,7 @@ impl Panel {
         binding: Binding,
         images: Entity<attachments::images::Images>,
         guidance_pending: Rc<Cell<bool>>,
+        edit_pending: Rc<Cell<bool>>,
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -120,6 +140,7 @@ impl Panel {
             connected: false,
             guidance_blocked: false,
             guidance_pending,
+            edit_pending,
             editing: None,
             pending: false,
             retry: None,

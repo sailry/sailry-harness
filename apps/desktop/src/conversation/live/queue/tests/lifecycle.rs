@@ -88,6 +88,88 @@ fn dismisses_removed_row_tooltips(cx: &mut TestAppContext) {
     }
 }
 
+struct Gate {
+    inner: Arc<dyn Transport>,
+    remove: bool,
+    entered: CancellationToken,
+    release: CancellationToken,
+}
+
+impl Transport for Gate {
+    fn target(&self) -> NodeId {
+        self.inner.target()
+    }
+
+    fn dispatch(&self, request: Request) -> Future<'_, Result<Admission, Fault>> {
+        Box::pin(async move {
+            let hold = if self.remove {
+                matches!(request.command, Command::RemoveQueuedTurn { .. })
+            } else {
+                matches!(request.command, Command::SubmitTurn { .. })
+            };
+            if hold {
+                self.entered.cancel();
+                self.release.cancelled().await;
+            }
+            self.inner.dispatch(request).await
+        })
+    }
+
+    fn subscribe(&self, topic: Topic) -> Future<'_, Result<Box<dyn Subscription>, Fault>> {
+        self.inner.subscribe(topic)
+    }
+}
+
+#[gpui::test]
+fn preserves_concurrent_edits(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let turn = fixture.enqueue("Original queued input");
+        let gate = Arc::new(Gate {
+            inner: fixture.transport.clone(),
+            remove: true,
+            entered: CancellationToken::new(),
+            release: CancellationToken::new(),
+        });
+        let mut binding = fixture.binding.clone();
+        binding.client = Arc::new(Client::new(gate.clone()));
+        let (view, visual) =
+            super::super::super::tests::fixture::open(cx, binding, fixture.session.clone());
+        let panel = view.read_with(visual, |view, _| view.queue.clone());
+        wait(visual, |cx| {
+            panel.read(cx).connected
+                && panel.read(cx).queue.items.len() == 1
+                && view.read(cx).configured()
+        });
+        click(visual, selector("edit", turn));
+        wait(visual, |_| gate.entered.is_cancelled());
+        let revision = panel.read_with(visual, |panel, _| panel.queue.items[0].revision);
+        fixture.execute(Command::EditQueuedTurn {
+            turn,
+            expected_revision: revision,
+            message: "Changed by another controller".into(),
+        });
+        gate.release.cancel();
+        wait(visual, |cx| {
+            !panel.read(cx).pending
+                && panel.read(cx).retry.is_none()
+                && panel.read(cx).queue.items[0].preview == "Changed by another controller"
+        });
+        assert_eq!(
+            panel.read_with(visual, |panel, _| panel.error),
+            Some("queue_changed")
+        );
+        assert!(
+            view.read_with(visual, |view, cx| view.input.read(cx).value().is_empty()
+                && !view.queue_edit_pending.get())
+        );
+        visual.update(|window, _| window.remove_window());
+        drop(view);
+        fixture.close();
+    }
+}
+
 struct Lost {
     inner: Arc<dyn Transport>,
     ids: Mutex<Vec<RequestId>>,
@@ -101,7 +183,7 @@ impl Transport for Lost {
 
     fn dispatch(&self, request: Request) -> Future<'_, Result<Admission, Fault>> {
         Box::pin(async move {
-            let lose = if matches!(request.command, Command::EditQueuedTurn { .. }) {
+            let lose = if matches!(request.command, Command::RemoveQueuedTurn { .. }) {
                 let mut ids = self.ids.lock().unwrap();
                 ids.push(request.id);
                 ids.len() == 1
@@ -127,11 +209,11 @@ impl Transport for Lost {
 }
 
 #[gpui::test]
-fn retry_preserves_typing(cx: &mut TestAppContext) {
+fn retry_restores_once(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
-        let turn = fixture.enqueue("original");
+        let turn = fixture.enqueue("Original queued input");
         let transport = Arc::new(Lost {
             inner: fixture.transport.clone(),
             ids: Mutex::new(Vec::new()),
@@ -139,75 +221,36 @@ fn retry_preserves_typing(cx: &mut TestAppContext) {
         });
         let mut binding = fixture.binding.clone();
         binding.client = Arc::new(Client::new(transport.clone()));
-        let mut entity = None;
-        let (_, visual) = cx.add_window_view(|window, cx| {
-            let view = cx.new(|cx| View::new(binding, Some(fixture.session.clone()), window, cx));
-            entity = Some(view.clone());
-            Root::new(
-                cx.new(|_| crate::conversation::live::tests::fixture::Harness(view)),
-                window,
-                cx,
-            )
-        });
-        let view = entity.unwrap();
+        let (view, visual) =
+            super::super::super::tests::fixture::open(cx, binding, fixture.session.clone());
         let panel = view.read_with(visual, |view, _| view.queue.clone());
         wait(visual, |cx| {
             panel.read(cx).connected
                 && panel.read(cx).queue.items.len() == 1
                 && view.read(cx).configured()
-                && view.read(cx).contributions.read(cx).ready(cx)
         });
         click(visual, selector("edit", turn));
-        wait(visual, |cx| panel.read(cx).editing.is_some());
-        visual.update(|window, cx| {
-            let panel = panel.read(cx);
-            assert!(
-                panel
-                    .editing
-                    .as_ref()
-                    .unwrap()
-                    .input
-                    .read(cx)
-                    .focus_handle(cx)
-                    .is_focused(window)
-            );
-        });
-        visual.simulate_keystrokes("secondary-a");
-        visual.simulate_input("first edit");
-        panel.read_with(visual, |panel, cx| {
-            assert_eq!(
-                panel.editing.as_ref().unwrap().input.read(cx).value(),
-                "first edit"
-            );
-        });
-        visual.simulate_keystrokes("enter");
+        wait(visual, |cx| panel.read(cx).queue.items.is_empty());
         assert!(panel.read_with(visual, |panel, _| panel.pending));
-        wait(visual, |cx| panel.read(cx).queue.items[0].revision == 2);
-        assert!(panel.read_with(visual, |panel, _| panel.pending));
-        visual.simulate_keystrokes("secondary-a");
-        visual.simulate_input("new typing while saving");
-        visual.simulate_keystrokes("escape");
+        visual.simulate_input("Must not overwrite captured input");
+        assert!(view.read_with(visual, |view, cx| view.input.read(cx).value().is_empty()));
         transport.release.add_permits(1);
         wait(visual, |cx| panel.read(cx).error.is_some());
         click(visual, "queue-retry");
         wait(visual, |cx| {
             !panel.read(cx).pending && panel.read(cx).retry.is_none()
         });
-        panel.read_with(visual, |panel, cx| {
-            let editing = panel.editing.as_ref().unwrap();
-            assert_eq!(editing.input.read(cx).value(), "new typing while saving");
-            assert_eq!(editing.revision, 2);
-        });
-        click(visual, "queue-edit-save");
-        wait(visual, |cx| {
-            panel.read(cx).editing.is_none() && panel.read(cx).queue.items[0].revision == 3
-        });
-        let ids = transport.ids.lock().unwrap();
-        assert_eq!(ids.len(), 3);
-        assert_eq!(ids[0], ids[1]);
-        assert_ne!(ids[1], ids[2]);
-        assert!(fixture.server.requests.lock().unwrap().is_empty());
+        assert_eq!(
+            view.read_with(visual, |view, cx| view.input.read(cx).value()),
+            "Original queued input"
+        );
+        assert_eq!(transport.ids.lock().unwrap().len(), 2);
+        {
+            let ids = transport.ids.lock().unwrap();
+            assert_eq!(ids[0], ids[1]);
+        }
         visual.update(|window, _| window.remove_window());
+        drop(view);
         fixture.close();
     }
 }
@@ -249,9 +292,17 @@ fn sends_during_execution(cx: &mut TestAppContext) {
         };
         // Running admission precedes ADK's canonical user event and model request.
         fixture.runtime.block_on(slow.wait_count(1));
+        let gate = Arc::new(Gate {
+            inner: fixture.transport.clone(),
+            remove: false,
+            entered: CancellationToken::new(),
+            release: CancellationToken::new(),
+        });
+        let mut binding = fixture.binding.clone();
+        binding.client = Arc::new(Client::new(gate.clone()));
         let mut entity = None;
         let (_, visual) = cx.add_window_view(|window, cx| {
-            let view = cx.new(|cx| View::new(fixture.binding.clone(), Some(session), window, cx));
+            let view = cx.new(|cx| View::new(binding, Some(session), window, cx));
             entity = Some(view.clone());
             Root::new(
                 cx.new(|_| crate::conversation::live::tests::fixture::Harness(view)),
@@ -279,6 +330,15 @@ fn sends_during_execution(cx: &mut TestAppContext) {
             click(visual, "live-chat-input");
             visual.simulate_input(text);
             visual.simulate_keystrokes("enter");
+            if index == 0 {
+                // The pending row appears in this frame, before Node admission.
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+                assert!(visual.debug_bounds("queue-outgoing").is_some());
+                assert!(panel.read_with(visual, |panel, _| panel.queue.items.is_empty()));
+                wait(visual, |_| gate.entered.is_cancelled());
+                assert!(view.read_with(visual, |view, _| view.pending));
+                gate.release.cancel();
+            }
             wait(visual, |cx| {
                 panel.read(cx).queue.items.len() == index + 1 && !view.read(cx).pending
             });

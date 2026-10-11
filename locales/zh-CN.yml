@@ -2618,3 +2618,4 @@ approval_code_start: "在 %{worktree} 启动 %{server}"
 
 tool_directory_missing: "目录不存在"
 tool_file_missing: "文件不存在"
+queue_draft_present: "输入框已有草稿"

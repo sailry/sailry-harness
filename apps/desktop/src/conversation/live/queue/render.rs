@@ -54,7 +54,7 @@ impl Panel {
             .accessibility_label(tr(label_key))
             .on_click(cx.listener(move |panel, _, window, cx| {
                 cx.stop_propagation();
-                panel.execute(Command::ReadQueuedTurn { turn }, window, cx);
+                panel.edit(turn, revision, window, cx);
             }));
         let send = Button::new(format!("live-queue-send-{turn}"))
             .rounded_full()

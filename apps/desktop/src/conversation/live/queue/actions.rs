@@ -4,9 +4,59 @@ use super::*;
 pub(super) struct Attempt {
     pub(super) request: Request,
     message: Option<sailry_protocol::conversation::Input>,
+    pub(super) extract: bool,
+    attachments: Vec<sailry_protocol::attachment::Attachment>,
 }
 
 impl Panel {
+    pub(super) fn edit(
+        &mut self,
+        turn: TurnId,
+        revision: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.child {
+            self.execute(Command::ReadQueuedTurn { turn }, window, cx);
+            return;
+        }
+        if self.blocked() {
+            return;
+        }
+        let available = self.owner.update(cx, |view, cx| {
+            !view.busy()
+                && view.outgoing.is_none()
+                && !view.has_attachments()
+                && view.input.read(cx).value().is_empty()
+                && view.active_references(cx).is_empty()
+        });
+        if !matches!(available, Ok(true)) {
+            self.error = Some("queue_draft_present");
+            cx.notify();
+            return;
+        }
+        let Some(item) =
+            self.queue.items.iter().find(|item| {
+                item.turn == turn && item.revision == revision && item.guidance.is_none()
+            })
+        else {
+            self.error = Some("queue_changed");
+            cx.notify();
+            return;
+        };
+        self.retry = Some(Attempt {
+            request: self.binding.client.prepare(Command::RemoveQueuedTurn {
+                turn,
+                expected_revision: revision,
+            }),
+            message: None,
+            extract: true,
+            attachments: item.attachments.clone(),
+        });
+        self.sync_editing(window, cx);
+        self.retry(window, cx);
+    }
+
     pub(super) fn execute(
         &mut self,
         command: Command,
@@ -19,6 +69,8 @@ impl Panel {
         let attempt = Attempt {
             request: self.binding.client.prepare(command),
             message: None,
+            extract: false,
+            attachments: Vec::new(),
         };
         if let Command::GuideQueuedTurn {
             turn, recipient, ..
@@ -66,17 +118,22 @@ impl Panel {
         let read_client = client.clone();
         let read_request = request.clone();
         let captured = attempt.message.clone();
+        let extract = attempt.extract;
         let read = runtime.spawn(async move {
             if captured.is_some() {
                 return Ok(captured);
             }
-            let Command::GuideQueuedTurn {
-                turn,
-                expected_revision,
-                ..
-            } = read_request.command
-            else {
-                return Ok(None);
+            let (turn, expected_revision) = match read_request.command {
+                Command::GuideQueuedTurn {
+                    turn,
+                    expected_revision,
+                    ..
+                } => (turn, expected_revision),
+                Command::RemoveQueuedTurn {
+                    turn,
+                    expected_revision,
+                } if extract => (turn, expected_revision),
+                _ => return Ok(None),
             };
             match read_client
                 .execute(read_client.prepare(Command::ReadQueuedTurn { turn }))
@@ -89,7 +146,7 @@ impl Panel {
                 }
                 Output::QueuedMessage(_) => Err(sailry_protocol::Fault::new(
                     ErrorCode::RevisionConflict,
-                    "queued message changed before guidance",
+                    "queued message changed before the operation",
                 )),
                 _ => Err(sailry_protocol::Fault::invalid("queued message expected")),
             }
@@ -99,7 +156,8 @@ impl Panel {
             let result = match prepared {
                 Ok(Ok(message)) => {
                     if let Some(message) = message {
-                        let _ = panel.update_in(cx, |panel, _, cx| {
+                        let valid = panel.update_in(cx, |panel, _, cx| {
+                            if extract && super::super::references::inline::content(&message.text, &message.references).is_err() { return false; }
                             if let Some(attempt) = &mut panel.retry { attempt.message = Some(message.clone()); }
                             let _ = panel.owner.update(cx, |view, cx| {
                                 if let Some(outgoing) = &mut view.outgoing
@@ -110,7 +168,18 @@ impl Panel {
                                 view.sync_rows(cx);
                                 cx.notify();
                             });
+                            true
                         });
+                        if !matches!(valid, Ok(true)) {
+                            let _ = panel.update_in(cx, |panel, window, cx| {
+                                panel.pending = false;
+                                panel.retry = None;
+                                panel.error = Some("reference_stale");
+                                panel.sync_editing(window, cx);
+                                cx.notify();
+                            });
+                            return;
+                        }
                     }
                     runtime.spawn(async move {client.execute(request).await}).await
                 }
@@ -160,7 +229,18 @@ impl Panel {
                         });
                     }
                     Ok(Ok(Output::Queue(update))) => {
+                        let extracted = panel.retry.as_ref().filter(|attempt| attempt.extract).and_then(|attempt| attempt.message.clone());
                         panel.retry = None;
+                        if let Some(message) = extracted {
+                            let content = super::super::references::inline::content(&message.text, &message.references).expect("captured references were validated before removal");
+                            let attachments = attempt.attachments.clone();
+                            _ = panel.owner.update(cx, |view, cx| {
+                                view.references.selected = message.references;
+                                view.input.update(cx, |input, cx| input.set_value(content, window, cx));
+                                view.restore_attachments(attachments, cx);
+                                cx.notify();
+                            });
+                        }
                         if let Command::GuideQueuedTurn {recipient,..} = attempt.request.command
                             && let Some(item) = update.queue.items.iter().find(|item| item.guidance == Some(recipient))
                         {
@@ -227,6 +307,7 @@ impl Panel {
                     _ => panel.error = Some("chat_action_unknown"),
                 }
                 panel.sync_guidance(cx);
+                panel.sync_editing(window, cx);
                 cx.notify();
             });
         }));

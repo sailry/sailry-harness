@@ -126,7 +126,10 @@ fn draft_source(item: &Item) -> ImageSource {
         Status::Ready(attachment) => ImageSource::from(attachment),
         _ => ImageSource::Local {
             key: item.key,
-            source: item.source.clone(),
+            source: item
+                .source
+                .clone()
+                .expect("unpublished attachment has local bytes"),
         },
     }
 }

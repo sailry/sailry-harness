@@ -2620,3 +2620,4 @@ approval_code_start: "Démarrer %{server} dans %{worktree}"
 
 tool_directory_missing: "Dossier introuvable"
 tool_file_missing: "Fichier introuvable"
+queue_draft_present: "Le champ contient un brouillon"

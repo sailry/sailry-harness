@@ -2620,3 +2620,4 @@ approval_code_start: "%{worktree} で %{server} を起動"
 
 tool_directory_missing: "ディレクトリが見つかりません"
 tool_file_missing: "ファイルが見つかりません"
+queue_draft_present: "入力欄に下書きがあります"

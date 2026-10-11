@@ -2620,3 +2620,4 @@ approval_code_start: "Iniciar %{server} em %{worktree}"
 
 tool_directory_missing: "Diretório não encontrado"
 tool_file_missing: "Arquivo não encontrado"
+queue_draft_present: "O campo contém um rascunho"

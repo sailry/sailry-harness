@@ -25,6 +25,7 @@ fn snapshot(node: NodeId, session: Option<SessionId>) -> Snapshot {
                 target: Target::File("资料.md".into()),
             }],
             commands: Default::default(),
+            attachments: vec![],
             configuration: None,
             configuration_owner: node,
             mode: Some(sailry_protocol::WorkMode::Plan),
@@ -53,6 +54,22 @@ fn preserves_scoped_references_and_attachment_bytes() {
             label: "@资料".into(),
         });
     local.draft.selection = range;
+    local
+        .draft
+        .attachments
+        .push(crate::conversation::live::recovery::Attachment {
+            index: 0,
+            value: sailry_protocol::attachment::Attachment {
+                id: sailry_protocol::AttachmentId::new(),
+                spec: sailry_protocol::attachment::Spec {
+                    worktree: local.draft.identity.worktree.unwrap(),
+                    name: "captured.txt".into(),
+                    media_type: "text/plain".into(),
+                    size: 14,
+                    revision: blake3::hash(b"captured bytes").to_hex().to_string(),
+                },
+            },
+        });
     local.sources = vec![
         Local::Path(file.clone()),
         Local::Image {
@@ -75,6 +92,10 @@ fn preserves_scoped_references_and_attachment_bytes() {
     assert_eq!(loaded[1].snapshot.draft.identity, remote.draft.identity);
     assert_eq!(loaded[0].snapshot.draft.text, local.draft.text);
     assert_eq!(loaded[0].snapshot.draft.references, local.draft.references);
+    assert_eq!(
+        loaded[0].snapshot.draft.attachments,
+        local.draft.attachments
+    );
     assert_eq!(loaded[0].snapshot.draft.tokens, local.draft.tokens);
     assert_eq!(loaded[0].snapshot.draft.selection, local.draft.selection);
     match &loaded[0].snapshot.sources[0] {

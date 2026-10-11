@@ -52,7 +52,7 @@ impl Default for Drafts {
 
 struct Item {
     key: usize,
-    source: Source,
+    source: Option<Source>,
     name: String,
     status: Status,
     pending: bool,
@@ -150,7 +150,7 @@ impl View {
             self.attachments.next += 1;
             self.attachments.items.push(Item {
                 key,
-                source,
+                source: Some(source),
                 name,
                 status: Status::Staged,
                 pending: false,
@@ -160,6 +160,27 @@ impl View {
         }
         cx.notify();
     }
+    pub(super) fn restore_attachments(
+        &mut self,
+        attachments: Vec<Attachment>,
+        cx: &mut Context<Self>,
+    ) {
+        for attachment in attachments {
+            let key = self.attachments.next;
+            self.attachments.next += 1;
+            self.attachments.items.push(Item {
+                key,
+                source: None,
+                name: attachment.spec.name.clone(),
+                status: Status::Ready(attachment),
+                pending: false,
+                removing: false,
+                cancel: self.stop.child_token(),
+            });
+        }
+        cx.notify();
+    }
+
     pub(super) fn attachments_blocked(&self) -> bool {
         self.readonly() || self.busy() || (self.session.is_some() && !self.connected())
     }
@@ -172,7 +193,24 @@ impl View {
         self.attachments
             .items
             .iter()
-            .map(|item| item.source.clone())
+            .filter_map(|item| item.source.clone())
+            .collect()
+    }
+
+    pub(super) fn captured_attachments(&self) -> Vec<super::recovery::Attachment> {
+        self.attachments
+            .items
+            .iter()
+            .enumerate()
+            .filter_map(|(index, item)| match &item.status {
+                Status::Ready(attachment) if item.source.is_none() => {
+                    Some(super::recovery::Attachment {
+                        index,
+                        value: attachment.clone(),
+                    })
+                }
+                _ => None,
+            })
             .collect()
     }
 
@@ -182,7 +220,9 @@ impl View {
 
     pub(super) fn release_draft_attachments(&mut self) -> usize {
         for item in &self.attachments.items {
-            if let Status::Ready(attachment) = &item.status {
+            if item.source.is_some()
+                && let Status::Ready(attachment) = &item.status
+            {
                 let client = self.binding.client.clone();
                 let pending = transfer::discard(&client, attachment);
                 self.binding.runtime.spawn(async move {
@@ -203,7 +243,10 @@ impl View {
                 Status::Ready(attachment) => images::ImageSource::from(attachment),
                 _ => images::ImageSource::Local {
                     key: item.key,
-                    source: item.source.clone(),
+                    source: item
+                        .source
+                        .clone()
+                        .expect("unpublished attachment has local bytes"),
                 },
             })
             .collect()
@@ -333,7 +376,7 @@ impl View {
             self.attachments.next += 1;
             self.attachments.items.push(Item {
                 key,
-                source,
+                source: Some(source),
                 name,
                 status: if self.session.is_none() {
                     Status::Staged
@@ -392,7 +435,12 @@ impl View {
                 Status::Uncertain(pending) | Status::Rejected(pending) => {
                     transfer::check(client, *pending).await
                 }
-                _ => transfer::run(client, worktree, source, cancel, updates, slots).await,
+                _ => match source {
+                    Some(source) => {
+                        transfer::run(client, worktree, source, cancel, updates, slots).await
+                    }
+                    None => Status::Failed("chat_attachment_rejected"),
+                },
             }
         });
         cx.spawn_in(window, async move |view, cx| {
@@ -479,6 +527,9 @@ impl View {
             Status::Preparing | Status::Sending { .. } => {
                 item.removing = true;
                 item.cancel.cancel();
+            }
+            Status::Ready(_) if item.source.is_none() => {
+                self.attachments.items.retain(|item| item.key != key);
             }
             Status::Ready(_) => {
                 self.discard_attachment(key, window, cx);

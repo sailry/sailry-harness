@@ -158,6 +158,7 @@ pub(crate) struct View {
     dictation: dictation::State,
     pending: bool,
     guidance_pending: Rc<Cell<bool>>,
+    queue_edit_pending: Rc<Cell<bool>>,
     retry: Option<actions::Attempt>,
     error: Option<&'static str>,
     backup: Option<Session>,
@@ -285,12 +286,14 @@ impl View {
         cx.observe(&commands, |_, _, cx| cx.notify()).detach();
         let queue_owner = cx.weak_entity();
         let guidance_pending = Rc::new(Cell::new(false));
+        let queue_edit_pending = Rc::new(Cell::new(false));
         let queue = cx.new(|cx| {
             queue::Panel::new(
                 queue_owner,
                 binding.clone(),
                 images.clone(),
                 guidance_pending.clone(),
+                queue_edit_pending.clone(),
                 window,
                 cx,
             )
@@ -403,6 +406,7 @@ impl View {
             dictation: dictation::State::default(),
             pending: false,
             guidance_pending,
+            queue_edit_pending,
             retry: None,
             error: None,
             backup: None,

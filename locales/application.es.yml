@@ -2620,3 +2620,4 @@ approval_code_start: "Iniciar %{server} en %{worktree}"
 
 tool_directory_missing: "Directorio no encontrado"
 tool_file_missing: "Archivo no encontrado"
+queue_draft_present: "El editor contiene un borrador"

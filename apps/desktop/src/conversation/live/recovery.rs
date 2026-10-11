@@ -24,6 +24,13 @@ pub(crate) struct Identity {
     pub assistant: Option<sailry_protocol::plugin::conversation::Binding>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Attachment {
+    pub index: usize,
+    pub value: sailry_protocol::attachment::Attachment,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Draft {
@@ -32,6 +39,8 @@ pub(crate) struct Draft {
     pub tokens: Vec<Token>,
     pub selection: std::ops::Range<usize>,
     pub references: Vec<sailry_protocol::conversation::reference::Reference>,
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
     pub commands: BTreeMap<String, crate::plugins::contributions::Key>,
     pub configuration: Option<SessionConfig>,
     pub configuration_owner: NodeId,
@@ -89,6 +98,7 @@ impl View {
                     .collect(),
                 selection: input.selected_range(),
                 references: self.references.selected.clone(),
+                attachments: self.captured_attachments(),
                 commands: self.references.command_keys.clone(),
                 configuration: self
                     .session
@@ -109,12 +119,24 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        let count = snapshot.draft.attachments.len() + snapshot.sources.len();
         if self.recovery_identity() != snapshot.draft.identity
             || !self.connected()
             || self.busy()
             || !self.input.read(cx).value().is_empty()
             || !self.references.selected.is_empty()
             || self.has_attachments()
+            || count > 8
+            || snapshot
+                .draft
+                .attachments
+                .iter()
+                .enumerate()
+                .any(|(index, attachment)| {
+                    attachment.index >= count
+                        || index > 0
+                            && snapshot.draft.attachments[index - 1].index >= attachment.index
+                })
         {
             return false;
         }
@@ -146,7 +168,18 @@ impl View {
         // Existing sessions keep the authoritative configuration received from Node.
         self.references.selected = snapshot.draft.references;
         self.references.command_keys = snapshot.draft.commands;
-        self.restore_attachment_sources(snapshot.sources, cx);
+        let mut sources = snapshot.sources.into_iter();
+        let mut attachments = snapshot.draft.attachments.into_iter().peekable();
+        for index in 0..count {
+            if attachments
+                .peek()
+                .is_some_and(|attachment| attachment.index == index)
+            {
+                self.restore_attachments(vec![attachments.next().unwrap().value], cx);
+            } else {
+                self.restore_attachment_sources(vec![sources.next().unwrap()], cx);
+            }
+        }
         self.restored_input = Some(content.clone());
         self.input.update(cx, |input, cx| {
             input.set_value(content, window, cx);

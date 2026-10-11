@@ -18,6 +18,22 @@ fn restores_local_and_remote_composers_without_execution(cx: &mut TestAppContext
         saved.draft.identity.project = fixture.binding.project;
         saved.draft.identity.worktree = fixture.binding.worktree;
         saved.draft.text = "/plan restored draft @资料".into();
+        saved
+            .draft
+            .attachments
+            .push(crate::conversation::live::recovery::Attachment {
+                index: 0,
+                value: sailry_protocol::attachment::Attachment {
+                    id: sailry_protocol::AttachmentId::new(),
+                    spec: sailry_protocol::attachment::Spec {
+                        worktree: fixture.session.worktree,
+                        name: "captured.txt".into(),
+                        media_type: "text/plain".into(),
+                        size: 14,
+                        revision: blake3::hash(b"captured bytes").to_hex().to_string(),
+                    },
+                },
+            });
         saved.sources.push(Local::Image {
             name: "paste.png".into(),
             format: ImageFormat::Png,
@@ -66,6 +82,7 @@ fn restores_local_and_remote_composers_without_execution(cx: &mut TestAppContext
             let recovered = view.read(cx).snapshot_draft(cx).unwrap().unwrap();
             assert_eq!(recovered.draft.text, saved.draft.text);
             assert_eq!(recovered.draft.references, saved.draft.references);
+            assert_eq!(recovered.draft.attachments, saved.draft.attachments);
             assert_eq!(recovered.sources.len(), 1);
             // Cached draft preferences cannot configure an existing Node session.
             let sailry_protocol::Output::Snapshot(node) =

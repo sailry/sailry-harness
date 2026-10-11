@@ -2620,3 +2620,4 @@ approval_code_start: "在 %{worktree} 啟動 %{server}"
 
 tool_directory_missing: "目錄不存在"
 tool_file_missing: "檔案不存在"
+queue_draft_present: "輸入框已有草稿"

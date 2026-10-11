@@ -50,7 +50,7 @@ impl Transport for HeldAction {
 }
 
 /// Starts a task against `server`; tool-capable models can wait for a user answer.
-fn running(
+pub(super) fn running(
     fixture: &mut Fixture,
     server: support::Server,
     tools: bool,

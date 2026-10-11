@@ -2620,3 +2620,4 @@ approval_code_start: "%{server} in %{worktree} starten"
 
 tool_directory_missing: "Verzeichnis nicht gefunden"
 tool_file_missing: "Datei nicht gefunden"
+queue_draft_present: "Eingabefeld enthält einen Entwurf"

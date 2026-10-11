@@ -3,7 +3,6 @@ use super::*;
 use core::prelude::v1::test;
 use sailry_link::{Link, NetworkScope, Transport};
 use sailry_node_runtime::Node;
-use sailry_protocol::conversation::Part;
 
 mod guidance;
 mod lifecycle;
@@ -189,20 +188,26 @@ fn click(cx: &mut VisualTestContext, selector: &'static str) {
 }
 
 #[gpui::test]
-fn saves_without_text(cx: &mut TestAppContext) {
+fn restores_attachments_and_references(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
-        let fixture = Fixture::new(remote);
+        let mut fixture = Fixture::new(remote);
+        let server = fixture.runtime.block_on(support::Server::tools(vec![(
+            "ask_user".into(),
+            serde_json::json!({"prompt":"Describe the task","input":{"kind":"text","multiline":false,"max_bytes":256}}),
+        )]));
+        guidance::running(&mut fixture, server, true);
         let attachment = fixture.attachment();
         let references = vec![sailry_protocol::conversation::reference::Reference {
             target: sailry_protocol::conversation::reference::Target::Worktree,
             label: "Current worktree".into(),
         }];
-        let turn = fixture.enqueue(sailry_protocol::conversation::Input {
+        let message = sailry_protocol::conversation::Input {
             references: references.clone(),
-            text: "remove this text @Current worktree".into(),
+            text: "Original @Current worktree".into(),
             attachments: vec![attachment.id],
-        });
+        };
+        let turn = fixture.enqueue(message.clone());
         let (view, visual) = super::super::tests::fixture::open(
             cx,
             fixture.binding.clone(),
@@ -216,45 +221,67 @@ fn saves_without_text(cx: &mut TestAppContext) {
                 && view.read(cx).contributions.read(cx).ready(cx)
         });
         click(visual, selector("edit", turn));
-        wait(visual, |cx| panel.read(cx).editing.is_some());
-        let original = panel.read_with(visual, |panel, cx| {
-            let editing = panel.editing.as_ref().unwrap();
-            assert_eq!(panel.session, Some(fixture.session.id));
-            assert_eq!(editing.turn, turn);
-            assert_eq!(editing.revision, panel.queue.items[0].revision);
-            assert_eq!(editing.references, references);
-            let content = editing.input.read(cx).content();
-            assert_eq!(content.tokens().len(), 1);
-            content
-        });
-        visual.simulate_keystrokes("secondary-a backspace secondary-z");
-        assert_eq!(
-            panel.read_with(visual, |panel, cx| panel
-                .editing
-                .as_ref()
-                .unwrap()
-                .input
-                .read(cx)
-                .content()),
-            original
-        );
-        visual.simulate_keystrokes("secondary-a backspace");
-        click(visual, "queue-edit-save");
         wait(visual, |cx| {
-            panel.read(cx).editing.is_none() && panel.read(cx).queue.items[0].revision == 2
+            panel.read(cx).queue.items.is_empty() && !panel.read(cx).pending
         });
-        let Output::QueuedMessage(message) = fixture.execute(Command::ReadQueuedTurn { turn })
+        view.read_with(visual, |view, cx| {
+            assert_eq!(view.input.read(cx).value(), message.text);
+            assert_eq!(view.input.read(cx).content().tokens().len(), 1);
+            assert_eq!(view.active_references(cx), references);
+            assert_eq!(view.attachments.ids(), [attachment.id]);
+        });
+        assert!(visual.debug_bounds("queue-input").is_none());
+        let snapshot = visual.update(|_, cx| {
+            let mut snapshot = view.read(cx).snapshot_draft(cx).unwrap().unwrap();
+            snapshot.draft =
+                serde_json::from_slice(&serde_json::to_vec(&snapshot.draft).unwrap()).unwrap();
+            assert_eq!(
+                snapshot.draft.attachments,
+                [super::super::recovery::Attachment {
+                    index: 0,
+                    value: attachment.clone(),
+                }]
+            );
+            assert!(snapshot.sources.is_empty());
+            snapshot
+        });
+        super::super::tests::remove_attachment(visual, 0);
+        let restored_key = visual.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                let key = view.release_draft_attachments();
+                view.references.selected.clear();
+                view.input
+                    .update(cx, |input, cx| input.set_value("", window, cx));
+                assert!(view.recover_draft(snapshot, window, cx));
+                assert_eq!(view.attachments.ids(), [attachment.id]);
+                assert_eq!(view.active_references(cx), references);
+                key
+            })
+        });
+        // Removing a restored attachment only edits the draft; historical bytes remain.
+        super::super::tests::remove_attachment(visual, restored_key);
+        assert!(view.read_with(visual, |view, _| !view.has_attachments()));
+        assert!(matches!(
+            fixture.execute(Command::DownloadAttachment {
+                worktree: fixture.session.worktree,
+                attachment: attachment.id
+            }),
+            Output::AttachmentDownload(_)
+        ));
+        visual.simulate_keystrokes("enter");
+        wait(visual, |cx| {
+            panel.read(cx).queue.items.len() == 1 && !view.read(cx).pending
+        });
+        let requeued = panel.read_with(visual, |panel, _| panel.queue.items[0].turn);
+        assert_ne!(requeued, turn);
+        let Output::QueuedMessage(requeued) =
+            fixture.execute(Command::ReadQueuedTurn { turn: requeued })
         else {
-            panic!("queued message expected");
+            panic!("queued input expected")
         };
-        assert!(message.message.text.is_empty());
-        assert_eq!(message.message.attachments, [attachment.id]);
-        assert!(message.message.references.is_empty());
-        assert_eq!(
-            panel.read_with(visual, |panel, _| render::label(&panel.queue.items[0])),
-            attachment.spec.name
-        );
-        assert!(fixture.server.requests.lock().unwrap().is_empty());
+        assert_eq!(requeued.message.text, message.text);
+        assert_eq!(requeued.message.references, references);
+        assert!(requeued.message.attachments.is_empty());
         visual.update(|window, _| window.remove_window());
         drop(view);
         fixture.close();
@@ -270,193 +297,63 @@ fn init(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn edits_reorders_and_sends(cx: &mut TestAppContext) {
+fn preserves_existing_draft(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
-        let original = "完整内容 🙂\n".repeat(100);
-        let attachment = fixture.attachment();
-        let first = fixture.enqueue(sailry_protocol::conversation::Input {
-            references: Vec::new(),
-            text: original.clone(),
-            attachments: vec![attachment.id],
-        });
-        let second = fixture.enqueue("second");
-        let third = fixture.enqueue("third");
-        let mut entity = None;
-        let (_, visual) = cx.add_window_view(|window, cx| {
-            let view = cx.new(|cx| {
-                View::new(
-                    fixture.binding.clone(),
-                    Some(fixture.session.clone()),
-                    window,
-                    cx,
-                )
-            });
-            entity = Some(view.clone());
-            Root::new(
-                cx.new(|_| crate::conversation::live::tests::fixture::Harness(view)),
-                window,
-                cx,
-            )
-        });
-        let view = entity.unwrap();
+        let turn = fixture.enqueue("Queued input");
+        let (view, visual) = super::super::tests::fixture::open(
+            cx,
+            fixture.binding.clone(),
+            fixture.session.clone(),
+        );
         let panel = view.read_with(visual, |view, _| view.queue.clone());
         wait(visual, |cx| {
-            panel.read(cx).connected
-                && panel.read(cx).queue.items.len() == 3
+            panel.read(cx).queue.items.len() == 1
+                && panel.read(cx).connected
                 && view.read(cx).configured()
-                && view.read(cx).contributions.read(cx).ready(cx)
         });
-        assert!(view.read_with(visual, |view, _| view.rows.is_empty()));
-        assert!(visual.debug_bounds("composer-activity").is_none());
-        let tray = visual.debug_bounds("queue-tray").unwrap();
-        let surface = visual.debug_bounds("composer-surface").unwrap();
-        // The tray rests inset on the composer's top edge without reaching under it.
-        assert!(tray.origin.y < surface.origin.y);
-        assert!((tray.bottom() - surface.origin.y).abs() < px(1.));
-        assert!(tray.origin.x > surface.origin.x);
-        assert!(tray.right() < surface.right());
-        let row = visual.debug_bounds(selector("row", first)).unwrap();
-        assert!(row.bottom() <= surface.origin.y);
-        assert_eq!(row.size.height, px(32.));
-
-        assert!(visual.debug_bounds("queue-pause").is_none());
-        let drag = visual.debug_bounds(selector("drag", first)).unwrap();
-        let edit = visual.debug_bounds(selector("edit", first)).unwrap();
-        assert!((drag.center().y - edit.center().y).abs() < px(1.));
-        click(visual, selector("edit", first));
-        wait(visual, |cx| panel.read(cx).editing.is_some());
-        assert!(visual.debug_bounds("queue-input").is_some());
-        assert!(visual.debug_bounds("queue-pause").is_none());
-        panel.read_with(visual, |panel, cx| {
-            assert_eq!(
-                panel
-                    .editing
-                    .as_ref()
-                    .unwrap()
-                    .input
-                    .read(cx)
-                    .value()
-                    .as_ref(),
-                original
-            )
-        });
-        visual.simulate_keystrokes("secondary-a");
-        visual.simulate_input("edited 中文");
-        visual.simulate_keystrokes("shift-enter");
-        visual.simulate_input("second line");
-        visual.simulate_keystrokes("escape");
-        panel.read_with(visual, |panel, cx| {
-            assert_eq!(
-                panel.editing.as_ref().unwrap().input.read(cx).value(),
-                "edited 中文\nsecond line"
-            )
-        });
-        click(visual, "queue-edit-save");
-        wait(visual, |cx| {
-            panel.read(cx).editing.is_none() && panel.read(cx).queue.items[0].revision == 2
-        });
-        let from = visual
-            .debug_bounds(selector("drag", first))
-            .unwrap()
-            .center();
-        let to = visual
-            .debug_bounds(selector("drag", third))
-            .unwrap()
-            .center();
-        visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
-        for position in [from + point(px(8.), px(8.)), to] {
-            visual.simulate_mouse_move(position, MouseButton::Left, Modifiers::default());
-            visual.run_until_parked();
-            visual.update(|window, cx| {
-                let _ = window.draw(cx);
-            });
-        }
-        visual.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
-        wait(visual, |cx| {
-            panel
-                .read(cx)
-                .queue
-                .items
-                .iter()
-                .map(|item| item.turn)
-                .collect::<Vec<_>>()
-                == [second, third, first]
-        });
-        click(visual, selector("delete", second));
-        wait(visual, |cx| {
-            panel.read(cx).queue.items.len() == 2 && !panel.read(cx).pending
-        });
-        assert!(visual.debug_bounds("queue-pause").is_none());
-        click(visual, selector("send", third));
-        wait(visual, |cx| {
-            view.read(cx)
-                .history
-                .snapshot
-                .as_ref()
-                .is_some_and(|snapshot| {
-                    snapshot
-                        .page
-                        .runs
-                        .iter()
-                        .filter(|run| run.status == Status::Completed)
-                        .count()
-                        == 2
-                })
-        });
-        assert_eq!(fixture.server.requests.lock().unwrap().len(), 2);
-        view.read_with(visual, |view, _| {
-            let page = &view.history.snapshot.as_ref().unwrap().page;
-            assert!(!page.queue.paused);
-            let messages: Vec<_> = page
-                .entries
-                .iter()
-                .filter(|entry| entry.author == "user")
-                .map(|entry| entry.parts.clone())
-                .collect();
-            assert_eq!(
-                messages,
-                [
-                    vec![Part::Text("third".into())],
-                    vec![
-                        Part::Text("edited 中文\nsecond line".into()),
-                        Part::Attachment(attachment.clone())
-                    ]
-                ]
-            );
-            assert!(!view.rows.contains(&second));
+        click(visual, "live-chat-input");
+        visual.simulate_input("Unsent draft");
+        click(visual, selector("edit", turn));
+        assert_eq!(
+            view.read_with(visual, |view, cx| view.input.read(cx).value()),
+            "Unsent draft"
+        );
+        panel.read_with(visual, |panel, _| {
+            assert!(!panel.pending);
+            assert!(panel.retry.is_none());
+            assert_eq!(panel.error, Some("queue_draft_present"));
+            assert_eq!(panel.queue.items[0].turn, turn);
         });
         visual.update(|window, _| window.remove_window());
+        drop(view);
         fixture.close();
     }
 }
 
 #[gpui::test]
-fn retains_conflicting_drafts(cx: &mut TestAppContext) {
+fn requeues_captured_input(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
-        let fixture = Fixture::new(remote);
-        let turn = fixture.enqueue("original");
-        let other = Client::new(fixture.node.local());
-        let mut entity = None;
-        let (_, visual) = cx.add_window_view(|window, cx| {
-            let view = cx.new(|cx| {
-                View::new(
-                    fixture.binding.clone(),
-                    Some(fixture.session.clone()),
-                    window,
-                    cx,
-                )
-            });
-            entity = Some(view.clone());
-            Root::new(
-                cx.new(|_| crate::conversation::live::tests::fixture::Harness(view)),
-                window,
-                cx,
-            )
-        });
-        let view = entity.unwrap();
+        let mut fixture = Fixture::new(remote);
+        let server = fixture.runtime.block_on(support::Server::tools(vec![(
+            "ask_user".into(),
+            serde_json::json!({"prompt":"Describe the task","input":{"kind":"text","multiline":false,"max_bytes":256}}),
+        )]));
+        guidance::running(&mut fixture, server, true);
+        let attachment = fixture.attachment();
+        let message = sailry_protocol::conversation::Input {
+            text: "Queued input".into(),
+            references: Vec::new(),
+            attachments: vec![attachment.id],
+        };
+        let turn = fixture.enqueue(message.clone());
+        let (view, visual) = super::super::tests::fixture::open(
+            cx,
+            fixture.binding.clone(),
+            fixture.session.clone(),
+        );
         let panel = view.read_with(visual, |view, _| view.queue.clone());
         wait(visual, |cx| {
             panel.read(cx).connected
@@ -465,51 +362,34 @@ fn retains_conflicting_drafts(cx: &mut TestAppContext) {
                 && view.read(cx).contributions.read(cx).ready(cx)
         });
         click(visual, selector("edit", turn));
-        wait(visual, |cx| panel.read(cx).editing.is_some());
-        visual.simulate_keystrokes("secondary-a");
-        visual.simulate_input("local unsaved draft");
-        fixture
-            .runtime
-            .block_on(other.execute(other.prepare(Command::EditQueuedTurn {
-                turn,
-                expected_revision: 1,
-                message: "another controller".into(),
-            })))
-            .unwrap();
-        wait(visual, |cx| panel.read(cx).queue.items[0].revision == 2);
-        click(visual, "queue-edit-save");
-        panel.read_with(visual, |panel, cx| {
-            let editing = panel.editing.as_ref().unwrap();
-            assert_eq!(editing.revision, 1);
-            assert_eq!(editing.input.read(cx).value(), "local unsaved draft");
-            assert!(!panel.pending);
-        });
-        click(visual, "queue-edit-reload");
         wait(visual, |cx| {
-            panel
-                .read(cx)
-                .editing
-                .as_ref()
-                .is_some_and(|editing| editing.revision == 2)
+            !panel.read(cx).pending && panel.read(cx).queue.items.is_empty()
         });
-        visual.simulate_keystrokes("secondary-a");
-        visual.simulate_input("draft while removed");
-        fixture.execute(Command::RemoveQueuedTurn {
-            turn,
-            expected_revision: 2,
+        visual.simulate_keystrokes("enter");
+        wait(visual, |cx| {
+            !view.read(cx).pending && panel.read(cx).queue.items.len() == 1
         });
-        wait(visual, |cx| panel.read(cx).queue.items.is_empty());
-        visual.simulate_keystrokes("escape");
-        panel.read_with(visual, |panel, cx| {
-            assert_eq!(
-                panel.editing.as_ref().unwrap().input.read(cx).value(),
-                "draft while removed"
-            )
+        let requeued = panel.read_with(visual, |panel, _| panel.queue.items[0].turn);
+        let Output::QueuedMessage(captured) =
+            fixture.execute(Command::ReadQueuedTurn { turn: requeued })
+        else {
+            panic!("queued input expected")
+        };
+        assert_eq!(captured.message, message);
+        click(visual, selector("edit", requeued));
+        wait(visual, |cx| {
+            !panel.read(cx).pending && panel.read(cx).queue.items.is_empty()
         });
-        click(visual, "queue-edit-cancel");
-        assert!(panel.read_with(visual, |panel, _| panel.editing.is_none()));
-        assert!(fixture.server.requests.lock().unwrap().is_empty());
+        assert_eq!(
+            view.read_with(visual, |view, cx| view.input.read(cx).value()),
+            message.text
+        );
+        assert_eq!(
+            view.read_with(visual, |view, _| view.attachments.ids()),
+            [attachment.id]
+        );
         visual.update(|window, _| window.remove_window());
+        drop(view);
         fixture.close();
     }
 }

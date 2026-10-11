@@ -381,7 +381,7 @@ fn load(directory: &Path) -> Result<(Option<blake3::Hash>, Vec<Loaded>)> {
         if marker.is_file() {
             continue;
         }
-        if record.attachments.len() > 8 {
+        if record.attachments.len() + record.draft.attachments.len() > 8 {
             return Err(failed(
                 "draft recovery exceeds the composer attachment limit",
             ));

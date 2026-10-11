@@ -15,6 +15,7 @@ impl View {
             || self.retry.is_some()
             || self.preparing.is_some()
             || self.guidance_pending.get()
+            || self.queue_edit_pending.get()
     }
 
     pub(super) fn saving_config(&self) -> bool {
