@@ -951,6 +951,8 @@ pub(super) fn execute(
         } => {
             let session = session(db, *id)?;
             check_revision(session.revision, *expected_revision)?;
+            let resume = matches!(request.command, Command::SubmitTurn { .. })
+                && super::agent::queue::can_resume(db, session.id)?;
             let turn = super::agent::queue::create(
                 db,
                 caller,
@@ -959,6 +961,9 @@ pub(super) fn execute(
                 message,
                 matches!(request.command, Command::SubmitTurn { .. }),
             )?;
+            if resume {
+                super::agent::queue::prioritize(db, &turn)?;
+            }
             Ok((
                 Output::QueuedTurn(turn.clone()),
                 Some(super::agent::activity::queued(db, turn)?),

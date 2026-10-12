@@ -80,7 +80,14 @@ fn capture(
     Ok(turn)
 }
 
-pub(super) fn prioritize(db: &Connection, turn: &QueuedTurn) -> Result<(), Fault> {
+pub(in crate::store) fn can_resume(db: &Connection, session: SessionId) -> Result<bool, Fault> {
+    Ok(read(db, session)?.paused
+        && !runs::list(db, session, &[])?
+            .iter()
+            .any(|run| run.status == Status::Running))
+}
+
+pub(in crate::store) fn prioritize(db: &Connection, turn: &QueuedTurn) -> Result<(), Fault> {
     let first = read(db, turn.session)?.items.first().map(|item| item.turn);
     reorder(db, turn.session, turn.id, first)?;
     pause(db, turn.session, false)

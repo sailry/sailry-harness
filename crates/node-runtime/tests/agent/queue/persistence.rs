@@ -38,15 +38,99 @@ async fn restart_pauses_idle_input() {
             .unwrap();
         assert!(fixture.queue().await.paused);
         assert!(fixture.server.requests.lock().unwrap().is_empty());
-        let fresh = fixture.push("Resume with fresh input").await;
-        let page = finished(&fixture.client, fixture.session.id, fresh.id).await;
+        fixture.push("Resume with fresh input").await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert!(!page.queue.paused);
         assert!(page.runs.iter().all(|run| run.status == Status::Completed));
         {
             let requests = fixture.server.requests.lock().unwrap();
             assert_eq!(requests.len(), 2);
-            assert_eq!(prompt(&requests[0]), input);
-            assert_eq!(prompt(&requests[1]), "Resume with fresh input");
+            assert_eq!(prompt(&requests[0]), "Resume with fresh input");
+            assert_eq!(prompt(&requests[1]), input);
+        }
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
+async fn fresh_input_precedes_stopped_queue() {
+    for remote in [false, true] {
+        let fixture = Fixture::start(remote, true).await;
+        let active = fixture.push("Active input").await;
+        fixture.server.wait_count(1).await;
+        let quick = Server::start(false).await;
+        let mut provider = fixture.provider.clone();
+        provider.endpoint = quick.endpoint.clone();
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutProvider {
+                provider,
+                expected_revision: 1,
+            }))
+            .await
+            .unwrap();
+        let first = fixture.push("First waiting input").await;
+        let second = fixture.push("Second waiting input").await;
+        let captures = [
+            read(&fixture.client, first.id).await,
+            read(&fixture.client, second.id).await,
+        ];
+        let Output::Run(stopped) = fixture
+            .client
+            .execute(
+                fixture
+                    .client
+                    .prepare(Command::StopTurn { turn: active.id }),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("run expected")
+        };
+        assert!(matches!(
+            stopped.status,
+            Status::Stopping | Status::Cancelled
+        ));
+        let page = finished(&fixture.client, fixture.session.id, active.id).await;
+        assert_eq!(
+            page.runs
+                .iter()
+                .find(|run| run.turn == active.id)
+                .unwrap()
+                .status,
+            Status::Cancelled
+        );
+        assert!(page.queue.paused);
+        assert_eq!(
+            page.queue
+                .items
+                .iter()
+                .map(|item| item.turn)
+                .collect::<Vec<_>>(),
+            [first.id, second.id]
+        );
+        assert!(quick.requests.lock().unwrap().is_empty());
+        for before in &captures {
+            assert_eq!(read(&fixture.client, before.turn.id).await, *before);
+        }
+        let fresh = fixture.push("Current composer input").await;
+        let page = finished(&fixture.client, fixture.session.id, second.id).await;
+        assert!(!page.queue.paused);
+        assert!(page.queue.items.is_empty());
+        let executed: Vec<_> = page
+            .entries
+            .iter()
+            .filter(|entry| entry.author == "user")
+            .map(|entry| entry.turn)
+            .collect();
+        assert_eq!(executed, [active.id, fresh.id, first.id, second.id]);
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
+        {
+            let requests = quick.requests.lock().unwrap();
+            assert_eq!(requests.len(), 3);
+            assert_eq!(prompt(&requests[0]), "Current composer input");
+            assert_eq!(prompt(&requests[1]), "First waiting input");
+            assert_eq!(prompt(&requests[2]), "Second waiting input");
         }
         fixture.close().await;
     }
