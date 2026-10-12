@@ -153,6 +153,7 @@ fn dev_server_lifecycle(cx: &mut TestAppContext) {
         assert!(visual.debug_bounds("composer-background").is_some());
         tap(visual, "composer-background");
         assert!(visual.debug_bounds("background-output").is_none());
+        assert!(visual.debug_bounds("background-list").unwrap().size.width <= px(PANEL_WIDTH));
         let command = Box::leak(format!("background-command-{}", info.id).into_boxed_str());
         let title = visual.debug_bounds(command).unwrap();
         assert!(
@@ -258,6 +259,55 @@ fn dev_server_lifecycle(cx: &mut TestAppContext) {
         visual.simulate_mouse_move(title.center(), None, Modifiers::default());
         visual.update(|window, cx| window.draw(cx).clear(cx));
         assert_eq!(visual.debug_bounds(command).unwrap(), title);
+        assert!(
+            visual
+                .debug_bounds(Box::leak(
+                    format!("background-stop-icon-{}", info.id).into_boxed_str()
+                ))
+                .is_some()
+        );
+        visual.update(|window, cx| window.blur(cx));
+        visual.simulate_mouse_move(point(px(0.), px(0.)), None, Modifiers::default());
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            visual
+                .debug_bounds(Box::leak(
+                    format!("background-chevron-{}", info.id).into_boxed_str()
+                ))
+                .is_some()
+        );
+        let mut visited = Vec::new();
+        loop {
+            let focus = visual.update(|window, cx| {
+                window.focus_next(cx);
+                window.focused(cx)
+            });
+            visual.run_until_parked();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            if visual
+                .debug_bounds(Box::leak(
+                    format!("background-stop-icon-{}", info.id).into_boxed_str(),
+                ))
+                .is_some()
+            {
+                break;
+            }
+            assert!(focus.is_some(), "the popup retains keyboard navigation");
+            assert!(
+                !visited.contains(&focus),
+                "a complete native tab cycle must reach the command header"
+            );
+            visited.push(focus);
+        }
+        assert!(
+            visual
+                .debug_bounds(Box::leak(
+                    format!("background-stop-icon-{}", info.id).into_boxed_str()
+                ))
+                .is_some(),
+            "keyboard focus exposes the same stop icon"
+        );
         let stop = visual
             .debug_bounds(Box::leak(
                 format!("background-stop-{}", info.id).into_boxed_str(),
@@ -271,10 +321,9 @@ fn dev_server_lifecycle(cx: &mut TestAppContext) {
         assert_eq!(stop.right(), header.right());
         assert!(stop.top() >= header.top() && stop.bottom() <= header.bottom());
         assert!((stop.center().y - title.center().y).abs() <= px(1.));
-        assert_eq!(
-            title.right(),
-            header.right(),
-            "the stop action does not reserve title space"
+        assert!(
+            title.right() <= stop.left(),
+            "the single trailing control reserves space"
         );
         let panel = view.read_with(visual, |view, _| view.commands.clone());
         panel.update_in(visual, |panel, window, cx| {

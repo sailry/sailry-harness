@@ -2,8 +2,8 @@
 use super::*;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{
-    accordion::Accordion,
     button::{Button, ButtonVariants},
+    collapsible::Collapsible,
     popover::Popover,
     scroll::ScrollableElement,
 };
@@ -13,6 +13,9 @@ use sailry_protocol::{
     process::{Info, Outcome, Status as CommandStatus},
 };
 use tokio::sync::watch;
+
+mod control;
+const PANEL_WIDTH: f32 = 400.;
 
 fn active(info: &Info) -> bool {
     matches!(
@@ -156,7 +159,6 @@ impl Panel {
 
     fn row(&self, info: &Info, cx: &mut Context<Self>) -> AnyElement {
         let id = info.id;
-        let group = SharedString::from(format!("background-header-{id}"));
         let status = match &info.status {
             CommandStatus::Running => tr("chat_running"),
             CommandStatus::Stopping => tr("chat_stopping"),
@@ -164,59 +166,26 @@ impl Panel {
             CommandStatus::Finished(Outcome::Cancelled) => tr("turn_cancelled"),
             CommandStatus::Finished(_) | CommandStatus::Failed(_) => tr("turn_failed"),
         };
-        h_flex()
-            .id(group.clone())
-            .group(group.clone())
-            .debug_selector(move || format!("background-header-{id}"))
-            .relative()
-            .w_full()
-            .h_6()
-            .min_w_0()
-            .gap_2()
-            .child(
-                div()
-                    .id(SharedString::from(format!("background-status-{id}")))
-                    .child(Icon::new(IconName::SquareTerminal).small())
-                    .tooltip(move |window, cx| Tooltip::new(status.clone()).build(window, cx)),
-            )
-            .child(
-                div()
-                    .debug_selector(move || format!("background-command-{id}"))
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .child(
-                        info.command
-                            .split_whitespace()
-                            .collect::<Vec<_>>()
-                            .join(" "),
-                    ),
-            )
-            .child(
-                Button::new(SharedString::from(format!("background-stop-{id}")))
-                    .debug_selector(move || format!("background-stop-{id}"))
-                    .ghost()
-                    .small()
-                    .absolute()
-                    .right_0()
-                    .top_0()
-                    .bg(cx.theme().popover)
-                    .opacity(0.)
-                    .group_hover(group, |style| style.opacity(1.))
-                    .focus(|style| style.opacity(1.))
-                    .label(tr("background_end"))
-                    .accessibility_label(tr("background_end"))
-                    .disabled(
-                        !self.state.connected
-                            || self.action.is_some()
-                            || info.status == CommandStatus::Stopping,
-                    )
-                    .on_click(cx.listener(move |panel, _, window, cx| {
-                        cx.stop_propagation();
-                        panel.stop_command(id, window, cx);
-                    })),
-            )
-            .into_any_element()
+        control::Header {
+            id,
+            panel: cx.entity().downgrade(),
+            open: *self.selected.borrow() == Some(id),
+            disabled: !self.state.connected
+                || self.action.is_some()
+                || info.status == CommandStatus::Stopping,
+            status: div()
+                .id(SharedString::from(format!("background-status-{id}")))
+                .child(Icon::new(IconName::SquareTerminal).small())
+                .tooltip(move |window, cx| Tooltip::new(status.clone()).build(window, cx))
+                .into_any_element(),
+            command: info
+                .command
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .into(),
+        }
+        .into_any_element()
     }
 }
 
@@ -346,18 +315,7 @@ impl View {
 impl Render for Panel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let selected = *self.selected.borrow();
-        let ids: Vec<_> = self
-            .state
-            .items
-            .iter()
-            .filter(|info| active(info))
-            .map(|info| info.id)
-            .collect();
-        let mut commands = Accordion::new("background-accordion")
-            .bordered(false)
-            .w_full()
-            .h_auto()
-            .flex_shrink_0();
+        let mut commands = v_flex().w_full().h_auto().flex_shrink_0();
         for info in self.state.items.iter().filter(|info| active(info)) {
             let title = self.row(info, cx);
             let output = self
@@ -365,17 +323,11 @@ impl Render for Panel {
                 .output
                 .as_ref()
                 .filter(|output| Some(info.id) == selected && output.info.id == info.id);
-            commands = commands.item(|item| {
-                item.title(title)
+            commands = commands.child(
+                Collapsible::new()
+                    .child(title)
                     .open(selected == Some(info.id))
                     .bg(cx.theme().transparent)
-                    .title_style(
-                        StyleRefinement::default()
-                            .min_w_0()
-                            .font_normal()
-                            .text_color(cx.theme().muted_foreground),
-                    )
-                    .content_style(StyleRefinement::default().pb_0())
                     .when_some(output, |item, output| {
                         let text = [&output.stdout.text, &output.stderr.text]
                             .into_iter()
@@ -383,24 +335,28 @@ impl Render for Panel {
                             .cloned()
                             .collect::<Vec<_>>()
                             .join("\n");
-                        item.child(crate::conversation::surface::scroll(
-                            "background-output".into(),
-                            div()
-                                .debug_selector(|| "background-output-content".into())
-                                .font_family(cx.theme().mono_font_family.clone())
-                                .line_height(px(crate::conversation::surface::LINE_HEIGHT))
-                                .text_color(cx.theme().muted_foreground)
-                                .child(gpui_kit::base::SelectableText::new(
-                                    format!("background-output-{}", info.id),
-                                    text,
-                                )),
-                        ))
-                    })
-            });
+                        item.content(
+                            div().rounded_md().bg(cx.theme().background).child(
+                                crate::conversation::surface::scroll(
+                                    "background-output".into(),
+                                    div()
+                                        .debug_selector(|| "background-output-content".into())
+                                        .font_family(cx.theme().mono_font_family.clone())
+                                        .line_height(px(crate::conversation::surface::LINE_HEIGHT))
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(gpui_kit::base::SelectableText::new(
+                                            format!("background-output-{}", info.id),
+                                            text,
+                                        )),
+                                ),
+                            ),
+                        )
+                    }),
+            );
         }
         v_flex()
             .debug_selector(|| "background-list".into())
-            .w(px(480.).min(window.viewport_size().width - px(48.)))
+            .w(px(PANEL_WIDTH).min(window.viewport_size().width - px(48.)))
             .min_w_0()
             .gap_2()
             .text_sm()
@@ -409,14 +365,7 @@ impl Render for Panel {
                     .id("background-rows")
                     .max_h(px(320.).min(window.viewport_size().height * 0.5))
                     .overflow_y_scrollbar()
-                    .child(commands.on_toggle_click(cx.listener(
-                        move |panel, open: &[usize], _, cx| {
-                            let selected = open.first().and_then(|index| ids.get(*index)).copied();
-                            panel.state.output = None;
-                            panel.selected.send_replace(selected);
-                            cx.notify();
-                        },
-                    ))),
+                    .child(commands),
             )
             .when(self.state.error.is_some(), |panel| {
                 panel.child(
