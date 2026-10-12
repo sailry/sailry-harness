@@ -176,7 +176,7 @@ impl Host {
         }
     }
 
-    pub(super) fn settings_readable(&self) -> Result<(), HostError> {
+    pub(in crate::plugins) fn settings_readable(&self) -> Result<(), HostError> {
         if self.settings.lock().map_err(lock_error)?.pending.is_some() {
             Err(HostError::new("settings save is pending"))
         } else {

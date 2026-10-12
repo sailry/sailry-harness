@@ -35,6 +35,24 @@ use gpui_kit::*;
 
 use crate::tr;
 
+pub(crate) fn open_plugin_configuration(
+    binding: crate::conversation::live::Binding,
+    expected: sailry_protocol::plugin::Summary,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    plugins::configuration::mount(
+        providers::Binding {
+            client: binding.client,
+            runtime: binding.runtime,
+            label: binding.host,
+        },
+        expected,
+        window,
+        cx,
+    );
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Section {
     #[default]

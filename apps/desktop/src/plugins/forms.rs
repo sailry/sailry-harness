@@ -15,6 +15,7 @@ use std::{
 };
 
 const MAX_FIELDS: usize = 64;
+mod configuration;
 mod date;
 #[cfg(test)]
 mod tests;
@@ -329,6 +330,13 @@ pub(super) fn module() -> HostModule {
             view.into_any_element()
         });
     date::extend(module).declarations(include_str!("forms/api.d.ts"))
+}
+
+pub(super) fn bound(
+    host: Arc<super::host::Host>,
+    binding: crate::conversation::live::Binding,
+) -> HostModule {
+    configuration::extend(module(), host, binding)
 }
 
 fn observe<T: EventEmitter<InputEvent> + 'static>(

@@ -224,6 +224,14 @@ impl Host {
 
     pub(super) fn prepare_public(&self, command: Command) -> Result<HostValue, HostError> {
         self.check()?;
+        if matches!(
+            command,
+            Command::BeginPluginRegistration { .. } | Command::CancelPluginLogin { .. }
+        ) {
+            return Err(HostError::new(
+                "application registration requires a native user action",
+            ));
+        }
         if serde_json::to_vec(&command)
             .map_err(|error| HostError::new(error.to_string()))?
             .len()

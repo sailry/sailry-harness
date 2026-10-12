@@ -86,6 +86,7 @@ impl Mounted {
             activity_sources,
             file_transfers,
         } = scopes;
+        let configuration_binding = location.binding.clone();
         let runtime = gpui_component_shell::new_isolated_runtime()?;
         // Kit b79f4ce resolves script images through the application-wide asset
         // source. Mounted plugins need package-local paths instead. Keep Kit's
@@ -226,6 +227,7 @@ impl Mounted {
         let credentials = cx.new(|_| super::credentials::Store::default());
         let connections = host.connections_module(credentials.clone());
         let settings = host.settings_module(credentials.clone());
+        let registration = host.registration_module(window, cx);
         let search = host.search_module(credentials.clone());
         let ssh_transfers = super::ssh_transfers::module(owner.clone(), host.clone(), drops, cx);
         let file_transfers = super::file_transfers::module(file_transfers, host.clone(), cx);
@@ -246,13 +248,14 @@ impl Mounted {
             .with_host_module(host.installations_module())?
             .with_host_module(connections)?
             .with_host_module(settings)?
+            .with_host_module(registration)?
             .with_host_module(search)?
             .with_host_module(ssh_transfers)?
             .with_host_module(super::credentials::module(credentials))?
             .with_host_module(file_transfers)?
             .with_host_module(documents)?
             .with_host_module(artifacts)?
-            .with_host_module(super::forms::module())?
+            .with_host_module(super::forms::bound(host.clone(), configuration_binding))?
             .with_host_module(super::panes::module(ui, owner, host.clone(), pane))?;
         #[cfg(test)]
         let policy = policy.with_host_module(anchors)?;
