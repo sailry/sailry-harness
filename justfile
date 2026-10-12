@@ -11,7 +11,7 @@ check:
     cargo clippy --locked --workspace --all-targets -- -D warnings
 
 test-ui:
-    cargo test --locked -p sailry-content -p sailry-desktop --lib --bin sailry-desktop -- --test-threads=1
+    cargo nextest run --locked -p sailry-content -p sailry-desktop --lib --bin sailry-desktop --profile ci
 
 test-source:
     bash scripts/python.sh -m unittest discover -s scripts/tests -v

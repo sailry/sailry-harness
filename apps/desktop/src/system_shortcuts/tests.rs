@@ -19,7 +19,7 @@ fn unavailable_native_registration_preserves_preferences(cx: &mut TestAppContext
         cx.set_global(crate::backend::Services {
             profile: fixture.node.profile().to_path_buf(),
             runtime: fixture.runtime.clone(),
-            link: fixture.controller.handle(),
+            link: fixture.node.link().clone(),
             local: fixture.node.local(),
             relay_enabled: false,
         });

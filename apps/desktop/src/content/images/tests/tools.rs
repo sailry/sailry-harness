@@ -87,16 +87,16 @@ pub(super) fn fixture(remote: bool, images: &[&[u8]]) -> Fixture {
         .block_on(Node::start_isolated(&profile))
         .unwrap();
     let transport: Arc<dyn Transport> = if remote {
+        let controller = fixture.controller.as_ref().expect("remote controller");
         let address = fixture
             .runtime
             .block_on(
-                fixture
-                    .controller
+                controller
                     .handle()
                     .pair(fixture.node.link().invite().unwrap().ticket()),
             )
             .unwrap();
-        fixture.controller.handle().remote(address)
+        controller.handle().remote(address)
     } else {
         fixture.node.local()
     };

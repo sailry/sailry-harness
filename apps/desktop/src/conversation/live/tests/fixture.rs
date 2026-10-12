@@ -9,7 +9,7 @@ pub(crate) struct Fixture {
     pub(crate) directory: tempfile::TempDir,
     pub(crate) runtime: Arc<tokio::runtime::Runtime>,
     pub(crate) node: Node,
-    pub(crate) controller: Link,
+    pub(crate) controller: Option<Link>,
     pub(crate) transport: Arc<dyn Transport>,
     pub(crate) binding: Binding,
     pub(crate) session: Session,
@@ -82,23 +82,24 @@ impl Fixture {
             None => runtime.block_on(Node::start_isolated(directory.path().join("node"))),
         }
         .unwrap();
-        let controller = runtime
-            .block_on(Link::controller(
-                directory.path().join("controller"),
-                NetworkScope::default(),
-            ))
-            .unwrap();
-        let address = runtime
-            .block_on(
-                controller
-                    .handle()
-                    .pair(node.link().invite().unwrap().ticket()),
-            )
-            .unwrap();
-        let transport = if remote {
-            controller.handle().remote(address)
+        let (controller, transport): (Option<Link>, Arc<dyn Transport>) = if remote {
+            let controller = runtime
+                .block_on(Link::controller(
+                    directory.path().join("controller"),
+                    NetworkScope::default(),
+                ))
+                .unwrap();
+            let address = runtime
+                .block_on(
+                    controller
+                        .handle()
+                        .pair(node.link().invite().unwrap().ticket()),
+                )
+                .unwrap();
+            let transport = controller.handle().remote(address);
+            (Some(controller), transport)
         } else {
-            node.local()
+            (None, node.local())
         };
         let client = Arc::new(Client::new(transport.clone()));
         // Keep model fixtures independent of shipped external services.
@@ -188,7 +189,9 @@ impl Fixture {
 
     pub(crate) fn close(self) {
         self.runtime.block_on(self.node.shutdown()).unwrap();
-        self.runtime.block_on(self.controller.close()).unwrap();
+        if let Some(controller) = self.controller {
+            self.runtime.block_on(controller.close()).unwrap();
+        }
     }
 }
 

@@ -260,17 +260,16 @@ fn restores_calls_after_restart(cx: &mut TestAppContext) {
                 .runtime
                 .block_on(Node::start_isolated(fixture.directory.path().join("node")))
                 .unwrap();
-            let address = fixture
-                .runtime
-                .block_on(
-                    fixture
-                        .controller
-                        .handle()
-                        .pair(fixture.node.link().invite().unwrap().ticket()),
-                )
-                .unwrap();
-            fixture.transport = if remote {
-                fixture.controller.handle().remote(address)
+            fixture.transport = if let Some(controller) = &fixture.controller {
+                let address = fixture
+                    .runtime
+                    .block_on(
+                        controller
+                            .handle()
+                            .pair(fixture.node.link().invite().unwrap().ticket()),
+                    )
+                    .unwrap();
+                controller.handle().remote(address)
             } else {
                 fixture.node.local()
             };

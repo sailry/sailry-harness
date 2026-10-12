@@ -76,6 +76,9 @@ just test-backend   # Protocol, Link, Client, Node and Host tests
 just test-ui        # Desktop behavior and Kit interaction tests
 ```
 
+`just test-ui` uses CI's nextest profile. Install the pinned runner with
+`cargo install --locked cargo-nextest --version 0.9.143` if it is not available.
+
 Select checks from affected behavior and dependency boundaries. Reuse passing
 results while their inputs remain unchanged. Explain which tests ran and any
 coverage gap; do not describe a fixture or compile check as live acceptance.
