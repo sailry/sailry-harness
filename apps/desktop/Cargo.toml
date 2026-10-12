@@ -7,7 +7,7 @@ license.workspace = true
 
 [[test]]
 name = "plaza-render"
-path = "src/main.rs"
+path = "tests/plaza_render.rs"
 harness = false
 required-features = ["design-capture"]
 

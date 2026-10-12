@@ -5,8 +5,8 @@ mod catalog;
 mod list;
 #[cfg(test)]
 mod tests;
+use self::list::Rows;
 use catalog::{Folder, Scope, Target};
-use list::Rows;
 
 struct Palette {
     owner: WeakEntity<Shell>,

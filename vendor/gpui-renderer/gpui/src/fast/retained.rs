@@ -364,7 +364,7 @@ impl RetainedSubtrees {
     }
 
     /// Whether any subtree was drawn from last frame.
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(test)]
     pub(crate) fn reused_any(&self) -> bool {
         self.reused_any
     }

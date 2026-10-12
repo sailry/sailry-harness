@@ -1,10 +1,10 @@
 //! Conversation entry points for the shared selectable diff surface.
+use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::{
     group_box::{GroupBox, GroupBoxVariants as _},
     tooltip::Tooltip,
 };
 use gpui_kit::prelude::FluentBuilder as _;
-use gpui_kit::test::TestSupportExt as _;
 use gpui_kit::{component::*, *};
 
 /// `+N −M` summary in Kit success/danger tones.

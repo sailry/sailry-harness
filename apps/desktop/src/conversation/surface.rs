@@ -2,6 +2,7 @@
 //!
 //! Tool results share a rounded frame; review surfaces retain their own framing.
 use crate::tr;
+use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::{
     clipboard::Clipboard,
     scroll::{ScrollableElement as _, ScrollableMask},
@@ -9,7 +10,6 @@ use gpui_kit::component::{
     *,
 };
 use gpui_kit::prelude::FluentBuilder as _;
-use gpui_kit::test::TestSupportExt as _;
 use gpui_kit::*;
 
 pub(crate) mod diff;

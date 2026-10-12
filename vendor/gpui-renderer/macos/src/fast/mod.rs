@@ -8,6 +8,7 @@
 //! call to it. The logic itself — data structures, algorithms, bookkeeping,
 //! tests — is written here, one file per topic.
 
+#[allow(deprecated, reason = "pinned Cocoa compatibility adapter")]
 pub(crate) mod composition;
 #[cfg(feature = "font-kit")]
 pub(crate) mod text_system;

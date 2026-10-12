@@ -273,7 +273,7 @@ impl State {
                 Err(error) => return Some(Err(error)),
             };
             let mut entries = BTreeMap::new();
-            let mut failed = batch.failures.len();
+            let mut failures = batch.failures;
             for report in batch.reports {
                 let name = report.current.name.clone();
                 let result = tokio::select! {
@@ -283,10 +283,10 @@ impl State {
                 };
                 match result {
                     Ok(entry) => { entries.insert(name, entry); }
-                    Err(_) => { failed += 1; }
+                    Err(error) => { failures.push(checks::Failure { name, error }); }
                 }
             }
-            Some(Ok((entries, failed)))
+            Some(Ok((entries, failures)))
         });
         let origin = window.window_handle();
         self.task = Some(cx.spawn(async move |owner, cx| {
@@ -305,12 +305,16 @@ impl State {
                 let state = owner;
                 state.check = None;
                 match result {
-                    Ok(Some(Ok((entries, failed)))) => {
+                    Ok(Some(Ok((entries, failures)))) => {
+                        let failed = failures.len();
                         state.entries = entries;
                         state.entries.retain(|_, entry| state.packages.contains(&entry.current));
                         if startup {
                             if failed > 0 {
                                 eprintln!("sailry-desktop: startup plugin inspection for {node:?} had {failed} failures");
+                                for failure in failures {
+                                    eprintln!("sailry-desktop: plugin update inspection for {} failed: {}", failure.name, failure.error);
+                                }
                             }
                             state.open(window, cx);
                             cx.notify();
@@ -339,6 +343,8 @@ impl State {
                         };
                         notify(window, message, failed > 0, cx);
                     }
+                    Ok(Some(Err(error))) if startup => eprintln!("sailry-desktop: startup plugin update check for {node:?} failed: {error}"),
+                    Err(error) if startup => eprintln!("sailry-desktop: startup plugin update check for {node:?} interrupted: {error}"),
                     _ if startup => eprintln!("sailry-desktop: startup plugin update check for {node:?} failed"),
                     _ => notify(window, tr("plugins_check_failed"), true, cx),
                 }

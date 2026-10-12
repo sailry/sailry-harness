@@ -18,7 +18,7 @@ mod draft;
 #[cfg(test)]
 mod tests;
 mod watch;
-pub(super) use actions::Actions;
+pub(super) use self::actions::Actions;
 
 impl View {
     pub(super) fn pending_approvals(&self, cx: &mut Context<Self>) -> Option<AnyElement> {

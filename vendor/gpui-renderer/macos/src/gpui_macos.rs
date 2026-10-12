@@ -5,11 +5,16 @@
 //! macOS screens have a y axis that goes up from the bottom of the screen and
 //! an origin at the bottom left of the main display.
 
+// These adapters retain the pinned upstream Cocoa/objc ABI. Restrict the
+// deprecation allowance to that bridge; other modules still report deprecated APIs.
+#[allow(deprecated, reason = "pinned Cocoa compatibility adapter")]
 mod display;
 mod display_link;
+#[allow(deprecated, reason = "pinned Cocoa compatibility adapter")]
 mod events;
 mod fast;
 mod keyboard;
+#[allow(deprecated, reason = "pinned Cocoa compatibility adapter")]
 mod pasteboard;
 mod system_notifications;
 
@@ -31,10 +36,14 @@ mod open_type;
 #[cfg(feature = "font-kit")]
 mod text_system;
 
+#[allow(deprecated, reason = "pinned Cocoa compatibility adapter")]
 mod platform;
+#[allow(deprecated, reason = "pinned Cocoa compatibility adapter")]
 mod window;
+#[allow(deprecated, reason = "pinned Cocoa compatibility adapter")]
 mod window_appearance;
 
+#[allow(deprecated, reason = "pinned Cocoa compatibility types")]
 use cocoa::{
     base::{id, nil},
     foundation::{NSAutoreleasePool, NSNotFound, NSString, NSUInteger},
@@ -72,6 +81,7 @@ trait NSStringExt {
     unsafe fn to_str(&self) -> &str;
 }
 
+#[allow(deprecated, reason = "pinned Cocoa compatibility adapter")]
 impl NSStringExt for id {
     unsafe fn to_str(&self) -> &str {
         unsafe {
@@ -87,11 +97,13 @@ impl NSStringExt for id {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
+#[allow(deprecated, reason = "pinned Cocoa compatibility types")]
 struct NSRange {
     pub location: NSUInteger,
     pub length: NSUInteger,
 }
 
+#[allow(deprecated, reason = "pinned Cocoa compatibility adapter")]
 impl NSRange {
     fn invalid() -> Self {
         Self {
@@ -115,6 +127,7 @@ impl NSRange {
     }
 }
 
+#[allow(deprecated, reason = "pinned Cocoa compatibility adapter")]
 impl From<Range<usize>> for NSRange {
     fn from(range: Range<usize>) -> Self {
         NSRange {
@@ -124,6 +137,7 @@ impl From<Range<usize>> for NSRange {
     }
 }
 
+#[allow(deprecated, reason = "pinned Cocoa compatibility adapter")]
 unsafe impl objc::Encode for NSRange {
     fn encode() -> objc::Encoding {
         let encoding = format!(
@@ -137,6 +151,7 @@ unsafe impl objc::Encode for NSRange {
 
 /// Allow NSString::alloc use here because it sets autorelease
 #[allow(clippy::disallowed_methods)]
+#[allow(deprecated, reason = "pinned Cocoa compatibility adapter")]
 unsafe fn ns_string(string: &str) -> id {
     unsafe { NSString::alloc(nil).init_str(string).autorelease() }
 }

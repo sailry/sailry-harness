@@ -27,8 +27,8 @@ use gpui_kit::{
 use sailry_client::terminal::View as ScreenView;
 use sailry_protocol::{Command, terminal as protocol};
 
+pub(crate) use self::input::{Copy, Paste, SelectAll};
 pub(crate) use connection::{Binding, Scope};
-pub(crate) use input::{Copy, Paste, SelectAll};
 pub(crate) use search::{Close, Find, Next, Previous};
 
 pub(crate) fn init(cx: &mut App) {

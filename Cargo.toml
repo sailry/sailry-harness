@@ -1,6 +1,6 @@
 [workspace]
 members = ["apps/desktop", "apps/host", "crates/node-runtime", "crates/protocol", "crates/link", "crates/client", "crates/mobile-bridge", "crates/speech", "crates/content", "crates/embedding", "crates/model-assets", "crates/ocr"]
-exclude = ["vendor/rmcp", "vendor/portable-pty", "vendor/gpui-base", "vendor/gpui-component", "vendor/gpui-kit/kit", "vendor/gpui-kit/shell", "vendor/gpui-kit/assets", "vendor/gpui-kit/component-shell", "vendor/gpui-kit/webview", "vendor/gpui-kit/fps", "vendor/gpui-renderer/gpui", "vendor/gpui-renderer/apple", "vendor/gpui-renderer/macos", "vendor/gpui-renderer/wgpu", "vendor/gpui-renderer/windows", "vendor/rquickjs-compat", "vendor/block", "vendor/libghostty-vt-sys", "vendor/adk-model", "vendor/adk-gemini"]
+exclude = ["vendor/rmcp", "vendor/portable-pty", "vendor/proc-macro-error2", "vendor/gpui-base", "vendor/gpui-component", "vendor/gpui-kit/kit", "vendor/gpui-kit/shell", "vendor/gpui-kit/assets", "vendor/gpui-kit/component-shell", "vendor/gpui-kit/webview", "vendor/gpui-kit/fps", "vendor/gpui-renderer/gpui", "vendor/gpui-renderer/apple", "vendor/gpui-renderer/macos", "vendor/gpui-renderer/wgpu", "vendor/gpui-renderer/windows", "vendor/rquickjs-compat", "vendor/block", "vendor/libghostty-vt-sys", "vendor/adk-model", "vendor/adk-gemini"]
 resolver = "2"
 
 [workspace.package]
@@ -183,6 +183,7 @@ gpui-fast-windows = { path = "vendor/gpui-renderer/windows" }
 block = { path = "vendor/block" }
 rmcp = { path = "vendor/rmcp" }
 portable-pty = { path = "vendor/portable-pty" }
+proc-macro-error2 = { path = "vendor/proc-macro-error2" }
 
 [patch."https://github.com/longbridge/gpui-kit"]
 gpui-base = { path = "vendor/gpui-base" }

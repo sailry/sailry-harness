@@ -2,6 +2,8 @@
 #![allow(clippy::disallowed_methods, reason = "build scripts are exempt")]
 
 fn main() {
+    // Legacy objc macros check this feature in their destination crate.
+    println!("cargo::rustc-check-cfg=cfg(feature, values(\"cargo-clippy\"))");
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     apple_build::run();
 }

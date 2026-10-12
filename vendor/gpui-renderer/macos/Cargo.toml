@@ -38,6 +38,9 @@ license = "Apache-2.0"
 repository = "https://github.com/longbridge/gpui-fast"
 resolver = "2"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }
+
 [features]
 bench-support = [
     "gpui/bench-support",

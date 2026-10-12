@@ -98,3 +98,11 @@ substreams and later complete copies with different window scene origins.
 retaining measured geometry, focus handles and scroll anchors. The selected Diff
 component uses this public operation after font and layout changes; keeping old
 estimates made its offscreen scroll extent stale at the same viewport width.
+
+The core build registers its existing `rust_analyzer` condition, and the Apple
+and macOS packages register the legacy `objc` macro's `cargo-clippy` feature
+condition without enabling it. Other unexpected conditions still warn. Cocoa
+deprecation allowances are confined to the existing compatibility adapter
+modules and helper items; the pinned Objective-C ABI and runtime behavior are
+unchanged. The retained-subtree reuse accessor is compiled only for its core
+unit tests, rather than every consumer enabling `test-support`.

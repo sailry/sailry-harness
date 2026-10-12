@@ -8,6 +8,7 @@ mod fast_manifest;
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo::rustc-check-cfg=cfg(gles)");
+    println!("cargo::rustc-check-cfg=cfg(rust_analyzer)");
 
     // Leak detection does bookkeeping on every entity handle, so `test-support`
     // does not enable it: that feature must stay cheap enough to compile into
