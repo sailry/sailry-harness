@@ -7,6 +7,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{self as protocol, ErrorCode, Fault, dispatch::*, plugin::Reference};
 use serde::{Serialize, de::DeserializeOwned};
 
+mod calendar;
 mod events;
 mod handlers;
 pub(crate) mod jobs;

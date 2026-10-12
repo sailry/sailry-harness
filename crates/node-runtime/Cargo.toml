@@ -133,6 +133,7 @@ adk-tool.workspace = true
 rmcp.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
+chrono-tz.workspace = true
 futures.workspace = true
 reqwest = { workspace = true, features = ["form"] }
 url.workspace = true

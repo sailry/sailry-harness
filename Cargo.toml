@@ -165,6 +165,7 @@ rmcp = { version = "=3.1.4", default-features = false, features = ["auth", "clie
 adk-acp = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false }
 async-trait = "=0.1.92"
 chrono = { version = "=0.4.45", features = ["serde"] }
+chrono-tz = "=0.10.4"
 futures = "=0.3.34"
 url = "=2.5.8"
 

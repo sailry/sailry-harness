@@ -78,6 +78,14 @@ pub enum Timing {
         anchor_ms: i64,
         interval_ms: u64,
     },
+    /// Selected local weekdays. Folds use the earlier instant; gaps skip that date.
+    Weekly {
+        timezone: String,
+        /// ISO weekday numbers, Monday = 1 through Sunday = 7.
+        weekdays: Vec<u8>,
+        hour: u8,
+        minute: u8,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,4 +193,33 @@ pub enum Output {
     Jobs(Page),
     Result(crate::RequestOutcome),
     Removed,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn timing_preserves_wire_variants() {
+        for value in [
+            json!({"kind":"once","data":{"at_ms":123}}),
+            json!({"kind":"every","data":{"anchor_ms":123,"interval_ms":1000}}),
+            json!({"kind":"weekly","data":{"timezone":"Asia/Shanghai","weekdays":[1,2,3,4,5],"hour":9,"minute":0}}),
+        ] {
+            let timing: Timing = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(timing).unwrap(), value);
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_timing_fields() {
+        for value in [
+            json!({"kind":"weekly","data":{"timezone":"UTC","weekdays":[1],"hour":9,"minute":0,"at_ms":1}}),
+            json!({"kind":"weekly","data":{"weekdays":[1],"hour":9,"minute":0}}),
+            json!({"kind":"weekly","data":{"timezone":"UTC","weekdays":[1],"hour":9,"minute":0},"next_ms":1}),
+        ] {
+            assert!(serde_json::from_value::<Timing>(value).is_err());
+        }
+    }
 }

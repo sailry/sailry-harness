@@ -2,6 +2,9 @@ use super::*;
 use sailry_protocol::{Output, plugin};
 use serde_json::{Value, json};
 
+#[path = "scheduled/calendar.rs"]
+mod calendar;
+
 fn install(fixture: &Fixture) -> plugin::Info {
     let Output::Providers(mut providers) = fixture.execute(Command::ListProviders) else {
         panic!("providers expected")
@@ -207,9 +210,11 @@ fn form_layout(panel: &Entity<Panel>, visual: &mut VisualTestContext) {
     let schedule = visual.debug_bounds("task-schedule-field").unwrap();
     let once = visual.debug_bounds("task-timing-item-once").unwrap();
     let every = visual.debug_bounds("task-timing-item-every").unwrap();
+    let weekly = visual.debug_bounds("task-timing-item-weekly").unwrap();
     assert!((once.size.width - every.size.width).abs() < px(1.));
+    assert!((every.size.width - weekly.size.width).abs() < px(1.));
     assert!(once.left() - schedule.left() < px(8.));
-    assert!(schedule.right() - every.right() < px(8.));
+    assert!(schedule.right() - weekly.right() < px(8.));
     assert!(
         visual.debug_bounds("task-strength").unwrap().bottom()
             < visual.debug_bounds("task-save").unwrap().top()

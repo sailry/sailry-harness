@@ -3,19 +3,31 @@ use super::*;
 pub(super) fn save(db: &Connection, package: &str, schedule: &Schedule) -> Result<Schedule, Fault> {
     name(&schedule.topic)?;
     data(&schedule.payload)?;
-    let first = match schedule.timing {
-        Timing::Once { at_ms } => at_ms,
+    let mut saved = schedule.clone();
+    if let Timing::Weekly { weekdays, .. } = &mut saved.timing {
+        weekdays.sort_unstable();
+    }
+    let first = match &saved.timing {
+        Timing::Once { at_ms } => *at_ms,
         Timing::Every {
             anchor_ms,
             interval_ms,
         } => {
-            if !(1000..=31_536_000_000).contains(&interval_ms) {
+            if !(1000..=31_536_000_000).contains(interval_ms) {
                 return Err(sailry_protocol::Fault::invalid(
                     "schedule interval must be between one second and one year",
                 ));
             }
-            anchor_ms
+            *anchor_ms
         }
+        Timing::Weekly {
+            timezone,
+            weekdays,
+            hour,
+            minute,
+        } => calendar::Calendar::new(timezone, weekdays, *hour, *minute)?
+            .next(now())?
+            .ok_or_else(|| Fault::invalid("schedule has no future occurrence"))?,
     };
     if first < 0 {
         return Err(sailry_protocol::Fault::invalid("schedule time is invalid"));
@@ -34,7 +46,6 @@ pub(super) fn save(db: &Connection, package: &str, schedule: &Schedule) -> Resul
     if old.is_none() {
         capacity(db, "dispatch_schedules", package)?;
     }
-    let mut saved = schedule.clone();
     saved.revision += 1;
     // Pausing suppresses the due index, not the consumed cursor. Re-enabling a
     // completed one-shot must not repeat an already delivered effect.
@@ -86,13 +97,20 @@ pub(super) fn due(db: &Connection, timestamp: i64) -> Result<Vec<String>, Fault>
         let first = schedule
             .next_ms
             .ok_or_else(|| sailry_protocol::Fault::invalid("due schedule has no cursor"))?;
-        let (scheduled_ms, next_ms) = match schedule.timing {
+        let (scheduled_ms, next_ms) = match &schedule.timing {
             Timing::Once { .. } => (first, None),
             Timing::Every { interval_ms, .. } => {
-                let interval = interval_ms as i64;
+                let interval = *interval_ms as i64;
                 let latest = first + ((timestamp - first) / interval) * interval;
                 (latest, latest.checked_add(interval))
             }
+            Timing::Weekly {
+                timezone,
+                weekdays,
+                hour,
+                minute,
+            } => calendar::Calendar::new(timezone, weekdays, *hour, *minute)?
+                .due(first, timestamp)?,
         };
         let event = Event {
             id: protocol::EventId::new(),

@@ -6,6 +6,8 @@ use tokio::sync::Notify;
 
 #[path = "scheduled_host/admission.rs"]
 mod admission;
+#[path = "scheduled_host/calendar.rs"]
+mod calendar;
 #[path = "scheduled_host/stop.rs"]
 mod stop;
 

@@ -3,6 +3,9 @@ use crate::store::Database;
 use serde_json::json;
 use std::collections::BTreeMap;
 
+#[path = "tests/calendar.rs"]
+mod calendar;
+
 struct Fixture {
     database: Database,
     package: Reference,

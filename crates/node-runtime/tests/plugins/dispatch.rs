@@ -8,6 +8,8 @@ use std::collections::BTreeMap;
 
 #[path = "dispatch/backlog.rs"]
 mod backlog;
+#[path = "dispatch/calendar.rs"]
+mod calendar;
 
 pub(super) async fn run(client: &Client, context: &Context, action: jobs::Command) -> jobs::Output {
     let Output::Dispatch(output) = client
