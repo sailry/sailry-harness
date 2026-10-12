@@ -69,7 +69,7 @@ impl Tool for Context {
         {
             return Ok(json!({"status":"skipped"}));
         }
-        let Some(summary) = self.summarizer.summarize_events(prior).await? else {
+        let Some(summary) = self.summarize(prior, false).await? else {
             if self.summarizer.stop.is_cancelled() {
                 return Err(AdkError::tool("context compaction was cancelled"));
             }

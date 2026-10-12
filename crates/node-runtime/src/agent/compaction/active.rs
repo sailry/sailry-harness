@@ -12,6 +12,7 @@ pub(super) struct Context {
     summarizer: Summarizer,
     preamble: Content,
     applied: AtomicBool,
+    failed: AtomicBool,
 }
 
 impl Context {
@@ -29,7 +30,28 @@ impl Context {
             summarizer,
             preamble: Content::new("system").with_text(instruction),
             applied: AtomicBool::new(false),
+            failed: AtomicBool::new(false),
         }
+    }
+
+    async fn summarize(
+        &self,
+        events: &[Event],
+        automatic: bool,
+    ) -> adk_core::Result<Option<Event>> {
+        // A failed automatic request must not stall every remaining tool batch
+        // or repeat again after the invocation. Explicit requests can retry;
+        // a new turn has its own Context and keeps the original history.
+        if automatic && self.failed.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let result = self.summarizer.summarize_events(events).await;
+        match &result {
+            Err(_) => self.failed.store(true, Ordering::Relaxed),
+            Ok(Some(_)) => self.failed.store(false, Ordering::Relaxed),
+            Ok(None) => {}
+        }
+        result
     }
 
     async fn events(&self) -> adk_core::Result<Vec<Event>> {
@@ -109,7 +131,7 @@ impl Context {
             )
             && tail(&request, &events[cut..], &self.preamble).is_some()
         {
-            match self.summarizer.summarize_events(&events[..cut]).await {
+            match self.summarize(&events[..cut], true).await {
                 Ok(Some(summary)) if !self.summarizer.stop.is_cancelled() => {
                     self.service
                         .append_event(&self.session.to_string(), summary)
@@ -118,7 +140,9 @@ impl Context {
                     events = self.events().await?;
                 }
                 Ok(_) => {}
-                Err(error) => eprintln!("Context compaction failed: {error}"),
+                Err(error) => {
+                    eprintln!("Context compaction failed: {}", model::error(error).message)
+                }
             }
         }
         if self.summarizer.stop.is_cancelled() {
@@ -174,7 +198,7 @@ impl BaseEventsSummarizer for Context {
         let Some(end) = canonical.iter().position(|event| event.id == last.id) else {
             return Ok(None);
         };
-        self.summarizer.summarize_events(&canonical[..=end]).await
+        self.summarize(&canonical[..=end], true).await
     }
 }
 

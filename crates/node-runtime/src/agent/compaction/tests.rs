@@ -241,6 +241,22 @@ fn retains_summary_failure_reason() {
     }
 }
 
+#[test]
+fn retains_safe_request_diagnostics() {
+    let error = adk_core::AdkError::new(
+        adk_core::ErrorComponent::Model,
+        adk_core::ErrorCategory::RateLimited,
+        "model.openai_compat.api_error",
+        "private provider response and credential",
+    )
+    .with_upstream_status(429);
+    let fault = model::error(request_error(error));
+    assert!(fault.message.contains("context summary request failed"));
+    assert!(fault.message.contains("model.openai_compat.api_error"));
+    assert!(fault.message.contains("HTTP 429"));
+    assert!(!fault.message.contains("private"));
+}
+
 #[tokio::test]
 async fn skips_ineligible_work() {
     let (summarizer, model) = summarizer(vec![], false);

@@ -185,6 +185,13 @@ async fn preserves_context_on_failure() {
                 .count(),
             7
         );
+        // The pinned model adapter classifies this HTTP 500 as nonretryable.
+        // Later tool batches must not start another summary request.
+        let summaries: Vec<_> = requests
+            .iter()
+            .filter(|request| agent_support::compaction::is_summary(request))
+            .collect();
+        assert_eq!(summaries.len(), 1);
         let content = messages(requests.last().unwrap());
         for index in 1..=6 {
             assert!(content.contains(&format!("Evidence {index}")));

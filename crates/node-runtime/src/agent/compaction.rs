@@ -406,7 +406,11 @@ fn transcript(events: &[Event]) -> adk_core::Result<String> {
 }
 
 fn request_error(error: adk_core::AdkError) -> adk_core::AdkError {
-    adk_core::AdkError::model("context summary request failed").with_source(model::error(error))
+    let fault = model::error(error);
+    adk_core::AdkError::model("context summary request failed").with_source(Fault::new(
+        fault.code,
+        format!("context summary request failed: {}", fault.message),
+    ))
 }
 
 fn invalid(message: &'static str) -> adk_core::AdkError {
