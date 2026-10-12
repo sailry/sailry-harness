@@ -11,7 +11,7 @@ import {View,div} from 'gpui-kit';
 import {CardList,CardRow,CardSummary} from 'sailry/ui';
 export default class States extends View {
   render() {
-    const props={empty_icon:'inbox',empty_label:'No items',skeleton_rows:1};
+    const props={empty_icon:'inbox',empty_label:'No items'};
     return div().size_full().v_flex().p_4().gap_4().children([
       CardList.new('pending',{...props,loaded:false}),
       CardList.new('empty',{...props,loaded:true}),
@@ -73,9 +73,7 @@ export default class States extends View {
             assert!(visual.debug_bounds("empty-refresh-empty").is_none());
             assert!(visual.debug_bounds("retained").is_some());
             assert!(visual.debug_bounds("layout-loading").is_none());
-            let pending = visual.debug_bounds("pending-loading-0").unwrap();
-            let retained = visual.debug_bounds("retained").unwrap();
-            assert_eq!(pending.size, retained.size);
+            let pending = visual.debug_bounds("pending-loading").unwrap();
             assert_eq!(pending.size.width, px(width - 32.));
         }
     }

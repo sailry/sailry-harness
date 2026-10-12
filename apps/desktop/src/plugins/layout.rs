@@ -10,13 +10,12 @@ use gpui_shell::{HostModule, HostValue};
 mod cards;
 mod collapse;
 mod scroll;
-mod skeleton;
 
 #[cfg(test)]
 mod tests;
 
 pub(super) fn extend(module: HostModule) -> HostModule {
-    let module = skeleton::extend(scroll::extend(collapse::extend(cards::extend(module))));
+    let module = scroll::extend(collapse::extend(cards::extend(module)));
     let declarations = format!(
         "{}\n{}",
         module.declared().unwrap_or_default(),
@@ -90,19 +89,7 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                 .into_any_element()
         })
         .component("Loading", |args, _, cx| {
-            let id = args.id().to_owned();
-            div()
-                .id(id.clone())
-                .debug_selector(move || id.clone())
-                .absolute()
-                .inset_0()
-                .occlude()
-                .bg(cx.theme().background.opacity(0.8))
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(spinner::Spinner::new().large())
-                .into_any_element()
+            crate::ui::pending::overlay(args.id().to_owned(), cx)
         })
         .component("EmptyState", |mut args, _, cx| {
             let icon = args

@@ -121,6 +121,9 @@ fn first_search_waits_before_empty(cx: &mut TestAppContext) {
             });
             wait(visual, |_| delayed.held.lock().unwrap().len() == 1);
             assert!(visual.debug_bounds("model-library-loading").is_some());
+            assert!(library.read_with(visual, |library, _| {
+                library.first_read() && !library.header_loading()
+            }));
             assert!(visual.debug_bounds("empty-model_library_empty").is_none());
             assert!(visual.debug_bounds("model-library-retry").is_none());
             delayed.held.lock().unwrap()[0].result = Some(if failed {
@@ -180,6 +183,9 @@ fn cancels_search_when_catalog_closes(cx: &mut TestAppContext) {
         ));
         assert_eq!(visual.debug_bounds("model-library-result-0"), Some(before));
         assert!(visual.debug_bounds("model-library-loading").is_none());
+        assert!(library.read_with(visual, |library, _| {
+            !library.first_read() && library.header_loading()
+        }));
         visual.update(|window, cx| window.press("escape", cx));
         draw(visual);
         wait(visual, |_| delayed.closed(0));
@@ -344,6 +350,9 @@ fn replaces_reads_when_source_changes(cx: &mut TestAppContext) {
         });
         assert!(visual.debug_bounds("model-library-loading").is_some());
         assert!(visual.debug_bounds("model-library-result-0").is_none());
+        assert!(library.read_with(visual, |library, _| {
+            library.first_read() && !library.header_loading()
+        }));
         assert!(visual.debug_bounds("empty-model_library_empty").is_none());
         assert!(!delayed.complete(0));
         assert!(matches!(&delayed.held.lock().unwrap()[1].request.command,

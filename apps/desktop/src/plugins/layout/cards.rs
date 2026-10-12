@@ -1,6 +1,8 @@
 //! Script access to the shared card composition, without package-specific fields.
 use crate::ui::card_list::{self, Column};
-use gpui_kit::{IntoElement as _, SharedString, component::Icon};
+use gpui_kit::{
+    IntoElement as _, ParentElement as _, SharedString, Styled as _, component::Icon, div,
+};
 use gpui_shell::{HostModule, HostValue};
 
 #[cfg(test)]
@@ -11,8 +13,8 @@ pub(super) fn extend(module: HostModule) -> HostModule {
         "{}\n{}",
         module.declared().unwrap_or_default(),
         r#"
-            /** Children are rows. Missing first-read data uses skeletons; existing rows survive refresh. */
-            export const CardList: { new(id: string, props?: { loaded?: boolean; skeleton_rows?: number; empty_icon?: string; empty_label?: string }): import("gpui-kit").Element };
+            /** Children are rows. Missing first-read data shows a loading overlay; existing rows survive refresh. */
+            export const CardList: { new(id: string, props?: { loaded?: boolean; empty_icon?: string; empty_label?: string }): import("gpui-kit").Element };
             /** Non-selectable Kit card; children are CardColumn elements with their own controls. */
             export const CardRow: { new(id: string, props?: { row_id?: string }): import("gpui-kit").Element };
             /** Shared column widths and alignment; content and callbacks remain with the caller. */
@@ -27,13 +29,14 @@ pub(super) fn extend(module: HostModule) -> HostModule {
             let mut children = args.take_children();
             if children.is_empty() {
                 if args.props().get("loaded").and_then(HostValue::as_bool) == Some(false) {
-                    let rows = args
-                        .props()
-                        .get("skeleton_rows")
-                        .and_then(HostValue::as_number)
-                        .filter(|rows| rows.is_finite())
-                        .unwrap_or(3.) as usize;
-                    children.push(crate::ui::skeleton::list(format!("{id}-loading"), rows, cx));
+                    children.push(
+                        div()
+                            .relative()
+                            .w_full()
+                            .h_24()
+                            .child(crate::ui::pending::overlay(format!("{id}-loading"), cx))
+                            .into_any_element(),
+                    );
                 } else if let Some(label) =
                     args.props().get("empty_label").and_then(HostValue::as_str)
                 {

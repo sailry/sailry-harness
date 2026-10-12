@@ -3,10 +3,7 @@ use crate::{
     settings::{entry::Entry, group::Group},
     tr,
 };
-use gpui_kit::{
-    component::{button::Button, skeleton::Skeleton},
-    prelude::FluentBuilder as _,
-};
+use gpui_kit::{component::button::Button, prelude::FluentBuilder as _};
 
 impl Render for Panel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -18,7 +15,8 @@ impl Render for Panel {
         let label = if self.settings.is_none() {
             div()
                 .debug_selector(|| "backup-destination-loading".into())
-                .child(Skeleton::new().w_64().h_5().rounded_md())
+                .w_64()
+                .h_5()
                 .into_any_element()
         } else {
             div()
@@ -126,7 +124,12 @@ impl Render for Panel {
             }
         } else if self.settings.is_none() || destination.is_some() {
             records = records.child(if self.loading {
-                crate::ui::skeleton::list("backup-records-loading", 3, cx)
+                div()
+                    .relative()
+                    .w_full()
+                    .h_24()
+                    .child(crate::ui::pending::overlay("backup-records-loading", cx))
+                    .into_any_element()
             } else {
                 div()
                     .h_24()

@@ -9,6 +9,18 @@ use gpui_kit::{
     prelude::FluentBuilder as _,
 };
 
+impl Library {
+    /// The first read has no rows yet, so the list region shows the overlay.
+    pub(super) fn first_read(&self) -> bool {
+        self.loading && self.searched.is_none()
+    }
+
+    /// The header spinner covers refreshes over existing rows, never the overlay state.
+    pub(super) fn header_loading(&self) -> bool {
+        self.loading && self.repository.is_none() && !self.first_read()
+    }
+}
+
 impl Render for Library {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let locked = self.loading || !self.available(cx);
@@ -44,7 +56,7 @@ impl Render for Library {
                     .icon(IconName::Search)
                     .accessibility_label(tr("model_library_search"))
                     .tooltip(tr("model_library_search"))
-                    .loading(self.loading && self.repository.is_none())
+                    .loading(self.header_loading())
                     .debug_selector(|| "model-library-search".into())
                     .disabled(locked)
                     .on_click(
@@ -56,7 +68,12 @@ impl Render for Library {
             .empty(IconName::Search, "model_library_empty");
         if self.searched.is_none() {
             results = results.child(if self.loading {
-                crate::ui::skeleton::list("model-library-loading", 3, cx)
+                div()
+                    .relative()
+                    .w_full()
+                    .h_24()
+                    .child(crate::ui::pending::overlay("model-library-loading", cx))
+                    .into_any_element()
             } else {
                 div()
                     .h_24()

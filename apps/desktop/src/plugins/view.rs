@@ -105,7 +105,7 @@ impl Render for Panel {
                         )
                         .into_any_element()
                 } else {
-                    crate::ui::skeleton::list("plugin-loading-list", 3, cx)
+                    div().w_full().h_64().into_any_element()
                 });
                 v_flex()
                     .id("plugin-panel-loading")
@@ -117,10 +117,14 @@ impl Render for Panel {
                         }
                         .into()
                     })
+                    .relative()
                     .w_full()
                     .min_w_0()
                     .when(!self.content_sized, |view| {
                         view.flex_1().min_h_0().overflow_y_scroll()
+                    })
+                    .when(!failed, |view| {
+                        view.child(crate::ui::pending::overlay("plugin-panel-spinner", cx))
                     })
                     .child(if self.content_sized {
                         body.into_any_element()
@@ -131,28 +135,6 @@ impl Render for Panel {
                             .mx_auto()
                             .p_6()
                             .gap_6()
-                            .child(
-                                v_flex()
-                                    .gap_2()
-                                    .child(div().h_6().w_40().when(!failed, |view| {
-                                        view.child(skeleton::Skeleton::new().size_full())
-                                    }))
-                                    .child(div().h_5().w_64().when(!failed, |view| {
-                                        view.child(
-                                            skeleton::Skeleton::new().secondary().size_full(),
-                                        )
-                                    })),
-                            )
-                            .child(
-                                h_flex()
-                                    .justify_between()
-                                    .child(div().h_8().w_32().when(!failed, |view| {
-                                        view.child(skeleton::Skeleton::new().size_full())
-                                    }))
-                                    .child(div().h_8().w_20().when(!failed, |view| {
-                                        view.child(skeleton::Skeleton::new().size_full())
-                                    })),
-                            )
                             .child(body)
                             .into_any_element()
                     })

@@ -110,7 +110,7 @@ fn keeps_geometry_until_records_arrive(cx: &mut TestAppContext) {
         let (panel, visual) = mount(&fixture, &package, cx);
         wait(visual, |_| entered.is_cancelled());
         let pending = geometry(visual);
-        let row = visual.debug_bounds("tasks-items-loading").unwrap();
+        assert!(visual.debug_bounds("tasks-items-loading").is_some());
         assert!(
             visual
                 .debug_bounds("empty-card-tasks-items-empty")
@@ -137,7 +137,7 @@ fn keeps_geometry_until_records_arrive(cx: &mut TestAppContext) {
         assert_eq!(pending, geometry(visual));
         assert!(visual.debug_bounds("tasks-items-loading").is_none());
         if populated {
-            assert_eq!(row, visual.debug_bounds(selector).unwrap());
+            assert!(visual.debug_bounds(selector).is_some());
             assert!(
                 visual
                     .debug_bounds("empty-card-tasks-items-empty")

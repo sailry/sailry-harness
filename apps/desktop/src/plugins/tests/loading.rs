@@ -66,7 +66,7 @@ export default class NodePage extends View {
         visual.update(|window, cx| window.draw(cx).clear(cx));
         let bounds = visual.debug_bounds("plugin-panel").unwrap();
         assert!(visual.debug_bounds("plugin-panel-loading").is_some());
-        assert!(visual.debug_bounds("plugin-loading-list").is_some());
+        assert!(visual.debug_bounds("plugin-panel-spinner").is_some());
         assert!(visual.debug_bounds("plugin-open-0").is_none());
         assert!(
             visual
@@ -89,7 +89,7 @@ export default class NodePage extends View {
         let failed_bounds = visual.debug_bounds("plugin-panel-unavailable").unwrap();
         assert_eq!(bounds, visual.debug_bounds("plugin-panel").unwrap());
         assert!(visual.debug_bounds("plugin-panel-loading").is_none());
-        assert!(visual.debug_bounds("plugin-loading-list").is_none());
+        assert!(visual.debug_bounds("plugin-panel-spinner").is_none());
         assert!(visual.debug_bounds("plugin-view-retry").is_some());
         assert!(visual.debug_bounds("plugin-open-0").is_none());
         assert!(
@@ -108,7 +108,7 @@ export default class NodePage extends View {
         );
         assert!(visual.debug_bounds("plugin-panel-unavailable").is_none());
         assert!(visual.debug_bounds("plugin-view-retry").is_none());
-        assert!(visual.debug_bounds("plugin-loading-list").is_some());
+        assert!(visual.debug_bounds("plugin-panel-spinner").is_some());
         assert!(visual.debug_bounds("plugin-open-0").is_none());
         assert!(
             visual

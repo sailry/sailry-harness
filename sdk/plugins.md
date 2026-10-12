@@ -76,23 +76,26 @@ Keys are nonempty UTF-8 strings up to 128 bytes, without NUL. Values are JSON up
 
 Use GPUI Kit controls and its native `transition` API for interpolated position, size and opacity. Plugin scripts sequence game events with `cx.sleep()` and `cx.notify()`; they do not need a per-frame rendering loop. Keep game rules and animation sequencing in the plugin.
 
-`SkeletonList.new(id, { rows: 3 })` from `sailry/ui` composes Kit Skeleton with
-the shared card-row layout. `rows` defaults to three. Keep the page heading,
-toolbar and scroll container mounted while the first read is pending. Show an
-empty state only after a successful read; retain current rows during refresh.
-Use Kit's `Skeleton` directly for forms or other layouts with different geometry.
+`Loading.new(id)` from `sailry/ui` is the region loading overlay. It covers its
+parent, blocks input to the content below, and shows a centered spinner. The
+parent must be `relative()` and have real size (`flex_1`, `size_full` or a
+fixed height). The overlay fades in only after 300ms, so a read that finishes
+sooner shows nothing; it appears immediately when the system reduces motion.
+Keep the page heading, toolbar and scroll container mounted while the first
+read is pending. Show the overlay only for a region with nothing to display yet.
+When a region already has content, keep showing it during refresh without the
+overlay. Show an empty state only after a successful read.
 
 `CardList` handles these states automatically. Its children are the row-content
 slot: existing children always remain visible; without children, `loaded: false`
-shows the shared skeleton and a successful read shows `empty_label`. Omit the
-state props to use the original layout-only composition. The plugin still owns
-requests, successful-read state, drafts and error reporting.
+renders a sized `Loading` region and a successful read shows `empty_label`. Omit
+the state props to use the original layout-only composition. The plugin still
+owns requests, successful-read state, drafts and error reporting.
 
 ```js
 import { CardList } from "sailry/ui";
 const content = CardList.new("records", {
   loaded,
-  skeleton_rows: 3,
   empty_icon: "inbox",
   empty_label: text.empty,
 }).children(records.map(renderRecord));
