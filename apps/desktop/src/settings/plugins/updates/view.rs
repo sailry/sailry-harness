@@ -19,6 +19,9 @@ use gpui_kit::*;
 use sailry_protocol::plugin::{Info, Summary};
 use std::collections::BTreeMap;
 
+#[cfg(test)]
+mod tests;
+
 pub(super) struct Selection {
     pub rows: BTreeMap<String, Row>,
     pub locked: bool,
@@ -32,6 +35,16 @@ pub(super) struct Row {
     pub selected: bool,
     pub(super) expanded: bool,
     pub status: Status,
+}
+
+impl Row {
+    fn version(&self) -> String {
+        format!(
+            "{} → {}",
+            self.previous.version.as_deref().unwrap_or("—"),
+            self.info.summary.version.as_deref().unwrap_or("—")
+        )
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -190,17 +203,6 @@ impl Render for State {
                         let selection_name = name.clone();
                         let expand_name = name.clone();
                         let retry_name = name.clone();
-                        let previous = Some(&row.previous);
-                        let version = previous
-                            .filter(|previous| previous.version != row.info.summary.version)
-                            .map(|previous| {
-                                format!(
-                                    "{} → {}",
-                                    previous.version.as_deref().unwrap_or("—"),
-                                    row.info.summary.version.as_deref().unwrap_or("—")
-                                )
-                            })
-                            .unwrap_or_else(|| tr("plugins_content_updated").to_string());
                         let retryable = self.batch.as_ref().map_or_else(
                             || self.entries.contains_key(name),
                             |batch| {
@@ -282,7 +284,7 @@ impl Render for State {
                                                     .truncate()
                                                     .text_sm()
                                                     .text_color(cx.theme().muted_foreground)
-                                                    .child(version),
+                                                    .child(row.version()),
                                             ),
                                     )
                                     .when(
