@@ -62,11 +62,17 @@ pub(super) fn open(library: Entity<Library>, index: usize, window: &mut Window, 
             .footer(
                 DialogFooter::new()
                     .gap_2()
-                    .child(DialogClose::new().trigger(|button| {
-                        button
-                            .label(tr("settings_cancel"))
-                            .debug_selector(|| "model-library-details-close".into())
-                    }))
+                    // Keep Kit's full-width close wrapper in an intrinsic slot.
+                    .child(
+                        h_flex()
+                            .w_auto()
+                            .flex_shrink_0()
+                            .child(DialogClose::new().trigger(|button| {
+                                button
+                                    .label(tr("settings_cancel"))
+                                    .debug_selector(|| "model-library-details-close".into())
+                            })),
+                    )
                     .child(
                         Button::new("model-library-download")
                             .primary()

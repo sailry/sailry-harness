@@ -25,7 +25,13 @@ pub(super) fn description(operation: Operation) -> &'static str {
         | Operation::KnowledgeCreate
         | Operation::KnowledgeRebuild
         | Operation::KnowledgeRemove => unreachable!("knowledge operation handled above"),
-        Operation::CodePackages | Operation::InstallCodeServer | Operation::UninstallCodeServer => {
+        Operation::CodePackages
+        | Operation::CodeCatalog
+        | Operation::CodeServers
+        | Operation::StartCodeServer
+        | Operation::StopCodeServer
+        | Operation::InstallCodeServer
+        | Operation::UninstallCodeServer => {
             unreachable!("language management handled above")
         }
         Operation::CodeDiagnostics
@@ -158,7 +164,13 @@ pub(super) fn parameters(operation: Operation) -> Value {
         | Operation::KnowledgeCreate
         | Operation::KnowledgeRebuild
         | Operation::KnowledgeRemove => unreachable!("knowledge operation handled above"),
-        Operation::CodePackages | Operation::InstallCodeServer | Operation::UninstallCodeServer => {
+        Operation::CodePackages
+        | Operation::CodeCatalog
+        | Operation::CodeServers
+        | Operation::StartCodeServer
+        | Operation::StopCodeServer
+        | Operation::InstallCodeServer
+        | Operation::UninstallCodeServer => {
             unreachable!("language management handled above")
         }
         Operation::CodeDiagnostics
@@ -508,7 +520,13 @@ pub(super) fn command(
         | Operation::KnowledgeCreate
         | Operation::KnowledgeRebuild
         | Operation::KnowledgeRemove => unreachable!("knowledge operation handled above"),
-        Operation::CodePackages | Operation::InstallCodeServer | Operation::UninstallCodeServer => {
+        Operation::CodePackages
+        | Operation::CodeCatalog
+        | Operation::CodeServers
+        | Operation::StartCodeServer
+        | Operation::StopCodeServer
+        | Operation::InstallCodeServer
+        | Operation::UninstallCodeServer => {
             unreachable!("language management handled above")
         }
         Operation::CodeDiagnostics

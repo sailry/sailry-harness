@@ -9,6 +9,7 @@ use sailry_protocol::{Command, ErrorCode, Fault, NodeId, Output, Request, Reques
 use std::{collections::BTreeMap, rc::Rc, sync::Arc};
 
 mod dialog;
+pub(crate) mod language;
 mod models;
 mod speech;
 pub(crate) use models::{completion as model_result, external, retry_model};
@@ -155,6 +156,12 @@ pub(crate) fn connected(client: Arc<Client>, runtime: Arc<tokio::runtime::Runtim
 fn resource(command: &Command) -> Option<Resource> {
     if let Some(resource) = models::resource(command) {
         return Some(resource);
+    }
+    if let Command::InstallCodeServer { install } = command {
+        return Some(Resource::Language {
+            package: install.package.clone(),
+            version: install.version.clone(),
+        });
     }
     let name = match command {
         Command::InstallPlugin { name, .. }

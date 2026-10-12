@@ -97,6 +97,14 @@ pub enum Operation {
     WriteArtifact,
     #[serde(rename = "code.packages")]
     CodePackages,
+    #[serde(rename = "code.catalog")]
+    CodeCatalog,
+    #[serde(rename = "code.servers")]
+    CodeServers,
+    #[serde(rename = "code.start")]
+    StartCodeServer,
+    #[serde(rename = "code.stop")]
+    StopCodeServer,
     #[serde(rename = "code.install")]
     InstallCodeServer,
     #[serde(rename = "code.uninstall")]
@@ -249,8 +257,13 @@ impl Operation {
                 Some(Action::ReadArtifacts)
             }
             Self::WriteArtifact => Some(Action::WriteArtifacts),
-            Self::InstallCodeServer | Self::UninstallCodeServer => Some(Action::ManageCode),
+            Self::InstallCodeServer
+            | Self::UninstallCodeServer
+            | Self::StartCodeServer
+            | Self::StopCodeServer => Some(Action::ManageCode),
             Self::CodePackages
+            | Self::CodeCatalog
+            | Self::CodeServers
             | Self::CodeDiagnostics
             | Self::CodeDefinition
             | Self::CodeReferences
@@ -323,6 +336,8 @@ impl Operation {
         !matches!(
             self,
             Self::InstallCodeServer
+                | Self::StartCodeServer
+                | Self::StopCodeServer
                 | Self::WriteArtifact
                 | Self::UninstallCodeServer
                 | Self::DelegateAgent

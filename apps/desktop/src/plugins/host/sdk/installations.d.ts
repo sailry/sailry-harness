@@ -8,10 +8,12 @@ export type State =
   | { kind: "failed" | "uncertain"; error: Fault };
 export type Task = {
   request: string; revision: string; target: "node" | "controller";
-  resource: { kind: "model"; data: { kind: "ocr" | "embedding" | "speech"; id: string } };
+  resource:
+    | { kind: "model"; data: { kind: "ocr" | "embedding" | "speech"; id: string } }
+    | { kind: "language"; data: { package: string; version: string } };
   state: State;
 };
-/** Observe only model request IDs captured by this plugin Host. */
+/** Observe only model or language installation request IDs captured by this plugin Host. */
 export function read(ids: string[]): Promise<Task[]>;
 export function watch(ids: string[]): void;
 export function next(): Promise<Task[]>;

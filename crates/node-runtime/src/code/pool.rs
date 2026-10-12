@@ -126,8 +126,9 @@ impl Pool {
         &self,
         install: &code::Install,
         stop: &CancellationToken,
+        reporter: Option<&crate::installation::Reporter>,
     ) -> Result<code::Installation, Fault> {
-        self.install.install(install, stop).await
+        self.install.install(install, stop, reporter).await
     }
     pub(crate) fn rules_status(&self) -> Result<code::Rules, Fault> {
         self.rules.status()
@@ -143,14 +144,26 @@ impl Pool {
         self.install.network.fixture(endpoint)
     }
     pub(crate) async fn uninstall(&self, package: &str, version: &str) -> Result<(), Fault> {
-        let path = self.install.path(package, version)?;
         let mut state = self.state.lock().await;
+        let path = self.install.validate_uninstall(package, version)?;
         let keys = state
             .slots
             .iter()
             .filter(|(_, slot)| slot.server.plan.executable.starts_with(&path))
             .map(|(key, _)| key.clone())
             .collect::<Vec<_>>();
+        if keys.iter().any(|key| {
+            state
+                .slots
+                .get(key)
+                .is_some_and(|slot| Arc::strong_count(&slot.server) > 1)
+        }) {
+            return Err(Fault::new(ErrorCode::Busy, "language package is in use"));
+        }
+        // Keep starts excluded until the owned processes and files have been removed.
+        state
+            .prepared
+            .retain(|_, plan| !plan.executable.starts_with(&path));
         for key in keys {
             if let Some(slot) = state.slots.remove(&key) {
                 slot.server.rpc.shutdown().await;

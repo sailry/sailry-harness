@@ -218,16 +218,17 @@ uncertain and are not replayed automatically with a new identity. Conflicts requ
 fresh inspection, not silent overwrites.
 
 Node shares one bounded installation queue across resource types. Independent
-resources can prepare concurrently; attempts for the same plugin or model-service
-family stay in admission order through durable completion. Caller-scoped transient snapshots expose real
+resources can prepare concurrently; attempts for the same plugin, model-service
+family or language package stay in admission order through durable completion. Caller-scoped transient snapshots expose real
 phases and measured progress through the same local and remote Client subscription.
 Confirmed success removes a task; failures and uncertain outcomes remain until
 explicitly dismissed. Dismissal changes only the observation, not the command ledger
 or active execution. Captured plugin authority stays private. Controllers own installer
 visibility and locally planned batches, not another execution queue.
-OCR and embedding installation reuse this queue and their existing native model
-services. Speech installation remains with the controller-local speech manager.
-The public model SDK requires `models.install`; observations expose only explicitly
+OCR, embedding and language installation reuse this queue and their existing native
+drivers. Language removal shares its package lane without appearing as an installation.
+Speech installation remains with the controller-local speech manager. Public installation
+observations require their model or language capability and expose only explicitly
 owned requests in their original captured plugin scope, never the controller feed.
 
 ### Session HTML documents
@@ -305,10 +306,14 @@ startup grant; later use can start it on demand again.
 Language service settings are Node-wide: catalog, installation and server overrides do not
 require a selected project. Disabling a server stops its instances across worktrees.
 Execution remains worktree-scoped, with approved on-demand startup and idle shutdown.
-The language plugin exposes package discovery, installation and removal to conversations.
+The language plugin exposes registry discovery, managed installation, actual worktree
+instances and explicit start, stop and removal tools to conversations. Installation or
+an available registry descriptor does not imply a running server.
 Lifecycle tools reuse exact Node registry descriptors, conversation approvals and durable
-resource admission; Plan turns cannot install or remove software. Removing a package stops
-its instances across worktrees.
+resource admission; Plan turns cannot explicitly start, stop, install or remove software.
+Removing a managed package stops only its idle owned instances across worktrees;
+active installation or use returns Busy before shutdown or deletion. External executables,
+project files and service configuration are not removed.
 Native controllers configure ordered hook scripts per worktree. Admitted turns
 capture each script's order and enabled state; a phase has one durable launch
 receipt, and recovery never replays that group after a crash or cancellation.

@@ -24,6 +24,7 @@ pub(in crate::store) struct Worker {
 enum Lane {
     Plugin(String),
     Model(Kind),
+    Language(String),
 }
 
 fn lane(resource: &Resource) -> Lane {
@@ -31,6 +32,7 @@ fn lane(resource: &Resource) -> Lane {
         Resource::Plugin { name } => Lane::Plugin(name.clone()),
         // Model services serialize mutation within a family, including distinct model IDs.
         Resource::Model { kind, .. } => Lane::Model(*kind),
+        Resource::Language { package, .. } => Lane::Language(package.clone()),
     }
 }
 
@@ -54,11 +56,13 @@ impl Worker {
         F: FnOnce(Reporter, CancellationToken) -> Future + Send + 'static,
         Future: std::future::Future<Output = Response> + Send + 'static,
     {
-        let reporter = self.ingress.installations.begin(
-            execution.caller,
-            &execution.request,
-            resource.clone(),
-        );
+        let reporter: Reporter = if execution.observe {
+            self.ingress
+                .installations
+                .begin(execution.caller, &execution.request, resource.clone())
+        } else {
+            Arc::new(|_, _| {})
+        };
         if self.pending >= 8 || self.ingress.closed.is_cancelled() {
             return Err(Box::new(execution));
         }

@@ -227,7 +227,10 @@ impl Registry {
 fn visible(record: &Record, plugin: Option<&Context>) -> bool {
     plugin.is_none()
         || (record.plugin.as_ref() == plugin
-            && matches!(record.task.resource, Resource::Model { .. }))
+            && matches!(
+                record.task.resource,
+                Resource::Model { .. } | Resource::Language { .. }
+            ))
 }
 
 struct Updates {
@@ -264,7 +267,10 @@ impl Subscription for Updates {
                         self.scope.as_ref().is_none_or(|(requests, plugin)| {
                             requests.contains(&record.task.request)
                                 && record.plugin.as_ref() == Some(plugin)
-                                && matches!(record.task.resource, Resource::Model { .. })
+                                && matches!(
+                                    record.task.resource,
+                                    Resource::Model { .. } | Resource::Language { .. }
+                                )
                         })
                     })
                     .map(|record| record.task.clone())

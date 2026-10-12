@@ -159,7 +159,7 @@ impl Worker {
                     | Command::InstallCodeServer { .. }
                     | Command::UninstallCodeServer { .. }
                     | Command::UpdateCodeRules => {
-                        ingress.change_code(&execution.request, &stop).await
+                        ingress.change_code(&execution.request, &stop, None).await
                     }
                     Command::UseBrowser { .. } => {
                         crate::browser::execute(

@@ -360,6 +360,15 @@ fn prefers_installed_registered_copies(cx: &mut TestAppContext) {
         }));
         draw(visual);
         tap(visual, &format!("knowledge-details-{}", model.key()));
+        let close = visual.debug_bounds("model-details-close").unwrap();
+        let update = visual.debug_bounds("model-details-update").unwrap();
+        let remove = visual.debug_bounds("model-details-delete").unwrap();
+        let dialog = visual.debug_bounds("dialog-0").unwrap();
+        assert!(close.size.width < dialog.size.width / 2.);
+        assert_eq!(close.size.height, update.size.height);
+        assert_eq!(close.size.height, remove.size.height);
+        assert!(close.right() < update.left());
+        assert!(update.right() < remove.left());
         tap(visual, "model-details-update");
         toast(visual, "knowledge_up_to_date");
         assert!(

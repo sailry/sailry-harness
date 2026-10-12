@@ -42,9 +42,12 @@ installation with its returned model identity. Definitions retain pinned asset
 digests; OCR and embedding target `node`, while speech targets `controller`.
 Headless callbacks cannot install controller-local speech models.
 
-`sailry/installations.read(ids)` observes only owned model requests in their original
-captured scope. `watch(ids)` starts a Desktop subscription and `next()` consumes its
-Client-reduced snapshots. Headless callbacks use bounded `read(ids)` snapshots;
+`sailry/installations.read(ids)` observes only owned model or language installation
+requests in their original captured scope. Language observations require `code.read`
+or `code.manage`; model observations require `models.install`. Both retain the exact
+prepared request IDs and expose only their resource category, never another plugin's
+or the controller's installation feed. `watch(ids)` starts a Desktop subscription and `next()` consumes its
+Client-reduced snapshots. Headless callbacks use bounded model-only `read(ids)` snapshots;
 `watch` and `next` cannot retain live subscriptions beyond their callback budget.
 SDK rows use
 decimal-string revisions and explicit `target`. `dismiss(id)` removes a failed or
@@ -132,9 +135,9 @@ Entering settings can preload bounded immutable resources without running script
 
 `settings_page` contributes settings navigation, placement and an optional shared enable control. A script page supplies `entry`; a schema-generated page omits it. Feature pages and workflows belong in the package, including bundled language-service and search settings. The host provides Kit composition and scoped service APIs, never package-specific native page selectors.
 
-`code.settings.read` allows reading Node-wide language settings, catalog and registry metadata. `code.settings.write` allows saving settings, updating rules and cancelling installation. `code.manage` allows exact-descriptor installation/removal; `code.read` observes installations. `web.settings.read` and `web.settings.write` allow search settings and driver checks. These settings operations require the captured settings surface, without a worktree, session, turn or callback invocation. Agent lifecycle tools still require their original approval. Disabled packages can configure their own settings surface.
+`code.settings.read` allows reading Node-wide language settings, catalog and registry metadata. `code.settings.write` allows saving settings, updating rules and cancelling installation. `code.manage` allows exact-descriptor installation/removal and explicit worktree-scoped server start/stop; `code.read` observes installations and running instances. `web.settings.read` and `web.settings.write` allow search settings and driver checks. Settings operations require the captured settings surface, without a worktree, session, turn or callback invocation. Agent lifecycle tools still require their original approval and cannot change service enable settings. Disabled packages can configure their own settings surface.
 
-`nextCodeInstallations()` observes installation updates on the captured Node and closes with the view. Use `sailry/search.prepareSettings` with opaque `sailry/credentials` field handles to prepare credential updates; plaintext credentials never enter JavaScript. Complete and recover these requests through the ordinary SDK request API.
+`nextCodeInstallations()` observes managed receipts and inventory on the captured Node and closes with the view. Install stages use the shared `sailry/installations` queue; a ready receipt is not the command's durable completion. Registered package availability, managed installation and running worktree instances are separate observations. Removal is serialized with installation for the same package and returns Busy before stopping or deleting a package currently in use. Use `sailry/search.prepareSettings` with opaque `sailry/credentials` field handles to prepare credential updates; plaintext credentials never enter JavaScript. Complete and recover these requests through the ordinary SDK request API.
 
 A package can declare `enabled_service: "language"` with Host scope and `code.settings.write` to bind its switch to the Node language service. Only one installed package may own a service binding. Omitting it creates no service coupling. The host validates and applies the lifecycle atomically; the field grants no actions.
 

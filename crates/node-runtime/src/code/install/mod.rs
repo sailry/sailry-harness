@@ -1,5 +1,7 @@
 use super::{network::Network, rules::Registry};
+use crate::installation::Reporter;
 use sailry_link::CancellationToken;
+use sailry_protocol::installation::Phase;
 use sailry_protocol::{ErrorCode, Fault, code};
 use serde_json::Value;
 use std::{
@@ -140,6 +142,7 @@ impl Manager {
         self: &Arc<Self>,
         install: &code::Install,
         closed: &CancellationToken,
+        reporter: Option<&Reporter>,
     ) -> Result<code::Installation, Fault> {
         let plan = plan::prepare(self.rules.get()?.as_ref(), install, &self.environment)?;
         let final_path = self.path(&install.package, &install.version)?;
@@ -198,7 +201,8 @@ impl Manager {
             package: install.package.clone(),
             finished: false,
         };
-        let result = self.run(&plan, &final_path, &stop).await;
+        report(reporter, Phase::Preparing);
+        let result = self.run(&plan, &final_path, &stop, reporter).await;
         let mut state = code::Installation {
             package: install.package.clone(),
             status: code::InstallStatus::Ready,
@@ -234,6 +238,7 @@ impl Manager {
         plan: &plan::Plan,
         final_path: &Path,
         stop: &CancellationToken,
+        reporter: Option<&Reporter>,
     ) -> Result<code::Receipt, Fault> {
         if final_path.exists() {
             let stored = receipt(&final_path.join("receipt.json"))?;
@@ -258,6 +263,7 @@ impl Manager {
         let mut downloads = Vec::new();
         match &plan.kind {
             plan::Kind::Archives { assets, release } => {
+                report(reporter, Phase::Downloading);
                 self.status(
                     &plan.consent.package,
                     code::InstallStatus::Downloading,
@@ -265,6 +271,7 @@ impl Manager {
                 );
                 let checksums = self.checksums(release.as_deref(), assets, stop).await?;
                 for asset in assets {
+                    report(reporter, Phase::Downloading);
                     self.status(
                         &plan.consent.package,
                         code::InstallStatus::Downloading,
@@ -275,6 +282,7 @@ impl Manager {
                         .fetch(&asset.url, 512 * 1024 * 1024, stop)
                         .await?;
                     let expected = checksums.get(&asset.name);
+                    report(reporter, Phase::Validating);
                     if expected.is_some_and(|expected| expected != &digest) {
                         return Err(Fault::invalid("language release checksum did not match"));
                     }
@@ -288,6 +296,7 @@ impl Manager {
                         code::InstallStatus::Installing,
                         Some(asset.name.clone()),
                     );
+                    report(reporter, Phase::Installing);
                     let asset = asset.clone();
                     let root = stage.to_owned();
                     let stop = stop.clone();
@@ -301,6 +310,7 @@ impl Manager {
             }
             plan::Kind::Toolchain { .. } => {
                 self.status(&plan.consent.package, code::InstallStatus::Installing, None);
+                report(reporter, Phase::Installing);
                 toolchain::install(plan, stage, final_path, &self.environment, stop).await?;
             }
         }
@@ -399,7 +409,7 @@ impl Manager {
         Ok(checksums)
     }
 
-    pub fn uninstall(&self, package: &str, version: &str) -> Result<(), Fault> {
+    pub fn validate_uninstall(&self, package: &str, version: &str) -> Result<PathBuf, Fault> {
         let path = self.path(package, version)?;
         if self
             .jobs
@@ -426,6 +436,26 @@ impl Manager {
                 "language install receipt differs from its directory",
             ));
         }
+        let path = path.canonicalize().map_err(invalid)?;
+        let expected = self
+            .profile
+            .as_ref()
+            .expect("managed profile was validated")
+            .canonicalize()
+            .map_err(invalid)?
+            .join("tools/lsp")
+            .join(package)
+            .join(version);
+        if path != expected {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "language package is outside managed storage",
+            ));
+        }
+        Ok(path)
+    }
+    pub fn uninstall(&self, package: &str, version: &str) -> Result<(), Fault> {
+        let path = self.validate_uninstall(package, version)?;
         std::fs::remove_dir_all(path).map_err(invalid)?;
         self.jobs
             .lock()
@@ -448,6 +478,12 @@ impl Manager {
             .join("tools/lsp")
             .join(package)
             .join(version))
+    }
+}
+
+fn report(reporter: Option<&Reporter>, phase: Phase) {
+    if let Some(reporter) = reporter {
+        reporter(phase, None);
     }
 }
 

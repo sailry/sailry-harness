@@ -37,6 +37,8 @@ pub(super) fn authorize(database: &Database, request: &Request) -> Result<(), Fa
     let operation = match request.command {
         Command::InstallCodeServer { .. } => Operation::InstallCodeServer,
         Command::UninstallCodeServer { .. } => Operation::UninstallCodeServer,
+        Command::StartCodeServer { .. } => Operation::StartCodeServer,
+        Command::StopCodeServer { .. } => Operation::StopCodeServer,
         _ => return Err(denied()),
     };
     let binding = binding

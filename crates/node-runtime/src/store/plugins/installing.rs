@@ -56,6 +56,7 @@ pub(in crate::store) fn submit(
         request: mutation.request,
         reply: mutation.reply,
         operation: false,
+        observe: true,
     };
     worker.submit(execution, resource, move |reporter, stop| async move {
         let info = acquire(&ingress, caller, &request, root, &stop, &reporter).await?;

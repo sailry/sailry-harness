@@ -8,8 +8,8 @@ fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Command) 
         .into_iter()
         .find(|package| package.name == "code")
         .unwrap();
-    let command = if operation == Operation::InstallCodeServer {
-        Command::InstallCodeServer {
+    let command = match operation {
+        Operation::InstallCodeServer => Command::InstallCodeServer {
             install: code::Install {
                 package: "rust-analyzer".into(),
                 version: "1.0".into(),
@@ -19,12 +19,29 @@ fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Command) 
                 command: None,
                 revision: "a".repeat(64),
             },
-        }
-    } else {
-        Command::UninstallCodeServer {
+        },
+        Operation::UninstallCodeServer => Command::UninstallCodeServer {
             package: "rust-analyzer".into(),
             version: "1.0".into(),
+        },
+        Operation::StartCodeServer | Operation::StopCodeServer => {
+            let run =
+                super::super::super::calls::active(&fixture.database.connection, fixture.turn)
+                    .unwrap();
+            let startup = code::Startup {
+                worktree: run.worktree,
+                root: String::new(),
+                server: "rust-analyzer".into(),
+                executable: "/fixture/rust-analyzer".into(),
+                revision: "b".repeat(64),
+            };
+            if operation == Operation::StartCodeServer {
+                Command::StartCodeServer { startup }
+            } else {
+                Command::StopCodeServer { startup }
+            }
         }
+        _ => unreachable!("lifecycle operation expected"),
     };
     let (name, args) = match &command {
         Command::InstallCodeServer { install } => {
@@ -34,6 +51,12 @@ fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Command) 
             "code_uninstall",
             json!({"package":package,"version":version}),
         ),
+        Command::StartCodeServer { startup } => {
+            ("code_start", serde_json::to_value(startup).unwrap())
+        }
+        Command::StopCodeServer { startup } => {
+            ("code_stop", serde_json::to_value(startup).unwrap())
+        }
         _ => unreachable!(),
     };
     fixture.request = ToolConfirmationRequest {
@@ -70,7 +93,12 @@ fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Command) 
 
 #[test]
 fn requires_exact_claimed_lifecycle_call() {
-    for operation in [Operation::InstallCodeServer, Operation::UninstallCodeServer] {
+    for operation in [
+        Operation::InstallCodeServer,
+        Operation::UninstallCodeServer,
+        Operation::StartCodeServer,
+        Operation::StopCodeServer,
+    ] {
         let (mut fixture, binding, command) = fixture(operation, WorkMode::Code);
         let run =
             super::super::super::calls::active(&fixture.database.connection, fixture.turn).unwrap();
@@ -112,6 +140,9 @@ fn requires_exact_claimed_lifecycle_call() {
                 install.urls.push("https://example.com/changed".into())
             }
             Command::UninstallCodeServer { version, .. } => *version = "2.0".into(),
+            Command::StartCodeServer { startup } | Command::StopCodeServer { startup } => {
+                startup.executable = "/bin/sh".into();
+            }
             _ => unreachable!(),
         }
         assert_eq!(
@@ -131,8 +162,13 @@ fn requires_exact_claimed_lifecycle_call() {
 }
 
 #[test]
-fn planning_cannot_authorize_installation_or_removal() {
-    for operation in [Operation::InstallCodeServer, Operation::UninstallCodeServer] {
+fn planning_rejects_lifecycle_changes() {
+    for operation in [
+        Operation::InstallCodeServer,
+        Operation::UninstallCodeServer,
+        Operation::StartCodeServer,
+        Operation::StopCodeServer,
+    ] {
         let (mut fixture, binding, _) = fixture(operation, WorkMode::Plan);
         assert_eq!(
             begin(

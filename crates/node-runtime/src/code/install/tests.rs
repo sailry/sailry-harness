@@ -54,11 +54,22 @@ async fn fixture(hold: bool, checksum: bool) -> (Fixture, Arc<Manager>, Sources,
 #[tokio::test]
 async fn publishes_verified_receipts_and_removes_exact_versions() {
     let (_fixture, manager, sources, install) = fixture(false, true).await;
+    let phases = Arc::new(Mutex::new(Vec::new()));
+    let captured = phases.clone();
+    let reporter: Reporter = Arc::new(move |phase, progress| {
+        assert!(progress.is_none());
+        captured.lock().unwrap().push(phase);
+    });
     let state = manager
-        .install(&install, &CancellationToken::new())
+        .install(&install, &CancellationToken::new(), Some(&reporter))
         .await
         .unwrap();
     assert_eq!(state.status, code::InstallStatus::Ready);
+    let phases = phases.lock().unwrap().clone();
+    assert_eq!(phases.first(), Some(&Phase::Preparing));
+    assert!(phases.contains(&Phase::Downloading));
+    assert!(phases.contains(&Phase::Validating));
+    assert_eq!(phases.last(), Some(&Phase::Installing));
     let receipt = state.receipt.unwrap();
     assert!(receipt.downloads[0].verified);
     assert_eq!(receipt.revision, install.revision);
@@ -68,7 +79,7 @@ async fn publishes_verified_receipts_and_removes_exact_versions() {
     let count = sources.requests.lock().await.len();
     assert!(
         manager
-            .install(&install, &CancellationToken::new())
+            .install(&install, &CancellationToken::new(), None)
             .await
             .is_ok()
     );
@@ -86,13 +97,25 @@ async fn cancellation_cleans_staging_and_preserves_other_packages() {
     let (_fixture, manager, sources, install) = fixture(true, true).await;
     let running = manager.clone();
     let requested = install.clone();
-    let task =
-        tokio::spawn(async move { running.install(&requested, &CancellationToken::new()).await });
+    let task = tokio::spawn(async move {
+        running
+            .install(&requested, &CancellationToken::new(), None)
+            .await
+    });
     sources
         .requested(&CodeServerFixture::new().asset_path())
         .await;
+    assert_eq!(
+        manager
+            .validate_uninstall(&install.package, &install.version)
+            .unwrap_err()
+            .code,
+        ErrorCode::Busy
+    );
     assert!(matches!(
-        manager.install(&install, &CancellationToken::new()).await,
+        manager
+            .install(&install, &CancellationToken::new(), None)
+            .await,
         Err(Fault {
             code: ErrorCode::Busy,
             ..
@@ -120,7 +143,7 @@ async fn checksum_failure_leaves_no_installed_version() {
     let (_fixture, manager, _sources, install) = fixture(false, false).await;
     assert!(
         manager
-            .install(&install, &CancellationToken::new())
+            .install(&install, &CancellationToken::new(), None)
             .await
             .is_err()
     );

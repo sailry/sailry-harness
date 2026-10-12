@@ -1,4 +1,4 @@
-//! Observation is restricted to this Host's captured model request IDs.
+//! Observation is restricted to this Host's captured installation request IDs.
 use super::*;
 use sailry_protocol::installation::{self, Task};
 
@@ -87,7 +87,9 @@ impl Host {
                 .filter(|request| {
                     matches!(
                         request.command,
-                        Command::InstallOcrModel { .. } | Command::InstallKnowledgeModel { .. }
+                        Command::InstallOcrModel { .. }
+                            | Command::InstallKnowledgeModel { .. }
+                            | Command::InstallCodeServer { .. }
                     ) && request.plugin.as_ref() == Some(&scope)
                 })
                 .ok_or_else(|| {

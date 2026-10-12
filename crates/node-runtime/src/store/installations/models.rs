@@ -37,6 +37,7 @@ pub(in crate::store) fn submit(
         request: execution.request,
         reply: execution.reply,
         operation: true,
+        observe: true,
     };
     worker.submit(execution, resource, move |reporter, stop| async move {
         reporter(Phase::Inspecting, None);

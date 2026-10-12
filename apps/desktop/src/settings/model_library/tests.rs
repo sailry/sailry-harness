@@ -149,6 +149,8 @@ fn registers_on_each_selected_node(cx: &mut TestAppContext) {
         let cancel = visual.debug_bounds("model-library-details-close").unwrap();
         let download = visual.debug_bounds("model-library-download").unwrap();
         assert!(cancel.right() < download.left());
+        assert!(cancel.size.width < details.size.width / 2.);
+        assert_eq!(cancel.size.height, download.size.height);
         assert!(details.right() - download.right() < px(64.));
         assert!(download.bottom() <= details.bottom());
         assert!(catalog.size.height < px(640.));

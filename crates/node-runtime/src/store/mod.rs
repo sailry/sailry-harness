@@ -1157,6 +1157,9 @@ impl Store {
                                         if installations::models::handles(&execution.request.command) {
                                             installations::models::submit(&mut installations, installing.clone(), execution)
                                                 .err().map(|execution| (execution.caller, execution.request, execution.reply))
+                                        } else if installations::language::handles(&execution.request.command) {
+                                            installations::language::submit(&mut installations, installing.clone(), execution)
+                                                .err().map(|execution| (execution.caller, execution.request, execution.reply))
                                         } else {
                                             resource_work.submit(execution).err().map(|execution| {
                                                 (execution.caller, execution.request, execution.reply)

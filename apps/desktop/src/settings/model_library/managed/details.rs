@@ -33,11 +33,18 @@ pub(super) fn open(target: Target, key: ModelKey, window: &mut Window, cx: &mut 
         let model = state.target.entry(state.key, cx);
         let mut footer = DialogFooter::new()
             .gap_2()
-            .child(DialogClose::new().trigger(|button| {
-                button
-                    .label(tr("knowledge_close"))
-                    .debug_selector(|| "model-details-close".into())
-            }));
+            // Kit's close wrapper is full-width; an intrinsic slot keeps this
+            // action aligned with the existing compact footer buttons.
+            .child(
+                h_flex()
+                    .w_auto()
+                    .flex_shrink_0()
+                    .child(DialogClose::new().trigger(|button| {
+                        button
+                            .label(tr("knowledge_close"))
+                            .debug_selector(|| "model-details-close".into())
+                    })),
+            );
         if let Some(model) = &model {
             if matches!(model.status, ModelStatus::Downloading(_)) {
                 let target = state.target.clone();

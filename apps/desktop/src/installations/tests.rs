@@ -25,6 +25,80 @@ fn failure() -> Fault {
     Fault::new(ErrorCode::InvalidRequest, "invalid package")
 }
 
+struct DraftTransport;
+
+impl sailry_link::Transport for DraftTransport {
+    fn target(&self) -> NodeId {
+        NodeId([1; 32])
+    }
+
+    fn dispatch(
+        &self,
+        _: Request,
+    ) -> sailry_link::Pending<'_, Result<sailry_link::Admission, Fault>> {
+        panic!("draft preparation must not dispatch")
+    }
+
+    fn subscribe(
+        &self,
+        _: sailry_protocol::Topic,
+    ) -> sailry_link::Pending<'_, Result<Box<dyn sailry_link::Subscription>, Fault>> {
+        panic!("draft preparation must not subscribe")
+    }
+}
+
+#[test]
+fn identifies_captured_language_installs() {
+    let request = Request::new(
+        NodeId([1; 32]),
+        Command::InstallCodeServer {
+            install: sailry_protocol::code::Install {
+                package: "analyzer".into(),
+                version: "1".into(),
+                purl: "pkg:generic/analyzer@1".into(),
+                urls: vec![],
+                licenses: vec![],
+                command: None,
+                revision: "a".repeat(64),
+            },
+        },
+    )
+    .with_plugin(sailry_protocol::plugin::Context {
+        invocation: None,
+        turn: None,
+        surface: sailry_protocol::plugin::desktop::Surface::Settings,
+        package: sailry_protocol::plugin::Reference {
+            name: "example".into(),
+            digest: "a".repeat(64),
+            settings_revision: 1,
+        },
+        worktree: None,
+        session: None,
+    });
+    assert_eq!(
+        resource(&request.command),
+        Some(Resource::Language {
+            package: "analyzer".into(),
+            version: "1".into()
+        })
+    );
+    assert!(
+        resource(&Command::UninstallCodeServer {
+            package: "analyzer".into(),
+            version: "1".into()
+        })
+        .is_none()
+    );
+    let client = Client::new(Arc::new(DraftTransport));
+    let recovered = Attempt::Recover.request(&client, &request);
+    assert_eq!(recovered, request);
+    let fresh = Attempt::New.request(&client, &request);
+    assert_ne!(fresh.id, request.id);
+    assert_eq!(fresh.target, request.target);
+    assert_eq!(fresh.command, request.command);
+    assert_eq!(fresh.plugin, request.plugin);
+}
+
 fn observed(id: RequestId, state: Status) -> View {
     View {
         connected: true,
@@ -160,6 +234,67 @@ struct Frame;
 impl Render for Frame {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div().size_full()
+    }
+}
+
+#[gpui::test]
+fn frames_each_resource_task(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+    });
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let frame = cx.new(|_| Frame);
+        Root::new(frame, window, cx)
+    });
+    let tasks = visual.update(|window, cx| {
+        let queue = registry(cx);
+        queue.update(cx, |queue, cx| {
+            let resources = [
+                Resource::Plugin {
+                    name: "example".into(),
+                },
+                Resource::Model {
+                    kind: sailry_protocol::models::Kind::Ocr,
+                    id: "a".repeat(64),
+                },
+                Resource::Language {
+                    package: "analyzer".into(),
+                    version: "1".into(),
+                },
+            ];
+            let tasks = resources
+                .into_iter()
+                .enumerate()
+                .map(|(order, resource)| {
+                    let key = key();
+                    let mut entry = entry();
+                    entry.order = order as u64;
+                    entry.resource = resource;
+                    queue.entries.insert(key, entry);
+                    key.1
+                })
+                .collect::<Vec<_>>();
+            queue.changed(cx);
+            queue.open(window, cx);
+            tasks
+        })
+    });
+    visual.update(|window, cx| {
+        let _ = window.draw(cx);
+    });
+    let mut previous = None;
+    for request in tasks {
+        let card = Box::leak(format!("installation-card-{request}").into_boxed_str());
+        let content = Box::leak(format!("installation-{request}").into_boxed_str());
+        let card = visual.debug_bounds(card).unwrap();
+        let content = visual.debug_bounds(content).unwrap();
+        assert!(content.left() >= card.left() && content.right() <= card.right());
+        assert!(content.top() >= card.top() && content.bottom() <= card.bottom());
+        if let Some(previous) = previous {
+            assert!(previous <= card.top());
+        }
+        previous = Some(card.bottom());
     }
 }
 

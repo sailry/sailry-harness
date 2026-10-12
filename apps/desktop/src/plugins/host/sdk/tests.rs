@@ -1,5 +1,6 @@
 use super::*;
 mod git;
+mod installations;
 mod knowledge;
 mod model_assets;
 mod notifications;

@@ -11,7 +11,7 @@ use serde_json::json;
 #[derive(Default)]
 pub(super) struct Services {
     manager: Option<Arc<crate::dictation::models::Manager>>,
-    runtime: Option<Arc<tokio::runtime::Runtime>>,
+    pub(super) runtime: Option<Arc<tokio::runtime::Runtime>>,
     install: bool,
     drafts: BTreeMap<RequestId, controller::Draft>,
 }

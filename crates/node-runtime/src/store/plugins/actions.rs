@@ -28,7 +28,7 @@ impl Database {
         }
         // Browser provisioning and controller authority follow live package availability,
         // while code and settings retain the admitted package revision.
-        if matches!(
+        if (matches!(
             request.command,
             Command::UseBrowser { .. }
                 | Command::UseExternalBrowser { .. }
@@ -36,11 +36,14 @@ impl Database {
                 | Command::UseMedia { .. }
                 | Command::InstallCodeServer { .. }
                 | Command::UninstallCodeServer { .. }
+                | Command::StopCodeServer { .. }
                 | Command::RegisterOcrModel { .. }
                 | Command::RegisterKnowledgeModel { .. }
                 | Command::InstallOcrModel { .. }
                 | Command::InstallKnowledgeModel { .. }
-        ) && !context.controller_settings()
+        ) || matches!(request.command, Command::StartCodeServer { .. })
+            && super::super::code::startup_action(self, request)? == Action::ManageCode)
+            && !context.controller_settings()
             && !super::required(&self.connection, &context.package.name)?
                 .summary
                 .enabled
@@ -317,9 +320,13 @@ impl Database {
                 Command::RegisterOcrModel { .. }
                 | Command::RegisterKnowledgeModel { .. }
                 | Command::InstallOcrModel { .. }
-                | Command::InstallKnowledgeModel { .. }
-                | Command::ReadInstallations { .. }
-                | Command::DismissInstallation { .. } => (Some(Action::InstallModels), None, None),
+                | Command::InstallKnowledgeModel { .. } => {
+                    (Some(Action::InstallModels), None, None)
+                }
+                Command::ReadInstallations { .. } | Command::DismissInstallation { .. } => {
+                    // Exact captured request/category visibility is checked by the Registry.
+                    (None, None, None)
+                }
                 Command::RequestPluginHttp(_) => (Some(Action::Http), None, None),
                 Command::FetchWeb(_)
                 | Command::CancelWebFetch { .. }
@@ -351,6 +358,11 @@ impl Database {
                     (Some(Action::SaveSearchSettings), None, None)
                 }
                 Command::ListCodeInstallations => (Some(Action::ReadCode), None, None),
+                Command::ReadCodeCatalog
+                    if context.turn.is_some() && context.invocation.is_none() =>
+                {
+                    (Some(Action::ReadCode), context.worktree, context.session)
+                }
                 Command::ReadCode { worktree, .. }
                 | Command::ListCodeServers { worktree }
                 | Command::ListCodePackages { worktree } => {
@@ -362,10 +374,19 @@ impl Database {
                     (Some(Action::ManageCode), context.worktree, context.session)
                 }
                 Command::StartCodeServer { startup } if context.turn.is_some() => (
-                    Some(Action::ReadCode),
+                    Some(super::super::code::startup_action(self, request)?),
                     Some(startup.worktree),
                     context.session,
                 ),
+                Command::StopCodeServer { startup }
+                    if context.turn.is_some() && context.invocation.is_none() =>
+                {
+                    (
+                        Some(Action::ManageCode),
+                        Some(startup.worktree),
+                        context.session,
+                    )
+                }
                 Command::ListDirectory { worktree, .. }
                 | Command::ReadFile { worktree, .. }
                 | Command::ReadFileLines { worktree, .. }
@@ -719,6 +740,13 @@ impl Database {
             if matches!(request.command, Command::ListPluginModels) {
                 extension.actions.contains(&Action::GenerateText)
                     || extension.actions.contains(&Action::ReadModels)
+            } else if matches!(
+                request.command,
+                Command::ReadInstallations { .. } | Command::DismissInstallation { .. }
+            ) {
+                extension.actions.contains(&Action::InstallModels)
+                    || extension.actions.contains(&Action::ReadCode)
+                    || extension.actions.contains(&Action::ManageCode)
             } else {
                 action.is_none_or(|action| extension.actions.contains(&action))
             }

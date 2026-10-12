@@ -1,6 +1,21 @@
 use super::*;
 
 #[test]
+fn identifies_language_package_versions() {
+    let resource = Resource::Language {
+        package: "rust-analyzer".into(),
+        version: "1.0".into(),
+    };
+    let wire = serde_json::to_value(&resource).unwrap();
+    assert_eq!(
+        wire,
+        serde_json::json!({"kind":"language","data":{"package":"rust-analyzer","version":"1.0"}})
+    );
+    assert_eq!(serde_json::from_value::<Resource>(wire).unwrap(), resource);
+    assert!(serde_json::from_value::<Resource>(serde_json::json!({"kind":"language","data":{"package":"rust-analyzer","version":"1.0","origin":"node"}})).is_err());
+}
+
+#[test]
 fn keeps_measured_progress_distinct() {
     for progress in [
         Progress::Percent {

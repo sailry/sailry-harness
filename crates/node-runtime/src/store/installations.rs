@@ -1,4 +1,5 @@
 //! Transient task observation and the existing bounded installation queue.
+pub(super) mod language;
 pub(super) mod models;
 mod registry;
 mod worker;
@@ -17,6 +18,8 @@ pub(super) struct Execution {
     pub reply: oneshot::Sender<Response>,
     /// Resource calls hold their admitted Agent operation until durable completion.
     pub operation: bool,
+    /// Ordered removals reuse the lane without pretending to be installations.
+    pub observe: bool,
 }
 
 impl Ingress {

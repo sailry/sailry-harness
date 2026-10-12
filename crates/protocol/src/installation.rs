@@ -134,6 +134,7 @@ pub fn validate_requests(requests: &[RequestId]) -> Result<(), Fault> {
 pub enum Resource {
     Plugin { name: String },
     Model { kind: Kind, id: String },
+    Language { package: String, version: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

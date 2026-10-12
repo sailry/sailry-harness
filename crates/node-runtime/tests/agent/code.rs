@@ -9,6 +9,8 @@ mod catalog;
 mod enabled;
 #[path = "code/install.rs"]
 mod install;
+#[path = "code/lifecycle.rs"]
+mod lifecycle;
 #[path = "code/live.rs"]
 mod live;
 #[path = "code/management.rs"]

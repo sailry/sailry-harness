@@ -351,6 +351,10 @@ async fn removed_default(name: &str, enabled: bool) {
                     Some(Operation::CodeHover),
                     Some(Operation::CodeSymbols),
                     Some(Operation::CodePackages),
+                    Some(Operation::CodeCatalog),
+                    Some(Operation::CodeServers),
+                    Some(Operation::StartCodeServer),
+                    Some(Operation::StopCodeServer),
                     Some(Operation::InstallCodeServer),
                     Some(Operation::UninstallCodeServer),
                 ]

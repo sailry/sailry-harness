@@ -31,11 +31,47 @@ pub(super) fn grant(db: &Connection, startup: &Startup) -> Result<(), Fault> {
     Ok(())
 }
 
+pub(in crate::store) fn startup_action(
+    database: &Database,
+    request: &Request,
+) -> Result<sailry_protocol::plugin::Action, Fault> {
+    let Some(context) = &request.plugin else {
+        return Ok(sailry_protocol::plugin::Action::ManageCode);
+    };
+    let Some(turn) = context.turn else {
+        return Ok(sailry_protocol::plugin::Action::ManageCode);
+    };
+    let binding: Option<Vec<u8>> = database
+        .connection
+        .query_row(
+            "SELECT binding FROM agent_approvals WHERE turn=?1 AND request=?2 AND claimed=1",
+            params![turn.to_string(), request.id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(storage_error)?;
+    let binding: Option<super::agent::ApprovalBinding> = binding
+        .map(|binding| serde_json::from_slice(&binding).map_err(storage_error))
+        .transpose()?
+        .flatten();
+    Ok(
+        if binding.is_some_and(|binding| {
+            binding.owner == context.package && binding.operation.is_some_and(crate::code::handles)
+        }) {
+            sailry_protocol::plugin::Action::ReadCode
+        } else {
+            sailry_protocol::plugin::Action::ManageCode
+        },
+    )
+}
+
 pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Fault> {
     if !matches!(request.command, Command::StartCodeServer { .. }) {
         if matches!(
             request.command,
-            Command::InstallCodeServer { .. } | Command::UninstallCodeServer { .. }
+            Command::InstallCodeServer { .. }
+                | Command::UninstallCodeServer { .. }
+                | Command::StopCodeServer { .. }
         ) {
             management::authorize(database, request)?;
         } else {
@@ -90,11 +126,15 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
             serde_json::from_slice(&body).map_err(storage_error)?;
         let binding: Option<super::agent::ApprovalBinding> =
             serde_json::from_slice(&binding).map_err(storage_error)?;
+        let manual = binding.as_ref().is_some_and(|binding| {
+            binding.owner == context.package
+                && binding.operation == Some(sailry_protocol::tool::Operation::StartCodeServer)
+        });
         if context.session != Some(approval.session)
             || context.invocation.is_some()
             || !binding.is_some_and(|binding| {
                 binding.owner == context.package
-                    && binding.operation.is_some_and(crate::code::handles)
+                    && (manual || binding.operation.is_some_and(crate::code::handles))
             })
         {
             return Err(Fault::new(
@@ -102,7 +142,9 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
                 "language startup belongs to another captured call or package",
             ));
         }
-        if approval.state != sailry_protocol::conversation::ApprovalState::Approved
+        if manual {
+            management::authorize(database, request)?;
+        } else if approval.state != sailry_protocol::conversation::ApprovalState::Approved
             || approval.startup.as_ref() != Some(startup)
         {
             return Err(Fault::new(
@@ -249,6 +291,7 @@ impl Ingress {
         &self,
         request: &Request,
         stop: &CancellationToken,
+        reporter: Option<&crate::installation::Reporter>,
     ) -> Result<Output, Fault> {
         match &request.command {
             Command::StartCodeServer { startup } => {
@@ -264,7 +307,7 @@ impl Ingress {
             }
             Command::InstallCodeServer { install } => self
                 .code
-                .install(install, stop)
+                .install(install, stop, reporter)
                 .await
                 .map(Output::CodeInstallation),
             Command::UninstallCodeServer { package, version } => {

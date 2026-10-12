@@ -2,6 +2,7 @@
 use super::*;
 use crate::code::tests::Fixture;
 use serde_json::json;
+mod removal;
 #[tokio::test]
 async fn requires_prepared_descriptors_and_reuses_live_servers() {
     let fixture = Fixture::new().await;
