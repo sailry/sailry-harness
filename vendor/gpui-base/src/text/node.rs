@@ -26,7 +26,7 @@ use crate::{
             Inline, InlineHighlight, InlineState, combine_highlights, fade_highlights,
             point_in_text_selection, text_runs, text_size_ranges,
         },
-        inline_flow::{InlineFlow, InlineFlowItem, LINK_ICON_ADVANCE, slice_ranges},
+        inline_flow::{InlineFlow, InlineFlowItem, slice_ranges},
         range_highlight::{RangeHighlightFrame, RevealAt, RevealRequest},
         stream_fade::{StreamFadeFrame, TextLeafKey},
         text_view::handle_link_click,
@@ -1768,7 +1768,6 @@ struct TableColumnWidths {
     mono_family: SharedString,
     inline_code: HighlightStyle,
     inline_code_inset: Pixels,
-    link_icon: Option<SharedString>,
     /// Maxima from ordinary text only. Custom cells may shrink after an update.
     widths: Vec<f32>,
     custom_cells: Vec<(usize, usize)>,
@@ -2469,11 +2468,7 @@ impl Paragraph {
         let fades = node_cx.stream_fades(fade_key);
         let backgrounds = node_cx.range_backgrounds(fade_key);
 
-        if self.should_render_inline_flow()
-            || node_cx.style.break_all()
-            || node_cx.style.inline_code_inset() > px(0.)
-            || (node_cx.style.link_icon().is_some() && self.link_count() > 0)
-        {
+        if self.should_render_inline_flow() || node_cx.style.inline_code_inset() > px(0.) {
             return InlineFlow::new(
                 leaf_element_id(fade_key),
                 self.inline_flow_items(fade_key, fades, backgrounds, node_cx, cx),
@@ -2992,7 +2987,6 @@ fn measure_table_columns(
                     && cached.mono_family == mono_family
                     && cached.inline_code == inline_code
                     && cached.inline_code_inset == node_cx.style.inline_code_inset()
-                    && cached.link_icon.as_ref() == node_cx.style.link_icon()
                     && cached
                         .text_system
                         .upgrade()
@@ -3010,7 +3004,6 @@ fn measure_table_columns(
             mono_family,
             inline_code,
             inline_code_inset: node_cx.style.inline_code_inset(),
-            link_icon: node_cx.style.link_icon().cloned(),
             widths,
             custom_cells,
         });
@@ -3120,38 +3113,13 @@ fn measure_table_text_columns(
             } else {
                 0.
             };
-            let icons = if node_cx.style.link_icon().is_some() {
-                f32::from(font_size) * LINK_ICON_ADVANCE * cell.children.link_count() as f32
-            } else {
-                0.
-            };
-            *slot = slot.max(w + icons + CELL_PAD_PX + border);
+            *slot = slot.max(w + CELL_PAD_PX + border);
         }
     }
     (col_w, custom_cells)
 }
 
 impl Paragraph {
-    fn link_count(&self) -> usize {
-        let mut count = 0;
-        let mut offset = 0;
-        let mut previous: Option<(usize, &LinkMark)> = None;
-        for child in &self.children {
-            for (range, mark) in &child.marks {
-                if let Some(link) = &mark.link {
-                    if previous
-                        .is_none_or(|(end, prior)| end != offset + range.start || prior != link)
-                    {
-                        count += 1;
-                    }
-                    previous = Some((offset + range.end, link));
-                }
-            }
-            offset += child.text.len();
-        }
-        count
-    }
-
     fn to_markdown(&self) -> String {
         if self.children.iter().any(|node| node.custom.is_some()) {
             let mut source = MarkdownSource::default();
@@ -3612,24 +3580,6 @@ impl BlockNode {
             ..Default::default()
         };
         let header_w = measure_table_columns(&header, col_count, node_cx, window, cx);
-        let text_styles = TableTextStyles::new(&node_cx.style, window);
-        let mut icon_w = vec![0.; col_count];
-        if node_cx.style.link_icon().is_some() {
-            for (row_ix, row) in table.children.iter().enumerate() {
-                let font_size = text_styles
-                    .row(row_ix)
-                    .font_size
-                    .to_pixels(window.rem_size());
-                for (ix, cell) in row.children.iter().enumerate().take(col_count) {
-                    icon_w[ix] = f32::max(
-                        icon_w[ix],
-                        f32::from(font_size)
-                            * LINK_ICON_ADVANCE
-                            * cell.children.link_count() as f32,
-                    );
-                }
-            }
-        }
         let scroll = matches!(style.table().overflow.x, Some(Overflow::Scroll));
         let nowrap = style.table_cell().text.white_space == Some(WhiteSpace::Nowrap);
         let rem_size = window.rem_size();
@@ -3649,10 +3599,9 @@ impl BlockNode {
                 let floor = if scroll && nowrap {
                     w
                 } else if scroll {
-                    (((w - icon_w[ix]) / CELL_WRAP_MAX_LINES)
+                    (w / CELL_WRAP_MAX_LINES)
                         .clamp(CELL_WRAP_MIN_PX, CELL_WRAP_MAX_PX)
-                        .min(w - icon_w[ix])
-                        + icon_w[ix])
+                        .min(w)
                         .max(
                             if style.table_head().text.white_space == Some(WhiteSpace::Nowrap) {
                                 header_w[ix] + padding_delta
@@ -3820,8 +3769,6 @@ impl BlockNode {
         };
 
         let row_count = table.children.len();
-        let mut cell_cx = node_cx.clone();
-        cell_cx.style = Arc::new((*cell_cx.style).clone().with_break_all(false));
         let [top_left, top_right, bottom_left, bottom_right] =
             Self::table_row_corner_radii(style, window);
         let mut rows = Vec::with_capacity(row_count);
@@ -3836,7 +3783,7 @@ impl BlockNode {
                         .span
                         .map(|span| TextLeafKey::table_cell(span.start, cell_ordinal));
                     cell_ordinal += 1;
-                    cell.children.render(fade_key, &cell_cx, window, cx)
+                    cell.children.render(fade_key, node_cx, window, cx)
                 });
 
                 let grow = SLACK_GROW * column.max / total_w;

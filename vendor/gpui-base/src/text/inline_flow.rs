@@ -9,10 +9,9 @@ use unicode_segmentation::UnicodeSegmentation as _;
 use gpui::{
     AbsoluteLength, AnyElement, App, AvailableSpace, Bounds, DefiniteLength, Element, ElementId,
     GlobalElementId, Hsla, ImageSource, InspectorElementId, InteractiveElement as _, IntoElement,
-    LayoutId, LineFragment as WrapLineFragment, ObjectFit, ParentElement as _, Pixels,
-    Refineable as _, ShapedLine, SharedString, Size, StatefulInteractiveElement as _, Styled,
-    StyledImage as _, TextRun, TextStyle, WhiteSpace, Window, img, point,
-    prelude::FluentBuilder as _, px, relative, size, svg,
+    LayoutId, LineFragment as WrapLineFragment, ObjectFit, Pixels, Refineable as _, ShapedLine,
+    SharedString, Size, StatefulInteractiveElement as _, Styled, StyledImage as _, TextRun,
+    TextStyle, WhiteSpace, Window, img, point, prelude::FluentBuilder as _, px, relative, size,
 };
 
 use crate::text::text_view::{LinkClickHandlerFn, handle_link_click};
@@ -20,7 +19,6 @@ use crate::text::text_view::{LinkClickHandlerFn, handle_link_click};
 #[cfg(test)]
 #[path = "inline_flow/tests.rs"]
 mod flow_tests;
-mod wrapping;
 
 use super::{
     inline::{Inline, InlineHighlight, InlineState, text_runs, text_size_ranges},
@@ -33,7 +31,6 @@ use super::{
 const IMAGE_LEN: usize = 1;
 #[cfg(test)]
 pub(super) const INLINE_CODE_PADDING: f32 = 2.;
-pub(super) const LINK_ICON_ADVANCE: f32 = 1.25;
 
 pub(super) struct InlineFlow {
     id: ElementId,
@@ -187,11 +184,6 @@ struct InlineFlowLayout {
 }
 
 enum PositionedFragment {
-    Icon {
-        origin: gpui::Point<Pixels>,
-        size: Size<Pixels>,
-        link: LinkMark,
-    },
     Object {
         item_ix: usize,
         origin: gpui::Point<Pixels>,
@@ -247,7 +239,6 @@ struct LineFragmentLayout {
 }
 
 enum LineFragmentKind {
-    Icon(LinkMark),
     Object(Box<MeasuredInlineObject>),
     Text {
         font_size: Pixels,
@@ -491,50 +482,6 @@ impl Element for InlineFlow {
         let mut text_fragment_count = 0;
         for (fragment_ix, fragment) in layout.fragments.iter().enumerate() {
             match fragment {
-                PositionedFragment::Icon {
-                    origin,
-                    size: fragment_size,
-                    link,
-                } => {
-                    let Some(path) = self.style.link_icon() else {
-                        continue;
-                    };
-                    let handler = self.link_click_handler.clone();
-                    let mut element = crate::Link::new(elements.len())
-                        .href(link.url.clone())
-                        .accessibility_label(link.url.clone())
-                        .tab_stop(false)
-                        .open_with(move |url, event, window, cx| {
-                            handle_link_click(
-                                &handler,
-                                url.to_owned().into(),
-                                event.clone(),
-                                window,
-                                cx,
-                            );
-                        })
-                        .w(fragment_size.width)
-                        .h(fragment_size.height)
-                        .flex()
-                        .justify_center()
-                        .child(
-                            svg()
-                                .path(path.clone())
-                                .size(fragment_size.height)
-                                .text_color(self.style.link()),
-                        )
-                        .into_any_element();
-                    element.prepaint_as_root(
-                        bounds.origin + *origin,
-                        size(
-                            AvailableSpace::Definite(fragment_size.width),
-                            AvailableSpace::Definite(fragment_size.height),
-                        ),
-                        window,
-                        cx,
-                    );
-                    elements.push((element, None));
-                }
                 PositionedFragment::Object {
                     item_ix,
                     origin,
@@ -987,28 +934,15 @@ fn layout_measured_flow(
         .iter()
         .map(|object| object.clone().map(|object| object.fit_text(wrap_width)))
         .collect::<Vec<_>>();
-    let line_ranges = if style.break_all() {
-        wrapping::break_all(
-            items,
-            image_sizes,
-            &objects,
-            text_style,
-            wrap_width,
-            style.link_icon().is_some(),
-            style.inline_code_inset(),
-            window,
-        )
-    } else {
-        line_ranges(
-            items,
-            image_sizes,
-            &objects,
-            text_style,
-            wrap_width,
-            style,
-            window,
-        )
-    };
+    let line_ranges = line_ranges(
+        items,
+        image_sizes,
+        &objects,
+        text_style,
+        wrap_width,
+        style,
+        window,
+    );
     let font_size = text_style.font_size.to_pixels(rem_size);
     let mut fragments = Vec::new();
     let mut max_width = Pixels::ZERO;
@@ -1054,40 +988,11 @@ fn layout_measured_flow(
                     let local_start = line_range.start.max(item_start) - item_start;
                     let local_end = line_range.end.min(item_end) - item_start;
                     let codes = code_ranges(highlights);
-                    let starts = if style.link_icon().is_some() {
-                        wrapping::link_starts(links)
-                    } else {
-                        Vec::new()
-                    };
-                    let mut segments = Vec::new();
                     for (segment, scale) in text_size_ranges(text.len(), highlights) {
-                        let mut cuts = vec![segment.start, segment.end];
-                        cuts.extend(
-                            starts
-                                .iter()
-                                .map(|(start, _)| *start)
-                                .filter(|start| segment.start < *start && *start < segment.end),
-                        );
-                        cuts.sort_unstable();
-                        cuts.dedup();
-                        segments.extend(cuts.windows(2).map(|pair| (pair[0]..pair[1], scale)));
-                    }
-                    for (segment, scale) in segments {
                         let start = local_start.max(segment.start);
                         let end = local_end.min(segment.end);
                         if start >= end {
                             continue;
-                        }
-                        if let Some((_, link)) = starts.iter().find(|(index, _)| *index == start) {
-                            let width = wrapping::icon_advance(font_size);
-                            line_width += width;
-                            line_fragments.push(LineFragmentLayout {
-                                item_ix,
-                                kind: LineFragmentKind::Icon(link.clone()),
-                                size: size(width, font_size),
-                                source_range: start..start,
-                                baseline: font_size / 2. + body_baseline - line_height / 2.,
-                            });
                         }
                         let subtext = SharedString::from(text[start..end].to_string());
                         let mut highlights =
@@ -1228,11 +1133,6 @@ fn layout_measured_flow(
                 size(fragment.size.width, line_ascent + line_descent),
             );
             let positioned = match fragment.kind {
-                LineFragmentKind::Icon(link) => PositionedFragment::Icon {
-                    origin,
-                    size: fragment.size,
-                    link,
-                },
                 LineFragmentKind::Object(object) => PositionedFragment::Object {
                     item_ix: fragment.item_ix,
                     origin,
@@ -1371,9 +1271,7 @@ fn line_ranges(
             if item_end > hard_line.start && item_start < hard_line.end {
                 match item {
                     MeasureItem::Text {
-                        text,
-                        highlights,
-                        links,
+                        text, highlights, ..
                     } => {
                         let start = hard_line.start.max(item_start) - item_start;
                         let end = hard_line.end.min(item_end) - item_start;
@@ -1382,7 +1280,6 @@ fn line_ranges(
                                 &mut wrap_fragments,
                                 text,
                                 highlights,
-                                links,
                                 start..end,
                                 text_style,
                                 wrap_width,
@@ -1489,7 +1386,6 @@ fn push_decorated_wrap_fragments<'a>(
     fragments: &mut Vec<WrapLineFragment<'a>>,
     text: &'a str,
     highlights: &[(Range<usize>, InlineHighlight)],
-    links: &[(Range<usize>, LinkMark)],
     range: Range<usize>,
     text_style: &TextStyle,
     wrap_width: Pixels,
@@ -1497,14 +1393,6 @@ fn push_decorated_wrap_fragments<'a>(
     window: &mut Window,
 ) {
     let mut decorations = Vec::new();
-    if style.link_icon().is_some() {
-        let font_size = text_style.font_size.to_pixels(window.rem_size());
-        decorations.extend(
-            wrapping::link_starts(links)
-                .into_iter()
-                .map(|(index, _)| (index, wrapping::icon_advance(font_size))),
-        );
-    }
     decorations.extend(code_ranges(highlights).into_iter().flat_map(|range| {
         [
             (range.start, style.inline_code_inset()),
@@ -1624,24 +1512,10 @@ fn shaped_spans(
         if item_end > hard_line.start && item_start < hard_line.end {
             match item {
                 MeasureItem::Text {
-                    text,
-                    highlights,
-                    links,
+                    text, highlights, ..
                 } => {
                     let local_start = hard_line.start.max(item_start) - item_start;
                     let local_end = hard_line.end.min(item_end) - item_start;
-                    let starts = if style.link_icon().is_some() {
-                        wrapping::link_starts(links)
-                    } else {
-                        Vec::new()
-                    };
-                    for (index, _) in &starts {
-                        spans.push(ShapedSpan::Decoration {
-                            index: item_start + index,
-                            width: wrapping::icon_advance(font_size),
-                            trailing: false,
-                        });
-                    }
                     for range in code_ranges(highlights) {
                         spans.push(ShapedSpan::Decoration {
                             index: item_start + range.start,
@@ -1655,33 +1529,25 @@ fn shaped_spans(
                         });
                     }
                     for (segment, scale) in text_size_ranges(text.len(), highlights) {
-                        let mut boundaries = vec![segment.start];
-                        boundaries.extend(starts.iter().filter_map(|(index, _)| {
-                            (segment.start < *index && *index < segment.end).then_some(*index)
-                        }));
-                        boundaries.push(segment.end);
-                        for pair in boundaries.windows(2) {
-                            let start = local_start.max(pair[0]);
-                            let end = local_end.min(pair[1]);
-                            if start >= end {
-                                continue;
-                            }
-                            let highlights =
-                                slice_ranges(highlights, start, end, |range, style| {
-                                    (range, style.clone())
-                                });
-                            let runs = text_runs(end - start, text_style, &highlights);
-                            let line = Box::new(shape_line(
-                                SharedString::from(text[start..end].to_string()),
-                                font_size * scale,
-                                &runs,
-                                window,
-                            ));
-                            spans.push(ShapedSpan::Text {
-                                range: item_start + start..item_start + end,
-                                line,
-                            });
+                        let start = local_start.max(segment.start);
+                        let end = local_end.min(segment.end);
+                        if start >= end {
+                            continue;
                         }
+                        let highlights = slice_ranges(highlights, start, end, |range, style| {
+                            (range, style.clone())
+                        });
+                        let runs = text_runs(end - start, text_style, &highlights);
+                        let line = Box::new(shape_line(
+                            SharedString::from(text[start..end].to_string()),
+                            font_size * scale,
+                            &runs,
+                            window,
+                        ));
+                        spans.push(ShapedSpan::Text {
+                            range: item_start + start..item_start + end,
+                            line,
+                        });
                     }
                 }
                 MeasureItem::Object { .. } => spans.push(ShapedSpan::Fixed {
@@ -2236,9 +2102,7 @@ mod tests {
             .iter()
             .filter_map(|fragment| match fragment {
                 PositionedFragment::Text { text, origin, .. } => Some((text.trim(), origin.y)),
-                PositionedFragment::Image { .. }
-                | PositionedFragment::Object { .. }
-                | PositionedFragment::Icon { .. } => None,
+                PositionedFragment::Image { .. } | PositionedFragment::Object { .. } => None,
             })
             .collect::<Vec<_>>();
         let first_y = text_lines[0].1;

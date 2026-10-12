@@ -20,9 +20,9 @@ API or preserve an approved Sailry presentation choice.
 | Change | Disposition and reason |
 | --- | --- |
 | Indexed shaped-glyph positions and wrap boundaries | Retained; preserves first-match lookup for repeated and non-monotonic glyph indices while avoiding paragraph rescans. Reusable upstream candidate |
-| InlineFlow grapheme wrapping, link icons, source-edge code insets, radii and text alignment | Retained; upstream does not expose these settings. Original source text remains shared across visual fragments for selection and copying. Reusable upstream candidate |
-| TextViewStyle break-all, link-icon and hover-underline settings; TextViewDefaults style getter | Retained; optional public refinements preserve theme ownership. Reusable upstream candidate |
-| Table link-icon and configurable code-inset measurement; nowrap header floors; ordinary body wrapping | Retained and rebased into upstream's measured column layout and cache. Decoration settings participate in cache identity. Reusable upstream candidate |
+| InlineFlow source-edge code insets, radii and text alignment | Retained; upstream does not expose these settings. Original source text remains shared across visual fragments for selection and copying. Reusable upstream candidate |
+| TextViewStyle hover-underline setting | Retained; optional public refinement preserves theme ownership. Reusable upstream candidate |
+| Table configurable code-inset measurement; nowrap header floors; ordinary body wrapping | Retained and rebased into upstream's measured column layout and cache. Code inset settings participate in cache identity. Reusable upstream candidate |
 | List, continuation-paragraph and adjacent bullet/task group spacing | Retained as Sailry presentation defaults. These defaults do not distinguish tight and loose lists through the upstream `spread` flag |
 | Document root identity | Retained; scopes the existing selectable text geometry and survives current upstream flow-position calculation |
 | Editor gutter-background override; hidden read-only caret and active row | Retained inside the native editor. Reusable upstream candidate |
@@ -51,13 +51,15 @@ custom-cell measurement remain authoritative.
 | Explicit old line-wrapper signature adaptation | Current upstream callers already use the selected wrapping APIs, including SameIndent and measured editor wrapping |
 | Header-weight-only table measurement override | Current TableTextStyles resolves the complete header/body refinements, and its cache retains those resolved inputs. Only the unsupported decorations and nowrap floors above remain local |
 | GPUI 0.3.7-to-0.3.8 dependency update | Current upstream already pins that pre family and supplies the selected Fast feature |
+| TextViewStyle break-all and link-icon options, measured link decorations and wrapping helpers | No product callers remain; wrapping follows the pinned upstream policy, and conversation link icons belong to the content crate |
+| TextViewDefaults style getter | No product caller uses it; the existing style setter and semantic theme configuration remain authoritative |
 
 The old standalone lockfile described the previous source snapshot and is not
 carried into the refreshed package. Product dependency resolution is owned by the
 root Cargo.lock. Standalone vendored test runs must use the selected development
 volume for their target and temporary files.
 
-The retained focused tests cover lookup parity, Unicode and grapheme wrapping,
+The retained focused tests cover lookup parity, Unicode wrapping,
 selection and copied source, code insets, text alignment, Popover keyboard input,
 nested drag scrolling, link annotations and handled editor overlay keys. Keeping
 tests beside these patches does not establish application or platform acceptance.

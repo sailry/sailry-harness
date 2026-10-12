@@ -36,11 +36,6 @@ pub struct TextViewDefaults {
 impl Global for TextViewDefaults {}
 
 impl TextViewDefaults {
-    /// The installed style, for focused overrides that retain theme defaults.
-    pub fn style(&self) -> Option<&TextViewStyle> {
-        self.style.as_ref()
-    }
-
     /// Creates defaults that leave every text view as Base renders it.
     pub fn new() -> Self {
         Self::default()

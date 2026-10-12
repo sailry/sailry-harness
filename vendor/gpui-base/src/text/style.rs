@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use gpui::{HighlightStyle, Hsla, Pixels, Rems, SharedString, StyleRefinement, px, rems};
+use gpui::{HighlightStyle, Hsla, Pixels, Rems, StyleRefinement, px, rems};
 
 use crate::ColorTokens;
 
@@ -33,16 +33,12 @@ pub struct TextViewStyle {
     table_background: Option<Hsla>,
     is_dark: bool,
     link_hover_underline: bool,
-    break_all: bool,
-    link_icon: Option<SharedString>,
 }
 
 impl PartialEq for TextViewStyle {
     fn eq(&self, other: &Self) -> bool {
         self.paragraph_gap == other.paragraph_gap
             && self.link_hover_underline == other.link_hover_underline
-            && self.break_all == other.break_all
-            && self.link_icon == other.link_icon
             && self.foreground == other.foreground
             && self.muted_foreground == other.muted_foreground
             && self.link == other.link
@@ -69,25 +65,6 @@ impl Default for TextViewStyle {
 }
 
 impl TextViewStyle {
-    /// Wraps prose at grapheme boundaries instead of moving whole words to the next line.
-    pub fn with_break_all(mut self, enabled: bool) -> Self {
-        self.break_all = enabled;
-        self
-    }
-
-    /// Places an SVG decoration before links without adding text to their source.
-    pub fn with_link_icon(mut self, path: impl Into<SharedString>) -> Self {
-        self.link_icon = Some(path.into());
-        self
-    }
-
-    pub(crate) fn break_all(&self) -> bool {
-        self.break_all
-    }
-    pub(crate) fn link_icon(&self) -> Option<&SharedString> {
-        self.link_icon.as_ref()
-    }
-
     /// Underlines links only while the pointer is over their text.
     pub fn with_link_hover_underline(mut self, enabled: bool) -> Self {
         self.link_hover_underline = enabled;
@@ -134,8 +111,6 @@ impl TextViewStyle {
             table_background: None,
             is_dark,
             link_hover_underline: false,
-            break_all: false,
-            link_icon: None,
         }
     }
 
