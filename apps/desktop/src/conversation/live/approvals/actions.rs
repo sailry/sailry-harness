@@ -234,6 +234,8 @@ impl View {
             approval: id,
             decision,
         }));
+        // The conversation owns the captured request and task, not the popup.
+        self.approvals.open = false;
         self.retry_approval(window, cx);
     }
 
@@ -255,7 +257,6 @@ impl View {
             return;
         };
         let client = self.binding.client.clone();
-        self.approvals.open = true;
         self.approvals.pending = true;
         self.approvals.error = None;
         let job = self
@@ -304,9 +305,6 @@ impl View {
                         }
                     }
                     _ => view.approvals.error = Some("chat_action_unknown"),
-                }
-                if view.approvals.error.is_some() {
-                    view.approvals.open = true;
                 }
                 cx.notify();
             });

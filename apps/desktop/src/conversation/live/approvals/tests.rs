@@ -103,6 +103,7 @@ fn never_uses_argument_payloads_as_descriptions() {
         details(&call, &page).description.as_deref(),
         Some("**Task**\n```text\n🙂")
     );
+    assert!(details(&call, &page).code);
 }
 
 #[test]

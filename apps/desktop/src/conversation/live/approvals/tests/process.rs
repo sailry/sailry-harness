@@ -77,7 +77,7 @@ fn shows_description_and_preserves_command(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn clamps_without_changing_command(cx: &mut TestAppContext) {
+fn shows_full_command_without_changes(cx: &mut TestAppContext) {
     init(cx);
     for (text, remote) in [
         "完整内容 中文 🙂\\n".repeat(40),
@@ -110,12 +110,28 @@ fn clamps_without_changing_command(cx: &mut TestAppContext) {
         };
         let title = bounds(visual, "title");
         let description = bounds(visual, "description");
-        assert_eq!(description.size.height, title.size.height * 2.);
+        assert!(description.size.height > title.size.height * 2.);
+        let command_view = bounds(visual, "command");
+        assert!(description.size.height > command_view.size.height);
         let panel = visual.debug_bounds("pending-approvals").unwrap();
+        let mut buttons = Vec::new();
         for action in ["approve", "reject"] {
             let button = bounds(visual, action);
-            assert!(button.top() >= description.bottom());
+            assert!(button.top() >= command_view.bottom());
             assert!(button.bottom() <= panel.bottom());
+            buttons.push((action, button));
+        }
+        visual.simulate_mouse_move(command_view.center(), None, Modifiers::default());
+        visual.simulate_event(ScrollWheelEvent {
+            position: command_view.center(),
+            delta: ScrollDelta::Pixels(point(px(0.), px(-80.))),
+            ..Default::default()
+        });
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(bounds(visual, "description").top() < description.top());
+        for (action, before) in buttons {
+            assert_eq!(bounds(visual, action), before);
         }
         view.read_with(visual, |view, _| {
             assert_eq!(

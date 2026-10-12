@@ -32,6 +32,78 @@ struct Lost {
     decisions: Mutex<Vec<Decision>>,
 }
 
+struct Gate {
+    inner: Arc<dyn Transport>,
+    entered: CancellationToken,
+    release: CancellationToken,
+}
+
+impl Transport for Gate {
+    fn target(&self) -> NodeId {
+        self.inner.target()
+    }
+    fn dispatch(&self, request: Request) -> Pending<'_, Result<Admission, Fault>> {
+        Box::pin(async move {
+            if matches!(request.command, Command::ResolveApproval { .. }) {
+                self.entered.cancel();
+                self.release.cancelled().await;
+            }
+            self.inner.dispatch(request).await
+        })
+    }
+    fn subscribe(&self, topic: Topic) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
+        self.inner.subscribe(topic)
+    }
+}
+
+#[gpui::test]
+fn closes_popup_before_decision_completion(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        fixture.start();
+        let gate = Arc::new(Gate {
+            inner: fixture.transport.clone(),
+            entered: CancellationToken::new(),
+            release: CancellationToken::new(),
+        });
+        let mut binding = fixture.binding.clone();
+        binding.client = Arc::new(Client::new(gate.clone()));
+        let (view, visual) = open(cx, binding, fixture.session.clone());
+        wait(visual, |cx| {
+            view.read(cx).connected() && pending(&view, cx).is_some()
+        });
+        let id = view.read_with(visual, |_, cx| pending(&view, cx).unwrap());
+        tap(visual, &format!("live-approval-approve-{id}"));
+        wait(visual, |_| gate.entered.is_cancelled());
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds("pending-approvals").is_none());
+        let captured = view.read_with(visual, |view, _| {
+            assert!(!view.approvals.open);
+            assert!(view.approvals.pending);
+            assert!(!view.approvals.resolved(id));
+            view.approvals.attempt.clone().unwrap()
+        });
+        assert!(matches!(captured.command, Command::ResolveApproval {
+            approval, decision: Decision::Approve, ..
+        } if approval == id));
+        assert!(!fixture.directory.path().join("project/资料.txt").exists());
+        gate.release.cancel();
+        wait(visual, |cx| {
+            !view.read(cx).approvals.pending && pending(&view, cx).is_some_and(|next| next != id)
+        });
+        assert_eq!(
+            std::fs::read_to_string(fixture.directory.path().join("project/资料.txt")).unwrap(),
+            "完整内容 中文 🙂\n```rust\n"
+        );
+        let next = view.read_with(visual, |_, cx| pending(&view, cx).unwrap());
+        tap(visual, &format!("live-approval-reject-{next}"));
+        wait(visual, |cx| view.read(cx).active().is_none());
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
 impl Transport for Lost {
     fn target(&self) -> NodeId {
         self.inner.target()
@@ -132,6 +204,8 @@ fn retries_original_decision(cx: &mut TestAppContext) {
             vec![decision.clone(), decision]
         );
         assert!(!view.read_with(visual, |view, _| view.approvals.drafts.contains_key(&id)));
+        assert!(!view.read_with(visual, |view, _| view.approvals.open));
+        tap(visual, "live-approval-trigger");
         tap(visual, &format!("live-approval-reject-{next}"));
         wait(visual, |cx| {
             view.read(cx).active().is_none() && !view.read(cx).approvals.pending
@@ -262,6 +336,8 @@ fn requires_fresh_unrestricted_consent(cx: &mut TestAppContext) {
             *lost.decisions.lock().unwrap(),
             vec![Decision::Approve, Decision::Approve]
         );
+        assert!(!view.read_with(visual, |view, _| view.approvals.open));
+        tap(visual, "live-approval-trigger");
         tap(visual, &format!("live-approval-reject-{second}"));
         wait(visual, |cx| {
             view.read(cx).active().is_none() && !view.read(cx).approvals.pending

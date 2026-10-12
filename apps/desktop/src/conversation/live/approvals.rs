@@ -171,14 +171,34 @@ impl View {
                             }),
                     )
                     .when_some(details.description, |row, description| {
-                        row.child(
-                            div()
-                                .debug_selector(move || format!("live-approval-description-{id}"))
-                                .whitespace_normal()
-                                .line_clamp(2)
-                                .text_ellipsis()
-                                .child(description),
-                        )
+                        let body = div()
+                            .debug_selector(move || format!("live-approval-description-{id}"))
+                            .whitespace_normal()
+                            .child(description);
+                        row.child(if details.code {
+                            v_flex()
+                                .debug_selector(move || format!("live-approval-command-{id}"))
+                                .rounded_md()
+                                .bg(cx.theme().background)
+                                .max_h_32()
+                                .flex_shrink_0()
+                                .child(
+                                    v_flex().flex_1().overflow_hidden().child(
+                                        div().flex_1().overflow_hidden().child(
+                                            v_flex()
+                                                .size_full()
+                                                .p_3()
+                                                .font_family(cx.theme().mono_font_family.clone())
+                                                .child(body)
+                                                .overflow_y_scrollbar()
+                                                .id(format!("approval-command-{id}")),
+                                        ),
+                                    ),
+                                )
+                                .into_any_element()
+                        } else {
+                            body.line_clamp(2).text_ellipsis().into_any_element()
+                        })
                     })
                     .when_some(
                         self.approvals.drafts.get(&id).filter(|draft| draft.editing),
@@ -250,6 +270,7 @@ pub(super) struct Details {
     pub description: Option<SharedString>,
     pub access: Option<SharedString>,
     pub notices: Vec<SharedString>,
+    pub code: bool,
 }
 
 pub(super) fn details(call: &Call, page: &Page) -> Details {
@@ -279,6 +300,11 @@ pub(super) fn details(call: &Call, page: &Page) -> Details {
             read(&input.target).or_else(|| read(&input.summary))
         })
         .map(Into::into);
+    let code = display
+        .input
+        .as_ref()
+        .and_then(|input| input.summary.as_ref())
+        .is_some_and(|field| field.code && field.read(arguments) == description.as_deref());
     Details {
         prompt: description
             .clone()
@@ -296,6 +322,7 @@ pub(super) fn details(call: &Call, page: &Page) -> Details {
             .collect(),
         description,
         access,
+        code,
     }
 }
 
