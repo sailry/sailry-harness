@@ -291,3 +291,13 @@ async fn uses_current_choice_availability() {
     assert_eq!(action.sequence, 1);
     assert_eq!(action.value, "tool");
 }
+
+#[test]
+fn hides_contributions_until_state_arrives() {
+    let bridge = picker();
+    assert!(!bridge.state("resource").unwrap().visible);
+    bridge
+        .publish(vec![state(json!({"id":"resource"}))])
+        .unwrap();
+    assert!(bridge.state("resource").unwrap().visible);
+}

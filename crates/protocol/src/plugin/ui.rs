@@ -300,7 +300,7 @@ impl State {
             label: None,
             icon: None,
             dropdown: false,
-            visible: true,
+            visible: false,
             enabled: false,
             value: Value::Null,
             choices: None,

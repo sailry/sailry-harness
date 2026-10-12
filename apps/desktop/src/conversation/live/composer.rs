@@ -224,7 +224,7 @@ impl View {
     }
 
     pub(super) fn notices(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        self.composer_activity(cx).into_iter().collect()
+        vec![self.composer_activity(cx)]
     }
     pub(super) fn welcome(&self, with_composer: bool, cx: &mut Context<Self>) -> AnyElement {
         let owner = cx.entity().downgrade();

@@ -8,6 +8,7 @@ use sailry_protocol::plugin;
 use serde_json::{Value, json};
 mod assistants;
 mod commands;
+mod pending;
 mod placement;
 
 fn install(fixture: &mut Fixture) -> plugin::Info {
