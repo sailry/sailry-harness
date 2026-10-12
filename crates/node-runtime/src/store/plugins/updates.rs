@@ -5,6 +5,9 @@ use sailry_protocol::plugin::updates::{Batch, Failure, Request as Selection};
 use sailry_protocol::{Receipt, Request, VERSION};
 use tokio::sync::oneshot;
 
+#[cfg(test)]
+mod tests;
+
 pub(in crate::store) fn current(db: &Connection, name: &str, revision: u64) -> Result<Info, Fault> {
     let info = required(db, name)?;
     crate::store::commands::check_revision(info.summary.revision, revision)?;
@@ -129,13 +132,16 @@ impl Ingress {
 
     async fn update_info(&self, name: &str, revision: u64) -> Result<Info, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::PluginUpdate {
-                name: name.into(),
-                revision,
-                reply,
-            })
-            .map_err(|_| Fault::new(ErrorCode::Busy, "Node request queue is unavailable"))?;
-        response.await.map_err(|_| unavailable())?
+        self.send_internal(Job::PluginUpdate {
+            name: name.into(),
+            revision,
+            reply,
+        })
+        .await?;
+        tokio::select! {
+            biased;
+            _ = self.closed.cancelled() => Err(unavailable()),
+            result = response => result.map_err(|_| unavailable())?,
+        }
     }
 }

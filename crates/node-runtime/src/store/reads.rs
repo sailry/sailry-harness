@@ -1,6 +1,6 @@
 use sailry_link::Admission;
 use sailry_protocol::{Command, ErrorCode, Fault, Receipt, Request, VERSION};
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 use super::{Ingress, Job, unavailable};
 
@@ -17,7 +17,12 @@ impl Ingress {
                 request: Box::new(request),
                 reply,
             })
-            .map_err(|_| Fault::new(ErrorCode::Busy, "Node request queue is unavailable"))?;
+            .map_err(|error| match error {
+                mpsc::error::TrySendError::Full(_) => {
+                    Fault::new(ErrorCode::Busy, "Node request queue is full")
+                }
+                mpsc::error::TrySendError::Closed(_) => unavailable(),
+            })?;
         response.await.map_err(|_| unavailable())?
     }
 

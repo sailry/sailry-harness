@@ -8,12 +8,49 @@ use sailry_protocol::{
     Command, ErrorCode, Fault, Output, Request,
     plugin::{Info, Origin, Summary, catalog::Entry as Listing, updates as checks},
 };
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    time::Duration,
+};
 
 mod changes;
 #[cfg(test)]
 mod tests;
 mod view;
+
+fn retry_delay(startup: bool, code: ErrorCode, retries: u8) -> Option<Duration> {
+    (startup && code == ErrorCode::Busy && retries < 4)
+        .then(|| Duration::from_millis(250 * (1 << retries)))
+}
+
+async fn query(
+    client: &sailry_client::Client,
+    request: Request,
+    startup: bool,
+    cancelled: &CancellationToken,
+) -> Option<Result<Output, Fault>> {
+    let mut retries = 0;
+    loop {
+        let result = tokio::select! {
+            biased;
+            _ = cancelled.cancelled() => return None,
+            result = client.execute(request.clone()) => result,
+        };
+        let delay = result
+            .as_ref()
+            .err()
+            .and_then(|error| retry_delay(startup, error.code, retries));
+        let Some(delay) = delay else {
+            return Some(result);
+        };
+        tokio::select! {
+            biased;
+            _ = cancelled.cancelled() => return None,
+            _ = tokio::time::sleep(delay) => {},
+        }
+        retries += 1;
+    }
+}
 
 pub(in crate::settings) struct State {
     binding: Binding,
@@ -257,16 +294,13 @@ impl State {
         self.check = Some(stop.clone());
         let cancelled = stop.clone();
         let job = binding.runtime.clone().spawn(async move {
-            let result = tokio::select! {
-                biased;
-                _ = cancelled.cancelled() => return None,
-                result = binding.client.execute(binding.client.prepare(Command::CheckPluginUpdates {
-                    packages: packages.iter().map(|package| checks::Request {
-                        name: package.name.clone(),
-                        expected_revision: package.revision,
-                    }).collect(),
-                })) => result,
-            };
+            let request = binding.client.prepare(Command::CheckPluginUpdates {
+                packages: packages.iter().map(|package| checks::Request {
+                    name: package.name.clone(),
+                    expected_revision: package.revision,
+                }).collect(),
+            });
+            let result = query(&binding.client, request, startup, &cancelled).await?;
             let batch = match result {
                 Ok(Output::PluginUpdates(batch)) => batch,
                 Ok(_) => return Some(Err(Fault::new(ErrorCode::Internal, "plugin update reports expected"))),

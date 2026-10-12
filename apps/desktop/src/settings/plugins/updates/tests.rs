@@ -3,6 +3,8 @@ use crate::settings::plugins::test_support::{Fixture, draw, init, shown, tap, wa
 use core::prelude::v1::test;
 use std::sync::atomic::Ordering;
 
+mod retry;
+
 fn start(fixture: &Fixture, owner: &Entity<Workspace>, visual: &mut VisualTestContext) {
     visual.update(|window, cx| {
         let packages = owner.read(cx).plugin_catalog.packages.clone();
