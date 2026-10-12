@@ -181,6 +181,10 @@ fn wraps_pending_and_resolved_prompts(cx: &mut TestAppContext) {
         );
         let expanded = sizes(visual, id);
         assert_eq!(expanded, resolved);
+        let frame = bounds(visual, format!("live-question-answer-frame-{id}"));
+        let row = bounds(visual, format!("live-question-history-{id}"));
+        assert!(frame.size.width <= row.size.width);
+        assert!(frame.size.height <= px(124.));
         toggle_history(visual, id);
         draw(visual);
         assert!(
@@ -190,6 +194,39 @@ fn wraps_pending_and_resolved_prompts(cx: &mut TestAppContext) {
                 ))
                 .is_none()
         );
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
+#[gpui::test]
+fn fits_short_completed_answers(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::with_tools(remote, vec![text(false, 100)]);
+        fixture.start();
+        let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
+        let id = ready(&view, visual, None);
+        tap(visual, "live-question-input");
+        visual.simulate_input("Keep it");
+        tap(visual, "live-question-submit");
+        wait(visual, |cx| {
+            view.read(cx).active().is_none() && !view.read(cx).questions.pending
+        });
+        toggle_history(visual, id);
+        draw(visual);
+        let frame = bounds(visual, format!("live-question-answer-frame-{id}"));
+        let row = bounds(visual, format!("live-question-history-{id}"));
+        let answer = bounds(visual, format!("live-question-answer-{id}"));
+        assert!(frame.size.width < row.size.width * 0.5);
+        assert!(frame.size.height < px(64.));
+        assert_eq!(frame.size.height - answer.size.height, px(24.));
+        view.read_with(visual, |view, _| {
+            assert_eq!(
+                view.history.snapshot.as_ref().unwrap().page.questions[0].state,
+                State::Answered(Answer::Text("Keep it".into()))
+            );
+        });
         visual.update(|window, _| window.remove_window());
         fixture.close();
     }

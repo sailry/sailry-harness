@@ -1,6 +1,7 @@
 use super::*;
 use crate::conversation::{disclosure, surface};
 use gpui_kit::component::collapsible::Collapsible;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use sailry_client::conversation::tools::{Call, State as CallState};
 use sailry_protocol::conversation::Page;
 
@@ -80,6 +81,56 @@ impl View {
             .get(&(turn, key.clone()))
             .copied()
             .unwrap_or(plan);
+        let body = if plan {
+            surface::result(
+                &format!("question-{id}"),
+                surface::scroll(
+                    format!("question-answer-scroll-{id}"),
+                    div()
+                        .debug_selector(move || format!("live-question-answer-{id}"))
+                        .px_3()
+                        .py_2()
+                        .text_sm()
+                        .child(self.markdown(
+                            format!("question-plan-{id}"),
+                            answers[0].clone(),
+                            cx,
+                        )),
+                ),
+                [],
+                cx,
+            )
+            .into_any_element()
+        } else {
+            // The answer owns one frame; the question header still spans the row.
+            div()
+                .debug_selector(move || format!("live-question-answer-frame-{id}"))
+                .self_start()
+                .max_w_full()
+                .min_w_0()
+                .rounded(cx.theme().radius)
+                .bg(cx.theme().muted)
+                .text_color(cx.theme().muted_foreground)
+                .p_3()
+                .child(
+                    v_flex()
+                        .debug_selector(move || format!("live-question-answer-{id}"))
+                        .max_w_full()
+                        .min_w_0()
+                        .max_h(px(surface::OUTPUT_LINES as f32 * surface::LINE_HEIGHT))
+                        .gap_1()
+                        .text_sm()
+                        .children(answers.into_iter().enumerate().map(|(index, answer)| {
+                            gpui_kit::base::SelectableText::new(
+                                format!("question-answer-{id}-{index}"),
+                                answer,
+                            )
+                        }))
+                        .overflow_y_scrollbar()
+                        .id(SharedString::from(format!("question-answer-scroll-{id}"))),
+                )
+                .into_any_element()
+        };
         Collapsible::new()
             .open(open)
             .w_full()
@@ -89,32 +140,7 @@ impl View {
                     cx.listener(move |view, _, _, cx| view.expand(turn, key.clone(), !open, cx)),
                 ),
             )
-            .content(surface::result(
-                &format!("question-{id}"),
-                surface::scroll(
-                    format!("question-answer-scroll-{id}"),
-                    div()
-                        .debug_selector(move || format!("live-question-answer-{id}"))
-                        .px_3()
-                        .py_2()
-                        .text_sm()
-                        .child(if plan {
-                            self.markdown(format!("question-plan-{id}"), answers[0].clone(), cx)
-                                .into_any_element()
-                        } else {
-                            v_flex()
-                                .gap_1()
-                                .children(
-                                    answers
-                                        .into_iter()
-                                        .map(|answer| div().whitespace_normal().child(answer)),
-                                )
-                                .into_any_element()
-                        }),
-                ),
-                [],
-                cx,
-            ))
+            .content(body)
             .into_any_element()
     }
 }
