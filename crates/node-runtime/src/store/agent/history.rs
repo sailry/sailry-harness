@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 mod citations;
+mod credentials;
 mod interrupted;
 pub(super) use interrupted::retain;
 pub(super) mod pages;
@@ -325,7 +326,7 @@ pub(crate) fn project(
                     adk_core::Part::FunctionCall { id, name, args, .. } => Part::ToolCall {
                         id: id.clone(),
                         name: name.clone(),
-                        arguments: args.clone(),
+                        arguments: credentials::project(db, turn, name, args)?,
                         presentation: presentations.get(name).copied().unwrap_or_default(),
                         grouping: groupings.get(name).copied().unwrap_or_default(),
                         display: displays.get(name).cloned().map(Box::new),

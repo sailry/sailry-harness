@@ -116,14 +116,326 @@ async fn ssh_profiles(client: &Client) -> Vec<ssh::Profile> {
     profiles
 }
 
+fn stored_credential(fixture: &process::Fixture, id: SshId) -> Value {
+    let db = rusqlite::Connection::open_with_flags(
+        fixture.node.profile().join("storage/node.sqlite3"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let body: String = db
+        .query_row(
+            "SELECT credential FROM ssh_profiles WHERE id=?1",
+            [id.to_string()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    serde_json::from_str(&body).unwrap()
+}
+
+#[tokio::test]
+async fn saves_native_credentials_without_public_secrets() {
+    for remote in [false, true] {
+        for authentication in ["password", "private_key", "key_path", "agent"] {
+            let server = Server::tools(vec![]).await;
+            let mut fixture = process::Fixture::new(remote, &server).await;
+            configure(&mut fixture, Permission::Ask).await;
+            let path = fixture.directory.path().join("private-path-marker");
+            let replacement_path = fixture.directory.path().join("replacement-path-marker");
+            let (credential, replacement) = match authentication {
+                "password" => (
+                    json!({"kind":"password","password":"supplied-password-marker"}),
+                    json!({"kind":"password","password":"replacement-password-marker"}),
+                ),
+                "private_key" => (
+                    json!({"kind":"private_key","key":"supplied-key-marker","passphrase":"supplied-passphrase-marker"}),
+                    json!({"kind":"private_key","key":"replacement-key-marker"}),
+                ),
+                "key_path" => (
+                    json!({"kind":"key_path","path":path,"passphrase":"supplied-passphrase-marker"}),
+                    json!({"kind":"key_path","path":replacement_path}),
+                ),
+                _ => (json!({"kind":"agent"}), json!({"kind":"agent"})),
+            };
+            let save_name = agent_support::plugin_tool("ssh", "ssh_save_connection");
+            let server = Server::result_tools(vec![
+                (save_name.clone(), json!({"name":"Credential fixture","host":"ssh.example.invalid","port":22,"username":"fixture","authentication":authentication,"credential":credential})),
+                (save_name.clone(), json!({"connection":"$connection","expected_revision":"$revision","name":"Renamed credential fixture"})),
+                (save_name.clone(), json!({"connection":"$connection","expected_revision":"$revision","credential":replacement})),
+                (agent_support::plugin_tool("ssh", "ssh_connections"), json!({})),
+            ]).await;
+            approvals::rules::route(&fixture.client, &fixture.session, &server.endpoint).await;
+            let mut updates = fixture
+                .client
+                .subscribe_conversation(fixture.session.id)
+                .await
+                .unwrap();
+            let mut projection = sailry_client::conversation::Projection::new(
+                fixture.client.target(),
+                fixture.session.id,
+                0,
+            );
+            projection.apply(0, updates.next().await.unwrap()).unwrap();
+            let turn = submit(&fixture).await;
+            let markers = [
+                "password-marker",
+                "key-marker",
+                "passphrase-marker",
+                "path-marker",
+            ];
+            for step in 0..3 {
+                let (page, approval) =
+                    approvals::pending(&fixture.client, fixture.session.id).await;
+                let profiles = ssh_profiles(&fixture.client).await;
+                if step == 0 {
+                    assert!(profiles.is_empty());
+                } else {
+                    assert_eq!(profiles.len(), 1);
+                    assert_eq!(profiles[0].revision, step);
+                    assert_eq!(stored_credential(&fixture, profiles[0].id), credential);
+                }
+                let public = serde_json::to_string(&page).unwrap();
+                for marker in markers {
+                    assert!(!public.contains(marker));
+                }
+                process::decide(&fixture.client, &approval, Decision::Approve).await;
+            }
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            let profiles = ssh_profiles(&fixture.client).await;
+            assert_eq!(profiles.len(), 1);
+            assert_eq!(profiles[0].revision, 3);
+            assert_eq!(profiles[0].name, "Renamed credential fixture");
+            let mut expected = replacement.clone();
+            if matches!(authentication, "private_key" | "key_path") {
+                expected["passphrase"] = Value::Null;
+            }
+            assert_eq!(stored_credential(&fixture, profiles[0].id), expected);
+            let results = results(&page);
+            assert_eq!(results.len(), 4, "{results:?}");
+            assert_eq!(results[3]["data"][0]["id"], profiles[0].id.to_string());
+            assert_eq!(
+                page.entries
+                    .iter()
+                    .flat_map(|entry| &entry.parts)
+                    .filter(
+                        |part| matches!(part, Part::ToolCall { name, .. } if name == &save_name)
+                    )
+                    .count(),
+                3
+            );
+            let public = serde_json::to_string(&page).unwrap();
+            for marker in markers {
+                assert!(!public.contains(marker));
+            }
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    let update = updates.next().await.unwrap();
+                    let public = serde_json::to_string(&update).unwrap();
+                    for marker in markers {
+                        assert!(!public.contains(marker));
+                    }
+                    projection.apply(0, update).unwrap();
+                    if projection
+                        .snapshot()
+                        .unwrap()
+                        .page
+                        .runs
+                        .iter()
+                        .any(|run| run.turn == turn && run.status == Status::Completed)
+                    {
+                        break;
+                    }
+                }
+            })
+            .await
+            .unwrap();
+            let mut reconnected = fixture
+                .client
+                .subscribe_conversation(fixture.session.id)
+                .await
+                .unwrap();
+            let public = serde_json::to_string(&reconnected.next().await.unwrap()).unwrap();
+            for marker in markers {
+                assert!(!public.contains(marker));
+            }
+            let db = rusqlite::Connection::open_with_flags(
+                fixture.node.profile().join("storage/node.sqlite3"),
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .unwrap();
+            let mut query = db
+                .prepare("SELECT body FROM agent_events WHERE turn=?1 ORDER BY sequence")
+                .unwrap();
+            let canonical = query
+                .query_map([turn.to_string()], |row| row.get::<_, Vec<u8>>(0))
+                .unwrap()
+                .map(|body| serde_json::from_slice::<adk_core::Event>(&body.unwrap()).unwrap())
+                .find_map(|event| {
+                    event.content().and_then(|content| {
+                        content.parts.iter().find_map(|part| {
+                            if let adk_core::Part::FunctionCall { name, args, .. } = part
+                                && name == &save_name
+                            {
+                                Some(args.clone())
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                })
+                .unwrap();
+            assert_eq!(canonical["credential"], credential);
+            assert!(!path.exists());
+            assert!(!replacement_path.exists());
+            drop(updates);
+            drop(reconnected);
+            fixture.controller.close().await.unwrap();
+            fixture.node.shutdown().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn credential_edits_keep_revision_and_plan_boundaries() {
+    for remote in [false, true] {
+        let server = Server::tools(vec![]).await;
+        let mut fixture = process::Fixture::new(remote, &server).await;
+        install(&fixture).await;
+        configure(&mut fixture, Permission::Full).await;
+        let server = Server::result_tools(vec![
+            (tool("ssh_save_connection"), json!({"name":"Credential fixture","host":"ssh.example.invalid","port":22,"username":"fixture","authentication":"password","credential":{"kind":"password","password":"stable-private-marker"}})),
+            (tool("ssh_save_connection"), json!({"connection":"$connection","expected_revision":"$revision","name":"Renamed fixture"})),
+            (tool("ssh_save_connection"), json!({"connection":"$connection","expected_revision":1,"credential":{"kind":"password","password":"stale-private-marker"}})),
+            (tool("ssh_save_connection"), json!({"connection":"$connection","expected_revision":2,"authentication":"private_key","credential":{"kind":"password","password":"mismatch-private-marker"}})),
+            (tool("ssh_save_connection"), json!({"connection":"$connection","expected_revision":2,"authentication":"key_path","credential":{"kind":"key_path","path":"relative-private-marker"}})),
+            (tool("ssh_save_connection"), json!({"connection":"$connection","expected_revision":2,"credential":{"kind":"malformed-private-marker"}})),
+        ]).await;
+        approvals::rules::route(&fixture.client, &fixture.session, &server.endpoint).await;
+        let turn = submit(&fixture).await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        let output = results(&page);
+        assert_eq!(output.len(), 6, "{output:?}");
+        assert_eq!(
+            output[2]["error"]["code"], "revision_conflict",
+            "{output:?}"
+        );
+        for result in &output[3..] {
+            assert_eq!(result["error"]["code"], "invalid_request", "{output:?}");
+        }
+        let profiles = ssh_profiles(&fixture.client).await;
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].revision, 2);
+        assert_eq!(profiles[0].authentication, ssh::Authentication::Password);
+        assert_eq!(
+            stored_credential(&fixture, profiles[0].id),
+            json!({"kind":"password","password":"stable-private-marker"})
+        );
+        assert!(
+            !serde_json::to_string(&page)
+                .unwrap()
+                .contains("private-marker")
+        );
+        let mut config = fixture.session.config.clone();
+        config.mode = WorkMode::Plan;
+        let Output::Session(session) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SetSessionConfig {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                config,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected")
+        };
+        fixture.session = session;
+        let server = Server::turn_tools(vec![(tool("ssh_save_connection"), json!({"name":"Plan fixture","host":"ssh.example.invalid","port":22,"username":"fixture","authentication":"password","credential":{"kind":"password","password":"plan-private-marker"}}))]).await;
+        approvals::rules::route(&fixture.client, &fixture.session, &server.endpoint).await;
+        let turn = submit(&fixture).await;
+        let page = questions::finish_plan(&fixture.client, fixture.session.id, turn).await;
+        let output: Vec<_> = page
+            .entries
+            .iter()
+            .filter(|entry| entry.turn == turn)
+            .flat_map(|entry| &entry.parts)
+            .filter_map(|part| {
+                if let Part::ToolResult { name, result, .. } = part
+                    && name == &tool("ssh_save_connection")
+                {
+                    Some(result)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(output.len(), 1, "{output:?}");
+        assert_eq!(
+            output[0]["error"],
+            format!("Tool {} not found", tool("ssh_save_connection")),
+            "{output:?}"
+        );
+        assert!(server.requests.lock().unwrap().iter().all(|request| {
+            request["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|entry| entry["function"]["name"] != tool("ssh_save_connection"))
+        }));
+        assert_eq!(ssh_profiles(&fixture.client).await, profiles);
+        assert!(
+            !serde_json::to_string(&page)
+                .unwrap()
+                .contains("private-marker")
+        );
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}
+
 #[tokio::test]
 async fn bundled_tools_keep_saved_id() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
         let mut fixture = process::Fixture::new(remote, &server).await;
+        let repository = git2::Repository::init(&fixture.root).unwrap();
+        std::fs::write(fixture.root.join("seed.txt"), "Connection worktree fixture").unwrap();
+        let mut index = repository.index().unwrap();
+        index.add_path(std::path::Path::new("seed.txt")).unwrap();
+        index.write().unwrap();
+        let tree = repository.find_tree(index.write_tree().unwrap()).unwrap();
+        let signature = git2::Signature::now("Fixture", "fixture@example.com").unwrap();
+        repository
+            .commit(Some("HEAD"), &signature, &signature, "Fixture", &tree, &[])
+            .unwrap();
+        let linked = fixture.directory.path().join("linked");
+        repository.worktree("linked", &linked, None).unwrap();
+        let Output::Worktree(worktree) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::RegisterWorktree {
+                project: fixture.session.project.unwrap(),
+                path: linked.to_str().unwrap().into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("worktree expected")
+        };
+        let Output::Session(session) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::MoveConversation {
+                session: fixture.session.id,
+                worktree: worktree.id,
+                expected_revision: fixture.session.revision,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected")
+        };
+        fixture.session = session;
         configure(&mut fixture, Permission::Full).await;
         assert!(databases(&fixture.client).await.is_empty());
-        let path = fixture.directory.path().join("bundled.sqlite3");
+        let path = linked.join("sales.db");
         let db = rusqlite::Connection::open(&path).unwrap();
         db.execute_batch("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES (83)")
             .unwrap();
@@ -134,7 +446,7 @@ async fn bundled_tools_keep_saved_id() {
             ),
             (
                 agent_support::plugin_tool("databases", "database_save_connection"),
-                json!({"name":"Bundled SQLite", "engine":"sqlite", "path":path}),
+                json!({"name":"Bundled SQLite", "engine":"sqlite", "path":"sales.db"}),
             ),
             (
                 agent_support::plugin_tool("databases", "database_query"),
@@ -160,6 +472,13 @@ async fn bundled_tools_keep_saved_id() {
         assert_eq!(output[0], &json!({"kind":"database_profiles", "data":[]}));
         let profiles = databases(&fixture.client).await;
         assert_eq!(profiles.len(), 1);
+        assert_eq!(
+            profiles[0].connection,
+            database::Connection::Sqlite {
+                path: path.canonicalize().unwrap().to_str().unwrap().into()
+            }
+        );
+        assert!(!fixture.root.join("sales.db").exists());
         assert!(profiles[0].read_only);
         assert_eq!(output[1]["kind"], "database_profile", "{output:?}");
         assert_eq!(output[1]["data"]["id"], profiles[0].id.to_string());
@@ -186,14 +505,14 @@ async fn creates_and_queries_in_one_turn() {
         let mut fixture = process::Fixture::new(remote, &server).await;
         let info = install(&fixture).await;
         let other = install_named(&fixture, "other-connection-services").await;
-        let path = fixture.directory.path().join("created.sqlite3");
+        let path = fixture.root.join("created.sqlite3");
         let db = rusqlite::Connection::open(&path).unwrap();
         db.execute_batch("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES (37)")
             .unwrap();
         let foreign = DatabaseId::new();
         let server = Server::result_tools(vec![
             (tool("database_connections"),json!({})),
-            (tool("database_save_connection"),json!({"name":"Created SQLite","engine":"sqlite","path":path,"read_only":true})),
+            (tool("database_save_connection"),json!({"name":"Created SQLite","engine":"sqlite","path":"./created.sqlite3","read_only":true})),
             (tool("database_query"),json!({"connection":"$connection","sql":"SELECT value FROM items","row_limit":20,"timeout_ms":3000})),
             (agent_support::plugin_tool(&other.summary.name,"database_query"),json!({"connection":"$connection","sql":"SELECT value FROM items","row_limit":20,"timeout_ms":3000})),
             (agent_support::plugin_tool(&other.summary.name,"database_connections"),json!({})),
@@ -234,6 +553,12 @@ async fn creates_and_queries_in_one_turn() {
             .unwrap();
         assert_eq!(profile.revision, 1);
         assert_eq!(profile.name, "Created SQLite");
+        assert_eq!(
+            profile.connection,
+            database::Connection::Sqlite {
+                path: path.canonicalize().unwrap().to_str().unwrap().into()
+            }
+        );
         let (claimed, used) = approvals::rules::claimed(&fixture.node, &first);
         assert!(used);
         let mut forged = fixture
@@ -308,7 +633,98 @@ async fn creates_and_queries_in_one_turn() {
         assert_eq!(output[6]["revision"], 2);
         assert_eq!(output[7].as_array().unwrap().len(), 1);
         assert_eq!(output[7][0]["name"], "Renamed SQLite");
+        assert_eq!(
+            databases(&fixture.client)
+                .await
+                .into_iter()
+                .find(|p| p.id == profile.id)
+                .unwrap()
+                .connection,
+            profile.connection
+        );
         assert_eq!(databases(&fixture.client).await.len(), 2);
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn relative_saves_preserve_scope_and_plan() {
+    for remote in [false, true] {
+        let server = Server::tools(vec![]).await;
+        let mut fixture = process::Fixture::new(remote, &server).await;
+        install(&fixture).await;
+        configure(&mut fixture, Permission::Full).await;
+        let server = Server::tools(vec![
+            (tool("database_save_connection"), json!({"name":"Escape fixture","engine":"sqlite","path":"../sales.db"})),
+            (tool("database_save_connection"), json!({"name":"Managed fixture","engine":"sqlite","path":".sailry/worktrees/other/sales.db"})),
+        ]).await;
+        approvals::rules::route(&fixture.client, &fixture.session, &server.endpoint).await;
+        let turn = submit(&fixture).await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        let output = results(&page);
+        assert_eq!(output.len(), 2, "{output:?}");
+        assert_eq!(output[0]["error"]["code"], "invalid_request", "{output:?}");
+        assert_eq!(
+            output[1]["error"]["code"], "permission_denied",
+            "{output:?}"
+        );
+        assert!(databases(&fixture.client).await.is_empty());
+        assert!(!fixture.directory.path().join("sales.db").exists());
+
+        let mut config = fixture.session.config.clone();
+        config.mode = WorkMode::Plan;
+        let Output::Session(session) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SetSessionConfig {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                config,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected")
+        };
+        fixture.session = session;
+        let server = Server::turn_tools(vec![(
+            tool("database_save_connection"),
+            json!({"name":"Plan fixture","engine":"sqlite","path":"sales.db"}),
+        )])
+        .await;
+        approvals::rules::route(&fixture.client, &fixture.session, &server.endpoint).await;
+        let turn = submit(&fixture).await;
+        let page = questions::finish_plan(&fixture.client, fixture.session.id, turn).await;
+        let output: Vec<_> = page
+            .entries
+            .iter()
+            .filter(|entry| entry.turn == turn)
+            .flat_map(|entry| &entry.parts)
+            .filter_map(|part| {
+                if let Part::ToolResult { name, result, .. } = part
+                    && name == &tool("database_save_connection")
+                {
+                    Some(result)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(output.len(), 1, "{output:?}");
+        assert_eq!(
+            output[0]["error"],
+            format!("Tool {} not found", tool("database_save_connection")),
+            "{output:?}"
+        );
+        assert!(server.requests.lock().unwrap().iter().all(|request| {
+            request["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|entry| entry["function"]["name"] != tool("database_save_connection"))
+        }));
+        assert!(databases(&fixture.client).await.is_empty());
+        assert!(!fixture.root.join("sales.db").exists());
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
     }

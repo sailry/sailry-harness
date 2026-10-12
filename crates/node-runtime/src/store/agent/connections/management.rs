@@ -2,6 +2,9 @@
 use super::*;
 use serde::Deserialize;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct DatabaseInput {
@@ -27,6 +30,7 @@ pub(crate) struct SshInput {
     pub port: Option<u16>,
     pub username: Option<String>,
     pub authentication: Option<ssh::Authentication>,
+    pub credential: Option<ssh::Credential>,
     pub key_path: Option<String>,
 }
 
@@ -109,7 +113,10 @@ pub(super) fn database(
                     _ => None,
                 };
                 database::Connection::Sqlite {
-                    path: required(input.path.or(existing), "path")?,
+                    path: match input.path {
+                        Some(path) => sqlite_path(db, turn, path)?,
+                        None => required(existing, "path")?,
+                    },
                 }
             }
             engine => {
@@ -181,6 +188,34 @@ pub(super) fn database(
     })
 }
 
+fn sqlite_path(db: &Connection, turn: TurnId, path: String) -> Result<String, Fault> {
+    if std::path::Path::new(&path).is_absolute() {
+        return Ok(path);
+    }
+    let parts = crate::files::path::components(path.strip_prefix("./").unwrap_or(&path), false)?;
+    let run = super::super::calls::active(db, turn)?;
+    let root: Option<String> = db
+        .query_row(
+            "SELECT path FROM worktrees WHERE id=?1",
+            [run.worktree.to_string()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(storage_error)?;
+    let root = root.ok_or_else(|| Fault::new(ErrorCode::NotFound, "worktree does not exist"))?;
+    let mut resolved = std::path::PathBuf::from(root);
+    if !resolved.is_absolute() {
+        return Err(Fault::invalid("worktree path must be absolute"));
+    }
+    for part in parts {
+        resolved.push(part);
+    }
+    resolved
+        .into_os_string()
+        .into_string()
+        .map_err(|_| Fault::invalid("database path must be UTF-8"))
+}
+
 pub(super) fn ssh(
     db: &Connection,
     turn: TurnId,
@@ -206,22 +241,24 @@ pub(super) fn ssh(
             .or_else(|| previous.as_ref().map(|p| p.authentication)),
         "authentication",
     )?;
-    if input.authentication.is_some_and(|value| {
-        !matches!(
-            value,
-            ssh::Authentication::Agent | ssh::Authentication::KeyPath
-        )
-    }) {
+    if input.credential.is_some() && input.key_path.is_some() {
         return Err(Fault::invalid(
-            "conversation SSH authentication must use an agent or key path",
+            "SSH connection accepts a credential or a key path, not both",
         ));
     }
-    let credential = if let Some(path) = input.key_path {
-        if authentication != ssh::Authentication::KeyPath
-            || path.len() > 4096
-            || path.contains('\0')
-            || !std::path::Path::new(&path).is_absolute()
-        {
+    let credential = if let Some(credential) = input.credential {
+        if credential.authentication() != authentication {
+            return Err(Fault::invalid(
+                "SSH credential authentication does not match",
+            ));
+        }
+        if let ssh::Credential::KeyPath { path, .. } = &credential {
+            key_path(path.expose())?;
+        }
+        Some(credential)
+    } else if let Some(path) = input.key_path {
+        key_path(&path)?;
+        if authentication != ssh::Authentication::KeyPath {
             return Err(Fault::invalid(
                 "SSH key path requires an absolute path and key_path authentication",
             ));
@@ -261,9 +298,7 @@ pub(super) fn ssh(
     } else if authentication == ssh::Authentication::Agent {
         Some(ssh::Credential::Agent)
     } else {
-        return Err(Fault::invalid(
-            "SSH connection requires an explicit key path",
-        ));
+        return Err(Fault::invalid("SSH credential is required"));
     };
     let profile = ssh::Profile {
         id: previous.as_ref().map_or_else(SshId::new, |p| p.id),
@@ -299,6 +334,13 @@ pub(super) fn ssh(
         expected_revision,
         credential,
     })
+}
+
+fn key_path(path: &str) -> Result<(), Fault> {
+    if path.len() > 4096 || path.contains('\0') || !std::path::Path::new(path).is_absolute() {
+        return Err(Fault::invalid("SSH key path must be absolute"));
+    }
+    Ok(())
 }
 
 fn creation(db: &Connection, turn: TurnId) -> Result<(), Fault> {

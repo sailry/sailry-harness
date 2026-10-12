@@ -27,7 +27,7 @@ pub(super) fn description(operation: Operation) -> &'static str {
         }
         Operation::ListSshConnections => "List public SSH connection configuration",
         Operation::SaveSshConnection => {
-            "Save SSH connection configuration using an agent or key path"
+            "Save SSH connection configuration and explicitly supplied credentials"
         }
         Operation::BrowseDatabase => "Read a catalog from an admitted database connection",
         Operation::QueryDatabase => "Query an admitted database through a read-only connection",
@@ -52,12 +52,19 @@ pub(super) fn parameters(operation: Operation) -> Value {
         let mut properties = json!({"connection":{"type":["string","null"]},"expected_revision":{"type":["integer","null"],"minimum":1},"name":{"type":"string"},"host":{"type":"string"},"port":{"type":"integer","minimum":1,"maximum":65535},"username":{"type":"string"}});
         if operation == Operation::SaveDatabaseConnection {
             properties["engine"] = json!({"enum":["sqlite","mysql","postgres"]});
-            properties["path"] = json!({"type":"string"});
+            properties["path"] = json!({"type":"string","description":"SQLite file path on the execution Node; relative paths use the captured worktree. Saving does not create the file"});
             properties["database"] = json!({"type":"string"});
             properties["read_only"] = json!({"type":"boolean"});
         } else {
-            properties["authentication"] = json!({"enum":["agent","key_path"]});
+            properties["authentication"] =
+                json!({"enum":["password","private_key","key_path","agent"]});
             properties["key_path"] = json!({"type":"string"});
+            properties["credential"] = json!({"oneOf":[
+                {"type":"object","properties":{"kind":{"const":"password"},"password":{"type":"string"}},"required":["kind","password"],"additionalProperties":false},
+                {"type":"object","properties":{"kind":{"const":"private_key"},"key":{"type":"string"},"passphrase":{"type":["string","null"]}},"required":["kind","key"],"additionalProperties":false},
+                {"type":"object","properties":{"kind":{"const":"key_path"},"path":{"type":"string"},"passphrase":{"type":["string","null"]}},"required":["kind","path"],"additionalProperties":false},
+                {"type":"object","properties":{"kind":{"const":"agent"}},"required":["kind"],"additionalProperties":false}
+            ]});
         }
         return json!({"type":"object","properties":properties,"additionalProperties":false});
     }
@@ -154,7 +161,26 @@ pub(super) fn action(
             )
         }
         Operation::SaveDatabaseConnection => (None, Action::SaveDatabase(parse(arguments)?)),
-        Operation::SaveSshConnection => (None, Action::SaveSsh(parse(arguments)?)),
+        Operation::SaveSshConnection => {
+            if let Some(credential) = arguments.get("credential") {
+                let fields = credential
+                    .as_object()
+                    .ok_or_else(|| Fault::invalid("invalid SSH credential"))?;
+                let allowed: &[&str] = match fields.get("kind").and_then(Value::as_str) {
+                    Some("password") => &["kind", "password"],
+                    Some("private_key") => &["kind", "key", "passphrase"],
+                    Some("key_path") => &["kind", "path", "passphrase"],
+                    Some("agent") => &["kind"],
+                    _ => return Err(Fault::invalid("invalid SSH credential")),
+                };
+                if fields.keys().any(|name| !allowed.contains(&name.as_str())) {
+                    return Err(Fault::invalid("invalid SSH credential"));
+                }
+            }
+            let input = serde_json::from_value(arguments)
+                .map_err(|_| Fault::invalid("invalid SSH connection operation"))?;
+            (None, Action::SaveSsh(input))
+        }
         Operation::BrowseDatabase => {
             let input: Catalog = parse(arguments)?;
             (

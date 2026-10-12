@@ -12,9 +12,13 @@ pub(super) fn run(
     let Connection::Sqlite { path } = &operation.profile.connection else {
         unreachable!()
     };
-    let path = Path::new(path)
-        .canonicalize()
-        .map_err(crate::files::io_error)?;
+    let path = Path::new(path).canonicalize().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            Fault::new(ErrorCode::NotFound, "Database file does not exist")
+        } else {
+            crate::files::io_error(error)
+        }
+    })?;
     if operation
         .storage
         .as_ref()

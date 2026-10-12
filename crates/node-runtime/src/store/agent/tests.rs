@@ -14,6 +14,106 @@ mod preview;
 mod rewind;
 mod title;
 
+mod credentials {
+    use super::*;
+
+    #[test]
+    fn binds_exact_replacement_without_copying_secrets() {
+        let command = Command::SaveSsh {
+            profile: ssh::Profile {
+                id: SshId::new(),
+                revision: 0,
+                sharing: None,
+                name: "Credential fixture".into(),
+                host: "ssh.example.invalid".into(),
+                port: 22,
+                username: "fixture".into(),
+                authentication: ssh::Authentication::Password,
+                host_key: None,
+            },
+            expected_revision: 0,
+            credential: Some(ssh::Credential::Password {
+                password: Secret::new("prepared-private-marker".into()),
+            }),
+        };
+        let prepared = approvals::Prepared::new(&command).unwrap().unwrap();
+        assert!(prepared.matches(&command).unwrap());
+        assert!(
+            !serde_json::to_string(&prepared)
+                .unwrap()
+                .contains("prepared-private-marker")
+        );
+        let mut changed = command;
+        let Command::SaveSsh { credential, .. } = &mut changed else {
+            unreachable!()
+        };
+        *credential = Some(ssh::Credential::Password {
+            password: Secret::new("replacement-private-marker".into()),
+        });
+        assert!(!prepared.matches(&changed).unwrap());
+    }
+
+    #[test]
+    fn projects_only_trusted_ssh_calls() {
+        let mut fixture = fixture::Fixture::new();
+        fixture::package(&fixture.database, fixture._root.path(), "ssh");
+        let name = crate::plugins::tools::alias("ssh", "ssh_save_connection");
+        let args = serde_json::json!({"name":"Host fixture","credential":{"kind":"password","password":"private-marker"},"key_path":"/private-key-marker"});
+        let mut event = AdkEvent::new("credential-fixture");
+        event.author = "assistant".into();
+        event.set_content(adk_core::Content {
+            role: "model".into(),
+            parts: vec![
+                adk_core::Part::FunctionCall {
+                    id: Some("trusted".into()),
+                    name: name.clone(),
+                    args: args.clone(),
+                    thought_signature: None,
+                },
+                adk_core::Part::FunctionCall {
+                    id: Some("unknown".into()),
+                    name: "user_literal".into(),
+                    args: args.clone(),
+                    thought_signature: None,
+                },
+                adk_core::Part::Text {
+                    text: "User literal private-marker".into(),
+                },
+            ],
+        });
+        let turn = fixture.append([event.clone()]);
+        let history = fixture.read(None, 100);
+        let entry = history
+            .page
+            .entries
+            .iter()
+            .find(|entry| entry.id == event.id)
+            .unwrap();
+        assert!(
+            matches!(&entry.parts[0], Part::ToolCall { arguments, .. } if arguments == &serde_json::json!({"name":"Host fixture"}))
+        );
+        assert!(matches!(&entry.parts[1], Part::ToolCall { arguments, .. } if arguments == &args));
+        assert_eq!(
+            entry.parts[2],
+            Part::Text("User literal private-marker".into())
+        );
+        let body: Vec<u8> = fixture
+            .database
+            .connection
+            .query_row(
+                "SELECT body FROM agent_events WHERE turn=?1 AND id=?2",
+                params![turn.to_string(), event.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let canonical: AdkEvent = serde_json::from_slice(&body).unwrap();
+        assert!(
+            matches!(&canonical.content().unwrap().parts[0], adk_core::Part::FunctionCall { args: original, .. } if original == &args)
+        );
+        assert!(history::project(&fixture.database.connection, 0, TurnId::new(), &event).is_err());
+    }
+}
+
 pub(super) fn command(
     database: &mut Database,
     events: &broadcast::Sender<EventEnvelope>,

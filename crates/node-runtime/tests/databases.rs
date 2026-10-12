@@ -508,6 +508,154 @@ async fn sqlite_ownership() {
 }
 
 #[tokio::test]
+async fn sqlite_catalog_reports_missing_without_creation() {
+    for remote in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let controller =
+            Link::controller(directory.path().join("controller"), NetworkScope::default())
+                .await
+                .unwrap();
+        let address = controller
+            .handle()
+            .pair(node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(address)
+        } else {
+            node.local()
+        });
+        let missing = directory.path().join("missing.db");
+        for read_only in [true, false] {
+            let Output::DatabaseProfile(profile) = execute(
+                &client,
+                Command::SaveDatabase {
+                    profile: Profile {
+                        id: DatabaseId::new(),
+                        revision: 0,
+                        sharing: None,
+                        name: "Missing SQLite fixture".into(),
+                        connection: Connection::Sqlite {
+                            path: missing.to_str().unwrap().into(),
+                        },
+                        read_only,
+                    },
+                    expected_revision: 0,
+                    password: None,
+                },
+            )
+            .await
+            else {
+                panic!("database profile expected")
+            };
+            for command in [
+                Command::BrowseDatabase {
+                    profile: profile.id,
+                    expected_revision: profile.revision,
+                    database: None,
+                },
+                query(&profile, "SELECT 1"),
+            ] {
+                let fault = client.execute(client.prepare(command)).await.unwrap_err();
+                assert_eq!(fault.code, ErrorCode::NotFound);
+                assert_eq!(fault.message, "Database file does not exist");
+                assert!(!missing.exists());
+            }
+        }
+        let empty = directory.path().join("empty.db");
+        rusqlite::Connection::open(&empty).unwrap();
+        let Output::DatabaseProfile(profile) = execute(
+            &client,
+            Command::SaveDatabase {
+                profile: Profile {
+                    id: DatabaseId::new(),
+                    revision: 0,
+                    sharing: None,
+                    name: "Empty SQLite fixture".into(),
+                    connection: Connection::Sqlite {
+                        path: empty.to_str().unwrap().into(),
+                    },
+                    read_only: true,
+                },
+                expected_revision: 0,
+                password: None,
+            },
+        )
+        .await
+        else {
+            panic!("database profile expected")
+        };
+        assert_eq!(
+            execute(
+                &client,
+                Command::BrowseDatabase {
+                    profile: profile.id,
+                    expected_revision: profile.revision,
+                    database: None
+                }
+            )
+            .await,
+            Output::DatabaseOutcome(Outcome::Catalog(database::Catalog::Databases(vec![
+                "main".into()
+            ])))
+        );
+        assert_eq!(
+            execute(
+                &client,
+                Command::BrowseDatabase {
+                    profile: profile.id,
+                    expected_revision: profile.revision,
+                    database: Some("main".into())
+                }
+            )
+            .await,
+            Output::DatabaseOutcome(Outcome::Catalog(database::Catalog::Tables {
+                database: "main".into(),
+                tables: vec![]
+            }))
+        );
+        let Output::DatabaseProfile(protected) = execute(
+            &client,
+            Command::SaveDatabase {
+                profile: Profile {
+                    connection: Connection::Sqlite {
+                        path: node
+                            .profile()
+                            .join("storage/node.sqlite3")
+                            .to_str()
+                            .unwrap()
+                            .into(),
+                    },
+                    ..profile.clone()
+                },
+                expected_revision: profile.revision,
+                password: None,
+            },
+        )
+        .await
+        else {
+            panic!("database profile expected")
+        };
+        let fault = client
+            .execute(client.prepare(Command::BrowseDatabase {
+                profile: protected.id,
+                expected_revision: protected.revision,
+                database: None,
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(fault.code, ErrorCode::PermissionDenied);
+        assert_eq!(
+            fault.message,
+            "Node storage cannot be opened as a query database"
+        );
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn stores_inline_passwords() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
