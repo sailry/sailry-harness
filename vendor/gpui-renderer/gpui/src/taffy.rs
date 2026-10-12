@@ -215,8 +215,9 @@ impl TaffyLayoutEngine {
             transform(available_space.height),
         );
 
+        crate::fast::layout::replay_pending_measures(self, window, cx);
         let mut measures = crate::fast::stats::begin_measure_tally(self);
-        self.taffy
+        crate::fast::layout::MeasuredTaffy(&mut self.taffy)
             .compute_layout_with_measure(
                 id.into(),
                 available_space.into(),

@@ -33,9 +33,9 @@ quickjs = [
 
 [dependencies]
 gpui = { package = "gpui-pre", version = "=0.3.8" }
-gpui-fast = { package = "gpui-fast", version = "=0.1.3", features = ["windows-manifest-provided-by-host"], optional = true }
+gpui-fast = { package = "gpui-fast", version = "=0.1.6", features = ["windows-manifest-provided-by-host"], optional = true }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
-gpui-fast-platform = { package = "gpui-fast-platform", version = "=0.1.3", features = ["font-kit", "x11", "wayland", "runtime_shaders"], optional = true }
+gpui-fast-platform = { package = "gpui-fast-platform", version = "=0.1.6", features = ["font-kit", "x11", "wayland", "runtime_shaders"], optional = true }
 gpui-base = { version = "0.7.1", path = "../../gpui-base", features = ["inspector"] }
 gpui-fps = { version = "0.7.1", path = "../fps" }
 
@@ -76,7 +76,7 @@ tracing = { version = "0.1.41" }
 
 [dev-dependencies]
 gpui = { package = "gpui-pre", version = "=0.3.8", features = ["test-support"] }
-gpui-fast = { package = "gpui-fast", version = "=0.1.3", features = ["windows-manifest-provided-by-host", "test-support"] }
+gpui-fast = { package = "gpui-fast", version = "=0.1.6", features = ["windows-manifest-provided-by-host", "test-support"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

@@ -15,7 +15,7 @@ gpui-component = { version = "0.7.1", path = "../../gpui-component", features = 
 
 [dev-dependencies]
 gpui = { package = "gpui-pre", version = "=0.3.8", features = ["test-support"] }
-gpui-fast = { package = "gpui-fast", version = "=0.1.3", features = ["windows-manifest-provided-by-host", "test-support"] }
+gpui-fast = { package = "gpui-fast", version = "=0.1.6", features = ["windows-manifest-provided-by-host", "test-support"] }
 gpui-base = { version = "0.7.1", path = "../../gpui-base", features = ["test-support"] }
 gpui-component = { version = "0.7.1", path = "../../gpui-component", features = ["test-support"] }
 serde_json = { version = "1" }

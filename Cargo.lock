@@ -5756,7 +5756,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-fast"
-version = "0.1.3"
+version = "0.1.6"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -5809,7 +5809,7 @@ dependencies = [
  "smallvec",
  "spin 0.10.1",
  "strum",
- "taffy",
+ "taffy 0.14.0",
  "thiserror 2.0.20",
  "ttf-parser",
  "url",
@@ -5823,7 +5823,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-fast-apple"
-version = "0.1.3"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "async-task",
@@ -5852,9 +5852,9 @@ dependencies = [
 
 [[package]]
 name = "gpui-fast-linux"
-version = "0.1.3"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41796eb916f73d6a83a9376169694cba202402124e5d13dc8b9d67c26833cfc5"
+checksum = "69290eae78fc156bfaeea297a4c12955fae84be224692e997800f6c4a996b121"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -5897,7 +5897,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-fast-macos"
-version = "0.1.3"
+version = "0.1.6"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -5938,9 +5938,9 @@ dependencies = [
 
 [[package]]
 name = "gpui-fast-macros"
-version = "0.1.3"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0c396f46c9cb5c61798dc58c08fb19b9842d7d0524ac2a281f226ca2c4e0f9c"
+checksum = "e1d80ba862ddcfa3c2bea405c28c4f4d59f9853993456f871888cff5fb6f0c51"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -5950,9 +5950,9 @@ dependencies = [
 
 [[package]]
 name = "gpui-fast-platform"
-version = "0.1.3"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d94cde03449744fa82beaf60b3d6d9e55306e68d1fc8a9c18d7b9f60841f734"
+checksum = "67f2f069a3ba873d6e80913a77409b8d74c5e347ef86b5a5f53f0806d9e30489"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -5966,9 +5966,9 @@ dependencies = [
 
 [[package]]
 name = "gpui-fast-web"
-version = "0.1.3"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcb8cf92b86f73a29be19dc2681b9f13cf0f5645fb052648dd2014ca12a6969a"
+checksum = "76c74e7736b7a5c4dce005407f393ce696d060814ae88f3bb9adea52953416da"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -5995,7 +5995,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-fast-wgpu"
-version = "0.1.3"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -6021,7 +6021,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-fast-windows"
-version = "0.1.3"
+version = "0.1.6"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -6155,7 +6155,7 @@ dependencies = [
  "smallvec",
  "spin 0.10.1",
  "strum",
- "taffy",
+ "taffy 0.13.0",
  "thiserror 2.0.20",
  "ttf-parser",
  "url",
@@ -16309,6 +16309,18 @@ name = "taffy"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c034e05f6ee85a12daa63863c2245797715075c70649947aa0da54f3f2ab1d0f"
+dependencies = [
+ "arrayvec",
+ "serde",
+ "slotmap",
+ "smallvec",
+]
+
+[[package]]
+name = "taffy"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "639627c87f43b9181c811f40a6296409e093a17bc761214cba3c15df74f86b99"
 dependencies = [
  "arrayvec",
  "serde",

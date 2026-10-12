@@ -1,14 +1,14 @@
 # Modified by Longbridge for gpui-fast publication.
 [package]
 name = "gpui-fast-apple"
-version = "0.1.3"
+version = "0.1.6"
 edition = "2024"
 publish = ["crates-io"]
 license = "Apache-2.0"
 repository = "https://github.com/longbridge/gpui-fast"
 homepage = "https://github.com/longbridge/gpui-fast"
 readme = "README.md"
-documentation = "https://docs.rs/gpui-fast-apple/0.1.3/gpui_apple/"
+documentation = "https://docs.rs/gpui-fast-apple/0.1.6/gpui_apple/"
 description = "gpui_apple: GPUI with gpui-fast rendering and layout optimizations"
 autoexamples = false
 autobenches = false
@@ -30,7 +30,7 @@ runtime_shaders = []
 [dependencies.gpui]
 default-features = false
 package = "gpui-fast"
-version = "=0.1.3"
+version = "^0.1.6"
 path = "../gpui"
 
 [target."cfg(any(target_os = \"macos\", target_os = \"ios\"))".dependencies.anyhow]
@@ -114,3 +114,6 @@ version = "0.12.1"
 [target."cfg(any(target_os = \"macos\", target_os = \"ios\"))".build-dependencies.cbindgen]
 version = "0.28.0"
 default-features = false
+
+[lints.rust.unexpected_cfgs]
+level = "allow"

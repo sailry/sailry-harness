@@ -18,7 +18,7 @@ doctest = false
 # `gpui/profiler` belongs here, not on the workspace dependency: this is the
 # only crate that uses it, and cargo unifies features across the graph.
 gpui = { package = "gpui-pre", version = "=0.3.8", features = ["profiler"] }
-gpui-fast = { package = "gpui-fast", version = "=0.1.3", features = ["windows-manifest-provided-by-host", "profiler"], optional = true }
+gpui-fast = { package = "gpui-fast", version = "=0.1.6", features = ["windows-manifest-provided-by-host", "profiler"], optional = true }
 web-time = "1"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
@@ -53,7 +53,7 @@ windows = { features = ["Wdk", "Wdk_System", "Wdk_System_SystemServices", "Win32
 
 [dev-dependencies]
 gpui = { package = "gpui-pre", version = "=0.3.8", features = ["test-support"] }
-gpui-fast = { package = "gpui-fast", version = "=0.1.3", features = ["windows-manifest-provided-by-host", "test-support"] }
+gpui-fast = { package = "gpui-fast", version = "=0.1.6", features = ["windows-manifest-provided-by-host", "test-support"] }
 
 [lints.clippy]
 almost_complete_range = "allow"

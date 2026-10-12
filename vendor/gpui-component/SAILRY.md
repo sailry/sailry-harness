@@ -5,7 +5,7 @@ Source: `longbridge/gpui-kit`, revision
 The Apache-2.0 license and upstream notices are retained. Workspace manifest
 inheritance is resolved in place; product dependencies use the root lockfile.
 Component, Base, Assets and the public Kit use the same selected `gpui-fast`
-feature and exact `=0.1.3` backend family. Component macros are pinned to this
+feature and exact `=0.1.6` backend family. Component macros are pinned to this
 same Kit source revision.
 
 ## Retained patches

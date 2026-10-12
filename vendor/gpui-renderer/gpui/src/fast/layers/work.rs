@@ -12,6 +12,10 @@ const FRAME_OVERHEAD: f32 = 0.25;
 // A changed frame rebuilding this much overscan creates a latency spike even
 // when sparse updates make its average work look cheap.
 const MAX_REFRESH_WORK: f32 = 2.;
+// Two such refreshes this many frames apart or closer make the spikes
+// recurring; further apart, the frames composited between them save far
+// more than the spikes cost, as a transcript notified now and then does.
+const REFRESH_SPIKE_FRAMES: u64 = 120;
 
 pub(crate) struct WorkBudget {
     samples: [f32; WINDOW],
@@ -19,8 +23,9 @@ pub(crate) struct WorkBudget {
     next: usize,
     len: usize,
     frame: Option<u64>,
-    expensive_refreshes: u8,
-    last_expensive_refresh: Option<u64>,
+    /// The frames of the last two refreshes that rebuilt more than
+    /// [`MAX_REFRESH_WORK`], the latest first.
+    expensive_refreshes: [Option<u64>; 2],
 }
 
 impl Default for WorkBudget {
@@ -31,17 +36,15 @@ impl Default for WorkBudget {
             next: 0,
             len: 0,
             frame: None,
-            expensive_refreshes: 0,
-            last_expensive_refresh: None,
+            expensive_refreshes: [None; 2],
         }
     }
 }
 
 impl WorkBudget {
     pub(crate) fn note_refresh(&mut self, frame: u64, work: f32) {
-        if work > MAX_REFRESH_WORK && self.last_expensive_refresh != Some(frame) {
-            self.expensive_refreshes = self.expensive_refreshes.saturating_add(1);
-            self.last_expensive_refresh = Some(frame);
+        if work > MAX_REFRESH_WORK && self.expensive_refreshes[0] != Some(frame) {
+            self.expensive_refreshes = [Some(frame), self.expensive_refreshes[0]];
         }
     }
 
@@ -69,7 +72,11 @@ impl WorkBudget {
     }
 
     pub(crate) fn over_budget(&self) -> bool {
-        self.expensive_refreshes >= 2 || (self.len == WINDOW && self.total >= WINDOW as f32)
+        let spikes = match self.expensive_refreshes {
+            [Some(latest), Some(earlier)] => latest - earlier <= REFRESH_SPIKE_FRAMES,
+            _ => false,
+        };
+        spikes || (self.len == WINDOW && self.total >= WINDOW as f32)
     }
 }
 
@@ -121,6 +128,22 @@ mod tests {
         );
         budget.note_refresh(17, 5.);
         assert!(budget.over_budget());
+    }
+
+    #[test]
+    fn broad_refreshes_far_apart_keep_the_layer() {
+        let mut budget = WorkBudget::default();
+        budget.note(0, 5.);
+        for frame in 1..=1000 {
+            let refresh = frame % 200 == 0;
+            let work = if refresh { 5. } else { 0. };
+            budget.note(frame, work);
+            budget.note_refresh(frame, work);
+            assert!(!budget.over_budget(), "frame {frame}");
+        }
+        budget.note(1001, 0.);
+        budget.note_refresh(1100, 5.);
+        assert!(budget.over_budget(), "two within the spike window");
     }
 
     #[test]

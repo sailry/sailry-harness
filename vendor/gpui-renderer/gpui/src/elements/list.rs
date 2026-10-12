@@ -26,9 +26,10 @@ pub fn list(
     state: ListState,
     render_item: impl FnMut(usize, &mut Window, &mut App) -> AnyElement + 'static,
 ) -> List {
+    crate::fast::layers::invalidate::note_list_built();
     List {
         state,
-        render_item: Box::new(render_item),
+        render_item: crate::fast::layers::lists::spanned_render_item(render_item),
         style: StyleRefinement::default(),
         sizing_behavior: ListSizingBehavior::default(),
     }
@@ -61,8 +62,8 @@ impl std::fmt::Debug for ListState {
 }
 
 pub(crate) struct StateInner {
-    last_layout_bounds: Option<Bounds<Pixels>>,
-    last_padding: Option<Edges<Pixels>>,
+    pub(crate) last_layout_bounds: Option<Bounds<Pixels>>,
+    pub(crate) last_padding: Option<Edges<Pixels>>,
     pub(crate) items: SumTree<ListItem>,
     pub(crate) logical_scroll_top: Option<ListOffset>,
     alignment: ListAlignment,
@@ -295,9 +296,9 @@ pub(crate) struct ListItemSummary {
     pub(crate) count: usize,
     rendered_count: usize,
     unrendered_count: usize,
-    height: Pixels,
+    pub(crate) height: Pixels,
     has_focus_handles: bool,
-    has_unknown_height: bool,
+    pub(crate) has_unknown_height: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -495,7 +496,7 @@ impl ListState {
     /// not scrollable or the total content height is not yet known.
     pub fn is_scrolled_to_end(&self) -> Option<bool> {
         let state = self.0.borrow();
-        crate::fast::layers::invalidate::note_offset_read(&state.version);
+        crate::fast::layers::lists::note_at_end_read(&state);
         let bounds = state.last_layout_bounds?;
         let summary = state.items.summary();
         if summary.has_unknown_height {
@@ -618,7 +619,7 @@ impl ListState {
     /// growing (e.g. during streaming).
     pub fn scroll_to_end(&self) {
         let state = &mut *self.0.borrow_mut();
-        crate::fast::dependencies::StateVersion::bump(&state.version);
+        crate::fast::layers::lists::note_scrolled_to_end(state);
         let item_count = state.items.summary().count;
         state.pending_scroll = None;
         state.logical_scroll_top = Some(ListOffset {

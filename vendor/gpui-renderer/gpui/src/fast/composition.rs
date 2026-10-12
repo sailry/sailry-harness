@@ -416,6 +416,22 @@ pub(crate) fn unsupported<T>(what: &str) -> Result<T> {
     bail!("{what} is not supported on this platform")
 }
 
+impl crate::Background {
+    /// Returns whether the background covers its bounds with no translucency,
+    /// so a platform compositing native content below it can cut that
+    /// content out instead of blending it.
+    pub fn is_opaque(&self) -> bool {
+        match self.tag {
+            crate::color::BackgroundTag::Solid => self.solid.is_opaque(),
+            crate::color::BackgroundTag::LinearGradient => {
+                self.colors.iter().all(|stop| stop.color.is_opaque())
+            }
+            crate::color::BackgroundTag::PatternSlash
+            | crate::color::BackgroundTag::Checkerboard => false,
+        }
+    }
+}
+
 impl Scene {
     /// Returns whether the scene contains no drawable primitives.
     ///

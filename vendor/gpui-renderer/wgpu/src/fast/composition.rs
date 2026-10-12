@@ -47,4 +47,27 @@ impl WgpuRenderer {
         renderer.set_subpixel_layout(self.is_bgr);
         Ok(renderer)
     }
+
+    /// Moves this renderer onto another surface of the same GPU context,
+    /// keeping its pipelines and sprite atlas, which are much slower to create
+    /// than a surface.
+    pub fn replace_surface_sharing_context<W>(
+        &mut self,
+        window: &W,
+        config: WgpuSurfaceConfig,
+    ) -> anyhow::Result<()>
+    where
+        W: HasWindowHandle,
+    {
+        let gpu_context = Rc::clone(
+            self.context
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("renderer has no shared GPU context"))?,
+        );
+        let context_ref = gpu_context.borrow();
+        let context = context_ref
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("GPU context is not initialized"))?;
+        self.replace_surface(window, config, &context.instance)
+    }
 }

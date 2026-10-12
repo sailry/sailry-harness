@@ -9,7 +9,7 @@ uses its root Cargo.lock and the rebased sibling Base and Component packages.
 
 Kit's `gpui-fast` feature selects the public engine and every enabled layer
 together. All Fast core, platform and web dependency declarations are pinned to
-`=0.1.3`; GPUI macros and the additive upstream build dependencies retain Kit's
+`=0.1.6`; GPUI macros and the additive upstream build dependencies retain Kit's
 exact `gpui-pre =0.3.8` family. Component macros come from this same Kit revision.
 The current `gpui-webview` package always selects Fast, replacing `gpui-wry`.
 

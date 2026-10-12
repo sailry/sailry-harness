@@ -7,7 +7,7 @@ excluded by the upstream package are omitted. Workspace manifest inheritance is
 resolved in place; the application uses the root Cargo.lock.
 
 The selected application backend is Kit's `gpui-fast` feature, pinned to
-`=0.1.3` for the entire Fast family. Upstream's `gpui-pre =0.3.8` dependencies
+`=0.1.6` for the entire Fast family. Upstream's `gpui-pre =0.3.8` dependencies
 remain as required by its additive features. `gpui_macros` remains the Kit-selected
 `gpui-pre-macros =0.3.8`; it is not an independent GPUI engine selection.
 

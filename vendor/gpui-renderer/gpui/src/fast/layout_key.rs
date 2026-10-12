@@ -284,10 +284,15 @@ pub(crate) fn layout_as_list_item(
     window: &mut Window,
     cx: &mut App,
 ) -> Size<Pixels> {
-    if element.0.fast_element_id().is_some() {
-        return element.layout_as_root(available_space, window, cx);
-    }
-    window.with_list_item_layout_key(index, |window| {
-        element.layout_as_root(available_space, window, cx)
-    })
+    let start = crate::fast::layers::lists::row_layout_start(window);
+    let size = crate::fast::layout::laying_out_list_row(window, |window| {
+        if element.0.fast_element_id().is_some() {
+            return element.layout_as_root(available_space, window, cx);
+        }
+        window.with_list_item_layout_key(index, |window| {
+            element.layout_as_root(available_space, window, cx)
+        })
+    });
+    crate::fast::layers::lists::note_row_layout(window, index, start);
+    size
 }

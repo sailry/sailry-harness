@@ -41,8 +41,9 @@ const PROMOTE_AFTER_SCROLLED_FRAMES: u8 = 2;
 /// A layer whose content changed on at least this many of the last 16
 /// frames is demoted. Include the halfway boundary at 120 Hz.
 const DEMOTE_AFTER_CHANGED_FRAMES: u32 = 8;
-/// Lists rebuild about five viewports on content changes, so their
-/// frequency limit is lower even before the work budget is exhausted.
+/// Uniform lists rebuild about five viewports on content changes, so their
+/// frequency limit is lower even before the work budget is exhausted. A
+/// `list` rebuilds only the rows it shows, as it would without a layer.
 const LIST_DEMOTE_AFTER_CHANGED_FRAMES: u32 = 4;
 /// How many frames a demoted container's content must be stable for before
 /// it may get a layer again.
@@ -203,9 +204,11 @@ pub(crate) fn decide(
     let changed_while_demoted =
         demoted_until.is_some() && invalidate::changed_without_layer(window, cx, id);
     if changed_while_demoted {
-        demoted_until = demoted_until.map(|until| {
-            until.max(frame + policy.cooldown_frames.max(REPROMOTE_AFTER_STABLE_FRAMES))
-        });
+        // The cooldown runs from the demotion; a change while it runs only
+        // asks the content to stay as it is a while before the layer is
+        // tried again, so that one changed now and then, as a view notified
+        // every few seconds, is not kept off its layer for good.
+        demoted_until = demoted_until.map(|until| until.max(frame + REPROMOTE_AFTER_STABLE_FRAMES));
     }
     if demoted_until.is_some_and(|until| frame >= until) {
         demoted_until = None;
@@ -215,6 +218,7 @@ pub(crate) fn decide(
     // for it, and whether it is dropped for holding what it cannot
     // composite.
     let mut changed = false;
+    let mut rerendered = false;
     let mut demote = layer.record.is_some() && policy.work.over_budget();
     let mut ineligible = false;
     let decision = match &layer.record {
@@ -240,6 +244,18 @@ pub(crate) fn decide(
                 Decision::Repaint
             }
         }
+        Some(record)
+            if policy.painted_in.as_ref() == Some(&context)
+                && layer.rows.repaints_shown_rows
+                && !layer.rows.items_changed
+                && invalidate::owner_rerendered_only(window, cx, id, record) =>
+        {
+            // Only the view holding a `list` renders again: the rows it shows
+            // are rendered again, and the rows the layer holds besides as
+            // they come to show (see `lists::LayerRows::rerendered`).
+            rerendered = true;
+            Decision::Composite
+        }
         Some(_) => {
             changed = true;
             Decision::Repaint
@@ -258,7 +274,7 @@ pub(crate) fn decide(
         .unwrap_or_default();
     if changed {
         history |= 1;
-        let changed_limit = if layer.rows.list {
+        let changed_limit = if layer.rows.list && !layer.rows.repaints_shown_rows {
             LIST_DEMOTE_AFTER_CHANGED_FRAMES
         } else {
             DEMOTE_AFTER_CHANGED_FRAMES
@@ -270,6 +286,7 @@ pub(crate) fn decide(
     let starting_cache = decision == Decision::Repaint && layer.record.is_none();
     let owner = invalidate::owner_view(window);
     let layer = window.fast_layers.layers.get_mut(id).unwrap();
+    layer.rows.rerendered = rerendered && decision == Decision::Composite;
     let policy = &mut layer.policy;
     if policy.owner.as_ref().map(OwnerWatch::view) != owner {
         policy.owner = owner.map(OwnerWatch::new);
@@ -334,6 +351,18 @@ pub(crate) fn decide(
 /// Records work completed for the layer in this frame. One unit is the
 /// work of drawing its visible content directly; overscan and rows rebuilt
 /// for hover count too. The next prepaint can fall back before doing more.
+/// Notes that the layer of `id`, painted afresh this frame for a change of
+/// its content, came out as it was: the frame does not count as one its
+/// content changed on (see [`DEMOTE_AFTER_CHANGED_FRAMES`]).
+pub(crate) fn note_unchanged_repaint(window: &mut Window, id: &GlobalElementId) {
+    let frame = window.fast_layers.frame;
+    if let Some(layer) = window.fast_layers.layers.get_mut(id)
+        && layer.policy.last_seen_frame == frame
+    {
+        layer.policy.change_history &= !1;
+    }
+}
+
 pub(crate) fn note_work(window: &mut Window, id: &GlobalElementId, work: f32) {
     let frame = window.fast_layers.frame;
     if let Some(layer) = window.fast_layers.layers.get_mut(id) {

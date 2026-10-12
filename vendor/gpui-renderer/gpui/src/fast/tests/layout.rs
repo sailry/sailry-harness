@@ -655,3 +655,136 @@ fn changed_text_measuring_the_same_leaves_its_layout_alone() {
     let (retained, fresh) = from_scratch(&mut cx);
     assert_eq!(retained, fresh);
 }
+
+/// A leaf that measures itself through [`Window::request_measured_layout`],
+/// as a rich text element laying out its own lines does: as tall as `height`
+/// and as wide as it is allowed, and painted as a quad.
+struct MeasuredLeaf {
+    height: Rc<Cell<f32>>,
+}
+
+impl IntoElement for MeasuredLeaf {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl crate::Element for MeasuredLeaf {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&crate::GlobalElementId>,
+        _: Option<&crate::InspectorElementId>,
+        window: &mut Window,
+        _: &mut crate::App,
+    ) -> (crate::LayoutId, ()) {
+        let height = self.height.get();
+        let id = window.request_measured_layout(
+            crate::Style::default(),
+            move |known, available, _, _| {
+                let width = known.width.unwrap_or(match available.width {
+                    crate::AvailableSpace::Definite(width) => width,
+                    _ => px(80.),
+                });
+                size(width, px(height))
+            },
+        );
+        (id, ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&crate::GlobalElementId>,
+        _: Option<&crate::InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut Window,
+        _: &mut crate::App,
+    ) {
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&crate::GlobalElementId>,
+        _: Option<&crate::InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut (),
+        window: &mut Window,
+        _: &mut crate::App,
+    ) {
+        window.paint_quad(crate::fill(bounds, hsla(0.6, 0.5, 0.5, 1.0)));
+    }
+}
+
+/// A [`MeasuredLeaf`] in a narrow box, above a probe that lands below it.
+struct MeasuredLeafView {
+    height: Rc<Cell<f32>>,
+    probe: Rc<Cell<Bounds<Pixels>>>,
+}
+
+impl Render for MeasuredLeafView {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let probe = self.probe.clone();
+        div()
+            .flex()
+            .flex_col()
+            .child(div().w(px(40.)).child(MeasuredLeaf {
+                height: self.height.clone(),
+            }))
+            .child(canvas(move |bounds, _, _| probe.set(bounds), |_, _, _, _| {}).h(px(5.)))
+    }
+}
+
+/// A leaf measuring itself through the public API is measured again every
+/// frame it is built, its closure being new. Measuring what it measured
+/// before, under every constraint it was measured under, leaves its node and
+/// the nodes above it clean; measuring something else lays them out afresh.
+/// Either way the frame is the one a window drawing from scratch draws.
+#[test]
+fn a_rebuilt_measured_leaf_measuring_the_same_leaves_its_layout_alone() {
+    let mut cx = TestAppContext::single();
+    let height = Rc::new(Cell::new(20.));
+    let probe = Rc::new(Cell::new(Bounds::default()));
+    let window = cx.add_window({
+        let height = height.clone();
+        let probe = probe.clone();
+        move |_, _| MeasuredLeafView { height, probe }
+    });
+    draw_frame(&mut cx, window.into());
+    draw_frame(&mut cx, window.into());
+    let from_scratch = |cx: &mut TestAppContext| {
+        cx.update_window(window.into(), |_, window, cx| {
+            let retained = window.describe_rendered_frame();
+            window.forget_retained_state();
+            window.draw(cx).clear(cx);
+            (retained, window.describe_rendered_frame())
+        })
+        .unwrap()
+    };
+
+    let below = probe.get();
+    let same = change_and_draw(&mut cx, window, |_| {});
+    assert!(same.measurements_replayed >= 1, "{same:?}");
+    assert_eq!(probe.get(), below);
+    let (retained, fresh) = from_scratch(&mut cx);
+    assert_eq!(retained, fresh);
+
+    let taller = change_and_draw(&mut cx, window, |_| height.set(40.));
+    assert_eq!(taller.measurements_replayed, 0, "{taller:?}");
+    assert_eq!(probe.get().origin.y, below.origin.y + px(20.));
+    let (retained, fresh) = from_scratch(&mut cx);
+    assert_eq!(retained, fresh);
+}

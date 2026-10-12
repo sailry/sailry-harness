@@ -1,18 +1,22 @@
 # Source and local changes
 
 The five packages are the published `gpui-fast`, `gpui-fast-apple`,
-`gpui-fast-macos`, `gpui-fast-wgpu` and `gpui-fast-windows` 0.1.3 releases from
+`gpui-fast-macos`, `gpui-fast-wgpu` and `gpui-fast-windows` 0.1.6 releases from
 [Longbridge's GPUI Fast](https://github.com/longbridge/gpui-fast).
 Their source and Apache-2.0 licenses are retained. Archive SHA-256 checksums
 were verified against the crates.io version records before the port:
 
 | Package | SHA-256 |
 | --- | --- |
-| `gpui-fast` | `92dacd7ce83d53868a5cfa9ab8454a6ce0972bf6254d80bfb3cd22af142545bc` |
-| `gpui-fast-apple` | `5f6e45468ae9800f22c176fa80811a711cfecda49177584ea320ee232c7f4596` |
-| `gpui-fast-macos` | `5dcfeb8197d71dc5acbc250d02b3975ab2d0fe3c62bfab25f8315f15e7d98074` |
-| `gpui-fast-wgpu` | `f2385b31d9cb8c31538d3c3262ab0f4a7e6a8c0fc5f2166af1142ca179d02fe1` |
-| `gpui-fast-windows` | `184961e00dee1261c107790203c9d32f3eecea342f143cb96512c13ec1d6cac1` |
+| `gpui-fast` | `41e1053e2088b5c249aa78b50642e61323ed80afebbec1e5b317871eec340c7f` |
+| `gpui-fast-apple` | `0ca3837c127ec7791cce36beebb7c2c096690edac1a1a4dfe25df4bc0de910db` |
+| `gpui-fast-macos` | `25c4d51e9cd5ad910cde91f9cf6986f9c71660bb7dbe24cccb989a55a1fe826a` |
+| `gpui-fast-wgpu` | `9dcb49862ad77f0649f6693a761ef0ba0a9de944e1854b0bc4608aeffcf24855` |
+| `gpui-fast-windows` | `911e1ac8562bfdcebbb1da361276247e3f966ca8b3bcb6c8fbd127803f88a637` |
+| `gpui-fast-platform` | `67f2f069a3ba873d6e80913a77409b8d74c5e347ef86b5a5f53f0806d9e30489` |
+| `gpui-fast-web` | `76c74e7736b7a5c4dce005407f393ce696d060814ae88f3bb9adea52953416da` |
+| `gpui-fast-macros` | `e1d80ba862ddcfa3c2bea405c28c4f4d59f9853993456f871888cff5fb6f0c51` |
+| `gpui-fast-linux` | `69290eae78fc156bfaeea297a4c12955fae84be224692e997800f6c4a996b121` |
 
 This family is selected by GPUI Kit at revision
 `1ccf011620da24d633f7cd6d3c11ca2e97798dcf`, including the official
@@ -20,11 +24,16 @@ This family is selected by GPUI Kit at revision
 scroll layers, native composition, headless rendering, device recovery,
 input and accessibility. No second GPUI backend is selected.
 
+The entire Fast family remains pinned to `=0.1.6` by the consuming manifests
+and the root Cargo.lock. The obsolete standalone macOS lockfile is retired;
+standalone unit-test mirrors use private development locks, not product locks.
+
 The within-window backdrop/material extension is retired by product decision.
 Its scene records, tile exceptions, framebuffer copies, Gaussian and lens
 passes, shader additions, extra Objective-C dependency and extension-specific
-tests were removed against the checksum-verified 0.1.3 release sources above.
-The WGPU and Windows source now matches those releases. Standard Kit surfaces
+tests were removed against checksum-verified 0.1.3 release sources before this
+upgrade and are not carried into 0.1.6. The WGPU and Windows implementation
+source now matches the 0.1.6 releases. Standard Kit surfaces
 own their theme fills, borders, shadows and animations. Fast's native WebView
 composition and the application's OS window backdrop remain in use.
 
@@ -61,7 +70,9 @@ A retained paint copy follows a virtual-list layer only when every held row
 is inside the copied window record ranges, including all four text-cache
 streams. A partial copy invalidates the layer's range stamps so its next use
 repaints the rows before carrying their records. Relocation preserves
-layer-local scene indices without subtracting window scene origins.
+layer-local scene indices without subtracting window scene origins. The
+scene-index reset is now supplied unchanged by upstream 0.1.6; only the missing
+containment checks and partial-copy invalidation remain local.
 `gpui/src/fast/layers/lists.rs` tests partial-copy rebuilding, the text-cache
 substreams and later complete copies with different window scene origins.
 
@@ -73,8 +84,14 @@ estimates made its offscreen scroll extent stale at the same viewport width.
 The core build registers its existing `rust_analyzer` condition, and the macOS
 package registers the legacy `objc` macro's `cargo-clippy` feature condition
 without enabling it. Apple no longer needs that registration after removing
-the material extension's legacy Objective-C dependency. Other unexpected
-conditions still warn. Cocoa deprecation allowances are confined to the existing compatibility adapter
+the material extension's legacy Objective-C dependency. The macOS manifest
+keeps its targeted warning-level registration instead of upstream's blanket
+allowance; the other packages retain upstream's lint declarations. Cocoa
+deprecation allowances are confined to the existing compatibility adapter
 modules and helper items; the pinned Objective-C ABI and runtime behavior are
 unchanged. The retained-subtree reuse accessor is compiled only for its core
 unit tests, rather than every consumer enabling `test-support`.
+
+The native Metal drawable-size fixture remains beside the unmodified layer
+configuration and texture cleanup. It does not restore any material pass or
+establish application composition acceptance.

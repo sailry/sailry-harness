@@ -6,4 +6,4 @@ Source and documentation: [https://github.com/longbridge/gpui-fast](https://gith
 
 Forked from Zed's GPUI; distributed under Apache-2.0.
 
-Use the core as `gpui = { package = "gpui-fast", version = "0.1.3" }` to preserve paths emitted by its macros.
+Use the core as `gpui = { package = "gpui-fast", version = "0.1.6" }` to preserve paths emitted by its macros.

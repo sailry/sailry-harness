@@ -1,14 +1,14 @@
 # Modified by Longbridge for gpui-fast publication.
 [package]
 name = "gpui-fast-macos"
-version = "0.1.3"
+version = "0.1.6"
 edition = "2024"
 publish = ["crates-io"]
 license = "Apache-2.0"
 repository = "https://github.com/longbridge/gpui-fast"
 homepage = "https://github.com/longbridge/gpui-fast"
 readme = "README.md"
-documentation = "https://docs.rs/gpui-fast-macos/0.1.3/gpui_macos/"
+documentation = "https://docs.rs/gpui-fast-macos/0.1.6/gpui_macos/"
 description = "gpui_macos: GPUI with gpui-fast rendering and layout optimizations"
 autoexamples = false
 autobenches = false
@@ -32,7 +32,7 @@ screen-capture = ["gpui/screen-capture", "dep:objc2-core-graphics", "dep:objc2-c
 [dependencies.gpui]
 default-features = false
 package = "gpui-fast"
-version = "=0.1.3"
+version = "^0.1.6"
 path = "../gpui"
 
 [target."cfg(target_os = \"macos\")".dependencies.accesskit]
@@ -96,7 +96,7 @@ version = "0.3.34"
 
 [target."cfg(target_os = \"macos\")".dependencies.gpui_apple]
 package = "gpui-fast-apple"
-version = "=0.1.3"
+version = "^0.1.6"
 path = "../gpui_apple"
 
 [target."cfg(target_os = \"macos\")".dependencies.gpui_util]
@@ -184,3 +184,6 @@ features = ["derive"]
 [target."cfg(target_os = \"macos\")".dependencies.uuid]
 version = "1.1"
 features = ["serde"]
+
+[lints.rust.unexpected_cfgs]
+level = "allow"

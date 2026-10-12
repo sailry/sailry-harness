@@ -743,15 +743,16 @@ mod list {
     }
 
     impl Render for ListPage {
-        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             let rendered = self.rendered.clone();
+            let tint = cx.try_global::<RowTint>().map_or(0, |tint| tint.0);
             div().size_full().bg(rgb(0xffffff)).child(
                 crate::list(self.state.clone(), move |row, _, _| {
                     rendered.borrow_mut().push(row);
                     div()
                         .w(px(VIEWPORT_WIDTH))
                         .h(px(row_height(row)))
-                        .bg(row_color(row))
+                        .bg(row_color(row + tint))
                         .into_any_element()
                 })
                 .w(px(VIEWPORT_WIDTH))
@@ -974,6 +975,870 @@ mod list {
         assert_eq!(decision(cx, window), Some(Decision::Composite));
     }
 
+    /// Notifies the view of `handle`, as something it reads changing does,
+    /// and draws the frame that follows.
+    /// How far the rows of every [`ListPage`] are tinted, as the page
+    /// reads it when it renders and hands its row renderer.
+    struct RowTint(usize);
+
+    impl crate::Global for RowTint {}
+
+    /// Tints the rows of every [`ListPage`] anew.
+    fn tint_rows(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            let tint = cx.try_global::<RowTint>().map_or(0, |tint| tint.0);
+            cx.set_global(RowTint(tint + 1));
+        });
+    }
+
+    /// Tints the rows of every [`ListPage`] anew, and notifies `handle`'s
+    /// page, drawing it.
+    fn notify_rows(cx: &mut TestAppContext, handle: WindowHandle<ListPage>) {
+        tint_rows(cx);
+        notify(cx, handle);
+    }
+
+    fn notify(cx: &mut TestAppContext, handle: WindowHandle<ListPage>) {
+        let window: AnyWindowHandle = handle.into();
+        let frame = with_window(cx, window, |window, _| window.fast_layers.frame);
+        handle.update(cx, |_, _, cx| cx.notify()).unwrap();
+        if with_window(cx, window, |window, _| window.fast_layers.frame) == frame {
+            draw(cx, window);
+        }
+    }
+
+    /// A view rendering its list again, its row renderer changed — tinting
+    /// every row anew here — keeps the list on its layer: the list renders
+    /// the rows it shows again, and the rows its layer holds besides are
+    /// rendered again as they come to show. It draws as it does without
+    /// layers.
+    #[crate::test]
+    fn a_view_rendering_again_renders_its_rows_as_they_show(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let (handle, log) = page(
+            cx,
+            ListState::new(1000, ListAlignment::Top, px(0.)).measure_all(),
+        );
+        let (without, _) = page(
+            cx,
+            ListState::new(1000, ListAlignment::Top, px(0.)).measure_all(),
+        );
+        let window: AnyWindowHandle = handle.into();
+        compare_with_layers_off(cx, window, without.into(), &[-20., -20., -15.], "promote");
+        assert_eq!(decision(cx, window), Some(Decision::Composite));
+        let held: BTreeSet<usize> = held_rows(cx, window).into_iter().collect();
+        rendered(&log);
+
+        notify_rows(cx, handle);
+        notify(cx, without);
+        assert_eq!(decision(cx, window), Some(Decision::Composite));
+        let rendered_now = rendered(&log);
+        // 100 px of rows 20 to 40 px tall, and the one cut by each edge.
+        assert!(
+            !rendered_now.is_empty() && rendered_now.len() <= 6,
+            "only the rows shown render: {rendered_now:?}"
+        );
+        assert_eq!(
+            held_rows(cx, window).into_iter().collect::<BTreeSet<_>>(),
+            held,
+            "the layer keeps the rows it held"
+        );
+        let composited =
+            compare_with_layers_off(cx, window, without.into(), &[-15.; 10], "scroll down");
+        assert_eq!(composited, 10);
+        let rendered_after = rendered(&log);
+        assert!(
+            rendered_after.iter().any(|row| held.contains(row)),
+            "the rows held come to show and render again: {rendered_after:?}"
+        );
+        assert_eq!(
+            with_window(cx, window, |window, _| window.layout_stats().layers_demoted),
+            0
+        );
+    }
+
+    #[crate::test]
+    fn a_list_whose_view_is_notified_now_and_then_keeps_its_layer(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let state = ListState::new(1000, ListAlignment::Top, px(0.)).measure_all();
+        let (handle, _) = page(cx, state);
+        let window = handle.into();
+        promote(cx, window);
+        for frame in 0..200 {
+            if frame % 20 == 0 {
+                notify(cx, handle);
+            }
+            wheel(cx, window, -10.);
+        }
+        assert_eq!(decision(cx, window), Some(Decision::Composite));
+        assert_eq!(
+            with_window(cx, window, |window, _| window.layout_stats().layers_demoted),
+            0
+        );
+    }
+
+    /// A view notified on every frame for a while as it scrolls its list —
+    /// fading in a button beside it, say — paints the rows it shows afresh
+    /// each of those frames, and they come out as the layer held them: the
+    /// list keeps its layer, as it does for a view notified now and then.
+    #[crate::test]
+    fn a_list_whose_view_animates_beside_it_keeps_its_layer(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let state = ListState::new(1000, ListAlignment::Top, px(0.)).measure_all();
+        let (handle, _) = page(cx, state);
+        let window = handle.into();
+        promote(cx, window);
+        for frame in 0..60 {
+            if frame % 30 < 12 {
+                notify(cx, handle);
+                eprintln!(
+                    "DBGT {frame} notify {:?} hist={:b} dem={}",
+                    decision(cx, window),
+                    with_window(cx, window, |w, _| w
+                        .fast_layers
+                        .layers
+                        .values()
+                        .next()
+                        .map_or(0, |l| l.policy.change_history)),
+                    with_window(cx, window, |w, _| w.layout_stats().layers_demoted)
+                );
+            }
+            wheel(cx, window, -10.);
+            eprintln!("DBGT {frame} wheel {:?}", decision(cx, window));
+        }
+        assert_eq!(decision(cx, window), Some(Decision::Composite));
+        assert_eq!(
+            with_window(cx, window, |window, _| window.layout_stats().layers_demoted),
+            0
+        );
+    }
+
+    /// A list kept off its layer for changing too often, whose view is then
+    /// notified every couple of seconds, gets its layer back between the
+    /// notifications: a change while it is kept off asks only for the rows
+    /// to stay as they are a second before it is tried again.
+    #[crate::test]
+    fn a_demoted_list_notified_every_few_seconds_gets_its_layer_back(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let state = ListState::new(1000, ListAlignment::Top, px(0.)).measure_all();
+        let (handle, _) = page(cx, state);
+        let window = handle.into();
+        promote(cx, window);
+        // Its rows changed on every frame: demoted, and kept off its layer
+        // while they keep changing, twice, its cooldown growing.
+        let scroll_changing_rows = |cx: &mut TestAppContext, frame: usize| {
+            tint_rows(cx);
+            wheel(cx, window, if frame % 40 < 20 { -10. } else { 10. });
+        };
+        let demoted = |cx: &mut TestAppContext| {
+            with_window(cx, window, |window, _| window.layout_stats().layers_demoted)
+        };
+        let mut frames = 0;
+        for times in 1..=2 {
+            while demoted(cx) < times {
+                scroll_changing_rows(cx, frames);
+                frames += 1;
+                assert!(frames < 2_000, "demoted {times} times");
+            }
+            for frame in 0..200 {
+                scroll_changing_rows(cx, frame);
+                assert_eq!(
+                    decision(cx, window),
+                    Some(Decision::Bypass),
+                    "frame {frame}"
+                );
+            }
+            if times < 2 {
+                // Left alone, it gets its layer back.
+                while decision(cx, window) == Some(Decision::Bypass) {
+                    wheel(cx, window, if frames % 40 < 20 { -10. } else { 10. });
+                    frames += 1;
+                    assert!(frames < 2_000, "promoted again");
+                }
+            }
+        }
+        let mut composited = 0;
+        for frame in 0..1_200 {
+            if frame % 100 == 0 {
+                notify(cx, handle);
+            }
+            wheel(cx, window, if frame % 200 < 100 { -5. } else { 5. });
+            composited += usize::from(decision(cx, window) == Some(Decision::Composite));
+        }
+        assert!(composited > 600, "composited {composited}");
+    }
+
+    #[crate::test]
+    fn whether_a_list_is_at_its_end_is_told_as_the_list_tells_it(cx: &mut TestAppContext) {
+        let state = ListState::new(30, ListAlignment::Top, px(0.)).measure_all();
+        let (handle, _) = page(cx, state.clone());
+        let window: AnyWindowHandle = handle.into();
+        let at_end = || crate::fast::layers::lists::scrolled_to_end(&state.0.borrow());
+        assert_eq!(at_end(), state.is_scrolled_to_end());
+        let mut seen = BTreeSet::new();
+        for _ in 0..40 {
+            wheel(cx, window, -30.);
+            assert_eq!(at_end(), state.is_scrolled_to_end());
+            seen.insert(at_end());
+        }
+        assert_eq!(seen, [Some(false), Some(true)].into());
+    }
+
+    #[crate::test]
+    fn scrolling_a_list_to_its_end_where_it_is_changes_nothing(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let state = ListState::new(30, ListAlignment::Top, px(0.)).measure_all();
+        let (handle, _) = page(cx, state.clone());
+        let window: AnyWindowHandle = handle.into();
+        state.scroll_to_end();
+        draw(cx, window);
+        let version = state.0.borrow().version.get();
+        state.scroll_to_end();
+        assert_eq!(state.0.borrow().version.get(), version);
+        state.scroll_to(crate::ListOffset {
+            item_ix: 3,
+            offset_in_item: px(0.),
+        });
+        let version = state.0.borrow().version.get();
+        state.scroll_to_end();
+        assert_ne!(state.0.borrow().version.get(), version, "it moved");
+    }
+
+    /// A [`ListPage`] whose render writes what it was given into a model it
+    /// holds every time, as an input component writes its options into its
+    /// state.
+    struct WritingPage {
+        list: ListPage,
+        options: Entity<bool>,
+    }
+
+    impl Render for WritingPage {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            self.options.update(cx, |readonly, _| *readonly = true);
+            let rendered = self.list.rendered.clone();
+            div().size_full().bg(rgb(0xffffff)).child(
+                crate::list(self.list.state.clone(), move |row, _, _| {
+                    rendered.borrow_mut().push(row);
+                    div()
+                        .w(px(VIEWPORT_WIDTH))
+                        .h(px(row_height(row)))
+                        .bg(row_color(row))
+                        .into_any_element()
+                })
+                .w(px(VIEWPORT_WIDTH))
+                .h(px(VIEWPORT_HEIGHT)),
+            )
+        }
+    }
+
+    #[crate::test]
+    fn a_view_writing_as_it_renders_keeps_its_list_on_its_layer(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let window = cx.add_window(|_, cx| WritingPage {
+            list: ListPage {
+                state: ListState::new(1000, ListAlignment::Top, px(0.)).measure_all(),
+                rendered: Rc::new(RefCell::new(Vec::new())),
+            },
+            options: cx.new(|_| false),
+        });
+        let window: AnyWindowHandle = window.into();
+        open_at(cx, window, 1.);
+        promote(cx, window);
+        for step in 0..20 {
+            wheel(cx, window, -15.);
+            assert_eq!(
+                decision(cx, window),
+                Some(Decision::Composite),
+                "step {step}"
+            );
+        }
+    }
+
+    /// A white page holding a [`WritingPage`] as a cached view, as a panel
+    /// holds the view showing a list.
+    struct CachedWritingPage {
+        child: Entity<WritingPage>,
+    }
+
+    impl Render for CachedWritingPage {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().child(
+                crate::AnyView::from(self.child.clone())
+                    .cached(crate::StyleRefinement::default().size_full()),
+            )
+        }
+    }
+
+    #[crate::test]
+    fn a_cached_view_writing_as_it_renders_keeps_its_list_on_its_layer(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let window = cx.add_window(|_, cx| CachedWritingPage {
+            child: cx.new(|cx| WritingPage {
+                list: ListPage {
+                    state: ListState::new(1000, ListAlignment::Top, px(0.)).measure_all(),
+                    rendered: Rc::new(RefCell::new(Vec::new())),
+                },
+                options: cx.new(|_| false),
+            }),
+        });
+        let window: AnyWindowHandle = window.into();
+        open_at(cx, window, 1.);
+        promote(cx, window);
+        for step in 0..20 {
+            wheel(cx, window, -15.);
+            assert_eq!(
+                decision(cx, window),
+                Some(Decision::Composite),
+                "step {step}"
+            );
+        }
+    }
+
+    /// A [`ListPage`] drawn after a backdrop of its parent's, as a page is
+    /// drawn after a sidebar.
+    struct BackdropPage {
+        list: Entity<ListPage>,
+    }
+
+    impl Render for BackdropPage {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().bg(rgb(0xeeeeee)).child(self.list.clone())
+        }
+    }
+
+    /// A list view drawn from last frame while its parent renders again, after
+    /// the parent has drawn something of its own, keeps its layer's ranges,
+    /// which count from the layer's own scene and not the window's, and draws
+    /// as it does without layers.
+    #[crate::test]
+    fn a_list_view_drawn_again_after_its_parents_backdrop_keeps_its_layer(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let open = |cx: &mut TestAppContext| {
+            let window = cx.add_window(|_, cx| BackdropPage {
+                list: cx.new(|_| ListPage {
+                    state: ListState::new(1000, ListAlignment::Top, px(0.)).measure_all(),
+                    rendered: Rc::new(RefCell::new(Vec::new())),
+                }),
+            });
+            open_at(cx, window.into(), 1.);
+            window
+        };
+        let with_layers = open(cx);
+        let without_layers = open(cx);
+        with_window(cx, without_layers.into(), |window, _| {
+            window.set_scroll_layers(false)
+        });
+        draw(cx, without_layers.into());
+        promote(cx, with_layers.into());
+        wheel(cx, without_layers.into(), -20.);
+        wheel(cx, without_layers.into(), -20.);
+        for frame in 0..40 {
+            if frame % 4 == 0 {
+                for window in [with_layers, without_layers] {
+                    window.update(cx, |_, _, cx| cx.notify()).unwrap();
+                }
+            }
+            wheel(cx, with_layers.into(), -10.);
+            wheel(cx, without_layers.into(), -10.);
+            let expected = with_window(cx, without_layers.into(), |window, _| {
+                expanded_quads(&window.rendered_frame.scene)
+            });
+            let actual = with_window(cx, with_layers.into(), |window, _| {
+                expanded_quads(&window.rendered_frame.scene)
+            });
+            assert_eq!(actual, expected, "frame {frame}");
+        }
+        assert_eq!(decision(cx, with_layers.into()), Some(Decision::Composite));
+    }
+
+    /// A caret drawn by a component, which reads whether it shows as the
+    /// component renders, when the element it is laid out, as an input reads
+    /// its blinking cursor.
+    #[derive(IntoElement)]
+    struct Caret {
+        visible: Entity<bool>,
+    }
+
+    impl crate::RenderOnce for Caret {
+        fn render(self, _: &mut Window, cx: &mut crate::App) -> impl IntoElement {
+            let visible = *self.visible.read(cx);
+            div()
+                .w(px(2.))
+                .h(px(10.))
+                .when(visible, |caret| caret.bg(crate::red()))
+        }
+    }
+
+    /// A [`ListPage`] with a [`Caret`] beside its list.
+    struct CaretPage {
+        list: ListPage,
+        caret: Entity<bool>,
+    }
+
+    impl Render for CaretPage {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let rendered = self.list.rendered.clone();
+            div()
+                .flex()
+                .size_full()
+                .bg(rgb(0xffffff))
+                .child(
+                    crate::list(self.list.state.clone(), move |row, _, _| {
+                        rendered.borrow_mut().push(row);
+                        div()
+                            .w(px(VIEWPORT_WIDTH))
+                            .h(px(row_height(row)))
+                            .bg(row_color(row))
+                            .into_any_element()
+                    })
+                    .w(px(VIEWPORT_WIDTH))
+                    .h(px(VIEWPORT_HEIGHT)),
+                )
+                .child(Caret {
+                    visible: self.caret.clone(),
+                })
+        }
+    }
+
+    #[crate::test]
+    fn a_blinking_caret_beside_a_list_leaves_it_on_its_layer(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let caret = cx.new(|_| true);
+        let log = Rc::new(RefCell::new(Vec::new()));
+        let window = cx.add_window({
+            let caret = caret.clone();
+            let log = log.clone();
+            move |_, _| CaretPage {
+                list: ListPage {
+                    state: ListState::new(1000, ListAlignment::Top, px(0.)).measure_all(),
+                    rendered: log,
+                },
+                caret,
+            }
+        });
+        let window: AnyWindowHandle = window.into();
+        open_at(cx, window, 1.);
+        promote(cx, window);
+        let mut held: BTreeSet<usize> = held_rows(cx, window).into_iter().collect();
+        rendered(&log);
+        for step in 0..40 {
+            if step % 3 == 0 {
+                caret.update(cx, |visible, cx| {
+                    *visible = !*visible;
+                    cx.notify();
+                });
+            }
+            wheel(cx, window, -15.);
+            let now: BTreeSet<usize> = held_rows(cx, window).into_iter().collect();
+            let added: BTreeSet<usize> = now.difference(&held).copied().collect();
+            assert_eq!(
+                rendered(&log),
+                added,
+                "step {step}: only rows new to the layer render"
+            );
+            held = now;
+        }
+    }
+
+    /// A [`ListPage`] that, after building its list, reads where the list is
+    /// scrolled to, to mark beside it the first row it shows, as an outline
+    /// beside a transcript marks the turns in view.
+    struct OutlinePage {
+        list: ListPage,
+    }
+
+    impl Render for OutlinePage {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let rendered = self.list.rendered.clone();
+            let list = crate::list(self.list.state.clone(), move |row, _, _| {
+                rendered.borrow_mut().push(row);
+                div()
+                    .w(px(VIEWPORT_WIDTH))
+                    .h(px(row_height(row)))
+                    .bg(row_color(row))
+                    .into_any_element()
+            })
+            .w(px(VIEWPORT_WIDTH))
+            .h(px(VIEWPORT_HEIGHT));
+            let first_shown = self.list.state.logical_scroll_top().item_ix;
+            div()
+                .flex()
+                .size_full()
+                .bg(rgb(0xffffff))
+                .child(list)
+                .child(
+                    div()
+                        .ml(px(10.))
+                        .w(px(10.))
+                        .h(px(10.))
+                        .bg(row_color(first_shown)),
+                )
+        }
+    }
+
+    fn outline_page(cx: &mut TestAppContext) -> (AnyWindowHandle, Rc<RefCell<Vec<usize>>>) {
+        let rendered = Rc::new(RefCell::new(Vec::new()));
+        let log = rendered.clone();
+        let window = cx.add_window(move |_, _| OutlinePage {
+            list: ListPage {
+                state: ListState::new(300, ListAlignment::Top, px(0.)).measure_all(),
+                rendered: log,
+            },
+        });
+        open_at(cx, window.into(), 1.);
+        (window.into(), rendered)
+    }
+
+    #[crate::test]
+    fn a_view_reading_its_list_offset_after_building_it_keeps_it_on_its_layer(
+        cx: &mut TestAppContext,
+    ) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let (window, log) = outline_page(cx);
+        promote(cx, window);
+        let mut held: BTreeSet<usize> = held_rows(cx, window).into_iter().collect();
+        rendered(&log);
+        for step in 0..30 {
+            wheel(cx, window, -15.);
+            assert_eq!(
+                decision(cx, window),
+                Some(Decision::Composite),
+                "step {step}"
+            );
+            let now: BTreeSet<usize> = held_rows(cx, window).into_iter().collect();
+            let added: BTreeSet<usize> = now.difference(&held).copied().collect();
+            assert_eq!(rendered(&log), added, "step {step}: only new rows render");
+            held = now;
+        }
+    }
+
+    #[crate::test]
+    fn a_view_reading_its_list_offset_after_building_it_matches_layers_off(
+        cx: &mut TestAppContext,
+    ) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let (with_layers, _) = outline_page(cx);
+        let (without_layers, _) = outline_page(cx);
+        let composited = compare_with_layers_off(
+            cx,
+            with_layers,
+            without_layers,
+            &wheel_deltas(60),
+            "outline",
+        );
+        assert!(composited > 40, "the layer was composited ({composited})");
+    }
+
+    /// A [`ListPage`] whose render reads a blinking caret itself, before or
+    /// after building its list, as a chat view renders its composer.
+    struct ReadingPage {
+        list: ListPage,
+        caret: Entity<bool>,
+        read_before_list: bool,
+    }
+
+    impl Render for ReadingPage {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let before = self.read_before_list.then(|| *self.caret.read(cx));
+            let rendered = self.list.rendered.clone();
+            let list = crate::list(self.list.state.clone(), move |row, _, _| {
+                rendered.borrow_mut().push(row);
+                div()
+                    .w(px(VIEWPORT_WIDTH))
+                    .h(px(row_height(row)))
+                    .bg(row_color(row))
+                    .into_any_element()
+            })
+            .w(px(VIEWPORT_WIDTH))
+            .h(px(VIEWPORT_HEIGHT));
+            let visible = before.unwrap_or_else(|| *self.caret.read(cx));
+            div()
+                .flex()
+                .size_full()
+                .bg(rgb(0xffffff))
+                .child(list)
+                .child(
+                    div()
+                        .w(px(2.))
+                        .h(px(10.))
+                        .when(visible, |caret| caret.bg(crate::red())),
+                )
+        }
+    }
+
+    /// Scrolls a [`ReadingPage`], blinking its caret every third step, and
+    /// returns whether any step rendered a row its layer held.
+    fn blink_while_scrolling(cx: &mut TestAppContext, read_before_list: bool) -> bool {
+        let caret = cx.new(|_| true);
+        let log = Rc::new(RefCell::new(Vec::new()));
+        let window = cx.add_window({
+            let caret = caret.clone();
+            let log = log.clone();
+            move |_, _| ReadingPage {
+                list: ListPage {
+                    state: ListState::new(1000, ListAlignment::Top, px(0.)).measure_all(),
+                    rendered: log,
+                },
+                caret,
+                read_before_list,
+            }
+        });
+        let window: AnyWindowHandle = window.into();
+        open_at(cx, window, 1.);
+        promote(cx, window);
+        let mut held: BTreeSet<usize> = held_rows(cx, window).into_iter().collect();
+        rendered(&log);
+        let mut rendered_held = false;
+        for step in 0..40 {
+            if step % 3 == 0 {
+                caret.update(cx, |visible, cx| {
+                    *visible = !*visible;
+                    cx.notify();
+                });
+            }
+            wheel(cx, window, -15.);
+            let now: BTreeSet<usize> = held_rows(cx, window).into_iter().collect();
+            rendered_held |= rendered(&log).iter().any(|row| held.contains(row));
+            held = now;
+        }
+        rendered_held
+    }
+
+    #[crate::test]
+    fn what_a_view_reads_after_building_its_list_leaves_it_on_its_layer(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        assert!(!blink_while_scrolling(cx, false), "the rows held stay");
+    }
+
+    #[crate::test]
+    fn what_a_view_reads_before_building_its_list_paints_the_rows_again(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        assert!(
+            blink_while_scrolling(cx, true),
+            "the row renderer may hold what the view read"
+        );
+    }
+
+    /// A list whose rows read a model as they render, as rows whose text
+    /// finishes loading after they first show.
+    struct LoadingPage {
+        state: ListState,
+        loaded: Entity<u32>,
+    }
+
+    impl Render for LoadingPage {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let loaded = self.loaded.clone();
+            div().size_full().bg(rgb(0xffffff)).child(
+                crate::list(self.state.clone(), move |row, _, cx| {
+                    let loaded = *loaded.read(cx) as usize;
+                    div()
+                        .w(px(VIEWPORT_WIDTH))
+                        .h(px(row_height(row)))
+                        .bg(row_color(row + loaded))
+                        .into_any_element()
+                })
+                .w(px(VIEWPORT_WIDTH))
+                .h(px(VIEWPORT_HEIGHT)),
+            )
+        }
+    }
+
+    #[crate::test]
+    fn a_list_whose_rows_change_in_a_burst_now_and_then_keeps_its_layer(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let loaded = cx.new(|_| 0u32);
+        let window = cx.add_window({
+            let loaded = loaded.clone();
+            move |_, _| LoadingPage {
+                state: ListState::new(1000, ListAlignment::Top, px(0.)).measure_all(),
+                loaded,
+            }
+        });
+        let window: AnyWindowHandle = window.into();
+        open_at(cx, window, 1.);
+        promote(cx, window);
+        for burst in 0..3 {
+            // Several rows finish loading on frames close together.
+            for _ in 0..5 {
+                let frame = with_window(cx, window, |window, _| window.fast_layers.frame);
+                loaded.update(cx, |loaded, cx| {
+                    *loaded += 1;
+                    cx.notify();
+                });
+                if with_window(cx, window, |window, _| window.fast_layers.frame) == frame {
+                    draw(cx, window);
+                }
+            }
+            for step in 0..30 {
+                wheel(cx, window, -10.);
+                if step > 10 {
+                    assert_eq!(
+                        decision(cx, window),
+                        Some(Decision::Composite),
+                        "burst {burst}, step {step}"
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            with_window(cx, window, |window, _| window.layout_stats().layers_demoted),
+            0
+        );
+    }
+
+    /// What a view holding a list reads of where the list is scrolled to as
+    /// it renders.
+    #[derive(Clone, Copy)]
+    enum ScrollRead {
+        /// Only whether it is scrolled to its end, as a chat transcript does
+        /// to show a "back to bottom" button.
+        AtEnd,
+        /// Its offset.
+        Offset,
+    }
+
+    /// A [`ListPage`] that reads where its list is scrolled to as it
+    /// renders, and draws a button beside the list while it is not at its
+    /// end, or, reading its offset, while it is not at its top.
+    struct ScrollAwarePage {
+        list: ListPage,
+        read: ScrollRead,
+    }
+
+    impl Render for ScrollAwarePage {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let rendered = self.list.rendered.clone();
+            let show_button = match self.read {
+                ScrollRead::AtEnd => self.list.state.is_scrolled_to_end() == Some(false),
+                ScrollRead::Offset => self.list.state.logical_scroll_top().item_ix > 0,
+            };
+            div()
+                .flex()
+                .size_full()
+                .bg(rgb(0xffffff))
+                .child(
+                    crate::list(self.list.state.clone(), move |row, _, _| {
+                        rendered.borrow_mut().push(row);
+                        div()
+                            .w(px(VIEWPORT_WIDTH))
+                            .h(px(row_height(row)))
+                            .bg(row_color(row))
+                            .into_any_element()
+                    })
+                    .w(px(VIEWPORT_WIDTH))
+                    .h(px(VIEWPORT_HEIGHT)),
+                )
+                .when(show_button, |page| {
+                    page.child(div().ml(px(10.)).size(px(20.)).bg(crate::red()))
+                })
+        }
+    }
+
+    fn scroll_aware_page(
+        cx: &mut TestAppContext,
+        rows: usize,
+        read: ScrollRead,
+    ) -> (AnyWindowHandle, Rc<RefCell<Vec<usize>>>) {
+        let rendered = Rc::new(RefCell::new(Vec::new()));
+        let log = rendered.clone();
+        let window = cx.add_window(move |_, _| ScrollAwarePage {
+            list: ListPage {
+                state: ListState::new(rows, ListAlignment::Top, px(0.)).measure_all(),
+                rendered: log,
+            },
+            read,
+        });
+        open_at(cx, window.into(), 1.);
+        (window.into(), rendered)
+    }
+
+    #[crate::test]
+    fn a_view_asking_whether_its_list_is_at_its_end_keeps_it_on_its_layer(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let (window, log) = scroll_aware_page(cx, 1000, ScrollRead::AtEnd);
+        promote(cx, window);
+        let mut held: BTreeSet<usize> = held_rows(cx, window).into_iter().collect();
+        rendered(&log);
+        for step in 0..30 {
+            wheel(cx, window, -15.);
+            assert_eq!(
+                decision(cx, window),
+                Some(Decision::Composite),
+                "step {step}"
+            );
+            let now: BTreeSet<usize> = held_rows(cx, window).into_iter().collect();
+            let added: BTreeSet<usize> = now.difference(&held).copied().collect();
+            assert_eq!(rendered(&log), added, "step {step}: only new rows render");
+            held = now;
+        }
+    }
+
+    #[crate::test]
+    fn a_view_reading_its_list_offset_keeps_it_off_its_layer(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let (window, _) = scroll_aware_page(cx, 1000, ScrollRead::Offset);
+        for step in 0..30 {
+            wheel(cx, window, -15.);
+            assert_ne!(
+                decision(cx, window),
+                Some(Decision::Composite),
+                "step {step}: what the view shows moves with the offset"
+            );
+        }
+    }
+
+    #[crate::test]
+    fn a_view_asking_whether_its_list_is_at_its_end_matches_layers_off(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let (with_layers, _) = scroll_aware_page(cx, 30, ScrollRead::AtEnd);
+        let (without_layers, _) = scroll_aware_page(cx, 30, ScrollRead::AtEnd);
+        with_window(cx, without_layers, |window, _| {
+            window.set_scroll_layers(false)
+        });
+        // Down to the end, where the button goes: the frame that gets there
+        // paints the layer again, the others composite it.
+        let composited =
+            compare_with_layers_off(cx, with_layers, without_layers, &[-30.; 40], "down");
+        assert!(composited > 35, "the layer was composited ({composited})");
+        // And back up, where it comes back.
+        compare_with_layers_off(cx, with_layers, without_layers, &[30.; 40], "up");
+    }
+
     /// A row in a view of its own, of `color`, that asks for an animation
     /// frame each time it renders when it `animate`s, and holds an anchored
     /// element when it is `anchored`.
@@ -1117,6 +1982,190 @@ mod list {
             wheel(cx, window, -2.);
             assert_eq!(decision(cx, window), Some(Decision::Bypass), "step {step}");
         }
+    }
+
+    /// A row of [`CellsPage`]: a view of its own, tinted by its model, that
+    /// logs that it rendered.
+    struct CellRow {
+        row: usize,
+        tint: Entity<u32>,
+        /// Shading the row further, as the view itself holds it.
+        shade: usize,
+        rendered: Rc<RefCell<Vec<usize>>>,
+    }
+
+    impl Render for CellRow {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            self.rendered.borrow_mut().push(self.row);
+            let tint = *self.tint.read(cx);
+            div()
+                .w(px(VIEWPORT_WIDTH))
+                .h(px(row_height(self.row)))
+                .bg(row_color(self.row + tint as usize * 7 + self.shade * 11))
+        }
+    }
+
+    /// What changes in one row of a [`CellsPage`].
+    #[derive(Clone, Copy, Debug)]
+    enum RowChange {
+        /// The model the row's view reads.
+        ModelReadByView,
+        /// The model the page's row renderer reads, the page's rows being
+        /// tinted by it rather than views.
+        ModelReadByRenderer,
+        /// The row's view itself.
+        View,
+    }
+
+    /// A white panel holding a list of 300 [`CellRow`]s, 100 px tall, at
+    /// the top left of the window; or, `inline`, of rows its row renderer
+    /// tints by their models itself.
+    struct CellsPage {
+        state: ListState,
+        rows: Vec<Entity<CellRow>>,
+        inline: bool,
+    }
+
+    impl Render for CellsPage {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let rows = self.rows.clone();
+            let inline = self.inline;
+            div().size_full().bg(rgb(0xffffff)).child(
+                crate::list(self.state.clone(), move |row, _, cx| {
+                    if !inline {
+                        return rows[row].clone().into_any_element();
+                    }
+                    let cell = rows[row].read(cx);
+                    cell.rendered.borrow_mut().push(row);
+                    let tint = *cell.tint.read(cx);
+                    div()
+                        .w(px(VIEWPORT_WIDTH))
+                        .h(px(row_height(row)))
+                        .bg(row_color(row + tint as usize * 7))
+                        .into_any_element()
+                })
+                .w(px(VIEWPORT_WIDTH))
+                .h(px(VIEWPORT_HEIGHT)),
+            )
+        }
+    }
+
+    /// A [`CellsPage`], the models tinting its rows, and the log of the rows
+    /// that rendered.
+    fn cells_page(
+        cx: &mut TestAppContext,
+        inline: bool,
+    ) -> (
+        AnyWindowHandle,
+        Vec<Entity<u32>>,
+        Vec<Entity<CellRow>>,
+        Rc<RefCell<Vec<usize>>>,
+    ) {
+        let rendered = Rc::new(RefCell::new(Vec::new()));
+        let tints: Vec<Entity<u32>> = (0..300).map(|_| cx.new(|_| 0)).collect();
+        let rows: Vec<Entity<CellRow>> = (0..300)
+            .map(|row| {
+                let tint = tints[row].clone();
+                let rendered = rendered.clone();
+                cx.new(move |_| CellRow {
+                    row,
+                    tint,
+                    shade: 0,
+                    rendered,
+                })
+            })
+            .collect();
+        let window = cx.add_window({
+            let rows = rows.clone();
+            move |_, _| CellsPage {
+                state: ListState::new(300, ListAlignment::Top, px(0.)).measure_all(),
+                rows,
+                inline,
+            }
+        });
+        open_at(cx, window.into(), 1.);
+        (window.into(), tints, rows, rendered)
+    }
+
+    /// A list whose rows read models keeps its layer when one of them
+    /// changes: the row that read it is rendered again, alone, and the rest
+    /// of the rows the layer holds stay as they are, whether the row shows
+    /// or lies in the overscan. It draws as it does without layers.
+    #[crate::test]
+    fn a_change_read_by_one_row_renders_that_row_alone(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        for change in [
+            RowChange::ModelReadByView,
+            RowChange::ModelReadByRenderer,
+            RowChange::View,
+        ] {
+            change_read_by_one_row_renders_that_row_alone(cx, change);
+        }
+    }
+
+    /// See [`a_change_read_by_one_row_renders_that_row_alone`].
+    fn change_read_by_one_row_renders_that_row_alone(cx: &mut TestAppContext, change: RowChange) {
+        let inline = matches!(change, RowChange::ModelReadByRenderer);
+        let (with_layers, with_tints, with_rows, log) = cells_page(cx, inline);
+        let (without_layers, without_tints, without_rows, _) = cells_page(cx, inline);
+        compare_with_layers_off(
+            cx,
+            with_layers,
+            without_layers,
+            &[-20., -20., -20.],
+            "promote",
+        );
+        assert_eq!(decision(cx, with_layers), Some(Decision::Composite));
+        let held: BTreeSet<usize> = held_rows(cx, with_layers).into_iter().collect();
+        let shown = 5;
+        let overscan = *held.last().unwrap();
+        assert!(held.contains(&shown) && overscan > 10, "held {held:?}");
+        log.borrow_mut().clear();
+
+        let tint = |cx: &mut TestAppContext, row: usize| {
+            for (tints, rows) in [(&with_tints, &with_rows), (&without_tints, &without_rows)] {
+                match change {
+                    RowChange::View => rows[row].update(cx, |cell, cx| {
+                        cell.shade += 1;
+                        cx.notify();
+                    }),
+                    _ => tints[row].update(cx, |tint, cx| {
+                        *tint += 1;
+                        cx.notify();
+                    }),
+                }
+            }
+        };
+        let extended = extended_frames();
+        let mut held = held;
+        for (step, row) in [shown, overscan, shown].into_iter().enumerate() {
+            tint(cx, row);
+            let composited =
+                compare_with_layers_off(cx, with_layers, without_layers, &[-1.], "tint");
+            assert_eq!(composited, 1, "{change:?}, step {step}");
+            // Besides the rows the scroll adds to the layer.
+            let now: BTreeSet<usize> = held_rows(cx, with_layers).into_iter().collect();
+            let rendered: BTreeSet<usize> = log
+                .borrow_mut()
+                .drain(..)
+                .filter(|rendered| held.contains(rendered))
+                .collect();
+            assert_eq!(
+                rendered,
+                BTreeSet::from([row]),
+                "{change:?}, step {step}: only the row that read the change renders"
+            );
+            held = now;
+        }
+        assert!(extended_frames() - extended >= 3);
+        let demoted = with_window(cx, with_layers, |window, _| {
+            window.layout_stats().layers_demoted
+        });
+        assert_eq!(demoted, 0);
+        // The row in the overscan shows as it was tinted.
+        compare_with_layers_off(cx, with_layers, without_layers, &[-25.; 12], "scroll down");
     }
 }
 
@@ -1362,6 +2411,67 @@ mod rows {
                 "uniform {uniform}: {for_hover} rows rendered again for their hover"
             );
         }
+    }
+
+    /// The rows a list shows are laid out before the first of them is
+    /// prepainted, and the layer lays out a row before it prepaints it: the
+    /// layout keys each row it holds keeps are those laying that row out
+    /// claimed, and no other row's. Holding a row, it keeps no other row's
+    /// nodes, which that row would then find taken when laid out again.
+    #[crate::test]
+    fn a_list_layer_keeps_each_row_its_own_layout_keys(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let window = page(cx, RowKind::Hover, false);
+        wheel(cx, window, -20.);
+        wheel(cx, window, -20.);
+        assert_eq!(decision(cx, window), Some(Decision::Repaint));
+        for dy in [-10.; 6] {
+            wheel(cx, window, dy);
+            let rows = with_window(cx, window, |window, _| {
+                let layer = window.fast_layers.layers.values().next().expect("a layer");
+                layer
+                    .rows
+                    .held_layout_keys()
+                    .map(|(row, keys)| (row, keys.to_vec()))
+                    .collect::<Vec<_>>()
+            });
+            assert!(rows.len() > 3, "held {rows:?}");
+            let mut owners = collections::FxHashMap::default();
+            for (row, keys) in &rows {
+                assert!(!keys.is_empty(), "row {row} keeps no keys");
+                for key in keys {
+                    if let Some(other) = owners.insert(*key, *row) {
+                        assert_eq!(other, *row, "rows {other} and {row} share a key");
+                    }
+                }
+            }
+        }
+    }
+
+    /// A list scrolled down and back up again over rows it laid out before
+    /// lays none of them out afresh: the rows its layer holds keep the
+    /// layout nodes laying them out claimed, those it lays out to extend
+    /// the layer theirs, and the rows scrolled out of the layer's reach
+    /// keep theirs until they are back. It draws as it does without layers.
+    #[crate::test]
+    fn a_list_scrolled_back_and_forth_lays_no_row_out_afresh(cx: &mut TestAppContext) {
+        if !crate::fast::layers::COMPILED {
+            return;
+        }
+        let with_layers = page(cx, RowKind::Hover, false);
+        let without_layers = page(cx, RowKind::Hover, false);
+        let sweep = |cx: &mut TestAppContext| {
+            compare_with_layers_off(cx, with_layers, without_layers, &[-10.; 60], "down")
+                + compare_with_layers_off(cx, with_layers, without_layers, &[10.; 60], "up")
+        };
+        sweep(cx);
+        with_window(cx, with_layers, |window, _| window.reset_layout_stats());
+        let composited = sweep(cx);
+        let stats = with_window(cx, with_layers, |window, _| window.layout_stats());
+        assert!(composited >= 110, "composited {composited}");
+        assert_eq!(stats.nodes_created, 0, "{stats:?}");
     }
 
     /// A white panel holding a uniform list of 300 rows with a hover style,
