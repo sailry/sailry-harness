@@ -13,6 +13,9 @@ pub(super) fn options(authentication: Authentication, suffix: &str) -> Options {
             editor_version: format!("fixture-editor/{suffix}"),
             editor_plugin_version: format!("fixture-plugin/{suffix}"),
         },
+        Authentication::ClaudeOAuth => Options::ClaudeOAuth {
+            user_agent: format!("claude-cli/fixture-{suffix}"),
+        },
         _ => unreachable!(),
     }
 }
@@ -109,7 +112,9 @@ async fn rejects_invalid_options_without_http_or_writes() {
             let provider = provider(&fixture.client, authentication).await;
             let mut invalid = options(authentication, "invalid");
             match &mut invalid {
-                Options::ChatGpt { user_agent, .. } | Options::ChatGptOAuth { user_agent, .. } => {
+                Options::ChatGpt { user_agent, .. }
+                | Options::ChatGptOAuth { user_agent, .. }
+                | Options::ClaudeOAuth { user_agent } => {
                     *user_agent = "Sailry\r\nx-secret: injected".into()
                 }
                 Options::Copilot { editor_version, .. } => {

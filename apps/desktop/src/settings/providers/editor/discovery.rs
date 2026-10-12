@@ -61,7 +61,7 @@ impl Editor {
     }
 
     pub(super) fn discover_live(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.preset.cloud() {
+        if self.metadata_only() {
             self.fill_metadata(window, cx);
             return;
         }

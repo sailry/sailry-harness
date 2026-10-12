@@ -2,6 +2,7 @@ use super::*;
 mod authorization;
 mod cloud;
 pub(super) mod history;
+mod hosted;
 mod opencode;
 mod reasoning;
 mod retry;
@@ -15,7 +16,7 @@ use adk_model::{
         OpenAIResponsesClient, OpenAIResponsesConfig, ReasoningSummary, RequestAdapter,
         ResponseObserver,
     },
-    openai_compatible::{OpenAICompatible, OpenAICompatibleConfig},
+    openai_compatible::{OpenAICompatible, OpenAICompatibleConfig, ReasoningReplayField},
     retry::RetryConfig,
 };
 use sailry_protocol::{
@@ -165,6 +166,18 @@ pub(super) fn native(
             )
             .map_err(error)?
             .with_retry_config(RetryConfig::disabled());
+            if provider.authentication == Authentication::ApiKey {
+                client = client
+                    .with_default_headers(hosted::headers())
+                    .map_err(error)?;
+                if hosted::replay(provider, &config.model) {
+                    client =
+                        client.with_reasoning_replay_field(ReasoningReplayField::ReasoningContent);
+                }
+                if let Some(adapter) = hosted::adapter(provider, &config.model) {
+                    client = client.with_request_adapter(adapter);
+                }
+            }
             if let Some(adapter) = adapter {
                 client = client.with_request_adapter(adapter);
             }
@@ -200,6 +213,11 @@ pub(super) fn native(
             let mut client = client
                 .map_err(error)?
                 .with_retry_config(RetryConfig::disabled());
+            if provider.authentication == Authentication::ApiKey {
+                client = client
+                    .with_default_headers(hosted::headers())
+                    .map_err(error)?;
+            }
             if let Some(adapter) = adapter {
                 client = client.with_request_adapter(adapter).map_err(error)?;
             }
@@ -212,11 +230,16 @@ pub(super) fn native(
             let endpoint = crate::providers::anthropic_base_url(&provider.endpoint)?;
             let native = AnthropicConfig::new(key, &config.model).with_base_url(endpoint.as_str());
             let native = reasoning::anthropic(native, effort)?;
-            Arc::new(
-                AnthropicClient::new(native)
-                    .map_err(error)?
-                    .with_retry_config(RetryConfig::disabled()),
-            )
+            let mut client = AnthropicClient::new(native)
+                .map_err(error)?
+                .with_retry_config(RetryConfig::disabled());
+            if provider.authentication == Authentication::ApiKey {
+                client = client.with_default_headers(hosted::headers());
+            }
+            if let Some(adapter) = adapter {
+                client = client.with_request_adapter(adapter);
+            }
+            Arc::new(client)
         }
         ModelApi::Gemini => {
             let endpoint = format!("{}/", provider.endpoint.trim_end_matches('/'));

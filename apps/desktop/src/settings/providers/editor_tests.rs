@@ -40,7 +40,7 @@ fn creates_outside_the_filter(cx: &mut TestAppContext) {
         .unwrap();
     visual.simulate_click(group.center(), Modifiers::default());
     visual.update(|window, cx| window.draw(cx).clear(cx));
-    visual.simulate_keystrokes("down down enter");
+    visual.simulate_keystrokes("down down down enter");
     visual.update(|window, cx| {
         editor.update(cx, |editor, cx| {
             assert_eq!(editor.preset, Preset::CompatibleAnthropic);

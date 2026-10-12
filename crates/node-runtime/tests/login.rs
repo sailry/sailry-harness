@@ -16,6 +16,8 @@ use std::{
 
 #[path = "login/catalog.rs"]
 mod catalog;
+#[path = "login/claude.rs"]
+mod claude;
 #[path = "login/codex.rs"]
 mod codex;
 #[path = "login/execution.rs"]
@@ -159,11 +161,16 @@ async fn provider(client: &Client, authentication: Authentication) -> Provider {
         id: ProviderId::new(),
         revision: 0,
         name: "Authorization fixture".into(),
-        api: ModelApi::Responses,
+        api: if authentication == Authentication::ClaudeOAuth {
+            ModelApi::Anthropic
+        } else {
+            ModelApi::Responses
+        },
         authentication,
         endpoint: match authentication {
             Authentication::ChatGpt => "https://api.openai.com/v1",
             Authentication::ChatGptOAuth => "https://chatgpt.com/backend-api/codex",
+            Authentication::ClaudeOAuth => "https://api.anthropic.com",
             Authentication::Copilot => "https://api.githubcopilot.com",
             Authentication::ApiKey => unreachable!(),
         }

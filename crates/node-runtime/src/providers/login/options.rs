@@ -4,7 +4,10 @@ use reqwest::header::HeaderValue;
 pub(crate) fn capture(provider: &mut Provider) -> Result<(), Fault> {
     if matches!(
         provider.authentication,
-        Authentication::ChatGpt | Authentication::ChatGptOAuth | Authentication::Copilot
+        Authentication::ChatGpt
+            | Authentication::ChatGptOAuth
+            | Authentication::ClaudeOAuth
+            | Authentication::Copilot
     ) {
         provider.oauth = Some(effective(provider)?);
     }
@@ -36,7 +39,9 @@ pub(super) fn validate(
 ) -> Result<(), Fault> {
     options.validate(authentication, api)?;
     let fields = match options {
-        Options::ChatGpt { user_agent, .. } | Options::ChatGptOAuth { user_agent, .. } => {
+        Options::ChatGpt { user_agent, .. }
+        | Options::ChatGptOAuth { user_agent, .. }
+        | Options::ClaudeOAuth { user_agent } => {
             vec![user_agent.as_str()]
         }
         Options::Copilot {

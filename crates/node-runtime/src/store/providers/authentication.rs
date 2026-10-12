@@ -49,7 +49,8 @@ impl Saved {
                             | crate::providers::login::Grant::ChatGptOAuth {
                                 email, subject, ..
                             } => (email, subject),
-                            crate::providers::login::Grant::Copilot { .. } => unreachable!(),
+                            crate::providers::login::Grant::Copilot { .. }
+                            | crate::providers::login::Grant::ClaudeOAuth { .. } => unreachable!(),
                         };
                     Ok::<_, Fault>(email.unwrap_or(subject))
                 })

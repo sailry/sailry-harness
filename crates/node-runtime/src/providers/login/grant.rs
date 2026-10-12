@@ -28,6 +28,14 @@ pub(crate) enum Grant {
         id_token: Secret,
         renewal_pending: bool,
     },
+    #[serde(rename = "claude_oauth")]
+    ClaudeOAuth {
+        access: Secret,
+        refresh: Secret,
+        expires_at_ms: u64,
+        #[serde(default)]
+        renewal_pending: bool,
+    },
     Copilot {
         access: Secret,
         github: Secret,
@@ -50,6 +58,9 @@ impl Grant {
             }
             | Self::ChatGptOAuth {
                 renewal_pending, ..
+            }
+            | Self::ClaudeOAuth {
+                renewal_pending, ..
             } => *renewal_pending,
             Self::Copilot { .. } => false,
         }
@@ -60,6 +71,9 @@ impl Grant {
             renewal_pending, ..
         }
         | Self::ChatGptOAuth {
+            renewal_pending, ..
+        }
+        | Self::ClaudeOAuth {
             renewal_pending, ..
         } = self
         {
@@ -96,6 +110,7 @@ impl Grant {
             (Self::Copilot { github: first, .. }, Self::Copilot { github: second, .. }) => {
                 first == second
             }
+            (Self::ClaudeOAuth { .. }, Self::ClaudeOAuth { .. }) => true,
             _ => false,
         }
     }
@@ -103,6 +118,7 @@ impl Grant {
         match self {
             Self::ChatGpt { expires_at_ms, .. }
             | Self::ChatGptOAuth { expires_at_ms, .. }
+            | Self::ClaudeOAuth { expires_at_ms, .. }
             | Self::Copilot { expires_at_ms, .. } => *expires_at_ms,
         }
     }
@@ -110,6 +126,7 @@ impl Grant {
         match self {
             Self::ChatGpt { .. } => Authentication::ChatGpt,
             Self::ChatGptOAuth { .. } => Authentication::ChatGptOAuth,
+            Self::ClaudeOAuth { .. } => Authentication::ClaudeOAuth,
             Self::Copilot { .. } => Authentication::Copilot,
         }
     }
@@ -199,6 +216,12 @@ impl Grant {
                 token(id_token)?;
                 (access, refresh, *expires_at_ms)
             }
+            Self::ClaudeOAuth {
+                access,
+                refresh,
+                expires_at_ms,
+                ..
+            } => (access, refresh, *expires_at_ms),
             Self::Copilot {
                 access,
                 github,

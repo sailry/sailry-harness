@@ -1,5 +1,7 @@
 use super::*;
 
+#[path = "providers/connection.rs"]
+mod connection;
 #[path = "providers/native.rs"]
 mod native;
 #[path = "providers/switching.rs"]

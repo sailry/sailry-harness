@@ -17,8 +17,9 @@ impl Editor {
             Preset::OpenCodeZen => "https://opencode.ai/zen/v1".into(),
             Preset::ChatGptOAuth => "https://chatgpt.com/backend-api/codex".into(),
             Preset::ChatGpt => "https://api.openai.com/v1".into(),
+            Preset::ClaudeOAuth => "https://api.anthropic.com".into(),
             Preset::Copilot | Preset::CopilotResponses => "https://api.githubcopilot.com".into(),
-            Preset::Hosted(vendor) => vendor.endpoint().into(),
+            Preset::Hosted(vendor) if endpoint.is_empty() => vendor.endpoint().into(),
             Preset::Anthropic if endpoint.is_empty() => "https://api.anthropic.com".into(),
             Preset::Gemini if endpoint.is_empty() => {
                 "https://generativelanguage.googleapis.com/v1beta".into()

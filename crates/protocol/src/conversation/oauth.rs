@@ -4,6 +4,7 @@ use crate::{Authentication, Fault};
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_CATALOG_VERSION: &str = "0.160.1";
+pub const DEFAULT_CLAUDE_AGENT: &str = "claude-cli/2.1.280";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -21,6 +22,8 @@ pub enum Options {
         catalog_version: Option<String>,
         user_agent: String,
     },
+    #[serde(rename = "claude_oauth")]
+    ClaudeOAuth { user_agent: String },
     Copilot {
         user_agent: String,
         editor_version: String,
@@ -38,6 +41,9 @@ impl Options {
             Authentication::ChatGptOAuth => Some(Self::ChatGptOAuth {
                 catalog_version: Some(DEFAULT_CATALOG_VERSION.into()),
                 user_agent: "Sailry/0.1".into(),
+            }),
+            Authentication::ClaudeOAuth => Some(Self::ClaudeOAuth {
+                user_agent: DEFAULT_CLAUDE_AGENT.into(),
             }),
             Authentication::Copilot => Some(Self::Copilot {
                 user_agent: "Sailry/0.1".into(),
@@ -58,6 +64,11 @@ impl Options {
                 Self::ChatGptOAuth { user_agent, .. },
                 Authentication::ChatGptOAuth,
                 ModelApi::Responses,
+            ) => &[user_agent],
+            (
+                Self::ClaudeOAuth { user_agent },
+                Authentication::ClaudeOAuth,
+                ModelApi::Anthropic,
             ) => &[user_agent],
             (
                 Self::Copilot {
@@ -105,7 +116,7 @@ impl Options {
                     .as_deref()
                     .unwrap_or(DEFAULT_CATALOG_VERSION),
             ),
-            Self::ChatGpt { .. } | Self::Copilot { .. } => None,
+            Self::ChatGpt { .. } | Self::ClaudeOAuth { .. } | Self::Copilot { .. } => None,
         }
     }
 
@@ -113,6 +124,7 @@ impl Options {
         match self {
             Self::ChatGpt { user_agent, .. }
             | Self::ChatGptOAuth { user_agent, .. }
+            | Self::ClaudeOAuth { user_agent }
             | Self::Copilot { user_agent, .. } => user_agent,
         }
     }
@@ -127,6 +139,7 @@ mod tests {
         for (authentication, api) in [
             (Authentication::ChatGpt, ModelApi::Responses),
             (Authentication::ChatGptOAuth, ModelApi::Responses),
+            (Authentication::ClaudeOAuth, ModelApi::Anthropic),
             (Authentication::Copilot, ModelApi::Responses),
             (Authentication::Copilot, ModelApi::ChatCompletions),
         ] {
@@ -203,6 +216,22 @@ mod tests {
         assert_eq!(
             serde_json::to_value(Authentication::ChatGptOAuth).unwrap(),
             "chat_gpt_oauth"
+        );
+        let claude = Options::defaults(Authentication::ClaudeOAuth).unwrap();
+        assert_eq!(claude.user_agent(), DEFAULT_CLAUDE_AGENT);
+        assert_eq!(claude.catalog_version(), None);
+        assert_eq!(
+            serde_json::to_value(Authentication::ClaudeOAuth).unwrap(),
+            "claude_oauth"
+        );
+        assert_eq!(
+            serde_json::to_value(&claude).unwrap()["kind"],
+            "claude_oauth"
+        );
+        assert!(
+            claude
+                .validate(Authentication::ClaudeOAuth, ModelApi::Responses)
+                .is_err()
         );
     }
 

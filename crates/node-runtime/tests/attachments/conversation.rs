@@ -48,11 +48,11 @@ async fn session(
     let provider = Provider {
         oauth: None,
         options: match api {
-            ModelApi::AzureOpenAi => {
-                Some(sailry_protocol::conversation::cloud::Options::AzureOpenAi {
+            ModelApi::AzureOpenAi => Some(
+                sailry_protocol::conversation::connection::Options::AzureOpenAi {
                     api_version: "2024-10-21".into(),
-                })
-            }
+                },
+            ),
             _ => None,
         },
         id: ProviderId::new(),

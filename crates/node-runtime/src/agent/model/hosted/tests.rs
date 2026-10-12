@@ -1,0 +1,177 @@
+use super::*;
+use sailry_protocol::{
+    ProviderId,
+    conversation::connection::{Options, Product},
+};
+use serde_json::Value;
+
+fn provider() -> Provider {
+    Provider {
+        id: ProviderId::new(),
+        revision: 1,
+        name: "Fixture".into(),
+        api: ModelApi::ChatCompletions,
+        authentication: Authentication::ApiKey,
+        endpoint: "http://127.0.0.1:9/v1".into(),
+        options: None,
+        oauth: None,
+        enabled: true,
+        models: vec![],
+        default_model: String::new(),
+        credential: None,
+    }
+}
+
+#[test]
+fn identifies_sailry() {
+    let headers = headers();
+    assert_eq!(headers.len(), 1);
+    assert_eq!(
+        headers[USER_AGENT],
+        concat!("Sailry/", env!("CARGO_PKG_VERSION"))
+    );
+}
+
+#[test]
+fn selects_documented_fields() {
+    let mut provider = provider();
+    for options in [
+        None,
+        Some(Options::Hosted {
+            product: Product::Coding,
+        }),
+        Some(Options::Hosted {
+            product: Product::Metered,
+        }),
+    ] {
+        provider.options = options;
+        for model in [
+            "qwen3.6-plus",
+            "qwen3.6-plus-2026-04-02",
+            "kimi-for-coding",
+            "kimi-k2.6",
+            "kimi-k2.7-code",
+            "kimi-k2.7-code-highspeed",
+            "kimi-k3",
+            "glm-4.7",
+            "glm-5",
+            "glm-5.1",
+            "glm-5.2",
+            "glm-5.3",
+            "glm-5.3-flash",
+            "MiniMax-M3.1-Flash-Preview",
+            "doubao-seed-2-0-pro-260215",
+            "doubao-seed-2-0-lite-260215",
+            "doubao-seed-2-0-mini-260215",
+            "deepseek-v4-pro-260425",
+            "deepseek-v4-flash-ga-260731",
+            "deepseek-v4-1-flash-260910",
+            "glm-5-2-260617",
+        ] {
+            assert!(replay(&provider, model), "{model}");
+        }
+    }
+}
+
+#[test]
+fn leaves_other_contracts_unchanged() {
+    let mut provider = provider();
+    provider.options = Some(Options::Hosted {
+        product: Product::Coding,
+    });
+    for model in [
+        "fixture-a",
+        "qwen-new",
+        "qwen3-coder-plus",
+        "kimi-new",
+        "glm-new",
+        "MiniMax-M3",
+        "MiniMax-M2.5",
+        "ark-code-latest",
+        "doubao-seed-evolving",
+        "doubao-seed-2-1-pro-260915",
+    ] {
+        assert!(!replay(&provider, model), "{model}");
+        assert!(adapter(&provider, model).is_none(), "{model}");
+    }
+    for authentication in [
+        Authentication::ChatGpt,
+        Authentication::ChatGptOAuth,
+        Authentication::ClaudeOAuth,
+        Authentication::Copilot,
+    ] {
+        provider.authentication = authentication;
+        assert!(!replay(&provider, "qwen3.6-plus"));
+        assert!(adapter(&provider, "qwen3.6-plus").is_none());
+    }
+    provider.authentication = Authentication::ApiKey;
+    for api in [
+        ModelApi::Anthropic,
+        ModelApi::Responses,
+        ModelApi::DeepSeek,
+        ModelApi::Gemini,
+        ModelApi::OpenCodeGo,
+        ModelApi::OpenCodeZen,
+        ModelApi::AzureAi,
+        ModelApi::AzureOpenAi,
+    ] {
+        provider.api = api;
+        assert!(!replay(&provider, "glm-5.2"));
+        assert!(adapter(&provider, "glm-5.2").is_none());
+    }
+}
+
+#[test]
+fn preserves_request_choices() {
+    let provider = provider();
+    for model in ["qwen3.6-plus", "glm-5.2"] {
+        for effort in [None, Some("none"), Some("high")] {
+            let mut body = json!({"model":model,"stream":true,"messages":[{"role":"user","content":"Inspect the file"}],"max_tokens":2048,"temperature":0.2,"thinking":{"type":"disabled"}});
+            if let Some(effort) = effort {
+                body["reasoning_effort"] = json!(effort);
+            }
+            let original = body.clone();
+            let mut headers = HeaderMap::from_iter([(
+                "authorization".parse().unwrap(),
+                HeaderValue::from_static("Bearer fixture"),
+            )]);
+            let original_headers = headers.clone();
+            adapter(&provider, model).unwrap()(&mut body, &mut headers).unwrap();
+            assert_eq!(headers, original_headers);
+            if model.starts_with("qwen") {
+                assert_eq!(body["preserve_thinking"], true);
+                body.as_object_mut().unwrap().remove("preserve_thinking");
+            } else {
+                assert_eq!(body["thinking"]["clear_thinking"], false);
+                body["thinking"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("clear_thinking");
+            }
+            assert_eq!(body, original);
+        }
+    }
+}
+
+#[test]
+fn retains_default_thinking_behavior() {
+    let provider = provider();
+    for model in ["qwen3.6-plus", "glm-5.2"] {
+        let mut body = json!({"model":model});
+        adapter(&provider, model).unwrap()(&mut body, &mut HeaderMap::new()).unwrap();
+        assert!(body.get("reasoning_effort").is_none());
+        assert!(body.get("enable_thinking").is_none());
+        assert!(body["thinking"].get("type").is_none());
+    }
+}
+
+#[test]
+fn rejects_malformed_parameters() {
+    let provider = provider();
+    for (model, mut body) in [
+        ("qwen3.6-plus", Value::Null),
+        ("glm-5.2", json!({"thinking":false})),
+    ] {
+        assert!(adapter(&provider, model).unwrap()(&mut body, &mut HeaderMap::new()).is_err());
+    }
+}

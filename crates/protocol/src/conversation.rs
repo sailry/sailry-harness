@@ -1,7 +1,7 @@
 //! UI-independent conversation projections; execution-engine types stay on the Node.
 pub mod assets;
 pub mod catalog;
-pub mod cloud;
+pub mod connection;
 pub mod discovery;
 pub mod login;
 pub mod oauth;
@@ -76,7 +76,7 @@ pub struct Provider {
     pub authentication: crate::Authentication,
     pub endpoint: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub options: Option<cloud::Options>,
+    pub options: Option<connection::Options>,
     /// Non-secret request metadata; omission uses the shared vendor defaults.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oauth: Option<oauth::Options>,

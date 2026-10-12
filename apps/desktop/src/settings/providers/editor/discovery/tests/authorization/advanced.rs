@@ -23,6 +23,9 @@ fn custom(preset: Preset) -> Options {
             catalog_version: Some("0.161.0".into()),
             user_agent: "Fixture/9.3".into(),
         },
+        Preset::ClaudeOAuth => Options::ClaudeOAuth {
+            user_agent: "Fixture/9.3".into(),
+        },
         Preset::Copilot | Preset::CopilotResponses => Options::Copilot {
             user_agent: "Fixture/9.3".into(),
             editor_version: "vscode/2.3.4".into(),
@@ -35,7 +38,7 @@ fn custom(preset: Preset) -> Options {
 fn fill(visual: &mut VisualTestContext, options: &Options) {
     replace(visual, "provider-oauth-user-agent", options.user_agent());
     match options {
-        Options::ChatGpt { .. } => {}
+        Options::ChatGpt { .. } | Options::ClaudeOAuth { .. } => {}
         Options::ChatGptOAuth { .. } => {
             replace(
                 visual,
@@ -79,6 +82,20 @@ fn parameters(request: &crate::discovery_fixture::Request, options: &Options) {
                 request.headers["authorization"],
                 "Bearer desktop-codex-access"
             );
+        }
+        Options::ClaudeOAuth { .. } => {
+            assert_eq!(request.path, "/v1/models?limit=100");
+            assert_eq!(
+                request.headers["authorization"],
+                "Bearer sk-ant-oat01-desktop-claude-access"
+            );
+            assert_eq!(request.headers["anthropic-version"], "2023-06-01");
+            assert_eq!(
+                request.headers["anthropic-beta"],
+                "claude-code-20250219,oauth-2025-04-20"
+            );
+            assert_eq!(request.headers["x-app"], "cli");
+            assert!(!request.headers.contains_key("x-api-key"));
         }
         Options::Copilot {
             editor_version,
@@ -144,6 +161,7 @@ fn queries_and_saves_custom_parameters(cx: &mut TestAppContext) {
         for preset in [
             Preset::ChatGptOAuth,
             Preset::ChatGpt,
+            Preset::ClaudeOAuth,
             Preset::Copilot,
             Preset::CopilotResponses,
         ] {
@@ -190,7 +208,7 @@ fn queries_and_saves_custom_parameters(cx: &mut TestAppContext) {
             let request = records[before..]
                 .iter()
                 .find(|request| {
-                    request.path.starts_with("/models")
+                    (request.path.starts_with("/models") || request.path.starts_with("/v1/models"))
                         && request.headers.get("user-agent").map(String::as_str)
                             == Some(draft.user_agent())
                 })
@@ -331,6 +349,7 @@ fn retains_invalid_drafts_for_retry(cx: &mut TestAppContext) {
         for preset in [
             Preset::ChatGptOAuth,
             Preset::ChatGpt,
+            Preset::ClaudeOAuth,
             Preset::Copilot,
             Preset::CopilotResponses,
         ] {
@@ -382,6 +401,7 @@ fn retains_invalid_drafts_for_retry(cx: &mut TestAppContext) {
             match &mut draft {
                 Options::ChatGpt { user_agent, .. }
                 | Options::ChatGptOAuth { user_agent, .. }
+                | Options::ClaudeOAuth { user_agent }
                 | Options::Copilot { user_agent, .. } => *user_agent = "Retry/4.2".into(),
             }
             editor.read_with(visual, |editor, cx| {

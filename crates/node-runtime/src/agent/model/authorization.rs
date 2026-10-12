@@ -5,6 +5,7 @@ use adk_core::{AdkError, LlmRequest, LlmResponseStream, Part};
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::{Value, json};
+mod claude;
 mod codex;
 
 pub(super) struct Model {
@@ -51,6 +52,8 @@ impl Llm for Model {
                 .quota_observer(self.provider.id, reference, authorized.credential.revision)
         });
         let grant = authorized.grant;
+        let claude_tools = matches!(&grant, Grant::ClaudeOAuth { .. })
+            .then(|| request.tools.keys().cloned().collect::<Vec<_>>());
         let mut provider = self.provider.clone();
         provider.endpoint = grant.endpoint().to_owned();
         let base = grant.headers(&options).map_err(failure)?;
@@ -69,6 +72,11 @@ impl Llm for Model {
                     codex::adapt(body, headers, session)
                 });
                 (access, adapter, true)
+            }
+            Grant::ClaudeOAuth { access, .. } => {
+                let adapter: RequestAdapter =
+                    Arc::new(move |body, headers| claude::adapt(body, headers, &base));
+                (access, adapter, stream)
             }
             Grant::Copilot { access, .. } => {
                 let initiator = if !self.delegated
@@ -107,7 +115,11 @@ impl Llm for Model {
             observer,
         )
         .map_err(failure)?;
-        model.generate_content(request, stream).await
+        let responses = model.generate_content(request, stream).await?;
+        Ok(match claude_tools {
+            Some(tools) => claude::restore(responses, tools),
+            None => responses,
+        })
     }
 }
 

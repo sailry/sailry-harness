@@ -34,7 +34,7 @@ pub(super) fn content(channel: &Channel, real: bool, cx: &App) -> AnyElement {
                                 .debug_selector(move || format!("provider-kind-{id}"))
                                 .min_w_0()
                                 .truncate()
-                                .child(tr(channel.preset.key())),
+                                .child(channel.label()),
                         )
                         .child(
                             div()

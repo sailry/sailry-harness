@@ -28,7 +28,9 @@ impl Fields {
             .to_owned();
         let (user_agent, editor_version, editor_plugin_version) = match options {
             Some(
-                Options::ChatGpt { user_agent, .. } | Options::ChatGptOAuth { user_agent, .. },
+                Options::ChatGpt { user_agent, .. }
+                | Options::ChatGptOAuth { user_agent, .. }
+                | Options::ClaudeOAuth { user_agent },
             ) => (user_agent, String::new(), String::new()),
             Some(Options::Copilot {
                 user_agent,
@@ -60,6 +62,9 @@ impl Fields {
                 catalog_version: Some(read(&self.catalog_version)),
                 user_agent: read(&self.user_agent),
             },
+            Preset::ClaudeOAuth => Options::ClaudeOAuth {
+                user_agent: read(&self.user_agent),
+            },
             Preset::Copilot | Preset::CopilotResponses => Options::Copilot {
                 user_agent: read(&self.user_agent),
                 editor_version: read(&self.editor_version),
@@ -89,7 +94,7 @@ impl Editor {
                     &self.oauth.user_agent,
                 ),
             ],
-            Preset::ChatGpt => &[(
+            Preset::ChatGpt | Preset::ClaudeOAuth => &[(
                 "provider_oauth_user_agent",
                 "provider-oauth-user-agent",
                 &self.oauth.user_agent,

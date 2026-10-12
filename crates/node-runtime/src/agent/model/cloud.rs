@@ -3,7 +3,7 @@ use adk_model::{
     azure_ai::{AzureAIClient, AzureAIConfig},
     openai::{AzureConfig, AzureOpenAIClient},
 };
-use sailry_protocol::conversation::cloud::Options;
+use sailry_protocol::conversation::connection::Options;
 
 pub(super) fn keyed(
     provider: &Provider,

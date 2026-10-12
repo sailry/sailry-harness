@@ -12,6 +12,9 @@ pub enum Authentication {
     /// Codex device authorization and its account-scoped backend.
     #[serde(rename = "chat_gpt_oauth")]
     ChatGptOAuth,
+    /// Pi-compatible Claude subscription authorization.
+    #[serde(rename = "claude_oauth")]
+    ClaudeOAuth,
     Copilot,
 }
 

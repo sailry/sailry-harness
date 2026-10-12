@@ -1,5 +1,5 @@
 use super::*;
-use sailry_protocol::conversation::cloud::Options;
+use sailry_protocol::conversation::connection::Options;
 #[path = "cloud/requests.rs"]
 mod requests;
 
@@ -44,10 +44,8 @@ async fn restores_frozen_requests() {
             let mut changed = fixture.provider.clone();
             changed.endpoint = "http://127.0.0.1:9/changed".into();
             changed.models[0].output = 16;
-            if let Some(options) = &mut changed.options {
-                match options {
-                    Options::AzureOpenAi { api_version } => *api_version = "2020-01-01".into(),
-                }
+            if let Some(Options::AzureOpenAi { api_version }) = &mut changed.options {
+                *api_version = "2020-01-01".into();
             }
             execute(
                 &fixture.client,

@@ -4,6 +4,7 @@ use super::config::AnthropicConfig;
 use super::convert;
 use super::error::AnthropicApiError;
 use super::rate_limit::RateLimitInfo;
+use super::request::RequestAdapter;
 use super::schema_adapter::AnthropicSchemaAdapter;
 use crate::retry::{RetryConfig, ServerRetryHint, execute_with_retry, is_retryable_model_error};
 use adk_anthropic::{Anthropic, ContentBlock};
@@ -27,6 +28,7 @@ pub struct AnthropicClient {
     pub(super) model: String,
     pub(super) max_tokens: u32,
     retry_config: RetryConfig,
+    request_adapter: Option<RequestAdapter>,
     /// Latest rate-limit information from the most recent API response.
     latest_rate_limit: Arc<RwLock<RateLimitInfo>>,
 }
@@ -69,6 +71,7 @@ impl AnthropicClient {
             max_tokens: config.max_tokens,
             config,
             retry_config: RetryConfig::default(),
+            request_adapter: None,
             latest_rate_limit: Arc::new(RwLock::new(RateLimitInfo::default())),
         })
     }
@@ -98,6 +101,18 @@ impl AnthropicClient {
     #[must_use]
     pub fn with_default_headers(mut self, headers: http::HeaderMap) -> Self {
         self.client = self.client.with_default_headers(headers);
+        self
+    }
+
+    /// Adapt message parameters and replacement headers before each HTTP attempt.
+    ///
+    /// The adapter receives the complete serialized `MessageCreateParams` and
+    /// normal request headers, including authentication and automatic betas.
+    /// It may remove or replace headers. Changes must remain valid message
+    /// parameters and preserve the requested response mode.
+    #[must_use]
+    pub fn with_request_adapter(mut self, adapter: RequestAdapter) -> Self {
+        self.request_adapter = Some(adapter);
         self
     }
 
@@ -579,6 +594,7 @@ impl Llm for AnthropicClient {
         let retry_config = self.retry_config.clone();
         let request_for_retry = request.clone();
         let anthropic_config = self.config.clone();
+        let request_adapter = self.request_adapter.clone();
 
         let response_stream = try_stream! {
             if stream {
@@ -588,13 +604,25 @@ impl Llm for AnthropicClient {
                 let event_stream = execute_with_retry(&retry_config, is_retryable_model_error, || {
                     let request = request_for_retry.clone();
                     let cfg = &anthropic_config;
+                    let adapter = request_adapter.as_ref();
                     async move {
                         let mut params = Self::build_message_params(model_ref, max_tokens, &request, cfg)?;
                         params.stream = true;
-                        client_ref
-                            .stream(&params)
-                            .await
-                            .map_err(convert_anthropic_error)
+                        if let Some(adapter) = adapter {
+                            let (params, headers) =
+                                super::request::prepare(client_ref, params, adapter)?;
+                            client_ref
+                                .stream_with_headers(&params, headers)
+                                .await
+                                .map(|events| events.boxed())
+                                .map_err(convert_anthropic_error)
+                        } else {
+                            client_ref
+                                .stream(&params)
+                                .await
+                                .map(|events| events.boxed())
+                                .map_err(convert_anthropic_error)
+                        }
                     }
                 })
                 .await?;
@@ -610,12 +638,22 @@ impl Llm for AnthropicClient {
                 let message = execute_with_retry(&retry_config, is_retryable_model_error, || {
                     let request = request_for_retry.clone();
                     let cfg = &anthropic_config;
+                    let adapter = request_adapter.as_ref();
                     async move {
                         let params = Self::build_message_params(model_ref, max_tokens, &request, cfg)?;
-                        client_ref
-                            .send(params)
-                            .await
-                            .map_err(convert_anthropic_error)
+                        if let Some(adapter) = adapter {
+                            let (params, headers) =
+                                super::request::prepare(client_ref, params, adapter)?;
+                            client_ref
+                                .send_with_headers(params, headers)
+                                .await
+                                .map_err(convert_anthropic_error)
+                        } else {
+                            client_ref
+                                .send(params)
+                                .await
+                                .map_err(convert_anthropic_error)
+                        }
                     }
                 })
                 .await?;

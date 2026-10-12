@@ -122,7 +122,7 @@ fn navigates_with_keyboard(cx: &mut TestAppContext) {
     visual.simulate_keystrokes("enter");
     draw(visual);
     assert!(visual.debug_bounds("provider-kind-preset_openai").is_none());
-    visual.simulate_keystrokes("down right down down enter");
+    visual.simulate_keystrokes("down right down down down enter");
     draw(visual);
     assert_eq!(
         editor.read_with(visual, |editor, _| editor.preset),
@@ -178,6 +178,95 @@ fn selects_opencode_go(cx: &mut TestAppContext) {
         );
     });
     assert!(visual.debug_bounds("provider-kind-picker").is_none());
+}
+
+#[gpui::test]
+fn selects_plan_and_region(cx: &mut TestAppContext) {
+    use sailry_protocol::conversation::{ModelApi, connection::Product};
+    let (editor, visual) = setup(cx);
+    tap(visual, "provider-type");
+    tap(visual, "provider-kind-brand-provider_qwen");
+    tap(visual, "provider-kind-provider_qwen");
+    assert!(visual.debug_bounds("provider-product").is_some());
+    assert!(visual.debug_bounds("provider-region").is_some());
+    tap(visual, "provider-product");
+    visual.simulate_keystrokes("down enter");
+    draw(visual);
+    editor.read_with(visual, |editor, cx| {
+        assert_eq!(editor.product(), Product::Coding);
+        assert_eq!(
+            editor.connection(cx).unwrap(),
+            (
+                ModelApi::ChatCompletions,
+                "https://coding.dashscope.aliyuncs.com/v1".into()
+            )
+        );
+    });
+    tap(visual, "provider-region");
+    visual.simulate_keystrokes("down enter");
+    draw(visual);
+    editor.read_with(visual, |editor, cx| {
+        assert_eq!(
+            editor.connection(cx).unwrap().1,
+            "https://coding-intl.dashscope.aliyuncs.com/v1"
+        );
+        assert_eq!(editor.models[0].id.read(cx).value(), "qwen3.6-plus");
+    });
+    assert!(visual.update(|window, cx| window.has_active_dialog(cx)));
+}
+
+#[gpui::test]
+fn blocks_region_for_unset_product(cx: &mut TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
+    use sailry_protocol::conversation::connection::Product;
+    let (editor, visual) = setup(cx);
+    let endpoint = Vendor::Qwen.coding_endpoints()[1].1;
+    visual.update(|window, cx| {
+        editor.update(cx, |editor, cx| {
+            editor.select_preset(Preset::Hosted(Vendor::Qwen), window, cx);
+            editor.hosted_product = None;
+            editor
+                .endpoint
+                .update(cx, |input, cx| input.set_value(endpoint, window, cx));
+            editor.sync_product(window, cx);
+            editor.sync_region(window, cx);
+            cx.notify();
+        })
+    });
+    draw(visual);
+    visual.update(|window, _| {
+        assert_eq!(
+            window.find("provider-product-select").value(),
+            Some(tr("provider_product").as_ref())
+        );
+        assert_eq!(
+            window.find("provider-region-select").value(),
+            Some(tr("provider_region_global").as_ref())
+        );
+    });
+    tap(visual, "provider-region");
+    assert!(visual.debug_bounds("select-popup").is_none());
+    editor.read_with(visual, |editor, cx| {
+        assert_eq!(editor.hosted_product, None);
+        assert_eq!(editor.connection(cx).unwrap().1, endpoint);
+    });
+    visual.update(|window, cx| {
+        editor.update(cx, |editor, cx| {
+            editor.select_product(Product::Coding, window, cx)
+        })
+    });
+    draw(visual);
+    tap(visual, "provider-region");
+    assert!(visual.debug_bounds("select-popup").is_some());
+    visual.simulate_keystrokes("up enter");
+    draw(visual);
+    editor.read_with(visual, |editor, cx| {
+        assert_eq!(editor.hosted_product, Some(Product::Coding));
+        assert_eq!(
+            editor.connection(cx).unwrap().1,
+            Vendor::Qwen.coding_endpoints()[0].1
+        );
+    });
 }
 
 #[gpui::test]

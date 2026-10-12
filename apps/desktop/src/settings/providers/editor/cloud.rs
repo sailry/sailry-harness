@@ -1,5 +1,5 @@
 use super::*;
-use sailry_protocol::conversation::cloud::Options;
+use sailry_protocol::conversation::connection::Options;
 
 pub(super) struct Fields {
     pub api_version: Entity<InputState>,
@@ -9,7 +9,7 @@ impl Fields {
     pub fn new(options: Option<&Options>, window: &mut Window, cx: &mut Context<Editor>) -> Self {
         let version = match options {
             Some(Options::AzureOpenAi { api_version }) => api_version.as_str(),
-            None => "2024-10-21",
+            _ => "2024-10-21",
         };
         Self {
             api_version: cx.new(|cx| {

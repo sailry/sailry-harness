@@ -22,11 +22,13 @@ mod catalog;
 mod cloud;
 mod credential;
 mod discovery;
+mod hosted;
 mod kind;
 #[cfg(test)]
 use super::discovery_server;
 mod live;
 mod oauth;
+mod region;
 
 pub(super) struct Editor {
     pub(super) focus: FocusHandle,
@@ -35,6 +37,9 @@ pub(super) struct Editor {
     pub preset: Preset,
     name: Entity<InputState>,
     endpoint: Entity<InputState>,
+    region: Entity<gpui_kit::component::select::SelectState<Vec<super::vendors::Region>>>,
+    offering: Entity<gpui_kit::component::select::SelectState<Vec<hosted::Offering>>>,
+    hosted_product: Option<sailry_protocol::conversation::connection::Product>,
     credential: Entity<InputState>,
     original_key: Option<sailry_protocol::Secret>,
     key_ready: bool,
@@ -183,10 +188,27 @@ impl Editor {
             window,
             cx,
         );
+        let hosted_product = initial.as_ref().and_then(|channel| match channel.options {
+            Some(sailry_protocol::conversation::connection::Options::Hosted { product }) => {
+                Some(product)
+            }
+            _ => None,
+        });
+        let offering = hosted::new(preset, hosted_product, window, cx);
+        let region = region::new(
+            preset,
+            &endpoint,
+            hosted_product.unwrap_or(sailry_protocol::conversation::connection::Product::Metered),
+            window,
+            cx,
+        );
         let mut editor = Self {
             focus: cx.focus_handle(),
             cloud,
             oauth,
+            region,
+            offering,
+            hosted_product,
             owner,
             editing,
             preset,
@@ -229,6 +251,8 @@ impl Editor {
         }
         let same_kind = self.preset.kind() == preset.kind();
         self.preset = preset;
+        self.hosted_product = matches!(preset, Preset::Hosted(_))
+            .then_some(sailry_protocol::conversation::connection::Product::Metered);
         self.probe = None;
         self.models.clear();
         self.default_model = 0;
@@ -242,9 +266,18 @@ impl Editor {
         self.original_key = None;
         self.key_ready = true;
         self.endpoint.update(cx, |input, cx| {
-            input.set_value("", window, cx);
+            input.set_value(
+                match preset {
+                    Preset::Hosted(vendor) => vendor.endpoint(),
+                    _ => "",
+                },
+                window,
+                cx,
+            );
             input.set_placeholder(tr(preset.endpoint_hint()), window, cx);
         });
+        self.sync_region(window, cx);
+        self.sync_product(window, cx);
         self.credential.update(cx, |input, cx| {
             input.set_value("", window, cx);
         });
@@ -406,7 +439,13 @@ impl Editor {
             return Err("provider_model_duplicate");
         }
         Ok(Channel {
-            options: self.cloud.options(self.preset, cx)?,
+            options: if matches!(self.preset, Preset::Hosted(_)) {
+                self.hosted_product.map(|product| {
+                    sailry_protocol::conversation::connection::Options::Hosted { product }
+                })
+            } else {
+                self.cloud.options(self.preset, cx)?
+            },
             oauth: self.oauth.options(self.preset, cx)?,
             quota: None,
             id: self.editing.unwrap_or(0),
@@ -451,6 +490,8 @@ impl Render for Editor {
                 ),
             );
         }
+        form = self.product_form(form);
+        form = self.region_form(form);
         form = self.cloud_form(form);
         if preset.key_auth() {
             form = form.child(
@@ -508,7 +549,7 @@ impl Render for Editor {
                             .label(tr(if self.probe.is_some() {
                                 "provider_querying"
                             } else {
-                                if preset.cloud() {
+                                if self.metadata_only() {
                                     "provider_metadata_fill"
                                 } else {
                                     "provider_discover"

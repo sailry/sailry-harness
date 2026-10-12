@@ -15,7 +15,7 @@ pub(super) struct Metadata {
 pub(super) async fn read(client: &Client, preset: Preset, models: &[discovery::Model]) -> Metadata {
     let provider = match preset {
         Preset::OpenAi | Preset::ChatGptOAuth | Preset::ChatGpt => Some("openai"),
-        Preset::Anthropic => Some("anthropic"),
+        Preset::Anthropic | Preset::ClaudeOAuth => Some("anthropic"),
         Preset::OpenCodeGo => Some("opencode-go"),
         Preset::OpenCodeZen => Some("opencode"),
         Preset::Gemini => Some("google"),

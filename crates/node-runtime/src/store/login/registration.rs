@@ -15,6 +15,24 @@ pub(super) fn prepare(
     credential: Option<&Credential>,
     redirect: Option<&str>,
 ) -> Result<Option<Prepared>, Fault> {
+    if provider.authentication == Authentication::ClaudeOAuth {
+        let (callback, returned) = oneshot::channel();
+        let (issued, registered) = oneshot::channel();
+        return Ok(Some(Prepared {
+            authorization: Authorization {
+                redirect: redirect
+                    .unwrap_or("https://platform.claude.com/oauth/code/callback")
+                    .into(),
+                host_id: String::new(),
+                previous: None,
+                registration: None,
+                issued,
+                callback: returned,
+            },
+            callback,
+            registered,
+        }));
+    }
     if provider.authentication != Authentication::ChatGpt {
         if redirect.is_some() {
             return Err(Fault::invalid(

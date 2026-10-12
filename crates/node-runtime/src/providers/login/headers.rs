@@ -6,6 +6,7 @@ impl Grant {
         match self {
             Self::ChatGpt { access, .. }
             | Self::ChatGptOAuth { access, .. }
+            | Self::ClaudeOAuth { access, .. }
             | Self::Copilot { access, .. } => access,
         }
     }
@@ -14,6 +15,7 @@ impl Grant {
         match self {
             Self::ChatGpt { .. } => CHATGPT_ENDPOINT,
             Self::ChatGptOAuth { .. } => CODEX_ENDPOINT,
+            Self::ClaudeOAuth { .. } => CLAUDE_ENDPOINT,
             Self::Copilot { endpoint, .. } => endpoint,
         }
     }
@@ -30,6 +32,16 @@ impl Grant {
                 .map_err(|_| sailry_protocol::Fault::invalid("OAuth header value is invalid"))?,
         );
         match (self, options) {
+            (Self::ClaudeOAuth { .. }, Options::ClaudeOAuth { .. }) => {
+                for (name, value) in [
+                    ("anthropic-version", "2023-06-01"),
+                    ("anthropic-beta", "claude-code-20250219,oauth-2025-04-20"),
+                    ("anthropic-dangerous-direct-browser-access", "true"),
+                    ("x-app", "cli"),
+                ] {
+                    headers.insert(name, HeaderValue::from_static(value));
+                }
+            }
             (Self::ChatGpt { .. }, Options::ChatGpt { .. }) => {
                 if !self.plan_enabled() {
                     return Err(Fault::new(

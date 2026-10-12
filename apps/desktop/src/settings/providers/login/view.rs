@@ -147,6 +147,39 @@ impl Render for Login {
                     )
                 },
             )
+            .when(
+                active
+                    && !self.pending
+                    && self.provider.authentication == sailry_protocol::Authentication::ClaudeOAuth
+                    && matches!(self.state(), Some(State::Browser { .. })),
+                |body| {
+                    body.child(
+                        v_flex()
+                            .w_full()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .w_full()
+                                    .debug_selector(|| "provider-login-callback".into())
+                                    .child(
+                                        input::Input::new(&self.manual)
+                                            .aria_label(tr("provider_login_callback")),
+                                    ),
+                            )
+                            .child(
+                                Button::new("provider-login-continue")
+                                    .primary()
+                                    .debug_selector(|| "provider-login-continue".into())
+                                    .label(tr("provider_login_continue"))
+                                    .on_click(
+                                        cx.listener(|login, _, window, cx| {
+                                            login.submit(window, cx)
+                                        }),
+                                    ),
+                            ),
+                    )
+                },
+            )
             .when_some(self.state().filter(|_| active), |body, state| {
                 if let State::Pending { user_code, .. } = state {
                     let code = user_code.clone();

@@ -1,6 +1,6 @@
-//! Validate cloud routing before saving or invoking a frozen configuration.
+//! Validate connection options before saving or invoking a frozen configuration.
 use super::*;
-use sailry_protocol::conversation::{Provider, cloud::Options};
+use sailry_protocol::conversation::{Provider, connection::Options};
 
 fn segment(value: &str) -> bool {
     !value.is_empty()
@@ -17,12 +17,16 @@ pub(crate) fn validate(provider: &Provider) -> Result<(), Fault> {
             segment(api_version) && provider.models.iter().all(|model| segment(&model.id))
         }
         (ModelApi::AzureOpenAi, _) => false,
+        (
+            ModelApi::ChatCompletions | ModelApi::Anthropic | ModelApi::DeepSeek,
+            Some(Options::Hosted { .. }),
+        ) => true,
         (_, None) => true,
         _ => false,
     };
     if !valid {
         return Err(sailry_protocol::Fault::invalid(
-            "cloud routing options do not match the provider",
+            "connection options do not match the provider",
         ));
     }
     Ok(())
@@ -31,3 +35,7 @@ pub(crate) fn validate(provider: &Provider) -> Result<(), Fault> {
 pub(crate) fn deployment(api: ModelApi) -> bool {
     matches!(api, ModelApi::AzureOpenAi | ModelApi::AzureAi)
 }
+
+#[cfg(test)]
+#[path = "cloud/tests.rs"]
+mod tests;

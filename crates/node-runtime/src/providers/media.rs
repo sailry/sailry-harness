@@ -45,7 +45,7 @@ pub(crate) fn image_api(provider: &Provider) -> Option<ImageRoute> {
         Authentication::ChatGptOAuth | Authentication::Copilot => {
             (provider.api == ModelApi::Responses).then_some(ImageRoute::Authorized)
         }
-        Authentication::ChatGpt => None,
+        Authentication::ChatGpt | Authentication::ClaudeOAuth => None,
     }
 }
 
@@ -70,6 +70,7 @@ pub(crate) fn supports_api(kind: Kind, provider: &Provider) -> bool {
                 provider.api,
                 ModelApi::ChatCompletions | ModelApi::Responses
             ),
+            Authentication::ClaudeOAuth => provider.api == ModelApi::Anthropic,
         },
         Kind::Image => image_api(provider).is_some(),
         Kind::Video => {
@@ -183,6 +184,13 @@ mod tests {
             ),
             (ModelApi::Responses, Authentication::ChatGpt, None, true),
             (ModelApi::Gemini, Authentication::ChatGptOAuth, None, false),
+            (ModelApi::Anthropic, Authentication::ClaudeOAuth, None, true),
+            (
+                ModelApi::Responses,
+                Authentication::ClaudeOAuth,
+                None,
+                false,
+            ),
         ] {
             let (provider, mut model) = fixture(api, authentication, "custom-model");
             model.generates = vec![Generation::Image, Generation::ImageTool, Generation::Video];

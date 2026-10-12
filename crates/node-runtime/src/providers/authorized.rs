@@ -28,11 +28,18 @@ async fn fetch(
         .timeout(Duration::from_secs(15))
         .build()
         .map_err(|_| unavailable("provider HTTP client failed"))?;
+    let mut remaining = TOTAL_BYTES;
+    if grant.authentication() == Authentication::ClaudeOAuth {
+        let mut url = anthropic_base_url(url.as_str())?;
+        url.set_path(&format!("{}/v1/models", url.path().trim_end_matches('/')));
+        return super::pages(api, url, grant.headers(options)?, &client, &mut remaining)
+            .await?
+            .ok_or_else(|| unavailable("provider model endpoint was not found"));
+    }
     let response = request(&client, url, grant, options)?
         .send()
         .await
         .map_err(|_| unavailable("provider request failed"))?;
-    let mut remaining = TOTAL_BYTES;
     let value = read(response, &mut remaining).await?;
     parse(grant.authentication(), api, &value)
 }
@@ -52,6 +59,11 @@ fn request(
             }
         }
         Authentication::ChatGpt => {}
+        Authentication::ClaudeOAuth => {
+            return Err(sailry_protocol::Fault::invalid(
+                "Claude uses the native model catalog",
+            ));
+        }
         Authentication::Copilot => {
             headers.insert(
                 "openai-intent",
@@ -79,6 +91,11 @@ fn parse(
     api: ModelApi,
     value: &Value,
 ) -> Result<Vec<discovery::Model>, Fault> {
+    if authentication == Authentication::ClaudeOAuth {
+        return Err(sailry_protocol::Fault::invalid(
+            "Claude uses the native model catalog",
+        ));
+    }
     let chatgpt = matches!(
         authentication,
         Authentication::ChatGpt | Authentication::ChatGptOAuth

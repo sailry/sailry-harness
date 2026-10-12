@@ -23,6 +23,26 @@ quota and server failures without publishing unchecked provider bodies or
 replaying uncertain work. Remove these changes when upstream preserves the
 same structured error facts.
 
+Anthropic generation accepts a generic `with_request_adapter` hook over the full
+serialized `MessageCreateParams` and HTTP headers. The hook uses the pinned
+`adk-anthropic` replacement-header APIs, so callers can remove API-key
+authentication and supply bearer authorization. With no hook, generation retains
+the SDK's existing send and stream paths. The hook retains the configured base URL,
+prompt caching and the model's retry policy; nested SDK retries remain disabled.
+Because the SDK's `message_headers` helper is private, request preparation matches
+its three automatic beta conditions before giving the hook final header control.
+Changes must remain valid SDK message parameters; this does not add a raw JSON
+transport or provider-specific request policy. Remove this patch when the pinned
+upstream model adapter exposes the same request customization boundary.
+
+OpenAI-compatible Chat Completions streaming emits `reasoning_content` or its
+existing `reasoning` fallback before handling the same chunk's `finish_reason`.
+The pinned adapter previously consumed terminal `stop` and `tool_calls` chunks
+before emitting their reasoning. This small ordering fix retains that thinking
+once, without changing tool-call attributes, completion state, usage, request
+replay policy or the separate Responses transport. Remove this patch when the
+pinned upstream compatible adapter preserves compound terminal deltas.
+
 Selected TLS dependencies defer the process crypto provider to the application
 instead of forcing AWS-LC through Reqwest or async-openai. No request, retry or
 conversion behavior changes. Sailry does not enable the upstream Bedrock or

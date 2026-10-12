@@ -2,7 +2,10 @@ use super::*;
 use crate::settings::providers::vendors::Vendor;
 use sailry_protocol::{
     Authentication, ProviderId,
-    conversation::{Provider, cloud::Options},
+    conversation::{
+        Provider,
+        connection::{Options, Product},
+    },
 };
 
 #[gpui::test]
@@ -33,6 +36,11 @@ fn maps_preset_payloads(cx: &mut TestAppContext) {
             Preset::ChatGpt,
             ModelApi::Responses,
             "https://api.openai.com/v1",
+        ),
+        (
+            Preset::ClaudeOAuth,
+            ModelApi::Anthropic,
+            "https://api.anthropic.com",
         ),
         (
             Preset::Copilot,
@@ -147,7 +155,7 @@ fn maps_preset_payloads(cx: &mut TestAppContext) {
         (
             Preset::Hosted(Vendor::MiniMax),
             ModelApi::ChatCompletions,
-            "https://api.minimax.chat/v1",
+            "https://api.minimax.cn/v1",
         ),
         (
             Preset::Hosted(Vendor::Doubao),
@@ -190,6 +198,7 @@ fn maps_preset_payloads(cx: &mut TestAppContext) {
                 let authentication = match preset {
                     Preset::ChatGptOAuth => Authentication::ChatGptOAuth,
                     Preset::ChatGpt => Authentication::ChatGpt,
+                    Preset::ClaudeOAuth => Authentication::ClaudeOAuth,
                     Preset::Copilot | Preset::CopilotResponses => Authentication::Copilot,
                     _ => Authentication::ApiKey,
                 };
@@ -211,6 +220,7 @@ fn maps_preset_payloads(cx: &mut TestAppContext) {
                         authentication,
                         Authentication::ChatGptOAuth
                             | Authentication::ChatGpt
+                            | Authentication::ClaudeOAuth
                             | Authentication::Copilot
                     )
                 );
@@ -242,11 +252,18 @@ fn maps_preset_payloads(cx: &mut TestAppContext) {
                 );
                 assert_eq!(
                     channel.endpoint,
-                    if custom_endpoint { endpoint } else { "" }
+                    if custom_endpoint || matches!(preset, Preset::Hosted(_)) {
+                        endpoint
+                    } else {
+                        ""
+                    }
                 );
                 let options = match preset {
                     Preset::AzureOpenAi => Some(Options::AzureOpenAi {
                         api_version: "2024-10-21".into(),
+                    }),
+                    Preset::Hosted(_) => Some(Options::Hosted {
+                        product: Product::Metered,
                     }),
                     _ => None,
                 };

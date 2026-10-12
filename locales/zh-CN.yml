@@ -897,6 +897,21 @@ provider_delete_title: 删除渠道
 provider_edit_title: 编辑渠道
 provider_add_title: 添加渠道
 provider_type: 渠道类型
+provider_region: "区域"
+provider_region_china: "(china)"
+provider_region_global: "(global)"
+provider_product: "服务"
+provider_metered: "按量"
+provider_coding: "编码套餐"
+provider_qwen_coding: "Qwen Coding Plan"
+provider_kimi_code: "Kimi Code"
+provider_glm_coding: "GLM Coding Plan"
+provider_ark_coding: "Ark Coding Plan"
+provider_minimax_coding: "MiniMax Coding Plan"
+preset_claude_oauth: "Claude OAuth"
+provider_login_callback_required: "输入代码或回调地址"
+provider_login_callback: "代码或回调地址"
+provider_login_continue: "继续"
 provider_api: 接口协议
 provider_api_responses: Responses
 provider_api_chat: Chat

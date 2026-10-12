@@ -16,7 +16,11 @@ impl Login {
         self.receiver = Some(cx.spawn_in(window, async move |owner, cx| {
             let result = job.await;
             let _ = owner.update_in(cx, |login, window, cx| {
-                if login.closed || login.cancelling || !login.state().is_some_and(State::active) {
+                if login.closed
+                    || login.cancelling
+                    || login.completion.is_some()
+                    || !login.state().is_some_and(State::active)
+                {
                     return;
                 }
                 match result {
@@ -38,6 +42,33 @@ impl Login {
                 }
             });
         }));
+    }
+
+    pub(super) fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pending
+            || self.closed
+            || self.cancelling
+            || self.provider.authentication != sailry_protocol::Authentication::ClaudeOAuth
+            || !matches!(self.state(), Some(State::Browser { .. }))
+        {
+            return;
+        }
+        let value = self.manual.read(cx).value().trim().to_owned();
+        if value.is_empty() {
+            crate::feedback::error("", &tr("provider_login_callback_required"), window, cx);
+            return;
+        }
+        let Some(attempt) = self.attempt.as_ref() else {
+            return;
+        };
+        self.completion = Some(self.binding.client.prepare(Command::CompleteProviderLogin {
+            attempt: attempt.id,
+            callback: sailry_protocol::Secret::new(value),
+        }));
+        self.callback_stop.cancel();
+        self.callback = None;
+        self.receiver = None;
+        self.complete(window, cx);
     }
 
     pub(super) fn complete(&mut self, window: &mut Window, cx: &mut Context<Self>) {

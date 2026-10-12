@@ -14,6 +14,7 @@ use std::{
 
 mod browser;
 mod cancellation;
+mod claude;
 mod expiration;
 mod recovery;
 mod synchronization;

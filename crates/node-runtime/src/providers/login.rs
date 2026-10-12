@@ -1,5 +1,6 @@
 //! Node-owned provider authorization and protected credential renewal.
 mod chatgpt;
+mod claude;
 mod codex;
 mod copilot;
 mod grant;
@@ -28,12 +29,15 @@ const BODY_LIMIT: usize = 64 * 1024;
 pub(crate) const CHATGPT_ENDPOINT: &str = "https://api.openai.com/v1";
 pub(crate) const CODEX_ENDPOINT: &str = "https://chatgpt.com/backend-api/codex";
 pub(crate) const COPILOT_ENDPOINT: &str = "https://api.githubcopilot.com";
+pub(crate) const CLAUDE_ENDPOINT: &str = "https://api.anthropic.com";
 
 #[derive(Clone)]
 pub(crate) struct Service {
     auth: String,
     github: String,
     github_api: String,
+    claude_auth: String,
+    claude_token: String,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) model_endpoint: Option<String>,
 }
@@ -44,6 +48,8 @@ impl Default for Service {
             auth: "https://auth.openai.com".into(),
             github: "https://github.com".into(),
             github_api: "https://api.github.com".into(),
+            claude_auth: "https://claude.ai".into(),
+            claude_token: "https://platform.claude.com/v1/oauth/token".into(),
             #[cfg(any(test, feature = "test-support"))]
             model_endpoint: None,
         }
@@ -58,11 +64,12 @@ impl Service {
         stop: &CancellationToken,
     ) -> Result<Grant, Fault> {
         let operation = async {
-            options::validate(grant.authentication(), ModelApi::Responses, options)?;
+            options::validate(grant.authentication(), api(grant.authentication()), options)?;
             let client = client(options)?;
             let refreshed = match grant {
                 Grant::ChatGpt { .. } => self.refresh_chatgpt(&client, grant).await?,
                 Grant::ChatGptOAuth { .. } => self.refresh_codex(&client, grant).await?,
+                Grant::ClaudeOAuth { .. } => self.refresh_claude(&client, grant).await?,
                 Grant::Copilot { github, .. } => {
                     self.exchange_copilot(&client, github.clone(), options)
                         .await?
@@ -92,6 +99,8 @@ impl Service {
             auth: endpoint.into(),
             github: endpoint.into(),
             github_api: endpoint.into(),
+            claude_auth: endpoint.into(),
+            claude_token: format!("{endpoint}/v1/oauth/token"),
             model_endpoint: Some(endpoint.into()),
         }
     }
@@ -124,7 +133,7 @@ impl Service {
             progress(state)
         };
         let operation = async {
-            options::validate(authentication, ModelApi::Responses, options)?;
+            options::validate(authentication, api(authentication), options)?;
             let client = client(options)?;
             let grant = match authentication {
                 Authentication::ChatGpt => {
@@ -146,6 +155,18 @@ impl Service {
                         ));
                     }
                     self.codex(&client, progress).await?
+                }
+                Authentication::ClaudeOAuth => {
+                    self.claude(
+                        &client,
+                        authorization.ok_or_else(|| {
+                            sailry_protocol::Fault::invalid(
+                                "Claude authorization context is required",
+                            )
+                        })?,
+                        progress,
+                    )
+                    .await?
                 }
                 Authentication::Copilot => self.copilot(&client, options, progress).await?,
                 Authentication::ApiKey => {
@@ -178,6 +199,9 @@ pub(crate) fn validate(provider: &Provider) -> Result<(), Fault> {
         Authentication::ChatGptOAuth => {
             provider.api == ModelApi::Responses && endpoint == CODEX_ENDPOINT
         }
+        Authentication::ClaudeOAuth => {
+            provider.api == ModelApi::Anthropic && endpoint == CLAUDE_ENDPOINT
+        }
         Authentication::Copilot => {
             matches!(
                 provider.api,
@@ -194,7 +218,10 @@ pub(crate) fn validate(provider: &Provider) -> Result<(), Fault> {
         Some(options) => options::validate(provider.authentication, provider.api, options),
         None if matches!(
             provider.authentication,
-            Authentication::ChatGpt | Authentication::ChatGptOAuth | Authentication::Copilot
+            Authentication::ChatGpt
+                | Authentication::ChatGptOAuth
+                | Authentication::ClaudeOAuth
+                | Authentication::Copilot
         ) =>
         {
             effective(provider).map(|_| ())
@@ -206,12 +233,16 @@ pub(crate) fn validate(provider: &Provider) -> Result<(), Fault> {
 pub(crate) fn transferable(authentication: Authentication) -> Result<(), Fault> {
     if matches!(
         authentication,
-        Authentication::ChatGpt | Authentication::ChatGptOAuth
+        Authentication::ChatGpt | Authentication::ChatGptOAuth | Authentication::ClaudeOAuth
     ) {
         // Independent Nodes cannot coordinate a rotating token family after copying it.
         return Err(Fault::new(
             ErrorCode::NotConfigured,
-            "ChatGPT sign-in is required on the execution Node",
+            if authentication == Authentication::ClaudeOAuth {
+                "Claude sign-in is required on the execution Node"
+            } else {
+                "ChatGPT sign-in is required on the execution Node"
+            },
         ));
     }
     Ok(())
@@ -224,6 +255,14 @@ fn client(options: &Options) -> Result<Client, Fault> {
         .user_agent(options.user_agent())
         .build()
         .map_err(|_| unavailable())
+}
+
+fn api(authentication: Authentication) -> ModelApi {
+    if authentication == Authentication::ClaudeOAuth {
+        ModelApi::Anthropic
+    } else {
+        ModelApi::Responses
+    }
 }
 
 async fn response(request: RequestBuilder) -> Result<(StatusCode, Zeroizing<Vec<u8>>), Fault> {

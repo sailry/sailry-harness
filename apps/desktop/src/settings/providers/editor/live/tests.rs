@@ -9,6 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod hosted;
 mod keys;
 mod mapping;
 
@@ -233,13 +234,17 @@ fn preserves_target_and_draft(cx: &mut TestAppContext) {
             assert_eq!(provider.default_model, "fixture-model");
             assert_eq!(provider.credential.is_some(), preset.key_auth());
             assert_eq!(provider.authentication, preset.authentication());
-            assert_eq!(
-                provider.options,
-                editor.read_with(visual, |editor, cx| editor
-                    .cloud
-                    .options(preset, cx)
-                    .unwrap())
-            );
+            let options = match preset {
+                Preset::Hosted(_) => {
+                    Some(sailry_protocol::conversation::connection::Options::Hosted {
+                        product: sailry_protocol::conversation::connection::Product::Metered,
+                    })
+                }
+                _ => editor.read_with(visual, |editor, cx| {
+                    editor.cloud.options(preset, cx).unwrap()
+                }),
+            };
+            assert_eq!(provider.options, options);
             let other_client = Client::new(other.local());
             let Output::Snapshot(snapshot) = runtime
                 .block_on(other_client.execute(other_client.prepare(Command::Snapshot)))

@@ -54,6 +54,11 @@ async fn start(mode: Arc<AtomicU8>, gate: Option<Arc<tokio::sync::Notify>>) -> S
                 }
             },
             "/oauth/token" => Reply::Json(identity::codex_tokens(request)),
+            "/v1/oauth/token" if mode.load(Ordering::SeqCst) == 0 => Reply::Hold,
+            "/v1/oauth/token" => Reply::Json(identity::claude_tokens(request)),
+            path if path.starts_with("/v1/models") => Reply::Json(json!({"data":[
+                {"id":"claude-fixture", "display_name":"Claude fixture", "type":"model"}
+            ],"has_more":false})),
             "/login/device/code" => Reply::Json(json!({"device_code":"desktop-device-secret","user_code":"SAIL-1234","verification_uri":"https://github.com/login/device","interval":1,"expires_in":900})),
             "/login/oauth/access_token" if mode.load(Ordering::SeqCst) == 4 => Reply::Json(json!({"error":"expired_token"})),
             "/api/accounts/oauth/token" | "/login/oauth/access_token" if mode.load(Ordering::SeqCst) == 0 => Reply::Hold,
@@ -93,6 +98,7 @@ pub(crate) fn provider(authentication: Authentication, api: ModelApi) -> Provide
         name: match authentication {
             Authentication::ChatGptOAuth => "Codex device fixture",
             Authentication::ChatGpt => "ChatGPT",
+            Authentication::ClaudeOAuth => "Claude",
             _ => "GitHub Copilot",
         }
         .into(),
@@ -101,6 +107,7 @@ pub(crate) fn provider(authentication: Authentication, api: ModelApi) -> Provide
         endpoint: match authentication {
             Authentication::ChatGptOAuth => "https://chatgpt.com/backend-api/codex",
             Authentication::ChatGpt => "https://api.openai.com/v1",
+            Authentication::ClaudeOAuth => "https://api.anthropic.com",
             _ => "https://api.githubcopilot.com",
         }
         .into(),

@@ -123,6 +123,16 @@ async fn fetch(
     if api == ModelApi::Anthropic {
         headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
     }
+    pages(api, url, headers, client, remaining).await
+}
+
+async fn pages(
+    api: ModelApi,
+    url: Url,
+    headers: HeaderMap,
+    client: &reqwest::Client,
+    remaining: &mut usize,
+) -> Result<Option<Vec<discovery::Model>>, Fault> {
     let mut models = BTreeMap::new();
     let mut cursors = BTreeSet::new();
     let mut cursor = None;

@@ -1,7 +1,7 @@
 use super::*;
 use gpui_kit::test::TestWindowExt as _;
 
-fn close_dialog(visual: &mut VisualTestContext) {
+pub(super) fn close_dialog(visual: &mut VisualTestContext) {
     draw(visual);
     visual.update(|window, cx| {
         let close = window.within("dialog-close").find("close");
@@ -13,7 +13,7 @@ fn close_dialog(visual: &mut VisualTestContext) {
     draw(visual);
 }
 
-fn mount<'a>(
+pub(super) fn mount<'a>(
     fixture: &Fixture,
     cx: &'a mut TestAppContext,
 ) -> (Entity<Workspace>, &'a mut VisualTestContext) {

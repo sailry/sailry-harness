@@ -183,6 +183,12 @@ Their credentials and request adapters are distinct; neither silently changes
 authentication contracts or substitutes an API key. Model capabilities resolve
 automatically from native and cached metadata; unknown capabilities use the
 configured API contract.
+Claude subscription OAuth uses Pi-compatible browser or pasted-code authorization
+and native Anthropic Messages requests. The existing execution Node owns its
+PKCE attempt, rotating credential grant, catalog access and request adaptation;
+controllers receive only shared login state. Regional vendor endpoints and
+metered/coding product choices are explicit provider settings. Editing unrelated
+fields does not rewrite an existing endpoint or infer a product from its key.
 Media operations try the admitted model and credential first. Only a definite
 unsupported capability may use an explicitly configured, session-captured fallback;
 authentication, quota, timeout and uncertain outcomes never trigger fallback.

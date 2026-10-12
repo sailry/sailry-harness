@@ -16,6 +16,8 @@ mod function_tools;
 mod gemini;
 #[path = "native/grounding.rs"]
 mod grounding;
+#[path = "hosted.rs"]
+mod hosted;
 #[path = "native/phases.rs"]
 mod phases;
 #[path = "native/prompt.rs"]

@@ -12,6 +12,7 @@ use url::Url;
 
 const CLIENT: &str = "oaiapp_fixture";
 pub(super) const CODEX_CLIENT: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+const CLAUDE_CLIENT: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const SCOPES: &str =
     "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct";
 // RFC 8032 section 7.1 test vector 1; these published bytes are not credentials.
@@ -100,19 +101,59 @@ pub(super) fn codex_tokens(request: &Request) -> Value {
     tokens
 }
 
+pub(super) fn claude_tokens(request: &Request) -> Value {
+    let body: Value = serde_json::from_str(&request.body).unwrap();
+    assert_eq!(body["client_id"], CLAUDE_CLIENT);
+    assert_eq!(request.headers["content-type"], "application/json");
+    assert!(body.get("client_secret").is_none());
+    if body["grant_type"] == "authorization_code" {
+        let code: Value = serde_json::from_slice(
+            &URL_SAFE_NO_PAD
+                .decode(body["code"].as_str().unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(body["state"], body["code_verifier"]);
+        assert_eq!(
+            code["challenge"],
+            URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(
+                body["code_verifier"].as_str().unwrap().as_bytes(),
+            ))
+        );
+        assert!(
+            body["redirect_uri"]
+                .as_str()
+                .unwrap()
+                .ends_with("/callback")
+        );
+    } else {
+        assert_eq!(body["grant_type"], "refresh_token");
+        assert_eq!(body["refresh_token"], "desktop-claude-refresh");
+        assert!(body.get("scope").is_none());
+    }
+    json!({"access_token":"sk-ant-oat01-desktop-claude-access", "refresh_token":"desktop-claude-refresh", "expires_in":3600})
+}
+
 pub(crate) fn callback(authorization: &str) -> sailry_protocol::Secret {
     let fields: BTreeMap<_, _> = Url::parse(authorization)
         .unwrap()
         .query_pairs()
         .into_owned()
         .collect();
-    let code = URL_SAFE_NO_PAD
-        .encode(json!({"nonce":fields["nonce"],"challenge":fields["code_challenge"]}).to_string());
+    let (client_id, payload) = if fields["client_id"] == CLAUDE_CLIENT {
+        (CLAUDE_CLIENT, json!({"challenge":fields["code_challenge"]}))
+    } else {
+        (
+            CLIENT,
+            json!({"nonce":fields["nonce"],"challenge":fields["code_challenge"]}),
+        )
+    };
+    let code = URL_SAFE_NO_PAD.encode(payload.to_string());
     let mut callback = Url::parse(&fields["redirect_uri"]).unwrap();
     callback
         .query_pairs_mut()
         .append_pair("state", &fields["state"])
         .append_pair("code", &code)
-        .append_pair("client_id", CLIENT);
+        .append_pair("client_id", client_id);
     sailry_protocol::Secret::new(callback.into())
 }

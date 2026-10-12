@@ -118,6 +118,7 @@ pub enum Preset {
     CompatibleChat,
     ChatGptOAuth,
     ChatGpt,
+    ClaudeOAuth,
     Copilot,
     CopilotResponses,
     Anthropic,
@@ -150,17 +151,18 @@ impl Preset {
             Self::AzureOpenAi => ModelApi::AzureOpenAi,
             Self::AzureAi => ModelApi::AzureAi,
             Self::CompatibleChat | Self::Copilot | Self::Hosted(_) => ModelApi::ChatCompletions,
-            Self::Anthropic | Self::CompatibleAnthropic => ModelApi::Anthropic,
+            Self::Anthropic | Self::CompatibleAnthropic | Self::ClaudeOAuth => ModelApi::Anthropic,
             Self::Gemini | Self::CompatibleGemini => ModelApi::Gemini,
         }
     }
 
-    const CORE: [Self; 15] = [
+    const CORE: [Self; 16] = [
         Self::OpenAi,
         Self::CompatibleResponses,
         Self::CompatibleChat,
         Self::ChatGptOAuth,
         Self::ChatGpt,
+        Self::ClaudeOAuth,
         Self::Copilot,
         Self::CopilotResponses,
         Self::Anthropic,
@@ -186,7 +188,7 @@ impl Preset {
 
     pub fn family(self) -> Family {
         match self {
-            Self::Anthropic | Self::CompatibleAnthropic => Family::Anthropic,
+            Self::Anthropic | Self::CompatibleAnthropic | Self::ClaudeOAuth => Family::Anthropic,
             Self::Gemini | Self::CompatibleGemini => Family::Gemini,
             Self::OpenCodeGo => Family::OpenCodeGo,
             Self::OpenCodeZen => Family::OpenCodeZen,
@@ -225,6 +227,7 @@ impl Preset {
             Self::CompatibleResponses | Self::CompatibleChat => "preset_compatible",
             Self::ChatGptOAuth => "preset_chatgpt_oauth",
             Self::ChatGpt => "preset_chatgpt",
+            Self::ClaudeOAuth => "preset_claude_oauth",
             Self::Copilot | Self::CopilotResponses => "preset_copilot",
             Self::Anthropic => "preset_anthropic",
             Self::CompatibleAnthropic => "preset_anthropic_compatible",
@@ -241,7 +244,11 @@ impl Preset {
     pub fn oauth(self) -> bool {
         matches!(
             self,
-            Self::ChatGptOAuth | Self::ChatGpt | Self::Copilot | Self::CopilotResponses
+            Self::ChatGptOAuth
+                | Self::ChatGpt
+                | Self::ClaudeOAuth
+                | Self::Copilot
+                | Self::CopilotResponses
         )
     }
 
@@ -294,6 +301,7 @@ impl Preset {
         match self {
             Self::ChatGptOAuth => Authentication::ChatGptOAuth,
             Self::ChatGpt => Authentication::ChatGpt,
+            Self::ClaudeOAuth => Authentication::ClaudeOAuth,
             Self::Copilot | Self::CopilotResponses => Authentication::Copilot,
             _ => Authentication::ApiKey,
         }
@@ -350,7 +358,7 @@ impl Model {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Channel {
-    pub options: Option<sailry_protocol::conversation::cloud::Options>,
+    pub options: Option<sailry_protocol::conversation::connection::Options>,
     pub oauth: Option<sailry_protocol::conversation::oauth::Options>,
     pub quota: Option<sailry_protocol::conversation::quota::Snapshot>,
     pub id: usize,
@@ -362,6 +370,31 @@ pub struct Channel {
     pub connected: bool,
     pub models: Vec<Model>,
     pub default_model: String,
+}
+
+impl Channel {
+    pub fn label(&self) -> gpui_kit::SharedString {
+        use sailry_protocol::conversation::connection::{Options, Product};
+        let Preset::Hosted(vendor) = self.preset else {
+            return crate::tr(self.preset.key());
+        };
+        let key = if matches!(
+            self.options,
+            Some(Options::Hosted {
+                product: Product::Coding
+            })
+        ) {
+            vendor.coding_key()
+        } else {
+            self.preset.key()
+        };
+        let label = crate::tr(key);
+        vendor
+            .region(&self.endpoint)
+            .map_or(label.clone(), |region| {
+                format!("{label} {}", crate::tr(region.key())).into()
+            })
+    }
 }
 
 pub struct Store {

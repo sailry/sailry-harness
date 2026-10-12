@@ -289,6 +289,7 @@ pub(crate) fn channel(id: usize, provider: &Provider) -> Channel {
         preset: match (provider.authentication, provider.api) {
             (sailry_protocol::Authentication::ChatGptOAuth, _) => Preset::ChatGptOAuth,
             (sailry_protocol::Authentication::ChatGpt, _) => Preset::ChatGpt,
+            (sailry_protocol::Authentication::ClaudeOAuth, _) => Preset::ClaudeOAuth,
             (sailry_protocol::Authentication::Copilot, ModelApi::Responses) => {
                 Preset::CopilotResponses
             }
