@@ -1,5 +1,7 @@
 //! Activity and notifications derived from the shared Node projection.
 mod notifications;
+#[cfg(test)]
+mod tests;
 pub(crate) use notifications::Feed;
 pub use notifications::{Id, Inbox, Kind, Notice, Target};
 
@@ -18,14 +20,13 @@ pub fn lane(session: &Session) -> Lane {
     match session.activity.run.as_ref().map(|run| run.status) {
         Some(Status::Stopping) => Lane::Running,
         Some(Status::Running) if session.activity.waiting.is_some() => Lane::Waiting,
-        _ if session.activity.queued > 0 => Lane::Running,
-        Some(Status::Queued | Status::Running) => Lane::Running,
+        Some(Status::Running) => Lane::Running,
         Some(Status::Completed) if session.activity.attention.unread => Lane::Completed,
         Some(Status::Failed | Status::Interrupted) if session.activity.attention.unread => {
             Lane::Failed
         }
         Some(Status::Completed | Status::Failed | Status::Interrupted) => Lane::Idle,
-        Some(Status::Cancelled | Status::Continued) | None => Lane::Idle,
+        Some(Status::Queued | Status::Cancelled | Status::Continued) | None => Lane::Idle,
     }
 }
 
