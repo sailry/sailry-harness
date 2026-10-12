@@ -47,9 +47,34 @@ impl RenderOnce for Rows {
             window.use_keyed_state((ElementId::from(self.id.clone()), "details"), cx, |_, _| {
                 None::<(String, String)>
             });
+        let width =
+            window.use_keyed_state(
+                (ElementId::from(self.id), "width"),
+                cx,
+                |_, _| None::<Pixels>,
+            );
+        let content_width = width
+            .read(cx)
+            .map(|width| (width - window.rem_size() * 0.5).max(px(0.)));
         v_flex()
             .w_full()
             .min_w_0()
+            .on_prepaint(move |bounds, window, cx| {
+                if width
+                    .read(cx)
+                    .is_some_and(|width| (width - bounds.size.width).abs() <= px(0.5))
+                {
+                    return;
+                }
+                let width = width.clone();
+                window.defer(cx, move |window, cx| {
+                    width.update(cx, |width, cx| {
+                        *width = Some(bounds.size.width);
+                        cx.notify();
+                    });
+                    window.refresh();
+                });
+            })
             .children(self.items.into_iter().map(|row| {
                 let settled = matches!(row.state, State::Completed | State::Skipped);
                 let (icon, tone) = match row.state {
@@ -76,6 +101,9 @@ impl RenderOnce for Rows {
                 let text = row.text.clone();
                 let content = h_flex()
                     .w_full()
+                    // Kit ListItem's internal content wrapper has an intrinsic minimum.
+                    // Constrain our content to the measured row so native text ellipsis owns clipping.
+                    .when_some(content_width, |content, width| content.w(width))
                     .min_w_0()
                     .gap_2()
                     .text_color(if row.details {
@@ -170,6 +198,8 @@ impl RenderOnce for Rows {
                 } else {
                     ListItem::new(row.id.clone())
                         .disabled(true)
+                        .accessibility_label(row.text.clone())
+                        .w_full()
                         .h_8()
                         .min_w_0()
                         .pl_0()
@@ -185,6 +215,8 @@ impl RenderOnce for Rows {
                     .child(
                         div()
                             .debug_selector(move || key.clone())
+                            .w_full()
+                            .min_w_0()
                             .h_8()
                             .flex_shrink_0()
                             .child(trigger),

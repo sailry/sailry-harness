@@ -1,6 +1,7 @@
 //! Kit b79f4ce's JS DropdownMenu only supports enabled items. This adapter keeps
 //! the original Kit controls while exposing disabled/checked items, form triggers,
 //! and captured selection IDs.
+use gpui_kit::base::ElementExt as _;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     component::{
@@ -13,7 +14,10 @@ use gpui_kit::{
 use gpui_shell::{HostError, HostModule};
 use sailry_link::CancellationToken;
 use serde::Deserialize;
-use std::sync::Arc;
+use std::{cell::Cell, rc::Rc, sync::Arc};
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone, Copy, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -81,9 +85,24 @@ pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule 
             let id = args.id().to_owned();
             let small = props.small || props.size == Some(TriggerSize::Small);
             let medium = !props.small && props.size == Some(TriggerSize::Medium);
+            // Kit's form Button fills its parent, but DropdownMenu has no trigger-width API.
+            // Measure only form triggers and retain Kit's menu, focus and viewport positioning.
+            let width = Rc::new(Cell::new(None::<Pixels>));
             let build = {
                 let sender=sender.clone(); let id=id.clone(); let items=props.items;
-                move |menu,window:&mut Window,cx:&mut Context<PopupMenu>| entries(menu,&items,&id,&sender,window,cx)
+                let width = width.clone();
+                move |menu:PopupMenu,window:&mut Window,cx:&mut Context<PopupMenu>| {
+                    let menu = if props.form {
+                        if let Some(width) = width.get().filter(|width| *width > px(0.)) {
+                            menu.min_w(width).max_w(width)
+                        } else {
+                            menu
+                        }
+                    } else {
+                        menu
+                    };
+                    entries(menu,&items,&id,&sender,window,cx)
+                }
             };
             if let Some(primary)=props.primary {
                 let menu_id=id.clone();let event_id=primary.id.clone();let value=primary.value;
@@ -92,7 +111,7 @@ pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule 
                     .disabled(!primary.enabled||closed.is_cancelled())
                     .debug_selector(move||event_id.clone())
                     .on_click(move|_,_,_|{let _=sender.try_send(serde_json::json!({"menu":menu_id,"id":primary.id,"value":value}));});
-                return div().when(props.form,|region|region.w_full()).debug_selector(move||id.clone()).child(DropdownButton::new(args.id().to_owned())
+                return div().when(props.form,|region|region.w_full().on_prepaint(move |bounds, _, _| width.set(Some(bounds.size.width)))).debug_selector(move||id.clone()).child(DropdownButton::new(args.id().to_owned())
                     .when(small,|button|button.small()).when(props.form,|button|button.secondary().w_full())
                     .button(button).dropdown_menu(build)).into_any_element();
             }
@@ -104,9 +123,16 @@ pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule 
             } else {
                 button.ghost().label(props.label)
             };
-            button.when(small, |button| button.small())
+            let button = button.when(small, |button| button.small())
                 .disabled(props.disabled || closed.is_cancelled())
-                .debug_selector(move || id.clone()).dropdown_menu(build).into_any_element()
+                .debug_selector(move || id.clone()).dropdown_menu(build);
+            if props.form {
+                div().w_full().min_w_0()
+                    .on_prepaint(move |bounds, _, _| width.set(Some(bounds.size.width)))
+                    .child(button).into_any_element()
+            } else {
+                button.into_any_element()
+            }
         })
         .async_function("nextMenuEvent", move |_| {
             let receiver = receiver.clone();

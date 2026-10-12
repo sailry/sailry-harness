@@ -7,6 +7,8 @@ use gpui_kit::{
     *,
 };
 
+mod shimmer;
+
 /// Activity details; failures accent only the icon and retain accessible diagnostics.
 #[derive(Clone, Default)]
 pub(crate) struct Detail {
@@ -173,6 +175,7 @@ fn row(
         state_color
     };
     let selector = id.clone();
+    let unified = detail.running && !detail.pending && !detail.wrap;
     h_flex()
         .id(id.clone())
         .debug_selector(move || selector.clone())
@@ -197,32 +200,54 @@ fn row(
         } else {
             icons
         })
-        .child(
-            div()
-                .debug_selector({
-                    let selector = format!("{id}-label");
-                    move || selector.clone()
-                })
-                .when(detail.wrap, |label| {
-                    label.flex_1().min_w_0().whitespace_normal()
-                })
-                .when(!detail.wrap && detail.secondary, |label| {
-                    label.min_w_0().truncate()
-                })
-                .when(!detail.wrap && !detail.secondary, |label| {
-                    label.flex_shrink_0()
-                })
-                .child(if detail.running && !detail.pending {
-                    let selector = format!("{id}-shimmer");
-                    div()
-                        .debug_selector(move || selector.clone())
-                        .child(shimmer::ShimmerText::new(label).id(format!("{id}-label-shimmer")))
-                        .into_any_element()
-                } else {
-                    div().child(label).into_any_element()
-                }),
-        )
-        .when(!detail.text.is_empty(), |row| {
+        .when(unified, |row| {
+            row.child(
+                div()
+                    .min_w_0()
+                    .max_w_full()
+                    .truncate()
+                    .debug_selector({
+                        let selector = format!("{id}-shimmer");
+                        move || selector.clone()
+                    })
+                    .child(shimmer::Summary::new(
+                        format!("{id}-text-shimmer"),
+                        label.clone(),
+                        &detail,
+                    )),
+            )
+        })
+        .when(!unified, |row| {
+            row.child(
+                div()
+                    .debug_selector({
+                        let selector = format!("{id}-label");
+                        move || selector.clone()
+                    })
+                    .when(detail.wrap, |label| {
+                        label.flex_1().min_w_0().whitespace_normal()
+                    })
+                    .when(!detail.wrap && detail.secondary, |label| {
+                        label.min_w_0().truncate()
+                    })
+                    .when(!detail.wrap && !detail.secondary, |label| {
+                        label.flex_shrink_0()
+                    })
+                    .child(if detail.running && !detail.pending {
+                        let selector = format!("{id}-shimmer");
+                        div()
+                            .debug_selector(move || selector.clone())
+                            .child(
+                                gpui_kit::component::shimmer::ShimmerText::new(label)
+                                    .id(format!("{id}-label-shimmer")),
+                            )
+                            .into_any_element()
+                    } else {
+                        div().child(label).into_any_element()
+                    }),
+            )
+        })
+        .when(!unified && !detail.text.is_empty(), |row| {
             row.child(
                 div()
                     .min_w_0()
@@ -235,7 +260,7 @@ fn row(
                             .font_family(cx.theme().mono_font_family.clone())
                     })
                     .child(if detail.running && !detail.pending {
-                        shimmer::ShimmerText::new(detail.text.clone())
+                        gpui_kit::component::shimmer::ShimmerText::new(detail.text.clone())
                             .id(format!("{id}-detail-shimmer"))
                             .into_any_element()
                     } else {

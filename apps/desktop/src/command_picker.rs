@@ -1,7 +1,7 @@
 //! Shared command-style search surface for Git targets and conversation matches.
 use gpui_kit::{
     component::{
-        ActiveTheme as _, IconName,
+        ActiveTheme as _, IconName, Sizable as _,
         dialog::Dialog,
         list::{List, ListDelegate, ListItem, ListState},
     },
@@ -24,6 +24,7 @@ pub(crate) fn list<D: ListDelegate>(
     window: &Window,
 ) -> List<D> {
     List::new(state)
+        .large()
         .max_h(body_height(window))
         .p_2()
         .text_sm()
@@ -67,7 +68,7 @@ pub(crate) fn body_height(window: &Window) -> Pixels {
 }
 
 fn search_height(window: &Window) -> Pixels {
-    window.rem_size() * 2. + px(1.)
+    window.rem_size() * 2.75 + px(1.)
 }
 
 pub(crate) fn width(window: &Window) -> Pixels {

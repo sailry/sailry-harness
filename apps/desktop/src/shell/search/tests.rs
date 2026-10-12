@@ -196,6 +196,10 @@ mod hierarchy {
             assert_eq!(search.left(), content.left());
             assert_eq!(search.right(), content.right());
             assert_eq!(search.top(), content.top());
+            assert_eq!(
+                search.size.height,
+                visual.update(|window, _| window.rem_size() * 2.75 + px(1.)),
+            );
             assert_eq!(row.left() - content.left(), px(8.));
             assert_eq!(content.right() - row.right(), px(8.));
             assert_eq!(row.top() - search.bottom(), px(8.));

@@ -146,3 +146,54 @@ fn animates_only_active_rows(cx: &mut TestAppContext) {
     }
     visual.update(|window, _| window.remove_window());
 }
+
+struct Tasks;
+
+impl Render for Tasks {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().w(px(320.)).child(Content {
+            id: "task-panel".into(),
+            empty: "No tasks".into(),
+            items: (0..4)
+                .map(|index| Row {
+                    id: format!("task-row-{index}"),
+                    text: "Preserve full task 中文 🙂 e\u{301} ".repeat(40),
+                    state: if index == 0 {
+                        State::InProgress
+                    } else {
+                        State::Pending
+                    },
+                    details: false,
+                    highlight: index == 0,
+                })
+                .collect(),
+            footer: Vec::new(),
+        })
+    }
+}
+
+#[gpui::test]
+fn constrains_plain_and_highlighted_labels(cx: &mut TestAppContext) {
+    crate::conversation::live::tests::fixture::init(cx);
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|_| Tasks);
+        Root::new(view, window, cx)
+    });
+    visual.update(|_, cx| cx.set_reduce_motion(true));
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let panel = visual.debug_bounds("task-panel").unwrap();
+    for index in 0..4 {
+        let row_key = Box::leak(format!("task-row-{index}").into_boxed_str());
+        let label_key = Box::leak(format!("task-row-{index}-label").into_boxed_str());
+        let icon_key = Box::leak(format!("task-row-{index}-icon").into_boxed_str());
+        let row = visual.debug_bounds(row_key).unwrap();
+        let label = visual.debug_bounds(label_key).unwrap();
+        let icon = visual.debug_bounds(icon_key).unwrap();
+        assert_eq!(row.size.height, px(32.));
+        assert!(label.right() <= row.right() - px(8.));
+        assert!(row.right() <= panel.right());
+        assert!(label.left() >= icon.right() + px(8.));
+    }
+    visual.update(|window, _| window.remove_window());
+}
