@@ -316,6 +316,7 @@ pub(crate) struct Ingress {
     pub(crate) plugins: crate::plugins::Host,
     installations: Arc<installations::Registry>,
     pub(crate) oauth: Arc<crate::plugins::oauth::Service>,
+    pub(crate) registration: Arc<crate::plugins::registration::Service>,
     closed: CancellationToken,
 }
 
@@ -413,6 +414,7 @@ impl Store {
             catalog,
             files: crate::files::Files::new().with_ocr(ocr.clone()),
             oauth: Arc::default(),
+            registration: Arc::default(),
             #[cfg(any(test, feature = "test-support"))]
             authorization_endpoint: authorization.model_endpoint.clone(),
             #[cfg(any(test, feature = "test-support"))]

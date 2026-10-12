@@ -14,6 +14,7 @@ pub(super) mod invocations;
 pub(in crate::store) mod mcp;
 pub(super) mod models;
 pub(in crate::store) mod oauth;
+pub(in crate::store) mod registration;
 mod repository;
 mod script;
 pub(super) mod services;

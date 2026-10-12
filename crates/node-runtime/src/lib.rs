@@ -283,6 +283,11 @@ impl Node {
     }
 
     #[cfg(any(test, feature = "test-support"))]
+    pub fn set_plugin_registration_fixture(&self, endpoint: &str) {
+        self.ingress.registration.fixture(endpoint);
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
     pub fn set_plugin_application_fixture(
         &self,
         provider: sailry_protocol::plugin::settings::Provider,

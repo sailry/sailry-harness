@@ -9,6 +9,8 @@ use crate::{
 };
 use sailry_protocol::plugin::oauth::{Attempt, State, Update as LoginUpdate};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+#[path = "plugin/registration.rs"]
+mod registration;
 
 pub(super) struct Entry {
     updates: watch::Sender<LoginUpdate>,
@@ -27,8 +29,13 @@ pub(in crate::store) enum Progress {
     Finished {
         caller: NodeId,
         id: RequestId,
-        result: Result<Grant, Fault>,
+        result: Result<Authorized, Fault>,
     },
+}
+
+pub(in crate::store) enum Authorized {
+    Account(Grant),
+    Application(crate::plugins::registration::Credentials),
 }
 
 impl Worker {
@@ -42,6 +49,9 @@ impl Worker {
         match &request.command {
             Command::BeginPluginLogin { .. } => {
                 self.begin_plugin(database, caller, request, events)
+            }
+            Command::BeginPluginRegistration { .. } => {
+                self.register_plugin(database, caller, request, events)
             }
             Command::CompletePluginLogin { attempt, callback } => {
                 let result = self
@@ -81,6 +91,14 @@ impl Worker {
                     .get(&(caller, *attempt))
                     .ok_or_else(missing)
                     .and_then(|entry| {
+                        if request.plugin.as_ref().is_some_and(|context| {
+                            context.package != entry.updates.borrow().attempt.package
+                        }) {
+                            return Err(Fault::new(
+                                ErrorCode::PermissionDenied,
+                                "application registration attempt belongs to another package",
+                            ));
+                        }
                         if !entry.updates.borrow().state.active() {
                             return Err(Fault::new(
                                 ErrorCode::Conflict,
@@ -191,6 +209,7 @@ impl Worker {
                 _ = stop.cancelled() => Err(Fault::new(ErrorCode::Cancelled, "plugin account authorization cancelled")),
                 result = tokio::time::timeout(Duration::from_secs(900), AssertUnwindSafe(operation).catch_unwind()) => result.ok().and_then(Result::ok).unwrap_or_else(|| Err(super::super::unavailable())),
             };
+            let result = result.map(Authorized::Account);
             let _ = sender.send(Job::Login(Box::new(super::Progress::Plugin(Progress::Finished { caller, id, result })))).await;
         });
         Ok(result)
@@ -291,11 +310,16 @@ impl Subscription for Updates {
 fn save(
     database: &mut Database,
     attempt: &Attempt,
-    grant: Grant,
+    grant: Authorized,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<plugin::Reference, Fault> {
     let transaction = database.connection.transaction().map_err(storage_error)?;
-    let info = oauth::save(&transaction, &attempt.package, grant)?;
+    let info = match grant {
+        Authorized::Account(grant) => oauth::save(&transaction, &attempt.package, grant)?,
+        Authorized::Application(credentials) => {
+            crate::store::plugins::registration::save(&transaction, &attempt.package, credentials)?
+        }
+    };
     let package = info.summary.reference();
     let event = Event::PluginChanged(info.summary);
     transaction

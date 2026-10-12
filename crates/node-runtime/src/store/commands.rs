@@ -616,6 +616,7 @@ pub(super) fn execute(
         | Command::CompleteMcpLogin { .. }
         | Command::CancelMcpLogin { .. }
         | Command::BeginPluginLogin { .. }
+        | Command::BeginPluginRegistration { .. }
         | Command::CompletePluginLogin { .. }
         | Command::CancelPluginLogin { .. } => Err(Fault::new(
             ErrorCode::Internal,

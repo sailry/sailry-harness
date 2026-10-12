@@ -86,6 +86,14 @@ configuration database, never public events, logs or UI caches. Projects remain
 at registered paths; profiles contain Node storage, plugin packages/data and
 uploaded attachments.
 
+Declared application registration reuses the Node's durable plugin login owner,
+caller-scoped observation and explicit cancellation. The fixed Feishu adapter
+requests only declared tenant scopes. Its verification URL is transient native
+controller state; device codes and issued secrets remain on the execution Node.
+Saving issued application credentials uses the captured package revision and
+the existing settings transaction, preserving unrelated values and credentials.
+Registration does not establish publication, document access or MCP entitlement.
+
 Claiming an ordinary main turn freezes its effective input on the existing run
 record. Conversation projections include that input only until canonical user
 history exists, with attachment metadata but no bytes or execution configuration.

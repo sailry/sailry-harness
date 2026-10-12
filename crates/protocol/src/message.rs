@@ -437,6 +437,9 @@ pub enum Command {
         redirect: String,
         configuration: crate::plugin::oauth::Configuration,
     },
+    BeginPluginRegistration {
+        package: crate::plugin::Reference,
+    },
     CompletePluginLogin {
         attempt: RequestId,
         callback: Secret,

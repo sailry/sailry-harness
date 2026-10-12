@@ -14,6 +14,7 @@ pub mod mcp;
 pub mod model_tools;
 pub mod models;
 pub mod oauth;
+pub mod registration;
 pub mod schema;
 pub mod settings;
 pub mod skills;
@@ -116,6 +117,9 @@ pub struct Extension {
     pub settings_page: Option<desktop::Settings>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oauth: Option<oauth::Declaration>,
+    /// Provider-owned application creation without a pre-registered client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registration: Option<registration::Declaration>,
     /// Inline schemas for package-owned Node and conversation values.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage: Option<storage::Declaration>,

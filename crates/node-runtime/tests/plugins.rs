@@ -44,6 +44,9 @@ mod oauth;
 #[cfg(feature = "test-support")]
 #[path = "plugins/python.rs"]
 mod python;
+#[cfg(feature = "test-support")]
+#[path = "plugins/registration.rs"]
+mod registration;
 #[path = "plugins/reminders_host.rs"]
 mod reminders_host;
 #[path = "plugins/scheduled_host.rs"]

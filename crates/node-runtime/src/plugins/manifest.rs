@@ -110,6 +110,7 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                             && sailry_protocol::plugin::valid_icon(&parsed.icon)
                             && sailry_protocol::plugin::ui::valid(&parsed.ui)
                             && parsed.storage.as_ref().is_none_or(|storage| super::storage::validate(storage).is_ok())
+                            && parsed.registration.as_ref().is_none_or(|declaration| declaration.valid() && parsed.oauth.is_none())
                             && parsed.ui.iter().all(|entry| entry.command.as_ref().is_none_or(|command| {
                                 command.kind != sailry_protocol::plugin::ui::CommandKind::Message
                                     || parsed.host.as_ref().is_some_and(|host| host.commands.iter().any(|route| route.name == command.name))

@@ -314,6 +314,7 @@ impl Database {
                 | Command::CompleteMcpLogin { .. }
                 | Command::CancelMcpLogin { .. }
                 | Command::BeginPluginLogin { .. }
+                | Command::BeginPluginRegistration { .. }
                 | Command::CompletePluginLogin { .. }
                 | Command::CancelPluginLogin { .. }
                 | Command::ImportGithubLogin { .. }

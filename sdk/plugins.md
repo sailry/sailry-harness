@@ -328,3 +328,27 @@ Plugin commands retain the existing declaration, exact installed-package, Node, 
 The current development schema remains v1. Startup fills missing schema objects and storage fields with their defaults, validates the update on an isolated snapshot, saves a private backup and applies it transactionally. Invalid updates preserve the existing profile; startup never resets or deletes user data.
 
 `credential_source: "github_cli"` opts a schema form into the protected GitHub CLI account source. The execution Node verifies the token field, Bearer header and official GitHub MCP endpoint before linking; changing the package name grants no access. The shared native credential form keeps account secrets outside plugin JavaScript.
+
+An optional `registration` declaration binds application creation to the existing
+settings schema: `{provider:"feishu", client_id:"app_id",
+client_secret:"app_secret", tenant_scopes:[...]}`. The ID must be a public string
+field; the secret must use a protected Feishu application binding whose
+`client_id` is that same field. Account OAuth and application registration are
+distinct declarations and cannot coexist on one package.
+
+`BeginPluginRegistration` is a native controller settings action, not a headless
+callback or generic JavaScript command. It shares plugin login attempt IDs,
+durable admission, caller-scoped observation and cancellation. Constructors
+observe only; creation and refresh require an explicit native user action.
+The execution Node polls the fixed provider endpoint with provider backoff and
+no automatic restart. Verification URLs remain transient native controller
+state; device codes, application secrets and unused provider identity fields do
+not enter plugin JavaScript, model results or public snapshots.
+
+Completion saves issued credentials through the existing revision-checked
+settings transaction. Configuration changes during registration preserve the
+newer settings and fail the old attempt. Native cleanup retains its original
+attempt identity and can cancel it after a settings change or package removal.
+An unknown result must be inspected using the original request identity, not
+replayed as a new application creation. Configured fields do not establish
+provider publication, document access or MCP entitlement.

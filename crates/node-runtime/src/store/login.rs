@@ -74,6 +74,7 @@ pub(super) struct Worker {
     mcp: BTreeMap<(NodeId, RequestId), mcp::Entry>,
     plugin: BTreeMap<(NodeId, RequestId), account::Entry>,
     oauth: std::sync::Arc<crate::plugins::oauth::Service>,
+    registration: std::sync::Arc<crate::plugins::registration::Service>,
     plugins: crate::plugins::Host,
     environment: std::sync::Arc<crate::process::Environment>,
     renewals: renewals::Renewals,
@@ -97,6 +98,7 @@ impl Worker {
             mcp: BTreeMap::new(),
             plugin: BTreeMap::new(),
             oauth: ingress.oauth.clone(),
+            registration: ingress.registration.clone(),
             plugins: ingress.plugins.clone(),
             environment: ingress.environment.clone(),
             renewals: Default::default(),
@@ -126,6 +128,7 @@ impl Worker {
         }
         let result = match request.command {
             Command::BeginPluginLogin { .. }
+            | Command::BeginPluginRegistration { .. }
             | Command::CompletePluginLogin { .. }
             | Command::CancelPluginLogin { .. } => {
                 self.plugin_command(database, caller, &request, events)

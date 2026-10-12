@@ -160,7 +160,18 @@ impl Database {
                     super::super::roles::approvals::check(&self.connection, request)?;
                     (Some(Action::WriteRoles), context.worktree, Some(*session))
                 }
+                Command::BeginPluginRegistration { package }
+                    if context.controller_settings() && *package == context.package =>
+                {
+                    super::registration::current(&self.connection, package)?;
+                    (None, None, None)
+                }
+                Command::CancelPluginLogin { .. } if context.controller_settings() => {
+                    super::registration::current(&self.connection, &context.package)?;
+                    (None, None, None)
+                }
                 Command::ReadPluginSecret { .. }
+                | Command::BeginPluginRegistration { .. }
                 | Command::ReadPluginAuthorization { .. }
                 | Command::BeginPluginLogin { .. }
                 | Command::CompletePluginLogin { .. }
