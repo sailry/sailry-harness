@@ -301,6 +301,14 @@ The runnable [tool-content MCP example](../plugins/examples/tool-content) return
 
 ## Boundaries
 
+Headless `sailry/models.list({target:'node', kind:'ocr'})` returns available OCR
+definitions and installation state under `models.read`. Package handlers use
+the native `models.install` and `models.remove` operations for explicit OCR
+lifecycle tools. Removal requires the original claimed command approval and
+keeps definitions and settings. It shares the existing OCR installation lane
+without producing a separate installer card. Plan turns cannot mutate models;
+callbacks cannot directly dispatch OCR removal.
+
 Headless `listRoles()` requires `roles.read` and returns public catalog profiles,
 with decimal-string revisions and model identifiers, not session provider
 snapshots or credentials. Package-owned handlers prepare `roles.save`,

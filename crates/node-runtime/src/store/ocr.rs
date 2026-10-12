@@ -11,6 +11,7 @@ use sailry_protocol::{
 };
 use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot};
+pub(in crate::store) mod approvals;
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -192,7 +193,11 @@ impl Ingress {
         reporter: Option<&crate::installation::Reporter>,
     ) -> Result<Output, Fault> {
         if !matches!(request.command, Command::InstallOcrModel { .. }) {
-            controller(request)?;
+            if request.plugin.is_some() {
+                self.check_plugin(self.node, request.clone()).await?;
+            } else {
+                controller(request)?;
+            }
         }
         let catalog = self.ocr_catalog().await?;
         self.ocr.configure(catalog.settings, &catalog.records)?;

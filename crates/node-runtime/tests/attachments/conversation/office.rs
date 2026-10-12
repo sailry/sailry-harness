@@ -2,7 +2,7 @@ use super::*;
 use serde_json::json;
 
 #[tokio::test]
-async fn reads_only_current_document_attachments() {
+async fn reads_visible_document_attachments() {
     let fixture = Fixture::start().await;
     let server = server::Server::scripted_tools(vec![]).await;
     for client in fixture.clients() {
@@ -67,12 +67,27 @@ async fn reads_only_current_document_attachments() {
             input("Inspect the attached documents", &[&pdf, &workbook]),
         )
         .await;
+        let future = queue(&client, &session, input("Held future input", &[&foreign])).await;
         let history = run(&client, &turn).await;
         assert_eq!(
-            history.runs.last().unwrap().status,
+            history
+                .runs
+                .iter()
+                .find(|run| run.turn == turn.id)
+                .unwrap()
+                .status,
             Status::Completed,
             "{:?}",
             history.runs
+        );
+        assert_eq!(
+            history
+                .runs
+                .iter()
+                .find(|run| run.turn == future.id)
+                .unwrap()
+                .status,
+            Status::Queued
         );
         let results: Vec<_> = history
             .entries
@@ -107,16 +122,25 @@ async fn reads_only_current_document_attachments() {
             include_bytes!("../../../src/office/fixtures/chart.xlsx")
         );
         assert_eq!(results[2]["error"]["code"], "not_found");
+        client
+            .execute(client.prepare(Command::StopTurn { turn: future.id }))
+            .await
+            .unwrap();
         let request = server.requests.lock().unwrap().first().cloned().unwrap();
         assert!(request.to_string().contains("read_office"));
         assert!(request.to_string().contains("Contents not included"));
 
-        // A visible attachment in earlier history cannot authorize a new tool read.
+        // A completed visible turn retains its attachment read authority.
         server.replace_tools(vec![(
             tool.clone(),
             json!({"source":{"kind":"attachment","value":pdf.id}}),
         )]);
-        let next = queue(&client, &session, "Try the previous attachment".into()).await;
+        let next = queue(
+            &client,
+            &session,
+            input("Try the previous attachment", &[&foreign]),
+        )
+        .await;
         let history = run(&client, &next).await;
         let result = history
             .entries
@@ -128,7 +152,73 @@ async fn reads_only_current_document_attachments() {
                 _ => None,
             })
             .unwrap();
-        assert_eq!(result["error"]["code"], "not_found");
+        assert_eq!(result["kind"], "office_content");
+        assert!(
+            result["data"]["sections"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|section| section["text"].as_str().unwrap().contains("PDF acceptance"))
+        );
+
+        let Output::Session(fork) = client
+            .execute(client.prepare(Command::ForkConversation {
+                session: session.id,
+                through: turn.id,
+                expected_revision: session.revision,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("fork expected")
+        };
+        server.replace_tools(vec![
+            (
+                tool.clone(),
+                json!({"source":{"kind":"attachment","value":pdf.id}}),
+            ),
+            (
+                tool.clone(),
+                json!({"source":{"kind":"attachment","value":foreign.id}}),
+            ),
+        ]);
+        let fork_turn = queue(&client, &fork, "Read the retained attachment".into()).await;
+        let fork_page = run(&client, &fork_turn).await;
+        let fork_results: Vec<_> = fork_page
+            .entries
+            .iter()
+            .filter(|entry| entry.turn == fork_turn.id)
+            .flat_map(|entry| &entry.parts)
+            .filter_map(|part| {
+                if let Part::ToolResult { result, .. } = part {
+                    Some(result)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(fork_results.len(), 2);
+        assert_eq!(fork_results[0]["kind"], "office_content");
+        assert_eq!(fork_results[1]["error"]["code"], "not_found");
+        server.replace_tools(vec![(
+            tool.clone(),
+            json!({"source":{"kind":"attachment","value":pdf.id}}),
+        )]);
+
+        let latest = page(&client, session.id).await;
+        client
+            .execute(client.prepare(Command::RewindConversation {
+                session: session.id,
+                through: None,
+                expected_head: next.id,
+                expected_revision: latest.revision,
+            }))
+            .await
+            .unwrap();
+        let removed = queue(&client, &session, "Read a removed attachment".into()).await;
+        let removed_page = run(&client, &removed).await;
+        assert!(removed_page.entries.iter().filter(|entry|entry.turn==removed.id)
+            .flat_map(|entry|&entry.parts).any(|part|matches!(part,Part::ToolResult{result,..} if result["error"]["code"]=="not_found")));
         assert_eq!(
             client
                 .execute(client.prepare(Command::ReadOffice {

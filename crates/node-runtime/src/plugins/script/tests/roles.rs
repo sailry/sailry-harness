@@ -33,7 +33,7 @@ fn direct_callbacks_cannot_mutate_catalog() {
             json!({"kind":"set_session_roles","data":{"session":sailry_protocol::SessionId::new(),"expected_revision":1,"roles":[]}}),
         ] {
             let source = format!(
-                "import {{prepareRequest}} from 'sailry/sdk'; export function run() {{ return prepareRequest({command}); }}"
+                "import {{prepareRequest}} from 'sailry/sdk'; export function run() {{ try {{ return prepareRequest({command}); }} catch(error) {{ return error.code; }} }}"
             );
             let state = Arc::new(Mutex::new(execution::State {
                 call_id: Some(sailry_protocol::RequestId::new()),
@@ -55,9 +55,8 @@ fn direct_callbacks_cannot_mutate_catalog() {
                     |_| panic!("forbidden role dispatch"),
                     state
                 )
-                .unwrap_err()
-                .code,
-                ErrorCode::PermissionDenied
+                .unwrap(),
+                json!("permission_denied")
             );
         }
     }

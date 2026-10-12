@@ -13,6 +13,8 @@ impl Prepared {
         if !matches!(
             command,
             Command::SaveDatabase { .. }
+                | Command::InstallOcrModel { .. }
+                | Command::DeleteOcrModel { .. }
                 | Command::SaveSsh { .. }
                 | Command::PutRole { .. }
                 | Command::RemoveRole { .. }

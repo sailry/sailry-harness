@@ -19,11 +19,11 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
     ) {
         return super::knowledge::runtime::prepare(request);
     }
-    if matches!(request.command, Command::DeleteOcrModel { .. }) {
-        return super::python::controller(request);
-    }
-    if matches!(request.command, Command::InstallOcrModel { .. }) {
-        return Ok(());
+    if matches!(
+        request.command,
+        Command::InstallOcrModel { .. } | Command::DeleteOcrModel { .. }
+    ) {
+        return super::ocr::approvals::check(&database.connection, request);
     }
     if matches!(
         request.command,

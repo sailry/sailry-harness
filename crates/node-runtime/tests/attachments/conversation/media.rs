@@ -95,9 +95,12 @@ async fn preserves_video_and_audio_references() {
                 } else {
                     assert!(inline.is_none());
                     assert!(
-                        body.to_string().contains(
-                            "Contents not included; an attachment-capable tool is required"
-                        )
+                        body.to_string()
+                            .contains("Contents not included; use read_office")
+                    );
+                    assert!(
+                        body.to_string()
+                            .contains("use an attachment-capable tool for other files")
                     );
                 }
             }
@@ -157,7 +160,8 @@ async fn preserves_unsupported_media_history() {
     assert_eq!(requests.len(), 2);
     for request in requests.iter() {
         let body = request.body.to_string();
-        assert!(body.contains("Contents not included; an attachment-capable tool is required"));
+        assert!(body.contains("Contents not included; use read_office"));
+        assert!(body.contains("use an attachment-capable tool for other files"));
         for (_, _, bytes) in native::media() {
             assert!(!body.contains(&base64::engine::general_purpose::STANDARD.encode(bytes)));
         }

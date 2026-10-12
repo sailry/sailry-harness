@@ -227,9 +227,10 @@ async fn reads_copies_and_restores_receipts() {
 #[tokio::test]
 async fn defers_native_support_checks() {
     let fixture = Fixture::start().await;
-    let server = server::Server::start(false).await;
+    let server = server::Server::scripted_tools(vec![]).await;
     for client in fixture.clients() {
-        let (session, _) = session(
+        let requests_before = server.requests.lock().unwrap().len();
+        let (session, provider) = session(
             &client,
             fixture.worktree,
             &server.endpoint,
@@ -247,6 +248,7 @@ async fn defers_native_support_checks() {
         let turn = queue(&client, &session, input("Inspect", &[&file])).await;
         let history = run(&client, &turn).await;
         assert_eq!(history.runs[0].status, Status::Failed);
+        assert_eq!(server.requests.lock().unwrap().len(), requests_before);
         assert_eq!(
             history.runs[0].error.as_ref().unwrap().code,
             ErrorCode::InvalidRequest
@@ -258,7 +260,30 @@ async fn defers_native_support_checks() {
                 .flat_map(|entry| &entry.parts)
                 .any(|part| *part == Part::Attachment(file.clone()))
         );
+        // Failure preserves visible input ownership for a later tool-enabled turn.
+        server.replace_tools(vec![(
+            server::plugin_tool("files", "read_office"),
+            json!({"source":{"kind":"attachment","value":file.id}}),
+        )]);
+        let session = configure(&client, session, provider, Permission::Full).await;
+        let next = queue(&client, &session, "Inspect the previous input".into()).await;
+        let next_page = run(&client, &next).await;
+        let result = next_page
+            .entries
+            .iter()
+            .filter(|entry| entry.turn == next.id)
+            .flat_map(|entry| &entry.parts)
+            .find_map(|part| {
+                if let Part::ToolResult { result, .. } = part {
+                    Some(result)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        assert_eq!(result["error"]["code"], "invalid_request", "{result:?}");
+        assert!(!result.to_string().contains("attachment is unavailable"));
     }
-    assert!(server.requests.lock().unwrap().is_empty());
+    assert!(!server.requests.lock().unwrap().is_empty());
     fixture.close().await;
 }

@@ -16,6 +16,8 @@ mod git;
 mod goal_history;
 #[path = "plugins/http.rs"]
 mod http;
+#[path = "plugins/ocr.rs"]
+mod ocr;
 #[path = "plugins/operations.rs"]
 mod operations;
 #[path = "plugins/reminders.rs"]

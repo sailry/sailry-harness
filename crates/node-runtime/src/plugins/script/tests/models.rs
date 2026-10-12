@@ -97,3 +97,66 @@ fn does_not_expose_package_installation() {
         json!("permission_denied")
     );
 }
+
+#[test]
+fn lists_only_node_ocr_models() {
+    let expected = context();
+    let scope = expected.clone();
+    let result=run(bundle("import * as models from 'sailry/models'; export async function run() { return models.list({target:'node',kind:'ocr'}); }"),"run",json!({}),scope,NodeId([1;32]),CancellationToken::new(),move|request|{
+        assert_eq!(request.plugin.as_ref(),Some(&expected));
+        assert!(matches!(request.command,Command::ReadOcrModels));
+        Ok(Output::OcrModels(vec![]))
+    }).unwrap();
+    assert_eq!(result, json!([]));
+    for input in [
+        json!({"target":"controller","kind":"speech"}),
+        json!({"target":"node","kind":"embedding"}),
+        json!({"target":"node","kind":"ocr","worktree":"foreign"}),
+    ] {
+        let source = format!(
+            "import * as models from 'sailry/models'; export async function run() {{ return models.list({input}); }}"
+        );
+        assert_eq!(
+            execute(&source, CancellationToken::new(), Duration::from_secs(2))
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
+    }
+}
+
+#[test]
+fn callbacks_cannot_remove_ocr_assets() {
+    for mode in [
+        sailry_protocol::WorkMode::Code,
+        sailry_protocol::WorkMode::Plan,
+    ] {
+        let source = format!(
+            "import {{prepareRequest}} from 'sailry/sdk'; export function run() {{ try {{ return prepareRequest({}); }} catch(error) {{ return error.code; }} }}",
+            json!({"kind":"delete_ocr_model","data":{"id":"a".repeat(64)}})
+        );
+        let state = Arc::new(Mutex::new(execution::State {
+            call_id: Some(sailry_protocol::RequestId::new()),
+            mode,
+            read_only: false,
+            turn: None,
+            staged_turn: None,
+        }));
+        assert_eq!(
+            run_tool(
+                bundle(&source),
+                "run",
+                json!({}),
+                Environment {
+                    context: context(),
+                    target: NodeId([1; 32]),
+                    stop: CancellationToken::new()
+                },
+                |_| panic!("forbidden OCR removal dispatch"),
+                state
+            )
+            .unwrap(),
+            json!("permission_denied")
+        );
+    }
+}

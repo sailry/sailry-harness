@@ -17,6 +17,10 @@ export type Page = {items:{source:Source; name:string; format:Format}[]; next_cu
 export function search(input:Search): Promise<Page>;
 export function versions(input:{hub:Hub; repository:string}): Promise<{name:string; revision:string}[]>;
 export function resolve(input:{kind:Kind; source:Source}): Promise<Definition>;
+export type OcrModel = {id:string; definition:Definition; state:{kind:'missing'|'installed'}
+  | {kind:'downloading'; percent:number; bytes_per_second:number}};
+/** Requires models.read; reads installed and available OCR definitions on the Node. */
+export function list(input:{target:'node'; kind:'ocr'}): Promise<OcrModel[]>;
 /** Requires models.install; returns an ordinary prepared ID, not an installed model. */
 export function register(input:{target:'node'|'controller'; definition:Definition}): string;
 /** Requires models.install; headless controller targets fail with unavailable. */

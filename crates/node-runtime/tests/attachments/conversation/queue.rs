@@ -49,7 +49,12 @@ async fn freezes_native_input_support() {
         assert!(
             pair[1]
                 .to_string()
-                .contains("Contents not included; an attachment-capable tool is required")
+                .contains("Contents not included; use read_office")
+        );
+        assert!(
+            pair[1]
+                .to_string()
+                .contains("use an attachment-capable tool for other files")
         );
     }
     fixture.close().await;

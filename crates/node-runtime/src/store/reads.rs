@@ -91,7 +91,7 @@ impl Ingress {
                         "attachment inspection requires a captured turn",
                     )
                 })?;
-            let attachment = self.current_attachment(turn, *id).await?;
+            let attachment = self.attachment(turn, *id).await?;
             if attachment.spec.worktree != *worktree {
                 return Err(Fault::new(
                     ErrorCode::PermissionDenied,

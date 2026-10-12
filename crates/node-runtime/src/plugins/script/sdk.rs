@@ -77,9 +77,26 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                     json!(self.context.package.settings_revision.to_string());
                 Ok(value)
             }
-            "prepare" | "read" | "knowledge.create" | "models.prepare" | "models.register" => {
+            "prepare" | "read" | "knowledge.create" | "models.prepare" | "models.register"
+            | "models.list" => {
                 let mut value: Json = serde_json::from_str(body)
                     .map_err(|_| sailry_protocol::Fault::invalid("invalid SDK command"))?;
+                if operation == "models.list" {
+                    #[derive(serde::Deserialize)]
+                    #[serde(deny_unknown_fields)]
+                    struct Input {
+                        target: sailry_protocol::installation::Target,
+                        kind: sailry_protocol::models::Kind,
+                    }
+                    let input: Input = serde_json::from_value(value)
+                        .map_err(|_| Fault::invalid("invalid model list"))?;
+                    if input.target != sailry_protocol::installation::Target::Node
+                        || input.kind != sailry_protocol::models::Kind::Ocr
+                    {
+                        return Err(Fault::invalid("Node OCR model list required"));
+                    }
+                    value = json!(Command::ReadOcrModels);
+                }
                 if operation == "knowledge.create" {
                     let draft: sailry_protocol::knowledge::Draft = serde_json::from_value(value)
                         .map_err(|_| Fault::invalid("invalid knowledge collection draft"))?;
@@ -244,7 +261,7 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                             })?;
                     self.writes += 1;
                 }
-                if operation == "read" {
+                if matches!(operation, "read" | "models.list") {
                     if request.command.durable() {
                         return Err(sailry_protocol::Fault::invalid(
                             "SDK reads cannot execute writes",
@@ -336,6 +353,7 @@ fn allowed(command: &Command) -> bool {
             | Command::SearchModels(_)
             | Command::ReadModelVersions { .. }
             | Command::ResolveModel { .. }
+            | Command::ReadOcrModels
             | Command::RegisterOcrModel { .. }
             | Command::RegisterKnowledgeModel { .. }
             | Command::InstallOcrModel { .. }

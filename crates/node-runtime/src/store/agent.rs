@@ -110,7 +110,6 @@ pub(super) enum Operation {
     Attachment {
         turn: TurnId,
         id: AttachmentId,
-        current: bool,
         reply: oneshot::Sender<Result<attachment::Attachment, Fault>>,
     },
     Image {
@@ -284,29 +283,11 @@ impl Ingress {
         turn: TurnId,
         id: AttachmentId,
     ) -> Result<attachment::Attachment, Fault> {
-        self.read_attachment(turn, id, false).await
-    }
-
-    pub(crate) async fn current_attachment(
-        &self,
-        turn: TurnId,
-        id: AttachmentId,
-    ) -> Result<attachment::Attachment, Fault> {
-        self.read_attachment(turn, id, true).await
-    }
-
-    async fn read_attachment(
-        &self,
-        turn: TurnId,
-        id: AttachmentId,
-        current: bool,
-    ) -> Result<attachment::Attachment, Fault> {
         let (reply, response) = oneshot::channel();
         self.sender
             .send(Job::Agent(Box::new(Operation::Attachment {
                 turn,
                 id,
-                current,
                 reply,
             })))
             .await
@@ -548,18 +529,9 @@ pub(super) fn execute(
                 &captured,
             ));
         }
-        Operation::Attachment {
-            turn,
-            id,
-            current,
-            reply,
-        } => {
-            let result = if current {
-                calls::active(&database.connection, turn)
-                    .and_then(|_| super::attachments::turns::get(&database.connection, turn, id))
-            } else {
-                super::attachments::turns::resolve(&database.connection, turn, id)
-            };
+        Operation::Attachment { turn, id, reply } => {
+            let result = calls::active(&database.connection, turn)
+                .and_then(|_| super::attachments::turns::resolve(&database.connection, turn, id));
             let _ = reply.send(result);
         }
         Operation::Image {

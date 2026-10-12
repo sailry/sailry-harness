@@ -40,6 +40,7 @@ impl Database {
                 | Command::RegisterOcrModel { .. }
                 | Command::RegisterKnowledgeModel { .. }
                 | Command::InstallOcrModel { .. }
+                | Command::DeleteOcrModel { .. }
                 | Command::InstallKnowledgeModel { .. }
         ) || matches!(request.command, Command::StartCodeServer { .. })
             && super::super::code::startup_action(self, request)? == Action::ManageCode)
@@ -327,7 +328,14 @@ impl Database {
                 Command::RegisterOcrModel { .. }
                 | Command::RegisterKnowledgeModel { .. }
                 | Command::InstallOcrModel { .. }
+                | Command::DeleteOcrModel { .. }
                 | Command::InstallKnowledgeModel { .. } => {
+                    if matches!(
+                        request.command,
+                        Command::InstallOcrModel { .. } | Command::DeleteOcrModel { .. }
+                    ) {
+                        super::super::ocr::approvals::check(&self.connection, request)?;
+                    }
                     (Some(Action::InstallModels), None, None)
                 }
                 Command::ReadInstallations { .. } | Command::DismissInstallation { .. } => {

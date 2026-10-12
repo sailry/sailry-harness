@@ -12,6 +12,7 @@ mod commands;
 mod connections;
 mod files;
 mod knowledge;
+mod models;
 mod progress;
 mod repository;
 mod roles;
@@ -462,6 +463,7 @@ impl HostOperation {
             }
             if !connections::management(self.operation)
                 && !(roles::handles(self.operation) && !self.is_read_only())
+                && !models::handles(self.operation)
             {
                 self.ingress
                     .check_plugin(self.caller, request.clone())

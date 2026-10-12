@@ -165,6 +165,9 @@ immutable asset revisions, sizes and hashes. Image and scanned-PDF inspection,
 including knowledge extraction, uses this same cancellable service through the
 local or remote Client boundary. Model settings and installation state remain on
 the execution Node.
+The Files package can list OCR definitions and explicitly install or uninstall
+their assets through the same model services and permission policy. Uninstalling
+keeps definitions and settings; it does not select or enable another model.
 
 Disposable command, browser and transfer staging lives under the configurable
 profile's `tmp` directory, separate from durable worktree outputs and attachments.
@@ -501,6 +504,10 @@ Office inspection uses Rust. Desktop previews original Office files and PDFs
 offline in its sidebar WebView; it does not require conversion or provide a native
 PDF export command. Document skills use the execution Node's bundled Python and
 prepared plugin environments through ordinary command permissions.
+Document attachment reads use the executing conversation's visible history,
+including completed, failed and cancelled turns with no pending execution.
+Queued, running or stopping inputs in other turns are excluded, even if their
+admission happened earlier. Fork and rewind membership remains authoritative.
 Model execution uses ADK's native OpenAI, Anthropic, Gemini, DeepSeek and Azure
 adapters or shared compatible endpoints. Sailry does not enable the Bedrock or
 Vertex SDKs or provide their IAM/ADC credential flows. Supported compatible

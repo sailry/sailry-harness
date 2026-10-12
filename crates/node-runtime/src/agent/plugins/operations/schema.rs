@@ -2,6 +2,9 @@
 use super::*;
 
 pub(super) fn description(operation: Operation) -> &'static str {
+    if models::handles(operation) {
+        return models::description(operation);
+    }
     if artifacts::handles(operation) {
         return "Access versioned HTML artifacts owned by this conversation";
     }
@@ -15,6 +18,9 @@ pub(super) fn description(operation: Operation) -> &'static str {
         return knowledge::description(operation);
     }
     match operation {
+        Operation::InstallModel | Operation::RemoveModel => {
+            unreachable!("model operation handled above")
+        }
         Operation::ListRoles
         | Operation::SaveRole
         | Operation::RemoveRole
@@ -122,6 +128,9 @@ pub(super) fn description(operation: Operation) -> &'static str {
 }
 
 pub(super) fn parameters(operation: Operation) -> Value {
+    if models::handles(operation) {
+        return models::parameters();
+    }
     if roles::handles(operation) {
         return roles::parameters(operation);
     }
@@ -163,6 +172,9 @@ pub(super) fn parameters(operation: Operation) -> Value {
     let key = json!({"type":"string", "minLength":1, "maxLength":plugin::storage::MAX_KEY_BYTES});
     let revision = json!({"type":"integer", "minimum":0});
     let (properties, required) = match operation {
+        Operation::InstallModel | Operation::RemoveModel => {
+            unreachable!("model parameters handled above")
+        }
         Operation::ListRoles
         | Operation::SaveRole
         | Operation::RemoveRole
@@ -318,6 +330,9 @@ pub(super) fn command(
     arguments: Value,
     context: &plugin::Context,
 ) -> Result<Command, Fault> {
+    if models::handles(operation) {
+        return models::command(operation, arguments);
+    }
     if artifacts::handles(operation) {
         return artifacts::command(operation, arguments, context);
     }
@@ -334,6 +349,9 @@ pub(super) fn command(
         return knowledge::command(operation, arguments, context);
     }
     match operation {
+        Operation::InstallModel | Operation::RemoveModel => {
+            unreachable!("model command handled above")
+        }
         Operation::ListDirectory
         | Operation::ReadFile
         | Operation::FindFiles
@@ -530,6 +548,9 @@ pub(super) fn command(
         _ => {}
     }
     let kind = match operation {
+        Operation::InstallModel | Operation::RemoveModel => {
+            unreachable!("model command handled above")
+        }
         Operation::ListRoles
         | Operation::SaveRole
         | Operation::RemoveRole

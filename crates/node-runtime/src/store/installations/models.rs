@@ -11,7 +11,9 @@ use std::sync::Arc;
 pub(in crate::store) fn handles(command: &Command) -> bool {
     matches!(
         command,
-        Command::InstallOcrModel { .. } | Command::InstallKnowledgeModel { .. }
+        Command::InstallOcrModel { .. }
+            | Command::DeleteOcrModel { .. }
+            | Command::InstallKnowledgeModel { .. }
     )
 }
 
@@ -21,7 +23,7 @@ pub(in crate::store) fn submit(
     execution: resources::Execution,
 ) -> Result<(), Box<Execution>> {
     let resource = match &execution.request.command {
-        Command::InstallOcrModel { id } => Resource::Model {
+        Command::InstallOcrModel { id } | Command::DeleteOcrModel { id } => Resource::Model {
             kind: Kind::Ocr,
             id: id.clone(),
         },
@@ -37,12 +39,12 @@ pub(in crate::store) fn submit(
         request: execution.request,
         reply: execution.reply,
         operation: true,
-        observe: true,
+        observe: !matches!(request.command, Command::DeleteOcrModel { .. }),
     };
     worker.submit(execution, resource, move |reporter, stop| async move {
         reporter(Phase::Inspecting, None);
         match &request.command {
-            Command::InstallOcrModel { .. } => {
+            Command::InstallOcrModel { .. } | Command::DeleteOcrModel { .. } => {
                 ingress.change_ocr(&request, &stop, Some(&reporter)).await
             }
             Command::InstallKnowledgeModel { .. } => {
