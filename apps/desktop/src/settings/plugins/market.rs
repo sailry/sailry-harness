@@ -153,7 +153,7 @@ impl Market {
             return;
         }
         if entry.bundled {
-            owner.update(cx, |owner, cx| owner.install_bundled(&entry.name, cx));
+            owner.update(cx, |owner, cx| owner.install_bundled(&entry.name, window, cx));
             return;
         }
         let stop = self.begin(Loading::Repository(entry.id.clone()));

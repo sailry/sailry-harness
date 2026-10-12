@@ -2,6 +2,7 @@ use super::*;
 use crate::settings::{entry::Entry, group::Group};
 
 pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
+    let active = editor.clone();
     window.open_dialog(cx, move |dialog, window, cx| {
         let close = editor.clone();
         let cancel = editor.clone();
@@ -12,7 +13,12 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
             .w((window.viewport_size().width - px(48.)).min(px(600.)))
             .max_h(window.viewport_size().height * 0.85)
             .overlay_closable(false)
-            .on_close(move |_, _, cx| close.update(cx, |editor, _| editor.closed = true))
+            .on_close(move |_, _, cx| {
+                close.update(cx, |editor, _| {
+                    editor.closed = true;
+                    editor.dialog.dismissed();
+                })
+            })
             .child(editor.clone())
             .footer(
                 DialogFooter::new()
@@ -22,7 +28,10 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
                         Button::new("skill-install-cancel")
                             .label(tr("settings_cancel"))
                             .on_click(move |_, window, cx| {
-                                cancel.update(cx, |editor, _| editor.closed = true);
+                                cancel.update(cx, |editor, _| {
+                                    editor.closed = true;
+                                    editor.dialog.dismissed();
+                                });
                                 window.close_dialog(cx);
                             }),
                     )
@@ -53,6 +62,9 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
                             }),
                     ),
             )
+    });
+    active.update(cx, |editor, cx| {
+        crate::ui::overlays::Owned::bind(editor, |editor| &mut editor.dialog, window, cx)
     });
 }
 

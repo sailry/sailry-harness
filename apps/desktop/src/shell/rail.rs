@@ -69,6 +69,18 @@ impl Shell {
                     .child(self.more_features(self.features(cx), window, cx)),
             )
             .child(self.notifications(window, cx))
+            .when(crate::installations::visible(cx), |rail| {
+                rail.child(
+                    Button::new("installations-open")
+                        .ghost()
+                        .size_9()
+                        .icon(gpui_kit::assets::IconName::Download)
+                        .tooltip(tr("installation_title"))
+                        .accessibility_label(tr("installation_title"))
+                        .debug_selector(|| "installations-open".into())
+                        .on_click(|_, window, cx| crate::installations::open(window, cx)),
+                )
+            })
             .child(self.host_picker(window, cx))
             .child(
                 Button::new("feature-search")

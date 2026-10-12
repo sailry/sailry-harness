@@ -12,6 +12,7 @@ pub(crate) mod dispatch;
 mod external;
 mod forwarding;
 pub(crate) mod hooks;
+mod installations;
 pub(crate) mod knowledge;
 mod login;
 mod mcp;
@@ -312,6 +313,7 @@ pub(crate) struct Ingress {
     feeds: agent::Feeds,
     pub(crate) dispatch: Arc<crate::dispatch::Controls>,
     pub(crate) plugins: crate::plugins::Host,
+    installations: Arc<installations::Registry>,
     pub(crate) oauth: Arc<crate::plugins::oauth::Service>,
     closed: CancellationToken,
 }
@@ -437,6 +439,7 @@ impl Store {
             agents: agents.clone(),
             feeds: Default::default(),
             plugins: crate::plugins::Host::new(profile.clone()).with_github(skills),
+            installations: Arc::default(),
             closed,
             dispatch: Arc::new(crate::dispatch::Controls::default()),
         });
@@ -466,7 +469,8 @@ impl Store {
             &ingress,
         );
         let mut plugin_work = plugins::execution::Worker::new(ingress.clone());
-        let mut installations = plugins::installing::Worker::new(ingress.clone());
+        let mut installations = installations::Worker::new(ingress.clone());
+        let installing = ingress.clone();
         let mut resource_work = resources::Worker::new(ingress.clone());
         let mut logins = login::Worker::new(authorization, &ingress, events.clone());
         let mut ssh = ssh::worker::Worker::new(
@@ -849,6 +853,7 @@ impl Store {
                                     Err(error) => result = Err(error),
                                 }
                             }
+                            installing.installations.finish(completed.caller, completed.request.id, &result);
                             let _ = completed.reply.send(result);
                             installations.pending -= 1;
                             let _ = release.send(());
@@ -1166,7 +1171,7 @@ impl Store {
                                     }
                                     external::Work::Mutation(mutation) => {
                                         let result = if plugins::installing::handles(&mutation.request.command) {
-                                            installations.submit(mutation)
+                                            plugins::installing::submit(&mut installations, installing.clone(), mutation)
                                         } else {
                                             mutations.submit(mutation)
                                         };
@@ -1190,6 +1195,7 @@ impl Store {
                                         )),
                                         &events,
                                     );
+                                    installing.installations.finish(caller, request.id, &result);
                                     let _ = reply.send(result);
                                 }
                             }
@@ -1409,6 +1415,11 @@ impl Handler for Ingress {
                     self.plugins.python_progress(),
                     self.closed.clone(),
                 ));
+            }
+            if matches!(topic, sailry_protocol::Topic::Installations) {
+                return Ok(self
+                    .installations
+                    .subscribe(self.node, caller, self.closed.clone()));
             }
             if matches!(topic, sailry_protocol::Topic::Browser) {
                 return self.browsers.subscribe(caller);

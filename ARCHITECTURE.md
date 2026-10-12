@@ -211,6 +211,15 @@ and outcomes. Transport receipt is not business success. Uncertain effects remai
 uncertain and are not replayed automatically with a new identity. Conflicts require
 fresh inspection, not silent overwrites.
 
+Node shares one bounded installation queue across resource types. Independent
+resources can prepare concurrently; attempts for the same resource stay in admission
+order through durable completion. Caller-scoped transient snapshots expose real
+phases and measured progress through the same local and remote Client subscription.
+Confirmed success removes a task; failures and uncertain outcomes remain until
+explicitly dismissed. Dismissal changes only the observation, not the command ledger
+or active execution. Captured plugin authority stays private. Controllers own installer
+visibility and locally planned batches, not another execution queue.
+
 ### Session HTML documents
 
 The Node stores validated HTML fragments as immutable revisions under its profile,

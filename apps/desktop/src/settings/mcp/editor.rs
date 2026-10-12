@@ -22,6 +22,7 @@ pub(super) struct Editor {
     loading: bool,
     loaded: bool,
     closed: bool,
+    dialog: crate::ui::overlays::Owned,
     submission: Submission,
     task: Option<Task<()>>,
 }
@@ -88,6 +89,7 @@ pub(super) fn open(
             loading: false,
             loaded,
             closed: false,
+            dialog: Default::default(),
             submission: Submission::default(),
             task: None,
         }
@@ -320,25 +322,70 @@ impl Editor {
             cx.notify();
             return;
         };
-        self.task = Some(cx.spawn_in(window, async move |editor, cx| {
-            let result = job.await;
-            _ = editor.update_in(cx, |editor, window, cx| {
-                editor.submission.pending = false;
-                if editor.closed {
-                    return;
-                }
-                match result {
-                    Ok(Ok(Output::Plugin(_))) => {
-                        editor.close(window, cx);
-                        window.close_dialog(cx);
+        let retry = cx.entity();
+        let captured = self.submission.request.clone();
+        let ticket = self.submission.request.as_ref().and_then(|request| {
+            crate::installations::track(
+                self.binding.client.clone(),
+                self.binding.runtime.clone(),
+                request,
+                false,
+                move |attempt, window, cx| {
+                    let show = retry.update(cx, |editor, cx| {
+                        editor.closed = false;
+                        if !editor.submission.pending
+                            && let Some(captured) = &captured
+                        {
+                            editor.submission.request =
+                                Some(attempt.request(&editor.binding.client, captured));
+                        }
+                        !editor.dialog.presented(cx)
+                    });
+                    if show {
+                        view::open(retry.clone(), window, cx);
                     }
-                    Ok(Err(error)) => {
+                    retry.update(cx, |editor, cx| editor.save(window, cx));
+                },
+                window,
+                cx,
+            )
+        });
+        let origin = window.window_handle();
+        self.task = Some(cx.spawn(async move |editor, cx| {
+            let result = job.await;
+            if let Some(ticket) = &ticket {
+                cx.update(|cx| ticket.record(crate::installations::result(&result), cx));
+            }
+            let Some(target) = cx.update(|cx| crate::installations::target(origin, cx)) else {
+                let _ = editor.update(cx, |editor, cx| {
+                    editor.submission.pending = false;
+                    if let Ok(Err(error)) = result {
                         editor.failure(error);
                     }
-                    _ => editor.submission.error = Some("plugins_unknown"),
-                }
-                cx.notify();
+                    cx.notify();
+                });
+                return;
+            };
+            _ = target.update(cx, |_, window, cx| {
+                editor.update(cx, |editor, cx| {
+                    editor.submission.pending = false;
+                    match result {
+                        Ok(Ok(Output::Plugin(_))) => {
+                            editor.submission.request = None;
+                            editor.close(window, cx);
+                            editor.dialog.close(window, cx);
+                        }
+                        Ok(Err(error)) => {
+                            editor.failure(error);
+                        }
+                        _ => editor.submission.error = Some("plugins_unknown"),
+                    }
+                    cx.notify();
+                })
             });
+            if let Some(ticket) = &ticket {
+                let _ = target.update(cx, |_, window, cx| ticket.close_empty(window, cx));
+            }
         }));
         cx.notify();
     }
@@ -354,7 +401,9 @@ impl Editor {
 
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.closed = true;
-        self.submission.request = None;
+        if self.submission.pending || self.submission.request.is_some() {
+            return;
+        }
         for slot in &self.slots {
             slot.clear_value(window, cx);
         }

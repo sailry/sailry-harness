@@ -303,9 +303,9 @@ impl Workspace {
                             .disabled(busy)
                             .checked(plugin.enabled)
                             .accessibility_label(tr("plugins_enabled"))
-                            .on_click(cx.listener(move |this, enabled, _, cx| {
+                            .on_click(cx.listener(move |this, enabled, window, cx| {
                                 cx.stop_propagation();
-                                this.toggle_plugin(&toggle, *enabled, cx);
+                                this.toggle_plugin(&toggle, *enabled, window, cx);
                             })),
                     ),
             );

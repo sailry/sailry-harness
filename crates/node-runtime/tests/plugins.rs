@@ -27,6 +27,8 @@ mod distribution;
 mod host;
 #[path = "plugins/http.rs"]
 mod http;
+#[path = "plugins/installations.rs"]
+mod installations;
 #[path = "plugins/inventory.rs"]
 mod inventory;
 #[path = "plugins/mcp_configuration.rs"]

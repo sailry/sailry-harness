@@ -16,6 +16,7 @@ struct Download {
     request: Option<Request>,
     pending: bool,
     closed: bool,
+    dialog: crate::ui::overlays::Owned,
     error: Option<&'static str>,
     task: Option<Task<()>>,
 }
@@ -82,10 +83,19 @@ fn mount(
             request: None,
             pending: false,
             closed: false,
+            dialog: Default::default(),
             error: None,
             task: None,
         }
     });
+    let active = editor.clone();
+    present(editor, window, cx);
+    if start {
+        active.update(cx, |state, cx| state.submit(window, cx));
+    }
+}
+
+fn present(editor: Entity<Download>, window: &mut Window, cx: &mut App) {
     let active = editor.clone();
     window.open_dialog(cx, move |dialog, window, cx| {
         let close = editor.clone();
@@ -96,7 +106,12 @@ fn mount(
             .form_title(tr("plugins_download"))
             .w((window.viewport_size().width - px(48.)).min(px(600.)))
             .overlay_closable(false)
-            .on_close(move |_, _, cx| close.update(cx, |state, _| state.closed = true))
+            .on_close(move |_, _, cx| {
+                close.update(cx, |state, _| {
+                    state.closed = true;
+                    state.dialog.dismissed();
+                })
+            })
             .child(editor.clone())
             .footer(
                 DialogFooter::new()
@@ -104,7 +119,10 @@ fn mount(
                         Button::new("plugin-download-cancel")
                             .label(tr("settings_cancel"))
                             .on_click(move |_, window, cx| {
-                                cancel.update(cx, |state, _| state.closed = true);
+                                cancel.update(cx, |state, _| {
+                                    state.closed = true;
+                                    state.dialog.dismissed();
+                                });
                                 window.close_dialog(cx);
                             }),
                     )
@@ -121,9 +139,9 @@ fn mount(
                     ),
             )
     });
-    if start {
-        active.update(cx, |state, cx| state.submit(window, cx));
-    }
+    active.update(cx, |state, cx| {
+        crate::ui::overlays::Owned::bind(state, |state| &mut state.dialog, window, cx)
+    });
 }
 
 fn label(pending: bool, failed: bool) -> &'static str {
@@ -159,6 +177,33 @@ impl Download {
         self.error = None;
         let binding = self.binding.clone();
         let request = self.request.clone();
+        let captured = request.clone();
+        let retry = cx.entity();
+        let ticket = request.as_ref().and_then(|request| {
+            crate::installations::track(
+                binding.client.clone(),
+                binding.runtime.clone(),
+                request,
+                false,
+                move |attempt, window, cx| {
+                    let show = retry.update(cx, |state, cx| {
+                        state.closed = false;
+                        if !state.pending
+                            && let Some(captured) = &captured
+                        {
+                            state.request = Some(attempt.request(&state.binding.client, captured));
+                        }
+                        !state.dialog.presented(cx)
+                    });
+                    if show {
+                        present(retry.clone(), window, cx);
+                    }
+                    retry.update(cx, |state, cx| state.submit(window, cx));
+                },
+                window,
+                cx,
+            )
+        });
         let job = binding.runtime.spawn(async move {
             if let Some(request) = request {
                 return Ok::<_, sailry_protocol::Fault>((
@@ -183,57 +228,87 @@ impl Download {
             }
         });
         let keep_alive = cx.entity();
-        self.task = Some(cx.spawn_in(window, async move |state, cx| {
+        let origin = window.window_handle();
+        self.task = Some(cx.spawn(async move |state, cx| {
             let _keep_alive = keep_alive;
             let result = job.await;
-            _ = state.update_in(cx, |state, window, cx| {
-                state.pending = false;
-                if state.closed {
-                    return;
-                }
-                match result {
-                    Ok(Ok((Some(selection), _))) => {
-                        if state
-                            .expected_name
-                            .as_ref()
-                            .is_some_and(|name| *name != selection.info.summary.name)
-                        {
-                            state.error = Some("plugins_package_mismatch");
-                            cx.notify();
-                            return;
+            if let Some(ticket) = &ticket {
+                let outcome = match &result {
+                    Ok(Ok((_, Some(Ok(Output::Plugin(_)))))) => Ok(()),
+                    Ok(Ok((_, Some(Err(error))))) | Ok(Err(error)) => Err(error.clone()),
+                    _ => Err(sailry_protocol::Fault::new(
+                        sailry_protocol::ErrorCode::OutcomeUnknown,
+                        "installation result is unconfirmed",
+                    )),
+                };
+                cx.update(|cx| ticket.record(outcome, cx));
+            }
+            let Some(target) = cx.update(|cx| crate::installations::target(origin, cx)) else {
+                let _ = state.update(cx, |state, cx| {
+                    state.pending = false;
+                    if let Ok(Ok((_, Some(Err(error))))) | Ok(Err(error)) = &result
+                        && !live::uncertain(error)
+                    {
+                        state.request = None;
+                    }
+                    cx.notify();
+                });
+                return;
+            };
+            _ = target.update(cx, |_, window, cx| {
+                state.update(cx, |state, cx| {
+                    state.pending = false;
+                    match result {
+                        Ok(Ok((Some(selection), _))) => {
+                            if state.closed {
+                                return;
+                            }
+                            if state
+                                .expected_name
+                                .as_ref()
+                                .is_some_and(|name| *name != selection.info.summary.name)
+                            {
+                                state.error = Some("plugins_package_mismatch");
+                                cx.notify();
+                                return;
+                            }
+                            let expected_revision = if state.expected_name.is_some() {
+                                0
+                            } else {
+                                state
+                                    .known
+                                    .iter()
+                                    .find(|plugin| plugin.name == selection.info.summary.name)
+                                    .map_or(0, |plugin| plugin.revision)
+                            };
+                            state.request =
+                                Some(state.binding.client.prepare(Command::InstallPluginSource {
+                                    source: selection.source.clone(),
+                                    path: selection.path.clone(),
+                                    name: selection.info.summary.name.clone(),
+                                    expected_revision,
+                                }));
+                            state.submit(window, cx);
                         }
-                        let expected_revision = if state.expected_name.is_some() {
-                            0
-                        } else {
-                            state
-                                .known
-                                .iter()
-                                .find(|plugin| plugin.name == selection.info.summary.name)
-                                .map_or(0, |plugin| plugin.revision)
-                        };
-                        state.request =
-                            Some(state.binding.client.prepare(Command::InstallPluginSource {
-                                source: selection.source.clone(),
-                                path: selection.path.clone(),
-                                name: selection.info.summary.name.clone(),
-                                expected_revision,
-                            }));
-                        state.submit(window, cx);
-                    }
-                    Ok(Ok((_, Some(Ok(Output::Plugin(_)))))) => {
-                        state.closed = true;
-                        window.close_dialog(cx);
-                    }
-                    Ok(Ok((_, Some(Err(error))))) | Ok(Err(error)) => {
-                        if !live::uncertain(&error) {
+                        Ok(Ok((_, Some(Ok(Output::Plugin(_)))))) => {
+                            state.closed = true;
                             state.request = None;
+                            state.dialog.close(window, cx);
                         }
-                        state.error = Some(live::error_key(&error));
+                        Ok(Ok((_, Some(Err(error))))) | Ok(Err(error)) => {
+                            if !live::uncertain(&error) {
+                                state.request = None;
+                            }
+                            state.error = Some(live::error_key(&error));
+                        }
+                        _ => state.error = Some("plugins_unknown"),
                     }
-                    _ => state.error = Some("plugins_unknown"),
-                }
-                cx.notify();
+                    cx.notify();
+                })
             });
+            if let Some(ticket) = &ticket {
+                let _ = target.update(cx, |_, window, cx| ticket.close_empty(window, cx));
+            }
         }));
         cx.notify();
     }

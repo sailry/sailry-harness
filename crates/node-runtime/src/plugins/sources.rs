@@ -19,7 +19,9 @@ impl Host {
             .try_acquire_owned()
             .map_err(|_| Fault::new(ErrorCode::Busy, "plugin inspection is busy"))?;
         let selected = source::Selection::parse(source)?;
-        let (archive, source) = self.source_archive(&selected, None, stop.clone()).await?;
+        let (archive, source) = self
+            .source_archive(&selected, None, stop.clone(), None)
+            .await?;
         tokio::task::spawn_blocking(move || {
             let (_temporary, root, links) = archive::unpack_source(archive, &stop, 10_000)?;
             let info = inspect_root(&root, &selected.path, &links, stop)?;
@@ -39,14 +41,23 @@ impl Host {
         path: &str,
         name: &str,
         stop: CancellationToken,
+        reporter: Option<crate::installation::Reporter>,
     ) -> Result<Info, Fault> {
         let selected = source::Selection::resolved(source, path)?;
         let (archive, _) = self
-            .source_archive(&selected, Some(&source.commit), stop.clone())
+            .source_archive(
+                &selected,
+                Some(&source.commit),
+                stop.clone(),
+                reporter.clone(),
+            )
             .await?;
         let host = self.clone();
         let name = name.to_owned();
         tokio::task::spawn_blocking(move || {
+            if let Some(reporter) = reporter {
+                reporter(sailry_protocol::installation::Phase::Inspecting, None);
+            }
             let (_temporary, root) = selected_root(archive, &selected.path, &stop)?;
             host.install(&root, "", &name)
         })

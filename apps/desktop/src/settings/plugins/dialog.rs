@@ -243,100 +243,148 @@ impl Editor {
         }
         let request = self.request.clone().expect("plugin request is prepared");
         let binding = self.binding.clone();
+        let retry = cx.entity();
+        let captured = request.clone();
+        let ticket = crate::installations::track(
+            binding.client.clone(),
+            binding.runtime.clone(),
+            &request,
+            false,
+            move |attempt, window, cx| {
+                retry.update(cx, |editor, cx| {
+                    editor.closed = false;
+                    if !editor.pending {
+                        editor.request = match attempt {
+                            crate::installations::Attempt::New => None,
+                            crate::installations::Attempt::Recover => Some(captured.clone()),
+                        };
+                    }
+                    if editor.request.is_some() {
+                        editor.submit(window, cx);
+                    } else {
+                        editor.start(window, cx);
+                    }
+                })
+            },
+            window,
+            cx,
+        );
         self.pending = true;
         self.error = None;
         let job = binding
             .runtime
             .spawn(async move { binding.client.execute(request).await });
         let keep_alive = cx.entity();
-        self.task = Some(cx.spawn_in(window, async move |editor, cx| {
+        let origin = window.window_handle();
+        self.task = Some(cx.spawn(async move |editor, cx| {
             let _keep_alive = keep_alive;
             let result = job.await;
-            let _ = editor.update_in(cx, |editor, window, cx| {
-                editor.pending = false;
-                if editor.closed {
-                    return;
-                }
-                match result {
-                    Ok(Ok(Output::Plugin(info))) if !editor.remove => {
-                        let node = editor.binding.client.target();
-                        if let Some(path) = editor
-                            .package
-                            .as_ref()
-                            .and_then(|package| package.directory.clone())
-                        {
-                            crate::preferences::plugins::remember(
-                                node,
-                                &info.summary.name,
-                                &info.summary.digest,
-                                info.summary.revision,
-                                path,
-                                cx,
-                            );
-                        } else {
-                            crate::preferences::plugins::forget(
-                                node,
-                                &info.summary.name,
-                                info.summary.revision,
-                                cx,
-                            );
-                        }
-                        editor.closed = true;
+            if let Some(ticket) = &ticket {
+                cx.update(|cx| ticket.record(crate::installations::result(&result), cx));
+            }
+            let Some(target) = cx.update(|cx| crate::installations::target(origin, cx)) else {
+                let _ = editor.update(cx, |editor, cx| {
+                    editor.pending = false;
+                    if !crate::installations::result(&result)
+                        .as_ref()
+                        .is_err_and(live::uncertain)
+                    {
                         editor.request = None;
-                        crate::feedback::status(
-                            window,
-                            tr(if editor.original.is_some() {
-                                "plugins_updated_success"
-                            } else {
-                                "plugins_installed_success"
-                            }),
-                            gpui_kit::component::notification::NotificationType::Success,
-                            Notification::success(tr(if editor.original.is_some() {
-                                "plugins_updated_success"
-                            } else {
-                                "plugins_installed_success"
-                            }))
-                            .id1::<Editor>(("package", cx.entity_id())),
-                            cx,
-                        );
-                        editor.package = None;
                     }
-                    Ok(Ok(Output::Plugins(_))) if editor.remove => {
-                        if let Some(original) = &editor.original {
-                            crate::preferences::plugins::forget(
-                                editor.binding.client.target(),
-                                &original.name,
-                                original.revision,
-                                cx,
-                            );
-                        }
-                        editor.closed = true;
-                        editor.request = None;
-                        if let Some(on_removed) = editor.on_removed.take() {
-                            on_removed(window, cx);
-                        }
+                    cx.notify();
+                });
+                return;
+            };
+            let _ = target.update(cx, |_, window, cx| {
+                editor.update(cx, |editor, cx| {
+                    editor.pending = false;
+                    if editor.closed {
+                        return;
                     }
-                    Ok(Err(error)) => {
-                        if !live::uncertain(&error) {
+                    match result {
+                        Ok(Ok(Output::Plugin(info))) if !editor.remove => {
+                            let node = editor.binding.client.target();
+                            if let Some(path) = editor
+                                .package
+                                .as_ref()
+                                .and_then(|package| package.directory.clone())
+                            {
+                                crate::preferences::plugins::remember(
+                                    node,
+                                    &info.summary.name,
+                                    &info.summary.digest,
+                                    info.summary.revision,
+                                    path,
+                                    cx,
+                                );
+                            } else {
+                                crate::preferences::plugins::forget(
+                                    node,
+                                    &info.summary.name,
+                                    info.summary.revision,
+                                    cx,
+                                );
+                            }
+                            editor.closed = true;
                             editor.request = None;
-                        }
-                        editor.error = Some(live::error_key(&error));
-                        if editor.package.is_some()
-                            && error.code == sailry_protocol::ErrorCode::NotFound
-                        {
+                            crate::feedback::status(
+                                window,
+                                tr(if editor.original.is_some() {
+                                    "plugins_updated_success"
+                                } else {
+                                    "plugins_installed_success"
+                                }),
+                                gpui_kit::component::notification::NotificationType::Success,
+                                Notification::success(tr(if editor.original.is_some() {
+                                    "plugins_updated_success"
+                                } else {
+                                    "plugins_installed_success"
+                                }))
+                                .id1::<Editor>(("package", cx.entity_id())),
+                                cx,
+                            );
                             editor.package = None;
-                            editor.error = Some("plugins_package_expired");
                         }
+                        Ok(Ok(Output::Plugins(_))) if editor.remove => {
+                            if let Some(original) = &editor.original {
+                                crate::preferences::plugins::forget(
+                                    editor.binding.client.target(),
+                                    &original.name,
+                                    original.revision,
+                                    cx,
+                                );
+                            }
+                            editor.closed = true;
+                            editor.request = None;
+                            if let Some(on_removed) = editor.on_removed.take() {
+                                on_removed(window, cx);
+                            }
+                        }
+                        Ok(Err(error)) => {
+                            if !live::uncertain(&error) {
+                                editor.request = None;
+                            }
+                            editor.error = Some(live::error_key(&error));
+                            if editor.package.is_some()
+                                && error.code == sailry_protocol::ErrorCode::NotFound
+                            {
+                                editor.package = None;
+                                editor.error = Some("plugins_package_expired");
+                            }
+                        }
+                        _ => editor.error = Some("plugins_unknown"),
                     }
-                    _ => editor.error = Some("plugins_unknown"),
-                }
-                if !editor.remove {
-                    editor.report(window, cx);
-                } else if editor.error.is_some() {
-                    editor.prompt(window, cx);
-                }
-                cx.notify();
+                    if !editor.remove {
+                        editor.report(window, cx);
+                    } else if editor.error.is_some() {
+                        editor.prompt(window, cx);
+                    }
+                    cx.notify();
+                })
             });
+            if let Some(ticket) = &ticket {
+                let _ = target.update(cx, |_, window, cx| ticket.close_empty(window, cx));
+            }
         }));
         cx.notify();
     }

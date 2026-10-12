@@ -22,6 +22,7 @@ struct Editor {
     pending: bool,
     error: Option<&'static str>,
     closed: bool,
+    dialog: crate::ui::overlays::Owned,
     task: Option<Task<()>>,
 }
 
@@ -62,6 +63,7 @@ pub(super) fn open(binding: Binding, known: Vec<Summary>, window: &mut Window, c
             pending: false,
             error: None,
             closed: false,
+            dialog: Default::default(),
             task: None,
         }
     });
@@ -167,45 +169,91 @@ impl Editor {
         }
         let (index, request) = self.request.as_ref().unwrap().clone();
         let binding = self.binding.clone();
+        let retry = cx.entity();
+        let captured = request.clone();
+        let ticket = crate::installations::track(
+            binding.client.clone(),
+            binding.runtime.clone(),
+            &request,
+            false,
+            move |attempt, window, cx| {
+                let show = retry.update(cx, |editor, cx| {
+                    editor.closed = false;
+                    if !editor.pending {
+                        editor.request =
+                            Some((index, attempt.request(&editor.binding.client, &captured)));
+                    }
+                    !editor.dialog.presented(cx)
+                });
+                if show {
+                    view::open(retry.clone(), window, cx);
+                }
+                retry.update(cx, |editor, cx| editor.install(window, cx));
+            },
+            window,
+            cx,
+        );
         self.pending = true;
         self.error = None;
         let job = binding
             .runtime
             .spawn(async move { binding.client.execute(request).await });
-        self.task = Some(cx.spawn_in(window, async move |editor, cx| {
+        let origin = window.window_handle();
+        self.task = Some(cx.spawn(async move |editor, cx| {
             let result = job.await;
-            _ = editor.update_in(cx, |editor, window, cx| {
-                editor.pending = false;
-                if editor.closed {
-                    return;
-                }
-                match result {
-                    Ok(Ok(Output::Plugin(info))) => {
+            if let Some(ticket) = &ticket {
+                cx.update(|cx| ticket.record(crate::installations::result(&result), cx));
+            }
+            let Some(target) = cx.update(|cx| crate::installations::target(origin, cx)) else {
+                let _ = editor.update(cx, |editor, cx| {
+                    editor.pending = false;
+                    if !crate::installations::result(&result)
+                        .as_ref()
+                        .is_err_and(uncertain)
+                    {
                         editor.request = None;
-                        editor.completed.insert(index);
-                        editor.known.retain(|known| known.name != info.summary.name);
-                        editor.known.push(info.summary);
-                        if editor
-                            .selected
-                            .iter()
-                            .any(|index| !editor.completed.contains(index))
-                        {
-                            editor.install(window, cx);
-                        } else {
-                            editor.closed = true;
-                            window.close_dialog(cx);
-                        }
                     }
-                    Ok(Err(error)) => {
-                        if !uncertain(&error) {
+                    cx.notify();
+                });
+                return;
+            };
+            _ = target.update(cx, |_, window, cx| {
+                editor.update(cx, |editor, cx| {
+                    editor.pending = false;
+                    match result {
+                        Ok(Ok(Output::Plugin(info))) => {
                             editor.request = None;
+                            editor.completed.insert(index);
+                            editor.known.retain(|known| known.name != info.summary.name);
+                            editor.known.push(info.summary);
+                            if !editor.closed
+                                && editor
+                                    .selected
+                                    .iter()
+                                    .any(|index| !editor.completed.contains(index))
+                            {
+                                editor.install(window, cx);
+                            } else {
+                                editor.closed = true;
+                                editor.dialog.close(window, cx);
+                            }
                         }
-                        editor.error = Some(error_key(&error));
+                        Ok(Err(error)) => {
+                            if !uncertain(&error) {
+                                editor.request = None;
+                            }
+                            editor.error = Some(error_key(&error));
+                        }
+                        _ => editor.error = Some("plugins_unknown"),
                     }
-                    _ => editor.error = Some("plugins_unknown"),
-                }
-                cx.notify();
+                    cx.notify();
+                })
             });
+            if let Some(ticket) = &ticket {
+                // The next selected request is now registered; close only when
+                // the original sequence has actually finished.
+                let _ = target.update(cx, |_, window, cx| ticket.close_empty(window, cx));
+            }
         }));
         cx.notify();
     }

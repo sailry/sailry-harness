@@ -237,8 +237,23 @@ fn retries_on_captured_node(cx: &mut TestAppContext) {
             editor.submission.request.as_ref().unwrap().id
         });
         assert!(editor.read_with(visual, |editor, _| editor.locked()));
+        tap(visual, "installation-hide");
+        tap(visual, "mcp-cancel");
+        assert_eq!(
+            editor.read_with(visual, |editor, _| editor
+                .submission
+                .request
+                .as_ref()
+                .unwrap()
+                .id),
+            id
+        );
         fixture.bind(&owner, visual, true);
-        tap(visual, "mcp-save");
+        visual.update(|window, cx| crate::installations::open(window, cx));
+        tap(
+            visual,
+            Box::leak(format!("installation-retry-{id}").into_boxed_str()),
+        );
         shown(visual, "mcp-editor", false);
         assert_eq!(*fixture.transport.requests.lock().unwrap(), [id, id]);
         assert_eq!(state(&fixture).configured.len(), 1);

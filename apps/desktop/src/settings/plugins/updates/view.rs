@@ -138,6 +138,7 @@ impl State {
                 .on_close(move |_, _, cx| {
                     close.update(cx, |state, cx| {
                         state.dialog = None;
+                        state.popup.dismissed();
                         cx.notify();
                     })
                 })
@@ -154,6 +155,7 @@ impl State {
                                 .on_click(move |_, window, cx| {
                                     later.update(cx, |state, cx| {
                                         state.dialog = None;
+                                        state.popup.dismissed();
                                         cx.notify();
                                     });
                                     window.close_dialog(cx);
@@ -174,6 +176,7 @@ impl State {
                         ),
                 )
         });
+        crate::ui::overlays::Owned::bind(self, |state| &mut state.popup, window, cx);
     }
 }
 

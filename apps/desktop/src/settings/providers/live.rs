@@ -73,6 +73,7 @@ impl Workspace {
             return;
         }
         self.clear_knowledge(cx);
+        crate::installations::connected(binding.client.clone(), binding.runtime.clone(), cx);
         self.clear_backup(cx);
         self.extensions.release(cx);
         self.provider_link = None;

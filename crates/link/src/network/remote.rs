@@ -119,6 +119,7 @@ impl Transport for Remote {
         Box::pin(async move {
             let call = match topic {
                 sailry_protocol::Topic::Python => Call::WatchPython,
+                sailry_protocol::Topic::Installations => Call::WatchInstallations,
                 sailry_protocol::Topic::Commands(session) => Call::WatchCommands(session),
                 sailry_protocol::Topic::Browser => Call::WatchBrowser,
                 sailry_protocol::Topic::Node => Call::Subscribe,

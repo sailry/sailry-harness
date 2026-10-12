@@ -138,6 +138,7 @@ impl Host {
         info: &Info,
         environment: &Environment,
         stop: &CancellationToken,
+        reporter: Option<&crate::installation::Reporter>,
     ) -> Result<Option<Ready>, Fault> {
         if info.skill.is_some() {
             return Ok(None);
@@ -154,6 +155,9 @@ impl Host {
         let Some(requirements) = requirements else {
             return Ok(None);
         };
+        if let Some(reporter) = reporter {
+            reporter(sailry_protocol::installation::Phase::Preparing, None);
+        }
         let manager = self.python(environment).await?;
         if let Err(error) = self.collect_python(&manager, stop).await {
             if error.code == ErrorCode::Cancelled {

@@ -7,6 +7,7 @@ mod document;
 mod files;
 pub mod git;
 pub mod host;
+pub mod installation;
 pub mod login;
 pub mod mcp_login;
 pub mod oauth;

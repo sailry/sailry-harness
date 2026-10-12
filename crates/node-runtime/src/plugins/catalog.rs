@@ -403,7 +403,13 @@ mod live_tests {
             assert!(!info.skills.is_empty() || !info.mcp.is_empty());
             assert!(info.issues.is_empty());
             let installed = host
-                .install_source(&selected.source, &selected.path, &entry.name, stop.clone())
+                .install_source(
+                    &selected.source,
+                    &selected.path,
+                    &entry.name,
+                    stop.clone(),
+                    None,
+                )
                 .await
                 .unwrap();
             assert_eq!(installed, info);

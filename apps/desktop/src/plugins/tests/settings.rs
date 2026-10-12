@@ -1,6 +1,61 @@
 use super::*;
 
 #[gpui::test]
+fn replacement_reloads_without_unavailable_feedback(cx: &mut TestAppContext) {
+    init(cx);
+    for (remote, loading) in [false, true]
+        .into_iter()
+        .flat_map(|remote| [false, true].map(move |loading| (remote, loading)))
+    {
+        let fixture = Fixture::new(remote);
+        fixture.package();
+        let package = fixture.install(0);
+        let (panel, visual) = mount(&fixture, cx);
+        if loading {
+            fixture.transport.mode.store(2, Ordering::SeqCst);
+        }
+        open_package(visual, &panel, "project-summary");
+        if loading {
+            wait(visual, |_| fixture.transport.entered.is_cancelled());
+        } else {
+            wait(visual, |cx| snapshot(&panel, cx).contains("notes.txt"));
+        }
+        let previous_stop = panel.read_with(visual, |panel, _| panel.load_token());
+        let previous = panel.read_with(visual, |panel, _| {
+            panel.mounted.as_ref().map(|mounted| mounted.host())
+        });
+        let path = fixture
+            .directory
+            .path()
+            .join("project/package/dev.sailry.platform/desktop/main.js");
+        let mut source = std::fs::read_to_string(&path).unwrap();
+        source.push_str("\n// Updated package content\n");
+        std::fs::write(path, source).unwrap();
+        let updated = fixture.install(package.summary.revision);
+        assert_ne!(updated.summary.digest, package.summary.digest);
+        wait(visual, |cx| {
+            panel.read(cx).selected == Some(updated.summary.reference())
+                && !panel.read(cx).loading
+                && snapshot(&panel, cx).contains("notes.txt")
+        });
+        assert!(previous_stop.is_cancelled());
+        assert!(previous.as_ref().is_none_or(|host| host.check().is_err()));
+        assert!(panel.read_with(visual, |panel, _| panel.error.is_none()));
+        assert!(visual.update(|window, cx| window.notifications(cx).is_empty()));
+        fixture.transport.release.cancel();
+        visual.run_until_parked();
+        assert_eq!(
+            panel.read_with(visual, |panel, _| panel.selected.clone()),
+            Some(updated.summary.reference())
+        );
+        visual.update(|window, _| window.remove_window());
+        drop(previous);
+        drop(panel);
+        fixture.close();
+    }
+}
+
+#[gpui::test]
 fn retries_reads(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {

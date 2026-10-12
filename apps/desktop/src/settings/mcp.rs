@@ -80,7 +80,7 @@ impl Workspace {
                 view.child(
                     crate::feedback::retry("mcp-retry")
                         .debug_selector(|| "mcp-retry".into())
-                        .on_click(cx.listener(|owner, _, _, cx| owner.send_plugin_action(cx))),
+                        .on_click(cx.listener(|owner, _, window, cx| owner.send_plugin_action(window, cx))),
                 )
             })
             .when(empty, |view| {
@@ -194,8 +194,8 @@ impl Workspace {
                         .checked(info.summary.enabled)
                         .disabled(busy)
                         .accessibility_label(tr("plugins_enabled"))
-                        .on_click(cx.listener(move |owner, enabled, _, cx| {
-                            owner.toggle_plugin(&toggle, *enabled, cx);
+                        .on_click(cx.listener(move |owner, enabled, window, cx| {
+                            owner.toggle_plugin(&toggle, *enabled, window, cx);
                         })),
                 ),
             );

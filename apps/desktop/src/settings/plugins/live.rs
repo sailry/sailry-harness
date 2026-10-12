@@ -2,6 +2,9 @@ use super::*;
 use crate::settings::providers::Binding;
 use sailry_protocol::{Command, ErrorCode, Fault, Output, Request, Snapshot, plugin::Summary};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Default)]
 pub(in crate::settings) struct Catalog {
     pub(super) python: sailry_client::python::View,
@@ -50,7 +53,12 @@ impl Catalog {
 }
 
 impl Workspace {
-    pub(super) fn install_bundled(&mut self, name: &str, cx: &mut Context<Self>) {
+    pub(super) fn install_bundled(
+        &mut self,
+        name: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(live) = &self.provider_link else {
             return;
         };
@@ -70,13 +78,14 @@ impl Workspace {
             }),
             pending: false,
         });
-        self.send_plugin_action(cx);
+        self.send_plugin_action(window, cx);
     }
 
     pub(in crate::settings) fn toggle_plugin(
         &mut self,
         plugin: &Summary,
         enabled: bool,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(live) = &self.provider_link else {
@@ -94,10 +103,14 @@ impl Workspace {
             }),
             pending: false,
         });
-        self.send_plugin_action(cx);
+        self.send_plugin_action(window, cx);
     }
 
-    pub(in crate::settings) fn send_plugin_action(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::settings) fn send_plugin_action(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self
             .plugin_catalog
             .updates
@@ -116,34 +129,101 @@ impl Workspace {
         self.plugin_catalog.error = None;
         let binding = action.binding.clone();
         let request = action.request.clone();
-        let id = request.id;
-        let job = binding
-            .runtime
-            .spawn(async move { binding.client.execute(request).await });
-        cx.spawn(async move |owner, cx| {
-            let result = job.await;
-            let _ = owner.update(cx, |owner, cx| {
-                let catalog = &mut owner.plugin_catalog;
-                let Some(action) = &mut catalog.action else {
-                    return;
-                };
-                if action.request.id != id {
+        dispatch(cx.entity(), binding, request, window, cx);
+        cx.notify();
+    }
+}
+
+fn dispatch(
+    owner: Entity<Workspace>,
+    binding: Binding,
+    request: Request,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let id = request.id;
+    let node = binding.client.target();
+    let bundled = matches!(&request.command, Command::InstallBundledPlugin { .. });
+    let retry = owner.clone();
+    let retry_binding = binding.clone();
+    let captured = request.clone();
+    let ticket = crate::installations::track(
+        binding.client.clone(),
+        binding.runtime.clone(),
+        &request,
+        false,
+        move |attempt, window, cx| {
+            let request = attempt.request(&retry_binding.client, &captured);
+            let selected = retry
+                .read(cx)
+                .provider_link
+                .as_ref()
+                .is_some_and(|live| live.binding.client.target() == node);
+            if !selected {
+                // Recovery remains bound to its captured Node even if the
+                // workspace now presents another host. Do not replace that
+                // host's catalog or reconstruct the old request there.
+                dispatch(retry.clone(), retry_binding.clone(), request, window, cx);
+                return;
+            }
+            retry.update(cx, |owner, cx| {
+                if owner
+                    .plugin_catalog
+                    .action
+                    .as_ref()
+                    .is_some_and(|action| action.request.id != id)
+                {
                     return;
                 }
+                if owner
+                    .plugin_catalog
+                    .action
+                    .as_ref()
+                    .is_none_or(|action| !action.pending)
+                {
+                    owner.plugin_catalog.action = Some(Action {
+                        binding: retry_binding.clone(),
+                        request,
+                        pending: false,
+                    });
+                }
+                owner.send_plugin_action(window, cx);
+            })
+        },
+        window,
+        cx,
+    );
+    let job = binding
+        .runtime
+        .spawn(async move { binding.client.execute(request).await });
+    let origin = window.window_handle();
+    cx.spawn(async move |cx| {
+        let result = job.await;
+        if let Some(ticket) = &ticket {
+            cx.update(|cx| ticket.record(crate::installations::result(&result), cx));
+        }
+        let reduced = cx.update(|cx| {
+            if let Ok(Ok(Output::Plugin(info))) = &result
+                && bundled
+            {
+                crate::preferences::plugins::forget(
+                    node,
+                    &info.summary.name,
+                    info.summary.revision,
+                    cx,
+                );
+            }
+            owner.update(cx, |owner, cx| {
+                let catalog = &mut owner.plugin_catalog;
+                let Some(action) = &mut catalog.action else {
+                    return false;
+                };
+                if action.request.id != id || action.binding.client.target() != node {
+                    return false;
+                }
                 action.pending = false;
-                match result {
-                    Ok(Ok(Output::Plugin(info))) => {
-                        if matches!(
-                            &action.request.command,
-                            Command::InstallBundledPlugin { .. }
-                        ) {
-                            crate::preferences::plugins::forget(
-                                action.binding.client.target(),
-                                &info.summary.name,
-                                info.summary.revision,
-                                cx,
-                            );
-                        }
+                match &result {
+                    Ok(Ok(Output::Plugin(_))) => {
                         catalog.action = None;
                         catalog.error = None;
                     }
@@ -156,11 +236,30 @@ impl Workspace {
                     _ => catalog.error = Some("plugins_unknown"),
                 }
                 cx.notify();
+                true
+            })
+        });
+        if let Some(ticket) = &ticket
+            && let Some(target) = cx.update(|cx| crate::installations::target(origin, cx))
+        {
+            let _ = target.update(cx, |_, window, cx| ticket.close_empty(window, cx));
+        }
+        if !reduced
+            && let Ok(Err(error)) = &result
+            && let Some(target) = cx.update(|cx| crate::installations::target(origin, cx))
+        {
+            let key = error_key(error);
+            let _ = target.update(cx, |_, window, cx| {
+                crate::feedback::toast(
+                    window,
+                    tr(key),
+                    gpui_kit::component::notification::Notification::error(tr(key)),
+                    cx,
+                )
             });
-        })
-        .detach();
-        cx.notify();
-    }
+        }
+    })
+    .detach();
 }
 
 pub(in crate::settings) fn uncertain(error: &Fault) -> bool {

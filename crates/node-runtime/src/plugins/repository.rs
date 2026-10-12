@@ -19,9 +19,13 @@ impl Host {
         selected: &source::Selection,
         commit: Option<&str>,
         stop: CancellationToken,
+        reporter: Option<crate::installation::Reporter>,
     ) -> Result<(File, Resolved), Fault> {
         if stop.is_cancelled() {
             return Err(cancelled());
+        }
+        if let Some(reporter) = &reporter {
+            reporter(sailry_protocol::installation::Phase::Downloading, None);
         }
         #[cfg(any(test, feature = "test-support"))]
         if self.github.endpoint.is_some() {
@@ -53,8 +57,10 @@ impl Host {
             path: selected.path.clone(),
         };
         let commit = commit.map(str::to_owned);
-        tokio::task::spawn_blocking(move || git::acquire(&selected, commit.as_deref(), &stop))
-            .await
-            .map_err(|_| Fault::new(ErrorCode::Unavailable, "Git source worker is unavailable"))?
+        tokio::task::spawn_blocking(move || {
+            git::acquire(&selected, commit.as_deref(), &stop, reporter)
+        })
+        .await
+        .map_err(|_| Fault::new(ErrorCode::Unavailable, "Git source worker is unavailable"))?
     }
 }

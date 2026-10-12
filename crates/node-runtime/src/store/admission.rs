@@ -174,6 +174,12 @@ impl Ingress {
                 self.check_request(caller, request.clone(), internal)
                     .await?;
             }
+            if matches!(
+                request.command,
+                sailry_protocol::Command::DismissInstallation { .. }
+            ) {
+                return self.dismiss_installation(caller, request);
+            }
             if matches!(request.command, sailry_protocol::Command::ListBackups) {
                 return self.read_backup(request).await;
             }

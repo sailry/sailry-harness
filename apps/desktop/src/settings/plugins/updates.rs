@@ -60,6 +60,7 @@ pub(in crate::settings) struct State {
     batch: Option<Batch>,
     task: Option<Task<()>>,
     dialog: Option<view::Selection>,
+    popup: crate::ui::overlays::Owned,
 }
 
 pub(super) struct Entry {
@@ -78,6 +79,7 @@ struct Batch {
     binding: Binding,
     entries: VecDeque<Entry>,
     request: Option<Request>,
+    plans: BTreeMap<String, (Request, Option<crate::installations::Ticket>)>,
     pending: bool,
     completed: usize,
     failed: usize,
@@ -196,6 +198,7 @@ pub(in crate::settings) fn bind(binding: Binding, cx: &mut App) -> Entity<State>
         batch: None,
         task: None,
         dialog: None,
+        popup: Default::default(),
     });
     cx.global_mut::<Registry>()
         .nodes
@@ -270,7 +273,7 @@ impl Workspace {
         {
             state.update(cx, |state, cx| state.send(window, cx));
         } else {
-            self.send_plugin_action(cx);
+            self.send_plugin_action(window, cx);
         }
     }
 }
@@ -432,10 +435,49 @@ impl State {
                 }
             }
         }
+        let mut plans = BTreeMap::new();
+        for entry in &entries {
+            if let Some(command) = entry
+                .candidate
+                .as_ref()
+                .and_then(|candidate| candidate.command(&entry.current))
+            {
+                let request = state.binding.client.prepare(command);
+                let id = request.id;
+                let retry = cx.entity();
+                let name = entry.current.name.clone();
+                let ticket = crate::installations::track(
+                    state.binding.client.clone(),
+                    state.binding.runtime.clone(),
+                    &request,
+                    true,
+                    move |_, window, cx| {
+                        retry.update(cx, |state, cx| {
+                            if state.retryable() {
+                                if state
+                                    .batch
+                                    .as_ref()
+                                    .and_then(|batch| batch.request.as_ref())
+                                    .is_some_and(|request| request.id == id)
+                                {
+                                    state.send(window, cx);
+                                }
+                            } else {
+                                state.apply(Some(&name), window, cx);
+                            }
+                        })
+                    },
+                    window,
+                    cx,
+                );
+                plans.insert(entry.current.name.clone(), (request, ticket));
+            }
+        }
         state.batch = Some(Batch {
             binding: state.binding.clone(),
             entries,
             request: None,
+            plans,
             pending: false,
             completed: 0,
             failed: 0,
@@ -454,14 +496,13 @@ impl State {
             return;
         };
         if batch.request.is_none() {
-            let Some(command) = entry
-                .candidate
-                .as_ref()
-                .and_then(|candidate| candidate.command(&entry.current))
-            else {
+            batch.request = batch
+                .plans
+                .get(&entry.current.name)
+                .map(|(request, _)| request.clone());
+            if batch.request.is_none() {
                 return;
-            };
-            batch.request = Some(batch.binding.client.prepare(command));
+            }
         }
         batch.pending = true;
         if let Some(dialog) = &mut self.dialog
@@ -473,6 +514,13 @@ impl State {
         let node = binding.client.target();
         let request = batch.request.clone().expect("update request is prepared");
         let id = request.id;
+        let ticket = batch
+            .plans
+            .get(&entry.current.name)
+            .and_then(|(_, ticket)| ticket.clone());
+        if let Some(ticket) = &ticket {
+            ticket.start(window, cx);
+        }
         let job = binding.runtime.clone().spawn(async move {
             let admission = match binding.client.dispatch(request).await {
                 Ok(admission) => admission,
@@ -499,7 +547,30 @@ impl State {
         });
         let origin = window.window_handle();
         self.task = Some(cx.spawn(async move |owner, cx| {
-            let result = job.await;
+            let (result, mut uncertain) = job.await.unwrap_or_else(|_| {
+                (
+                    Err(Fault::new(
+                        ErrorCode::OutcomeUnknown,
+                        "plugin update result is unconfirmed",
+                    )),
+                    true,
+                )
+            });
+            if let Some(ticket) = &ticket {
+                cx.update(|cx| {
+                    ticket.record(
+                        match &result {
+                            Ok(Output::Plugin(_)) => Ok(()),
+                            Err(error) => Err(error.clone()),
+                            _ => Err(Fault::new(
+                                ErrorCode::OutcomeUnknown,
+                                "plugin update result is unconfirmed",
+                            )),
+                        },
+                        cx,
+                    )
+                });
+            }
             let target = cx.update(|cx| {
                 let windows = cx.windows();
                 windows
@@ -511,6 +582,9 @@ impl State {
             if let Some(target) = target {
                 let _ = target.update(cx, |_, window, cx| {
                     owner.update(cx, |owner, cx| {
+                        if let Some(ticket) = &ticket {
+                            ticket.close_empty(window, cx);
+                        }
                         let state = owner;
                         let Some(batch) = &mut state.batch else {
                             return;
@@ -524,18 +598,10 @@ impl State {
                             return;
                         }
                         batch.pending = false;
-                        let (result, mut uncertain) = result.unwrap_or_else(|_| {
-                            (
-                                Err(Fault::new(
-                                    ErrorCode::OutcomeUnknown,
-                                    "plugin update result is unconfirmed",
-                                )),
-                                true,
-                            )
-                        });
                         let error = match result {
                             Ok(Output::Plugin(info)) => {
                                 let entry = batch.entries.pop_front().expect("active update");
+                                batch.plans.remove(&entry.current.name);
                                 if let Some(Candidate::Upload(package)) = entry.candidate
                                     && let Some(path) = package.directory.clone()
                                 {
@@ -591,6 +657,7 @@ impl State {
                                 return;
                             }
                             let entry = batch.entries.pop_front().expect("active update");
+                            batch.plans.remove(&entry.current.name);
                             if state.packages.contains(&entry.current) {
                                 state.entries.insert(entry.current.name.clone(), entry);
                             }
@@ -636,11 +703,8 @@ impl State {
                         .values()
                         .all(|row| !row.selected || row.status == view::Status::Succeeded)
                 {
-                    let mounted = dialog.window == Some(window.window_handle().window_id());
                     state.dialog = None;
-                    if mounted {
-                        window.close_dialog(cx);
-                    }
+                    state.popup.close(window, cx);
                 }
             }
             notify(window, message.into(), failed, cx);

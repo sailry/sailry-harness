@@ -19,6 +19,7 @@ mod external_browser;
 mod files;
 mod git;
 mod host;
+mod installation;
 mod knowledge;
 mod models;
 mod ocr;

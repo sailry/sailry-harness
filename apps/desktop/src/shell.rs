@@ -103,6 +103,9 @@ impl Shell {
     fn build(restore: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         closing::install(window, cx);
         crate::preferences::init(cx);
+        crate::installations::init(cx);
+        cx.observe_global::<crate::installations::Badge>(|_, cx| cx.notify())
+            .detach();
         cx.observe_global::<crate::preferences::Preferences>(|_, cx| cx.notify())
             .detach();
         Self::observe_live_errors(window, cx);

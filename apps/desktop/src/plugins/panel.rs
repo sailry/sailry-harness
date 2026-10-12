@@ -350,11 +350,32 @@ impl Panel {
                 cx.notify();
                 return;
             }
-            if !self.connected || self.settings_refresh() {
+            if !self.connected {
                 if let Some(mounted) = &self.mounted {
                     // Retain presentation only; the obsolete scope must stop immediately.
                     mounted.close();
                 }
+            } else if self.reference_changed() {
+                self.reload = true;
+                if let Some(mounted) = &self.mounted {
+                    mounted.close();
+                }
+                // A committed replacement is not an unavailable extension. A same-
+                // digest settings refresh keeps only its closed presentation until
+                // replacement; changed package content cannot retain the old view.
+                let content_changed = self.selected.as_ref().is_some_and(|selected| {
+                    self.summaries.iter().any(|summary| {
+                        summary.name == selected.name && summary.digest != selected.digest
+                    })
+                });
+                if content_changed {
+                    self.release();
+                } else {
+                    self.load_stop.cancel();
+                    self.load = None;
+                    self.loading = false;
+                }
+                self.error = None;
             } else {
                 let uninstalled = self.document.is_some()
                     && !self
@@ -372,15 +393,14 @@ impl Panel {
         cx.notify();
     }
 
-    fn settings_refresh(&self) -> bool {
+    fn reference_changed(&self) -> bool {
         self.connected
             && self.selected.as_ref().is_some_and(|selected| {
                 self.summaries.iter().any(|summary| {
                     (summary.enabled
                         || self.surface == sailry_protocol::plugin::desktop::Surface::Settings)
                         && summary.name == selected.name
-                        && summary.digest == selected.digest
-                        && summary.settings_revision != selected.settings_revision
+                        && summary.reference() != *selected
                 })
             })
     }
@@ -401,6 +421,11 @@ impl Panel {
                     || self.surface == sailry_protocol::plugin::desktop::Surface::Settings)
                     && summary.reference() == *package
             })
+    }
+
+    #[cfg(test)]
+    pub(super) fn load_token(&self) -> CancellationToken {
+        self.load_stop.clone()
     }
 
     pub(crate) fn enter(

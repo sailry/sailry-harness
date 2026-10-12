@@ -14,6 +14,7 @@ pub(super) fn acquire(
     selected: &source::Selection,
     commit: Option<&str>,
     stop: &CancellationToken,
+    reporter: Option<crate::installation::Reporter>,
 ) -> Result<(File, Resolved), Fault> {
     if stop.is_cancelled() {
         return Err(cancelled());
@@ -24,6 +25,21 @@ pub(super) fn acquire(
     let mut callbacks = crate::git::credentials::callbacks();
     let oversized = std::cell::Cell::new(false);
     callbacks.transfer_progress(|progress| {
+        if let Some(reporter) = &reporter {
+            let completed = progress.received_objects() as u64;
+            let total = progress.total_objects() as u64;
+            // libgit2 reports object totals, not a download byte total.
+            if total > 0 && completed <= total {
+                reporter(
+                    sailry_protocol::installation::Phase::Downloading,
+                    Some(sailry_protocol::installation::Progress::Counts {
+                        completed,
+                        total,
+                        bytes_per_second: None,
+                    }),
+                );
+            }
+        }
         oversized.set(progress.received_bytes() as u64 > MAX_TRANSFER_BYTES);
         !oversized.get() && !stop.is_cancelled() && Instant::now() < deadline
     });
@@ -58,6 +74,9 @@ pub(super) fn acquire(
         return Err(Fault::new(ErrorCode::Unavailable, "Git transfer timed out"));
     }
     result.map_err(failure)?;
+    if let Some(reporter) = &reporter {
+        reporter(sailry_protocol::installation::Phase::Inspecting, None);
+    }
     let object = if let Some(commit) = commit {
         repository
             .find_object(
@@ -233,7 +252,7 @@ mod tests {
         let stop = CancellationToken::new();
         stop.cancel();
         assert_eq!(
-            acquire(&selected, None, &stop).unwrap_err().code,
+            acquire(&selected, None, &stop, None).unwrap_err().code,
             ErrorCode::Cancelled
         );
     }

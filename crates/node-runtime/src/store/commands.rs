@@ -150,6 +150,10 @@ pub(super) fn execute(
                 None,
             ))
         }
+        Command::DismissInstallation { .. } => Err(Fault::new(
+            ErrorCode::Internal,
+            "installation dismissal must run outside the database",
+        )),
         Command::ReadCode { .. }
         | Command::ListCodeServers { .. }
         | Command::StartCodeServer { .. }

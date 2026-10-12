@@ -29,7 +29,9 @@ impl Host {
             .try_acquire_owned()
             .map_err(|_| Fault::new(ErrorCode::Busy, "skill discovery is busy"))?;
         let selected = source::Selection::parse(source)?;
-        let (file, source) = self.source_archive(&selected, None, stop.clone()).await?;
+        let (file, source) = self
+            .source_archive(&selected, None, stop.clone(), None)
+            .await?;
         let skills = tokio::task::spawn_blocking(move || package::discover(file, &selected, &stop))
             .await
             .map_err(|_| unavailable())??;
@@ -42,6 +44,7 @@ impl Host {
         path: &str,
         name: &str,
         stop: CancellationToken,
+        reporter: Option<crate::installation::Reporter>,
     ) -> Result<Info, Fault> {
         let selected = source::Selection::resolved(source, path)?;
         if name != source::name(&source.repository, path) {
@@ -50,7 +53,12 @@ impl Host {
             ));
         }
         let (file, _) = self
-            .source_archive(&selected, Some(&source.commit), stop.clone())
+            .source_archive(
+                &selected,
+                Some(&source.commit),
+                stop.clone(),
+                reporter.clone(),
+            )
             .await?;
         let host = self.clone();
         let provenance = Provenance {
@@ -58,9 +66,14 @@ impl Host {
             path: path.into(),
         };
         let name = name.to_owned();
-        tokio::task::spawn_blocking(move || package::install(&host, file, &name, provenance, &stop))
-            .await
-            .map_err(|_| unavailable())?
+        tokio::task::spawn_blocking(move || {
+            if let Some(reporter) = reporter {
+                reporter(sailry_protocol::installation::Phase::Inspecting, None);
+            }
+            package::install(&host, file, &name, provenance, &stop)
+        })
+        .await
+        .map_err(|_| unavailable())?
     }
 
     pub(crate) async fn inspect_skill(
@@ -80,7 +93,9 @@ impl Host {
                 "skill identity does not match its source",
             ));
         }
-        let (file, resolved) = self.source_archive(&selected, None, stop.clone()).await?;
+        let (file, resolved) = self
+            .source_archive(&selected, None, stop.clone(), None)
+            .await?;
         let host = self.clone();
         let name = name.to_owned();
         let provenance = Provenance {

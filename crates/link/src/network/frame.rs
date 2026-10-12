@@ -20,6 +20,7 @@ pub(super) enum Call {
     WatchTerminal(sailry_protocol::TerminalId),
     WatchBrowser,
     WatchPython,
+    WatchInstallations,
     WatchCommands(sailry_protocol::SessionId),
     WatchConversation(sailry_protocol::SessionId),
     WatchProviderLogin(sailry_protocol::RequestId),

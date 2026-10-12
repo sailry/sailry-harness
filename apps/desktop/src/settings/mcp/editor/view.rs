@@ -7,6 +7,7 @@ use gpui_kit::component::{
 };
 
 pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
+    let active = editor.clone();
     window.open_dialog(cx, move |dialog, window, cx| {
         let save = editor.clone();
         let cancel = editor.clone();
@@ -23,7 +24,12 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
             .w((window.viewport_size().width - px(48.)).min(px(520.)))
             .max_h(window.viewport_size().height * 0.85)
             .overlay_closable(false)
-            .on_close(move |_, window, cx| close.update(cx, |editor, cx| editor.close(window, cx)))
+            .on_close(move |_, window, cx| {
+                close.update(cx, |editor, cx| {
+                    editor.close(window, cx);
+                    editor.dialog.dismissed();
+                })
+            })
             .child(editor.clone())
             .footer(
                 state.submission.diagnostics().child(
@@ -86,7 +92,10 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
                                 .debug_selector(|| "mcp-cancel".into())
                                 .label(tr("settings_cancel"))
                                 .on_click(move |_, window, cx| {
-                                    cancel.update(cx, |editor, cx| editor.close(window, cx));
+                                    cancel.update(cx, |editor, cx| {
+                                        editor.close(window, cx);
+                                        editor.dialog.dismissed();
+                                    });
                                     window.close_dialog(cx);
                                 }),
                         )
@@ -100,6 +109,9 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
                         ),
                 ),
             )
+    });
+    active.update(cx, |editor, cx| {
+        crate::ui::overlays::Owned::bind(editor, |editor| &mut editor.dialog, window, cx)
     });
 }
 

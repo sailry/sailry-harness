@@ -256,7 +256,9 @@ impl Host {
             git_ref: Some("main".into()),
             path: None,
         })?;
-        let (archive, _) = self.source_archive(&source, None, stop.clone()).await?;
+        let (archive, _) = self
+            .source_archive(&source, None, stop.clone(), None)
+            .await?;
         tokio::task::spawn_blocking(move || {
             let (directory, root, links) = archive::unpack_source(archive, &stop, 10_000)?;
             Ok(Repository {

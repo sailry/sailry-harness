@@ -30,6 +30,7 @@ mod empty_state;
 mod feedback;
 mod header;
 mod hosts;
+mod installations;
 mod live;
 mod locale;
 #[cfg(target_os = "macos")]

@@ -19,6 +19,7 @@ mod git;
 pub mod hooks;
 pub mod host;
 mod ids;
+pub mod installation;
 pub mod knowledge;
 pub mod media;
 mod message;

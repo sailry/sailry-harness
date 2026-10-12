@@ -355,6 +355,10 @@ pub enum Command {
         /// Refresh the official index instead of reusing its TTL cache.
         force: bool,
     },
+    /// Dismiss only a terminal transient row, without changing its durable request.
+    DismissInstallation {
+        request: RequestId,
+    },
     InstallPluginSource {
         source: crate::plugin::skills::Resolved,
         path: String,
@@ -1454,6 +1458,7 @@ impl Command {
                 | Self::ReadBackupSettings
                 | Self::ListBackups
                 | Self::ReadPythonSettings
+                | Self::DismissInstallation { .. }
                 | Self::ReadOcrSettings
                 | Self::ReadOcrModels
                 | Self::RefreshOcrModel { .. }
@@ -1587,6 +1592,9 @@ pub struct Snapshot {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Output {
+    InstallationDismissed {
+        request: RequestId,
+    },
     Artifact(crate::artifact::Content),
     ArtifactWritten {
         artifact: crate::artifact::Summary,
@@ -1982,6 +1990,10 @@ pub struct EventEnvelope {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Update {
+    Installations {
+        node: NodeId,
+        tasks: Vec<crate::installation::Task>,
+    },
     CodeInstallations {
         node: NodeId,
         installations: Vec<crate::code::Installation>,
@@ -2023,6 +2035,7 @@ pub enum Update {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Topic {
+    Installations,
     Python,
     CodeServers(WorktreeId),
     CodeInstallations,
