@@ -48,6 +48,31 @@ pub(in crate::conversation) fn row(
     actions: impl IntoIterator<Item = AnyElement>,
     cx: &App,
 ) -> ListItem {
+    frame(id, key, label, attached, draggable, true, actions, cx)
+}
+
+pub(in crate::conversation) fn pending(
+    id: impl Into<ElementId>,
+    key: SharedString,
+    label: SharedString,
+    attached: bool,
+    actions: impl IntoIterator<Item = AnyElement>,
+    cx: &App,
+) -> ListItem {
+    frame(id, key, label, attached, true, false, actions, cx)
+}
+
+fn frame(
+    id: impl Into<ElementId>,
+    key: SharedString,
+    label: SharedString,
+    attached: bool,
+    draggable: bool,
+    drag_enabled: bool,
+    actions: impl IntoIterator<Item = AnyElement>,
+    cx: &App,
+) -> ListItem {
+    let text_key = key.clone();
     ListItem::new(id)
         .hover_background(false)
         .h_8()
@@ -68,13 +93,21 @@ pub(in crate::conversation) fn row(
                             .flex()
                             .items_center()
                             .justify_center()
-                            .cursor_grab()
+                            .when(drag_enabled, |handle| handle.cursor_grab())
                             .debug_selector(move || format!("queue-drag-{key}"))
                             .aria_label(tr("queue_drag"))
                             .child(Icon::new(IconName::EllipsisVertical).size_4()),
                     )
                 })
-                .child(div().flex_1().min_w_0().truncate().text_sm().child(label))
+                .child(
+                    div()
+                        .debug_selector(move || format!("queue-label-{text_key}"))
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_sm()
+                        .child(label),
+                )
                 .when(attached, |row| {
                     row.child(Icon::new(IconName::File).size_4())
                 })

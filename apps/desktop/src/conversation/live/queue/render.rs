@@ -299,16 +299,34 @@ impl Render for Panel {
                         .overflow_y_scrollbar()
                         .children(self.queue.items.iter().map(|item| self.row(item, cx)))
                         .children(self.outgoing.clone().map(|text| {
-                            presentation::row(
+                            let actions = [
+                                ("edit", IconName::Replace, "queue_edit"),
+                                ("guide", IconName::Redo2, "chat_queue_guide"),
+                                ("send", IconName::ArrowUp, "queue_send_now"),
+                                ("delete", IconName::Delete, "queue_delete"),
+                            ]
+                            .into_iter()
+                            .filter(|(action, _, _)| *action != "guide" || self.recipient.is_some())
+                            .map(|(action, icon, label)| {
+                                Button::new(format!("queue-outgoing-{action}"))
+                                    .rounded_full()
+                                    .ghost()
+                                    .small()
+                                    .icon(icon)
+                                    .disabled(true)
+                                    .debug_selector(move || format!("queue-outgoing-{action}"))
+                                    .tooltip(tr(label))
+                                    .accessibility_label(tr(label))
+                                    .into_any_element()
+                            });
+                            presentation::pending(
                                 "live-queue-outgoing",
                                 "outgoing".into(),
                                 text,
-                                false,
-                                false,
-                                [],
+                                self.outgoing_attached,
+                                actions,
                                 cx,
                             )
-                            .opacity(0.6)
                             .debug_selector(|| "queue-outgoing".into())
                         })),
                 )

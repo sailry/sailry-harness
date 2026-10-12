@@ -326,6 +326,7 @@ fn sends_during_execution(cx: &mut TestAppContext) {
         wait(visual, |cx| {
             view.read(cx).session.as_ref().unwrap().revision == 3 && !view.read(cx).pending
         });
+        let mut pending_geometry = None;
         for (index, text) in ["queued first", "send this now"].iter().enumerate() {
             click(visual, "live-chat-input");
             visual.simulate_input(text);
@@ -334,6 +335,17 @@ fn sends_during_execution(cx: &mut TestAppContext) {
                 // The pending row appears in this frame, before Node admission.
                 visual.update(|window, cx| window.draw(cx).clear(cx));
                 assert!(visual.debug_bounds("queue-outgoing").is_some());
+                pending_geometry = Some((
+                    visual.debug_bounds("queue-outgoing").unwrap(),
+                    visual.debug_bounds("queue-label-outgoing").unwrap(),
+                ));
+                assert!(visual.debug_bounds("queue-drag-outgoing").is_some());
+                for action in ["edit", "guide", "send", "delete"] {
+                    click(
+                        visual,
+                        Box::leak(format!("queue-outgoing-{action}").into_boxed_str()),
+                    );
+                }
                 assert!(panel.read_with(visual, |panel, _| panel.queue.items.is_empty()));
                 wait(visual, |_| gate.entered.is_cancelled());
                 assert!(view.read_with(visual, |view, _| view.pending));
@@ -342,6 +354,20 @@ fn sends_during_execution(cx: &mut TestAppContext) {
             wait(visual, |cx| {
                 panel.read(cx).queue.items.len() == index + 1 && !view.read(cx).pending
             });
+            if index == 0 {
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+                assert!(visual.debug_bounds("queue-outgoing").is_none());
+                let turn = panel.read_with(visual, |panel, _| panel.queue.items[0].turn);
+                let row = visual
+                    .debug_bounds(Box::leak(format!("queue-row-{turn}").into_boxed_str()))
+                    .unwrap();
+                let label = visual
+                    .debug_bounds(Box::leak(format!("queue-label-{turn}").into_boxed_str()))
+                    .unwrap();
+                let (pending, pending_label) = pending_geometry.unwrap();
+                assert_eq!(pending, row);
+                assert_eq!(pending_label, label);
+            }
         }
         // Changed settings queue new turns instead of guiding the running task.
         assert!(panel.read_with(visual, |panel, _| {

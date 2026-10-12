@@ -29,6 +29,7 @@ pub(super) struct Panel {
     action: Option<Task<()>>,
     /// Input sent while a turn runs, shown here until the Node admits it.
     outgoing: Option<SharedString>,
+    outgoing_attached: bool,
 }
 
 struct Editing {
@@ -146,6 +147,7 @@ impl Panel {
             error: None,
             action: None,
             outgoing: None,
+            outgoing_attached: false,
         }
     }
 
@@ -159,15 +161,22 @@ impl Panel {
         let guidance_blocked = view.busy() || view.outgoing.is_some();
         let recipient = view.recipient().map(|run| run.turn);
         let outgoing = view.queued_outgoing();
+        let outgoing_attached = outgoing.is_some()
+            && view
+                .outgoing
+                .as_ref()
+                .is_some_and(|message| !message.input.attachments.is_empty());
         if self.session != view.session()
             || self.recipient != recipient
             || self.child != view.readonly()
             || self.connected != connected
             || self.guidance_blocked != guidance_blocked
             || self.outgoing != outgoing
+            || self.outgoing_attached != outgoing_attached
             || queue.is_some_and(|queue| *queue != self.queue)
         {
             self.outgoing = outgoing;
+            self.outgoing_attached = outgoing_attached;
             self.session = view.session();
             self.recipient = recipient;
             self.child = view.readonly();
