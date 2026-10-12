@@ -7,6 +7,67 @@ mod fixture;
 use self::fixture::{Fixture as Worktrees, input, invoke, ready};
 
 #[gpui::test]
+fn long_branch_keeps_contribution_available(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Worktrees::new(remote);
+        let branch = "中文".repeat(22);
+        let repository = git2::Repository::open(&fixture.linked).unwrap();
+        repository
+            .find_branch("feature", git2::BranchType::Local)
+            .unwrap()
+            .rename(&branch, false)
+            .unwrap();
+        let Output::Worktree(linked) = fixture.base.execute(Command::RegisterWorktree {
+            project: fixture.base.binding.project.unwrap(),
+            path: fixture.linked.to_str().unwrap().into(),
+        }) else {
+            panic!("registered linked worktree expected")
+        };
+        let (shell, mut registry, visual) = fixture.mount(cx);
+        visual.update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                shell
+                    .live
+                    .as_mut()
+                    .unwrap()
+                    .select_project_worktree(fixture.base.binding.project.unwrap(), linked.id);
+                registry = shell
+                    .project_plugins(fixture.base.binding.project.unwrap(), window, cx)
+                    .unwrap();
+                cx.notify();
+            })
+        });
+        wait(visual, |cx| {
+            registry.read(cx).intent(Intent::Worktrees, cx).is_some()
+        });
+        let location =
+            visual.update(|_, cx| registry.read(cx).intent(Intent::Worktrees, cx).unwrap());
+        assert_eq!(location.key.worktree, Some(linked.id));
+        assert!(location.state.label.is_none());
+        assert!(location.state.enabled);
+        invoke(
+            &shell,
+            &mut registry,
+            Intent::Worktrees,
+            serde_json::Value::Null,
+            visual,
+        );
+        ready(&registry, visual, "entry-1");
+        assert_eq!(repository.head().unwrap().shorthand().unwrap(), branch);
+        assert!(
+            fixture
+                .mutations()
+                .iter()
+                .all(|request| matches!(request.command, Command::RegisterWorktree { .. }))
+        );
+        visual.simulate_keystrokes("escape");
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
+#[gpui::test]
 fn creates_and_selects_registered_checkouts(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
