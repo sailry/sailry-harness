@@ -1,5 +1,6 @@
 //! CLI account linking keeps credentials in the execution Node's GitHub CLI storage.
 use super::*;
+use gpui_kit::component::group_box::{GroupBox, GroupBoxVariants as _};
 
 pub(super) struct Login {
     status: Option<sailry_protocol::plugin::github::Status>,
@@ -172,74 +173,92 @@ impl Editor {
             "github_login_ready"
         };
         Some(
-            h_flex()
-                .id("github-login-card")
-                .debug_selector(|| "github-login-card".into())
-                .border_1()
-                .border_color(cx.theme().border)
-                .rounded_md()
-                .p_3()
-                .gap_2()
-                .items_center()
-                .justify_between()
-                .child(Icon::new(IconName::Github))
-                .child(
-                    v_flex().gap_1().child(tr("github_login_title")).child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(
-                                if let Some(account) =
-                                    status.and_then(|status| status.account.as_ref())
-                                {
-                                    format!("{} · {}", tr(state), account).into()
-                                } else {
-                                    tr(state)
-                                },
-                            ),
-                    ),
-                )
+            GroupBox::new()
+                .outline()
+                .content_style(StyleRefinement::default().p_3())
                 .child(
                     h_flex()
+                        .id("github-login-card")
+                        .debug_selector(|| "github-login-card".into())
+                        .w_full()
+                        .min_w_0()
                         .gap_2()
+                        .items_center()
+                        .justify_between()
                         .child(
-                            Button::new("github-login-check")
-                                .ghost()
-                                .icon(IconName::RotateCw)
-                                .debug_selector(|| "github-login-check".into())
-                                .accessibility_label(tr("plugins_settings_reload"))
-                                .tooltip(tr("plugins_settings_reload"))
-                                .disabled(
-                                    login.pending
-                                        || login.reading
-                                        || login.request.is_some()
-                                        || self.loading
-                                        || self.pending
-                                        || self.request.is_some(),
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .items_start()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .debug_selector(|| "github-login-title".into())
+                                        .child(tr("github_login_title")),
                                 )
-                                .on_click(cx.listener(|editor, _, window, cx| {
-                                    editor.read_github(window, cx)
-                                })),
+                                .child(
+                                    div()
+                                        .debug_selector(|| "github-login-status".into())
+                                        .text_sm()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(
+                                            if let Some(account) =
+                                                status.and_then(|status| status.account.as_ref())
+                                            {
+                                                format!("{} · {}", tr(state), account).into()
+                                            } else {
+                                                tr(state)
+                                            },
+                                        ),
+                                ),
                         )
                         .child(
-                            Button::new("github-login-import")
-                                .ghost()
-                                .icon(Icon::empty().path("icons/download.svg"))
-                                .tooltip(tr(label))
-                                .accessibility_label(tr(label))
-                                .debug_selector(|| "github-login-import".into())
-                                .disabled(
-                                    login.pending
-                                        || login.reading
-                                        || self.loading
-                                        || self.pending
-                                        || self.request.is_some()
-                                        || (login.request.is_none()
-                                            && status.is_none_or(|status| !status.authenticated)),
+                            h_flex()
+                                .debug_selector(|| "github-login-actions".into())
+                                .flex_shrink_0()
+                                .gap_2()
+                                .child(
+                                    Button::new("github-login-check")
+                                        .ghost()
+                                        .icon(IconName::RotateCw)
+                                        .debug_selector(|| "github-login-check".into())
+                                        .accessibility_label(tr("plugins_settings_reload"))
+                                        .tooltip(tr("plugins_settings_reload"))
+                                        .disabled(
+                                            login.pending
+                                                || login.reading
+                                                || login.request.is_some()
+                                                || self.loading
+                                                || self.pending
+                                                || self.request.is_some(),
+                                        )
+                                        .on_click(cx.listener(|editor, _, window, cx| {
+                                            editor.read_github(window, cx)
+                                        })),
                                 )
-                                .on_click(cx.listener(|editor, _, window, cx| {
-                                    editor.import_github(window, cx)
-                                })),
+                                .child(
+                                    Button::new("github-login-import")
+                                        .ghost()
+                                        .icon(Icon::empty().path("icons/download.svg"))
+                                        .tooltip(tr(label))
+                                        .accessibility_label(tr(label))
+                                        .debug_selector(|| "github-login-import".into())
+                                        .disabled(
+                                            login.pending
+                                                || login.reading
+                                                || self.loading
+                                                || self.pending
+                                                || self.request.is_some()
+                                                || (login.request.is_none()
+                                                    && status.is_none_or(|status| {
+                                                        !status.authenticated
+                                                    })),
+                                        )
+                                        .on_click(cx.listener(|editor, _, window, cx| {
+                                            editor.import_github(window, cx)
+                                        })),
+                                ),
                         ),
                 )
                 .into_any_element(),

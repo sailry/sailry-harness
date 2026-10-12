@@ -8,7 +8,7 @@ use sailry_protocol::plugin::Skill;
 pub(super) fn open(info: Info, skill: Skill, window: &mut Window, cx: &mut App) {
     window.open_dialog(cx, move |dialog, window, cx| {
         let source = info.skill.as_ref().expect("standalone skill provenance");
-        let mut information = Group::new("plugins_information");
+        let mut information = Group::new("plugins_information").outline();
         for (key, value) in [
             ("plugins_identifier", Some(skill.name.clone())),
             ("skills_repository", Some(provenance(&info))),

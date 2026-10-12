@@ -108,6 +108,7 @@ impl Render for Editor {
                         .overflow_y_scrollbar()
                         .child(
                             Group::new("skills_candidates")
+                                .outline()
                                 .heading(false)
                                 .empty(IconName::Inbox, "skills_no_candidates")
                                 .children(discovery.skills.iter().enumerate().map(

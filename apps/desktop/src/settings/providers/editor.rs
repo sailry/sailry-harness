@@ -573,6 +573,7 @@ impl Render for Editor {
             .when(self.models.is_empty(), |this| {
                 this.child(
                     super::Group::new("provider_models")
+                        .outline()
                         .heading(false)
                         .empty(IconName::Bot, "provider_models_empty"),
                 )

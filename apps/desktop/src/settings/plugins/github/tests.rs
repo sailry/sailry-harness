@@ -53,6 +53,16 @@ fn open(
         Some("fixture-user")
     );
     draw(cx);
+    let title = cx.debug_bounds("github-login-title").unwrap();
+    let status = cx.debug_bounds("github-login-status").unwrap();
+    let actions = cx.debug_bounds("github-login-actions").unwrap();
+    let card = cx.debug_bounds("github-login-card").unwrap();
+    assert_eq!(title.left(), status.left());
+    assert_eq!(title.left(), card.left());
+    assert_eq!(title.size.height, status.size.height);
+    assert!(title.right() <= actions.left());
+    assert!(status.right() <= actions.left());
+    assert_eq!(actions.right(), card.right());
     editor
 }
 

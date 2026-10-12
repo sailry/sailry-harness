@@ -248,7 +248,7 @@ impl Render for Editor {
                                 let id = slot.id;
                                 GroupBox::new()
                                     .id(("mcp-slot", id))
-                                    .fill()
+                                    .outline()
                                     .content_style(StyleRefinement::default().p_3())
                                     .child(
                                         v_flex()

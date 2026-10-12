@@ -26,6 +26,88 @@ fn plain_body_preserves_bounded_source() {
 
 struct DefaultPolicy(Option<Policy>);
 
+#[gpui::test]
+fn group_variants_keep_row_geometry(cx: &mut TestAppContext) {
+    crate::plugins::tests::init(cx);
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(
+        directory.path().join("main.js"),
+        r#"
+import {View, div} from 'gpui-kit';
+import {Button} from 'gpui-component';
+import {SettingsGroup, Bounds} from 'sailry/test';
+export default class Groups extends View {
+  render() {
+    return div().h_flex().items_start().p_4().gap_4().children(
+      ['fill', 'outline'].map(variant => div().w(260).child(
+        SettingsGroup.new(`group-${variant}`, {heading:false, variant}).child(
+          div().relative().h_flex().w_full().py_3().gap_3()
+            .child(Bounds.new(`row-${variant}`))
+            .child(div().relative().flex_1().child('Value').child(Bounds.new(`label-${variant}`)))
+            .child(new Button(`action-${variant}`).label('Action'))))));
+  }
+}
+"#,
+    )
+    .unwrap();
+    let module = extend(HostModule::new("sailry/test"));
+    let declarations = format!(
+        "{}\nexport const Bounds: {{ new(id: string): import(\"gpui-kit\").Element }};",
+        module.declared().unwrap()
+    );
+    let policy = Policy::new()
+        .with_capabilities(
+            gpui_shell::Capabilities::new().read_roots([directory.path().to_path_buf()]),
+        )
+        .with_host_module(
+            module
+                .declarations(declarations)
+                .component("Bounds", |args, _, _| {
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .debug_selector(|| args.id().to_owned())
+                        .into_any_element()
+                }),
+        )
+        .unwrap();
+    let mut previous = None;
+    policy::update_default(|current| {
+        previous = Some(current);
+        policy
+    });
+    let _restore = DefaultPolicy(previous);
+    let runtime = gpui_component_shell::new_isolated_runtime().unwrap();
+    let mut application = None;
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let view = runtime.try_load(directory.path(), window, cx).unwrap();
+        let content = view
+            .read(cx)
+            .content()
+            .clone()
+            .downcast::<gpui_shell::ScriptView>()
+            .unwrap();
+        assert_eq!(content.read(cx).build_error(), None);
+        application = Some(view);
+        Root::new(content, window, cx)
+    });
+    let _application = application.unwrap();
+    for mode in [ThemeMode::Light, ThemeMode::Dark] {
+        visual.update(|window, cx| Theme::change(mode, Some(window), cx));
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let fill = visual.debug_bounds("row-fill").unwrap();
+        let outline = visual.debug_bounds("row-outline").unwrap();
+        assert_eq!(fill.size, outline.size);
+        assert_eq!(fill.top(), outline.top());
+        for (row, label) in [(fill, "label-fill"), (outline, "label-outline")] {
+            let label = visual.debug_bounds(label).unwrap();
+            assert_eq!(row.left(), label.left());
+        }
+    }
+    visual.update(|window, _| window.remove_window());
+}
+
 impl Drop for DefaultPolicy {
     fn drop(&mut self) {
         policy::set_default(self.0.take().unwrap());

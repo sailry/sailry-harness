@@ -2,7 +2,7 @@
 //! Adapt those gaps using the same native header and Kit settings surface.
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    component::{separator::Separator, *},
+    component::{group_box::GroupBoxVariants as _, separator::Separator, *},
     *,
 };
 use gpui_shell::{HostModule, HostValue};
@@ -37,7 +37,7 @@ pub(super) fn extend(module: HostModule) -> HostModule {
             export const Loading: { new(id: string): import("gpui-kit").Element };
             export const InputSurface: { new(id: string): import("gpui-kit").Element };
             /** With header_action, the first child is the trailing header control. */
-            export const SettingsGroup: { new(id: string, props: { title?: string; heading?: boolean; header_action?: boolean }): import("gpui-kit").Element };
+            export const SettingsGroup: { new(id: string, props: { title?: string; heading?: boolean; header_action?: boolean; variant?: "fill" | "outline" }): import("gpui-kit").Element };
             /** The shared centered 800px page, with a scrolling body and arbitrary children. */
             export const SettingsPage: { new(id: string, props: { title: string; description?: string }): import("gpui-kit").Element };
         "#
@@ -182,6 +182,8 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                 .into_any_element()
         })
         .component("SettingsGroup", |mut args, _, cx| {
+            let outline =
+                args.props().get("variant").and_then(HostValue::as_str) == Some("outline");
             let title = args
                 .props()
                 .get("title")
@@ -221,6 +223,7 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                 rows = rows.child(row);
             }
             crate::ui::card_list::frame(args.id().to_owned(), rows, cx)
+                .when(outline, |group| group.outline())
                 .when(show_heading, |group| group.title(heading))
                 .title_style(
                     StyleRefinement::default()

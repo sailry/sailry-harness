@@ -4,6 +4,7 @@ use core::prelude::v1::test;
 struct View {
     loading: bool,
     card: bool,
+    outlined: bool,
     populated: bool,
     heading: bool,
     clicks: usize,
@@ -14,6 +15,7 @@ impl Render for View {
         div().p_4().child(
             Group::new("settings_memory")
                 .card(self.card)
+                .when(self.outlined, Group::outline)
                 .heading(self.heading)
                 .loading(self.loading)
                 .when(self.populated, |group| {
@@ -44,6 +46,7 @@ fn mask_covers_surface_without_changing_content(cx: &mut TestAppContext) {
         let entity = cx.new(|_| View {
             loading: false,
             card: true,
+            outlined: false,
             populated: false,
             heading: true,
             clicks: 0,
@@ -59,11 +62,12 @@ fn mask_covers_surface_without_changing_content(cx: &mut TestAppContext) {
                 window.window_handle()
             });
             visual.simulate_window_resize(handle, size(px(width), px(640.)));
-            for card in [false, true] {
+            for (card, outlined) in [(false, false), (true, false), (true, true)] {
                 for populated in [false, true] {
                     for heading in [false, true] {
                         view.update(visual, |view, cx| {
                             view.card = card;
+                            view.outlined = outlined;
                             view.populated = populated;
                             view.heading = heading;
                             view.loading = false;

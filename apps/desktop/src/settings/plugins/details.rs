@@ -383,7 +383,7 @@ impl Render for Details {
                         .child(text),
                 )
             });
-            let mut skills = Group::new("skills_details");
+            let mut skills = Group::new("skills_details").outline();
             for skill in &info.skills {
                 skills = skills.child(Entry::new(
                     format!("plugin-skill-{}", skill.name),
@@ -396,7 +396,7 @@ impl Render for Details {
                     ),
                 ));
             }
-            let mut mcp = Group::new("mcp_servers");
+            let mut mcp = Group::new("mcp_servers").outline();
             for server in &info.mcp {
                 let binding = self.binding.clone();
                 let package = info.summary.reference();
@@ -431,7 +431,7 @@ impl Render for Details {
                 .when(!info.skills.is_empty(), |view| view.child(skills))
                 .when(!info.mcp.is_empty(), |view| view.child(mcp));
             if let Some(extension) = &info.extension {
-                let mut tools = Group::new("plugins_tools");
+                let mut tools = Group::new("plugins_tools").outline();
                 for tool in &extension.tools {
                     tools = tools.child(Entry::new(
                         format!("plugin-tool-{}", tool.name),
@@ -442,6 +442,7 @@ impl Render for Details {
             }
             body = body.child(
                 Group::new("plugins_information")
+                    .outline()
                     .child(
                         Entry::new("plugin-info-name", tr("plugins_identifier"))
                             .control(info.summary.name.clone()),
@@ -462,7 +463,7 @@ impl Render for Details {
                 })
                 .collect();
             if !visible_issues.is_empty() {
-                let mut issues = Group::new("plugins_issues");
+                let mut issues = Group::new("plugins_issues").outline();
                 for (index, issue) in visible_issues.iter().enumerate() {
                     issues = issues.child(Entry::new(
                         format!("plugin-issue-{index}"),

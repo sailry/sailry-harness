@@ -99,6 +99,7 @@ impl Render for Details {
         let library = self.library.read(cx);
         let locked = library.loading || !library.available(cx) || library.target.busy(cx);
         let mut information = Group::new("knowledge_model_details")
+            .outline()
             .heading(false)
             .child(
                 Entry::new("model-library-detail-source", tr("model_library_source")).control(

@@ -105,15 +105,15 @@ impl Render for Details {
             return v_flex();
         };
         let status_id = self.key.selector("status");
-        let mut information =
-            Group::new("knowledge_model_details")
-                .heading(false)
-                .child(Entry::new(
-                    "model-detail-status",
-                    div()
-                        .debug_selector(move || status_id.clone())
-                        .child(tr(label(model.status))),
-                ));
+        let mut information = Group::new("knowledge_model_details")
+            .outline()
+            .heading(false)
+            .child(Entry::new(
+                "model-detail-status",
+                div()
+                    .debug_selector(move || status_id.clone())
+                    .child(tr(label(model.status))),
+            ));
         if let Some(definition) = self.target.definition(self.key, cx) {
             information = information
                 .child(

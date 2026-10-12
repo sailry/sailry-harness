@@ -252,7 +252,7 @@ impl Render for Import {
                         };
                         GroupBox::new()
                             .id(selector)
-                            .fill()
+                            .outline()
                             .min_w_0()
                             .content_style(
                                 StyleRefinement::default()
@@ -294,6 +294,7 @@ impl Render for Import {
             })
             .child(
                 Group::new("appearance_information")
+                    .outline()
                     .child(
                         Entry::new("theme-info-author", tr("appearance_author"))
                             .control(value(license.author.clone())),

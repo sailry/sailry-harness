@@ -16,6 +16,7 @@ pub struct Group {
     rows: Vec<AnyElement>,
     actions: Vec<Button>,
     card: bool,
+    filled: bool,
     heading: bool,
     loading: bool,
     overlay: Option<AnyElement>,
@@ -29,6 +30,7 @@ impl Group {
             rows: Vec::new(),
             actions: Vec::new(),
             card: true,
+            filled: true,
             heading: true,
             loading: false,
             overlay: None,
@@ -59,6 +61,12 @@ impl Group {
 
     pub fn card(mut self, card: bool) -> Self {
         self.card = card;
+        self
+    }
+
+    pub fn outline(mut self) -> Self {
+        self.card = true;
+        self.filled = false;
         self
     }
 
@@ -143,7 +151,13 @@ impl RenderOnce for Group {
         }
         GroupBox::new()
             .id(key)
-            .when(card, |group| group.fill())
+            .when(card, |group| {
+                if self.filled {
+                    group.fill()
+                } else {
+                    group.outline()
+                }
+            })
             .gap_2()
             .when(self.heading, |group| {
                 group.title(
