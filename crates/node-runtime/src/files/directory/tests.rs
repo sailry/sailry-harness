@@ -10,6 +10,41 @@ fn control() -> Control {
 }
 
 #[test]
+fn shows_managed_directory() {
+    for (metadata, checkouts) in [(".sailry", "worktrees"), (".SAILRY", "WORKTREES")] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let child = root.join(metadata).join(checkouts).join("child");
+        std::fs::create_dir_all(&child).unwrap();
+        std::fs::write(root.join(metadata).join("notes.txt"), "parent").unwrap();
+        std::fs::write(child.join("child.txt"), "child").unwrap();
+
+        let page = list(&root, metadata.into(), None, &control()).unwrap();
+        assert_eq!(page.entries.len(), 2);
+        assert_eq!(page.entries[0].name, checkouts);
+        assert_eq!(page.entries[0].kind, EntryKind::Directory);
+        assert_eq!(page.entries[1].name, "notes.txt");
+        assert_eq!(page.unsupported_names, 0);
+        assert!(!page.truncated);
+        assert!(page.next.is_none());
+
+        for path in [
+            format!("{metadata}/{checkouts}"),
+            format!("{metadata}/{checkouts}/child"),
+        ] {
+            assert_eq!(
+                list(&root, path, None, &control()).unwrap_err().code,
+                ErrorCode::PermissionDenied
+            );
+        }
+        let scoped = list(&child, String::new(), None, &control()).unwrap();
+        assert_eq!(scoped.entries.len(), 1);
+        assert_eq!(scoped.entries[0].name, "child.txt");
+        assert_eq!(scoped.entries[0].kind, EntryKind::File);
+    }
+}
+
+#[test]
 fn preserves_global_order() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().canonicalize().unwrap();

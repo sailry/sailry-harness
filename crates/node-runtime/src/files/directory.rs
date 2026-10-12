@@ -39,9 +39,6 @@ pub(super) fn list(
             unsupported_names += 1;
             continue;
         };
-        if path::worktrees(&path, &name) {
-            continue;
-        }
         if path::components(&name, false).is_err() {
             unsupported_names += 1;
             continue;
