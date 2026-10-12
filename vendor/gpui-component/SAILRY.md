@@ -67,3 +67,16 @@ the root Cargo.lock; standalone test resolution must be refreshed for this sourc
 Existing focused coverage remains beside retained patches and application
 interaction tests. Neither source comparison nor test presence claims runtime or
 platform acceptance.
+
+## Speech completion and input drain
+
+The selected upstream speech source is from `1ccf011620da24d633f7cd6d3c11ca2e97798dcf`.
+Sailry supplies its controller-owned CPAL 0.18.2 input and SenseVoice recognizer;
+the upstream `speech` feature and its default CPAL capture remain disabled.
+
+`SpeechState::wait_for_final` opts out of the default transcript timeout.
+`drain_input_on_stop` and `AudioSink::finish` provide an opt-in end-of-input
+handshake for asynchronous capture: queued PCM drains before recognition flushes,
+and duplicate or replaced-session completions are ignored. Other consumers retain
+the upstream default timeout and immediate recognition flush. The tail, delayed
+final result, source completion and stale completion are covered by focused tests.

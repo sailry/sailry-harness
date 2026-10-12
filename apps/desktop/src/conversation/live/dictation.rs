@@ -1,9 +1,8 @@
 use super::*;
-use crate::dictation::{Service, Update};
+use crate::dictation::Update;
 use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::speech::{SpeechEvent, SpeechState, SpeechStatus, SpeechWaveform};
 use gpui_kit::prelude::FluentBuilder as _;
-
-mod waveform;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Phase {
@@ -16,7 +15,9 @@ pub(super) enum Phase {
 #[derive(Default)]
 pub(super) struct State {
     pub(super) phase: Phase,
-    finish: CancellationToken,
+    pub(super) speech: Option<Entity<SpeechState>>,
+    events: Option<Subscription>,
+    observer: Option<Subscription>,
     cancel: CancellationToken,
     task: Option<Task<()>>,
     partial: Option<(std::ops::Range<usize>, String)>,
@@ -35,6 +36,9 @@ impl View {
             Phase::Recording => "dictation_finish",
             Phase::Transcribing => "dictation_transcribing",
         };
+        // SpeechButton starts before controller consent/model preflight and
+        // ignores stopping clicks. Kit Button keeps the approved cancel action
+        // and waveform child while SpeechState owns capture and recognition.
         Button::new("dictation-toggle")
             .ghost()
             .rounded_full()
@@ -44,7 +48,13 @@ impl View {
                 button.icon(Icon::default().path("icons/reicon/microphone.svg"))
             })
             .when(phase == Phase::Recording, |button| {
-                button.child(waveform::render(cx))
+                button.children(self.dictation.speech.as_ref().map(|speech| {
+                    div()
+                        .id("dictation-waveform")
+                        .test_support()
+                        .size_4()
+                        .child(SpeechWaveform::new(speech).small().w_full())
+                }))
             })
             .when(
                 matches!(phase, Phase::Preparing | Phase::Transcribing),
@@ -59,14 +69,13 @@ impl View {
                 cx.listener(|view, _, window, cx| match view.dictation.phase {
                     Phase::Idle => view.start_dictation(window, cx),
                     Phase::Recording => {
-                        view.dictation.finish.cancel();
+                        if let Some(speech) = &view.dictation.speech {
+                            speech.update(cx, |speech, cx| speech.stop(cx));
+                        }
                         view.dictation.phase = Phase::Transcribing;
                         cx.notify();
                     }
-                    Phase::Preparing | Phase::Transcribing => {
-                        view.dictation = State::default();
-                        cx.notify();
-                    }
+                    Phase::Preparing | Phase::Transcribing => view.cancel_dictation(cx),
                 }),
             )
             .into_any_element()
@@ -88,12 +97,13 @@ impl View {
             }
         };
         let cancel = CancellationToken::new();
-        let finish = CancellationToken::new();
         let options = crate::preferences::data(cx).dictation.unwrap_or_default();
         self.dictation = State {
             phase: Phase::Preparing,
             cancel: cancel.clone(),
-            finish: finish.clone(),
+            speech: None,
+            events: None,
+            observer: None,
             task: None,
             partial: None,
         };
@@ -127,9 +137,7 @@ impl View {
                                 return;
                             }
                             if granted && !view.readonly() {
-                                view.record_dictation(
-                                    captured, options, finish, cancel, window, cx,
-                                );
+                                view.record_dictation(captured, options, cancel, window, cx);
                             } else {
                                 view.dictation = State::default();
                                 cx.notify();
@@ -148,33 +156,80 @@ impl View {
         &mut self,
         captured: crate::dictation::models::Capture,
         options: crate::preferences::Dictation,
-        finish: CancellationToken,
         cancel: CancellationToken,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let owner = Service::shared(cx);
-        let (updates, mut receiver) = tokio::sync::mpsc::channel(4);
-        self.binding.runtime.spawn(async move {
-            let result =
-                crate::dictation::run(captured, options, owner, finish, cancel, updates.clone())
-                    .await;
-            let _ = updates.send(Update::Finished(result)).await;
-        });
-        self.dictation.task = Some(cx.spawn_in(window, async move |view, cx| {
-            while let Some(update) = receiver.recv().await {
-                let ended = matches!(update, Update::Finished(_));
-                if view
-                    .update_in(cx, |view, window, cx| {
-                        view.accept_dictation(update, window, cx)
-                    })
-                    .is_err()
-                    || ended
+        let speech = crate::dictation::session(
+            captured,
+            options,
+            self.binding.runtime.handle().clone(),
+            cancel,
+            cx,
+        );
+        self.bind_dictation(speech, window, cx);
+    }
+
+    pub(super) fn bind_dictation(
+        &mut self,
+        speech: Entity<SpeechState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let generation = speech.entity_id();
+        let cancel = self.dictation.cancel.clone();
+        self.dictation.events = Some(cx.subscribe_in(
+            &speech,
+            window,
+            move |view, _, event: &SpeechEvent, window, cx| {
+                if cancel.is_cancelled()
+                    || view.dictation.speech.as_ref().map(Entity::entity_id) != Some(generation)
                 {
-                    break;
+                    return;
                 }
+                match event {
+                    SpeechEvent::Started => view.accept_dictation(Update::Preparing, window, cx),
+                    SpeechEvent::Partial(text) => {
+                        view.accept_dictation(Update::Partial(text.to_string()), window, cx)
+                    }
+                    SpeechEvent::Final(text) => {
+                        view.accept_dictation(Update::Finished(Ok(text.to_string())), window, cx)
+                    }
+                    SpeechEvent::Error(error) => view.accept_dictation(
+                        Update::Finished(Err(crate::dictation::speech_error_key(error))),
+                        window,
+                        cx,
+                    ),
+                    SpeechEvent::Cancelled => {
+                        view.dictation = State::default();
+                        cx.notify();
+                    }
+                }
+            },
+        ));
+        self.dictation.observer = Some(cx.observe(&speech, move |view, speech, cx| {
+            if view.dictation.speech.as_ref().map(Entity::entity_id) != Some(generation) {
+                return;
             }
+            view.dictation.phase = match speech.read(cx).status() {
+                SpeechStatus::Idle => Phase::Idle,
+                SpeechStatus::Connecting => Phase::Preparing,
+                SpeechStatus::Recording => Phase::Recording,
+                SpeechStatus::Stopping => Phase::Transcribing,
+            };
+            cx.notify();
         }));
+        self.dictation.speech = Some(speech.clone());
+        speech.update(cx, |speech, cx| speech.start(cx));
+        cx.notify();
+    }
+
+    fn cancel_dictation(&mut self, cx: &mut Context<Self>) {
+        self.dictation.cancel.cancel();
+        if let Some(speech) = &self.dictation.speech {
+            speech.update(cx, |speech, cx| speech.cancel(cx));
+        }
+        self.dictation = State::default();
         cx.notify();
     }
 
@@ -186,9 +241,7 @@ impl View {
     ) {
         match update {
             Update::Preparing => self.dictation.phase = Phase::Preparing,
-            Update::Recording => self.dictation.phase = Phase::Recording,
             Update::Partial(text) => self.apply_dictation(text, window, cx),
-            Update::Transcribing => self.dictation.phase = Phase::Transcribing,
             Update::Finished(result) => {
                 self.dictation.phase = Phase::Idle;
                 if self.dictation.cancel.is_cancelled() {
@@ -205,6 +258,9 @@ impl View {
                     Err(error) => crate::feedback::info("", tr(error).as_ref(), window, cx),
                 }
                 self.dictation.partial = None;
+                self.dictation.speech = None;
+                self.dictation.events = None;
+                self.dictation.observer = None;
             }
         }
         cx.notify();
@@ -216,7 +272,7 @@ impl View {
         }
         let range = if let Some((range, previous)) = &self.dictation.partial {
             if self.input.read(cx).value().get(range.clone()) != Some(previous.as_str()) {
-                self.dictation.cancel.cancel();
+                self.cancel_dictation(cx);
                 crate::feedback::info("", tr("dictation_draft_changed").as_ref(), window, cx);
                 return;
             }

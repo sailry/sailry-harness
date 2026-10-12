@@ -251,6 +251,16 @@ impl AudioSink {
         self.apply(cx, move |state, cx| state.on_audio(&samples, cx));
     }
 
+    /// The input ended and all buffered PCM has been delivered.
+    ///
+    /// Ends capture if the source reached its own limit. With
+    /// [`SpeechState::drain_input_on_stop`] enabled, this also lets a stopped
+    /// session ask its recognizer for the final result after its last PCM.
+    /// Duplicate or stale completions are ignored.
+    pub fn finish(&self, cx: &mut App) {
+        self.apply(cx, |state, cx| state.on_input_finished(cx));
+    }
+
     /// Capture failed; the session ends with this error.
     pub fn error(&self, error: SpeechError, cx: &mut App) {
         self.apply(cx, move |state, cx| state.on_error(error, cx));

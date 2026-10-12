@@ -87,6 +87,14 @@ fn check_speech(recognizer: &Recognizer) {
             let audio = samples.iter().map(|value| value * gain).collect::<Vec<_>>();
             let actual = recognizer.recognize(&audio).unwrap();
             assert_eq!(actual.to_lowercase(), expected[0].to_lowercase());
+            // Kit consumes signed 16-bit mono PCM. Verify its quantized input
+            // preserves the same complete real-model transcript at both gains.
+            let pcm = audio
+                .iter()
+                .map(|&sample| f32::from(crate::dictation::capture::pcm(sample)) / 32768.)
+                .collect::<Vec<_>>();
+            let actual = recognizer.recognize(&pcm).unwrap();
+            assert_eq!(actual.to_lowercase(), expected[0].to_lowercase());
         }
     }
 }

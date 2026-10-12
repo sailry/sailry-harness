@@ -58,6 +58,8 @@ struct Session {
     capture: Option<Subscription>,
     recognition: Box<dyn RecognitionSession>,
     _stop_timeout: Option<Task<()>>,
+    input_finished: bool,
+    recognition_finished: bool,
 }
 
 /// The state of a speech input: captures audio from an [`AudioInput`], feeds it
@@ -77,7 +79,8 @@ pub struct SpeechState {
     input: Option<Rc<dyn AudioInput>>,
     system_fallback: bool,
     system_recognizer: OnceCell<Option<Rc<dyn SpeechRecognizer>>>,
-    stop_timeout: Duration,
+    stop_timeout: Option<Duration>,
+    drain_input: bool,
     status: SpeechStatus,
     session: Option<Session>,
     next_session: usize,
@@ -96,7 +99,8 @@ impl SpeechState {
             input: super::default_input(),
             system_fallback: true,
             system_recognizer: OnceCell::new(),
-            stop_timeout: DEFAULT_STOP_TIMEOUT,
+            stop_timeout: Some(DEFAULT_STOP_TIMEOUT),
+            drain_input: false,
             status: SpeechStatus::Idle,
             session: None,
             next_session: 0,
@@ -131,7 +135,27 @@ impl SpeechState {
     /// Set how long [`Self::stop`] waits for the recognizer's final result
     /// before ending the session with the transcript so far, default 3 seconds.
     pub fn stop_timeout(mut self, timeout: Duration) -> Self {
-        self.stop_timeout = timeout;
+        self.stop_timeout = Some(timeout);
+        self
+    }
+
+    /// Wait for the recognizer to report completion instead of applying a timeout.
+    ///
+    /// A caller may still cancel a stalled session. The default remains a
+    /// three-second timeout ending with the transcript received so far.
+    pub fn wait_for_final(mut self) -> Self {
+        self.stop_timeout = None;
+        self
+    }
+
+    /// Drain buffered input before asking the recognizer for its final result.
+    ///
+    /// Default `false`. When enabled, dropping the capture subscription must
+    /// stop the source and deliver its remaining PCM, then call
+    /// [`AudioSink::finish`]. A source may also call `finish` at its duration
+    /// limit. During this drain the session accepts PCM while stopping.
+    pub fn drain_input_on_stop(mut self, drain: bool) -> Self {
+        self.drain_input = drain;
         self
     }
 
@@ -226,6 +250,8 @@ impl SpeechState {
             capture: Some(capture),
             recognition,
             _stop_timeout: None,
+            input_finished: false,
+            recognition_finished: false,
         });
         cx.emit(SpeechEvent::Started);
         cx.notify();
@@ -242,18 +268,22 @@ impl SpeechState {
         };
 
         session.capture = None;
-        session.recognition.finish(cx);
+        if !self.drain_input || session.input_finished {
+            session.recognition_finished = true;
+            session.recognition.finish(cx);
+        }
 
-        let id = session.id;
-        let timeout = self.stop_timeout;
-        session._stop_timeout = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(timeout).await;
-            _ = this.update(cx, |this, cx| {
-                if this.is_session(id) {
-                    this.end(SpeechEvent::Final(this.transcript()), cx);
-                }
-            });
-        }));
+        if let Some(timeout) = self.stop_timeout {
+            let id = session.id;
+            session._stop_timeout = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(timeout).await;
+                _ = this.update(cx, |this, cx| {
+                    if this.is_session(id) {
+                        this.end(SpeechEvent::Final(this.transcript()), cx);
+                    }
+                });
+            }));
+        }
 
         self.status = SpeechStatus::Stopping;
         cx.notify();
@@ -304,7 +334,13 @@ impl SpeechState {
     }
 
     pub(super) fn on_audio(&mut self, samples: &[i16], cx: &mut Context<Self>) {
-        if !self.status.is_capturing() {
+        let draining = self.drain_input
+            && self.status == SpeechStatus::Stopping
+            && self
+                .session
+                .as_ref()
+                .is_some_and(|session| !session.input_finished);
+        if !self.status.is_capturing() && !draining {
             return;
         }
         if let Some(session) = self.session.as_mut() {
@@ -314,6 +350,22 @@ impl SpeechState {
         // waveform shows.
         if self.meter.push(samples) {
             cx.notify();
+        }
+    }
+
+    pub(super) fn on_input_finished(&mut self, cx: &mut Context<Self>) {
+        let Some(session) = self.session.as_mut() else {
+            return;
+        };
+        if session.input_finished {
+            return;
+        }
+        session.input_finished = true;
+        if self.status.is_capturing() {
+            self.stop(cx);
+        } else if self.status == SpeechStatus::Stopping && !session.recognition_finished {
+            session.recognition_finished = true;
+            session.recognition.finish(cx);
         }
     }
 
@@ -381,6 +433,8 @@ mod tests {
     struct Recorded {
         sink: Option<SpeechSink>,
         samples: usize,
+        audio: Vec<i16>,
+        finishes: usize,
         finished: bool,
         dropped: bool,
     }
@@ -412,11 +466,15 @@ mod tests {
 
     impl RecognitionSession for FakeSession {
         fn push_audio(&mut self, samples: &[i16], _: &mut App) {
-            self.0.borrow_mut().samples += samples.len();
+            let mut recorded = self.0.borrow_mut();
+            recorded.samples += samples.len();
+            recorded.audio.extend_from_slice(samples);
         }
 
         fn finish(&mut self, _: &mut App) {
-            self.0.borrow_mut().finished = true;
+            let mut recorded = self.0.borrow_mut();
+            recorded.finished = true;
+            recorded.finishes += 1;
         }
     }
 
@@ -582,6 +640,70 @@ mod tests {
 
         assert_eq!(f.status(cx), SpeechStatus::Idle);
         assert_eq!(f.take_events().last().unwrap(), "final:half a sentence");
+    }
+
+    #[gpui::test]
+    fn drain_preserves_tail_and_waits_for_completion(cx: &mut TestAppContext) {
+        let f = Fixture::new(FakeRecognizer::default(), cx);
+        f.state.update(cx, |state, _| {
+            state.stop_timeout = None;
+            state.drain_input = true;
+        });
+        f.state.update(cx, |state, cx| state.start(cx));
+        cx.update(|cx| {
+            f.sink().ready(cx);
+            f.audio().push(vec![1, 2], cx);
+            f.sink().hypothesis("partial", cx);
+        });
+        f.state.update(cx, |state, cx| state.stop(cx));
+        assert!(!*f.input.capturing.borrow());
+        assert_eq!(f.recognizer.recorded.borrow().finishes, 0);
+        cx.update(|cx| {
+            f.audio().push(vec![3, 4], cx);
+            f.audio().finish(cx);
+            f.audio().finish(cx);
+        });
+        cx.executor().advance_clock(Duration::from_secs(10));
+        cx.run_until_parked();
+        assert_eq!(f.status(cx), SpeechStatus::Stopping);
+        assert_eq!(f.recognizer.recorded.borrow().audio, [1, 2, 3, 4]);
+        assert_eq!(f.recognizer.recorded.borrow().finishes, 1);
+        assert!(
+            f.take_events()
+                .iter()
+                .all(|event| !event.starts_with("final:"))
+        );
+        cx.update(|cx| {
+            f.sink().phrase("complete", cx);
+            f.sink().finish(cx);
+            f.sink().finish(cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(f.status(cx), SpeechStatus::Idle);
+        assert_eq!(f.take_events(), ["partial:complete", "final:complete"]);
+    }
+
+    #[gpui::test]
+    fn input_completion_stops_and_ignores_stale_tail(cx: &mut TestAppContext) {
+        let f = Fixture::new(FakeRecognizer::default(), cx);
+        f.state.update(cx, |state, _| state.drain_input = true);
+        f.state.update(cx, |state, cx| state.start(cx));
+        let stale = f.audio();
+        cx.update(|cx| {
+            stale.push(vec![8], cx);
+            stale.finish(cx);
+        });
+        assert_eq!(f.status(cx), SpeechStatus::Stopping);
+        assert_eq!(f.recognizer.recorded.borrow().finishes, 1);
+        f.state.update(cx, |state, cx| state.cancel(cx));
+        f.state.update(cx, |state, cx| state.start(cx));
+        cx.update(|cx| {
+            stale.push(vec![9], cx);
+            stale.finish(cx);
+        });
+        assert_eq!(f.status(cx), SpeechStatus::Connecting);
+        assert_eq!(f.recognizer.recorded.borrow().samples, 0);
+        assert_eq!(f.recognizer.recorded.borrow().finishes, 0);
     }
 
     #[gpui::test]

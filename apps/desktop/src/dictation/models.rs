@@ -1,7 +1,7 @@
 //! Controller-owned speech installations; remote Nodes only resolve public model metadata.
 mod install;
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 mod validation;
 
 use super::{Result, error_key, model};

@@ -27,6 +27,14 @@ fn definition() -> Definition {
     }
 }
 
+pub(in crate::dictation) fn installed(directory: PathBuf) -> (Arc<Manager>, ModelId, Capture) {
+    let manager = Manager::open(directory).unwrap();
+    let id = manager.register(definition()).unwrap();
+    manager.finish(Some(id), Ok(()), &CancellationToken::new());
+    let captured = manager.capture(Some(id)).unwrap();
+    (manager, id, captured)
+}
+
 #[test]
 fn preserves_installed_selection_records() {
     let directory = tempfile::tempdir().unwrap();
@@ -57,10 +65,7 @@ fn immutable_versions_reject_new_assets() {
 #[test]
 fn captured_model_keeps_its_installation() {
     let directory = tempfile::tempdir().unwrap();
-    let manager = Manager::open(directory.path().into()).unwrap();
-    let id = manager.register(definition()).unwrap();
-    manager.finish(Some(id), Ok(()), &CancellationToken::new());
-    let captured = manager.capture(Some(id)).unwrap();
+    let (manager, id, captured) = installed(directory.path().into());
     let cloned = captured.clone();
     assert_eq!(manager.remove(id), Err("dictation_busy"));
     let mut other = definition();
