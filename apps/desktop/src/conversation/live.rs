@@ -56,6 +56,7 @@ mod rewind;
 pub(crate) mod search;
 mod selection;
 pub(crate) mod subagents;
+mod submission;
 #[cfg(test)]
 pub(crate) mod tests;
 #[cfg(test)]
@@ -130,6 +131,7 @@ pub(crate) struct View {
     config_owner: NodeId,
     input: Entity<TextareaState>,
     restored_input: Option<gpui_kit::base::input::InputContent>,
+    submissions: submission::State,
     references: references::State,
     attachments: attachments::Drafts,
     images: Entity<attachments::images::Images>,
@@ -230,12 +232,18 @@ impl View {
             })
         });
         let input_events = cx.subscribe_in(&input, window, |view, _, event, window, cx| {
+            if matches!(event, InputEvent::Change) {
+                view.submissions.edited();
+            }
             if matches!(event, InputEvent::PressEnter { shift: false, .. }) && !view.readonly() {
                 view.send(window, cx);
             }
             cx.notify();
         });
         let input_observer = cx.observe_in(&input, window, |view, _, window, cx| {
+            if !view.input.read(cx).value().is_empty() {
+                view.submissions.edited();
+            }
             if view.recovered_input(cx) {
                 cx.notify();
                 return;
@@ -377,6 +385,7 @@ impl View {
             python: sailry_client::python::View::default(),
             input,
             restored_input: None,
+            submissions: submission::State::default(),
             references,
             attachments,
             images,

@@ -2643,6 +2643,8 @@ approval_ssh_replace: "Schlüssel für %{host}:%{port} ersetzen — %{algorithm}
 tool_directory_missing: "Verzeichnis nicht gefunden"
 tool_file_missing: "Datei nicht gefunden"
 queue_draft_present: "Eingabefeld enthält einen Entwurf"
+chat_restore_draft: "Entwurf wiederherstellen"
+chat_restore_unavailable: "Der Entwurf kann hier nicht wiederhergestellt werden"
 chat_continuation: "Aufgabe wird fortgesetzt"
 directory_filter: "Filtern"
 directory_list: "Liste"

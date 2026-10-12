@@ -2643,6 +2643,8 @@ approval_ssh_replace: "%{host}:%{port} のキーを置換 — %{algorithm} %{fin
 tool_directory_missing: "ディレクトリが見つかりません"
 tool_file_missing: "ファイルが見つかりません"
 queue_draft_present: "入力欄に下書きがあります"
+chat_restore_draft: "下書きを復元"
+chat_restore_unavailable: "ここでは下書きを復元できません"
 chat_continuation: "タスクを続行"
 directory_filter: "絞り込み"
 directory_list: "一覧"

@@ -2643,6 +2643,8 @@ approval_ssh_replace: "Заменить ключ %{host}:%{port} — %{algorithm
 tool_directory_missing: "Каталог не найден"
 tool_file_missing: "Файл не найден"
 queue_draft_present: "В поле ввода есть черновик"
+chat_restore_draft: "Восстановить черновик"
+chat_restore_unavailable: "Здесь нельзя восстановить черновик"
 chat_continuation: "Продолжение задачи"
 directory_filter: "Фильтр"
 directory_list: "Список"

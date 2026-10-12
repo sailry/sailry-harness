@@ -60,6 +60,12 @@ struct Item {
     cancel: CancellationToken,
 }
 
+pub(super) struct Captured {
+    key: usize,
+    source: Option<Source>,
+    attachment: Option<Attachment>,
+}
+
 impl Drop for Item {
     fn drop(&mut self) {
         self.cancel.cancel();
@@ -67,6 +73,60 @@ impl Drop for Item {
 }
 
 impl Drafts {
+    pub(super) fn capture(&self) -> Vec<Captured> {
+        self.items
+            .iter()
+            .map(|item| Captured {
+                key: item.key,
+                source: item.source.clone(),
+                attachment: match &item.status {
+                    Status::Ready(attachment) => Some(attachment.clone()),
+                    _ => None,
+                },
+            })
+            .collect()
+    }
+
+    pub(super) fn can_restore(&self, captured: &[Captured]) -> bool {
+        self.items.iter().all(|item| {
+            !item.pending && !item.removing && captured.iter().any(|draft| draft.key == item.key)
+        }) && captured.len() <= 8
+    }
+
+    pub(super) fn restore_captured(&mut self, captured: Vec<Captured>, stop: &CancellationToken) {
+        for draft in captured {
+            if self.items.iter().any(|item| item.key == draft.key) {
+                continue;
+            }
+            // An explicitly removed local upload may no longer exist on the
+            // Node. Restore its source as a passive draft, not a stale ID.
+            let (name, status) = if let Some(source) = &draft.source {
+                let Some(name) = source.name() else { continue };
+                (name, Status::Staged)
+            } else if let Some(attachment) = draft.attachment {
+                (attachment.spec.name.clone(), Status::Ready(attachment))
+            } else {
+                continue;
+            };
+            self.next = self.next.max(draft.key + 1);
+            self.items.push(Item {
+                key: draft.key,
+                source: draft.source,
+                name,
+                status,
+                pending: false,
+                removing: false,
+                cancel: stop.child_token(),
+            });
+        }
+        self.items.sort_by_key(|item| item.key);
+    }
+
+    pub(super) fn sent_captured(&mut self, captured: &[Captured]) {
+        self.items
+            .retain(|item| !captured.iter().any(|draft| draft.key == item.key));
+    }
+
     pub(super) fn can_retarget(&self) -> bool {
         self.items.iter().all(|item| {
             !item.pending
@@ -505,6 +565,18 @@ impl View {
                 self.submit(message, window, cx);
             } else {
                 self.outgoing = None;
+                let key = self
+                    .attachments
+                    .items
+                    .iter()
+                    .find_map(|item| match item.status {
+                        Status::Failed(key) => Some(key),
+                        Status::Uncertain(_) => Some("chat_attachment_unknown"),
+                        _ => None,
+                    })
+                    .unwrap_or("files_upload_failed");
+                self.error = Some(key);
+                self.fail_submission(key, window, cx);
                 self.sync_rows(cx);
             }
         }

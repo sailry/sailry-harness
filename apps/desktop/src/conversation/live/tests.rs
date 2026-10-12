@@ -28,6 +28,7 @@ mod retry;
 mod spacing;
 mod statistics;
 mod streaming;
+mod submission;
 mod tools;
 mod unassigned;
 mod web_search;

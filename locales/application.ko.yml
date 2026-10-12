@@ -2643,6 +2643,8 @@ approval_ssh_replace: "%{host}:%{port} 키 교체 — %{algorithm} %{fingerprint
 tool_directory_missing: "디렉터리를 찾을 수 없습니다"
 tool_file_missing: "파일을 찾을 수 없습니다"
 queue_draft_present: "입력창에 초안이 있습니다"
+chat_restore_draft: "초안 복원"
+chat_restore_unavailable: "여기서는 초안을 복원할 수 없습니다"
 chat_continuation: "작업 계속"
 directory_filter: "필터"
 directory_list: "목록"

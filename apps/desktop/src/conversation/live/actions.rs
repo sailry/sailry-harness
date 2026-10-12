@@ -88,6 +88,7 @@ impl View {
         }
         self.references.dismiss();
         self.show_outgoing(message.clone(), cx);
+        self.capture_submission(window, cx);
         if (self.session.is_none() && self.binding.worktree.is_none())
             || !self.prepare_attachments(message.clone(), window, cx)
         {
@@ -130,6 +131,11 @@ impl View {
                 .find(|provider| provider.id == config.provider)
                 .map(|provider| provider.revision)
             else {
+                self.error = Some("chat_config_unavailable");
+                self.outgoing = None;
+                self.fail_submission("chat_config_unavailable", window, cx);
+                self.sync_rows(cx);
+                cx.notify();
                 return;
             };
             Command::CreateSessionAt {
@@ -202,7 +208,12 @@ impl View {
         } else {
             self.binding.client.clone()
         };
-        let request = client.prepare(command);
+        let mut request = client.prepare(command);
+        if matches!(&action, Action::Send(_))
+            && let Some(draft) = &self.submissions.active
+        {
+            request.id = draft.id;
+        }
         if matches!(&action, Action::Send(_) | Action::Document(..))
             && let Some(outgoing) = &mut self.outgoing
         {
@@ -376,6 +387,7 @@ impl View {
                             view.remember_config(&session.config, cx);
                         }
                         if matches!(attempt.action, Action::Create(_)) {
+                            view.bind_submission();
                             view.defaults_stop.cancel();
                             view._defaults = None;
                             view.defaults = NodeView::default();
@@ -395,6 +407,7 @@ impl View {
                             if !view.references_valid(&message.references) {
                                 view.error = Some("reference_stale");
                                 view.outgoing = None;
+                                view.fail_submission("reference_stale", window, cx);
                                 view.sync_rows(cx);
                                 cx.notify();
                                 return;
@@ -423,14 +436,7 @@ impl View {
                         }
                         view.retry = None;
                         if let Action::Send(message) = attempt.action {
-                            view.attachments.sent(&message.attachments);
-                            let unchanged = view.input.read(cx).value().as_ref() == message.text;
-                            if unchanged {
-                                view.references.selected.clear();
-                                view.references.command_keys.clear();
-                                view.input
-                                    .update(cx, |input, cx| input.set_value("", window, cx));
-                            }
+                            view.accept_submission(&message.attachments);
                         }
                         view.scroller
                             .update(cx, |scroller, cx| scroller.scroll_to_end(cx));
@@ -441,12 +447,8 @@ impl View {
                     {
                         view.retry = None;
                         view.outgoing = None;
-                        if let Action::Send(message) = attempt.action {
-                            if view.input.read(cx).value().as_ref() == message.text {
-                                view.references.command_keys.clear();
-                                view.input
-                                    .update(cx, |input, cx| input.set_value("", window, cx));
-                            }
+                        if let Action::Send(_) = attempt.action {
+                            view.submissions.active = None;
                             if let Some(intent) =
                                 result.get("ui_intent").and_then(|value| value.as_str())
                             {
@@ -503,6 +505,9 @@ impl View {
                                 Action::Send(_) | Action::Create(_) | Action::Document(..)
                             ) {
                                 view.outgoing = None;
+                                if matches!(attempt.action, Action::Send(_) | Action::Create(_)) {
+                                    view.fail_submission(view.error.unwrap(), window, cx);
+                                }
                             }
                         }
                     }

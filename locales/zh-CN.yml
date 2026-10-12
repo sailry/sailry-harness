@@ -2641,6 +2641,8 @@ approval_ssh_replace: "替换 %{host}:%{port} 的密钥 — %{algorithm} %{finge
 tool_directory_missing: "目录不存在"
 tool_file_missing: "文件不存在"
 queue_draft_present: "输入框已有草稿"
+chat_restore_draft: "恢复草稿"
+chat_restore_unavailable: "无法在此恢复草稿"
 chat_continuation: "继续执行"
 directory_filter: "筛选"
 directory_list: "列表"

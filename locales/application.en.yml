@@ -2342,6 +2342,8 @@ approval_ssh_replace: "Replace the key for %{host}:%{port} — %{algorithm} %{fi
 tool_directory_missing: "Directory not found"
 tool_file_missing: "File not found"
 queue_draft_present: "Composer has a draft"
+chat_restore_draft: "Restore draft"
+chat_restore_unavailable: "Draft cannot be restored here"
 chat_continuation: "Continuing task"
 directory_filter: "Filter"
 directory_list: "List"

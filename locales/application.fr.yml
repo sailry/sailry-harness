@@ -2643,6 +2643,8 @@ approval_ssh_replace: "Remplacer la clé de %{host}:%{port} — %{algorithm} %{f
 tool_directory_missing: "Dossier introuvable"
 tool_file_missing: "Fichier introuvable"
 queue_draft_present: "Le champ contient un brouillon"
+chat_restore_draft: "Restaurer le brouillon"
+chat_restore_unavailable: "Impossible de restaurer le brouillon ici"
 chat_continuation: "Poursuite de la tâche"
 directory_filter: "Filtrer"
 directory_list: "Liste"

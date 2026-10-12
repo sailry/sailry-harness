@@ -171,8 +171,9 @@ fn shows_before_admission_and_reconciles_before_reply(cx: &mut TestAppContext) {
             assert!(fixture.server.requests.lock().unwrap().is_empty());
             // A new-session image is uploaded before the held CreateSession command.
             wait(visual, |cx| view.read(cx).pending);
-            view.read_with(visual, |view, _| {
+            view.read_with(visual, |view, cx| {
                 assert!(view.pending);
+                assert!(view.input.read(cx).value().is_empty());
                 assert_eq!(view.rows.len(), 1);
                 assert!(
                     view.history
@@ -181,6 +182,9 @@ fn shows_before_admission_and_reconciles_before_reply(cx: &mut TestAppContext) {
                         .is_none_or(|s| s.page.entries.is_empty())
                 );
             });
+            // A new draft equal to the sent text is still a different draft.
+            fixture::tap(visual, "live-chat-input");
+            visual.simulate_input("Show this before the request returns");
             delayed.dispatch.cancel();
             if existing {
                 wait(visual, |cx| {
@@ -263,6 +267,13 @@ fn shows_before_admission_and_reconciles_before_reply(cx: &mut TestAppContext) {
             });
             delayed.reply.cancel();
             wait(visual, |cx| !view.read(cx).pending);
+            view.read_with(visual, |view, cx| {
+                assert_eq!(
+                    view.input.read(cx).value(),
+                    "Show this before the request returns"
+                );
+                assert!(view.submissions.active.is_none());
+            });
             assert_eq!(fixture.task_requests(), 1);
             visual.update(|window, _| window.remove_window());
             drop(view);

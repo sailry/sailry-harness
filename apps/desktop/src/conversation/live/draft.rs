@@ -61,6 +61,7 @@ impl View {
         }
         next.hosts = self.hosts.clone();
         next.references.selected = self.references.selected.clone();
+        next.submissions.failed = std::mem::take(&mut self.submissions.failed);
         // Command provenance must not be rebound by selecting another execution Node.
         next.inherit_command_keys(&self.references);
         next.set_attachment_sequence(next_attachment);

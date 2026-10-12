@@ -2643,6 +2643,8 @@ approval_ssh_replace: "Reemplazar la clave de %{host}:%{port} — %{algorithm} %
 tool_directory_missing: "Directorio no encontrado"
 tool_file_missing: "Archivo no encontrado"
 queue_draft_present: "El editor contiene un borrador"
+chat_restore_draft: "Restaurar borrador"
+chat_restore_unavailable: "No se puede restaurar el borrador aquí"
 chat_continuation: "Continuando tarea"
 directory_filter: "Filtrar"
 directory_list: "Lista"
