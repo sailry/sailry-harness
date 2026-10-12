@@ -8,6 +8,8 @@ use sailry_protocol::{
 };
 use std::sync::atomic::Ordering;
 
+mod reads;
+
 fn definition() -> Definition {
     let source = Source {
         hub: Hub::HuggingFace,

@@ -161,9 +161,6 @@ impl View {
             .w(px(WIDTH))
             .h_full()
             .pl_3()
-            .when(hovered.is_some() || self.navigation.dragging, |control| {
-                control.cursor_pointer()
-            })
             .role(Role::Slider)
             .aria_label(tr("chat_navigation"))
             .aria_value(format!("{}/{}", self.navigation.active.get() + 1, count))

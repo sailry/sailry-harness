@@ -254,6 +254,8 @@ pub(super) struct Library {
     partial: bool,
     loading: bool,
     generation: u64,
+    closed: bool,
+    read: Option<requests::Read>,
 }
 
 pub(super) fn open(
@@ -298,8 +300,7 @@ pub(super) fn open(
             window,
             |library: &mut Library, _, event, window, cx| {
                 if matches!(event, SelectEvent::Confirm(_)) {
-                    library.generation += 1;
-                    library.loading = false;
+                    library.cancel();
                     library.items.clear();
                     library.repository = None;
                     library.definition = None;
@@ -320,8 +321,7 @@ pub(super) fn open(
             window,
             |library: &mut Library, _, event, window, cx| {
                 if let SelectEvent::Confirm(Some(_)) = event {
-                    library.generation += 1;
-                    library.loading = false;
+                    library.cancel();
                     library.definition = None;
                     library.resolve(window, cx);
                 }
@@ -329,9 +329,15 @@ pub(super) fn open(
         )
         .detach();
         match &target {
-            Target::Knowledge(panel) => cx.observe(panel, |_, _, cx| cx.notify()).detach(),
-            Target::Speech(panel) => cx.observe(panel, |_, _, cx| cx.notify()).detach(),
-            Target::Ocr(panel) => cx.observe(panel, |_, _, cx| cx.notify()).detach(),
+            Target::Knowledge(panel) => cx
+                .observe(panel, |library: &mut Library, _, cx| library.changed(cx))
+                .detach(),
+            Target::Speech(panel) => cx
+                .observe(panel, |library: &mut Library, _, cx| library.changed(cx))
+                .detach(),
+            Target::Ocr(panel) => cx
+                .observe(panel, |library: &mut Library, _, cx| library.changed(cx))
+                .detach(),
         }
         Library {
             target,
@@ -350,6 +356,8 @@ pub(super) fn open(
             partial: false,
             loading: false,
             generation: 0,
+            closed: false,
+            read: None,
         }
     });
     let result = library.clone();
@@ -365,7 +373,10 @@ pub(super) fn open(
             .overlay_closable(false)
             .on_ok(|_, _, _| false)
             .on_close(move |_, _, cx| {
-                close.update(cx, |library, _| library.generation += 1);
+                close.update(cx, |library, _| {
+                    library.closed = true;
+                    library.cancel();
+                });
             })
             .child(library.clone())
     });
@@ -386,7 +397,13 @@ impl Library {
             .unwrap_or_default()
     }
     fn available(&self, cx: &App) -> bool {
-        self.target.available(self.binding.client.target(), cx)
+        !self.closed && self.target.available(self.binding.client.target(), cx)
+    }
+    fn changed(&mut self, cx: &mut Context<Self>) {
+        if !self.available(cx) && self.read.is_some() {
+            self.cancel();
+        }
+        cx.notify();
     }
     fn download(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.available(cx) {

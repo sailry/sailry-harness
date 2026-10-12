@@ -143,7 +143,7 @@ impl Editor {
                     .rounded(cx.theme().radius)
                     .aria_label(tr("provider_oauth_advanced"))
                     .when(!self.pending, |trigger| {
-                        trigger.track_focus(&self.oauth.focus).cursor_pointer()
+                        trigger.track_focus(&self.oauth.focus)
                     })
                     .when(
                         self.oauth.focus.is_focused(window) && !self.pending,

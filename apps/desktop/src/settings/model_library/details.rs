@@ -52,8 +52,7 @@ pub(super) fn open(library: Entity<Library>, index: usize, window: &mut Window, 
             .overlay_closable(false)
             .on_close(move |_, _, cx| {
                 close.update(cx, |library, cx| {
-                    library.generation += 1;
-                    library.loading = false;
+                    library.cancel();
                     library.repository = None;
                     library.definition = None;
                     cx.notify();

@@ -252,7 +252,7 @@ impl Login {
             .w_full()
             .h_auto()
             .p_0()
-            .cursor_pointer()
+            .when(!retry, |button| button.cursor_pointer())
             .accessibility_label(tr(if retry {
                 "provider_login_retry"
             } else {
