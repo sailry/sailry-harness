@@ -456,16 +456,12 @@ mod tests {
                     let checked = surface.blend(theme.switch_checked);
                     let thumb = contrast(checked, checked.blend(theme.switch_thumb));
                     assert!(text >= 4.5, "{} {mode:?}: primary text {text}", package.id);
-                    if package.id == "builtin" {
-                        assert!(
-                            selected_surface >= 3.,
-                            "{mode:?}: selected surface {selected_surface}"
-                        );
-                    }
-                    eprintln!(
-                        "theme control contrast: {} {mode:?}: primary text={text:.4}, selected surface={selected_surface:.4}, checked thumb={thumb:.4}",
+                    assert!(
+                        selected_surface >= 3.,
+                        "{} {mode:?}: selected surface {selected_surface}",
                         package.id
                     );
+                    assert!(thumb >= 3., "{} {mode:?}: checked thumb {thumb}", package.id);
                 }
             }
         });
