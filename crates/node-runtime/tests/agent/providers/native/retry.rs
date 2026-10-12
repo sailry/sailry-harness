@@ -64,6 +64,131 @@ fn unique_entries(page: &Page) {
     assert_eq!(ids.len(), page.entries.len());
 }
 
+fn unavailable(retry_after: &str) -> Script {
+    Script {
+        bytes: format!(
+            "HTTP/1.1 503 Unavailable\r\nContent-Type: application/json\r\nRetry-After: {retry_after}\r\nConnection: close\r\n\r\n{{\"error\":{{\"message\":\"private provider failure\",\"type\":\"server_error\"}}}}"
+        ).into_bytes(),
+        ending: Ending::Close,
+    }
+}
+
+#[tokio::test]
+async fn honors_server_retry_delays() {
+    for remote in [false, true] {
+        for date in [false, true] {
+            let deadline =
+                chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() + 4, 0).unwrap();
+            let header = if date {
+                deadline.format("%a, %d %b %Y %H:%M:%S GMT").to_string()
+            } else {
+                "2".into()
+            };
+            let server = Server::start(
+                ModelApi::Responses,
+                Reply::Scripted(Arc::new(vec![
+                    unavailable(&header),
+                    Script {
+                        bytes: wire(&[completed()], true, true),
+                        ending: Ending::Close,
+                    },
+                ])),
+            )
+            .await;
+            let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+            let turn = fixture.submit("Respect the server retry delay").await;
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+            assert_eq!(completion::response(&page), RECOVERED);
+            assert_eq!(attempts(&page), vec![1]);
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert_eq!(requests[0].body, requests[1].body);
+            if date {
+                let deadline: std::time::SystemTime = deadline.into();
+                assert!(
+                    requests[0].received_at < deadline,
+                    "date fixture must still be in the future"
+                );
+                assert!(requests[1].received_at >= deadline);
+            } else {
+                assert!(
+                    requests[1].received.duration_since(requests[0].received)
+                        >= Duration::from_secs(2)
+                );
+            }
+            drop(requests);
+            let serialized = serde_json::to_string(&page).unwrap();
+            assert!(!serialized.contains("private provider failure"));
+            assert!(!serialized.contains(server::KEY));
+            unique_entries(&page);
+            fixture.controller.close().await.unwrap();
+            fixture.node.shutdown().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn cancels_a_hinted_wait_without_replay() {
+    for remote in [false, true] {
+        let server = Server::start(
+            ModelApi::Responses,
+            Reply::Scripted(Arc::new(vec![unavailable("30")])),
+        )
+        .await;
+        let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let turn = fixture.submit("Cancel the server retry wait").await;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let page = history(&fixture.client, fixture.session.id).await;
+                if attempts(&page) == vec![1] {
+                    assert_eq!(page.runs.last().unwrap().status, Status::Running);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("hinted retry must be admitted before stopping");
+        execute(&fixture.client, Command::StopTurn { turn }).await;
+        let page = tokio::time::timeout(
+            Duration::from_secs(3),
+            finished(&fixture.client, fixture.session.id, turn),
+        )
+        .await
+        .expect("cancellation must not wait for the server delay");
+        assert_eq!(page.runs.last().unwrap().status, Status::Cancelled);
+        assert_eq!(attempts(&page), vec![1]);
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn rejects_unrepresentable_server_delays() {
+    for remote in [false, true] {
+        let server = Server::start(
+            ModelApi::Responses,
+            Reply::Scripted(Arc::new(vec![unavailable("18446744073709551616")])),
+        )
+        .await;
+        let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let turn = fixture.submit("Retain the unavailable outcome").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        let run = page.runs.last().unwrap();
+        assert_eq!(run.status, Status::Failed);
+        assert_eq!(
+            run.error.as_ref().unwrap().message,
+            "Agent execution failed (model.openai_responses.unavailable); HTTP 503; unavailable"
+        );
+        assert!(attempts(&page).is_empty());
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}
+
 async fn recover(chunked: bool) {
     for remote in [false, true] {
         let release = Arc::new(tokio::sync::Notify::new());

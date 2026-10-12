@@ -60,3 +60,12 @@ retain their codes; nonstandard, malformed and interrupted bodies retain the HTT
 status without exposing their contents. This preserves authentication, quota and
 server-error classification for compatible providers. Remove this patch when the
 pinned upstream adapter preserves statuses independently of provider error bodies.
+
+Responses errors preserve parsed `Retry-After` delays across async-openai 0.41.3's
+existing boxed middleware-error boundary into ADK's retry hint. Seconds and HTTP
+dates use the existing Chrono dependency; malformed values retain backoff, while
+valid unrepresentable delays stop automatic retry instead of retrying early.
+Status classification, retry limits, cancellation and committed-work non-replay
+remain unchanged. The wrapper formats only status and delay, not headers or
+provider content. Remove this patch when the pinned upstream adapter preserves
+the same retry hint through its structured HTTP error boundary.

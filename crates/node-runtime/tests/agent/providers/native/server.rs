@@ -5,7 +5,7 @@ use serde_json::json;
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant, SystemTime},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -45,6 +45,8 @@ pub enum Ending {
 
 #[derive(Clone, Debug)]
 pub struct Request {
+    pub received: Instant,
+    pub received_at: SystemTime,
     pub path: String,
     pub headers: BTreeMap<String, String>,
     pub body: serde_json::Value,
@@ -160,6 +162,8 @@ async fn respond(
         let mut records = records.lock().unwrap();
         let index = records.len();
         records.push(Request {
+            received: Instant::now(),
+            received_at: SystemTime::now(),
             path,
             headers,
             body,

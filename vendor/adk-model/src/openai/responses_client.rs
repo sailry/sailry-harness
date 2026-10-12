@@ -443,16 +443,17 @@ async fn normalize_error_response(
     response: reqwest_openai::Response,
     open_responses_mode: bool,
 ) -> Result<reqwest_openai::Response, async_openai::error::OpenAIError> {
-    use async_openai::error::{ApiError, ApiErrorResponse, OpenAIError, WrappedError};
+    use async_openai::error::{ApiError, ApiErrorResponse, WrappedError};
     let status = response.status();
+    let retry_after = errors::retry_after(response.headers());
     // A malformed or interrupted error body cannot replace a received HTTP status
     // with a parsing failure. Preserve standard envelopes and their provider codes.
     let bytes = response.bytes().await.unwrap_or_default();
     if let Ok(wrapped) = serde_json::from_slice::<WrappedError>(&bytes) {
-        return Err(OpenAIError::ApiError(ApiErrorResponse {
-            status_code: status,
-            api_error: wrapped.error,
-        }));
+        return Err(errors::http_error(
+            ApiErrorResponse { status_code: status, api_error: wrapped.error },
+            retry_after,
+        ));
     }
     if open_responses_mode
         && let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes)
@@ -460,25 +461,31 @@ async fn normalize_error_response(
         && let Some(detail) = value.get("detail").and_then(serde_json::Value::as_str)
     {
         // ChatGPT errors use a top-level detail rather than OpenAI's error envelope.
-        return Err(OpenAIError::ApiError(ApiErrorResponse {
+        return Err(errors::http_error(
+            ApiErrorResponse {
+                status_code: status,
+                api_error: ApiError {
+                    message: detail.to_owned(),
+                    r#type: None,
+                    param: None,
+                    code: None,
+                },
+            },
+            retry_after,
+        ));
+    }
+    Err(errors::http_error(
+        ApiErrorResponse {
             status_code: status,
             api_error: ApiError {
-                message: detail.to_owned(),
+                message: format!("HTTP {status}"),
                 r#type: None,
                 param: None,
                 code: None,
             },
-        }));
-    }
-    Err(OpenAIError::ApiError(ApiErrorResponse {
-        status_code: status,
-        api_error: ApiError {
-            message: format!("HTTP {status}"),
-            r#type: None,
-            param: None,
-            code: None,
         },
-    }))
+        retry_after,
+    ))
 }
 
 fn normalize_responses_bytes(
@@ -764,40 +771,13 @@ fn set_max_reasoning_effort(
 
 /// Map an `async_openai::error::OpenAIError` to an `AdkError`.
 pub(super) fn map_openai_error(e: async_openai::error::OpenAIError) -> AdkError {
+    if let Some(error) = errors::mapped_http_error(&e) {
+        return error;
+    }
     let error_string = e.to_string();
 
     if let async_openai::error::OpenAIError::ApiError(ref api_err) = e {
-        let status_code = api_err.status_code.as_u16();
-        if let Some(error) = errors::sharing_error(api_err.api_error.code.as_deref()) {
-            return crate::error_metadata::with_code(
-                error.with_upstream_status(status_code),
-                api_err.api_error.code.as_deref(),
-            );
-        }
-        let (category, code) = match status_code {
-            401 => (ErrorCategory::Unauthorized, "model.openai_responses.unauthorized"),
-            403 => (ErrorCategory::Forbidden, "model.openai_responses.forbidden"),
-            404 => (ErrorCategory::NotFound, "model.openai_responses.not_found"),
-            408 => (ErrorCategory::Timeout, "model.openai_responses.timeout"),
-            429 => (ErrorCategory::RateLimited, "model.openai_responses.rate_limited"),
-            500 | 502 | 503 | 504 | 529 => {
-                (ErrorCategory::Unavailable, "model.openai_responses.unavailable")
-            }
-            400..=499 => (ErrorCategory::InvalidInput, "model.openai_responses.invalid_request"),
-            _ => (ErrorCategory::Internal, "model.openai_responses.api_error"),
-        };
-
-        return crate::error_metadata::with_code(
-            AdkError::new(
-                ErrorComponent::Model,
-                category,
-                code,
-                format!("OpenAI Responses API error: {api_err}"),
-            )
-            .with_provider("openai-responses")
-            .with_upstream_status(status_code),
-            api_err.api_error.code.as_deref(),
-        );
+        return map_api_error(api_err);
     }
 
     // Reqwest / network errors → Unavailable (retryable)
@@ -841,6 +821,39 @@ pub(super) fn map_openai_error(e: async_openai::error::OpenAIError) -> AdkError 
         format!("OpenAI Responses API error: {error_string}"),
     )
     .with_provider("openai-responses")
+}
+
+fn map_api_error(api_err: &async_openai::error::ApiErrorResponse) -> AdkError {
+    let status_code = api_err.status_code.as_u16();
+    if let Some(error) = errors::sharing_error(api_err.api_error.code.as_deref()) {
+        return crate::error_metadata::with_code(
+            error.with_upstream_status(status_code),
+            api_err.api_error.code.as_deref(),
+        );
+    }
+    let (category, code) = match status_code {
+        401 => (ErrorCategory::Unauthorized, "model.openai_responses.unauthorized"),
+        403 => (ErrorCategory::Forbidden, "model.openai_responses.forbidden"),
+        404 => (ErrorCategory::NotFound, "model.openai_responses.not_found"),
+        408 => (ErrorCategory::Timeout, "model.openai_responses.timeout"),
+        429 => (ErrorCategory::RateLimited, "model.openai_responses.rate_limited"),
+        500 | 502 | 503 | 504 | 529 => {
+            (ErrorCategory::Unavailable, "model.openai_responses.unavailable")
+        }
+        400..=499 => (ErrorCategory::InvalidInput, "model.openai_responses.invalid_request"),
+        _ => (ErrorCategory::Internal, "model.openai_responses.api_error"),
+    };
+    crate::error_metadata::with_code(
+        AdkError::new(
+            ErrorComponent::Model,
+            category,
+            code,
+            format!("OpenAI Responses API error: {api_err}"),
+        )
+        .with_provider("openai-responses")
+        .with_upstream_status(status_code),
+        api_err.api_error.code.as_deref(),
+    )
 }
 
 #[async_trait]
