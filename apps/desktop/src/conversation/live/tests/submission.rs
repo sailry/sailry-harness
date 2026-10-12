@@ -98,7 +98,7 @@ fn restores_rich_input_after_definite_failure(cx: &mut TestAppContext) {
             visual.update(|window, cx| {
                 view.update(cx, |view, cx| {
                     view.config = Some(fixture.session.config.clone());
-                    view.attach_paths(vec![path], window, cx);
+                    view.attach_paths(vec![path.clone()], window, cx);
                     view.input.update(cx, |input, cx| {
                         input.set_value("Keep this input\n", window, cx)
                     });
@@ -107,7 +107,15 @@ fn restores_rich_input_after_definite_failure(cx: &mut TestAppContext) {
                         .update(cx, |input, cx| input.set_selected_range(5..9, cx));
                 })
             });
-            wait(visual, |cx| view.read(cx).attachments.ready());
+            wait(visual, |cx| {
+                let view = view.read(cx);
+                view.has_attachments()
+                    && if existing {
+                        view.attachments.ready()
+                    } else {
+                        view.attachments.sendable()
+                    }
+            });
             let original = view.read_with(visual, |view, cx| {
                 (
                     view.input.read(cx).content(),
@@ -117,11 +125,31 @@ fn restores_rich_input_after_definite_failure(cx: &mut TestAppContext) {
                 )
             });
             visual.update(|window, cx| view.update(cx, |view, cx| view.send(window, cx)));
-            wait(visual, |cx| view.read(cx).pending);
-            view.read_with(visual, |view, cx| {
+            wait(visual, |cx| {
+                view.read(cx).pending && !held.requests.lock().unwrap().is_empty()
+            });
+            let prepared = view.read_with(visual, |view, cx| {
                 assert!(view.input.read(cx).value().is_empty());
                 assert!(view.references.selected.is_empty());
                 assert!(view.submissions.active.is_some());
+                assert!(view.attachments.ready());
+                let ids = view.attachments.ids();
+                assert_eq!(ids.len(), 1);
+                if existing {
+                    assert_eq!(ids, original.3);
+                    let requests = held.requests.lock().unwrap();
+                    let Command::SubmitTurn { message, .. } = &requests[0].command else {
+                        panic!("submission expected")
+                    };
+                    assert_eq!(message.attachments, ids);
+                } else {
+                    assert!(original.3.is_empty());
+                    assert!(matches!(
+                        held.requests.lock().unwrap()[0].command,
+                        Command::CreateSession { .. }
+                    ));
+                }
+                ids
             });
             held.release.cancel();
             wait(visual, |cx| !view.read(cx).pending);
@@ -131,12 +159,24 @@ fn restores_rich_input_after_definite_failure(cx: &mut TestAppContext) {
                 assert_eq!(input.content().tokens(), original.0.tokens());
                 assert_eq!(input.selected_range(), original.1);
                 assert_eq!(view.references.selected, original.2);
-                assert_eq!(view.attachments.ids(), original.3);
+                assert_eq!(view.attachments.ids(), prepared);
+                if existing {
+                    assert_eq!(view.attachments.ids(), original.3);
+                }
+                assert!(view.has_attachments());
+                let sources = view.attachment_sources();
+                assert_eq!(sources.len(), 1);
+                assert!(matches!(&sources[0], attachments::images::Local::Path(source) if source == &path));
+                assert_eq!(sources[0].name().as_deref(), Some("attachment.txt"));
                 assert!(view.submissions.active.is_none());
                 assert!(view.submissions.failed.is_empty());
                 assert!(view.retry.is_none());
                 assert!(view.outgoing.is_none());
             });
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap(),
+                "Retained attachment"
+            );
             assert_eq!(held.requests.lock().unwrap().len(), 1);
             assert_eq!(fixture.task_requests(), 0);
             visual.update(|window, _| window.remove_window());
@@ -226,6 +266,7 @@ fn retains_original_request_after_unknown_receipt(cx: &mut TestAppContext) {
         wait(visual, |cx| {
             !view.read(cx).pending && view.read(cx).retry.is_none()
         });
+        wait(visual, |_| fixture.task_requests() > 0);
         let requests = held.requests.lock().unwrap();
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[0], requests[1]);
