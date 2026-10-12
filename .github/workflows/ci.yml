@@ -163,6 +163,7 @@ jobs:
           path: target/sherpa-onnx-prebuilt
           key: ${{ steps.speech-cache.outputs.cache-primary-key }}
       - name: Formatting
+        if: matrix.kind == 'backend' || needs.source.outputs.backend != 'true'
         run: cargo fmt --all -- --check
       - name: Backend strict lint
         if: matrix.kind == 'backend'
@@ -268,6 +269,7 @@ jobs:
           flutter analyze --no-pub
           flutter test --no-pub
       - name: Formatting
+        if: needs.source.outputs.rust != 'true'
         run: cargo fmt --all -- --check
       - name: Mobile strict lint
         run: cargo clippy --locked -p sailry-mobile-bridge --all-targets --jobs 1 -- -D warnings

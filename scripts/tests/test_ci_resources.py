@@ -2,6 +2,7 @@
 
 import copy
 import importlib.util
+import itertools
 import json
 import os
 from pathlib import Path
@@ -142,9 +143,33 @@ class Workflow(unittest.TestCase):
             self.assertIn("--timings", command)
         self.assertIn("--test dart --timings --", workflow)
         rust = workflow.split("\n  rust:\n", 1)[1].split("\n  mobile:\n", 1)[0]
-        self.assertIn("- name: Formatting\n        run: cargo fmt --all -- --check", rust)
+        self.assertIn("run: cargo fmt --all -- --check", rust)
         mobile = workflow.split("\n  mobile:\n", 1)[1].split("\n  android:\n", 1)[0]
         self.assertIn("run: cargo fmt --all -- --check", mobile)
+
+    def test_formats_once_for_selected_native_lanes(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        rust = workflow.split("\n  rust:\n", 1)[1].split("\n  mobile:\n", 1)[0]
+        mobile = workflow.split("\n  mobile:\n", 1)[1].split("\n  android:\n", 1)[0]
+        self.assertIn(
+            "- name: Formatting\n"
+            "        if: matrix.kind == 'backend' || needs.source.outputs.backend != 'true'\n"
+            "        run: cargo fmt --all -- --check", rust,
+        )
+        self.assertIn(
+            "- name: Formatting\n"
+            "        if: needs.source.outputs.rust != 'true'\n"
+            "        run: cargo fmt --all -- --check", mobile,
+        )
+        lanes = sorted(ci.LANES)
+        for choices in itertools.product((False, True), repeat=len(lanes)):
+            selected = {lane for lane, included in zip(lanes, choices) if included}
+            with self.subTest(selected=selected):
+                output = ci.outputs(selected)
+                kinds = json.loads(output["rust_matrix"])["kind"] if output["rust"] == "true" else []
+                count = sum(kind == "backend" or output["backend"] != "true" for kind in kinds)
+                count += output["mobile"] == "true" and output["rust"] != "true"
+                self.assertEqual(count, int(bool(selected & {"backend", "desktop", "mobile"})))
 
 
 class Profiles(unittest.TestCase):
