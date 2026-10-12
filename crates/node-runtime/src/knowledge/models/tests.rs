@@ -132,7 +132,7 @@ async fn preserves_capture_and_cancellation() {
     assert_eq!(
         fixture
             .owner
-            .install(Model::GraniteMulti, &cancel)
+            .install(Model::GraniteMulti, &cancel, None)
             .await
             .unwrap_err()
             .code,

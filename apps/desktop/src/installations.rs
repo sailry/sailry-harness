@@ -9,11 +9,21 @@ use sailry_protocol::{Command, ErrorCode, Fault, NodeId, Output, Request, Reques
 use std::{collections::BTreeMap, rc::Rc, sync::Arc};
 
 mod dialog;
+mod models;
+mod speech;
+pub(crate) use models::{completion as model_result, external, retry_model};
+pub(crate) use speech::controller;
+pub(crate) use speech::external as external_controller;
 mod rows;
 #[cfg(test)]
 mod tests;
 
-type Key = (NodeId, RequestId);
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Location {
+    Node(NodeId),
+    Controller,
+}
+type Key = (Location, RequestId);
 type Retry = Rc<dyn Fn(Attempt, &mut Window, &mut App)>;
 
 #[derive(Clone, Copy)]
@@ -25,7 +35,11 @@ pub(crate) enum Attempt {
 impl Attempt {
     pub(crate) fn request(self, client: &Client, captured: &Request) -> Request {
         match self {
-            Self::New => client.prepare(captured.command.clone()),
+            Self::New => {
+                let mut request = client.prepare(captured.command.clone());
+                request.plugin = captured.plugin.clone();
+                request
+            }
             Self::Recover => captured.clone(),
         }
     }
@@ -56,6 +70,7 @@ struct Queue {
     entries: BTreeMap<Key, Entry>,
     next_order: u64,
     sources: BTreeMap<NodeId, Source>,
+    controller: Option<speech::Source>,
     list: Option<Entity<ListState<rows::Rows>>>,
     focus: Option<FocusHandle>,
     window: Option<WindowId>,
@@ -123,6 +138,7 @@ fn registry(cx: &mut App) -> Entity<Queue> {
             entries: BTreeMap::new(),
             next_order: 0,
             sources: BTreeMap::new(),
+            controller: None,
             list: None,
             focus: None,
             window: None,
@@ -137,6 +153,9 @@ pub(crate) fn connected(client: Arc<Client>, runtime: Arc<tokio::runtime::Runtim
 }
 
 fn resource(command: &Command) -> Option<Resource> {
+    if let Some(resource) = models::resource(command) {
+        return Some(resource);
+    }
     let name = match command {
         Command::InstallPlugin { name, .. }
         | Command::InstallBundledPlugin { name, .. }
@@ -166,7 +185,7 @@ pub(crate) fn track(
 ) -> Option<Ticket> {
     let resource = resource(&request.command)?;
     let queue = registry(cx);
-    let key = (client.target(), request.id);
+    let key = (Location::Node(client.target()), request.id);
     queue.update(cx, |queue, cx| {
         queue.bind(client, runtime, cx);
         // A new attempt has a new row. Retained failures remain visible until
@@ -237,6 +256,15 @@ impl Ticket {
     }
 
     pub(crate) fn record(&self, result: Result<(), Fault>, cx: &mut App) {
+        self.record_with(result, true, cx);
+    }
+
+    /// Domain-confirmed completions normalize transport uncertainty separately.
+    pub(crate) fn record_outcome(&self, result: Result<(), Fault>, cx: &mut App) {
+        self.record_with(result, false, cx);
+    }
+
+    fn record_with(&self, result: Result<(), Fault>, unavailable_uncertain: bool, cx: &mut App) {
         self.queue.update(cx, |queue, cx| {
             if let Some(entry) = queue.entries.get_mut(&self.key) {
                 match result {
@@ -244,10 +272,8 @@ impl Ticket {
                         queue.entries.remove(&self.key);
                     }
                     Err(error) => {
-                        let uncertain = matches!(
-                            error.code,
-                            ErrorCode::OutcomeUnknown | ErrorCode::Unavailable
-                        );
+                        let uncertain = error.code == ErrorCode::OutcomeUnknown
+                            || (unavailable_uncertain && error.code == ErrorCode::Unavailable);
                         entry.status = Presentation::Observed(if uncertain {
                             Status::Uncertain { error }
                         } else {
@@ -289,7 +315,7 @@ impl Queue {
                 let view = receiver.borrow_and_update().clone();
                 if queue
                     .update(cx, |queue, cx| {
-                        queue.accept(node, view);
+                        queue.accept(Location::Node(node), view);
                         queue.changed(cx);
                     })
                     .is_err()
@@ -310,7 +336,7 @@ impl Queue {
         );
     }
 
-    fn accept(&mut self, node: NodeId, view: View) {
+    fn accept(&mut self, node: Location, view: View) {
         let observed: std::collections::BTreeSet<_> =
             view.tasks.iter().map(|task| task.request).collect();
         for (key, entry) in &mut self.entries {
@@ -395,7 +421,14 @@ impl Queue {
         if !self.entries.get(&key).is_some_and(Entry::actionable) {
             return;
         }
-        let Some(source) = self.sources.get(&key.0) else {
+        if key.0 == Location::Controller {
+            self.remove_controller(key, window, cx);
+            return;
+        }
+        let Location::Node(node) = key.0 else {
+            return;
+        };
+        let Some(source) = self.sources.get(&node) else {
             return;
         };
         let client = source.client.clone();

@@ -296,6 +296,7 @@ impl Panel {
         };
         match manager.start(id, None, &runtime) {
             Ok(cancel) => {
+                crate::installations::controller(manager.clone(), runtime, window, cx);
                 if id == preferences::data(cx).dictation.unwrap_or_default().model {
                     self.cancel = cancel;
                     self.state = State::Downloading(Default::default());

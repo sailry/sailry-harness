@@ -6,7 +6,7 @@ use sailry_protocol::{
     plugin::Context,
 };
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
 };
 use tokio::sync::watch;
@@ -33,6 +33,7 @@ struct Record {
 struct Observation {
     caller: NodeId,
     task: Task,
+    plugin: Option<Context>,
 }
 
 impl Default for Registry {
@@ -130,7 +131,7 @@ impl Registry {
         let Some(record) = entries.records.get(&key) else {
             return Ok(());
         };
-        if plugin.is_some() && record.plugin.as_ref() != plugin {
+        if !visible(record, plugin) {
             return Err(Fault::new(
                 ErrorCode::PermissionDenied,
                 "installation belongs to another plugin scope",
@@ -144,6 +145,34 @@ impl Registry {
         Ok(())
     }
 
+    pub(in crate::store) fn read(
+        &self,
+        caller: NodeId,
+        requests: &[RequestId],
+        plugin: Option<&Context>,
+    ) -> Result<Vec<Task>, Fault> {
+        sailry_protocol::installation::validate_requests(requests)?;
+        let entries = self.state.lock().expect("installation state lock is valid");
+        let mut records = Vec::new();
+        for request in requests {
+            let Some(record) = entries.records.get(&(caller, *request)) else {
+                continue;
+            };
+            if !visible(record, plugin) {
+                return Err(Fault::new(
+                    ErrorCode::PermissionDenied,
+                    "installation belongs to another plugin scope",
+                ));
+            }
+            records.push(record);
+        }
+        records.sort_by_key(|record| record.position);
+        Ok(records
+            .into_iter()
+            .map(|record| record.task.clone())
+            .collect())
+    }
+
     fn publish(&self, entries: &Entries) {
         let mut records = entries.records.iter().collect::<Vec<_>>();
         records.sort_by_key(|(_, record)| record.position);
@@ -153,6 +182,7 @@ impl Registry {
                 .map(|((caller, _), record)| Observation {
                     caller: *caller,
                     task: record.task.clone(),
+                    plugin: record.plugin.clone(),
                 })
                 .collect(),
         );
@@ -170,8 +200,34 @@ impl Registry {
             updates: self.updates.subscribe(),
             closed,
             initial: true,
+            scope: None,
         })
     }
+
+    pub(in crate::store) fn subscribe_for(
+        &self,
+        node: NodeId,
+        caller: NodeId,
+        requests: Vec<RequestId>,
+        plugin: Context,
+        closed: CancellationToken,
+    ) -> Result<Box<dyn Subscription>, Fault> {
+        self.read(caller, &requests, Some(&plugin))?;
+        Ok(Box::new(Updates {
+            node,
+            caller,
+            updates: self.updates.subscribe(),
+            closed,
+            initial: true,
+            scope: Some((requests.into_iter().collect(), plugin)),
+        }))
+    }
+}
+
+fn visible(record: &Record, plugin: Option<&Context>) -> bool {
+    plugin.is_none()
+        || (record.plugin.as_ref() == plugin
+            && matches!(record.task.resource, Resource::Model { .. }))
 }
 
 struct Updates {
@@ -180,6 +236,7 @@ struct Updates {
     updates: watch::Receiver<Vec<Observation>>,
     closed: CancellationToken,
     initial: bool,
+    scope: Option<(BTreeSet<RequestId>, Context)>,
 }
 
 impl Subscription for Updates {
@@ -203,6 +260,13 @@ impl Subscription for Updates {
                     .borrow_and_update()
                     .iter()
                     .filter(|record| record.caller == self.caller)
+                    .filter(|record| {
+                        self.scope.as_ref().is_none_or(|(requests, plugin)| {
+                            requests.contains(&record.task.request)
+                                && record.plugin.as_ref() == Some(plugin)
+                                && matches!(record.task.resource, Resource::Model { .. })
+                        })
+                    })
                     .map(|record| record.task.clone())
                     .collect(),
             })

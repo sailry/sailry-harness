@@ -8,14 +8,38 @@ impl Manager {
         mirror: Option<String>,
         runtime: &tokio::runtime::Runtime,
     ) -> Result<CancellationToken> {
+        let request = {
+            let data = self.data.lock().unwrap();
+            data.jobs
+                .get(&id)
+                .filter(|job| matches!(job.state, State::Downloading(_)))
+                .and_then(|_| data.requests.get(&id).copied())
+                .unwrap_or_else(RequestId::new)
+        };
+        self.start_request(id, mirror, request, runtime)
+    }
+
+    pub fn start_request(
+        self: &Arc<Self>,
+        id: Option<ModelId>,
+        mirror: Option<String>,
+        request: RequestId,
+        runtime: &tokio::runtime::Runtime,
+    ) -> Result<CancellationToken> {
         let definition = {
             let mut data = self.data.lock().unwrap();
+            if data.outcomes.contains_key(&request) {
+                return Ok(CancellationToken::new());
+            }
             if data.active.contains_key(&id) {
                 return Err("dictation_busy");
             }
             if let Some(job) = data.jobs.get(&id)
                 && matches!(job.state, State::Downloading(_))
             {
+                if data.requests.get(&id) != Some(&request) {
+                    return Err("dictation_busy");
+                }
                 return Ok(job.cancel.clone());
             }
             let definition = id
@@ -32,6 +56,20 @@ impl Manager {
                 Job {
                     cancel: CancellationToken::new(),
                     state: State::Downloading(Progress::default()),
+                },
+            );
+            data.requests.insert(id, request);
+            data.installations.insert(
+                request,
+                sailry_protocol::installation::Task {
+                    request,
+                    revision: 1,
+                    resource: sailry_protocol::installation::ModelRef::Speech {
+                        target: sailry_protocol::installation::Target::Controller,
+                        id,
+                    }
+                    .resource(),
+                    state: sailry_protocol::installation::State::Queued,
                 },
             );
             definition
@@ -76,6 +114,13 @@ impl Manager {
             };
             let result = match result {
                 Ok(_) if !stopping.is_cancelled() => {
+                    manager.progress(
+                        id,
+                        Progress {
+                            phase: sailry_model_assets::Phase::Validating,
+                            ..Default::default()
+                        },
+                    );
                     let graph = path.join(if id.is_some() {
                         "model.onnx"
                     } else {
@@ -94,10 +139,32 @@ impl Manager {
         Ok(cancel)
     }
 
-    fn progress(&self, id: Option<ModelId>, progress: Progress) {
-        if let Some(job) = self.data.lock().unwrap().jobs.get_mut(&id) {
+    pub(super) fn progress(&self, id: Option<ModelId>, progress: Progress) {
+        let mut data = self.data.lock().unwrap();
+        if let Some(job) = data.jobs.get_mut(&id) {
             job.state = State::Downloading(progress);
         }
+        if let Some(request) = data.requests.get(&id).copied()
+            && let Some(task) = data.installations.get_mut(&request)
+        {
+            use sailry_protocol::installation::{Phase, Progress as Measurement, State};
+            task.revision += 1;
+            task.state = State::Running {
+                phase: match progress.phase {
+                    sailry_model_assets::Phase::Inspecting => Phase::Inspecting,
+                    sailry_model_assets::Phase::Downloading => Phase::Downloading,
+                    sailry_model_assets::Phase::Validating => Phase::Validating,
+                    sailry_model_assets::Phase::Installing => Phase::Installing,
+                },
+                progress: (progress.phase == sailry_model_assets::Phase::Downloading).then_some(
+                    Measurement::Percent {
+                        percent: progress.percent.clamp(0., 100.) as u8,
+                        bytes_per_second: Some(progress.bytes_per_second.max(0.) as u64),
+                    },
+                ),
+            };
+        }
+        drop(data);
         self.changed();
     }
 
@@ -107,6 +174,15 @@ impl Manager {
         mut result: Result<()>,
         cancel: &CancellationToken,
     ) {
+        if id.is_some() && result.is_ok() && !cancel.is_cancelled() {
+            self.progress(
+                id,
+                Progress {
+                    phase: sailry_model_assets::Phase::Installing,
+                    ..Default::default()
+                },
+            );
+        }
         let mut data = self.data.lock().unwrap();
         if cancel.is_cancelled() {
             result = Err("dictation_cancelled");
@@ -137,6 +213,27 @@ impl Manager {
                 Err(error) => State::Failed(error),
             };
         }
+        if let Some(request) = data.requests.get(&id).copied() {
+            data.outcomes.insert(request, result);
+            if let Err(error) = result {
+                if let Some(task) = data.installations.get_mut(&request) {
+                    task.revision += 1;
+                    task.state = sailry_protocol::installation::State::Failed {
+                        error: sailry_protocol::Fault::new(
+                            if error == "dictation_cancelled" {
+                                sailry_protocol::ErrorCode::Cancelled
+                            } else {
+                                sailry_protocol::ErrorCode::Internal
+                            },
+                            error,
+                        ),
+                    };
+                }
+            } else {
+                data.installations.remove(&request);
+            }
+        }
+        drop(data);
         self.changed();
     }
 }

@@ -12,12 +12,7 @@ impl Ingress {
                 "Node or protocol version mismatch",
             ));
         }
-        if request.plugin.is_some() {
-            return Err(Fault::new(
-                ErrorCode::PermissionDenied,
-                "model discovery requires a controller",
-            ));
-        }
+        // Plugin reads pass the same captured action check in ordinary Ingress admission.
         let stop = self.closed.child_token();
         let _guard = stop.clone().drop_guard();
         let mirror = self.knowledge_catalog().await?.settings.mirror;

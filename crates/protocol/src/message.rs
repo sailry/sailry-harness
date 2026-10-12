@@ -359,6 +359,9 @@ pub enum Command {
     DismissInstallation {
         request: RequestId,
     },
+    ReadInstallations {
+        requests: Vec<RequestId>,
+    },
     InstallPluginSource {
         source: crate::plugin::skills::Resolved,
         path: String,
@@ -1459,6 +1462,7 @@ impl Command {
                 | Self::ListBackups
                 | Self::ReadPythonSettings
                 | Self::DismissInstallation { .. }
+                | Self::ReadInstallations { .. }
                 | Self::ReadOcrSettings
                 | Self::ReadOcrModels
                 | Self::RefreshOcrModel { .. }
@@ -1595,6 +1599,7 @@ pub enum Output {
     InstallationDismissed {
         request: RequestId,
     },
+    Installations(Vec<crate::installation::Task>),
     Artifact(crate::artifact::Content),
     ArtifactWritten {
         artifact: crate::artifact::Summary,
@@ -2036,6 +2041,7 @@ pub enum Update {
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Topic {
     Installations,
+    ScopedInstallations(Request),
     Python,
     CodeServers(WorktreeId),
     CodeInstallations,

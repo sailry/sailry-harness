@@ -85,7 +85,7 @@ async fn uses_captured_prefixes_independent_of_priority() {
     .await
     .unwrap();
     owner
-        .install(record.model, &CancellationToken::new())
+        .install(record.model, &CancellationToken::new(), None)
         .await
         .unwrap();
     let cancel = CancellationToken::new();

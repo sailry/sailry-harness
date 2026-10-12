@@ -59,3 +59,63 @@ fn keeps_future_models_in_the_common_contract() {
         task
     );
 }
+
+#[test]
+fn routes_only_to_execution_owners() {
+    let ocr = ModelRef::Ocr {
+        target: Target::Node,
+        id: "a".repeat(64),
+    };
+    assert!(matches!(
+        ocr.node_command().unwrap(),
+        Command::InstallOcrModel { .. }
+    ));
+    let embedding = ModelRef::Embedding {
+        target: Target::Node,
+        model: knowledge::Model::GraniteMulti,
+    };
+    assert!(matches!(
+        embedding.node_command().unwrap(),
+        Command::InstallKnowledgeModel { .. }
+    ));
+    let speech = ModelRef::Speech {
+        target: Target::Controller,
+        id: None,
+    };
+    speech.validate().unwrap();
+    assert_eq!(
+        speech.node_command().unwrap_err().code,
+        ErrorCode::Unavailable
+    );
+    for invalid in [
+        ModelRef::Ocr {
+            target: Target::Controller,
+            id: "a".repeat(64),
+        },
+        ModelRef::Speech {
+            target: Target::Node,
+            id: None,
+        },
+    ] {
+        assert_eq!(
+            invalid.validate().unwrap_err().code,
+            ErrorCode::InvalidRequest
+        );
+    }
+}
+
+#[test]
+fn bounds_scoped_observation() {
+    let id = RequestId::new();
+    validate_requests(&[id]).unwrap();
+    assert!(validate_requests(&[]).is_err());
+    assert!(validate_requests(&[id, id]).is_err());
+    assert!(
+        validate_requests(
+            &(0..=MAX_REQUESTS)
+                .map(|_| RequestId::new())
+                .collect::<Vec<_>>()
+        )
+        .is_err()
+    );
+}

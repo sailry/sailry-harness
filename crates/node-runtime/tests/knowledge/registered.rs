@@ -118,6 +118,17 @@ async fn shares_installation_restore_and_isolated_removal() {
             let output = admission.completion.await.unwrap().unwrap();
             assert_eq!(output, Output::KnowledgeModel { model });
             assert_eq!(client.execute(request).await.unwrap(), output);
+            let Output::Installations(tasks) = execute(
+                &client,
+                Command::ReadInstallations {
+                    requests: vec![admission.receipt.id],
+                },
+            )
+            .await
+            else {
+                panic!("installation observation expected")
+            };
+            assert!(tasks.is_empty());
             assert_eq!(
                 fs::read_to_string(path.join("validated")).unwrap().len(),
                 64

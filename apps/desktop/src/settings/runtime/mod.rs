@@ -334,6 +334,7 @@ fn status(value: &Status) -> ModelStatus {
             percent,
             bytes_per_second,
         } => ModelStatus::Downloading(sailry_model_assets::Progress {
+            phase: sailry_model_assets::Phase::Downloading,
             percent: f32::from(*percent),
             bytes_per_second: *bytes_per_second as f64,
         }),

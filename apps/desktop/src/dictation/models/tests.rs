@@ -1,5 +1,6 @@
 use super::*;
 use sailry_protocol::models::{Asset, Hub, Source};
+mod installations;
 
 fn definition() -> Definition {
     let source = Source {
@@ -194,6 +195,7 @@ fn checking_preserves_an_active_download() {
     let directory = tempfile::tempdir().unwrap();
     let manager = Manager::open(directory.path().into()).unwrap();
     let progress = Progress {
+        phase: sailry_model_assets::Phase::Downloading,
         percent: 45.,
         bytes_per_second: 1024.,
     };

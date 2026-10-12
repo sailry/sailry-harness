@@ -1,13 +1,14 @@
 //! Reuse bounded admission and per-resource preparation order, not another inbox.
 use crate::{
     installation::Reporter,
-    store::{Ingress, Job, external::Completed, mutations::Mutation},
+    store::{Ingress, Job, external::Completed, installations::Execution},
 };
 use futures::FutureExt;
 use sailry_link::{CancellationToken, Response};
 use sailry_protocol::{
     ErrorCode, Fault,
     installation::{Phase, Resource},
+    models::Kind,
 };
 use std::{collections::BTreeMap, panic::AssertUnwindSafe, sync::Arc};
 use tokio::{runtime::Handle, sync::oneshot};
@@ -16,7 +17,21 @@ pub(in crate::store) struct Worker {
     pub pending: usize,
     ingress: Arc<Ingress>,
     runtime: Handle,
-    preceding: BTreeMap<Resource, oneshot::Receiver<()>>,
+    preceding: BTreeMap<Lane, oneshot::Receiver<()>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Lane {
+    Plugin(String),
+    Model(Kind),
+}
+
+fn lane(resource: &Resource) -> Lane {
+    match resource {
+        Resource::Plugin { name } => Lane::Plugin(name.clone()),
+        // Model services serialize mutation within a family, including distinct model IDs.
+        Resource::Model { kind, .. } => Lane::Model(*kind),
+    }
 }
 
 impl Worker {
@@ -31,37 +46,43 @@ impl Worker {
 
     pub fn submit<F, Future>(
         &mut self,
-        mutation: Mutation,
+        execution: Execution,
         resource: Resource,
         prepare: F,
-    ) -> Result<(), Box<Mutation>>
+    ) -> Result<(), Box<Execution>>
     where
         F: FnOnce(Reporter, CancellationToken) -> Future + Send + 'static,
         Future: std::future::Future<Output = Response> + Send + 'static,
     {
-        let reporter =
-            self.ingress
-                .installations
-                .begin(mutation.caller, &mutation.request, resource.clone());
+        let reporter = self.ingress.installations.begin(
+            execution.caller,
+            &execution.request,
+            resource.clone(),
+        );
         if self.pending >= 8 || self.ingress.closed.is_cancelled() {
-            return Err(Box::new(mutation));
+            return Err(Box::new(execution));
         }
-        let stop = if let Some(turn) = mutation
+        let (stop, operation) = if let Some(turn) = execution
             .request
             .plugin
             .as_ref()
             .and_then(|entry| entry.turn)
         {
-            let Some(stop) = self.ingress.agents.python_stop(turn) else {
-                return Err(Box::new(mutation));
+            let stop = if execution.operation {
+                self.ingress.agents.begin_operation(turn)
+            } else {
+                self.ingress.agents.python_stop(turn)
             };
-            stop.child_token()
+            let Some(stop) = stop else {
+                return Err(Box::new(execution));
+            };
+            (stop.child_token(), execution.operation.then_some(turn))
         } else {
-            self.ingress.closed.child_token()
+            (self.ingress.closed.child_token(), None)
         };
         retain(&mut self.preceding);
         let (release, waiting) = oneshot::channel();
-        let preceding = self.preceding.insert(resource, waiting);
+        let preceding = self.preceding.insert(lane(&resource), waiting);
         self.pending += 1;
         let ingress = self.ingress.clone();
         self.runtime.spawn(async move {
@@ -71,7 +92,7 @@ impl Worker {
                 closing.cancelled().await;
                 preparing.cancel();
             });
-            let operation = async {
+            let preparation = async {
                 wait(preceding, &stop).await?;
                 let output = prepare(reporter.clone(), stop.clone()).await?;
                 check(&stop)?;
@@ -79,7 +100,7 @@ impl Worker {
                 reporter(Phase::Installing, None);
                 Ok(output)
             };
-            let result = AssertUnwindSafe(operation)
+            let result = AssertUnwindSafe(preparation)
                 .catch_unwind()
                 .await
                 .unwrap_or_else(|_| {
@@ -89,18 +110,24 @@ impl Worker {
                     ))
                 });
             watcher.abort();
-            let _ = ingress
+            let sent = ingress
                 .sender
                 .send(Job::Installed {
                     completed: Box::new(Completed {
-                        caller: mutation.caller,
-                        request: mutation.request,
+                        caller: execution.caller,
+                        request: execution.request,
                         result,
-                        reply: mutation.reply,
+                        reply: execution.reply,
                     }),
+                    operation,
                     release,
                 })
                 .await;
+            if sent.is_err()
+                && let Some(turn) = operation
+            {
+                ingress.agents.finish_operation(turn);
+            }
         });
         Ok(())
     }
@@ -117,7 +144,7 @@ async fn wait(
     check(stop)
 }
 
-fn retain(preceding: &mut BTreeMap<Resource, oneshot::Receiver<()>>) {
+fn retain(preceding: &mut BTreeMap<Lane, oneshot::Receiver<()>>) {
     preceding.retain(|_, waiting| {
         matches!(waiting.try_recv(), Err(oneshot::error::TryRecvError::Empty))
     });

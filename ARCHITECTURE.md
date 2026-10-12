@@ -212,13 +212,17 @@ uncertain and are not replayed automatically with a new identity. Conflicts requ
 fresh inspection, not silent overwrites.
 
 Node shares one bounded installation queue across resource types. Independent
-resources can prepare concurrently; attempts for the same resource stay in admission
-order through durable completion. Caller-scoped transient snapshots expose real
+resources can prepare concurrently; attempts for the same plugin or model-service
+family stay in admission order through durable completion. Caller-scoped transient snapshots expose real
 phases and measured progress through the same local and remote Client subscription.
 Confirmed success removes a task; failures and uncertain outcomes remain until
 explicitly dismissed. Dismissal changes only the observation, not the command ledger
 or active execution. Captured plugin authority stays private. Controllers own installer
 visibility and locally planned batches, not another execution queue.
+OCR and embedding installation reuse this queue and their existing native model
+services. Speech installation remains with the controller-local speech manager.
+The public model SDK requires `models.install`; observations expose only explicitly
+owned requests in their original captured plugin scope, never the controller feed.
 
 ### Session HTML documents
 

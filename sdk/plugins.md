@@ -3,6 +3,9 @@
 Desktop plugins import the host-owned `sailry/sdk` module. It is registered in Rust for each mounted plugin and uses the existing Client → Node commands on local and remote connections. Do not bundle a private copy of the SDK, model response parser, or request recovery loop.
 
 The desktop TypeScript contract is [api.d.ts](../apps/desktop/src/plugins/host/sdk/api.d.ts). The declaration is registered with GPUI Kit and checked against exported methods. Headless callbacks have a separate [Node SDK subset](../crates/node-runtime/src/plugins/script/api.d.ts); desktop-only exports are not available there.
+Their [model](../crates/node-runtime/src/plugins/script/models.d.ts) and
+[installation](../crates/node-runtime/src/plugins/script/installations.d.ts) modules
+share the scoped request contract with bounded snapshot observations.
 
 | Capability | Public methods |
 | --- | --- |
@@ -31,6 +34,22 @@ layout aspect ratio. Atlas layers can use these to avoid Kit inferring an
 intrinsic source ratio from percentage heights during layout.
 
 Model prompts and response parsing belong to the package. `resolveModel` validates the selected model and reasoning effort against the Node catalog; credentials remain on that Node.
+
+Use `sailry/models` for public `search`, `versions` and `resolve` with `models.read`.
+`register({target, definition})` and `prepare(model)` require `models.install` and
+return ordinary prepared request IDs. Complete registration first, then prepare
+installation with its returned model identity. Definitions retain pinned asset
+digests; OCR and embedding target `node`, while speech targets `controller`.
+Headless callbacks cannot install controller-local speech models.
+
+`sailry/installations.read(ids)` observes only owned model requests in their original
+captured scope. `watch(ids)` starts a Desktop subscription and `next()` consumes its
+Client-reduced snapshots. Headless callbacks use bounded `read(ids)` snapshots;
+`watch` and `next` cannot retain live subscriptions beyond their callback budget.
+SDK rows use
+decimal-string revisions and explicit `target`. `dismiss(id)` removes a failed or
+uncertain observation without cancelling work or changing the durable outcome.
+Package installation and update are not exposed by these model APIs.
 
 ```js
 import {readSettings, listModels, resolveModel, prepareRequest,

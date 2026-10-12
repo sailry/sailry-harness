@@ -326,6 +326,22 @@ async fn validates_cache_and_reports_network_progress() {
     .unwrap();
     assert_eq!(server.requests.load(Ordering::SeqCst), 1);
     assert_eq!(progress.first().unwrap().bytes_per_second, 0.);
+    assert_eq!(progress.first().unwrap().phase, Phase::Inspecting);
+    assert!(
+        progress
+            .iter()
+            .any(|value| value.phase == Phase::Downloading)
+    );
+    assert!(
+        progress
+            .iter()
+            .any(|value| value.phase == Phase::Validating)
+    );
+    assert!(
+        progress
+            .iter()
+            .any(|value| value.phase == Phase::Installing)
+    );
     assert!(progress.iter().any(|value| value.bytes_per_second > 0.));
     assert!(
         progress
@@ -335,6 +351,7 @@ async fn validates_cache_and_reports_network_progress() {
     assert_eq!(
         *progress.last().unwrap(),
         Progress {
+            phase: Phase::Installing,
             percent: 100.,
             bytes_per_second: 0.
         }
@@ -352,6 +369,12 @@ async fn validates_cache_and_reports_network_progress() {
     .unwrap();
     assert_eq!(server.requests.load(Ordering::SeqCst), 1);
     assert!(progress.iter().all(|value| value.bytes_per_second == 0.));
+    assert!(
+        progress
+            .iter()
+            .all(|value| value.phase != Phase::Downloading)
+    );
+    assert_eq!(progress.last().unwrap().phase, Phase::Validating);
     std::fs::write(directory.path().join("fresh"), b"bad").unwrap();
     assert!(!ready(directory.path(), &files));
     download(

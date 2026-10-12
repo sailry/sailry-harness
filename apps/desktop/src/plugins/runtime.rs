@@ -242,6 +242,8 @@ impl Mounted {
             )
             .with_host_module(module)?
             .with_host_module(sdk)?
+            .with_host_module(host.models_module())?
+            .with_host_module(host.installations_module())?
             .with_host_module(connections)?
             .with_host_module(settings)?
             .with_host_module(search)?

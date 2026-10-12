@@ -4,7 +4,7 @@ use gpui_kit::component::{Root, WindowExt as _};
 use sailry_protocol::installation::Task as Observed;
 
 fn key() -> Key {
-    (NodeId([1; 32]), RequestId::new())
+    (Location::Node(NodeId([1; 32])), RequestId::new())
 }
 
 fn entry() -> Entry {
@@ -83,6 +83,39 @@ fn actions_wait_for_original_completion(cx: &mut TestAppContext) {
         .record(Err(failure()), cx);
         assert!(queue.read(cx).entries[&key].actionable());
         assert!(visible(cx));
+    });
+}
+
+#[gpui::test]
+fn confirmed_unavailability_remains_a_failure(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        let queue = registry(cx);
+        let raw = key();
+        let confirmed = key();
+        queue.update(cx, |queue, _| {
+            queue.entries.insert(raw, entry());
+            queue.entries.insert(confirmed, entry());
+        });
+        let error = Fault::new(ErrorCode::Unavailable, "model service is unavailable");
+        Ticket {
+            queue: queue.clone(),
+            key: raw,
+        }
+        .record(Err(error.clone()), cx);
+        Ticket {
+            queue: queue.clone(),
+            key: confirmed,
+        }
+        .record_outcome(Err(error), cx);
+        assert!(matches!(
+            queue.read(cx).entries[&raw].status,
+            Presentation::Observed(Status::Uncertain { .. })
+        ));
+        assert!(matches!(
+            queue.read(cx).entries[&confirmed].status,
+            Presentation::Observed(Status::Failed { .. })
+        ));
+        assert!(queue.read(cx).entries[&confirmed].actionable());
     });
 }
 

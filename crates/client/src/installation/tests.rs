@@ -196,3 +196,84 @@ async fn rejects_another_nodes_snapshot() {
     assert_eq!(result.code, ErrorCode::WrongTarget);
     assert!(receiver.borrow().tasks.is_empty());
 }
+
+struct ScopedFeed {
+    feed: Feed,
+    request: Request,
+}
+
+impl Transport for ScopedFeed {
+    fn target(&self) -> NodeId {
+        self.feed.node
+    }
+    fn dispatch(&self, _: Request) -> Pending<'_, Result<Admission, Fault>> {
+        panic!("scoped observation must not execute requests")
+    }
+    fn subscribe(&self, topic: Topic) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
+        assert_eq!(topic, Topic::ScopedInstallations(self.request.clone()));
+        self.feed.subscribe(Topic::Installations)
+    }
+}
+
+#[tokio::test]
+async fn reconnects_with_original_plugin_scope() {
+    use sailry_protocol::plugin::{Context, Reference};
+    let node = NodeId([1; 32]);
+    let task = queued();
+    let request = Request::new(
+        node,
+        Command::ReadInstallations {
+            requests: vec![task.request],
+        },
+    )
+    .with_plugin(Context {
+        invocation: None,
+        turn: None,
+        surface: Default::default(),
+        package: Reference {
+            name: "fixture".into(),
+            digest: "a".repeat(64),
+            settings_revision: 1,
+        },
+        worktree: None,
+        session: None,
+    });
+    let feed = Arc::new(ScopedFeed {
+        feed: Feed {
+            node,
+            updates: watch::channel(Ok(Update::Installations {
+                node,
+                tasks: vec![task.clone()],
+            }))
+            .0,
+            subscriptions: AtomicUsize::new(0),
+        },
+        request: request.clone(),
+    });
+    let client = Client::new(feed.clone());
+    let (updates, mut receiver) = watch::channel(View::default());
+    let stop = CancellationToken::new();
+    let stopping = stop.clone();
+    let observer = tokio::spawn(async move {
+        client
+            .watch_installations_for(request, updates, stopping)
+            .await
+    });
+    receive(&mut receiver, |view| view.connected).await;
+    let _ = feed
+        .feed
+        .updates
+        .send_replace(Err(Fault::new(ErrorCode::Unavailable, "disconnected")));
+    receive(&mut receiver, |view| view.error.is_some()).await;
+    let _ = feed.feed.updates.send_replace(Ok(Update::Installations {
+        node,
+        tasks: Vec::new(),
+    }));
+    receive(&mut receiver, |view| {
+        view.connected && view.tasks.is_empty()
+    })
+    .await;
+    assert!(feed.feed.subscriptions.load(Ordering::SeqCst) >= 2);
+    stop.cancel();
+    observer.await.unwrap().unwrap();
+}

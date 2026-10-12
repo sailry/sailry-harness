@@ -50,6 +50,7 @@ fn language_and_downloads(cx: &mut TestAppContext) {
         panel.update(cx, |this, cx| {
             this.accept(
                 Update::Progress(dictation::model::DownloadProgress {
+                    phase: sailry_model_assets::Phase::Downloading,
                     percent: 35.,
                     bytes_per_second: 2_500_000.,
                 }),

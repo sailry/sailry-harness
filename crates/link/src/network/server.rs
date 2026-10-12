@@ -145,6 +145,7 @@ async fn request(
         | Call::WatchBrowser
         | Call::WatchPython
         | Call::WatchInstallations
+        | Call::WatchScopedInstallations(_)
         | Call::WatchCommands(_)
         | Call::WatchConversation(_)) => {
             let Ok(_permit) = subscriptions.try_acquire_owned() else {
@@ -161,6 +162,9 @@ async fn request(
             let topic = match subscription {
                 Call::WatchPython => sailry_protocol::Topic::Python,
                 Call::WatchInstallations => sailry_protocol::Topic::Installations,
+                Call::WatchScopedInstallations(request) => {
+                    sailry_protocol::Topic::ScopedInstallations(*request)
+                }
                 Call::WatchProviderLogin(id) => sailry_protocol::Topic::ProviderLogin(id),
                 Call::WatchMcpLogin(id) => sailry_protocol::Topic::McpLogin(id),
                 Call::WatchPluginLogin(id) => sailry_protocol::Topic::PluginLogin(id),

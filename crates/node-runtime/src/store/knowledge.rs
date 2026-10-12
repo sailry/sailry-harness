@@ -124,10 +124,7 @@ pub(super) fn execute(
     request: &Request,
 ) -> Result<(Output, Option<Event>), Fault> {
     match &request.command {
-        Command::RegisterKnowledgeModel { definition } => {
-            controller(request)?;
-            models::register(db, definition)
-        }
+        Command::RegisterKnowledgeModel { definition } => models::register(db, definition),
         Command::SaveKnowledgeSettings(settings) => {
             controller(request)?;
             settings::save(db, settings)

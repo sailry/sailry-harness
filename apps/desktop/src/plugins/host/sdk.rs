@@ -5,6 +5,7 @@ mod connections;
 pub(super) mod conversation;
 mod files;
 mod git;
+pub(super) mod installations;
 mod knowledge;
 mod media;
 mod models;
@@ -139,6 +140,9 @@ impl Host {
             .async_function("completeRequest", move |args| {
                 let id = args.string(0)?.parse::<RequestId>().map_err(|error| HostError::new(error.to_string()))?;
                 type Completion = std::pin::Pin<Box<dyn Future<Output = Result<HostValue, HostError>> + Send>>;
+                if let Some(completion) = complete.complete_model(id)? {
+                    return Ok(completion as Completion);
+                }
                 if let Some(receive) = crate::plugins::documents::sdk::entry(&completed_documents, &complete, id, write_files)? {
                     return Ok(Box::pin(crate::plugins::documents::sdk::complete(receive, true)) as Completion);
                 }
@@ -151,6 +155,7 @@ impl Host {
                     .map_err(|error| HostError::new(error.to_string()))?;
                 forget.settings_forgettable(id)?;
                 forget.requests.lock().map_err(lock_error)?.remove(&id);
+                forget.forget_model(id)?;
                 gpui_shell::with_current_app(|cx| { if let Some(controller) = &forgotten_documents { controller.update(cx, |controller,cx|{if controller.owns_entry(id, &forget.context.package.name){controller.forget_entry(id,cx);}}); } });
                 Ok(HostValue::Null)
             })
@@ -227,7 +232,7 @@ impl Host {
             return Err(HostError::new("plugin command exceeds the size limit"));
         }
         let mut requests = self.requests.lock().map_err(lock_error)?;
-        if requests.len() >= MAX_DRAFTS {
+        if requests.len() + self.models.lock().map_err(lock_error)?.len() >= MAX_DRAFTS {
             return Err(HostError::new("plugin request draft capacity exhausted"));
         }
         let request = self.client.prepare(command).with_plugin(self.context());
@@ -323,6 +328,7 @@ impl Host {
             .try_acquire_owned()
             .map_err(|_| HostError::new("plugin request capacity exhausted"))?;
         let owner = self.clone();
+        let feedback = self.model_feedback(&request);
         Ok(async move {
             let runtime = owner.runtime.clone();
             runtime
@@ -330,6 +336,18 @@ impl Host {
                     let _permit = permit;
                     let work = async {
                         let result = confirmed(&owner.client, request).await?;
+                        if let Some(feedback) = feedback {
+                            let outcome = match &result {
+                                Ok(Output::OcrModel { .. } | Output::KnowledgeModel { .. }) => {
+                                    Ok(())
+                                }
+                                Err(error) => Err(error.clone()),
+                                _ => Err(sailry_protocol::Fault::invalid(
+                                    "unexpected model installation response",
+                                )),
+                            };
+                            let _ = feedback.send(outcome);
+                        }
                         owner.finish_settings(id, &result).await?;
                         match result {
                             Ok(output) => encode(json!({"Ok":public_output(output)?})),

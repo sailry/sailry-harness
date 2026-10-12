@@ -255,6 +255,7 @@ impl Models {
         self: &Arc<Self>,
         model: Model,
         cancel: &CancellationToken,
+        reporter: Option<&crate::installation::Reporter>,
     ) -> Result<(), Fault> {
         if cancel.is_cancelled() || self.stop.is_cancelled() {
             return Err(cancelled());
@@ -317,10 +318,14 @@ impl Models {
         let directory = files::directory(&self.root, model);
         let operation = async {
             sailry_model_assets::prepare(&directory, &specifications, &transfer, |progress| {
+                crate::installation::assets(reporter, progress);
                 self.progress(model, progress)
             })
             .await
             .map_err(asset_failure)?;
+            if let Some(reporter) = reporter {
+                reporter(sailry_protocol::installation::Phase::Validating, None);
+            }
             let root = self.root.clone();
             let definition = definition.clone();
             let native = self.directory.clone();

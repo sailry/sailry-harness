@@ -21,6 +21,7 @@ pub(super) enum Call {
     WatchBrowser,
     WatchPython,
     WatchInstallations,
+    WatchScopedInstallations(Box<Request>),
     WatchCommands(sailry_protocol::SessionId),
     WatchConversation(sailry_protocol::SessionId),
     WatchProviderLogin(sailry_protocol::RequestId),

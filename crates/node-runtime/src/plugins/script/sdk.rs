@@ -22,6 +22,7 @@ pub(super) fn install(
         drafts: BTreeMap::new(),
         calls: 0,
         writes: 0,
+        installations: std::collections::BTreeSet::new(),
     };
     ctx.globals().set(
         "__sailry",
@@ -45,6 +46,7 @@ struct Bridge<F> {
     drafts: BTreeMap<String, Request>,
     calls: usize,
     writes: u64,
+    installations: std::collections::BTreeSet<sailry_protocol::RequestId>,
 }
 
 impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
@@ -75,7 +77,7 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                     json!(self.context.package.settings_revision.to_string());
                 Ok(value)
             }
-            "prepare" | "read" | "knowledge.create" => {
+            "prepare" | "read" | "knowledge.create" | "models.prepare" | "models.register" => {
                 let mut value: Json = serde_json::from_str(body)
                     .map_err(|_| sailry_protocol::Fault::invalid("invalid SDK command"))?;
                 if operation == "knowledge.create" {
@@ -85,6 +87,18 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                         definition: draft.into_definition(self.context.worktree)?,
                         plugin: None,
                     });
+                }
+                if operation == "models.prepare" {
+                    let model: sailry_protocol::installation::ModelRef =
+                        serde_json::from_value(value)
+                            .map_err(|_| Fault::invalid("invalid model installation"))?;
+                    value = json!(model.node_command()?);
+                }
+                if operation == "models.register" {
+                    let registration: sailry_protocol::installation::Registration =
+                        serde_json::from_value(value)
+                            .map_err(|_| Fault::invalid("invalid model registration"))?;
+                    value = json!(registration.node_command()?);
                 }
                 if let Some(revision) = value.pointer_mut("/data/package/settings_revision") {
                     let text = revision.as_str().ok_or_else(|| {
@@ -135,6 +149,26 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                 }
                 let command: Command = serde_json::from_value(value)
                     .map_err(|_| sailry_protocol::Fault::invalid("invalid SDK command"))?;
+                match &command {
+                    Command::ReadInstallations { requests } => {
+                        sailry_protocol::installation::validate_requests(requests)?;
+                        if requests.iter().any(|id| !self.installations.contains(id)) {
+                            return Err(Fault::new(
+                                ErrorCode::PermissionDenied,
+                                "installation request is not owned by this callback",
+                            ));
+                        }
+                    }
+                    Command::DismissInstallation { request }
+                        if !self.installations.contains(request) =>
+                    {
+                        return Err(Fault::new(
+                            ErrorCode::PermissionDenied,
+                            "installation request is not owned by this callback",
+                        ));
+                    }
+                    _ => {}
+                }
                 if command.durable()
                     && let Some(execution) = &self.execution
                 {
@@ -144,7 +178,7 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                     if execution.mode == sailry_protocol::WorkMode::Plan {
                         return Err(Fault::new(
                             ErrorCode::PermissionDenied,
-                            "planning turns cannot write plugin storage",
+                            "planning turns cannot dispatch durable commands",
                         ));
                     }
                     if execution.read_only {
@@ -162,6 +196,10 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                             | Command::RemovePluginValue { .. }
                             | Command::WritePluginConversationValue { .. }
                             | Command::RemovePluginConversationValue { .. }
+                            | Command::RegisterOcrModel { .. }
+                            | Command::RegisterKnowledgeModel { .. }
+                            | Command::InstallOcrModel { .. }
+                            | Command::InstallKnowledgeModel { .. }
                     )
                 {
                     return Err(Fault::new(
@@ -235,6 +273,20 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                     })?
                     .clone();
                 // Business faults remain explicit outcomes, matching the desktop SDK.
+                if matches!(
+                    request.command,
+                    Command::InstallOcrModel { .. } | Command::InstallKnowledgeModel { .. }
+                ) {
+                    if !self.installations.contains(&request.id)
+                        && self.installations.len() >= sailry_protocol::installation::MAX_REQUESTS
+                    {
+                        return Err(Fault::new(
+                            ErrorCode::Busy,
+                            "callback installation observations are full",
+                        ));
+                    }
+                    self.installations.insert(request.id);
+                }
                 Ok(match (self.dispatch)(request) {
                     Ok(result) => json!({"Ok": output(result)}),
                     Err(error) => json!({"Err": error}),
@@ -273,6 +325,15 @@ fn allowed(command: &Command) -> bool {
             | Command::StartSession(_)
             | Command::ReadProjectCatalog
             | Command::ResolvePluginModel { .. }
+            | Command::SearchModels(_)
+            | Command::ReadModelVersions { .. }
+            | Command::ResolveModel { .. }
+            | Command::RegisterOcrModel { .. }
+            | Command::RegisterKnowledgeModel { .. }
+            | Command::InstallOcrModel { .. }
+            | Command::InstallKnowledgeModel { .. }
+            | Command::ReadInstallations { .. }
+            | Command::DismissInstallation { .. }
             | Command::ReadPluginValue { .. }
             | Command::ReadPluginConversationValue { .. }
             | Command::ListPluginKeys { .. }

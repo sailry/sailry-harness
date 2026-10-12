@@ -36,6 +36,10 @@ impl Database {
                 | Command::UseMedia { .. }
                 | Command::InstallCodeServer { .. }
                 | Command::UninstallCodeServer { .. }
+                | Command::RegisterOcrModel { .. }
+                | Command::RegisterKnowledgeModel { .. }
+                | Command::InstallOcrModel { .. }
+                | Command::InstallKnowledgeModel { .. }
         ) && !context.controller_settings()
             && !super::required(&self.connection, &context.package.name)?
                 .summary
@@ -304,6 +308,18 @@ impl Database {
                     (Some(Action::GenerateText), None, None)
                 }
                 Command::ResolvePluginModel { .. } => (Some(Action::ReadModels), None, None),
+                Command::SearchModels(_)
+                | Command::ReadModelVersions { .. }
+                | Command::ResolveModel { .. }
+                | Command::RefreshOcrModel { .. }
+                | Command::ReadOcrModels
+                | Command::ReadKnowledgeModels => (Some(Action::ReadModels), None, None),
+                Command::RegisterOcrModel { .. }
+                | Command::RegisterKnowledgeModel { .. }
+                | Command::InstallOcrModel { .. }
+                | Command::InstallKnowledgeModel { .. }
+                | Command::ReadInstallations { .. }
+                | Command::DismissInstallation { .. } => (Some(Action::InstallModels), None, None),
                 Command::RequestPluginHttp(_) => (Some(Action::Http), None, None),
                 Command::FetchWeb(_)
                 | Command::CancelWebFetch { .. }
@@ -640,6 +656,18 @@ impl Database {
                     | Command::PutRole { .. }
                     | Command::RemoveRole { .. }
                     | Command::ListPluginModels
+                    | Command::SearchModels(_)
+                    | Command::ReadModelVersions { .. }
+                    | Command::ResolveModel { .. }
+                    | Command::RefreshOcrModel { .. }
+                    | Command::ReadOcrModels
+                    | Command::ReadKnowledgeModels
+                    | Command::RegisterOcrModel { .. }
+                    | Command::RegisterKnowledgeModel { .. }
+                    | Command::InstallOcrModel { .. }
+                    | Command::InstallKnowledgeModel { .. }
+                    | Command::ReadInstallations { .. }
+                    | Command::DismissInstallation { .. }
                     | Command::ReadPluginSettings { .. }
                     | Command::ReadPluginValue { .. }
                     | Command::ListPluginKeys { .. }

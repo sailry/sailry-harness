@@ -19,11 +19,11 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
     ) {
         return super::knowledge::runtime::prepare(request);
     }
-    if matches!(
-        request.command,
-        Command::InstallOcrModel { .. } | Command::DeleteOcrModel { .. }
-    ) {
+    if matches!(request.command, Command::DeleteOcrModel { .. }) {
         return super::python::controller(request);
+    }
+    if matches!(request.command, Command::InstallOcrModel { .. }) {
+        return Ok(());
     }
     if matches!(
         request.command,
@@ -146,12 +146,13 @@ impl Worker {
                     Command::ExportBackup { .. } | Command::RestoreBackup { .. } => {
                         ingress.change_backup(&execution.request, &stop).await
                     }
-                    Command::InstallOcrModel { .. } | Command::DeleteOcrModel { .. } => {
-                        ingress.change_ocr(&execution.request, &stop).await
+                    Command::DeleteOcrModel { .. } => {
+                        ingress.change_ocr(&execution.request, &stop, None).await
                     }
-                    Command::InstallKnowledgeModel { .. }
-                    | Command::DeleteKnowledgeModel { .. } => {
-                        ingress.change_knowledge(&execution.request, &stop).await
+                    Command::DeleteKnowledgeModel { .. } => {
+                        ingress
+                            .change_knowledge(&execution.request, &stop, None)
+                            .await
                     }
                     Command::StartCodeServer { .. }
                     | Command::StopCodeServer { .. }

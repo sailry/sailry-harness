@@ -19,7 +19,9 @@ pub(in crate::store) fn check_action(
             && action == Some(&Action::WriteArtifacts))
         || matches!(
             command,
-            Command::ReadPluginSettings { .. }
+            Command::ReadInstallations { .. }
+                | Command::DismissInstallation { .. }
+                | Command::ReadPluginSettings { .. }
                 | Command::ListPluginModels
                 | Command::GuideTurn { .. }
                 | Command::Dispatch {

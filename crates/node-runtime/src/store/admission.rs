@@ -86,7 +86,7 @@ impl Ingress {
         }
     }
 
-    async fn check_request(
+    pub(super) async fn check_request(
         &self,
         caller: NodeId,
         request: Request,
@@ -173,6 +173,12 @@ impl Ingress {
             if request.plugin.is_some() && !request.command.durable() {
                 self.check_request(caller, request.clone(), internal)
                     .await?;
+            }
+            if matches!(
+                request.command,
+                sailry_protocol::Command::ReadInstallations { .. }
+            ) {
+                return self.read_installations(caller, request);
             }
             if matches!(
                 request.command,

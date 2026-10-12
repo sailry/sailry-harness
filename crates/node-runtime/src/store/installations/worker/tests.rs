@@ -1,11 +1,11 @@
 use super::*;
-use crate::store::{CAPACITY, Store, mutations::Roots};
+use crate::store::{CAPACITY, Store};
 use sailry_protocol::{
     Command, NodeId, Output, Request,
     installation::{Progress, State},
     models::Kind,
 };
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 async fn fixture() -> (tempfile::TempDir, Store, Arc<Ingress>, mpsc::Receiver<Job>) {
@@ -29,9 +29,9 @@ async fn fixture() -> (tempfile::TempDir, Store, Arc<Ingress>, mpsc::Receiver<Jo
     (directory, store, Arc::new(ingress), receiver)
 }
 
-fn mutation(node: NodeId) -> Mutation {
+fn mutation(node: NodeId) -> Execution {
     let (reply, _) = oneshot::channel();
-    Mutation {
+    Execution {
         caller: node,
         request: Request::new(
             node,
@@ -40,10 +40,7 @@ fn mutation(node: NodeId) -> Mutation {
                 expected_revision: 0,
             },
         ),
-        roots: Roots {
-            source: PathBuf::new(),
-            target: PathBuf::new(),
-        },
+        operation: false,
         reply,
     }
 }
@@ -53,11 +50,12 @@ fn plugin(name: &str) -> Resource {
 }
 
 async fn installed(receiver: &mut mpsc::Receiver<Job>) -> (Box<Completed>, oneshot::Sender<()>) {
-    let Job::Installed { completed, release } =
-        tokio::time::timeout(Duration::from_secs(3), receiver.recv())
-            .await
-            .unwrap()
-            .unwrap()
+    let Job::Installed {
+        completed, release, ..
+    } = tokio::time::timeout(Duration::from_secs(3), receiver.recv())
+        .await
+        .unwrap()
+        .unwrap()
     else {
         panic!("installation completion expected")
     };
@@ -264,14 +262,101 @@ async fn cleanup_preserves_pending_predecessors() {
     let mut preceding = BTreeMap::new();
     let (committed, completed) = oneshot::channel();
     committed.send(()).unwrap();
-    preceding.insert(plugin("completed"), completed);
+    preceding.insert(lane(&plugin("completed")), completed);
     let (abandoned, closed) = oneshot::channel();
     drop(abandoned);
-    preceding.insert(plugin("closed"), closed);
+    preceding.insert(lane(&plugin("closed")), closed);
     let (committed, pending) = oneshot::channel();
-    preceding.insert(plugin("pending"), pending);
+    preceding.insert(lane(&plugin("pending")), pending);
     retain(&mut preceding);
     assert_eq!(preceding.len(), 1);
     committed.send(()).unwrap();
-    preceding.remove(&plugin("pending")).unwrap().await.unwrap();
+    preceding
+        .remove(&lane(&plugin("pending")))
+        .unwrap()
+        .await
+        .unwrap();
+}
+
+#[test]
+fn serializes_actual_model_families() {
+    let model = |kind, id: &str| Resource::Model {
+        kind,
+        id: id.into(),
+    };
+    assert_eq!(
+        lane(&model(Kind::Ocr, "first")),
+        lane(&model(Kind::Ocr, "second"))
+    );
+    assert_ne!(
+        lane(&model(Kind::Ocr, "first")),
+        lane(&model(Kind::Embedding, "first"))
+    );
+    assert_ne!(lane(&plugin("first")), lane(&plugin("second")));
+}
+
+#[tokio::test]
+async fn holds_turn_until_durable_completion() {
+    use sailry_protocol::{
+        SessionId, TurnId,
+        plugin::{Context, Reference},
+    };
+
+    let (_directory, store, ingress, mut receiver) = fixture().await;
+    let turn = TurnId::new();
+    ingress
+        .agents
+        .register(turn, SessionId::new(), CancellationToken::new());
+    let mut execution = mutation(ingress.node);
+    execution.operation = true;
+    execution.request.plugin = Some(Context {
+        invocation: None,
+        turn: Some(turn),
+        surface: Default::default(),
+        package: Reference {
+            name: "fixture".into(),
+            digest: "a".repeat(64),
+            settings_revision: 0,
+        },
+        worktree: None,
+        session: None,
+    });
+    let mut worker = Worker::new(ingress.clone());
+    assert!(
+        worker
+            .submit(
+                execution,
+                Resource::Model {
+                    kind: Kind::Ocr,
+                    id: "fixture".into()
+                },
+                |report, _| async move {
+                    report(Phase::Validating, None);
+                    Ok(Output::OcrModel {
+                        id: "fixture".into(),
+                    })
+                }
+            )
+            .is_ok()
+    );
+    let Job::Installed {
+        completed,
+        operation,
+        release,
+    } = receiver.recv().await.unwrap()
+    else {
+        panic!("installation completion expected")
+    };
+    assert_eq!(operation, Some(turn));
+    let mut draining = Box::pin(ingress.agents.drain(turn));
+    assert!(draining.as_mut().now_or_never().is_none());
+    // The Store records the business outcome before ending the admitted operation.
+    ingress
+        .installations
+        .finish(completed.caller, completed.request.id, &completed.result);
+    ingress.agents.finish_operation(turn);
+    draining.await;
+    worker.pending -= 1;
+    release.send(()).unwrap();
+    store.shutdown().await.unwrap();
 }

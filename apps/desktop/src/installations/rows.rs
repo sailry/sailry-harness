@@ -159,6 +159,10 @@ impl ListDelegate for Rows {
         } else {
             tr(label(&row.status))
         };
+        let location = tr(match row.key.0 {
+            Location::Node(_) => "installation_node",
+            Location::Controller => "installation_controller",
+        });
         let retry = self.owner.clone();
         let remove = self.owner.clone();
         Some(
@@ -214,6 +218,7 @@ impl ListDelegate for Rows {
                                 .text_sm()
                                 .text_color(cx.theme().muted_foreground)
                                 .child(phase.clone())
+                                .child(location)
                                 .children(progress.map(measurement)),
                         )
                         .when(!row.status.terminal(), |view| {

@@ -172,3 +172,197 @@ async fn requires_explicit_models() {
         controller.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn scopes_real_model_installation() {
+    use sailry_protocol::{
+        installation::{Resource, State},
+        models::{Asset, Definition, Format, Hub, PaddleFamily, Source},
+    };
+    use sha2::{Digest, Sha256};
+
+    for remote in [false, true] {
+        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let source = Source {
+            hub: Hub::HuggingFace,
+            repository: "fixture/ocr".into(),
+            revision: "a".repeat(40),
+        };
+        let contents = [
+            ("detector.onnx", b"unvalidated graph".as_slice()),
+            ("recognizer.onnx", b"unvalidated graph".as_slice()),
+            ("dictionary.txt", b"\n".as_slice()),
+        ];
+        let definition = Definition {
+            source: source.clone(),
+            name: "Native validation fixture".into(),
+            license: "MIT".into(),
+            format: Format::PaddleOcr {
+                family: PaddleFamily::V5,
+                orientation: false,
+            },
+            query_prefix: None,
+            document_prefix: None,
+            assets: contents
+                .iter()
+                .map(|(name, bytes)| Asset {
+                    source: source.clone(),
+                    path: (*name).into(),
+                    name: (*name).into(),
+                    bytes: bytes.len() as u64,
+                    sha256: format!("{:x}", Sha256::digest(bytes)),
+                })
+                .collect(),
+        };
+        definition.validate().unwrap();
+        let mut read_only = install_actions(
+            &client,
+            &directory.path().join("source/package"),
+            worktree,
+            0,
+            &[Action::ReadModels],
+        )
+        .await;
+        read_only.worktree = None;
+        assert!(matches!(
+            client
+                .execute(
+                    client
+                        .prepare(Command::ReadOcrModels)
+                        .with_plugin(read_only.clone())
+                )
+                .await
+                .unwrap(),
+            Output::OcrModels(_)
+        ));
+        assert_eq!(
+            client
+                .execute(
+                    client
+                        .prepare(Command::RegisterOcrModel {
+                            definition: definition.clone()
+                        })
+                        .with_plugin(read_only)
+                )
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+        let mut context = install_actions(
+            &client,
+            &directory.path().join("source/package"),
+            worktree,
+            1,
+            &[Action::ReadModels, Action::InstallModels],
+        )
+        .await;
+        context.worktree = None;
+        let registration = client
+            .prepare(Command::RegisterOcrModel { definition })
+            .with_plugin(context.clone());
+        let Output::OcrModel { id } = client.execute(registration.clone()).await.unwrap() else {
+            panic!("registered OCR model expected")
+        };
+        assert_eq!(
+            client.outcome(&registration).await.unwrap(),
+            RequestOutcome::Completed(Box::new(Ok(Output::OcrModel { id: id.clone() })))
+        );
+        let assets = directory.path().join("node/models/ocr").join(&id);
+        fs::create_dir_all(&assets).unwrap();
+        for (name, bytes) in contents {
+            fs::write(assets.join(name), bytes).unwrap();
+        }
+        let request = client
+            .prepare(Command::InstallOcrModel { id: id.clone() })
+            .with_plugin(context.clone());
+        let admission = client.dispatch(request.clone()).await.unwrap();
+        assert!(admission.receipt.durable);
+        let error = admission.completion.await.unwrap().unwrap_err();
+        assert!(
+            error.message.contains("OCR dictionary is invalid"),
+            "{error}"
+        );
+        assert!(!assets.join("validated").exists());
+        let observation = || {
+            client
+                .prepare(Command::ReadInstallations {
+                    requests: vec![request.id],
+                })
+                .with_plugin(context.clone())
+        };
+        let Output::Installations(tasks) = client.execute(observation()).await.unwrap() else {
+            panic!("installation observation expected")
+        };
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(
+            tasks[0].resource,
+            Resource::Model {
+                kind: sailry_protocol::models::Kind::Ocr,
+                id: id.clone()
+            }
+        );
+        assert_eq!(
+            tasks[0].state,
+            State::Failed {
+                error: error.clone()
+            }
+        );
+        let mut stream = client
+            .subscribe_installations_for(observation())
+            .await
+            .unwrap();
+        let Update::Installations {
+            tasks: connected, ..
+        } = stream.next().await.unwrap()
+        else {
+            panic!("installation snapshot expected")
+        };
+        assert_eq!(connected, tasks);
+        let mut foreign = context.clone();
+        foreign.surface = sailry_protocol::plugin::desktop::Surface::Settings;
+        assert_eq!(
+            client
+                .execute(
+                    client
+                        .prepare(Command::ReadInstallations {
+                            requests: vec![request.id]
+                        })
+                        .with_plugin(foreign)
+                )
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+        assert_eq!(
+            client
+                .execute(
+                    client
+                        .prepare(install(worktree, 2))
+                        .with_plugin(context.clone())
+                )
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+        client
+            .execute(
+                client
+                    .prepare(Command::DismissInstallation {
+                        request: request.id,
+                    })
+                    .with_plugin(context),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            client.outcome(&request).await.unwrap(),
+            RequestOutcome::Completed(Box::new(Err(error.clone())))
+        );
+        assert_eq!(client.execute(request).await.unwrap_err(), error);
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}

@@ -157,47 +157,97 @@ impl Panel {
         self.pending = true;
         self.error = None;
         self.fault = None;
+        let retry = cx.entity();
+        let captured = request.clone();
+        let retry_binding = binding.clone();
+        let ticket = crate::installations::track(
+            binding.client.clone(),
+            binding.runtime.clone(),
+            &request,
+            false,
+            move |attempt, window, cx| {
+                let request = attempt.request(&retry_binding.client, &captured);
+                if !retry.read(cx).active {
+                    crate::installations::retry_model(
+                        retry_binding.client.clone(),
+                        retry_binding.runtime.clone(),
+                        request,
+                        window,
+                        cx,
+                    );
+                    return;
+                }
+                retry.update(cx, |panel, cx| {
+                    if panel.pending
+                        || panel
+                            .request
+                            .as_ref()
+                            .is_some_and(|request| request.id != captured.id)
+                    {
+                        return;
+                    }
+                    panel.request = Some(request);
+                    panel.retry(window, cx);
+                });
+            },
+            window,
+            cx,
+        );
+        let origin = window.window_handle();
         let job = self.binding.runtime.spawn(async move {
             super::super::knowledge::requests::execute(&binding, request).await
         });
-        cx.spawn_in(window, async move |owner, cx| {
+        cx.spawn(async move |owner, cx| {
             let result = job.await;
-            _ = owner.update_in(cx, |panel, window, cx| {
-                panel.pending = false;
-                match result {
-                    Ok((Ok(output), _)) => {
-                        panel.request = None;
-                        panel.retry_install = None;
-                        match output {
-                            Output::PythonSettings(settings) => panel.python = Some(settings),
-                            Output::OcrSettings(settings) => panel.settings = Some(settings),
-                            Output::OcrModel { id } if registering => {
-                                panel.submit(Command::InstallOcrModel { id }, window, cx);
-                                return;
-                            }
-                            _ => (),
-                        }
-                        crate::feedback::info("", &crate::tr("knowledge_saved"), window, cx);
-                        panel.load(window, cx);
-                    }
-                    Ok((Err(error), confirmed)) => {
-                        let uncertain = !confirmed || error.code == ErrorCode::OutcomeUnknown;
-                        if !uncertain {
-                            panel.request = None;
-                            if error.code != ErrorCode::Cancelled {
-                                panel.retry_install = install;
-                            }
-                        }
-                        if error.code != ErrorCode::Cancelled {
-                            panel.fail(error, uncertain);
-                        }
-                    }
-                    Err(error) => panel.fail(
-                        Fault::new(ErrorCode::OutcomeUnknown, error.to_string()),
-                        true,
-                    ),
+            cx.update(|cx| {
+                if let Some(ticket) = &ticket {
+                    ticket.record_outcome(crate::installations::model_result(&result), cx);
                 }
-                cx.notify();
+            });
+            let Some(target) = cx.update(|cx| crate::installations::target(origin, cx)) else {
+                return;
+            };
+            let _ = target.update(cx, |_, window, cx| {
+                if let Some(ticket) = &ticket {
+                    ticket.close_empty(window, cx);
+                }
+                _ = owner.update(cx, |panel, cx| {
+                    panel.pending = false;
+                    match result {
+                        Ok((Ok(output), _)) => {
+                            panel.request = None;
+                            panel.retry_install = None;
+                            match output {
+                                Output::PythonSettings(settings) => panel.python = Some(settings),
+                                Output::OcrSettings(settings) => panel.settings = Some(settings),
+                                Output::OcrModel { id } if registering => {
+                                    panel.submit(Command::InstallOcrModel { id }, window, cx);
+                                    return;
+                                }
+                                _ => (),
+                            }
+                            crate::feedback::info("", &crate::tr("knowledge_saved"), window, cx);
+                            panel.load(window, cx);
+                        }
+                        Ok((Err(error), confirmed)) => {
+                            let uncertain = !confirmed || error.code == ErrorCode::OutcomeUnknown;
+                            if !uncertain {
+                                panel.request = None;
+                                if error.code != ErrorCode::Cancelled {
+                                    panel.retry_install = install;
+                                }
+                            }
+                            if error.code != ErrorCode::Cancelled {
+                                panel.fail(error, uncertain);
+                            }
+                        }
+                        Err(error) => panel.fail(
+                            Fault::new(ErrorCode::OutcomeUnknown, error.to_string()),
+                            true,
+                        ),
+                    }
+                    cx.notify();
+                });
             });
         })
         .detach();

@@ -159,8 +159,9 @@ async fn retains_captured_provenance_privately() {
     registry.begin(
         caller,
         &request,
-        Resource::Plugin {
-            name: "fixture".into(),
+        Resource::Model {
+            kind: sailry_protocol::models::Kind::Ocr,
+            id: "fixture".into(),
         },
     );
     registry.finish(caller, request.id, &Err(Fault::invalid("fixture failure")));
@@ -188,6 +189,100 @@ async fn retains_captured_provenance_privately() {
     registry
         .dismiss(caller, request.id, Some(&context))
         .unwrap();
+}
+
+#[tokio::test]
+async fn filters_owned_model_observations() {
+    let registry = Arc::new(Registry::default());
+    let caller = NodeId([1; 32]);
+    let context = Context {
+        invocation: Some(RequestId::new()),
+        turn: None,
+        surface: Surface::Workspace,
+        package: Reference {
+            name: "owner".into(),
+            digest: "a".repeat(64),
+            settings_revision: 1,
+        },
+        worktree: None,
+        session: None,
+    };
+    let owned = request(caller).with_plugin(context.clone());
+    registry.begin(
+        caller,
+        &owned,
+        Resource::Model {
+            kind: sailry_protocol::models::Kind::Ocr,
+            id: "owned".into(),
+        },
+    );
+    let mut other_context = context.clone();
+    other_context.invocation = Some(RequestId::new());
+    let foreign = request(caller).with_plugin(other_context);
+    registry.begin(
+        caller,
+        &foreign,
+        Resource::Model {
+            kind: sailry_protocol::models::Kind::Embedding,
+            id: "foreign".into(),
+        },
+    );
+    let package = request(caller).with_plugin(context.clone());
+    registry.begin(
+        caller,
+        &package,
+        Resource::Plugin {
+            name: "package".into(),
+        },
+    );
+    assert_eq!(
+        registry
+            .read(caller, &[foreign.id], Some(&context))
+            .unwrap_err()
+            .code,
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        registry
+            .read(caller, &[package.id], Some(&context))
+            .unwrap_err()
+            .code,
+        ErrorCode::PermissionDenied
+    );
+    assert!(
+        registry
+            .read(NodeId([2; 32]), &[owned.id], Some(&context))
+            .unwrap()
+            .is_empty()
+    );
+    let mut updates = registry
+        .subscribe_for(
+            caller,
+            caller,
+            vec![owned.id],
+            context.clone(),
+            CancellationToken::new(),
+        )
+        .unwrap();
+    let Update::Installations { tasks, .. } = updates.next().await.unwrap() else {
+        panic!("installation snapshot expected")
+    };
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].request, owned.id);
+    registry.finish(
+        caller,
+        owned.id,
+        &Err(Fault::invalid("native validation failed")),
+    );
+    let Update::Installations { tasks, .. } = updates.next().await.unwrap() else {
+        panic!("installation snapshot expected")
+    };
+    assert!(matches!(tasks[0].state, State::Failed { .. }));
+    registry.dismiss(caller, owned.id, Some(&context)).unwrap();
+    let Update::Installations { tasks, .. } = updates.next().await.unwrap() else {
+        panic!("installation snapshot expected")
+    };
+    assert!(tasks.is_empty());
 }
 
 #[tokio::test]

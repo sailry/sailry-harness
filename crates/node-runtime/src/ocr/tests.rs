@@ -64,7 +64,7 @@ async fn rejects_unregistered_selection_and_unsafe_ids() {
     assert!(owner.remove("../outside").await.is_err());
     assert!(
         owner
-            .install("../outside", None, &CancellationToken::new())
+            .install("../outside", None, &CancellationToken::new(), None)
             .await
             .is_err()
     );
@@ -150,7 +150,7 @@ async fn validates_exact_preseeded_assets_before_installing() {
         State::Missing
     );
     let failure = owner
-        .install(&id, None, &CancellationToken::new())
+        .install(&id, None, &CancellationToken::new(), None)
         .await
         .unwrap_err();
     assert!(

@@ -11,6 +11,8 @@ function call(operation, value) {
   return result.Ok;
 }
 const scope = call("context", null);
+// Typed module peers reuse the same scoped bridge and draft owner.
+export function modelCall(operation, value) { return call(operation, value); }
 export function context() { return JSON.parse(JSON.stringify(scope)); }
 export async function readProjectCatalog() { return read("read_project_catalog"); }
 export async function readSession() { return read("read_session", {session:scope.session}); }

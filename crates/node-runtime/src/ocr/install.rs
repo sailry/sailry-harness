@@ -25,6 +25,7 @@ impl Service {
         id: &str,
         mirror: Option<&str>,
         cancel: &CancellationToken,
+        reporter: Option<&crate::installation::Reporter>,
     ) -> Result<(), Fault> {
         if !sailry_protocol::ocr::valid_id(id) {
             return Err(Fault::invalid("invalid OCR model ID"));
@@ -56,6 +57,7 @@ impl Service {
                 Transfer {
                     cancel: stop.clone(),
                     progress: sailry_model_assets::Progress {
+                        phase: sailry_model_assets::Phase::Inspecting,
                         percent: 0.0,
                         bytes_per_second: 0.0,
                     },
@@ -85,6 +87,7 @@ impl Service {
         let directory = self.root()?.join(id);
         let operation = async {
             sailry_model_assets::prepare(&directory, &downloads, &stop, |progress| {
+                crate::installation::assets(reporter, progress);
                 let mut state = self.state.lock().expect("OCR configuration lock is valid");
                 if let Some(transfer) = state.transfers.get_mut(id) {
                     transfer.progress = progress;
@@ -93,6 +96,9 @@ impl Service {
             })
             .await
             .map_err(failure)?;
+            if let Some(reporter) = reporter {
+                reporter(sailry_protocol::installation::Phase::Validating, None);
+            }
             let directory = directory.clone();
             let stopping = stop.clone();
             let definition = definition.clone();

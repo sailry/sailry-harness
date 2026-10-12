@@ -43,6 +43,8 @@ pub enum Action {
     WriteRoles,
     #[serde(rename = "models.read")]
     ReadModels,
+    #[serde(rename = "models.install")]
+    InstallModels,
     #[serde(rename = "media.inspect")]
     InspectMedia,
     #[serde(rename = "media.image")]
@@ -157,6 +159,7 @@ mod tests {
         for (name, action) in [
             ("files.read", Action::ReadFiles),
             ("models.read", Action::ReadModels),
+            ("models.install", Action::InstallModels),
             ("models.generate", Action::GenerateText),
             ("knowledge.read", Action::ReadKnowledge),
             ("knowledge.write", Action::WriteKnowledge),
@@ -198,6 +201,7 @@ mod tests {
         let names = variants[0]["enum"].as_array().unwrap();
         assert!(names.contains(&json!("files.read")));
         assert!(names.contains(&json!("models.read")));
+        assert!(names.contains(&json!("models.install")));
         assert!(names.contains(&json!("models.generate")));
         assert!(names.contains(&json!("knowledge.read")));
         assert!(names.contains(&json!("knowledge.write")));
@@ -217,5 +221,11 @@ mod tests {
             serde_json::from_value::<Action>(variants[1]["const"].clone()).unwrap(),
             Action::StartSessions
         );
+    }
+
+    #[test]
+    fn installation_is_not_read_only() {
+        assert!(Action::ReadModels.read_only());
+        assert!(!Action::InstallModels.read_only());
     }
 }

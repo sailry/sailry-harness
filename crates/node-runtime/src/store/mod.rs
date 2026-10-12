@@ -50,7 +50,7 @@ use std::{
 };
 
 use sailry_link::{Admission, CancellationToken, Handler, PeerStore, Pending, Subscription};
-use sailry_protocol::{ErrorCode, Fault, NodeId, Request, Update};
+use sailry_protocol::{ErrorCode, Fault, NodeId, Request, TurnId, Update};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::Error;
@@ -178,6 +178,7 @@ enum Job {
     Completed(Box<external::Completed>),
     Installed {
         completed: Box<external::Completed>,
+        operation: Option<TurnId>,
         release: oneshot::Sender<()>,
     },
     Transferred(Box<external::Completed>),
@@ -837,7 +838,7 @@ impl Store {
                             let _ = completed.reply.send(result);
                             mutations.pending -= 1;
                         }
-                        Job::Installed { completed, release } => {
+                        Job::Installed { completed, operation, release } => {
                             let mut result = database.finish_external(
                                 completed.caller,
                                 &completed.request,
@@ -856,6 +857,9 @@ impl Store {
                             installing.installations.finish(completed.caller, completed.request.id, &result);
                             let _ = completed.reply.send(result);
                             installations.pending -= 1;
+                            if let Some(turn) = operation {
+                                agents.finish_operation(turn);
+                            }
                             let _ = release.send(());
                         }
                         Job::Transferred(completed) => {
@@ -1150,9 +1154,14 @@ impl Store {
                                         None
                                     }
                                     external::Work::Resources(execution) => {
-                                        resource_work.submit(execution).err().map(|execution| {
-                                            (execution.caller, execution.request, execution.reply)
-                                        })
+                                        if installations::models::handles(&execution.request.command) {
+                                            installations::models::submit(&mut installations, installing.clone(), execution)
+                                                .err().map(|execution| (execution.caller, execution.request, execution.reply))
+                                        } else {
+                                            resource_work.submit(execution).err().map(|execution| {
+                                                (execution.caller, execution.request, execution.reply)
+                                            })
+                                        }
                                     }
                                     external::Work::Process(execution) => {
                                         processes.submit(execution).err().map(|execution| {
@@ -1170,14 +1179,14 @@ impl Store {
                                         })
                                     }
                                     external::Work::Mutation(mutation) => {
-                                        let result = if plugins::installing::handles(&mutation.request.command) {
+                                        if plugins::installing::handles(&mutation.request.command) {
                                             plugins::installing::submit(&mut installations, installing.clone(), mutation)
+                                                .err().map(|execution| (execution.caller, execution.request, execution.reply))
                                         } else {
-                                            mutations.submit(mutation)
-                                        };
-                                        result.err().map(|mutation| {
-                                            (mutation.caller, mutation.request, mutation.reply)
-                                        })
+                                            mutations.submit(mutation).err().map(|mutation| {
+                                                (mutation.caller, mutation.request, mutation.reply)
+                                            })
+                                        }
                                     }
                                     external::Work::Session(transfer) => {
                                         forwarder.submit(transfer).err().map(|transfer| {
@@ -1420,6 +1429,30 @@ impl Handler for Ingress {
                 return Ok(self
                     .installations
                     .subscribe(self.node, caller, self.closed.clone()));
+            }
+            if let sailry_protocol::Topic::ScopedInstallations(request) = &topic {
+                if request.target != self.node || request.version != sailry_protocol::VERSION {
+                    return Err(Fault::new(
+                        ErrorCode::WrongTarget,
+                        "Node or protocol version mismatch",
+                    ));
+                }
+                let sailry_protocol::Command::ReadInstallations { requests } = &request.command
+                else {
+                    return Err(Fault::invalid("installation observation expected"));
+                };
+                let context = request
+                    .plugin
+                    .clone()
+                    .ok_or_else(|| Fault::invalid("plugin scope expected"))?;
+                self.check_request(caller, request.clone(), false).await?;
+                return self.installations.subscribe_for(
+                    self.node,
+                    caller,
+                    requests.clone(),
+                    context,
+                    self.closed.clone(),
+                );
             }
             if matches!(topic, sailry_protocol::Topic::Browser) {
                 return self.browsers.subscribe(caller);

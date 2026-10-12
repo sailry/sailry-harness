@@ -2,6 +2,7 @@
 pub(crate) mod activity;
 mod artifacts;
 mod changes;
+mod model_assets;
 pub(super) mod sdk;
 mod settings;
 pub(crate) mod usage;
@@ -29,6 +30,8 @@ pub(super) struct Host {
     requests: Mutex<BTreeMap<RequestId, Request>>,
     settings: Mutex<settings::Settings>,
     capacity: Arc<tokio::sync::Semaphore>,
+    models: Mutex<model_assets::Services>,
+    installations: sdk::installations::Subscription,
 }
 
 impl Host {
@@ -73,6 +76,8 @@ impl Host {
             stop: CancellationToken::new(),
             requests: Mutex::new(BTreeMap::new()),
             capacity: Arc::new(tokio::sync::Semaphore::new(4)),
+            models: Default::default(),
+            installations: Default::default(),
         })
     }
 

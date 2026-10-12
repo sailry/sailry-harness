@@ -195,42 +195,92 @@ impl Panel {
         self.error = None;
         let binding = self.binding.clone();
         let runtime = binding.runtime.clone();
-        let job = runtime.spawn(async move { execute(&binding, request).await });
-        cx.spawn_in(window, async move |owner, cx| {
-            let result = job.await;
-            _ = owner.update_in(cx, |panel, window, cx| {
-                panel.pending = false;
-                match result {
-                    Ok((Ok(output), _)) => {
-                        panel.request = None;
-                        if let Output::KnowledgeSettings(settings) = output {
-                            panel.apply(settings, false, window, cx);
-                        } else if registering && let Output::KnowledgeModel { model } = output {
-                            panel.submit(Command::InstallKnowledgeModel { model }, window, cx);
-                            return;
-                        }
-                        crate::feedback::info("", &crate::tr(notice), window, cx);
-                        panel.load(window, cx);
+        let retry = cx.entity();
+        let captured = request.clone();
+        let retry_binding = binding.clone();
+        let ticket = crate::installations::track(
+            binding.client.clone(),
+            runtime.clone(),
+            &request,
+            false,
+            move |attempt, window, cx| {
+                let request = attempt.request(&retry_binding.client, &captured);
+                if !retry.read(cx).active {
+                    crate::installations::retry_model(
+                        retry_binding.client.clone(),
+                        retry_binding.runtime.clone(),
+                        request,
+                        window,
+                        cx,
+                    );
+                    return;
+                }
+                retry.update(cx, |panel, cx| {
+                    if panel.pending
+                        || panel
+                            .request
+                            .as_ref()
+                            .is_some_and(|request| request.id != captured.id)
+                    {
+                        return;
                     }
-                    Ok((Err(error), confirmed)) => {
-                        let uncertain = !confirmed || error.code == ErrorCode::OutcomeUnknown;
-                        if !uncertain {
+                    panel.request = Some(request);
+                    panel.retry(window, cx);
+                });
+            },
+            window,
+            cx,
+        );
+        let origin = window.window_handle();
+        let job = runtime.spawn(async move { execute(&binding, request).await });
+        cx.spawn(async move |owner, cx| {
+            let result = job.await;
+            cx.update(|cx| {
+                if let Some(ticket) = &ticket {
+                    ticket.record_outcome(crate::installations::model_result(&result), cx);
+                }
+            });
+            let Some(target) = cx.update(|cx| crate::installations::target(origin, cx)) else {
+                return;
+            };
+            let _ = target.update(cx, |_, window, cx| {
+                if let Some(ticket) = &ticket {
+                    ticket.close_empty(window, cx);
+                }
+                _ = owner.update(cx, |panel, cx| {
+                    panel.pending = false;
+                    match result {
+                        Ok((Ok(output), _)) => {
                             panel.request = None;
-                        }
-                        if uncertain || error.code != ErrorCode::Cancelled {
-                            panel.error = Some(if uncertain {
-                                "knowledge_unknown"
-                            } else {
-                                error_key(error.code)
-                            });
-                        }
-                        if !uncertain {
+                            if let Output::KnowledgeSettings(settings) = output {
+                                panel.apply(settings, false, window, cx);
+                            } else if registering && let Output::KnowledgeModel { model } = output {
+                                panel.submit(Command::InstallKnowledgeModel { model }, window, cx);
+                                return;
+                            }
+                            crate::feedback::info("", &crate::tr(notice), window, cx);
                             panel.load(window, cx);
                         }
+                        Ok((Err(error), confirmed)) => {
+                            let uncertain = !confirmed || error.code == ErrorCode::OutcomeUnknown;
+                            if !uncertain {
+                                panel.request = None;
+                            }
+                            if uncertain || error.code != ErrorCode::Cancelled {
+                                panel.error = Some(if uncertain {
+                                    "knowledge_unknown"
+                                } else {
+                                    error_key(error.code)
+                                });
+                            }
+                            if !uncertain {
+                                panel.load(window, cx);
+                            }
+                        }
+                        Err(_) => panel.error = Some("knowledge_unknown"),
                     }
-                    Err(_) => panel.error = Some("knowledge_unknown"),
-                }
-                cx.notify();
+                    cx.notify();
+                });
             });
         })
         .detach();

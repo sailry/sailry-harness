@@ -159,3 +159,34 @@ fn permits_only_the_captured_artifact_effect() {
         );
     }
 }
+
+#[test]
+fn permits_observation_without_model_mutation() {
+    let (mut fixture, turn, _) = fixture();
+    let mut session =
+        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+    session.config.mode = WorkMode::Code;
+    crate::store::commands::revise_session(&fixture.database.connection, session).unwrap();
+    let coding = fixture.queued();
+    let db = &fixture.database.connection;
+    let install = Command::InstallOcrModel {
+        id: "fixture".into(),
+    };
+    assert_eq!(
+        check_action(db, turn, &install, Some(&Action::InstallModels))
+            .unwrap_err()
+            .code,
+        ErrorCode::PermissionDenied
+    );
+    check_action(db, coding, &install, Some(&Action::InstallModels)).unwrap();
+    for command in [
+        Command::ReadInstallations {
+            requests: vec![sailry_protocol::RequestId::new()],
+        },
+        Command::DismissInstallation {
+            request: sailry_protocol::RequestId::new(),
+        },
+    ] {
+        check_action(db, turn, &command, Some(&Action::InstallModels)).unwrap();
+    }
+}

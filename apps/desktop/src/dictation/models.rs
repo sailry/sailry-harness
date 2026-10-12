@@ -8,7 +8,7 @@ use super::{Result, error_key, model};
 use sailry_link::CancellationToken;
 use sailry_model_assets::{File, Progress};
 use sailry_protocol::{
-    ModelId,
+    ModelId, RequestId,
     models::{Definition, Format},
 };
 use serde::{Deserialize, Serialize};
@@ -46,6 +46,9 @@ struct Data {
     records: Vec<Record>,
     jobs: BTreeMap<Option<ModelId>, Job>,
     active: BTreeMap<Option<ModelId>, usize>,
+    installations: BTreeMap<RequestId, sailry_protocol::installation::Task>,
+    requests: BTreeMap<Option<ModelId>, RequestId>,
+    outcomes: BTreeMap<RequestId, Result<()>>,
 }
 
 struct Job {
@@ -116,6 +119,34 @@ impl Capture {
 }
 
 impl Manager {
+    pub fn installations(&self) -> Vec<sailry_protocol::installation::Task> {
+        self.data
+            .lock()
+            .unwrap()
+            .installations
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    pub fn outcome(&self, request: RequestId) -> Option<Result<()>> {
+        self.data.lock().unwrap().outcomes.get(&request).copied()
+    }
+
+    pub fn dismiss(&self, request: RequestId) -> Result<()> {
+        let mut data = self.data.lock().unwrap();
+        if data
+            .installations
+            .get(&request)
+            .is_some_and(|task| !task.state.terminal())
+        {
+            return Err("dictation_busy");
+        }
+        data.installations.remove(&request);
+        drop(data);
+        self.changed();
+        Ok(())
+    }
     pub fn open(directory: PathBuf) -> Result<Arc<Self>> {
         let records: Vec<Record> = match std::fs::read(directory.join("models/speech.json")) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| "dictation_storage")?,

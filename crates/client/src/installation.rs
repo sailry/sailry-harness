@@ -1,7 +1,9 @@
 //! Installation snapshots are observations, never another request execution owner.
 use crate::Client;
 use sailry_link::{CancellationToken, Subscription};
-use sailry_protocol::{ErrorCode, Fault, RequestId, Topic, Update, installation::Task};
+use sailry_protocol::{
+    Command, ErrorCode, Fault, Request, RequestId, Topic, Update, installation::Task,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     time::Duration,
@@ -77,9 +79,50 @@ impl Client {
         self.transport.subscribe(Topic::Installations).await
     }
 
+    pub async fn subscribe_installations_for(
+        &self,
+        request: Request,
+    ) -> Result<Box<dyn Subscription>, Fault> {
+        if request.target != self.target() || request.version != sailry_protocol::VERSION {
+            return Err(Fault::new(
+                ErrorCode::WrongTarget,
+                "Node or protocol version mismatch",
+            ));
+        }
+        let Command::ReadInstallations { requests } = &request.command else {
+            return Err(Fault::invalid("installation observation expected"));
+        };
+        sailry_protocol::installation::validate_requests(requests)?;
+        if request.plugin.is_none() {
+            return Err(Fault::invalid("plugin scope expected"));
+        }
+        self.transport
+            .subscribe(Topic::ScopedInstallations(request))
+            .await
+    }
+
     /// Reconnect refreshes transient observation; it never replays an installation.
     pub async fn watch_installations(
         &self,
+        updates: watch::Sender<View>,
+        stop: CancellationToken,
+    ) -> Result<(), Fault> {
+        self.watch_installations_with(None, updates, stop).await
+    }
+
+    pub async fn watch_installations_for(
+        &self,
+        request: Request,
+        updates: watch::Sender<View>,
+        stop: CancellationToken,
+    ) -> Result<(), Fault> {
+        self.watch_installations_with(Some(request), updates, stop)
+            .await
+    }
+
+    async fn watch_installations_with(
+        &self,
+        scope: Option<Request>,
         updates: watch::Sender<View>,
         stop: CancellationToken,
     ) -> Result<(), Fault> {
@@ -90,7 +133,10 @@ impl Client {
                 biased;
                 _ = stop.cancelled() => return Ok(()),
                 _ = updates.closed() => return Ok(()),
-                result = self.subscribe_installations() => result,
+                result = async { match &scope {
+                    Some(request) => self.subscribe_installations_for(request.clone()).await,
+                    None => self.subscribe_installations().await,
+                }} => result,
             };
             let error = match stream {
                 Err(error) => error,

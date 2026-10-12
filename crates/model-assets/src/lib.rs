@@ -65,12 +65,23 @@ pub struct Download<'a> {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Progress {
+    pub phase: Phase,
     pub percent: f32,
     pub bytes_per_second: f64,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Phase {
+    #[default]
+    Inspecting,
+    Downloading,
+    Validating,
+    Installing,
+}
+
 fn progress(completed: u64, total: u64, transferred: u64, elapsed: Duration) -> Progress {
     Progress {
+        phase: Phase::Downloading,
         percent: (completed as f32 / total.max(1) as f32 * 100.).min(99.),
         // Cached bytes count toward completion, never toward network throughput.
         bytes_per_second: transferred as f64 / elapsed.as_secs_f64().max(0.001),

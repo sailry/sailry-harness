@@ -56,6 +56,17 @@ pub fn output(output: Output) -> Value {
         Output::PluginTransaction(outputs) => {
             value["data"] = Value::Array(outputs.into_iter().map(self::output).collect());
         }
+        Output::Installations(tasks) => {
+            for (value, task) in value["data"]
+                .as_array_mut()
+                .expect("typed installations")
+                .iter_mut()
+                .zip(tasks)
+            {
+                value["revision"] = json!(task.revision.to_string());
+                value["target"] = json!("node");
+            }
+        }
         Output::PluginValue(entry) => value["data"]["revision"] = json!(entry.revision.to_string()),
         Output::PluginConversationValue(entry) => {
             value["data"]["revision"] = json!(entry.revision.to_string())
@@ -116,6 +127,22 @@ fn invalid() -> Fault {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn installations_keep_exact_revisions() {
+        let task = crate::installation::Task {
+            request: crate::RequestId::new(),
+            revision: 9_007_199_254_740_993,
+            resource: crate::installation::Resource::Model {
+                kind: crate::models::Kind::Ocr,
+                id: "fixture".into(),
+            },
+            state: crate::installation::State::Queued,
+        };
+        let value = output(Output::Installations(vec![task]));
+        assert_eq!(value["data"][0]["revision"], "9007199254740993");
+        assert_eq!(value["data"][0]["target"], "node");
+    }
 
     #[test]
     fn queue_revisions() {

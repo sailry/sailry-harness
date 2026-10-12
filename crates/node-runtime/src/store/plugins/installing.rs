@@ -1,7 +1,12 @@
 //! Package acquisition and dependency preparation stay in their plugin domain.
 use crate::{
     installation::Reporter,
-    store::{Ingress, Job, installations::Worker, mutations::Mutation, unavailable},
+    store::{
+        Ingress, Job,
+        installations::{Execution, Worker},
+        mutations::Mutation,
+        unavailable,
+    },
 };
 use sailry_link::CancellationToken;
 use sailry_protocol::{
@@ -37,7 +42,7 @@ pub(in crate::store) fn submit(
     worker: &mut Worker,
     ingress: Arc<Ingress>,
     mutation: Mutation,
-) -> Result<(), Box<Mutation>> {
+) -> Result<(), Box<Execution>> {
     let resource = Resource::Plugin {
         name: name(&mutation.request.command)
             .expect("plugin installation command expected")
@@ -46,7 +51,13 @@ pub(in crate::store) fn submit(
     let request = mutation.request.clone();
     let root = mutation.roots.target.clone();
     let caller = mutation.caller;
-    worker.submit(mutation, resource, move |reporter, stop| async move {
+    let execution = Execution {
+        caller,
+        request: mutation.request,
+        reply: mutation.reply,
+        operation: false,
+    };
+    worker.submit(execution, resource, move |reporter, stop| async move {
         let info = acquire(&ingress, caller, &request, root, &stop, &reporter).await?;
         check(&stop)?;
         if let Command::InstallPlugin {

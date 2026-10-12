@@ -1,4 +1,4 @@
-use crate::{Download, Error, File, Progress, Result, progress, resume, storage, validate};
+use crate::{Download, Error, File, Phase, Progress, Result, progress, resume, storage, validate};
 use reqwest::{Client, StatusCode, header};
 use sha2::Digest;
 use std::{
@@ -54,6 +54,11 @@ pub(super) async fn acquire(
     let started = Instant::now();
     let mut completed = 0u64;
     let mut transferred = 0u64;
+    let mut phase = Phase::Inspecting;
+    notify(Progress {
+        phase,
+        ..progress(completed, total, transferred, started.elapsed())
+    });
     for download in downloads {
         let specification = &download.file;
         if cancel.is_cancelled() {
@@ -66,6 +71,11 @@ pub(super) async fn acquire(
         let checksum = specification.sha256.to_owned();
         let size = specification.size;
         let stopping = cancel.clone();
+        phase = Phase::Validating;
+        notify(Progress {
+            phase,
+            ..progress(completed, total, transferred, started.elapsed())
+        });
         let cached = tokio::task::spawn_blocking(move || {
             storage::valid(
                 &check,
@@ -84,7 +94,10 @@ pub(super) async fn acquire(
         }
         if cached {
             completed += specification.size;
-            notify(progress(completed, total, transferred, started.elapsed()));
+            notify(Progress {
+                phase,
+                ..progress(completed, total, transferred, started.elapsed())
+            });
             continue;
         }
         let checkpoint = directory.try_clone().map_err(Error::storage)?;
@@ -116,12 +129,35 @@ pub(super) async fn acquire(
             && format!("{:x}", part.hash.clone().finalize())
                 .eq_ignore_ascii_case(specification.sha256)
         {
+            phase = Phase::Installing;
+            notify(Progress {
+                phase,
+                ..progress(
+                    completed + part.received,
+                    total,
+                    transferred,
+                    started.elapsed(),
+                )
+            });
             part.publish(specification.name)?;
             completed += specification.size;
-            notify(progress(completed, total, transferred, started.elapsed()));
+            notify(Progress {
+                phase,
+                ..progress(completed, total, transferred, started.elapsed())
+            });
             continue;
         }
         let mut output = tokio::fs::File::from_std(part.file.try_clone().map_err(Error::storage)?);
+        phase = Phase::Downloading;
+        notify(Progress {
+            phase,
+            ..progress(
+                completed + part.received,
+                total,
+                transferred,
+                started.elapsed(),
+            )
+        });
         let result = receive(
             download,
             &mut part,
@@ -150,6 +186,16 @@ pub(super) async fn acquire(
             }
             return Err(error);
         }
+        phase = Phase::Validating;
+        notify(Progress {
+            phase,
+            ..progress(
+                completed + part.received,
+                total,
+                transferred,
+                started.elapsed(),
+            )
+        });
         if part.received != specification.size
             || !format!("{:x}", part.hash.clone().finalize())
                 .eq_ignore_ascii_case(specification.sha256)
@@ -161,6 +207,16 @@ pub(super) async fn acquire(
             part.checkpoint()?;
             return Err(Error::Cancelled);
         }
+        phase = Phase::Installing;
+        notify(Progress {
+            phase,
+            ..progress(
+                completed + part.received,
+                total,
+                transferred,
+                started.elapsed(),
+            )
+        });
         part.publish(specification.name)?;
         completed += specification.size;
     }
@@ -168,6 +224,8 @@ pub(super) async fn acquire(
         return Err(Error::Cancelled);
     }
     notify(Progress {
+        // Asset completion does not prove the consumer's native model validation.
+        phase,
         percent: 100.,
         bytes_per_second: 0.,
     });

@@ -93,9 +93,17 @@ fn evaluate(
     runtime.set_interrupt_handler(Some(Box::new(move || {
         interrupted.is_cancelled() || Instant::now() >= deadline
     })));
-    let mut resolver = BuiltinResolver::default().with_module("sailry/sdk");
-    let mut loader =
-        BuiltinLoader::default().with_module("sailry/sdk", include_str!("script/sdk.js"));
+    let mut resolver = BuiltinResolver::default()
+        .with_module("sailry/sdk")
+        .with_module("sailry/models")
+        .with_module("sailry/installations");
+    let mut loader = BuiltinLoader::default()
+        .with_module("sailry/sdk", include_str!("script/sdk.js"))
+        .with_module("sailry/models", include_str!("script/models.js"))
+        .with_module(
+            "sailry/installations",
+            include_str!("script/installations.js"),
+        );
     let mut files = bundle.files;
     let source = files
         .remove(&bundle.entry)

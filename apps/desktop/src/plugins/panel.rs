@@ -599,6 +599,12 @@ impl Panel {
                             read_files,
                             panel.contributions.clone(),
                         );
+                        let install_models = panel.metadata.read(cx).entries.get(&package.name)
+                            .filter(|info| info.summary.reference() == package)
+                            .and_then(|info| info.extension.as_ref())
+                            .is_some_and(|extension| extension.actions.contains(&sailry_protocol::plugin::Action::InstallModels));
+                        let manager = install_models.then(|| crate::dictation::Service::models(cx).ok()).flatten();
+                        host.model_services(manager, panel.binding.runtime.clone(), install_models);
                         host.observe(
                             panel
                                 .snapshot

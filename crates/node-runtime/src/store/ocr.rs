@@ -49,7 +49,9 @@ pub(super) fn execute(
     db: &Connection,
     request: &Request,
 ) -> Result<(Output, Option<Event>), Fault> {
-    controller(request)?;
+    if !matches!(request.command, Command::RegisterOcrModel { .. }) {
+        controller(request)?;
+    }
     let mut catalog = read(db)?;
     let (output, event) = match &request.command {
         Command::ReadOcrSettings => return Ok((Output::OcrSettings(catalog.settings), None)),
@@ -161,7 +163,9 @@ impl Ingress {
                 "Node or protocol version mismatch",
             ));
         }
-        controller(&request)?;
+        if !matches!(request.command, Command::ReadOcrModels) {
+            controller(&request)?;
+        }
         let output = match &request.command {
             Command::ReadOcrModels => Output::OcrModels(self.ocr.models().await?),
             Command::CancelOcrModel { id } => {
@@ -185,14 +189,19 @@ impl Ingress {
         &self,
         request: &Request,
         stop: &CancellationToken,
+        reporter: Option<&crate::installation::Reporter>,
     ) -> Result<Output, Fault> {
-        controller(request)?;
+        if !matches!(request.command, Command::InstallOcrModel { .. }) {
+            controller(request)?;
+        }
         let catalog = self.ocr_catalog().await?;
         self.ocr.configure(catalog.settings, &catalog.records)?;
         let id = match &request.command {
             Command::InstallOcrModel { id } => {
                 let mirror = self.knowledge_catalog().await?.settings.mirror;
-                self.ocr.install(id, mirror.as_deref(), stop).await?;
+                self.ocr
+                    .install(id, mirror.as_deref(), stop, reporter)
+                    .await?;
                 id
             }
             Command::DeleteOcrModel { id } => {

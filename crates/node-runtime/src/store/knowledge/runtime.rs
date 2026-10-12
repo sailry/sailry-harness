@@ -71,7 +71,11 @@ fn membership(models: &[ModelInfo]) -> BTreeSet<sailry_protocol::knowledge::Mode
 }
 
 pub(in crate::store) fn prepare(request: &Request) -> Result<(), Fault> {
-    super::controller(request)
+    if matches!(request.command, Command::InstallKnowledgeModel { .. }) {
+        Ok(())
+    } else {
+        super::controller(request)
+    }
 }
 
 pub(in crate::store) fn changes(command: &Command) -> bool {
@@ -291,7 +295,6 @@ impl Ingress {
                 Output::KnowledgeCitation(service.citation(&request, input, &stop).await?)
             }
             Command::ReadKnowledgeModels => {
-                super::controller(&request)?;
                 let catalog = self.knowledge_catalog().await?;
                 service
                     .models
@@ -320,6 +323,7 @@ impl Ingress {
         &self,
         request: &Request,
         stop: &CancellationToken,
+        reporter: Option<&crate::installation::Reporter>,
     ) -> Result<Output, Fault> {
         prepare(request)?;
         let service = self.knowledge.get().ok_or_else(unavailable)?;
@@ -329,7 +333,7 @@ impl Ingress {
             .configure(catalog.settings, &catalog.models)?;
         let model = match &request.command {
             Command::InstallKnowledgeModel { model } => {
-                service.models.install(*model, stop).await?;
+                service.models.install(*model, stop, reporter).await?;
                 *model
             }
             Command::DeleteKnowledgeModel { model } => {
