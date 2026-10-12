@@ -164,3 +164,109 @@ fn retries_original_input(cx: &mut TestAppContext) {
         }
     }
 }
+
+#[gpui::test]
+fn retries_effective_queued_input(cx: &mut TestAppContext) {
+    fixture::init(cx);
+    for remote in [false, true] {
+        let fixture = fixture::Fixture::with_server(remote, |runtime| {
+            runtime.block_on(support::Server::http(1, 400))
+        });
+        let Output::QueuedTurn(turn) = fixture.execute(Command::QueueTurn {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            message: "Original queued input".into(),
+        }) else {
+            panic!("queued turn expected")
+        };
+        let effective = sailry_protocol::conversation::Input {
+            text: "Effective sent input 中文 🙂".into(),
+            attachments: Vec::new(),
+            references: vec![sailry_protocol::conversation::reference::Reference {
+                target: sailry_protocol::conversation::reference::Target::Project,
+                label: "Effective project".into(),
+            }],
+        };
+        fixture.execute(Command::EditQueuedTurn {
+            turn: turn.id,
+            expected_revision: 1,
+            message: effective.clone(),
+        });
+        fixture.execute(Command::StartQueuedTurn { turn: turn.id });
+        let observed = Arc::new(Observed {
+            inner: fixture.transport.clone(),
+            lose: AtomicBool::new(false),
+            requests: Mutex::new(Vec::new()),
+        });
+        let mut binding = fixture.binding.clone();
+        binding.client = Arc::new(Client::new(observed.clone()));
+        let (view, visual) = fixture::open(cx, binding, fixture.session.clone());
+        wait(visual, |cx| {
+            view.read(cx).connected()
+                && view
+                    .read(cx)
+                    .history
+                    .snapshot
+                    .as_ref()
+                    .is_some_and(|snapshot| {
+                        snapshot
+                            .page
+                            .runs
+                            .iter()
+                            .any(|run| run.turn == turn.id && run.status == Status::Failed)
+                    })
+        });
+        view.update(visual, |view, cx| {
+            let snapshot = Arc::make_mut(view.history.snapshot.as_mut().unwrap());
+            let page = Arc::make_mut(&mut snapshot.page);
+            assert_eq!(messages::sent_input(page, turn.id), effective);
+            // Isolate the presentation state before canonical USER arrives.
+            // The Node fixture separately proves a real pre-Runner failure capture.
+            page.entries
+                .retain(|entry| entry.turn != turn.id || entry.author != "user");
+            page.runs
+                .iter_mut()
+                .find(|run| run.turn == turn.id)
+                .unwrap()
+                .input = Some(sailry_protocol::conversation::SentInput {
+                message: effective.clone(),
+                attachments: Vec::new(),
+            });
+            view.sync_rows(cx);
+            cx.notify();
+        });
+        fixture::tap(visual, &format!("live-user-copy-{}", turn.id));
+        assert_eq!(
+            visual.update(|_, cx| cx.read_from_clipboard().unwrap().text().unwrap()),
+            effective.text
+        );
+        fixture::tap(visual, "live-chat-input");
+        visual.simulate_input("Keep the current draft");
+        assert!(view.read_with(visual, |view, _| view.can_resend(turn.id)));
+        fixture::tap(visual, &format!("live-turn-retry-{}", turn.id));
+        wait(visual, |cx| {
+            let view = view.read(cx);
+            !view.pending
+                && view.retry.is_none()
+                && view.history.snapshot.as_ref().is_some_and(|snapshot| {
+                    snapshot.page.runs.len() == 2
+                        && snapshot.page.runs[1].status == Status::Completed
+                })
+        });
+        view.read_with(visual, |view, cx| {
+            let page = &view.history.snapshot.as_ref().unwrap().page;
+            assert_eq!(page.runs[0].turn, turn.id);
+            assert_eq!(messages::sent_input(page, page.runs[1].turn), effective);
+            assert_eq!(
+                view.input.read(cx).value().as_ref(),
+                "Keep the current draft"
+            );
+        });
+        let requests = observed.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].1, effective);
+        drop(requests);
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}

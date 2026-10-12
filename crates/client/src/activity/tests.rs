@@ -41,6 +41,7 @@ fn session(status: Option<Status>) -> Session {
         finished_ms: None,
         origin: None,
         continuation: None,
+        input: None,
     });
     session
 }

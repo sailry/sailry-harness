@@ -211,6 +211,8 @@ impl Projection {
                     }
                     Change::Statistics(statistics) => snapshot.statistics = statistics,
                     Change::Entry(entry) => {
+                        let turn = entry.turn;
+                        let user = entry.author == "user";
                         let page = Arc::make_mut(&mut snapshot.page);
                         if let Some(previous) =
                             page.entries.iter().find(|previous| previous.id == entry.id)
@@ -236,14 +238,25 @@ impl Projection {
                                 .retain(|draft| draft.turn != entry.turn || draft.id != entry.id);
                             page.entries.push(entry);
                         }
+                        if user && let Some(run) = page.runs.iter_mut().find(|run| run.turn == turn)
+                        {
+                            run.input = None;
+                        }
                     }
-                    Change::Run(run) => {
+                    Change::Run(mut run) => {
                         if !valid_run(&run, self.session) {
                             return Err(sailry_protocol::Fault::invalid(
                                 "run belongs to another conversation",
                             ));
                         }
                         let page = Arc::make_mut(&mut snapshot.page);
+                        if page
+                            .entries
+                            .iter()
+                            .any(|entry| entry.turn == run.turn && entry.author == "user")
+                        {
+                            run.input = None;
+                        }
                         if let Some(previous) = page
                             .runs
                             .iter_mut()
@@ -254,6 +267,11 @@ impl Projection {
                                 || previous.sequence != run.sequence
                                 || previous.worktree != run.worktree
                                 || previous.origin != run.origin
+                                || previous
+                                    .input
+                                    .as_ref()
+                                    .zip(run.input.as_ref())
+                                    .is_some_and(|(before, after)| before != after)
                             {
                                 return Err(sailry_protocol::Fault::invalid(
                                     "sent turn revision changed",
@@ -436,6 +454,17 @@ pub(super) fn validate_page(page: &Page) -> Result<(), Fault> {
 fn valid_run(run: &conversation::Run, session: SessionId) -> bool {
     run.session == session
         && run.sequence > 0
+        && run.input.as_ref().is_none_or(|input| {
+            run.kind == conversation::RunKind::Task
+                && run.status != Status::Queued
+                && run.continuation.is_none()
+                && input
+                    .message
+                    .attachments
+                    .iter()
+                    .copied()
+                    .eq(input.attachments.iter().map(|attachment| attachment.id))
+        })
         && run.origin.is_none_or(|origin| {
             origin != session
                 && !matches!(

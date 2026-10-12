@@ -213,6 +213,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     ready INTEGER NOT NULL CHECK(ready IN (0,1)),
     body BLOB NOT NULL,
     provider BLOB,
+    input BLOB DEFAULT NULL,
     hooks BLOB NOT NULL
 );
 CREATE TABLE IF NOT EXISTS agent_events (

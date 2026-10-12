@@ -85,6 +85,7 @@ fn page() -> Page {
             finished_ms: None,
             origin: None,
             continuation: None,
+            input: None,
         }],
     }
 }

@@ -179,13 +179,17 @@ fn releases_matching_waiters_and_updates() {
             unmatched.push(response);
         }
     }
-    let mut subscription = fixture.database.feeds.subscribe(
-        fixture.database.node,
-        history::pages::read(&fixture.database.connection, fixture.session, None, 100).unwrap(),
-        Default::default(),
-        Default::default(),
-        sailry_link::CancellationToken::new(),
-    );
+    let mut subscription = fixture
+        .database
+        .feeds
+        .subscribe(
+            fixture.database.node,
+            history::pages::read(&fixture.database.connection, fixture.session, None, 100).unwrap(),
+            Default::default(),
+            Default::default(),
+            sailry_link::CancellationToken::new(),
+        )
+        .unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()
         .build()

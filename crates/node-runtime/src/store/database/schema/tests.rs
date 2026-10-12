@@ -273,6 +273,7 @@ mod startup {
         for (table, column) in [
             ("agent_runs", "provider"),
             ("agent_runs", "hooks"),
+            ("agent_runs", "input"),
             ("plugin_values", "index_data"),
             ("sessions", "state"),
             ("agent_approvals", "prepared"),

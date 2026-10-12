@@ -51,6 +51,7 @@ fn children(count: usize) -> Vec<Child> {
                 finished_ms: None,
                 origin: None,
                 continuation: None,
+                input: None,
             },
             origin: Delegation {
                 session,

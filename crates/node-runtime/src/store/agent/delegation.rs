@@ -333,9 +333,7 @@ pub(super) fn admit(
     }
     tx.commit().map_err(storage_error)?;
     // Activate temporary output before returning the invocation to the runner.
-    database
-        .feeds
-        .publish(database.node, turn.session, Change::Run(child_run));
+    super::feed::run(database, child_run);
     database.feeds.publish(
         database.node,
         summary.origin.session,

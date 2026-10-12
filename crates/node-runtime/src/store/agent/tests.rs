@@ -8,6 +8,7 @@ pub(super) mod fixture;
 mod forks;
 mod hooks;
 mod images;
+mod inputs;
 mod location;
 mod preview;
 mod rewind;

@@ -74,6 +74,7 @@ fn run() -> Run {
         error: None,
         origin: None,
         continuation: None,
+        input: None,
         started_ms: Some(1000),
         finished_ms: None,
     }

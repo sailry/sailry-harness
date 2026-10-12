@@ -215,7 +215,7 @@ impl Feeds {
         statistics: Statistics,
         artifacts: sailry_protocol::artifact::Page,
         closed: CancellationToken,
-    ) -> Box<dyn Subscription> {
+    ) -> Result<Box<dyn Subscription>, Fault> {
         let mut feeds = self.0.lock().unwrap();
         Self::prune(&mut feeds);
         let History {
@@ -231,21 +231,14 @@ impl Feeds {
         let resources_size = serde_json::to_vec(&(&artifacts, &statistics))
             .expect("conversation resources are serializable")
             .len();
-        while !page.entries.is_empty()
-            && serde_json::to_vec(&page)
-                .expect("conversation is serializable")
-                .len()
-                + drafts_size
-                + resources_size
-                > MAX_FRAME_BYTES - 64 * 1024
-        {
-            let turn = page.entries.remove(0).turn;
+        let trimmed = super::history::pages::fit(&mut page, drafts_size + resources_size, true)?;
+        missing.retain(|turn| page.runs.iter().any(|run| run.turn == *turn));
+        for turn in trimmed {
             if !missing.contains(&turn) {
                 missing.push(turn);
             }
-            super::history::pages::retain_metadata(&mut page);
         }
-        Box::new(Updates {
+        Ok(Box::new(Updates {
             initial: Some(Update::ConversationSnapshot(
                 sailry_protocol::conversation::Snapshot {
                     node,
@@ -259,7 +252,7 @@ impl Feeds {
             )),
             updates: feed.updates.subscribe(),
             closed,
-        })
+        }))
     }
 }
 
@@ -390,10 +383,8 @@ pub(in crate::store) fn command(database: &mut Database, output: &Output) {
         return;
     }
     if let Output::Queue(update) = output {
-        for run in &update.runs {
-            database
-                .feeds
-                .publish(database.node, update.session, Change::Run(run.clone()));
+        for current in &update.runs {
+            run(database, current.clone());
         }
         database.feeds.publish(
             database.node,
@@ -418,9 +409,18 @@ pub(in crate::store) fn command(database: &mut Database, output: &Output) {
                 .feeds
                 .publish(database.node, run.session, Change::Queue(queue));
         }
-        database
+        self::run(database, run);
+    }
+}
+
+/// Conversation-only capture hydration must not change a committed business result.
+pub(super) fn run(database: &Database, current: Run) {
+    let session = current.session;
+    match runs::hydrate(&database.connection, current) {
+        Ok(current) => database
             .feeds
-            .publish(database.node, run.session, Change::Run(run));
+            .publish(database.node, session, Change::Run(current)),
+        Err(_) => database.feeds.reset(session),
     }
 }
 

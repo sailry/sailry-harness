@@ -690,7 +690,7 @@ pub(super) fn execute(
         } => {
             let result = read(&database.connection, session, None, 20).and_then(|history| {
                 let statistics = statistics::read(&database.connection, session)?;
-                Ok(database.feeds.subscribe(
+                database.feeds.subscribe(
                     database.node,
                     history,
                     statistics,
@@ -701,7 +701,7 @@ pub(super) fn execute(
                         sailry_protocol::artifact::MAX_PAGE_LIMIT,
                     )?,
                     closed,
-                ))
+                )
             });
             let _ = reply.send(result);
         }

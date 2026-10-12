@@ -6,6 +6,7 @@ mod artifacts;
 mod children;
 mod forks;
 mod history;
+mod input;
 mod questions;
 mod queue;
 mod statistics;
@@ -26,6 +27,7 @@ fn fixture() -> (Projection, Snapshot, Run, Draft) {
         finished_ms: None,
         origin: None,
         continuation: None,
+        input: None,
     };
     let snapshot = Snapshot {
         artifacts: Default::default(),

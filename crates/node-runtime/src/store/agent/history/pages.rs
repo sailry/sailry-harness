@@ -23,6 +23,7 @@ pub(in crate::store) fn read(
          JOIN conversation_turns h ON h.turn=a.turn
          WHERE h.session=?1 AND t.rowid<?2 AND json_extract(a.body,'$.status')!='queued'
            AND (json_extract(a.body,'$.status')!='cancelled'
+                OR a.input IS NOT NULL
                 OR EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=a.turn))
          ORDER BY t.rowid DESC LIMIT ?3",
         )
@@ -49,6 +50,7 @@ pub(in crate::store) fn read(
              JOIN conversation_turns h ON h.turn=a.turn
              WHERE h.session=?1 AND (json_extract(a.body,'$.status') IN ('running','stopping','queued')
                  OR (json_extract(a.body,'$.status')='cancelled'
+                     AND a.input IS NULL
                      AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=a.turn)))
              ORDER BY (json_extract(a.body,'$.status') IN ('running','stopping')) DESC,t.rowid DESC
              LIMIT 100",
@@ -68,7 +70,8 @@ pub(in crate::store) fn read(
     let turns: Vec<_> = runs.iter().map(|run| run.turn).collect();
     let (entries, _) = entries(db, session, &turns, None, 100)?;
     let mut page = page(db, session, runs, entries, next_before)?;
-    fit(&mut page)?;
+    fit(&mut page, 0, true)?;
+    let turns: Vec<_> = page.runs.iter().map(|run| run.turn).collect();
     let starts: BTreeMap<TurnId, u64> = {
         let mut query = db
             .prepare(
@@ -122,7 +125,8 @@ pub(in crate::store) fn turn(
     let (entries, more) = entries(db, session, &[turn], before, limit)?;
     let count = entries.len();
     let mut page = page(db, session, vec![run.clone()], entries, None)?;
-    fit(&mut page)?;
+    fit(&mut page, 0, false)?;
+    let run = page.runs.pop().expect("one turn continuation");
     let next_before = (more || page.entries.len() != count).then(|| {
         page.entries
             .first()
@@ -211,6 +215,10 @@ fn page(
     entries: Vec<Entry>,
     next_before: Option<TurnId>,
 ) -> Result<Page, Fault> {
+    let runs = runs
+        .into_iter()
+        .map(|run| runs::hydrate(db, run))
+        .collect::<Result<Vec<_>, _>>()?;
     let turns: BTreeSet<_> = runs.iter().map(|run| run.turn).collect();
     let mut approvals = super::super::approvals::list(db, session, &entries)?;
     approvals.retain(|approval| turns.contains(&approval.turn));
@@ -230,17 +238,48 @@ fn page(
     })
 }
 
-fn fit(page: &mut Page) -> Result<(), Fault> {
-    while encode(page)?.len() > MAX_FRAME_BYTES - 64 * 1024 {
-        if page.entries.len() <= 1 {
-            return Err(sailry_protocol::Fault::invalid(
+pub(in crate::store::agent) fn fit(
+    page: &mut Page,
+    headroom: usize,
+    prune_runs: bool,
+) -> Result<BTreeSet<TurnId>, Fault> {
+    let budget = (MAX_FRAME_BYTES - 64 * 1024)
+        .checked_sub(headroom)
+        .ok_or_else(|| Fault::invalid("conversation resources exceed the transport limit"))?;
+    let mut trimmed = BTreeSet::new();
+    while encode(page)?.len() > budget {
+        if page.entries.len() > 1 {
+            trimmed.insert(page.entries.remove(0).turn);
+            retain_metadata(page);
+            continue;
+        }
+        let closed: Vec<_> = page
+            .runs
+            .iter()
+            .enumerate()
+            .filter(|(_, run)| {
+                !matches!(
+                    run.status,
+                    Status::Queued | Status::Running | Status::Stopping
+                )
+            })
+            .map(|(index, run)| (index, run.turn))
+            .collect();
+        if !prune_runs || closed.len() <= 1 {
+            return Err(Fault::invalid(
                 "conversation metadata exceeds the transport limit",
             ));
         }
-        page.entries.remove(0);
-        retain_metadata(page);
+        let (index, turn) = closed[0];
+        page.runs.remove(index);
+        page.entries.retain(|entry| entry.turn != turn);
+        page.approvals.retain(|approval| approval.turn != turn);
+        page.questions.retain(|question| question.turn != turn);
+        page.children.retain(|child| child.origin.turn != turn);
+        page.next_before = Some(closed[1].1);
     }
-    Ok(())
+    trimmed.retain(|turn| page.runs.iter().any(|run| run.turn == *turn));
+    Ok(trimmed)
 }
 
 pub(in crate::store::agent) fn retain_metadata(page: &mut Page) {

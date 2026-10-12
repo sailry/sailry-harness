@@ -167,6 +167,7 @@ fn session(template: &Session, status: Status, waiting: Option<Waiting>) -> Sess
         finished_ms: None,
         origin: None,
         continuation: None,
+        input: None,
     });
     session
 }

@@ -288,9 +288,7 @@ pub(in crate::store) fn yield_run(
     database
         .feeds
         .publish(database.node, target.session, Change::Queue(queue));
-    database
-        .feeds
-        .publish(database.node, target.session, Change::Run(run));
+    super::super::feed::run(database, run);
     if let Some(child) = child {
         database
             .feeds

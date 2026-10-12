@@ -1,5 +1,8 @@
 use super::*;
 
+mod input;
+pub(super) use input::hydrate;
+
 pub(in crate::store) fn admit(
     db: &Connection,
     turn: &QueuedTurn,
@@ -92,6 +95,7 @@ fn insert(
         finished_ms: None,
         origin: None,
         continuation: None,
+        input: None,
     };
     db.execute(
         "INSERT INTO agent_runs(turn,ready,body,provider,hooks) VALUES(?1,?2,?3,?4,?5)",
@@ -170,9 +174,11 @@ pub(super) fn put(db: &Connection, run: &Run) -> Result<(), Fault> {
     {
         super::super::sessions::attention::notify(db, run.session)?;
     }
+    let mut stored = run.clone();
+    stored.input = None;
     db.execute(
         "UPDATE agent_runs SET body=?2 WHERE turn=?1",
-        params![run.turn.to_string(), encode(run)?],
+        params![run.turn.to_string(), encode(&stored)?],
     )
     .map_err(storage_error)?;
     Ok(())
@@ -310,9 +316,7 @@ fn claim_with(
         database
             .feeds
             .publish(database.node, run.session, Change::Queue(queue));
-        database
-            .feeds
-            .publish(database.node, run.session, Change::Run(run));
+        super::feed::run(database, run);
         return claim_with(database, recipient, events);
     }
     let queued = super::queue::message(&transaction, run.turn)?;
@@ -370,6 +374,7 @@ fn claim_with(
     };
     run.status = Status::Running;
     run.started_ms = Some(chrono::Utc::now().timestamp_millis());
+    input::capture(&transaction, &invocation)?;
     put(&transaction, &run)?;
     super::queue::remove(&transaction, run.turn, run.session)?;
     let queue = super::queue::read(&transaction, run.session)?;
@@ -380,9 +385,7 @@ fn claim_with(
     database
         .feeds
         .publish(database.node, run.session, Change::Queue(queue));
-    database
-        .feeds
-        .publish(database.node, run.session, Change::Run(run));
+    super::feed::run(database, run);
     if let Some(child) = child {
         database
             .feeds
@@ -461,9 +464,7 @@ pub(super) fn finish(
     database
         .feeds
         .publish(database.node, run.session, Change::Queue(queue));
-    database
-        .feeds
-        .publish(database.node, run.session, Change::Run(run));
+    super::feed::run(database, run);
     if let Some(child) = child {
         database
             .feeds

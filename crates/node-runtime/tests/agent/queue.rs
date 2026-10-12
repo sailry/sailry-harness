@@ -3,6 +3,8 @@ use sailry_client::conversation::Projection;
 
 #[path = "queue/guidance.rs"]
 mod guidance;
+#[path = "queue/inputs.rs"]
+mod inputs;
 #[path = "queue/persistence.rs"]
 mod persistence;
 

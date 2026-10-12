@@ -170,6 +170,11 @@ pub(super) fn merge(current: &mut Page, incoming: Page, keep_current: bool) -> R
                 || previous.revision != run.revision
                 || previous.worktree != run.worktree
                 || previous.origin != run.origin
+                || previous
+                    .input
+                    .as_ref()
+                    .zip(run.input.as_ref())
+                    .is_some_and(|(before, after)| before != after)
             {
                 return Err(sailry_protocol::Fault::invalid(
                     "sent turn identity changed during pagination",
@@ -244,6 +249,15 @@ pub(super) fn merge(current: &mut Page, incoming: Page, keep_current: bool) -> R
             question.index,
         )
     });
+    for run in &mut merged.runs {
+        if merged
+            .entries
+            .iter()
+            .any(|entry| entry.turn == run.turn && entry.author == "user")
+        {
+            run.input = None;
+        }
+    }
     validate_page(&merged)?;
     *current = merged;
     Ok(())

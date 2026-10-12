@@ -94,6 +94,7 @@ impl View {
                             run.status != Status::Queued
                                 && (run.status != Status::Cancelled
                                     || run.kind == RunKind::Compaction
+                                    || run.input.is_some()
                                     || snapshot
                                         .page
                                         .entries
@@ -106,6 +107,8 @@ impl View {
                             // the local message while its exact identity is still unknown.
                             self.outgoing.as_ref().is_none_or(|outgoing| {
                                 outgoing.turn == Some(run.turn)
+                                    || self.rows.contains(&run.turn)
+                                    || run.input.is_some()
                                     || self.sent.contains_key(&run.turn)
                                     || run.kind != RunKind::Task
                                     || !matches!(run.status, Status::Running | Status::Stopping)

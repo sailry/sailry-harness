@@ -305,9 +305,21 @@ impl View {
                 }
             }
         }
+        if sent_ms.is_none()
+            && let Some(input) = sailry_client::conversation::turns::input(&snapshot.page, turn)
+        {
+            prompt = input.message.text;
+            references = input.message.references;
+            attachments = input
+                .attachments
+                .iter()
+                .map(attachments::images::ImageSource::from)
+                .collect();
+        }
         // Admission and canonical user content arrive independently. Keep the
         // local prompt in its admitted turn until the user event replaces it.
         if sent_ms.is_none()
+            && run.input.is_none()
             && let Some(outgoing) = self
                 .outgoing
                 .as_ref()

@@ -1,5 +1,44 @@
 //! Content visibility shared by controllers without changing canonical history.
-use sailry_protocol::conversation::{Draft, Page, Part, Run, Status};
+use sailry_protocol::{
+    TurnId,
+    conversation::{Draft, Input, Page, Part, Run, SentInput, Status},
+};
+
+/// Canonical user content replaces the claim capture without inventing history entries.
+pub fn input(page: &Page, turn: TurnId) -> Option<SentInput> {
+    let mut canonical = false;
+    let mut message = Input::default();
+    let mut attachments = Vec::new();
+    for entry in page
+        .entries
+        .iter()
+        .filter(|entry| entry.turn == turn && entry.author == "user")
+    {
+        canonical = true;
+        for part in &entry.parts {
+            match part {
+                Part::Text(text) => message.text.push_str(text),
+                Part::Attachment(attachment) => {
+                    message.attachments.push(attachment.id);
+                    attachments.push(attachment.clone());
+                }
+                Part::Reference(reference) => message.references.push(reference.clone()),
+                _ => {}
+            }
+        }
+    }
+    if canonical {
+        Some(SentInput {
+            message,
+            attachments,
+        })
+    } else {
+        page.runs
+            .iter()
+            .find(|run| run.turn == turn)
+            .and_then(|run| run.input.clone())
+    }
+}
 
 pub fn visible(run: &Run, page: &Page, drafts: &[Draft]) -> bool {
     run.continuation.is_none()

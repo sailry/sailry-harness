@@ -47,6 +47,7 @@ fn retains_canonical_failure_details() {
         finished_ms: None,
         origin: None,
         continuation: None,
+        input: None,
     });
     let mut feed = Feed::default();
     feed.observe(&state);

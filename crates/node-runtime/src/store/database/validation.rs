@@ -169,6 +169,11 @@ pub(super) fn stored(db: &Connection) -> Result<(), Error> {
         "agent_runs.provider",
         "SELECT provider FROM agent_runs WHERE provider IS NOT NULL",
     )?;
+    records::<sailry_protocol::conversation::Input>(
+        db,
+        "agent_runs.input",
+        "SELECT input FROM agent_runs WHERE input IS NOT NULL",
+    )?;
     records::<SessionProfile>(
         db,
         "session_revisions.profile",

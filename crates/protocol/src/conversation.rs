@@ -168,6 +168,17 @@ pub struct Run {
     /// Package-owned automatic input, distinct from inherited history ownership.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub continuation: Option<Continuation>,
+    /// Claimed ordinary input until canonical user history is available.
+    /// Included only in the owning conversation, never in activity summaries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<SentInput>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SentInput {
+    pub message: Input,
+    /// Frozen attachment metadata; bytes remain on the execution Node.
+    pub attachments: Vec<crate::attachment::Attachment>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

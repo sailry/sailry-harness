@@ -174,3 +174,78 @@ fn validates_resource_boundaries_and_limits() {
     );
     assert_eq!(fixture.read(None, 1), original);
 }
+
+#[test]
+fn bounds_failed_inputs_without_truncation() {
+    let mut fixture = Fixture::new();
+    // JSON expands these source bytes sixfold; the logical page cannot fit all captures.
+    let input = format!("Task {}", "\u{0001}".repeat(1024 * 1024 - 5));
+    let mut expected = Vec::new();
+    for _ in 0..5 {
+        let turn = fixture.queued();
+        command(
+            &mut fixture.database,
+            &fixture.events,
+            Command::EditQueuedTurn {
+                turn,
+                expected_revision: 1,
+                message: input.clone().into(),
+            },
+        );
+        runs::start(&fixture.database.connection, turn).unwrap();
+        assert_eq!(
+            runs::claim(&mut fixture.database, &fixture.events)
+                .unwrap()
+                .unwrap()
+                .turn
+                .id,
+            turn
+        );
+        runs::finish(
+            &mut fixture.database,
+            turn,
+            Status::Failed,
+            None,
+            &fixture.events,
+        )
+        .unwrap();
+        expected.push(turn);
+    }
+    let queued = fixture.queued();
+    let mut before = None;
+    let mut restored = BTreeSet::new();
+    loop {
+        let history = fixture.read(before, 100);
+        assert!(
+            encode(&Output::Conversation(history.clone()))
+                .unwrap()
+                .len()
+                < MAX_FRAME_BYTES
+        );
+        assert!(history.page.entries.is_empty());
+        assert!(history.missing.is_empty());
+        assert!(
+            history
+                .page
+                .queue
+                .items
+                .iter()
+                .any(|item| item.turn == queued)
+        );
+        for run in history
+            .page
+            .runs
+            .iter()
+            .filter(|run| run.status == Status::Failed)
+        {
+            assert!(restored.insert(run.turn));
+            assert_eq!(run.input.as_ref().unwrap().message.text, input);
+        }
+        let Some(next) = history.page.next_before else {
+            break;
+        };
+        assert_ne!(before, Some(next));
+        before = Some(next);
+    }
+    assert_eq!(restored, expected.into_iter().collect());
+}

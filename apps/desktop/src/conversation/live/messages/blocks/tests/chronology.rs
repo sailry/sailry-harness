@@ -85,6 +85,7 @@ fn history() -> (TurnId, View) {
                     finished_ms: Some(2),
                     origin: None,
                     continuation: None,
+                    input: None,
                 },
                 origin: Delegation {
                     session,

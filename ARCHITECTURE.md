@@ -86,6 +86,12 @@ configuration database, never public events, logs or UI caches. Projects remain
 at registered paths; profiles contain Node storage, plugin packages/data and
 uploaded attachments.
 
+Claiming an ordinary main turn freezes its effective input on the existing run
+record. Conversation projections include that input only until canonical user
+history exists, with attachment metadata but no bytes or execution configuration.
+Activity summaries remain metadata-only. Logical history pages preserve full
+inputs using turn cursors rather than truncation or synthetic history events.
+
 New managed project checkouts live under the main worktree's
 `.sailry/worktrees/<id>`; existing profile-owned checkouts retain their registered
 paths. Git excludes `.sailry/` through `info/exclude`, preserving user ignore files.

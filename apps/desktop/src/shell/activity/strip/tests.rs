@@ -137,6 +137,7 @@ fn spaces_actions_and_overflow(cx: &mut TestAppContext) {
                     finished_ms: Some(1),
                     origin: None,
                     continuation: None,
+                    input: None,
                 });
                 session
             })

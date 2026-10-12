@@ -279,20 +279,7 @@ pub(in crate::conversation::live) fn sent_input(
     page: &sailry_protocol::conversation::Page,
     turn: TurnId,
 ) -> Input {
-    let mut message = Input::default();
-    for entry in page
-        .entries
-        .iter()
-        .filter(|entry| entry.turn == turn && entry.author == "user")
-    {
-        for part in &entry.parts {
-            match part {
-                Part::Text(text) => message.text.push_str(text),
-                Part::Attachment(attachment) => message.attachments.push(attachment.id),
-                Part::Reference(reference) => message.references.push(reference.clone()),
-                _ => {}
-            }
-        }
-    }
-    message
+    sailry_client::conversation::turns::input(page, turn)
+        .map(|input| input.message)
+        .unwrap_or_default()
 }

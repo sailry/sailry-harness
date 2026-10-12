@@ -114,6 +114,7 @@ async fn recovers_overflow() {
         finished_ms: None,
         origin: None,
         continuation: None,
+        input: None,
     };
     let feeds = Feeds::default();
     feeds.publish(node, session, Change::Run(run.clone()));
@@ -134,13 +135,15 @@ async fn recovers_overflow() {
         page,
         missing: Vec::new(),
     };
-    let mut subscription = feeds.subscribe(
-        node,
-        history.clone(),
-        Default::default(),
-        Default::default(),
-        closed.clone(),
-    );
+    let mut subscription = feeds
+        .subscribe(
+            node,
+            history.clone(),
+            Default::default(),
+            Default::default(),
+            closed.clone(),
+        )
+        .unwrap();
     assert!(matches!(
         subscription.next().await.unwrap(),
         Update::ConversationSnapshot(_)
@@ -162,13 +165,15 @@ async fn recovers_overflow() {
     }
     assert_eq!(subscription.next().await.unwrap(), Update::ResetRequired);
     drop(subscription);
-    let mut resumed = feeds.subscribe(
-        node,
-        history,
-        Default::default(),
-        Default::default(),
-        closed.clone(),
-    );
+    let mut resumed = feeds
+        .subscribe(
+            node,
+            history,
+            Default::default(),
+            Default::default(),
+            closed.clone(),
+        )
+        .unwrap();
     let Update::ConversationSnapshot(snapshot) = resumed.next().await.unwrap() else {
         panic!("snapshot expected")
     };
@@ -199,6 +204,7 @@ fn seals_stopping_before_cancellation() {
         finished_ms: None,
         origin: None,
         continuation: None,
+        input: None,
     };
     let controls = crate::agent::Controls::default();
     let stop = CancellationToken::new();
