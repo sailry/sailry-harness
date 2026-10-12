@@ -8,10 +8,12 @@ use std::{
     path::Path,
 };
 
+mod creation;
 mod read;
 #[cfg(test)]
 mod tests;
 mod validation;
+pub(crate) use creation::prepare as prepare_creation;
 pub(super) use read::read;
 
 pub(crate) fn edit(root: &Path, input: &notebook::Edit) -> Result<FileWritten, Fault> {

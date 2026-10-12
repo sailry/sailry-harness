@@ -238,10 +238,12 @@ pub(super) fn command(
         }
         Operation::WriteFile => {
             let input: Write = decode(arguments)?;
+            let text =
+                crate::files::notebook::prepare_creation(&input.path, &input.text)?.into_owned();
             Command::WriteFile {
                 worktree,
                 path: input.path,
-                text: input.text,
+                text,
                 expected_revision: input.expected_revision,
             }
         }

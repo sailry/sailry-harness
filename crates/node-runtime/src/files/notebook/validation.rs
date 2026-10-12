@@ -3,6 +3,14 @@ use super::*;
 pub(super) const MAX_COUNT: usize = 100_000;
 
 pub(super) fn parse(text: &str) -> Result<Value, Fault> {
+    parse_with_ids(text, true)
+}
+
+pub(super) fn draft(text: &str) -> Result<Value, Fault> {
+    parse_with_ids(text, false)
+}
+
+fn parse_with_ids(text: &str, require_ids: bool) -> Result<Value, Fault> {
     if text.len() > MAX_EDIT_BYTES || text.contains('\0') {
         return Err(Fault::invalid("notebook exceeds the text limit"));
     }
@@ -57,7 +65,7 @@ pub(super) fn parse(text: &str) -> Result<Value, Fault> {
             {
                 return Err(Fault::invalid("invalid or duplicate notebook cell ID"));
             }
-        } else if value["nbformat_minor"].as_u64() == Some(5) {
+        } else if require_ids && value["nbformat_minor"].as_u64() == Some(5) {
             return Err(Fault::invalid("notebook cell ID is missing"));
         }
     }

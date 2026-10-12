@@ -140,3 +140,54 @@ fn bounds_cell_pages_without_changing_source() {
         before
     );
 }
+
+#[test]
+fn reads_legacy_cells_without_rewriting() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    let mut value = sample();
+    value["nbformat_minor"] = json!(4);
+    for cell in value["cells"].as_array_mut().unwrap() {
+        cell.as_object_mut().unwrap().remove("id");
+    }
+    let before = value.to_string();
+    let path = root.join("sample.ipynb");
+    std::fs::write(&path, &before).unwrap();
+    let page = read(
+        &root,
+        &notebook::Read {
+            path: "sample.ipynb".into(),
+            offset: 0,
+            limit: 3,
+        },
+        &Control::new(CancellationToken::new()),
+    )
+    .unwrap();
+    assert_eq!(page.nbformat_minor, 4);
+    assert_eq!(page.cells.len(), 3);
+    assert!(page.cells.iter().all(|cell| cell.value.get("id").is_none()));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+}
+
+#[test]
+fn rejects_missing_current_ids_without_rewriting() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    let mut value = sample();
+    value["cells"][0].as_object_mut().unwrap().remove("id");
+    let before = value.to_string();
+    let path = root.join("sample.ipynb");
+    std::fs::write(&path, &before).unwrap();
+    let error = read(
+        &root,
+        &notebook::Read {
+            path: "sample.ipynb".into(),
+            offset: 0,
+            limit: 3,
+        },
+        &Control::new(CancellationToken::new()),
+    )
+    .unwrap_err();
+    assert_eq!(error.message, "notebook cell ID is missing");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+}
