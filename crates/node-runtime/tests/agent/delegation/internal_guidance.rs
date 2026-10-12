@@ -1,6 +1,8 @@
 use super::fixture::Fixture;
 use super::*;
 
+mod hooks;
+
 fn status(page: &Page, turn: TurnId) -> Status {
     page.runs
         .iter()
@@ -319,7 +321,7 @@ async fn stop_preserves_child_direction_without_replay() {
 async fn continues_after_background_answer() {
     for remote in [false, true] {
         let release = sailry_link::CancellationToken::new();
-        let parent = Server::tools(vec![(
+        let parent = Server::scripted_tools(vec![(
             plugin_tool("delegation", "spawn_agent"),
             json!({"role":"review","task":"Wait for the held response","background":true}),
         )])
@@ -332,49 +334,98 @@ async fn continues_after_background_answer() {
             .pop()
             .unwrap();
         fixture.child.wait_count(1).await;
-        let answer = format!("answer-{}", fixture.session.config.model);
-        tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                let page = history(&fixture.client, fixture.session.id).await;
-                if page.entries.iter().any(|entry| {
-                    entry.turn == active.id
-                        && entry.author != "user"
-                        && entry.parts.contains(&Part::Text(answer.clone()))
-                }) {
-                    assert_eq!(status(&page, active.id), Status::Running);
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("background answer deadline");
-        let directed = direction(&fixture, &active).await;
         let parent = finished(&fixture.client, fixture.session.id, active.id).await;
-        assert_eq!(status(&parent, active.id), Status::Continued);
+        assert_eq!(status(&parent, active.id), Status::Completed);
         assert_eq!(parent.children[0].run.status, Status::Running);
         assert!(!parent.queue.paused);
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
-        release.cancel();
+        assert_eq!(results(&parent)[0]["session"], json!(child.id));
+        fixture.parent.replace_tools(vec![(
+            plugin_tool("delegation", "guide_agent"),
+            json!({"session":child.id,"message":"Keep the final child evidence"}),
+        )]);
+        let directed = fixture.push("Guide the independent child").await;
         let parent = finished(&fixture.client, fixture.session.id, directed.id).await;
-        assert_eq!(status(&parent, active.id), Status::Continued);
+        assert_eq!(status(&parent, active.id), Status::Completed);
         assert_eq!(status(&parent, directed.id), Status::Completed);
-        assert_eq!(parent.children[0].run.status, Status::Completed);
+        assert!(
+            parent
+                .children
+                .iter()
+                .any(|child| child.run.status == Status::Running)
+        );
+        let guidance = parent
+            .entries
+            .iter()
+            .filter(|entry| entry.turn == directed.id)
+            .flat_map(|entry| &entry.parts)
+            .find_map(|part| match part {
+                Part::ToolResult { result, .. } => Some(result),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(guidance["session"], json!(child.id));
+        assert!(guidance["recipient"].is_string());
+        assert_eq!(guidance["status"], "queued");
+        fixture.parent.replace_tools(vec![(
+            plugin_tool("delegation", "wait_agent"),
+            json!({"session":child.id}),
+        )]);
+        let waiting = fixture.push("Collect the independent child answer").await;
+        fixture.parent.wait_count(5).await;
+        let parent = history(&fixture.client, fixture.session.id).await;
+        assert_eq!(status(&parent, waiting.id), Status::Running);
+        assert!(
+            parent
+                .children
+                .iter()
+                .any(|child| child.run.status == Status::Running)
+        );
+        assert!(
+            !parent
+                .entries
+                .iter()
+                .filter(|entry| entry.turn == waiting.id)
+                .flat_map(|entry| &entry.parts)
+                .any(|part| matches!(part, Part::ToolResult { .. }))
+        );
+        release.cancel();
+        let parent = finished(&fixture.client, fixture.session.id, waiting.id).await;
+        assert_eq!(status(&parent, active.id), Status::Completed);
+        assert_eq!(status(&parent, directed.id), Status::Completed);
+        assert_eq!(status(&parent, waiting.id), Status::Completed);
+        assert!(parent.children.iter().all(|child| !matches!(
+            child.run.status,
+            Status::Queued | Status::Running | Status::Stopping
+        )));
+        let waited = parent
+            .entries
+            .iter()
+            .filter(|entry| entry.turn == waiting.id)
+            .flat_map(|entry| &entry.parts)
+            .find_map(|part| match part {
+                Part::ToolResult { result, .. } => Some(result),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(waited["session"], json!(child.id));
+        assert_eq!(waited["status"], "completed");
+        assert_eq!(waited["response"], "Final child evidence");
         let page = history(&fixture.client, child.id).await;
-        assert_eq!(page.runs[0].status, Status::Completed);
+        assert!(page.runs.iter().any(|run| run.status == Status::Completed));
         assert!(page.entries.iter().any(|entry| {
             entry
                 .parts
                 .contains(&Part::Text("Final child evidence".into()))
         }));
-        assert_eq!(fixture.parent.requests.lock().unwrap().len(), 3);
-        assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
+        assert_eq!(fixture.parent.requests.lock().unwrap().len(), 6);
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), 2);
         fixture.close().await;
     }
 }
 
 #[tokio::test]
-async fn completion_waits_for_background_cleanup() {
+async fn completes_before_background_child() {
     for remote in [false, true] {
         let release = sailry_link::CancellationToken::new();
         let parent = Server::turn_tools(vec![(
@@ -391,11 +442,33 @@ async fn completion_waits_for_background_cleanup() {
             .unwrap();
         fixture.parent.wait_count(2).await;
         fixture.child.wait_count(1).await;
-        let page = history(&fixture.client, fixture.session.id).await;
-        assert_eq!(status(&page, active.id), Status::Running);
-        assert_eq!(page.children[0].run.status, Status::Running);
-        release.cancel();
         let parent = finished(&fixture.client, fixture.session.id, active.id).await;
+        assert_eq!(status(&parent, active.id), Status::Completed);
+        assert_eq!(parent.children[0].run.status, Status::Running);
+        assert_eq!(
+            child.delegation.as_ref().unwrap().session,
+            fixture.session.id
+        );
+        let request = fixture
+            .client
+            .prepare(Command::StopTurn { turn: active.id });
+        let admission = fixture.client.dispatch(request.clone()).await.unwrap();
+        assert!(admission.receipt.durable);
+        let stopped = admission.completion.await.unwrap().unwrap();
+        let Output::Run(run) = &stopped else {
+            panic!("run expected")
+        };
+        assert_eq!(run.status, Status::Completed);
+        assert_eq!(fixture.client.execute(request).await.unwrap(), stopped);
+        let parent = history(&fixture.client, fixture.session.id).await;
+        assert_eq!(status(&parent, active.id), Status::Completed);
+        assert_eq!(parent.children[0].run.status, Status::Running);
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
+        release.cancel();
+        let page = history(&fixture.client, child.id).await;
+        let finished_child = finished(&fixture.client, child.id, page.runs[0].turn).await;
+        assert_eq!(finished_child.runs[0].status, Status::Completed);
+        let parent = history(&fixture.client, fixture.session.id).await;
         assert_eq!(status(&parent, active.id), Status::Completed);
         assert_eq!(parent.children[0].run.status, Status::Completed);
         let page = history(&fixture.client, child.id).await;
@@ -404,6 +477,41 @@ async fn completion_waits_for_background_cleanup() {
                 .parts
                 .contains(&Part::Text("Final child evidence".into()))
         }));
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
+async fn synchronous_spawn_waits_for_child() {
+    for remote in [false, true] {
+        let release = sailry_link::CancellationToken::new();
+        let parent = Server::tools(vec![(
+            plugin_tool("delegation", "spawn_agent"),
+            json!({"role":"review","task":"Wait for the held response"}),
+        )])
+        .await;
+        let child = Server::markdown_held("Final child evidence".into(), release.clone()).await;
+        let fixture = Fixture::start(remote, parent, child).await;
+        let active = fixture.push("Wait for the delegated task").await;
+        let child = children(&fixture.client, fixture.session.id, 1)
+            .await
+            .pop()
+            .unwrap();
+        fixture.child.wait_count(1).await;
+        let parent = history(&fixture.client, fixture.session.id).await;
+        assert_eq!(status(&parent, active.id), Status::Running);
+        assert_eq!(parent.children[0].run.status, Status::Running);
+        assert!(results(&parent).is_empty());
+        assert_eq!(fixture.parent.requests.lock().unwrap().len(), 1);
+        release.cancel();
+        let parent = finished(&fixture.client, fixture.session.id, active.id).await;
+        assert_eq!(status(&parent, active.id), Status::Completed);
+        assert_eq!(parent.children[0].run.status, Status::Completed);
+        let output = results(&parent);
+        assert_eq!(output[0]["session"], json!(child.id));
+        assert_eq!(output[0]["status"], "completed");
+        assert_eq!(output[0]["response"], "Final child evidence");
+        assert_eq!(fixture.parent.requests.lock().unwrap().len(), 2);
         fixture.close().await;
     }
 }
@@ -429,6 +537,7 @@ async fn default_background_child_inherits_permissions() {
         assert_eq!(child.delegation.as_ref().unwrap().role, None);
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 0);
         let page = history(&fixture.client, child.id).await;
+        let page = finished(&fixture.client, child.id, page.runs[0].turn).await;
         assert_eq!(page.runs[0].status, Status::Completed);
         assert!(page.approvals.is_empty());
         assert!(!page.entries.iter().any(|entry| {

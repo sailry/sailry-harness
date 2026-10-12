@@ -34,7 +34,7 @@ use adk_core::RunConfig;
 use adk_runner::Runner;
 use futures::StreamExt;
 use sailry_link::CancellationToken;
-use sailry_protocol::{ErrorCode, Fault, TurnId, conversation::Status};
+use sailry_protocol::{ErrorCode, Fault, SessionId, TurnId, conversation::Status};
 use std::{sync::Arc, time::Duration};
 
 pub(crate) fn start(ingress: Arc<Ingress>, tasks: &Tasks) -> Result<(), Error> {
@@ -95,23 +95,10 @@ async fn run(
             result = Err(error);
         }
     }
-    if main {
-        // Background delegation belongs to this session across guidance
-        // continuations. Explicit Stop still cancels and settles its work.
-        if (token.is_cancelled() || result.is_err())
-            && !ingress.pending_guidance(turn).await.unwrap_or(false)
-        {
-            controls.cancel_children(session);
-        }
-        while controls.has_children(session) {
-            if !token.is_cancelled() && ingress.yield_guidance(turn).await.unwrap_or(false) {
-                break;
-            }
-            if token.is_cancelled() && ingress.pending_guidance(turn).await.unwrap_or(false) {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
+    if main && (token.is_cancelled() || result.is_err()) {
+        // Normal completion leaves background children with their session owner.
+        // Interruption retains the existing cancellation and guidance settlement.
+        settle_children(ingress, session, turn, &token).await;
     }
     if !controls.stopped.is_cancelled()
         && !token.is_cancelled()
@@ -125,6 +112,10 @@ async fn run(
         if let Err(error) = hooks.complete(status).await {
             merge_failure(&mut result, error);
         }
+    }
+    // Completion hooks can fail or be interrupted after a successful Runner.
+    if main && (token.is_cancelled() || result.is_err()) {
+        settle_children(ingress, session, turn, &token).await;
     }
     // Hook and tool process owners survive dropped ADK callback futures.
     controls.drain(turn).await;
@@ -168,6 +159,27 @@ async fn run(
         status,
         (status == Status::Completed).then_some(output).flatten(),
     ))
+}
+
+async fn settle_children(
+    ingress: &Ingress,
+    session: SessionId,
+    turn: TurnId,
+    token: &CancellationToken,
+) {
+    let controls = &ingress.agents;
+    if !ingress.pending_guidance(turn).await.unwrap_or(false) {
+        controls.cancel_children(session);
+    }
+    while controls.has_children(session) {
+        if !token.is_cancelled() && ingress.yield_guidance(turn).await.unwrap_or(false) {
+            break;
+        }
+        if token.is_cancelled() && ingress.pending_guidance(turn).await.unwrap_or(false) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
 }
 
 fn merge_failure(result: &mut Result<Option<String>, Fault>, error: Fault) {

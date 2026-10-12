@@ -366,8 +366,10 @@ reuse captures current packages and settings; initial delegation inherits the
 parent's frozen capture, and guidance retains the active recipient's capture.
 Delegation waits synchronously by default. Opt-in background children remain
 owned by their main session across guidance handoffs; the main agent can guide
-and wait for them through Node-owned tools. Main-session completion waits for
-owned children, while explicit Stop cancels them. Child views are read-only;
+and wait for them through Node-owned tools in later turns. A successful main turn
+completes after its own execution, hooks and admitted operations settle, without
+waiting for background children. Explicit Stop of an active main turn still
+cancels its owned children; stopping a completed turn does not. Child views are read-only;
 their approvals retain the child identity and are presented in the main session.
 
 Guidance is durably admitted before execution. While the recipient awaits or

@@ -161,7 +161,7 @@ async fn rejects_captured_mutating_requests() {
         let run = history(&fixture.client, child.id).await.runs[0].clone();
         assert_eq!(run.status, Status::Running);
         assert_eq!(child.config.mode, WorkMode::Plan);
-        let parent = history(&fixture.client, fixture.session.id).await;
+        let parent = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(
             parent
                 .runs
@@ -169,7 +169,7 @@ async fn rejects_captured_mutating_requests() {
                 .find(|run| run.turn == turn.id)
                 .unwrap()
                 .status,
-            Status::Running,
+            Status::Completed,
             "{parent:?}"
         );
         let scope = plugin::Context {

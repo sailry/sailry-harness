@@ -536,6 +536,36 @@ mod tests {
         assert!(child.is_cancelled());
     }
 
+    #[tokio::test]
+    async fn drains_operations_without_waiting_for_children() {
+        let controls = Controls::default();
+        let session = SessionId::new();
+        let turn = TurnId::new();
+        let child = SessionId::new();
+        let child_turn = TurnId::new();
+        let child_stop = CancellationToken::new();
+        controls.register(turn, session, CancellationToken::new());
+        controls.begin_operation(turn).unwrap();
+        controls.register_child(session, child, child_turn, child_stop.clone());
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(10), controls.drain(turn))
+                .await
+                .is_err()
+        );
+        assert!(controls.begin_operation(turn).is_none());
+        assert!(!child_stop.is_cancelled());
+        controls.finish_operation(turn);
+        tokio::time::timeout(std::time::Duration::from_millis(10), controls.drain(turn))
+            .await
+            .unwrap();
+        controls.finish(turn);
+        controls.cancel(turn);
+        assert!(controls.has_children(session));
+        assert!(!child_stop.is_cancelled());
+        controls.finish_child(session, child, child_turn);
+        assert!(!controls.has_children(session));
+    }
+
     #[test]
     fn stop_overrides_handoff() {
         for shutdown in [false, true] {
