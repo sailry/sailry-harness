@@ -373,6 +373,47 @@ fn a_node_adopted_from_another_parent_keeps_its_position() {
         px(57.),
         "the child should still be offset by the row's and the chip's padding"
     );
+    change_and_draw(&mut cx, window, |view| view.in_view = true);
+    assert_eq!(
+        probes.borrow()[0].origin.x,
+        px(57.),
+        "restoring the view should keep the child's ancestor offsets"
+    );
+}
+
+#[test]
+fn restores_reparented_children() {
+    use crate::TaffyLayoutEngine;
+
+    let mut engine = TaffyLayoutEngine::new();
+    let request = |engine: &mut TaffyLayoutEngine, key, children: &[_]| {
+        engine.request_layout(Some(key), crate::Style::default(), px(14.), 1., children)
+    };
+    let child = request(&mut engine, 1, &[]);
+    let original = request(&mut engine, 2, &[child]);
+    let replacement = request(&mut engine, 3, &[]);
+    engine.clear();
+
+    assert_eq!(request(&mut engine, 1, &[]), child);
+    assert_eq!(request(&mut engine, 3, &[child]), replacement);
+    assert!(engine.taffy.children(original.into()).unwrap().is_empty());
+    assert_eq!(engine.taffy.parent(child.into()), Some(replacement.into()));
+
+    assert_eq!(request(&mut engine, 2, &[child]), original);
+    assert_eq!(engine.taffy.parent(child.into()), Some(original.into()));
+    assert_eq!(
+        engine.taffy.children(original.into()).unwrap(),
+        [child.into()]
+    );
+    assert!(
+        engine
+            .taffy
+            .children(replacement.into())
+            .unwrap()
+            .is_empty()
+    );
+    assert!(engine.layout_reaches(original, child));
+    assert!(!engine.layout_reaches(replacement, child));
 }
 
 /// Rows of a uniform list five rows tall, scrolled to `scroll_top`.

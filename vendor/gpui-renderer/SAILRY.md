@@ -58,6 +58,14 @@ These corrections preserve rendering and the existing precise range replay.
 `gpui/src/fast/tests/retained.rs` covers removed selectors beside a retained
 sibling and layer selector ranges before, inside and after a reused range.
 
+Retained layout checks both the requested children and Taffy's current child
+list before skipping a write. Taffy reparents a reused child by removing it
+from its previous parent, without updating that parent's retained request.
+Restoring a structure must reattach those children; otherwise a dirty text
+leaf can be orphaned and reach prepaint without being measured. The existing
+measurement assertion remains intact. `gpui/src/fast/tests/layout.rs` covers
+forward and reverse reparenting, restored ancestry and ancestor offsets.
+
 The AppKit composition adapter uses `NSView.setSubviews` when its native surface
 order changes. AppKit preserves views present in both sibling arrays; removing
 and re-adding every existing surface would detach a focused page when a hidden
