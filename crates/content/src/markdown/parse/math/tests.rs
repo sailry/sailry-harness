@@ -1,6 +1,108 @@
 use crate::markdown::{BlockKind, Mark, Part, doc::Container, with_ranges};
 
 #[test]
+fn keeps_price_prose_and_amount_lists_literal() {
+    for source in [
+        "Plans cost $5 and $10 per month",
+        "Pro costs $39/month, with a $100 allowance",
+        "Pro $100、$200 或 $500/月",
+        "Plans cost $100, $200",
+        "| Plan | Price |\n| --- | --- |\n| Pro | $39/month with $100 usage |",
+        "中文套餐 $39每月，对应额度 $100/月",
+    ] {
+        let parsed = with_ranges(source);
+        assert!(
+            parsed
+                .doc
+                .blocks
+                .iter()
+                .flat_map(|block| block
+                    .parts()
+                    .into_iter()
+                    .filter_map(|part| block.text_at(part)))
+                .all(|text| text.marks.iter().all(|mark| mark.mark != Mark::Math)),
+            "{source}"
+        );
+        let rendered = parsed
+            .doc
+            .blocks
+            .iter()
+            .flat_map(|block| {
+                block
+                    .parts()
+                    .into_iter()
+                    .filter_map(|part| block.text_at(part))
+            })
+            .map(|text| text.text.as_str())
+            .collect::<String>();
+        assert_eq!(rendered.matches('$').count(), source.matches('$').count());
+        assert_eq!(
+            parsed
+                .block_ranges
+                .iter()
+                .map(|range| &source[range.clone()])
+                .collect::<String>(),
+            source
+        );
+    }
+}
+
+#[test]
+fn preserves_numeric_formulas_and_protected_prices() {
+    for source in [
+        "$2$3",
+        "$2+3$4",
+        "$2x$3",
+        "$2 x $3",
+        "$x$",
+        r"$\text{price $5}$",
+        "$$2+3$$",
+        r"\(2+3\)",
+    ] {
+        let parsed = with_ranges(source);
+        assert!(
+            parsed
+                .doc
+                .blocks
+                .iter()
+                .any(|block| matches!(block.kind, BlockKind::Math(_)))
+                || parsed
+                    .doc
+                    .blocks
+                    .iter()
+                    .flat_map(|block| block
+                        .parts()
+                        .into_iter()
+                        .filter_map(|part| block.text_at(part)))
+                    .any(|text| text.marks.iter().any(|mark| mark.mark == Mark::Math)),
+            "{source}"
+        );
+    }
+    let source = "Price $39/month with $100 allowance and $x^2$. `Cost $5 and $10` [price](https://example.com/$5/$10)";
+    let parsed = with_ranges(source);
+    let text = parsed.doc.blocks[0].text_at(Part::Body).unwrap();
+    assert!(text.text.contains("$39/month with $100"));
+    assert!(
+        text.marks
+            .iter()
+            .any(|mark| mark.mark == Mark::Math && &text.text[mark.range.clone()] == "x^2")
+    );
+    assert!(
+        text.marks.iter().any(
+            |mark| matches!(&mark.mark, Mark::Link(url) if url == "https://example.com/$5/$10")
+        )
+    );
+    assert_eq!(
+        parsed
+            .block_ranges
+            .iter()
+            .map(|range| &source[range.clone()])
+            .collect::<String>(),
+        source
+    );
+}
+
+#[test]
 fn recognizes_normal_and_bayes_formulas() {
     let density =
         r"f_X(x)=\frac{1}{\sigma\sqrt{2\pi}}\exp\left(-\frac{(x-\mu)^2}{2\sigma^2}\right)";

@@ -12,6 +12,55 @@ mod compact;
 mod progress;
 
 #[test]
+fn keeps_native_references_in_canonical_copy_source() {
+    let turn = TurnId::new();
+    let source = "Result\u{e200}cite\u{e202}turn0search2\u{e201} tail";
+    let history = View {
+        snapshot: Some(Arc::new(Snapshot {
+            node: NodeId([1; 32]),
+            sequence: 1,
+            missing: vec![],
+            drafts: vec![],
+            statistics: Default::default(),
+            artifacts: Default::default(),
+            page: Arc::new(Page {
+                session: SessionId::new(),
+                revision: 1,
+                next_before: None,
+                queue: Default::default(),
+                approvals: vec![],
+                questions: vec![],
+                children: vec![],
+                runs: vec![],
+                entries: vec![Entry {
+                    sequence: 1,
+                    id: "answer".into(),
+                    turn,
+                    author: "assistant".into(),
+                    branch: String::new(),
+                    timestamp_ms: 1,
+                    parts: vec![Part::Text(source.into())],
+                    usage: None,
+                    citations: vec![],
+                    search_suggestions: None,
+                }],
+            }),
+        })),
+        ..View::default()
+    };
+    let blocks = collect(turn, &history);
+    let Block::Text(_, copy) = &blocks[0] else {
+        panic!("text block expected")
+    };
+    assert_eq!(copy, source);
+    assert_eq!(super::super::citations::presentation(copy), "Result tail");
+    assert_eq!(
+        history.snapshot.as_ref().unwrap().page.entries[0].parts,
+        vec![Part::Text(source.into())]
+    );
+}
+
+#[test]
 fn preserves_image_message_boundaries() {
     use sailry_protocol::{AttachmentId, WorktreeId, attachment, conversation::Image};
     let turn = TurnId::new();

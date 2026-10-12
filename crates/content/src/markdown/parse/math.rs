@@ -1,5 +1,5 @@
 //! Recognize LaTeX delimiters while keeping CommonMark's source byte offsets.
-use pulldown_cmark::{CowStr, Event, OffsetIter, Parser, Tag};
+use pulldown_cmark::{CowStr, Event, OffsetIter, Options, Parser, Tag, TagEnd};
 use std::ops::Range;
 
 pub(crate) struct Events<'a> {
@@ -34,6 +34,85 @@ struct Formula {
 }
 
 pub(crate) fn events(source: &str) -> Events<'_> {
+    let events = formulas(source);
+    if !source.contains('$') {
+        return events;
+    }
+    let mut result = Vec::new();
+    let mut links = 0;
+    for (event, range) in events {
+        match &event {
+            Event::Start(Tag::Link { .. } | Tag::Image { .. }) => links += 1,
+            Event::End(TagEnd::Link | TagEnd::Image) => links -= 1,
+            Event::InlineMath(_) if links == 0 && prices(source, &range) => {
+                // Reparse only this false formula, without math. The original
+                // delimiters and inline Markdown retain their source offsets.
+                let options = super::OPTIONS.difference(Options::ENABLE_MATH);
+                for (literal, local) in
+                    Parser::new_ext(&source[range.clone()], options).into_offset_iter()
+                {
+                    if !matches!(
+                        literal,
+                        Event::Start(Tag::Paragraph) | Event::End(TagEnd::Paragraph)
+                    ) {
+                        result.push((literal, range.start + local.start..range.start + local.end));
+                    }
+                }
+                continue;
+            }
+            _ => {}
+        }
+        result.push((event, range));
+    }
+    Events {
+        original: None,
+        formulas: result.into_iter(),
+    }
+}
+
+fn prices(source: &str, range: &Range<usize>) -> bool {
+    let raw = &source[range.clone()];
+    let Some(body) = raw
+        .strip_prefix('$')
+        .and_then(|value| value.strip_suffix('$'))
+    else {
+        return false;
+    };
+    if raw.starts_with("$$")
+        || !body.as_bytes().first().is_some_and(u8::is_ascii_digit)
+        || !source
+            .as_bytes()
+            .get(range.end)
+            .is_some_and(u8::is_ascii_digit)
+        || body.contains([
+            '\n', '\r', '\\', '{', '}', '_', '^', '=', '+', '*', '<', '>', '-',
+        ])
+    {
+        return false;
+    }
+    let amount = body
+        .bytes()
+        .take_while(|byte| byte.is_ascii_digit() || *byte == b'.')
+        .count();
+    let rest = &body[amount..];
+    if matches!(rest.trim(), "," | "、" | "，" | ";" | "；") {
+        return true;
+    }
+    if !rest.chars().any(char::is_whitespace) && !rest.starts_with('/') {
+        return false;
+    }
+    let mut letters = 0;
+    rest.chars().any(|character| {
+        letters = if character.is_alphabetic() {
+            letters + 1
+        } else {
+            0
+        };
+        letters >= 2
+    })
+}
+
+fn formulas(source: &str) -> Events<'_> {
     let original = || Parser::new_ext(source, super::OPTIONS).into_offset_iter();
     if !source.contains(r"\(") && !source.contains(r"\[") {
         return Events::original(original());

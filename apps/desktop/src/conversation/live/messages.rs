@@ -367,7 +367,7 @@ impl View {
                     .debug_selector(move || format!("live-turn-text-{turn}"))
                     .child(self.markdown_at(
                         format!("{turn}-{key}"),
-                        text.into(),
+                        citations::presentation(&text).into_owned().into(),
                         self.turn_worktree(turn),
                         cx,
                     ))
