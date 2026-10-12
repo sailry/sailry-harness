@@ -349,8 +349,18 @@ impl Shell {
             sailry_protocol::plugin::desktop::ResourceKind::Documents,
             cx,
         );
-        if !preview && (crate::content::files::external(&file.path) || !document) {
-            self.reveal_file_in_system((binding.client.target(), worktree), file.path, window, cx);
+        if !preview && crate::content::files::external(&file.path) {
+            self.open_file_in_system(
+                (binding.client.target(), worktree),
+                file.path,
+                false,
+                window,
+                cx,
+            );
+            return;
+        }
+        if !preview && !document {
+            crate::resources::file_open::failure("files_open_failed", window, cx);
             return;
         }
         if crate::content::files::markdown(&file.path) || !preview {

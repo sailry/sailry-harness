@@ -89,16 +89,21 @@ fn ordinary_deliverables_open_in_the_editor(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn unsupported_outputs_reveal_captured_files(cx: &mut TestAppContext) {
+fn unsupported_primary_keeps_explicit_reveal(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
         install(&fixture);
-        let cases: [(&str, &str, &[u8]); 2] = [
+        let cases: [(&str, &str, &[u8]); 3] = [
             (
                 "bundle.zip",
                 "application/zip",
                 b"PK\x03\x04\0captured archive\xff",
+            ),
+            (
+                "test.db",
+                "application/octet-stream",
+                b"SQLite format 3\0\xffbinary",
             ),
             ("clip.mp4", "video/mp4", b"\0\0\0\x18ftypcaptured video\xff"),
         ];
@@ -119,6 +124,9 @@ fn unsupported_outputs_reveal_captured_files(cx: &mut TestAppContext) {
         });
         let mut copies = Vec::new();
         for (path, mime, bytes) in cases {
+            let failures = visual.update(|window, cx| {
+                crate::feedback::tests::count(window, crate::tr("files_open_failed").as_ref(), cx)
+            });
             visual.update(|window, cx| {
                 shell.update(cx, |shell, cx| {
                     let chat = shell.current_chat().unwrap().clone();
@@ -132,6 +140,41 @@ fn unsupported_outputs_reveal_captured_files(cx: &mut TestAppContext) {
                             size: None,
                             revision: None,
                         },
+                        window,
+                        cx,
+                    );
+                })
+            });
+            if path == "clip.mp4" {
+                let (action, opened) = native_action(visual);
+                assert_eq!(action, Action::Open);
+                assert_target(&fixture, remote, path, bytes, &opened);
+            } else {
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while visual.update(|window, cx| {
+                    crate::feedback::tests::count(
+                        window,
+                        crate::tr("files_open_failed").as_ref(),
+                        cx,
+                    )
+                }) == failures
+                {
+                    wait(visual, |_| true);
+                    assert!(Instant::now() < deadline, "artifact failure toast deadline");
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                assert_eq!(
+                    visual.update(crate::feedback::tests::summary),
+                    crate::tr("files_open_failed")
+                );
+                assert!(visual.update(|_, cx| system::take(cx).is_empty()));
+            }
+            // Primary failure does not remove the explicitly requested Reveal.
+            visual.update(|window, cx| {
+                shell.update(cx, |shell, cx| {
+                    shell.reveal_file_in_system(
+                        (fixture.node.id(), fixture.session.worktree),
+                        path.into(),
                         window,
                         cx,
                     );
@@ -189,7 +232,7 @@ fn unsupported_outputs_reveal_captured_files(cx: &mut TestAppContext) {
             Action::Open,
             "ordinary source navigation keeps system Open"
         );
-        assert_target(&fixture, remote, cases[1].0, cases[1].2, &opened);
+        assert_target(&fixture, remote, cases[2].0, cases[2].2, &opened);
         visual.update(|window, _| window.remove_window());
         for (opened, bytes) in copies {
             assert_eq!(
@@ -204,7 +247,7 @@ fn unsupported_outputs_reveal_captured_files(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn missing_editor_reveals_outputs(cx: &mut TestAppContext) {
+fn missing_editor_reports_open_failure(cx: &mut TestAppContext) {
     init(cx);
     cx.update(|cx| cx.set_reduce_motion(true));
     for remote in [false, true] {
@@ -242,7 +285,7 @@ fn missing_editor_reveals_outputs(cx: &mut TestAppContext) {
                     )
             })
         });
-        for (path, mime, bytes) in cases {
+        for (path, mime, _) in cases {
             visual.update(|window, cx| {
                 shell.update(cx, |shell, cx| {
                     let chat = shell.current_chat().unwrap().clone();
@@ -261,9 +304,11 @@ fn missing_editor_reveals_outputs(cx: &mut TestAppContext) {
                     );
                 })
             });
-            let (action, opened) = native_action(visual);
-            assert_eq!(action, Action::Reveal);
-            assert_target(&fixture, remote, path, bytes, &opened);
+            assert_eq!(
+                visual.update(crate::feedback::tests::summary),
+                crate::tr("files_open_failed")
+            );
+            assert!(visual.update(|_, cx| system::take(cx).is_empty()));
             assert!(shell.read_with(visual, |shell, _| shell.side_resource.is_none()));
         }
         assert!(

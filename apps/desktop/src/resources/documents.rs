@@ -52,7 +52,7 @@ impl Shell {
             Some(OpenTarget {
                 path,
                 line: None,
-                reveal_unsupported: true,
+                artifact: true,
             }),
             None,
             window,
@@ -135,7 +135,7 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         let Some(receive) = panel.update(cx, |panel, cx| {
-            if target.reveal_unsupported {
+            if target.artifact {
                 panel.open_artifact_target(target.path.clone(), window, cx)
             } else {
                 panel.open_document_target(target.path.clone(), target.line, window, cx)
@@ -146,11 +146,11 @@ impl Shell {
         let panel = panel.downgrade();
         cx.spawn_in(window, async move |_, cx| {
             let mut result = receive.await;
-            if matches!(&result, Ok(Err(fault)) if fault.code == sailry_protocol::ErrorCode::InvalidRequest)
+            if !target.artifact
+                && matches!(&result, Ok(Err(fault)) if fault.code == sailry_protocol::ErrorCode::InvalidRequest)
                 && let Ok(Some(receive)) = cx.update(|_, cx| {
                     panel.upgrade().and_then(|panel| panel.update(cx, |panel, cx| {
-                        if target.reveal_unsupported { panel.reveal_system_file(target.path, cx) }
-                        else { panel.open_system_file(target.path, cx) }
+                        panel.open_system_file(target.path, cx)
                     }))
                 }) { result = receive.await; }
             if !matches!(result, Ok(Ok(_))) {

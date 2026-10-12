@@ -6,7 +6,7 @@ use crate::{conversation::live::View as Chat, plugins::Panel};
 pub(crate) struct OpenTarget {
     pub path: String,
     pub line: Option<usize>,
-    pub reveal_unsupported: bool,
+    pub artifact: bool,
 }
 
 impl OpenTarget {
@@ -14,7 +14,7 @@ impl OpenTarget {
         Self {
             path,
             line,
-            reveal_unsupported: false,
+            artifact: false,
         }
     }
 }
@@ -89,7 +89,7 @@ impl Panel {
         if crate::content::images::supports(&path) {
             self.open_document_target(path, None, window, cx)
         } else if crate::content::files::external(&path) {
-            self.reveal_system_file(path, cx)
+            self.open_system_file(path, cx)
         } else {
             self.reveal_document(path, None, cx)
         }
